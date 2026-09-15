@@ -1,0 +1,535 @@
+/* ManageStudentAccounts.css */
+
+:root {
+  --sti-primary: #0056b3;
+  --sti-primary-hover: #004085;
+  --sti-secondary: #6c757d;
+  --sti-secondary-hover: #5a6268;
+  --sti-bg-light: #f4f6f9;
+  --sti-card-bg: #ffffff;
+  --sti-border-color: #dee2e6;
+  --sti-text-dark: #212529;
+  --sti-text-muted: #6c757d;
+  --sti-success: #28a745;
+  --sti-danger: #dc3545;
+  --sti-badge-blue-bg: #e8f0fe;
+  --sti-badge-blue-text: #1967d2;
+}
+
+/* Base Layout & Container */
+.sti-container {
+  min-height: 100vh;
+  background-color: var(--sti-bg-light);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color: var(--sti-text-dark);
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+/* Header */
+.sti-header {
+  background-color: var(--sti-card-bg);
+  padding: 20px 28px;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  margin-bottom: 24px;
+}
+
+.sti-brand {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.sti-icon-brand {
+  color: white;
+}
+
+.sti-brand h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: white;
+}
+
+.sti-brand p {
+  margin: 4px 0 0 0;
+  font-size: 0.875rem;
+  color: white;
+}
+
+/* Content Area */
+.sti-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Actions Bar & Search Area Spacing */
+.sti-actions-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 8px; /* Space between action bar and card table */
+}
+
+/* Main Table Search Field Wrapper */
+.sti-search-wrapper {
+  position: relative;
+  flex: 1;
+  min-width: 280px;
+  max-width: 480px;
+}
+
+.sti-search-icon {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--sti-secondary);
+  pointer-events: none;
+}
+
+.sti-search-input {
+  width: 100%;
+  padding: 12px 16px 12px 42px; /* Generous internal left padding for the icon */
+  font-size: 0.95rem;
+  border: 1px solid var(--sti-border-color);
+  border-radius: 8px;
+  background-color: var(--sti-card-bg);
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  box-sizing: border-box;
+}
+
+.sti-search-input:focus {
+  border-color: var(--sti-primary);
+  box-shadow: 0 0 0 3px rgba(0, 86, 179, 0.15);
+}
+
+/* Buttons */
+.sti-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.2s, transform 0.1s;
+}
+
+.sti-btn:active {
+  transform: translateY(1px);
+}
+
+.sti-btn-primary {
+  background-color: var(--sti-primary);
+  color: #ffffff;
+}
+
+.sti-btn-primary:hover {
+  background-color: var(--sti-primary-hover);
+}
+
+.sti-btn-secondary {
+  background-color: var(--sti-secondary);
+  color: #ffffff;
+}
+
+.sti-btn-secondary:hover {
+  background-color: var(--sti-secondary-hover);
+}
+
+.sti-btn-icon {
+  background: transparent;
+  border: none;
+  padding: 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--sti-secondary);
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.sti-btn-icon:hover {
+  background-color: #e9ecef;
+  color: var(--sti-primary);
+}
+
+.sti-actions-cell {
+  display: flex;
+  gap: 4px;
+}
+
+/* Card & Table */
+.sti-card {
+  background-color: var(--sti-card-bg);
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+}
+
+.sti-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--sti-border-color);
+  background-color: #fafafa;
+}
+
+.sti-card-header h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--sti-text-dark);
+}
+
+.sti-table-container {
+  overflow-x: auto;
+}
+
+.sti-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 0.9rem;
+}
+
+.sti-table th {
+  background-color: #f8f9fa;
+  padding: 14px 18px;
+  font-weight: 600;
+  color: var(--sti-secondary);
+  border-bottom: 2px solid var(--sti-border-color);
+  white-space: nowrap;
+}
+
+.sti-table td {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--sti-border-color);
+  vertical-align: middle;
+}
+
+.sti-table tbody tr:hover {
+  background-color: #f8f9fa;
+}
+
+.sti-font-bold {
+  font-weight: 600;
+}
+
+.sti-text-muted {
+  color: var(--sti-text-muted);
+  font-size: 0.85rem;
+}
+
+.sti-empty-table {
+  text-align: center;
+  padding: 32px !important;
+  color: var(--sti-text-muted);
+}
+
+/* Badges & Parent Cell */
+.sti-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.sti-badge-blue {
+  background-color: var(--sti-badge-blue-bg);
+  color: var(--sti-badge-blue-text);
+}
+
+.sti-badge-success {
+  background-color: #d4edda;
+  color: var(--sti-success);
+}
+
+.sti-badge-danger {
+  background-color: #f8d7da;
+  color: var(--sti-danger);
+}
+
+.sti-parent-info-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sti-parent-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--sti-primary);
+}
+
+/* Modals */
+.sti-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.sti-modal {
+  background-color: var(--sti-card-bg);
+  border-radius: 12px;
+  width: 100%;
+  max-width: 650px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+
+.sti-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--sti-border-color);
+  background-color: #fafafa;
+}
+
+.sti-modal-header h3 {
+  margin: 0;
+  font-size: 1.2rem;
+  color: var(--sti-text-dark);
+}
+
+.sti-close-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--sti-secondary);
+  padding: 4px;
+  border-radius: 4px;
+}
+
+.sti-close-btn:hover {
+  background-color: #e9ecef;
+  color: var(--sti-text-dark);
+}
+
+.sti-modal-body {
+  padding: 24px;
+  overflow-y: auto;
+}
+
+.sti-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--sti-border-color);
+}
+
+/* Forms & Inputs */
+.sti-section-title {
+  font-weight: 700;
+  font-size: 0.95rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--sti-primary);
+  margin-bottom: 16px;
+  padding-bottom: 6px;
+  border-bottom: 2px solid var(--sti-badge-blue-bg);
+}
+
+.sti-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.sti-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sti-form-group label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--sti-text-dark);
+}
+
+.sti-form-group input[type="text"],
+.sti-form-group input[type="password"],
+.sti-form-group select {
+  padding: 10px 12px;
+  font-size: 0.9rem;
+  border: 1px solid var(--sti-border-color);
+  border-radius: 6px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.sti-form-group input:focus,
+.sti-form-group select:focus {
+  border-color: var(--sti-primary);
+}
+
+.sti-checkbox-group {
+  grid-column: 1 / -1;
+  margin-top: 6px;
+}
+
+.sti-checkbox-group label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-weight: normal;
+}
+
+.sti-radio-options {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.sti-radio-options label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+/* Parent Search Box & Results Dropdown Spacing */
+.sti-parent-box {
+  background-color: #f8f9fa;
+  border: 1px solid var(--sti-border-color);
+  border-radius: 8px;
+  padding: 18px; /* Added internal padding around the search section */
+  margin-top: 14px;
+  margin-bottom: 14px;
+}
+
+.sti-parent-box > label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.85rem;
+  margin-bottom: 8px; /* Clear space above search input */
+}
+
+/* Parent Search Input inside Modals */
+.sti-parent-box input[type="text"] {
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 0.9rem;
+  border: 1px solid var(--sti-border-color);
+  border-radius: 6px;
+  outline: none;
+  box-sizing: border-box;
+  margin-bottom: 10px; /* Space between search input and list results */
+}
+
+.sti-parent-box input[type="text"]:focus {
+  border-color: var(--sti-primary);
+  box-shadow: 0 0 0 3px rgba(0, 86, 179, 0.1);
+}
+
+/* Parent Search Results Dropdown List */
+.sti-search-list {
+  list-style: none;
+  margin: 12px 0 0 0; /* Spacing above list */
+  padding: 0;
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid var(--sti-border-color);
+  border-radius: 6px;
+  background-color: #ffffff;
+}
+
+.sti-search-list li {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--sti-border-color);
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+  transition: background-color 0.15s;
+}
+
+.sti-search-list li:last-child {
+  border-bottom: none;
+}
+
+.sti-search-list li:hover {
+  background-color: var(--sti-badge-blue-bg);
+}
+
+.sti-search-list li.selected {
+  background-color: #e2eefd;
+  color: var(--sti-primary);
+  font-weight: 600;
+}
+
+.sti-selected-text {
+  margin: 12px 0 0 0;
+  font-size: 0.85rem;
+  color: var(--sti-success);
+}
+
+.sti-current-parent-info {
+  background-color: #eef4fc;
+  border-left: 4px solid var(--sti-primary);
+  padding: 12px 16px;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  margin-top: 8px;
+  margin-bottom: 14px;
+}
+
+/* View Details Grid */
+.sti-details-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  font-size: 0.9rem;
+  background-color: #f8f9fa;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid var(--sti-border-color);
+}
+
+.sti-parent-details-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 0.9rem;
+  background-color: #ffffff;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid var(--sti-border-color);
+}
+
+.sti-parent-details-card div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

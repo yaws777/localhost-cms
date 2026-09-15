@@ -1,0 +1,360 @@
+/* ==========================================================================
+   STI Theme Variables - Profile Details Viewer Component
+   ========================================================================== */
+:root {
+    --sti-blue: #004487;
+    --sti-blue-dark: #002b54;
+    --sti-gold: #f4b223;
+    --sti-gold-light: #fffbeb;
+    --text-dark: #1e293b;
+    --text-muted: #64748b;
+    --border-color: #cbd5e1;
+    --bg-input: #f8fafc;
+}
+
+.profile-viewer-wrapper {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 24px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--text-dark);
+}
+
+/* Action Controls Header */
+.navigation-action-bar {
+    margin-bottom: 20px;
+}
+
+.btn-back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 18px;
+    background-color: #475569;
+    color: #ffffff;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 500;
+    transition: background-color 0.2s ease;
+}
+
+.btn-back-link:hover {
+    background-color: #334155;
+}
+
+/* Institutional Custom Header Identity Banner */
+.profile-identity-banner {
+    background: linear-gradient(135deg, var(--sti-blue) 0%, var(--sti-blue-dark) 100%);
+    border-left: 6px solid var(--sti-gold);
+    border-radius: 12px;
+    padding: 24px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    color: #ffffff;
+    margin-bottom: 24px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
+    flex-wrap: wrap;
+}
+
+.avatar-icon-housing {
+    background: rgba(255, 255, 255, 0.15);
+    padding: 14px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.identity-details-block {
+    flex: 1;
+    min-width: 220px;
+}
+
+.identity-details-block h2 {
+    margin: 0 0 4px 0;
+    font-size: 1.6rem;
+    font-weight: 600;
+}
+
+.identity-details-block p {
+    margin: 0 0 8px 0;
+    opacity: 0.9;
+    font-size: 1rem;
+}
+
+.student-id-pill {
+    display: inline-block;
+    background-color: rgba(0, 0, 0, 0.3);
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 0.9rem;
+    font-weight: 700;
+}
+
+.badge-system-lock {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background-color: var(--sti-gold);
+    color: #000000;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    margin-left: auto;
+    align-self: center;
+}
+
+/* Tabs Nav System */
+.profile-segment-tabs {
+    display: flex;
+    gap: 8px;
+    border-bottom: 2px solid var(--border-color);
+    margin-bottom: 24px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+}
+
+.profile-segment-tabs button {
+    padding: 12px 20px;
+    background: none;
+    border: none;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    cursor: pointer;
+    white-space: nowrap;
+    position: relative;
+    transition: all 0.2s;
+}
+
+.profile-segment-tabs button:hover {
+    color: var(--sti-blue);
+}
+
+.profile-segment-tabs button.active {
+    color: var(--sti-blue);
+}
+
+.profile-segment-tabs button.active::after {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 0;
+    width: 100%;
+    height: 3px;
+    background-color: var(--sti-gold);
+    border-radius: 3px 3px 0 0;
+}
+
+/* Form Container Configurations (No overlap structure) */
+.profile-details-form-card {
+    background-color: #ffffff;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+.profile-details-form-card h3 {
+    margin: 0 0 20px 0;
+    font-size: 1.25rem;
+    color: var(--sti-blue);
+    border-bottom: 1px solid #f1f5f9;
+    padding-bottom: 10px;
+}
+
+/* Grid Layout Architecture preventing element collisions */
+.form-grid-blueprint {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 20px;
+    align-items: start;
+}
+
+.form-grid-blueprint label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.form-grid-blueprint .column-full-width {
+    grid-column: 1 / -1;
+}
+
+.form-grid-blueprint input[type="text"],
+.form-grid-blueprint input[type="number"],
+.form-grid-blueprint input[type="date"],
+.form-grid-blueprint select {
+    width: 100%;
+    padding: 10px 12px;
+    font-size: 0.95rem;
+    color: var(--text-dark);
+    background-color: var(--bg-input);
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    box-sizing: border-box;
+    cursor: not-allowed;
+}
+
+/* Medical Profile Subfields & Checklist Scrolling container */
+.scrollable-health-history {
+    max-height: 680px;
+    overflow-y: auto;
+    padding-right: 8px;
+}
+
+.medical-condition-block {
+    background-color: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+}
+
+.condition-main-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-dark);
+    cursor: not-allowed;
+}
+
+.condition-main-checkbox input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--sti-blue);
+}
+
+.medical-sub-fields {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px dashed #e2e8f0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.medical-sub-fields label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-dark);
+}
+
+.medical-sub-fields input[type="text"],
+.medical-sub-fields input[type="number"],
+.medical-sub-fields input[type="date"] {
+    background-color: #ffffff;
+    border: 1px solid #cbd5e1;
+    padding: 8px 12px;
+    border-radius: 6px;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.medical-sub-fields h4 {
+    margin: 8px 0 2px 0;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+
+/* Grid layout specifically optimized for nested clinical checklists */
+.nested-checkbox-matrix {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 10px;
+    background: #ffffff;
+    padding: 12px;
+    border-radius: 6px;
+    border: 1px solid #e2e8f0;
+}
+
+.nested-checkbox-matrix label {
+    display: flex;
+    flex-direction: row !important;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.9rem;
+    color: var(--text-dark);
+    text-transform: none;
+    font-weight: 400;
+}
+
+.nested-checkbox-matrix input[type="checkbox"] {
+    accent-color: var(--sti-blue);
+}
+
+/* Requirements Tracking Interface Styles */
+.requirements-tab-layout {
+    margin-bottom: 12px;
+}
+
+.requirements-tab-layout h3 {
+    margin: 0 0 6px 0 !important;
+}
+
+.requirements-tab-layout p {
+    margin: 0 0 20px 0;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
+.classification-tag {
+    font-size: 0.8rem;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+}
+
+.classification-tag.special {
+    background-color: #fff2e6;
+    color: #d46b08;
+}
+
+.classification-tag.program {
+    background-color: var(--sti-blue-light);
+    color: white;
+}
+
+.submission-status-label {
+    font-weight: 700;
+    font-size: 0.85rem;
+}
+
+.submission-status-label.complete { color: #16a34a; }
+.submission-status-label.warning { color: #d97706; }
+.submission-status-label.danger { color: #dc2626; }
+
+.btn-document-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background-color: #22c55e;
+    color: #ffffff;
+    text-decoration: none;
+    border-radius: 4px;
+    font-size: 0.82rem;
+    font-weight: 500;
+    transition: opacity 0.2s ease;
+}
+
+.btn-document-link:hover {
+    opacity: 0.9;
+}

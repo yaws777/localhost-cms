@@ -1,0 +1,413 @@
+/* STI Modern Dashboard Theme Variables */
+:root {
+  --sti-blue-dark: #002060;
+  --sti-blue-primary: #0038A8;
+  --sti-blue-light: #F0F4FC;
+  --sti-yellow: #FFCC00;
+  --sti-yellow-light: #FFFDF0;
+  
+  --bg-main: #FAFBFC;
+  --card-border: #E4E7EC;
+  --text-primary: #1D2939;
+  --text-secondary: #667085;
+  
+  --status-adequate-bg: #ECFDF3;
+  --status-adequate-text: #027A48;
+  --status-adequate-bar: #34D399;
+  
+  --status-low-bg: #FFFAEB;
+  --status-low-text: #B54708;
+  --status-low-bar: #FBBF24;
+  
+  --status-critical-bg: #FEF3F2;
+  --status-critical-text: #B42318;
+  --status-critical-bar: #F87171;
+}
+
+.inventory-dashboard {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background-color: var(--bg-main);
+  min-height: 100vh;
+  padding: 32px;
+  color: var(--text-primary);
+}
+
+/* Header Area Layout matching reference image */
+.dashboard-header-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 24px;
+}
+
+.dashboard-title-area h1 {
+  font-size: 1.75rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 4px 0;
+}
+
+.dashboard-subtitle {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+.header-actions-group {
+  display: flex;
+  gap: 12px;
+}
+
+/* STI Styled Action Buttons */
+.btn-primary-action {
+  background-color: var(--sti-blue-primary);
+  color: #ffffff;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-weight: 500;
+  font-size: 0.9rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: background-color 0.2s;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+}
+
+.btn-primary-action:hover {
+  background-color: var(--sti-blue-dark);
+}
+
+.btn-secondary-action {
+  background-color: #ffffff;
+  color: var(--sti-blue-primary);
+  border: 1px solid var(--sti-blue-primary);
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-weight: 500;
+  font-size: 0.9rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s;
+}
+
+.btn-secondary-action:hover {
+  background-color: lighten(var(--sti-blue-light), 10%);
+}
+
+/* Top Metrics Bar Layout */
+.metrics-grid-layout {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.centered-metric-card {
+  background: #ffffff;
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 24px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.metric-card-icon {
+  margin-bottom: 12px;
+}
+.metric-card-icon.total { color: var(--sti-blue-primary); }
+.metric-card-icon.low { color: #F59E0B; }
+.metric-card-icon.critical { color: #D92D20; }
+
+.metric-card-value {
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: var(--sti-blue-dark);
+  margin-bottom: 12px;
+}
+
+.metric-card-label {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+/* Pill Search Layout Container */
+.search-bar-container {
+  margin-bottom: 20px;
+  position: relative;
+  max-width: 360px;
+}
+
+.search-icon-placement {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #98A2B3;
+}
+
+.rounded-search-input {
+  width: 100%;
+  padding: 10px 14px 10px 40px;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  background-color: #ffffff;
+  font-size: 0.9rem;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.rounded-search-input:focus {
+  border-color: var(--sti-blue-primary);
+  box-shadow: 0 0 0 3px rgba(0, 56, 168, 0.1);
+}
+
+/* Live Global System Alerts Banner */
+.global-notification-banner {
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+.global-notification-banner.success { background-color: var(--status-adequate-bg); color: var(--status-adequate-text); border: 1px solid #A3E635; }
+.global-notification-banner.error { background-color: var(--status-critical-bg); color: var(--status-critical-text); border: 1px solid #FCA5A5; }
+
+/* Table Section Elements matching image reference layout */
+.table-wrapper-block {
+  background: #ffffff;
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(16, 24, 40, 0.05);
+}
+
+.clean-dashboard-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.clean-dashboard-table th {
+  background-color: #F9FAFB;
+  padding: 12px 24px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--card-border);
+  letter-spacing: 0.05em;
+}
+
+.clean-dashboard-table td {
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--card-border);
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  vertical-align: middle;
+}
+
+.clean-dashboard-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* Medicine Cell Typography */
+.med-title-text {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: block;
+}
+
+.med-indications-subtitle {
+  font-size: 0.8rem;
+  color: var(--sti-blue-primary);
+  margin-top: 4px;
+  display: block;
+}
+
+/* Custom Visual Stock Level Indicators under text numbers */
+.stock-visualization-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100px;
+}
+
+.stock-count-number {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.stock-progress-track {
+  width: 100%;
+  height: 4px;
+  background-color: #F2F4F7;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.stock-progress-bar {
+  height: 100%;
+  border-radius: 2px;
+}
+.stock-progress-bar.adequate { background-color: var(--status-adequate-bar); }
+.stock-progress-bar.low { background-color: var(--status-low-bar); }
+.stock-progress-bar.critical { background-color: var(--status-critical-bar); }
+
+/* Status Rounded Pill Badges */
+.pill-badge {
+  padding: 4px 12px;
+  border-radius: 16px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  display: inline-block;
+}
+.pill-badge.adequate { background-color: var(--status-adequate-bg); color: var(--status-adequate-text); }
+.pill-badge.low { background-color: var(--status-low-bg); color: var(--status-low-text); }
+.pill-badge.critical { background-color: var(--status-critical-bg); color: var(--status-critical-text); }
+
+/* Table Action Buttons Layout Row */
+.table-action-row-buttons {
+  display: flex;
+  gap: 12px;
+}
+
+.action-icon-button {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  color: #98A2B3;
+  transition: color 0.2s;
+  display: inline-flex;
+  align-items: center;
+}
+
+.action-icon-button.edit:hover { color: var(--sti-blue-primary); }
+.action-icon-button.delete:hover { color: #D92D20; }
+
+/* Modal Dialog Layouts for Add/Edit popups */
+.modal-overlay-bg {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(16, 24, 40, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal-content-container {
+  background: #ffffff;
+  border-radius: 12px;
+  width: 100%;
+  max-width: 520px;
+  box-shadow: 0 20px 24px -4px rgba(16, 24, 40, 0.1);
+  overflow: hidden;
+  border: 1px solid var(--card-border);
+}
+
+.modal-header-section {
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--card-border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.modal-header-section h3 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.modal-body-form {
+  padding: 24px;
+}
+
+.modal-form-group {
+  margin-bottom: 20px;
+}
+
+.modal-form-group:last-of-type {
+  margin-bottom: 0;
+}
+
+.modal-input-field, .modal-select-dropdown {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  font-size: 0.95rem;
+  outline: none;
+  box-sizing: border-box;
+  background-color: #ffffff;
+}
+
+.modal-input-field:focus, .modal-select-dropdown:focus {
+  border-color: var(--sti-blue-primary);
+}
+
+/* Internal Modals Box Selection Lists */
+.scrollable-checkbox-box {
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  max-height: 140px;
+  overflow-y: auto;
+  padding: 12px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.scrollable-checkbox-box label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.modal-footer-actions {
+  padding: 16px 24px;
+  background-color: #F9FAFB;
+  border-top: 1px solid var(--card-border);
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.btn-modal-cancel {
+  background: #ffffff;
+  border: 1px solid var(--card-border);
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-weight: 500;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.btn-modal-cancel:hover {
+  background-color: #F9FAFB;
+}

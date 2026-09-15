@@ -1,0 +1,383 @@
+/* ==========================================================================
+   STI Theme Variables - Interactive Student Profile Portal
+   ========================================================================== */
+:root {
+    --sti-blue: #004487;
+    --sti-blue-dark: #002b54;
+    --sti-blue-light: #e6f0fa;
+    --sti-blue-hover: #003366;
+    --sti-gold: #f4b223;
+    --sti-gold-light: #fffbeb;
+    --text-dark: #1e293b;
+    --text-muted: #64748b;
+    --border-color: #cbd5e1;
+    --bg-page: #f8fafc;
+    --bg-card: #ffffff;
+}
+
+/* Base structural scope styling rules */
+.profile-page-wrapper {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 24px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--text-dark);
+}
+
+.profile-page-wrapper * {
+    box-sizing: border-box;
+}
+
+/* 🏷️ Top Level Identity Header Banner Layout */
+.profile-header-banner {
+    background: linear-gradient(135deg, var(--sti-blue) 0%, var(--sti-blue-dark) 100%);
+    border-left: 6px solid var(--sti-gold);
+    border-radius: 12px;
+    padding: 24px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    color: #ffffff;
+    margin-bottom: 24px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
+    flex-wrap: wrap;
+}
+
+.profile-avatar {
+    background: rgba(255, 255, 255, 0.15);
+    font-size: 2rem;
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.profile-header-details {
+    flex: 1;
+    min-width: 220px;
+}
+
+.profile-header-details h2 {
+    margin: 0 0 4px 0;
+    font-size: 1.6rem;
+    font-weight: 600;
+}
+
+.profile-header-details p {
+    margin: 0 0 8px 0;
+    opacity: 0.9;
+    font-size: 1rem;
+}
+
+.student-id-badge {
+    display: inline-block;
+    background-color: rgba(0, 0, 0, 0.3);
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 0.9rem;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+/* 🗂️ Segmented Tabs Navigation System */
+.profile-tabs {
+    display: flex;
+    gap: 8px;
+    border-bottom: 2px solid var(--border-color);
+    margin-bottom: 24px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+}
+
+.profile-tabs button {
+    padding: 12px 20px;
+    background: none;
+    border: none;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    cursor: pointer;
+    white-space: nowrap;
+    position: relative;
+    transition: all 0.2s ease-in-out;
+}
+
+.profile-tabs button:hover {
+    color: var(--sti-blue);
+}
+
+.profile-tabs button.active {
+    color: var(--sti-blue);
+}
+
+.profile-tabs button.active::after {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 0;
+    width: 100%;
+    height: 3px;
+    background-color: var(--sti-gold);
+    border-radius: 3px 3px 0 0;
+}
+
+/* ⚠️ Toast Alert Notification Banners */
+.error-message {
+    padding: 12px 16px;
+    background-color: #fef2f2;
+    color: #dc2626;
+    border: 1px solid #fee2e2;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    margin-bottom: 20px;
+    font-weight: 500;
+}
+
+.success-message {
+    padding: 12px 16px;
+    background-color: #f0fdf4;
+    color: #16a34a;
+    border: 1px solid #bbf7d0;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    margin-bottom: 20px;
+    font-weight: 500;
+}
+
+/* 🏛️ Core Form Panel Container */
+.profile-content-area {
+    width: 100%;
+}
+
+.profile-form {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.profile-form h3 {
+    margin: 0 0 20px 0;
+    font-size: 1.25rem;
+    color: var(--sti-blue);
+    border-bottom: 1px solid #f1f5f9;
+    padding-bottom: 10px;
+}
+
+.profile-form h3 .instruction {
+    font-size: 0.88rem;
+    color: var(--text-muted);
+    font-weight: 400;
+}
+
+/* 🎚️ Multi-Column Input Grid Architecture */
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 20px;
+    margin-bottom: 24px;
+    align-items: start;
+}
+
+.form-grid label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+/* Handles addresses and text-area components stretching fully across rows */
+.form-grid .full-width {
+    grid-column: 1 / -1;
+}
+
+.form-grid input[type="text"],
+.form-grid input[type="number"],
+.form-grid input[type="date"],
+.form-grid select {
+    width: 100%;
+    padding: 10px 12px;
+    font-size: 0.95rem;
+    color: var(--text-dark);
+    background-color: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.form-grid input:focus,
+.form-grid select:focus {
+    border-color: var(--sti-blue);
+    box-shadow: 0 0 0 3px rgba(0, 68, 135, 0.1);
+}
+
+/* 🩺 Clinical History/Allergy Scroll Configuration */
+.health-form-scroll {
+    max-height: 680px;
+    overflow-y: auto;
+    padding-right: 8px;
+}
+
+.health-block {
+    background-color: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+}
+
+.main-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-dark);
+    cursor: pointer;
+    user-select: none;
+}
+
+.main-checkbox input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--sti-blue);
+    cursor: pointer;
+}
+
+/* Cascading Sub-fields wrapper animations mapping toggle hooks */
+.sub-fields {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px dashed #e2e8f0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.sub-fields label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-dark);
+}
+
+.sub-fields input[type="text"],
+.sub-fields input[type="number"],
+.sub-fields input[type="date"] {
+    background-color: #ffffff;
+    border: 1px solid #cbd5e1;
+    padding: 8px 12px;
+    border-radius: 6px;
+    width: 100%;
+}
+
+.sub-fields h4 {
+    margin: 8px 0 2px 0;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+/* Inline Checkbox Grid Configuration (e.g. Allergy Symptoms) */
+.checkbox-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 10px;
+    background: #ffffff;
+    padding: 12px;
+    border-radius: 6px;
+    border: 1px solid #e2e8f0;
+}
+
+.checkbox-grid label {
+    display: flex;
+    flex-direction: row !important;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.9rem;
+    color: var(--text-dark);
+    text-transform: none;
+    font-weight: 400;
+    cursor: pointer;
+}
+
+.checkbox-grid input[type="checkbox"] {
+    accent-color: var(--sti-blue);
+    width: 16px;
+    height: 16px;
+}
+
+/* 💾 CTA Command Save Button Controls */
+.btn-primary-save {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px 24px;
+    background-color: var(--sti-blue);
+    color: #ffffff;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.95rem;
+    font-weight: 600;
+    transition: background-color 0.2s ease;
+    min-width: 160px;
+    margin-top: 10px;
+}
+
+.btn-primary-save:hover {
+    background-color: var(--sti-blue-hover);
+}
+
+/* 📁 Documentation Tracking Component Table Structuring */
+.requirements-tab-section {
+    width: 100%;
+}
+
+.table-responsive-wrapper {
+    width: 100%;
+    overflow-x: auto;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    margin-top: 15px;
+}
+
+.profile-data-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+    font-size: 0.95rem;
+}
+
+.profile-data-table th {
+    background-color: #f8fafc !important;
+    color: #475569;
+    font-weight: 600;
+    padding: 14px 16px !important;
+}
+
+.profile-data-table td {
+    padding: 14px 16px !important;
+    vertical-align: middle;
+}
+
+/* Sub-states handling placeholder indexes mapping profiles */
+.loading-placeholder, .empty-state {
+    color: var(--text-muted);
+    font-size: 0.95rem;
+    background-color: #f8fafc;
+    border: 1px dashed var(--border-color);
+    border-radius: 8px;
+}

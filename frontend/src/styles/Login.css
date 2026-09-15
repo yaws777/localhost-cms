@@ -1,0 +1,373 @@
+/* Login.css */
+
+/* Full page background to center the login container */
+.login-page-wrapper {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    background-color: #f4f7f6;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* The main login card */
+.login-container {
+    background: #ffffff;
+    width: 100%;
+    max-width: 400px;
+    padding: 40px 30px;
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+    text-align: center;
+}
+
+/* Header Section */
+.login-brand-header {
+    margin-bottom: 30px;
+}
+
+.login-system-tag {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #004d99; /* STI Blue Accent */
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 8px;
+}
+
+.login-title {
+    font-size: 1.75rem;
+    color: #333333;
+    margin: 0;
+    font-weight: 700;
+}
+
+/* Form Elements */
+.auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.auth-input {
+    width: 100%;
+    padding: 14px 16px;
+    font-size: 1rem;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    background-color: #f9fafb;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    box-sizing: border-box;
+}
+
+.auth-input:focus {
+    outline: none;
+    border-color: #004d99;
+    box-shadow: 0 0 0 3px rgba(0, 77, 153, 0.1);
+    background-color: #ffffff;
+}
+
+/* Buttons */
+.btn-primary {
+    background-color: #004d99; /* STI Blue Accent */
+    color: #ffffff;
+    border: none;
+    border-radius: 8px;
+    padding: 14px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+    margin-top: 8px;
+}
+
+.btn-primary:hover {
+    background-color: #003366;
+}
+
+/* Buttons */
+/* ... (keep your existing .btn-primary CSS) ... */
+
+.btn-link {
+    background-color: transparent !important; /* Forces the removal of the blue background */
+    border: none;
+    color: #6b7280; /* Neutral gray color for the link */
+    font-size: 0.9rem;
+    cursor: pointer;
+    text-decoration: none; /* Ensures no underline by default */
+    margin-top: 8px;
+    padding: 0;
+    transition: color 0.2s ease;
+    box-shadow: none; /* Removes any button shadows if present globally */
+}
+
+/* Add this block to handle the hover state */
+.btn-link:hover {
+    text-decoration: underline; /* Adds the underline ONLY on hover */
+    color: #004d99; /* Optional: Changes text to STI Blue on hover for better UX */
+    background-color: transparent !important; /* Ensures background stays transparent on hover */
+}
+
+
+/* Alert Messages */
+.error-message {
+    background-color: #fee2e2;
+    color: #b91c1c;
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    font-size: 0.9rem;
+    border: 1px solid #fecaca;
+}
+
+.success-message {
+    background-color: #d1fae5;
+    color: #047857;
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    font-size: 0.9rem;
+    border: 1px solid #a7f3d0;
+}
+
+/* Modal Overlay */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.55);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    backdrop-filter: blur(3px);
+}
+
+/* Modal Card */
+.modal-card {
+    background: #ffffff;
+    width: 100%;
+    max-width: 440px;
+    padding: 30px;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    text-align: left;
+}
+
+.modal-title {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: #1f2937;
+    margin-top: 0;
+    margin-bottom: 6px;
+}
+
+.modal-subtitle {
+    font-size: 0.9rem;
+    color: #6b7280;
+    margin-bottom: 20px;
+    line-height: 1.4;
+}
+
+/* Password Strength Meter */
+.password-strength-container {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 4px;
+}
+
+.strength-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #334155;
+    margin-bottom: 8px;
+}
+
+.strength-badge {
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+
+.strength-badge.weak {
+    background-color: #fee2e2;
+    color: #dc2626;
+}
+
+.strength-badge.strong {
+    background-color: #dcfce7;
+    color: #16a34a;
+}
+
+/* Checklist */
+.req-checklist {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    font-size: 0.8rem;
+}
+
+.req-checklist li {
+    display: flex;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+.req-checklist li.invalid {
+    color: #94a3b8;
+}
+
+.req-checklist li.invalid::before {
+    content: "✕ ";
+    color: #ef4444;
+    margin-right: 6px;
+    font-weight: bold;
+}
+
+.req-checklist li.valid {
+    color: #15803d;
+    font-weight: 500;
+}
+
+.req-checklist li.valid::before {
+    content: "✓ ";
+    color: #22c55e;
+    margin-right: 6px;
+    font-weight: bold;
+}
+
+/* Disabled Submit Button State */
+.btn-primary:disabled {
+    background-color: #94a3b8 !important;
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+/* Modal Overlay */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.55);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    backdrop-filter: blur(3px);
+}
+
+/* Modal Card */
+.modal-card {
+    background: #ffffff;
+    width: 100%;
+    max-width: 440px;
+    padding: 30px;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    text-align: left;
+}
+
+.modal-title {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: #1f2937;
+    margin-top: 0;
+    margin-bottom: 6px;
+}
+
+.modal-subtitle {
+    font-size: 0.9rem;
+    color: #6b7280;
+    margin-bottom: 20px;
+    line-height: 1.4;
+}
+
+/* Password Strength Meter */
+.password-strength-container {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 4px;
+}
+
+.strength-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #334155;
+    margin-bottom: 8px;
+}
+
+.strength-badge {
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+
+.strength-badge.weak {
+    background-color: #fee2e2;
+    color: #dc2626;
+}
+
+.strength-badge.strong {
+    background-color: #dcfce7;
+    color: #16a34a;
+}
+
+/* Checklist */
+.req-checklist {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    font-size: 0.8rem;
+}
+
+.req-checklist li {
+    display: flex;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+.req-checklist li.invalid {
+    color: #94a3b8;
+}
+
+.req-checklist li.invalid::before {
+    content: "✕ ";
+    color: #ef4444;
+    margin-right: 6px;
+    font-weight: bold;
+}
+
+.req-checklist li.valid {
+    color: #15803d;
+    font-weight: 500;
+}
+
+.req-checklist li.valid::before {
+    content: "✓ ";
+    color: #22c55e;
+    margin-right: 6px;
+    font-weight: bold;
+}
+
+/* Disabled Submit Button State */
+.btn-primary:disabled {
+    background-color: #94a3b8 !important;
+    cursor: not-allowed;
+    opacity: 0.7;
+}

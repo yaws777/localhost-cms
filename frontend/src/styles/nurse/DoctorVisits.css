@@ -1,0 +1,466 @@
+/* ==========================================================================
+   DOCTOR VISIT MODULE - STI THEME STYLESHEET
+   ========================================================================== */
+
+:root {
+    --sti-blue: #0056b3;
+    --sti-navy: #00205b;
+    --sti-yellow: #ffc107;
+    --sti-yellow-hover: #e0a800;
+    --sti-light-bg: #f8f9fa;
+    --sti-border: #e2e8f0;
+    --sti-text-dark: #1e293b;
+    --sti-text-muted: #64748b;
+    --sti-success: #10b981;
+    --sti-danger: #ef4444;
+}
+
+.doctor-visit-container {
+    padding: 24px;
+    background-color: var(--sti-light-bg);
+    min-height: 100vh;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: var(--sti-text-dark);
+}
+
+/* Header Section */
+.dv-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    background: #ffffff;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    border-left: 5px solid var(--sti-blue);
+}
+
+.dv-header h2 {
+    margin: 0;
+    color: var(--sti-navy);
+    font-size: 1.5rem;
+}
+
+.dv-subtitle {
+    margin: 4px 0 0 0;
+    color: var(--sti-text-muted);
+    font-size: 0.88rem;
+}
+
+.dv-header-actions {
+    display: flex;
+    gap: 12px;
+}
+
+/* STI Button Styles */
+.sti-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.sti-btn-primary {
+    background-color: var(--sti-blue);
+    color: #ffffff;
+}
+
+.sti-btn-primary:hover {
+    background-color: var(--sti-navy);
+}
+
+.sti-btn-secondary {
+    background-color: var(--sti-yellow);
+    color: var(--sti-navy);
+}
+
+.sti-btn-secondary:hover {
+    background-color: var(--sti-yellow-hover);
+}
+
+.sti-btn-light {
+    background-color: #e2e8f0;
+    color: var(--sti-text-dark);
+}
+
+/* Doctors Bar */
+.doctors-bar {
+    background: #ffffff;
+    padding: 12px 16px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border: 1px solid var(--sti-border);
+}
+
+.doctors-bar-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+    color: var(--sti-navy);
+    font-size: 0.88rem;
+    white-space: nowrap;
+}
+
+.doctors-chip-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.doctor-chip {
+    background: #eef6ff;
+    border: 1px solid #bedbff;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 0.82rem;
+    color: var(--sti-blue);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.chip-edit-btn {
+    background: none;
+    border: none;
+    color: var(--sti-blue);
+    cursor: pointer;
+    padding: 0;
+    display: flex;
+    align-items: center;
+}
+
+.chip-edit-btn:hover {
+    color: var(--sti-navy);
+}
+
+/* Tabs & Filter Bar */
+.dv-tabs-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    gap: 16px;
+}
+
+.dv-tabs {
+    display: flex;
+    background: #ffffff;
+    padding: 4px;
+    border-radius: 8px;
+    border: 1px solid var(--sti-border);
+}
+
+.tab-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 18px;
+    border: none;
+    background: transparent;
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--sti-text-muted);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.tab-btn.active {
+    background-color: var(--sti-blue);
+    color: #ffffff;
+}
+
+.dv-search-box {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #ffffff;
+    padding: 8px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--sti-border);
+    width: 300px;
+}
+
+.dv-search-box input {
+    border: none;
+    outline: none;
+    width: 100%;
+    font-size: 0.88rem;
+}
+
+/* Table Card */
+.dv-table-card {
+    background: #ffffff;
+    border-radius: 8px;
+    border: 1px solid var(--sti-border);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+    overflow-x: auto;
+}
+
+.sti-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+}
+
+.sti-table th {
+    background: #f1f5f9;
+    color: var(--sti-navy);
+    padding: 12px 16px;
+    font-size: 0.82rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 2px solid var(--sti-border);
+}
+
+.sti-table td {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--sti-border);
+    font-size: 0.88rem;
+    vertical-align: middle;
+}
+
+.sub-text {
+    font-size: 0.78rem;
+    color: var(--sti-text-muted);
+    margin-top: 2px;
+}
+
+/* Status Badges */
+.status-badge {
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.badge-upcoming {
+    background: #e0f2fe;
+    color: #0369a1;
+}
+
+.badge-ongoing {
+    background: #fef3c7;
+    color: #b45309;
+}
+
+.badge-completed {
+    background: #dcfce7;
+    color: #15803d;
+}
+
+.badge-cancelled {
+    background: #fee2e2;
+    color: #b91c1c;
+}
+
+.doc-done-badge {
+    color: var(--sti-success);
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.82rem;
+}
+
+.doc-pending-badge {
+    color: var(--sti-text-muted);
+    font-style: italic;
+    font-size: 0.82rem;
+}
+
+/* Table Action Buttons */
+.table-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--sti-border);
+    background: #ffffff;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.action-btn.edit:hover {
+    background: #e0f2fe;
+    color: var(--sti-blue);
+}
+
+.action-btn.cancel:hover {
+    background: #fee2e2;
+    color: var(--sti-danger);
+}
+
+.action-btn.document {
+    background: var(--sti-navy);
+    color: #ffffff;
+    border: none;
+}
+
+.action-btn.document:hover {
+    background: var(--sti-blue);
+}
+
+/* Modal Styling */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(15, 23, 42, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background: #ffffff;
+    width: 480px;
+    max-width: 90%;
+    border-radius: 8px;
+    padding: 24px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.modal-content.modal-large {
+    width: 850px;           /* Widened from 680px to 850px */
+    max-width: 95vw;        /* Responsive safeguard on small screens */
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 18px;
+    border-bottom: 1px solid var(--sti-border);
+    padding-bottom: 12px;
+}
+
+.modal-header h3 {
+    margin: 0;
+    color: var(--sti-navy);
+}
+
+.close-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--sti-text-muted);
+}
+
+.form-group {
+    margin-bottom: 14px;
+}
+
+.form-group label {
+    display: block;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--sti-navy);
+    margin-bottom: 6px;
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid var(--sti-border);
+    border-radius: 6px;
+    font-size: 0.88rem;
+    box-sizing: border-box;
+}
+
+.form-row {
+    display: flex;
+    gap: 12px;
+}
+
+.form-row .form-group {
+    flex: 1;
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 20px;
+    padding-top: 14px;
+    border-top: 1px solid var(--sti-border);
+}
+
+.student-select-list {
+    max-height: 220px;       /* Increased height for easier scrolling */
+    overflow-y: auto;
+    border: 1px solid var(--sti-border);
+    border-radius: 6px;
+    padding: 10px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); /* Automatically forms clean multi-column grid in wide view */
+    gap: 8px;
+}
+
+.student-checkbox-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+
+.student-checkbox-item:hover, .student-checkbox-item.selected {
+    background-color: #eef6ff;
+}
+
+.error-banner {
+    background-color: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #991b1b;
+    padding: 10px;
+    border-radius: 6px;
+    font-size: 0.82rem;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 14px;
+}
+
+.appt-info-card {
+    background: #f1f5f9;
+    padding: 10px;
+    border-radius: 6px;
+    margin-bottom: 14px;
+    font-size: 0.88rem;
+}
+
+.dv-loading, .dv-empty-state {
+    padding: 40px;
+    text-align: center;
+    color: var(--sti-text-muted);
+}

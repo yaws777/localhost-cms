@@ -1,0 +1,358 @@
+/* STI Palette Variables */
+:root {
+  --sti-blue: #004B87;
+  --sti-blue-hover: #003662;
+  --sti-yellow: #FFC72C;
+  --sti-dark: #2C3E50;
+  --sti-light-bg: #F4F6F9;
+  --sti-white: #FFFFFF;
+  --sti-border: #E2E8F0;
+  --sti-text-muted: #64748B;
+}
+
+.sti-req-container {
+  padding: 24px;
+  background-color: var(--sti-light-bg);
+  min-height: 100vh;
+  box-sizing: border-box;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  color: var(--sti-dark);
+}
+
+.sti-page-title {
+  color: var(--sti-blue);
+  font-size: 24px;
+  margin-bottom: 20px;
+  font-weight: 700;
+  border-bottom: 3px solid var(--sti-yellow);
+  display: inline-block;
+  padding-bottom: 4px;
+}
+
+/* Action Cards */
+.sti-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 20px;
+  margin-bottom: 28px;
+}
+
+.sti-action-card {
+  background: var(--sti-white);
+  border-radius: 10px;
+  padding: 20px;
+  border-top: 5px solid var(--sti-blue);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.sti-action-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+}
+
+.sti-card-icon {
+  font-size: 32px;
+  margin-bottom: 10px;
+}
+
+.sti-action-card h3 {
+  margin: 0 0 8px 0;
+  color: var(--sti-blue);
+  font-size: 18px;
+}
+
+.sti-action-card p {
+  color: var(--sti-text-muted);
+  font-size: 14px;
+  margin-bottom: 16px;
+  flex-grow: 1;
+}
+
+/* Buttons */
+.sti-btn-primary {
+  background-color: var(--sti-blue);
+  color: var(--sti-white);
+  border: none;
+  padding: 10px 18px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.sti-btn-primary:hover {
+  background-color: var(--sti-blue-hover);
+}
+
+.sti-btn-secondary {
+  background-color: #CBD5E1;
+  color: #334155;
+  border: none;
+  padding: 10px 18px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sti-btn-icon {
+  background-color: #E0F2FE;
+  color: #0369A1;
+  border: 1px solid #BAE6FD;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* History Table Card */
+.sti-table-card {
+  background: var(--sti-white);
+  border-radius: 10px;
+  padding: 20px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.sti-table-card h3 {
+  margin-top: 0;
+  color: var(--sti-blue);
+  margin-bottom: 16px;
+}
+
+.sti-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.sti-table th, .sti-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--sti-border);
+  font-size: 14px;
+}
+
+.sti-table th {
+  background-color: #F8FAFC;
+  color: var(--sti-blue);
+  font-weight: 700;
+}
+
+/* Status & Type Badges */
+.sti-badge {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.badge-excuse {
+  background-color: #FEF3C7;
+  color: #92400E;
+}
+
+.badge-referral {
+  background-color: #E0E7FF;
+  color: #3730A3;
+}
+
+.sti-status {
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.status-pending {
+  background-color: #FFFBEB;
+  color: #D97706;
+  border: 1px solid #FDE68A;
+}
+
+.status-approved {
+  background-color: #ECFDF5;
+  color: #059669;
+  border: 1px solid #A7F3D0;
+}
+
+/* Modal Popup Overlay */
+.sti-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.sti-modal-content {
+  background: var(--sti-white);
+  border-radius: 10px;
+  width: 90%;
+  max-width: 500px;
+  padding: 24px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  border-top: 6px solid var(--sti-yellow);
+}
+
+.sti-modal-lg {
+  max-width: 650px;
+}
+
+.sti-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.sti-modal-header h3 {
+  margin: 0;
+  color: var(--sti-blue);
+}
+
+.sti-modal-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: var(--sti-text-muted);
+}
+
+.sti-form-group {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 16px;
+}
+
+.sti-form-group label {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--sti-dark);
+}
+
+.sti-form-group input,
+.sti-form-group select,
+.sti-form-group textarea {
+  padding: 10px;
+  border: 1px solid var(--sti-border);
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.sti-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.sti-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+/* Details & Chat Section */
+.sti-details-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  font-size: 14px;
+}
+
+.sti-divider {
+  border: 0;
+  border-top: 1px solid var(--sti-border);
+  margin: 16px 0;
+}
+
+.sti-chat-box {
+  background: #F8FAFC;
+  border: 1px solid var(--sti-border);
+  border-radius: 8px;
+  padding: 12px;
+  max-height: 180px;
+  overflow-y: auto;
+  margin-bottom: 12px;
+}
+
+.sti-chat-bubble {
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  max-width: 80%;
+  font-size: 13px;
+}
+
+.bubble-student {
+  background-color: #DBEAFE;
+  margin-left: auto;
+  text-align: right;
+}
+
+.bubble-nurse {
+  background-color: #E2E8F0;
+  margin-right: auto;
+  text-align: left;
+}
+
+.sti-chat-meta {
+  font-size: 11px;
+  color: var(--sti-text-muted);
+  margin-bottom: 2px;
+}
+
+.sti-chat-form {
+  display: flex;
+  gap: 8px;
+}
+
+.sti-chat-form input {
+  flex-grow: 1;
+  padding: 8px 12px;
+  border: 1px solid var(--sti-border);
+  border-radius: 6px;
+}
+
+.sti-text-muted {
+  color: var(--sti-text-muted);
+  font-size: 13px;
+}
+
+
+/* Checkbox Group Styles */
+.sti-checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 150px;
+  overflow-y: auto;
+  border: 1px solid var(--sti-border);
+  padding: 10px;
+  border-radius: 6px;
+  background-color: #FAFAFA;
+}
+
+.sti-checkbox-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.sti-checkbox-item input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}

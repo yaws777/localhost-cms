@@ -1,0 +1,381 @@
+/* STI Color Variables & Reset */
+:root {
+  --sti-navy: #002b49;
+  --sti-blue: #00529b;
+  --sti-yellow: #ffd100;
+  --sti-blue-hover: #003e75;
+  --sti-bg: #f4f6f9;
+  --sti-card-bg: #ffffff;
+  --sti-text: #1e293b;
+  --sti-border: #e2e8f0;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+body {
+  background-color: var(--sti-bg);
+  color: var(--sti-text);
+}
+
+.ccr-container {
+  max-width: 1300px;
+  margin: 20px auto;
+  padding: 0 20px;
+}
+
+/* Header Styling */
+.ccr-header {
+  background: linear-gradient(135deg, var(--sti-navy) 0%, var(--sti-blue) 100%);
+  color: #ffffff;
+  padding: 24px;
+  border-radius: 8px 8px 0 0;
+  border-bottom: 5px solid var(--sti-yellow);
+}
+
+.ccr-header-title h1 {
+  font-size: 24px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.ccr-header-title p {
+  font-size: 14px;
+  color: var(--sti-yellow);
+}
+
+/* Control Panel & Filter Bar */
+.ccr-control-panel {
+  background: var(--sti-card-bg);
+  border-left: 1px solid var(--sti-border);
+  border-right: 1px solid var(--sti-border);
+  padding: 16px 20px 0 20px;
+}
+
+.ccr-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.ccr-input-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--sti-navy);
+  font-weight: 600;
+}
+
+.ccr-input-group input[type="date"] {
+  padding: 6px 12px;
+  border: 1px solid var(--sti-border);
+  border-radius: 4px;
+  outline: none;
+}
+
+.ccr-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.ccr-btn-primary {
+  background-color: var(--sti-blue);
+  color: #ffffff;
+}
+
+.ccr-btn-primary:hover {
+  background-color: var(--sti-blue-hover);
+}
+
+.ccr-btn-secondary {
+  background-color: #e2e8f0;
+  color: var(--sti-navy);
+}
+
+.ccr-btn-secondary:hover {
+  background-color: #cbd5e1;
+}
+
+/* Tabs Navigation */
+.ccr-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 2px solid var(--sti-border);
+  overflow-x: auto;
+}
+
+.ccr-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  background: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+  font-size: 14px;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.ccr-tab:hover {
+  color: var(--sti-blue);
+}
+
+.ccr-tab.active {
+  color: var(--sti-navy);
+  border-bottom: 3px solid var(--sti-yellow);
+  background-color: rgba(255, 209, 0, 0.08);
+}
+
+/* Content & Table Section */
+.ccr-content {
+  background: var(--sti-card-bg);
+  border: 1px solid var(--sti-border);
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  padding: 20px;
+  min-height: 400px;
+}
+
+.ccr-table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.ccr-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 14px;
+}
+
+.ccr-table th {
+  background-color: var(--sti-navy);
+  color: #ffffff;
+  padding: 12px 16px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ccr-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--sti-border);
+  vertical-align: middle;
+}
+
+.ccr-table tbody tr:hover {
+  background-color: #f8fafc;
+}
+
+.ccr-truncate {
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ccr-btn-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background-color: #f1f5f9;
+  border: 1px solid var(--sti-border);
+  padding: 4px 10px;
+  border-radius: 4px;
+  color: var(--sti-blue);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.ccr-btn-icon:hover {
+  background-color: var(--sti-blue);
+  color: #ffffff;
+}
+
+/* Badges & Tags */
+.ccr-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.tag-doc {
+  background-color: #e0f2fe;
+  color: #0369a1;
+}
+
+.tag-req {
+  background-color: #fae8ff;
+  color: #86198f;
+}
+
+.tag-direct {
+  background-color: #e0f2fe;
+  color: #0369a1;
+}
+
+.tag-consult {
+  background-color: #fef3c7;
+  color: #b45309;
+}
+
+.tag-screening {
+  background-color: #f3e8ff;
+  color: #6b21a8;
+}
+
+/* Status Badges */
+.status-completed, 
+.status-done, 
+.status-approved, 
+.status-issued, 
+.status-submitted {
+  background-color: #dcfce7;
+  color: #15803d;
+}
+
+.status-pending, 
+.status-scheduled, 
+.status-under-review {
+  background-color: #fef9c3;
+  color: #a16207;
+}
+
+.status-cancelled, 
+.status-rejected, 
+.status-declined, 
+.status-missing, 
+.status-missed {
+  background-color: #fee2e2;
+  color: #b91c1c;
+}
+
+.status-ongoing, 
+.status-upcoming {
+  background-color: #e0f2fe;
+  color: #0284c7;
+}
+
+.ccr-loading, 
+.ccr-no-data {
+  text-align: center;
+  padding: 40px;
+  color: #64748b;
+  font-size: 15px;
+}
+
+/* Detail Modal */
+.ccr-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 43, 73, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.ccr-modal-content {
+  background-color: #ffffff;
+  border-radius: 8px;
+  width: 90%;
+  max-width: 600px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+
+.ccr-modal-header {
+  background-color: var(--sti-navy);
+  color: #ffffff;
+  padding: 16px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ccr-modal-close {
+  background: transparent;
+  border: none;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.ccr-modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ccr-modal-field {
+  display: flex;
+  border-bottom: 1px dashed var(--sti-border);
+  padding-bottom: 8px;
+}
+
+.field-key {
+  font-weight: 700;
+  width: 40%;
+  color: var(--sti-navy);
+  text-transform: capitalize;
+}
+
+.field-value {
+  width: 60%;
+  color: #334155;
+  word-break: break-word;
+}
+
+.ccr-modal-footer {
+  padding: 12px 20px;
+  background-color: #f8fafc;
+  display: flex;
+  justify-content: flex-end;
+  border-top: 1px solid var(--sti-border);
+}
+
+.ccr-badge {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  display: inline-block;
+  text-transform: capitalize;
+}
+
+/* Matching ENUM statuses: 'Pending', 'Submitted', 'Completed', 'Rejected', 'Resubmit', 'Submitted Late', 'Not Submitted' */
+.status-pending { background-color: #fef3c7; color: #92400e; }
+.status-submitted { background-color: #e0f2fe; color: #075985; }
+.status-completed { background-color: #d1fae5; color: #065f46; }
+.status-rejected { background-color: #fee2e2; color: #991b1b; }
+.status-resubmit { background-color: #ffedd5; color: #c2410c; }
+.status-submitted-late { background-color: #fef08a; color: #854d0e; }
+.status-not-submitted { background-color: #f3f4f6; color: #4b5563; }

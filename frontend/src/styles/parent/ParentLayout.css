@@ -1,0 +1,352 @@
+/* ============================================== */
+/* GLOBAL & BASE STYLES                           */
+/* ============================================== */
+:root {
+    --sti-blue: #004b87;
+    --sti-yellow: #ffd100;
+    --bg-color: #f4f7f6;
+    --text-dark: #333333;
+    --text-light: #ffffff;
+    --sidebar-width: 260px;
+}
+
+body {
+    margin: 0;
+    font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-dark);
+}
+
+.parent-layout {
+    display: flex;
+    min-height: 100vh;
+    width: 100%;
+    position: relative;
+}
+
+/* ============================================== */
+/* SIDEBAR STYLES                                 */
+/* ============================================== */
+.parent-sidebar {
+    width: var(--sidebar-width);
+    height: 100vh;
+    position: fixed;
+    top: 0;
+    left: 0;
+    background-color: var(--sti-blue);
+    color: var(--text-light);
+    box-shadow: 4px 0 10px rgba(0, 0, 0, 0.1);
+    overflow-y: auto;
+    z-index: 1000;
+    transition: transform 0.3s ease-in-out;
+    display: flex;
+    flex-direction: column;
+}
+
+.sidebar-header {
+    padding: 5px 0px;
+    text-align: center;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    margin-bottom: 10px;
+}
+
+.sidebar-header h2 {
+    margin: 0;
+    font-size: 1.0rem;
+    color: var(--sti-yellow);
+    letter-spacing: 1px;
+}
+
+.sidebar-header p {
+    margin: 5px 0 0;
+    font-size: 0.5rem;
+    opacity: 0.8;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.sidebar-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 0 5px;
+}
+
+.nav-link {
+    color: #d1e3f8;
+    text-decoration: none;
+    padding: 12px 10px;
+    border-radius: 8px;
+    font-size: 0.700rem;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 10px; 
+}
+
+.nav-icon {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.nav-link:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: var(--text-light);
+    transform: translateX(5px);
+}
+
+.nav-link.active {
+    background-color: var(--sti-yellow);
+    color: var(--sti-blue);
+    font-weight: 600;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.nav-icon.icon-active {
+    color: var(--sti-blue); 
+}
+
+/* ============================================== */
+/* MAIN CONTENT & TOP BAR STYLES                  */
+/* ============================================== */
+.main-content {
+    flex: 1;
+    margin-left: var(--sidebar-width);
+    min-height: 100vh;
+    box-sizing: border-box;
+    background-color: var(--bg-color);
+    display: flex;
+    flex-direction: column; 
+}
+
+.parent-top-bar {
+    background-color: #ffffff;
+    padding: 15px 40px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+    border-bottom: 3px solid var(--sti-yellow); 
+    height: 9%;
+
+    /* NEW: Keeps the top bar fixed and aligned next to the sidebar */
+    position: fixed;
+    top: 0;
+    left: var(--sidebar-width);
+    width: calc(100% - var(--sidebar-width));
+    z-index: 900;
+    box-sizing: border-box;
+}
+
+.top-bar-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.viewing-label {
+    font-size: 0.70rem;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+}
+
+.student-name {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--sti-blue); 
+    margin-top: 2px;
+}
+
+.btn-switch-child {
+    background-color: var(--sti-yellow);
+    color: var(--sti-blue);
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 0.70rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    text-align: center;
+    width: 20%;
+    height: 10%;
+    gap: 8px;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.btn-switch-child:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.page-content {
+    padding: 40px;
+    flex: 1;
+
+    /* NEW: Pushes the main dashboard content down so it isn't hidden under the fixed top bar */
+    margin-top: 75px; 
+}
+
+/* ============================================== */
+/* MOBILE CONTROLS                                */
+/* ============================================== */
+.mobile-toggle-btn {
+    display: none;
+    position: fixed;
+    top: 15px;
+    left: 15px;
+    z-index: 998;
+    background-color: var(--sti-blue);
+    color: var(--sti-yellow);
+    border: none;
+    border-radius: 5px;
+    width: 45px;
+    height: 45px;
+    font-size: 1.5rem;
+    cursor: pointer;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+
+.close-sidebar-btn {
+    display: none;
+}
+
+/* ============================================== */
+/* MOBILE RESPONSIVE RULES (< 768px)              */
+/* ============================================== */
+@media screen and (max-width: 768px) {
+    .parent-sidebar {
+        transform: translateX(-100%);
+    }
+
+    .parent-sidebar.open {
+        transform: translateX(0);
+    }
+
+    .main-content {
+        margin-left: 0;
+    }
+
+    .parent-top-bar {
+        padding: 15px 20px 15px 70px; 
+        
+        /* NEW: Makes the fixed top bar span the entire screen width when the sidebar is hidden on mobile */
+        left: 0;
+        width: 100%;
+    }
+
+    .student-name {
+        font-size: 1.1rem;
+    }
+
+    .page-content {
+        padding: 20px;
+
+        /* NEW: Ensures the top margin applies on mobile as well */
+        margin-top: 75px;
+    }
+
+    .mobile-toggle-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .close-sidebar-btn {
+        display: block;
+        position: absolute;
+        top: 15px;
+        right: 15px;
+        font-size: 2rem;
+        color: var(--text-light);
+        background: none;
+        border: none;
+        cursor: pointer;
+    }
+
+    .sidebar-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background-color: rgba(0, 33, 71, 0.6); 
+        backdrop-filter: blur(3px);
+        z-index: 999;
+    } 
+}
+
+/* ============================================== */
+/* PARENT PROFILE IN SIDEBAR BLOCK                */
+/* ============================================== */
+.sidebar-profile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0 10px 15px 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    margin-bottom: 1px;
+    text-align: center;
+}
+
+.profile-avatar {
+    width: 50px;
+    height: 50px;
+    background-color: var(--sti-yellow);
+    color: var(--sti-blue);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.6rem;
+    font-weight: 700;
+    margin-bottom: 1px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+    text-transform: uppercase;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+}
+
+.profile-details {
+    width: 100%;
+}
+
+.profile-name {
+    margin: 0 0 5px 0;
+    font-size: 1.0rem;
+    font-weight: 600;
+    color: var(--text-light);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+}
+
+.profile-username {
+    margin: 0 0 5px 0;
+    font-size: 0.8rem;
+    color: #d1e3f8;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    opacity: 0.9;
+}
+
+.profile-id {
+    display: block;        
+    width: fit-content;    
+    margin: 0 auto;        
+    font-size: 0.75rem;
+    font-weight: 600;
+    background-color: rgba(255, 255, 255, 0.12);
+    color: var(--sti-yellow);
+    padding: 2px 8px;      
+    border-radius: 20px;
+    letter-spacing: 0.5px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}

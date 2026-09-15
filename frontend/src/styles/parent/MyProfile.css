@@ -1,0 +1,222 @@
+/* STI Brand Colors */
+:root {
+  --sti-blue: #0055A5;
+  --sti-blue-dark: #003B73;
+  --sti-yellow: #FFC72C;
+  --sti-yellow-hover: #E5B220;
+  --sti-gray-bg: #F4F6F9;
+  --sti-text-dark: #1E293B;
+  --sti-text-muted: #64748B;
+  --sti-border: #E2E8F0;
+  --sti-success: #16A34A;
+  --sti-error: #DC2626;
+}
+
+.sti-contact-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 2rem 1rem;
+  background-color: var(--sti-gray-bg);
+  min-height: 60vh;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.sti-contact-card {
+  width: 100%;
+  max-width: 560px;
+  background: #ffffff;
+  border-radius: 8px;
+  border-top: 5px solid var(--sti-blue);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  padding: 2rem;
+}
+
+.sti-contact-card.loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  color: var(--sti-text-muted);
+}
+
+.sti-card-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.sti-icon-badge {
+  background-color: var(--sti-blue);
+  color: var(--sti-yellow);
+  padding: 0.75rem;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sti-card-header h2 {
+  margin: 0;
+  font-size: 1.35rem;
+  color: var(--sti-blue-dark);
+  font-weight: 700;
+}
+
+.sti-subtitle {
+  margin: 0.25rem 0 0 0;
+  font-size: 0.875rem;
+  color: var(--sti-text-muted);
+}
+
+.sti-alert {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  margin-bottom: 1.25rem;
+}
+
+.sti-alert-success {
+  background-color: #DCFCE7;
+  color: var(--sti-success);
+  border: 1px solid #BBF7D0;
+}
+
+.sti-alert-error {
+  background-color: #FEE2E2;
+  color: var(--sti-error);
+  border: 1px solid #FECACA;
+}
+
+.sti-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.sti-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.sti-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.sti-form-group label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--sti-text-dark);
+}
+
+/* Standalone inputs for first_name & last_name */
+.sti-input-field {
+  width: 100%;
+  border: 1.5px solid var(--sti-border);
+  border-radius: 6px;
+  padding: 0.65rem 0.85rem;
+  font-size: 0.95rem;
+  color: var(--sti-text-dark);
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.sti-input-field:focus {
+  border-color: var(--sti-blue);
+  box-shadow: 0 0 0 3px rgba(0, 85, 165, 0.15);
+}
+
+.sti-input-wrapper {
+  display: flex;
+  align-items: center;
+  border: 1.5px solid var(--sti-border);
+  border-radius: 6px;
+  overflow: hidden;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.sti-input-wrapper:focus-within {
+  border-color: var(--sti-blue);
+  box-shadow: 0 0 0 3px rgba(0, 85, 165, 0.15);
+}
+
+.sti-input-prefix {
+  background-color: #F1F5F9;
+  color: var(--sti-text-muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 0.65rem 0.75rem;
+  border-right: 1px solid var(--sti-border);
+}
+
+.sti-input-wrapper input {
+  width: 100%;
+  border: none;
+  outline: none;
+  padding: 0.65rem 0.85rem;
+  font-size: 0.95rem;
+  color: var(--sti-text-dark);
+}
+
+.sti-help-text {
+  font-size: 0.75rem;
+  color: var(--sti-text-muted);
+}
+
+.sti-btn-primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background-color: var(--sti-yellow);
+  color: var(--sti-blue-dark);
+  font-weight: 700;
+  border: none;
+  border-radius: 6px;
+  padding: 0.75rem;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+}
+
+.sti-btn-primary:hover:not(:disabled) {
+  background-color: var(--sti-yellow-hover);
+}
+
+.sti-btn-primary:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.sti-btn-primary:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.sti-spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Responsive adjustments for narrow screens */
+@media (max-width: 520px) {
+  .sti-form-row {
+    grid-template-columns: 1fr;
+  }
+}

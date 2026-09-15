@@ -1,0 +1,301 @@
+.landing-page {
+  min-height: 100vh;
+  background: linear-gradient(to bottom right, #0047AB, #0066CC);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  color: #ffffff;
+}
+
+/* Header Styles */
+.main-header {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(4px);
+}
+
+.header-container {
+  max-width: 80rem;
+  margin: 0 auto;
+  padding: 1rem 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.brand-group {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.logo-badge {
+  display: flex;
+  height: 3rem;
+  width: 3rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background-color: #ffffff;
+}
+
+.logo-badge span {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #0047AB;
+}
+
+.brand-title {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0;
+}
+
+.brand-subtitle {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.8);
+  margin: 0;
+}
+
+.header-meta {
+  text-align: right;
+}
+
+.academic-year {
+  font-size: 0.875rem;
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 600;
+  margin: 0;
+}
+
+.current-date {
+  font-size: 0.75rem;
+  margin: 0;
+}
+
+/* Hero Section */
+.hero-section {
+  padding: 5rem 1.5rem;
+}
+
+.hero-container {
+  max-width: 56rem;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.hero-tagline {
+  margin-bottom: 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.hero-heading {
+  margin-bottom: 1.5rem;
+  font-size: 3rem;
+  font-weight: 700;
+  line-height: 1.15;
+  color: #ffffff;
+}
+
+.hero-description {
+  max-width: 42rem;
+  margin: 0 auto 2.5rem auto;
+  font-size: 1.125rem;
+  line-height: 1.625;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.portal-btn {
+  border: none;
+  cursor: pointer;
+  border-radius: 0.5rem;
+  background-color: #ffffff;
+  padding: 0.75rem 2rem;
+  font-size: 1rem;
+  font-weight: 600;
+  width: 30%;
+  color: #0047AB;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.portal-btn:hover {
+  transform: scale(1.05);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+}
+
+/* Objective Banner */
+.objective-banner {
+  background-color: rgba(255, 255, 255, 0.1);
+  padding: 2.5rem 1.5rem;
+  backdrop-filter: blur(4px);
+}
+
+.banner-container {
+  max-width: 56rem;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.banner-title {
+  margin-bottom: 0.75rem;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.banner-text {
+  font-size: 1rem;
+  line-height: 1.625;
+  color: rgba(255, 255, 255, 0.9);
+  margin: 0;
+}
+
+/* System Objectives Section */
+.objectives-section {
+  background-color: #ffffff;
+  padding: 4rem 1.5rem;
+}
+
+.section-container {
+  max-width: 80rem;
+  margin: 0 auto;
+}
+
+.section-header {
+  text-align: center;
+  margin-bottom: 3rem;
+}
+
+.section-title {
+  font-size: 1.875rem;
+  font-weight: 700;
+  color: #111827;
+  margin: 0 0 0.75rem 0;
+}
+
+.section-subtitle {
+  font-size: 1rem;
+  color: #4b5563;
+  margin: 0;
+}
+
+/* Grid Layout */
+.objectives-grid {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 768px) {
+  .objectives-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1024px) {
+  .objectives-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* Cards setup */
+.objective-card {
+  border-radius: 0.75rem;
+  border: 1px solid #e5e7eb;
+  background-color: #ffffff;
+  padding: 1.5rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.objective-card:hover {
+  border-color: #93c5fd;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
+}
+
+.card-top {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.icon-wrapper {
+  display: inline-flex;
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+}
+
+.lucide-icon {
+  height: 1.25rem;
+  width: 1.25rem;
+}
+
+.card-counter {
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.card-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #111827;
+  margin: 0 0 0.5rem 0;
+}
+
+.card-description {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: #4b5563;
+  margin: 0;
+}
+
+/* Dynamic Color Themes mappings */
+.theme-blue         { color: #2563eb; background-color: #eff6ff; }
+.theme-indigo       { color: #4f46e5; background-color: #e0e7ff; }
+.theme-green        { color: #16a34a; background-color: #f0fdf4; }
+.theme-orange       { color: #ea580c; background-color: #fff7ed; }
+.theme-red          { color: #dc2626; background-color: #fef2f2; }
+.theme-purple       { color: #9333ea; background-color: #faf5ff; }
+.theme-yellow       { color: #ca8a04; background-color: #fefce8; }
+
+.theme-teal         { color: #0d9488; background-color: #f0fdfa; }
+.theme-cyan         { color: #0891b2; background-color: #ecfeff; }
+.theme-blue-light   { color: #3b82f6; background-color: #eff6ff; }
+.theme-emerald      { color: #059669; background-color: #ecfdf5; }
+.theme-amber        { color: #d97706; background-color: #fffbeb; }
+.theme-pink         { color: #db2777; background-color: #fdf2f8; }
+.theme-violet       { color: #7c3aed; background-color: #f5f3ff; }
+.theme-sky          { color: #0284c7; background-color: #f0f9ff; }
+.theme-indigo-light { color: #6366f1; background-color: #e0e7ff; }
+.theme-orange-light { color: #f97316; background-color: #fff7ed; }
+
+/* Footer Styles */
+.main-footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: rgba(0, 71, 171, 0.5);
+  padding: 2rem 1.5rem;
+  backdrop-filter: blur(4px);
+}
+
+.footer-container {
+  max-width: 80rem;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.footer-copyright {
+  font-size: 0.875rem;
+  color: rgba(255, 255, 255, 0.8);
+  margin: 0;
+}
+
+.footer-subtext {
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.6);
+  margin-bottom: 0;
+}
