@@ -1591,7 +1591,11 @@ app.get('/api/health-records/student-header/:studentId', async (req, res) => {
 });
 
 //Medicine Inventory Api
-// Helper function to auto-convert measurement units
+const DISCRETE_UNITS = [
+  'Tablet/s', 'Capsule/s', 'Patch/es', 'Sachet', 
+  'Vial', 'Prefilled Syringe', 'Spray/s', 'Inhaler', 'Box/es'
+];
+
 const autoConvertUnit = (val, unit) => {
   let num = parseFloat(val);
   if (isNaN(num)) return { value: val, unit };
@@ -1601,7 +1605,86 @@ const autoConvertUnit = (val, unit) => {
   return { value: Number(num.toFixed(2)), unit };
 };
 
-// 1. Fetch all chief complaints
+const normalizeMedicinePayload = (body) => {
+  const isDiscrete = DISCRETE_UNITS.includes(body.strength_unit_of_measure);
+  return {
+    ...body,
+    strength_unit_value: isDiscrete ? 1.00 : parseFloat(body.strength_unit_value),
+    avg_dosage_consumption_value: isDiscrete ? 1.00 : (parseFloat(body.avg_dosage_consumption_value) || 0.00),
+    avg_dosage_consumption_unit_of_measure: isDiscrete ? body.strength_unit_of_measure : body.avg_dosage_consumption_unit_of_measure
+  };
+};
+
+// Auto-depletion helper (extracts 1 stock unit when volume reaches 0 and refills remaining_volume)
+const syncDepletedBatches = async (connection) => {
+  const [depletedBatches] = await connection.execute(`
+    SELECT b.batch_id, b.current_stock, b.remaining_volume, m.strength_unit_value 
+    FROM medicine_inventory_batches b
+    JOIN medicines m ON b.medicine_id = m.medicine_id
+    WHERE b.remaining_volume <= 0 AND b.current_stock > 0
+  `);
+
+  for (const batch of depletedBatches) {
+    const updatedStock = batch.current_stock - 1;
+    const refilledVolume = updatedStock > 0 ? parseFloat(batch.strength_unit_value) : 0.00;
+    
+    await connection.execute(
+      `UPDATE medicine_inventory_batches 
+       SET current_stock = ?, remaining_volume = ? 
+       WHERE batch_id = ?`,
+      [updatedStock, refilledVolume, batch.batch_id]
+    );
+  }
+};
+
+// Reusable Dispensation Helper for continuous/capacity units (including 'pcs.')
+const dispenseMedicineBatch = async (connection, batchId, amountToDeduct) => {
+  const [rows] = await connection.execute(
+    `SELECT b.batch_id, b.current_stock, b.remaining_volume, m.strength_unit_value, m.strength_unit_of_measure
+     FROM medicine_inventory_batches b
+     JOIN medicines m ON b.medicine_id = m.medicine_id
+     WHERE b.batch_id = ?`,
+    [batchId]
+  );
+
+  if (!rows.length) throw new Error('Batch not found');
+  
+  const { strength_unit_of_measure } = rows[0];
+  const isDiscrete = DISCRETE_UNITS.includes(strength_unit_of_measure);
+
+  let current_stock = parseInt(rows[0].current_stock) || 0;
+  let remaining_volume = parseFloat(rows[0].remaining_volume) || 0;
+  let maxVal = parseFloat(rows[0].strength_unit_value) || 1;
+
+  if (isDiscrete) {
+    current_stock = Math.max(0, current_stock - parseInt(amountToDeduct));
+    remaining_volume = current_stock > 0 ? 1.00 : 0.00;
+  } else {
+    remaining_volume -= parseFloat(amountToDeduct);
+
+    // Roll over stock deduction if dispensed amount exhausts the active volume capacity
+    while (remaining_volume <= 0 && current_stock > 0) {
+      current_stock -= 1;
+      if (current_stock > 0) {
+        remaining_volume += maxVal;
+      } else {
+        remaining_volume = 0;
+        break;
+      }
+    }
+  }
+
+  await connection.execute(
+    `UPDATE medicine_inventory_batches 
+     SET current_stock = ?, remaining_volume = ? 
+     WHERE batch_id = ?`,
+    [current_stock, Math.max(0, remaining_volume), batchId]
+  );
+
+  return { current_stock, remaining_volume: Math.max(0, remaining_volume) };
+};
+
+// 1. Fetch complaints
 app.get('/api/complaints', async (req, res) => {
   try {
     const [rows] = await pool.execute('SELECT * FROM chief_complaints');
@@ -1611,13 +1694,11 @@ app.get('/api/complaints', async (req, res) => {
   }
 });
 
-// 2. Fetch all unique medicines with complete schema attributes
+// 2. Fetch medicines
 app.get('/api/medicines', async (req, res) => {
   try {
     const query = `
-      SELECT 
-        m.*,
-        GROUP_CONCAT(mi.complaint_id SEPARATOR ',') AS complaint_ids
+      SELECT m.*, GROUP_CONCAT(mi.complaint_id SEPARATOR ',') AS complaint_ids
       FROM medicines m
       LEFT JOIN medicine_indications mi ON m.medicine_id = mi.medicine_id
       GROUP BY m.medicine_id
@@ -1644,47 +1725,19 @@ app.get('/api/medicines', async (req, res) => {
   }
 });
 
-// 3. Get complete inventory with auto-depletion check and conversion calculations
+// 3. Fetch inventory
 app.get('/api/inventory', async (req, res) => {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-
-    // Check for batches with remaining_volume <= 0 and reduce current_stock
-    const [depletedBatches] = await connection.execute(`
-      SELECT b.batch_id, b.current_stock, m.strength_unit_value 
-      FROM medicine_inventory_batches b
-      JOIN medicines m ON b.medicine_id = m.medicine_id
-      WHERE b.remaining_volume <= 0 AND b.current_stock > 0
-    `);
-
-    for (const batch of depletedBatches) {
-      const updatedStock = batch.current_stock - 1;
-      await connection.execute(
-        `UPDATE medicine_inventory_batches 
-         SET current_stock = ?, remaining_volume = ? 
-         WHERE batch_id = ?`,
-        [updatedStock, batch.strength_unit_value, batch.batch_id]
-      );
-    }
-
+    await syncDepletedBatches(connection);
     await connection.commit();
 
     const query = `
       SELECT 
-        b.batch_id,
-        b.medicine_id,
-        b.expiration_date,
-        b.current_stock,
-        b.remaining_volume,
-        m.generic_name,
-        m.brand_name,
-        m.dosage_form,
-        m.strength_unit_value,
-        m.strength_unit_of_measure,
-        m.low_stock_level,
-        m.critical_stock_level,
-        m.adequate_stock_level,
+        b.batch_id, b.medicine_id, b.expiration_date, b.current_stock, b.remaining_volume,
+        m.generic_name, m.brand_name, m.dosage_form, m.strength_unit_value, m.strength_unit_of_measure,
+        m.low_stock_level, m.critical_stock_level, m.adequate_stock_level,
         GROUP_CONCAT(c.complaint_name SEPARATOR ', ') AS connected_complaints
       FROM medicine_inventory_batches b
       JOIN medicines m ON b.medicine_id = m.medicine_id
@@ -1714,24 +1767,7 @@ app.get('/api/inventory', async (req, res) => {
   }
 });
 
-// 4. Add new Medicine record with linked indications
-const DISCRETE_UNITS = [
-  'Tablet/s', 'Capsule/s', 'Patch/es', 'Sachet', 
-  'Vial', 'Prefilled Syringe', 'Spray/s', 'Inhaler'
-];
-
-// Helper to normalize values before inserting/updating
-const normalizeMedicinePayload = (body) => {
-  const isDiscrete = DISCRETE_UNITS.includes(body.strength_unit_of_measure);
-  return {
-    ...body,
-    strength_unit_value: isDiscrete ? 1.00 : parseFloat(body.strength_unit_value),
-    avg_dosage_consumption_value: isDiscrete ? 1.00 : (parseFloat(body.avg_dosage_consumption_value) || 0.00),
-    avg_dosage_consumption_unit_of_measure: isDiscrete ? body.strength_unit_of_measure : body.avg_dosage_consumption_unit_of_measure
-  };
-};
-
-// 4. Add new Medicine record
+// 4. Create medicine
 app.post('/api/medicines', async (req, res) => {
   const payload = normalizeMedicinePayload(req.body);
   const {
@@ -1745,8 +1781,8 @@ app.post('/api/medicines', async (req, res) => {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-
     const medicine_id = uuidv4().substring(0, 45);
+
     await connection.execute(
       `INSERT INTO medicines (
         medicine_id, generic_name, brand_name, dosage_form,
@@ -1762,7 +1798,7 @@ app.post('/api/medicines', async (req, res) => {
       ]
     );
 
-    if (complaint_ids && complaint_ids.length > 0) {
+    if (complaint_ids?.length) {
       for (const complaint_id of complaint_ids) {
         await connection.execute(
           'INSERT INTO medicine_indications (medicine_id, complaint_id) VALUES (?, ?)',
@@ -1781,7 +1817,7 @@ app.post('/api/medicines', async (req, res) => {
   }
 });
 
-// 5. Update existing Medicine record
+// 5. Update medicine
 app.put('/api/medicines/:id', async (req, res) => {
   const { id } = req.params;
   const payload = normalizeMedicinePayload(req.body);
@@ -1815,7 +1851,7 @@ app.put('/api/medicines/:id', async (req, res) => {
 
     await connection.execute('DELETE FROM medicine_indications WHERE medicine_id = ?', [id]);
 
-    if (complaint_ids && complaint_ids.length > 0) {
+    if (complaint_ids?.length) {
       for (const complaint_id of complaint_ids) {
         await connection.execute(
           'INSERT INTO medicine_indications (medicine_id, complaint_id) VALUES (?, ?)',
@@ -1834,18 +1870,32 @@ app.put('/api/medicines/:id', async (req, res) => {
   }
 });
 
-// 6. Add batch with default remaining_volume calculation
+// 6. Add batch
 app.post('/api/batches', async (req, res) => {
   const { medicine_id, expiration_date, current_stock, remaining_volume } = req.body;
+
   try {
-    const [meds] = await pool.execute('SELECT strength_unit_value FROM medicines WHERE medicine_id = ?', [medicine_id]);
+    const [meds] = await pool.execute(
+      'SELECT strength_unit_value, strength_unit_of_measure FROM medicines WHERE medicine_id = ?', 
+      [medicine_id]
+    );
     if (meds.length === 0) return res.status(404).json({ error: 'Medicine reference not found.' });
 
-    const maxVal = parseFloat(meds[0].strength_unit_value);
-    const finalVolume = remaining_volume !== undefined && remaining_volume !== '' ? parseFloat(remaining_volume) : maxVal;
+    const { strength_unit_value, strength_unit_of_measure } = meds[0];
+    const isDiscrete = DISCRETE_UNITS.includes(strength_unit_of_measure);
 
-    if (finalVolume <= 0 || finalVolume > maxVal) {
-      return res.status(400).json({ error: `Remaining volume must be greater than 0 and non-exceeding ${maxVal}` });
+    let finalVolume;
+    if (isDiscrete) {
+      finalVolume = 1.00;
+    } else {
+      const maxVal = parseFloat(strength_unit_value);
+      finalVolume = remaining_volume !== undefined && remaining_volume !== '' ? parseFloat(remaining_volume) : maxVal;
+
+      if (isNaN(finalVolume) || finalVolume <= 0 || finalVolume > maxVal) {
+        return res.status(400).json({ 
+          error: `Please provide a valid volume in ${strength_unit_of_measure} (must be between > 0 and ${maxVal} ${strength_unit_of_measure}).` 
+        });
+      }
     }
 
     const batch_id = uuidv4().substring(0, 45);
@@ -1856,33 +1906,37 @@ app.post('/api/batches', async (req, res) => {
       [batch_id, medicine_id, expiration_date, current_stock, finalVolume]
     );
 
-    res.status(201).json({ message: 'Batch added successfully!' });
+    res.status(201).json({ message: 'Batch added successfully.' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// 7. Update batch details
+// 7. Update batch
 app.put('/api/batches/:id', async (req, res) => {
   const { id } = req.params;
-  let { current_stock, expiration_date, remaining_volume, medicine_id } = req.body;
+  let { current_stock, expiration_date, remaining_volume } = req.body;
 
   try {
     const [meds] = await pool.execute(
-      `SELECT m.strength_unit_value FROM medicine_inventory_batches b 
+      `SELECT m.strength_unit_value, m.strength_unit_of_measure FROM medicine_inventory_batches b 
        JOIN medicines m ON b.medicine_id = m.medicine_id WHERE b.batch_id = ?`,
       [id]
     );
 
     if (meds.length > 0) {
-      const maxVal = parseFloat(meds[0].strength_unit_value);
-      let vol = parseFloat(remaining_volume);
+      const { strength_unit_value, strength_unit_of_measure } = meds[0];
+      const isDiscrete = DISCRETE_UNITS.includes(strength_unit_of_measure);
+      let vol = isDiscrete ? 1.00 : parseFloat(remaining_volume);
 
-      if (vol <= 0 && current_stock > 0) {
-        current_stock = current_stock - 1;
-        vol = maxVal;
-      } else if (vol > maxVal) {
-        return res.status(400).json({ error: `Remaining volume cannot exceed ${maxVal}` });
+      if (!isDiscrete) {
+        const maxVal = parseFloat(strength_unit_value);
+        if (vol <= 0 && current_stock > 0) {
+          current_stock = current_stock - 1;
+          vol = current_stock > 0 ? maxVal : 0;
+        } else if (vol > maxVal) {
+          return res.status(400).json({ error: `Remaining volume cannot exceed ${maxVal}` });
+        }
       }
 
       await pool.execute(
@@ -1910,8 +1964,6 @@ app.delete('/api/batches/:id', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
-
 
 app.post('/api/batches', async (req, res) => {
   const { medicine_id, expiration_date, current_stock, remaining_volume } = req.body;
@@ -1957,6 +2009,35 @@ app.post('/api/batches', async (req, res) => {
 
 
 // Direct Medicine Dispensed api
+// Helper for continuous unit conversions (g/mg/mcg and L/mL)
+const convertUnit = (val, fromUnit, toUnit) => {
+  if (fromUnit === toUnit) return val;
+  const toBase = (v, u) => {
+    switch (u) {
+      case 'g': return v * 1000000;
+      case 'mg': return v * 1000;
+      case 'mcg': return v;
+      case 'L': return v * 1000;
+      case 'mL': return v;
+      case 'pcs.': return v;
+      default: return v;
+    }
+  };
+  const fromBase = (v, u) => {
+    switch (u) {
+      case 'g': return v / 1000000;
+      case 'mg': return v / 1000;
+      case 'mcg': return v;
+      case 'L': return v / 1000;
+      case 'mL': return v;
+      case 'pcs.': return v;
+      default: return v;
+    }
+  };
+  return fromBase(toBase(val, fromUnit), toUnit);
+};
+
+// Search active students for direct dispensation
 app.get('/api/students/direct', async (req, res) => {
   const { search } = req.query;
   try {
@@ -1978,8 +2059,8 @@ app.get('/api/students/direct', async (req, res) => {
     res.status(500).json({ error: 'Database querying error encountered.' });
   }
 });
-// Fetch active inventory batches
-// Fetch active inventory batches
+
+// Fetch active inventory batches aligned with updated medicines schema
 app.get('/api/inventory/batches', async (req, res) => {
   try {
     const queryStr = `
@@ -1991,6 +2072,7 @@ app.get('/api/inventory/batches', async (req, res) => {
         b.remaining_volume,
         b.expiration_date, 
         b.created_at,
+        m.dosage_form,
         m.strength_unit_value,
         m.strength_unit_of_measure,
         m.avg_dosage_consumption_value,
@@ -2007,15 +2089,13 @@ app.get('/api/inventory/batches', async (req, res) => {
   }
 });
 
-// Fetch historical dispensation logs
-// Fetch historical dispensation logs with range date, student, and medicine filters
+// Fetch historical dispensation logs across both direct and consultation tables
 app.get('/api/dispensation/history', async (req, res) => {
   const { fromDate, toDate, date, student, medicine } = req.query;
   try {
     const whereClauses = [];
     const params = [];
 
-    // Date Range Filtering
     if (fromDate && toDate) {
       whereClauses.push(`DATE(dispensed_at) BETWEEN ? AND ?`);
       params.push(fromDate, toDate);
@@ -2030,7 +2110,6 @@ app.get('/api/dispensation/history', async (req, res) => {
       params.push(date);
     }
 
-    // Student Filter (First Name, Last Name, or Student ID)
     if (student && student.trim()) {
       const studentTerm = `%${student.trim()}%`;
       whereClauses.push(
@@ -2039,7 +2118,6 @@ app.get('/api/dispensation/history', async (req, res) => {
       params.push(studentTerm, studentTerm, studentTerm, studentTerm, studentTerm);
     }
 
-    // Medicine Filter (Brand Name or Generic Name)
     if (medicine && medicine.trim()) {
       const medicineTerm = `%${medicine.trim()}%`;
       whereClauses.push(`medicine_name LIKE ?`);
@@ -2095,8 +2173,7 @@ app.get('/api/dispensation/history', async (req, res) => {
   }
 });
 
-// Core POST Handler: Dispense medicine and record transaction
-// Core POST Handler: Dispense medicine and record transaction
+// Core Dispensation POST Handler with Unit Normalization
 app.post('/api/dispensation', async (req, res) => {
   const { 
     student_id, 
@@ -2112,11 +2189,10 @@ app.post('/api/dispensation', async (req, res) => {
     return res.status(400).json({ error: 'Dosage value must be greater than zero.' });
   }
 
-  // Measured liquid/mass units vs discrete items (tablets, capsules, etc.)
-  const measuredUnits = ['mg', 'g', 'mcg', 'mL', 'L'];
+  // Include 'pcs.' so piece deductions lower remaining_volume
+  const measuredUnits = ['mg', 'g', 'mcg', 'mL', 'L', 'pcs.'];
   const isMeasured = measuredUnits.includes(dosage_consumption_unit_of_measure);
 
-  // Reject decimal values for discrete inventory items
   if (!isMeasured && !Number.isInteger(numericVal)) {
     return res.status(400).json({ 
       error: 'Quantity for discrete items (e.g. tablets, capsules) must be a whole integer.' 
@@ -2127,9 +2203,9 @@ app.post('/api/dispensation', async (req, res) => {
   try {
     await connection.beginTransaction();
 
-    // Join with medicines table to fetch strength_unit_value for volume auto-replenishment
     const [batchRows] = await connection.execute(
-      `SELECT mib.current_stock, mib.remaining_volume, mib.expiration_date, m.strength_unit_value 
+      `SELECT mib.current_stock, mib.remaining_volume, mib.expiration_date, 
+              m.strength_unit_value, m.strength_unit_of_measure 
        FROM medicine_inventory_batches mib 
        JOIN medicines m ON mib.medicine_id = m.medicine_id 
        WHERE mib.batch_id = ? FOR UPDATE`,
@@ -2144,6 +2220,7 @@ app.post('/api/dispensation', async (req, res) => {
     let currentStock = parseInt(batchRows[0].current_stock, 10);
     let remainingVolume = parseFloat(batchRows[0].remaining_volume);
     const strengthUnitVal = parseFloat(batchRows[0].strength_unit_value);
+    const strengthUnitMeasure = batchRows[0].strength_unit_of_measure;
     const expirationDate = new Date(batchRows[0].expiration_date);
 
     if (expirationDate < new Date()) {
@@ -2155,21 +2232,24 @@ app.post('/api/dispensation', async (req, res) => {
     let newRemaining = remainingVolume;
 
     if (isMeasured) {
-      // Calculate total available volume across all containers in the batch
+      const requestedInBatchUnit = convertUnit(numericVal, dosage_consumption_unit_of_measure, strengthUnitMeasure);
+
       const totalAvailableVolume = currentStock > 0 
         ? remainingVolume + (currentStock - 1) * strengthUnitVal 
         : 0;
 
-      if (numericVal > totalAvailableVolume) {
+      if (requestedInBatchUnit > totalAvailableVolume) {
         await connection.rollback();
+        const availableInDispenseUnit = convertUnit(totalAvailableVolume, strengthUnitMeasure, dosage_consumption_unit_of_measure);
         return res.status(400).json({ 
-          error: `Insufficient volume. Requested ${numericVal} ${dosage_consumption_unit_of_measure}, but total available is ${totalAvailableVolume} ${dosage_consumption_unit_of_measure}.` 
+          error: `Insufficient available count. Requested ${numericVal} ${dosage_consumption_unit_of_measure}, but total available is ${availableInDispenseUnit.toFixed(2)} ${dosage_consumption_unit_of_measure}.` 
         });
       }
 
-      newRemaining = remainingVolume - numericVal;
+      // Deduct pieces directly from remaining_volume
+      newRemaining = remainingVolume - requestedInBatchUnit;
 
-      // Auto-decrement stock and reset remaining_volume to strength_unit_value
+      // Automatically decrement box stock (current_stock) when remaining_volume exhausts active box
       while (newRemaining <= 0 && newStock > 0) {
         newStock -= 1;
         if (newRemaining === 0) {
@@ -2187,7 +2267,6 @@ app.post('/api/dispensation', async (req, res) => {
         }
       }
     } else {
-      // Discrete units reduce stock count
       if (numericVal > currentStock) {
         await connection.rollback();
         return res.status(400).json({ 
@@ -2197,13 +2276,11 @@ app.post('/api/dispensation', async (req, res) => {
       newStock = currentStock - numericVal;
     }
 
-    // Persist updated stock count and remaining volume in the DB
     await connection.execute(
       'UPDATE medicine_inventory_batches SET current_stock = ?, remaining_volume = ? WHERE batch_id = ?',
       [newStock, newRemaining, batch_id]
     );
 
-    // Insert transaction log
     const direct_dispense_id = uuidv4().substring(0, 45); 
     await connection.execute(
       `INSERT INTO direct_dispensation 
@@ -2237,6 +2314,7 @@ app.post('/api/dispensation', async (req, res) => {
 });
 
 //Visit Log Consultation API
+// GET: Search students
 app.get('/api/students/search', async (req, res) => {
     const { query } = req.query;
     if (!query) return res.json([]);
@@ -2267,11 +2345,21 @@ app.get('/api/chief-complaints', async (req, res) => {
     }
 });
 
-// GET: Retrieve available medicine batches with their parent medicine names
+// GET: Retrieve available medicine batches with parent medicine details
 app.get('/api/medicines/batches', async (req, res) => {
     try {
         const sql = `
-            SELECT b.batch_id, b.medicine_id, m.medicine_name, b.expiration_date, b.current_stock 
+            SELECT 
+                b.batch_id, 
+                b.medicine_id, 
+                CONCAT(m.brand_name, ' (', m.generic_name, ')') AS medicine_name, 
+                b.expiration_date, 
+                b.current_stock,
+                b.remaining_volume,
+                m.strength_unit_value,
+                m.strength_unit_of_measure,
+                m.avg_dosage_consumption_value,
+                m.avg_dosage_consumption_unit_of_measure
             FROM medicine_inventory_batches b
             JOIN medicines m ON b.medicine_id = m.medicine_id
             WHERE b.current_stock > 0 AND b.expiration_date >= CURDATE()
@@ -2285,9 +2373,7 @@ app.get('/api/medicines/batches', async (req, res) => {
     }
 });
 
-// GET: Retrieve history of all clinic visits (with joined student and complaint names)
-// GET: Retrieve history of all clinic visits (with joined student, complaint, and dispensation details)
-// GET: Retrieve history of all clinic visits (with joined student, complaint, and consultation dispensation details)
+// GET: Retrieve history of all clinic visits
 app.get('/api/clinic-visits', async (req, res) => {
     try {
         const sql = `
@@ -2295,7 +2381,7 @@ app.get('/api/clinic-visits', async (req, res) => {
                 cv.*, 
                 s.first_name, s.last_name, s.program_id, s.year_level, 
                 cc.complaint_name,
-                cd.dosage_consumption_unit_value, cd.dosage_consumption_unit_of_measure, cd.dispensed_at,
+                cd.batch_id, cd.dosage_consumption_unit_value, cd.dosage_consumption_unit_of_measure, cd.dispensed_at,
                 CONCAT(m.brand_name, ' (', m.generic_name, ')') AS medicine_name
             FROM clinic_visits cv
             JOIN students s ON cv.student_id = s.student_id
@@ -2339,7 +2425,6 @@ app.post('/api/clinic-visits', async (req, res) => {
 
         const visit_id = 'VISIT-' + Math.random().toString(36).substr(2, 9).toUpperCase();
 
-        // 1. Insert into clinic_visits
         const visitSql = `
             INSERT INTO clinic_visits (
                 visit_id, student_id, nurse_id, complaint_id, visit_date, 
@@ -2353,96 +2438,90 @@ app.post('/api/clinic-visits', async (req, res) => {
             pulse_rate || null, blood_pressure || null, nursing_intervention || null, health_advice || null
         ]);
 
-        // 2. Handle Medicine Dispensation
-if (batch_id && dosage_consumption_unit_value) {
-    const numericVal = parseFloat(dosage_consumption_unit_value);
+        // Handle Medicine Dispensation
+        if (batch_id && dosage_consumption_unit_value) {
+            const numericVal = parseFloat(dosage_consumption_unit_value);
 
-    if (isNaN(numericVal) || numericVal <= 0) {
-        throw new Error('Dosage value must be greater than zero.');
-    }
-
-    const measuredUnits = ['mg', 'g', 'mcg', 'mL', 'L'];
-    const isMeasured = measuredUnits.includes(dosage_consumption_unit_of_measure);
-
-    if (!isMeasured && !Number.isInteger(numericVal)) {
-        throw new Error('Quantity for discrete items (e.g. tablets, capsules) must be a whole integer.');
-    }
-
-    // Join with medicines table to fetch strength_unit_value for volume auto-replenish
-    const [batchRows] = await connection.execute(
-        `SELECT mib.current_stock, mib.remaining_volume, mib.expiration_date, m.strength_unit_value 
-         FROM medicine_inventory_batches mib 
-         JOIN medicines m ON mib.medicine_id = m.medicine_id 
-         WHERE mib.batch_id = ? FOR UPDATE`,
-        [batch_id]
-    );
-
-    if (batchRows.length === 0) throw new Error("Target medicine batch not found.");
-
-    let currentStock = parseInt(batchRows[0].current_stock, 10);
-    let remainingVolume = parseFloat(batchRows[0].remaining_volume);
-    const strengthUnitVal = parseFloat(batchRows[0].strength_unit_value);
-    const expirationDate = new Date(batchRows[0].expiration_date);
-
-    if (expirationDate < new Date()) {
-        throw new Error("Cannot dispense medicine from an expired batch.");
-    }
-
-    if (isMeasured) {
-        // Calculate total available volume across all containers in the batch
-        const totalAvailableVolume = currentStock > 0 
-            ? remainingVolume + (currentStock - 1) * strengthUnitVal 
-            : 0;
-
-        if (numericVal > totalAvailableVolume) {
-            throw new Error(`Insufficient volume. Requested ${numericVal} ${dosage_consumption_unit_of_measure}, but total available is ${totalAvailableVolume} ${dosage_consumption_unit_of_measure}.`);
-        }
-
-        let newRemaining = remainingVolume - numericVal;
-        let newStock = currentStock;
-
-        // Auto-decrement stock and reset remaining_volume to strength_unit_value
-        while (newRemaining <= 0 && newStock > 0) {
-            newStock -= 1;
-            if (newRemaining === 0) {
-                if (newStock >= 1) {
-                    newRemaining = strengthUnitVal;
-                }
-                break;
-            } else {
-                if (newStock >= 1) {
-                    newRemaining = strengthUnitVal + newRemaining;
-                } else {
-                    newRemaining = 0;
-                    break;
-                }
+            if (isNaN(numericVal) || numericVal <= 0) {
+                throw new Error('Dosage value must be greater than zero.');
             }
+
+            const continuousUnits = ['mg', 'g', 'mcg', 'mL', 'L'];
+            const volumeUnits = ['mg', 'g', 'mcg', 'mL', 'L', 'pcs.'];
+
+            const isContinuous = continuousUnits.includes(dosage_consumption_unit_of_measure);
+            const usesVolume = volumeUnits.includes(dosage_consumption_unit_of_measure);
+
+            if (!isContinuous && !Number.isInteger(numericVal)) {
+                throw new Error('Quantity for discrete items must be a whole integer.');
+            }
+
+            const [batchRows] = await connection.execute(
+                `SELECT mib.current_stock, mib.remaining_volume, mib.expiration_date, m.strength_unit_value 
+                 FROM medicine_inventory_batches mib 
+                 JOIN medicines m ON mib.medicine_id = m.medicine_id 
+                 WHERE mib.batch_id = ? FOR UPDATE`,
+                [batch_id]
+            );
+
+            if (batchRows.length === 0) throw new Error("Target medicine batch not found.");
+
+            let currentStock = parseInt(batchRows[0].current_stock, 10);
+            let remainingVolume = parseFloat(batchRows[0].remaining_volume);
+            const strengthUnitVal = parseFloat(batchRows[0].strength_unit_value);
+            const expirationDate = new Date(batchRows[0].expiration_date);
+
+            if (expirationDate < new Date()) {
+                throw new Error("Cannot dispense medicine from an expired batch.");
+            }
+
+            if (usesVolume) {
+                const totalAvailableVolume = currentStock > 0 
+                    ? remainingVolume + (currentStock - 1) * strengthUnitVal 
+                    : 0;
+
+                if (numericVal > totalAvailableVolume) {
+                    throw new Error(`Insufficient quantity. Requested ${numericVal} ${dosage_consumption_unit_of_measure}, but total available is ${totalAvailableVolume} ${dosage_consumption_unit_of_measure}.`);
+                }
+
+                let newRemaining = remainingVolume - numericVal;
+                let newStock = currentStock;
+
+                while (newRemaining <= 0 && newStock > 0) {
+                    newStock -= 1;
+                    if (newRemaining === 0) {
+                        if (newStock >= 1) newRemaining = strengthUnitVal;
+                        break;
+                    } else {
+                        if (newStock >= 1) newRemaining = strengthUnitVal + newRemaining;
+                        else { newRemaining = 0; break; }
+                    }
+                }
+
+                await connection.execute(
+                    'UPDATE medicine_inventory_batches SET current_stock = ?, remaining_volume = ? WHERE batch_id = ?',
+                    [newStock, newRemaining, batch_id]
+                );
+            } else {
+                if (numericVal > currentStock) {
+                    throw new Error(`Insufficient stock quantity. Requested ${numericVal}, but only ${currentStock} left.`);
+                }
+                await connection.execute(
+                    'UPDATE medicine_inventory_batches SET current_stock = current_stock - ? WHERE batch_id = ?',
+                    [numericVal, batch_id]
+                );
+            }
+
+            const dispensation_id = 'DISP-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+            await connection.execute(
+                `INSERT INTO consultation_dispensation 
+                 (consultation_dispense_id, visit_id, batch_id, dosage_consumption_unit_value, dosage_consumption_unit_of_measure, dispensed_at) 
+                 VALUES (?, ?, ?, ?, ?, NOW())`,
+                [dispensation_id, visit_id, batch_id, numericVal, dosage_consumption_unit_of_measure]
+            );
         }
 
-        await connection.execute(
-            'UPDATE medicine_inventory_batches SET current_stock = ?, remaining_volume = ? WHERE batch_id = ?',
-            [newStock, newRemaining, batch_id]
-        );
-    } else {
-        if (numericVal > currentStock) {
-            throw new Error(`Insufficient stock quantity. Requested ${numericVal}, but only ${currentStock} left.`);
-        }
-        await connection.execute(
-            'UPDATE medicine_inventory_batches SET current_stock = current_stock - ? WHERE batch_id = ?',
-            [numericVal, batch_id]
-        );
-    }
-
-    const dispensation_id = 'DISP-' + Math.random().toString(36).substr(2, 9).toUpperCase();
-    await connection.execute(
-        `INSERT INTO consultation_dispensation 
-         (consultation_dispense_id, visit_id, batch_id, dosage_consumption_unit_value, dosage_consumption_unit_of_measure, dispensed_at) 
-         VALUES (?, ?, ?, ?, ?, NOW())`,
-        [dispensation_id, visit_id, batch_id, numericVal, dosage_consumption_unit_of_measure]
-    );
-}
-
-        // 3. iPROG SMS NOTIFICATION SECTION
+        // SMS Notification Logic
         let smsNotificationSent = false;
         try {
             const smsDetailsSql = `
@@ -2493,6 +2572,7 @@ if (batch_id && dosage_consumption_unit_value) {
             console.error('[iPROG SMS Error] Failed to send SMS:', smsError.message);
         }
 
+        await connection.commit();
         res.status(201).json({ 
             success: true, 
             message: smsNotificationSent 
@@ -2520,7 +2600,6 @@ app.patch('/api/clinic-visits/:id/timeout', async (req, res) => {
     }
 
     try {
-        // Verify current time_out is null or empty before allowing changes
         const [rows] = await pool.execute('SELECT time_out FROM clinic_visits WHERE visit_id = ?', [id]);
         if (rows.length === 0) {
             return res.status(404).json({ success: false, error: "Visit record not found" });
@@ -2538,7 +2617,7 @@ app.patch('/api/clinic-visits/:id/timeout', async (req, res) => {
     }
 });
 
-// PUT route to update visit documentation and process dispensation
+// PUT: Update visit documentation and process dispensation
 app.put('/api/clinic-visits/:id', async (req, res) => {
     const { id } = req.params;
     const {
@@ -2561,7 +2640,6 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
     try {
         await connection.beginTransaction();
 
-        // 1. Update clinic_visits table (excluding dispensation columns)
         const visitQuery = `
             UPDATE clinic_visits 
             SET 
@@ -2590,7 +2668,6 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
             id
         ]);
 
-        // 2. Process Dispensation Logic if batch and dosage are supplied
         if (batch_id && dosage_consumption_unit_value) {
             const numericVal = parseFloat(dosage_consumption_unit_value);
 
@@ -2598,22 +2675,22 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
                 throw new Error('Dosage value must be greater than zero.');
             }
 
-            const measuredUnits = ['mg', 'g', 'mcg', 'mL', 'L'];
-            const isMeasured = measuredUnits.includes(dosage_consumption_unit_of_measure);
+            const continuousUnits = ['mg', 'g', 'mcg', 'mL', 'L'];
+            const volumeUnits = ['mg', 'g', 'mcg', 'mL', 'L', 'pcs.'];
 
-            // Unit validation: Integers for discrete units, Floats allowed for measured units
-            if (!isMeasured && !Number.isInteger(numericVal)) {
-                throw new Error('Quantity for discrete items (e.g. tablets, capsules) must be a whole integer.');
+            const isContinuous = continuousUnits.includes(dosage_consumption_unit_of_measure);
+            const usesVolume = volumeUnits.includes(dosage_consumption_unit_of_measure);
+
+            if (!isContinuous && !Number.isInteger(numericVal)) {
+                throw new Error('Quantity for discrete items must be a whole integer.');
             }
 
-            // Check if consultation_dispensation already exists for this visit
             const [existingDisp] = await connection.execute(
                 `SELECT consultation_dispense_id FROM consultation_dispensation WHERE visit_id = ?`,
                 [id]
             );
 
             if (existingDisp.length === 0) {
-                // Fetch target batch info
                 const [batchRows] = await connection.execute(
                     `SELECT mib.current_stock, mib.remaining_volume, mib.expiration_date, m.strength_unit_value 
                      FROM medicine_inventory_batches mib 
@@ -2633,13 +2710,13 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
                     throw new Error("Cannot dispense medicine from an expired batch.");
                 }
 
-                if (isMeasured) {
+                if (usesVolume) {
                     const totalAvailableVolume = currentStock > 0 
                         ? remainingVolume + (currentStock - 1) * strengthUnitVal 
                         : 0;
 
                     if (numericVal > totalAvailableVolume) {
-                        throw new Error(`Insufficient volume. Requested ${numericVal} ${dosage_consumption_unit_of_measure}, but total available is ${totalAvailableVolume} ${dosage_consumption_unit_of_measure}.`);
+                        throw new Error(`Insufficient quantity. Requested ${numericVal} ${dosage_consumption_unit_of_measure}, but total available is ${totalAvailableVolume} ${dosage_consumption_unit_of_measure}.`);
                     }
 
                     let newRemaining = remainingVolume - numericVal;
@@ -3945,6 +4022,10 @@ app.delete('/api/facility-services/:serviceId', async (req, res) => {
 // UPDATED HEALTH SCREENING API ENDPOINTS
 // ==========================================
 
+// ==========================================
+// UPDATED HEALTH SCREENING API ENDPOINTS
+// ==========================================
+
 // 1. Get Academic Programs
 app.get('/api/programs', async (req, res) => {
   try {
@@ -4280,6 +4361,7 @@ app.post('/api/screenings/:id/document', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 
 //Doctor Visit API
 // ==========================================
@@ -6418,7 +6500,115 @@ app.get('/api/students/qr/:id', async (req, res) => {
   }
 });
 
+// ==================== NURSE DASHBOARD ENDPOINTS ====================
 
+// 1. Actionable Previews & Schedules
+app.get('/api/documents-approval', async (req, res) => {
+    try {
+        const [rows] = await pool.execute(`SELECT * FROM documents_approval WHERE status = 'pending'`);
+        res.json({ data: rows });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/inventory-updates', async (req, res) => {
+    try {
+        const [rows] = await pool.execute(`SELECT * FROM inventory WHERE current_stock <= reorder_level`);
+        res.json({ data: rows });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/health-screenings', async (req, res) => {
+    try {
+        const [rows] = await pool.execute(`SELECT * FROM health_screenings WHERE date >= CURDATE()`);
+        res.json({ data: rows });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/doctor-visits', async (req, res) => {
+    try {
+        const [rows] = await pool.execute(`SELECT * FROM doctor_visits WHERE visit_date >= CURDATE()`);
+        res.json({ data: rows });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/weekly-reports', async (req, res) => {
+    try {
+        const [rows] = await pool.execute(`SELECT * FROM weekly_reports ORDER BY created_at DESC LIMIT 5`);
+        res.json({ data: rows });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 2. Health Trends Overview
+app.get('/api/health-trends', async (req, res) => {
+    const { filterType, date } = req.query;
+    try {
+        // Replace with your trend aggregation logic
+        res.json({ 
+            data: [], 
+            complaintsList: [], 
+            averages: {}, 
+            averagesLabel: "Average Complaints", 
+            timelineLabel: "Timeline", 
+            periodLabel: "Period" 
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 3. Medicine Dispensed Overview
+app.get('/api/medicine-dispensed-overview', async (req, res) => {
+    const { filterType, date } = req.query;
+    try {
+        // Replace with your medicine aggregation logic
+        res.json({ 
+            data: [], 
+            medicinesList: [], 
+            medicinesUnitsMap: {}, 
+            averages: {}, 
+            averagesLabel: "Dispensed Averages", 
+            timelineLabel: "Timeline", 
+            periodLabel: "Period" 
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 4. Predictive Medicine Demand
+app.get('/api/predictive-medicine', async (req, res) => {
+    const { month } = req.query;
+    try {
+        // Replace with predictive demand query mapping to expected JSON structure
+        res.json({ data: [], graphTitle: "Predictive Medicine Demand" });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 5. Frequent Complaint Alerts
+app.get('/api/frequent-complaints', async (req, res) => {
+    try {
+        const [rows] = await pool.execute(`
+            SELECT studentName, studentId, visitCount, complaint, advice, date 
+            FROM frequent_complaints 
+            WHERE visitCount > 3
+        `);
+        res.json({ data: rows });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 
 
 app.listen(3001, () => console.log('Server running on port 3001'));

@@ -42,9 +42,7 @@ export default function HealthRecord() {
             </div>
 
             <div className="search-input-container">
-                <div className="search-icon-inside">
-                    <Search size={18} />
-                </div>
+                <Search className="search-icon-inside" size={18} />
                 <input 
                     type="text" 
                     value={searchTerm}
@@ -57,7 +55,9 @@ export default function HealthRecord() {
             {errorMsg && <div className="error-message">{errorMsg}</div>}
 
             <div className="directory-card-panel">
-                <h3>Directory Results ({students.length})</h3>
+                <div className="panel-header">
+                    <h3>Directory Results ({students.length})</h3>
+                </div>
                 {loading ? (
                     <div className="status-placeholder">Querying structural schema indices...</div>
                 ) : students.length === 0 ? (
@@ -72,13 +72,13 @@ export default function HealthRecord() {
                                     <th>First Name</th>
                                     <th>Program</th>
                                     <th>Year Level</th>
-                                    <th style={{ textAlign: 'center' }}>Action Lookup</th>
+                                    <th className="action-col">Action</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {students.map((student) => (
                                     <tr key={student.student_id}>
-                                        <td style={{ fontWeight: 'bold' }}>{student.student_id}</td>
+                                        <td className="font-semibold">{student.student_id}</td>
                                         <td>{student.last_name}</td>
                                         <td>{student.first_name}</td>
                                         <td>
@@ -87,12 +87,14 @@ export default function HealthRecord() {
                                             </span>
                                         </td>
                                         <td>{student.year_level}</td>
-                                        <td style={{ textAlign: 'center' }}>
+                                        <td className="action-col">
                                             <button 
                                                 onClick={() => navigate(`/health-records/view/${student.student_id}`)}
-                                                className="btn-view-profile"
+                                                className="btn-icon-only"
+                                                title="View Profile"
+                                                aria-label={`View profile for student ${student.student_id}`}
                                             >
-                                                <Eye size={15} /> View Profile
+                                                <Eye size={18} />
                                             </button>
                                         </td>
                                     </tr>

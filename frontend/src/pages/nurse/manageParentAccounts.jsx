@@ -14,7 +14,7 @@ import {
   GraduationCap,
   Save
 } from 'lucide-react';
-import '../../styles/admin/ManageParentAccounts.css';
+import '../../styles/nurse/ManageParentAccounts.css';
 
 const API_BASE = 'http://localhost:3001/manageParentAccount';
 

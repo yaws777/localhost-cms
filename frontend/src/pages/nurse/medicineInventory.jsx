@@ -15,16 +15,19 @@ import {
 } from 'lucide-react';
 import '../../styles/nurse/MedicineInventory.css'; 
 
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
+
 const DOSAGE_FORMS = [
   'Tablet', 'Capsule', 'Sachet', 'Patch',
   'Syrup', 'Suspension', 'Drops', 'Bottle',
   'Vial', 'Prefilled Syringe',
-  'Ointment', 'Cream', 'Inhaler', 'Spray', 'Gel'
+  'Ointment', 'Cream', 'Inhaler', 'Spray', 'Gel', 'Box'
 ];
 
+// Discrete units strictly fixed to 1 item per unit. 'pcs.' is intentionally excluded so it behaves like continuous capacity (mg, mL, g, etc.)
 const DISCRETE_UNITS = [
   'Tablet/s', 'Capsule/s', 'Patch/es', 'Sachet', 
-  'Vial', 'Prefilled Syringe', 'Spray/s', 'Inhaler'
+  'Vial', 'Prefilled Syringe', 'Spray/s', 'Inhaler', 'Box/es'
 ];
 
 // Mapping according to constraint chk_valid_dosage_units
@@ -43,7 +46,8 @@ const DOSAGE_FORM_UNITS = {
   'Ointment': ['g', 'mg', 'mL'],
   'Cream': ['g', 'mg', 'mL'],
   'Gel': ['g', 'mg', 'mL'],
-  'Spray': ['mg', 'mcg', 'mL', 'Spray/s']
+  'Spray': ['mg', 'mcg', 'mL', 'Spray/s'],
+  'Box': [ 'Box/es', 'pcs.']
 };
 
 // Consumption hierarchy options based on chk_consumption_unit_hierarchy
@@ -55,6 +59,7 @@ const getConsumptionUnitOptions = (strengthUnit) => {
     case 'mcg': return ['mcg'];
     case 'L': return ['L', 'mL'];
     case 'mL': return ['mL'];
+    case 'pcs.': return ['pcs.'];
     default: return [];
   }
 };
@@ -104,17 +109,17 @@ export default function MedicineInventory() {
 
   const fetchData = useCallback(async () => {
     try {
-      const invRes = await fetch('http://localhost:3001/api/inventory');
+      const invRes = await fetch(`${API_BASE_URL}/inventory`);
       if (invRes.ok) setInventory(await invRes.json());
     } catch (e) { console.error("Inventory pipeline error", e); }
 
     try {
-      const compRes = await fetch('http://localhost:3001/api/complaints');
+      const compRes = await fetch(`${API_BASE_URL}/complaints`);
       if (compRes.ok) setComplaints(await compRes.json());
     } catch (e) { console.error("Complaints pipeline error", e); }
 
     try {
-      const medRes = await fetch('http://localhost:3001/api/medicines');
+      const medRes = await fetch(`${API_BASE_URL}/medicines`);
       if (medRes.ok) setMedicinesList(await medRes.json());
     } catch (e) { console.error("Medicines listing load failure", e); }
   }, []);
@@ -182,14 +187,14 @@ export default function MedicineInventory() {
     const isDiscrete = DISCRETE_UNITS.includes(medForm.strength_unit_of_measure);
     const payload = {
       ...medForm,
-      strength_unit_value: isDiscrete ? 1 : medForm.strength_unit_value,
-      avg_dosage_consumption_value: isDiscrete ? 1 : medForm.avg_dosage_consumption_value,
+      strength_unit_value: isDiscrete ? 1 : (parseFloat(medForm.strength_unit_value) || 1),
+      avg_dosage_consumption_value: isDiscrete ? 1 : (parseFloat(medForm.avg_dosage_consumption_value) || 1),
       avg_dosage_consumption_unit_of_measure: isDiscrete ? medForm.strength_unit_of_measure : medForm.avg_dosage_consumption_unit_of_measure
     };
 
     const endpoint = isEditingMedicine 
-      ? `http://localhost:3001/api/medicines/${editingMedicineId}` 
-      : 'http://localhost:3001/api/medicines';
+      ? `${API_BASE_URL}/medicines/${editingMedicineId}` 
+      : `${API_BASE_URL}/medicines`;
     const method = isEditingMedicine ? 'PUT' : 'POST';
 
     try {
@@ -222,19 +227,27 @@ export default function MedicineInventory() {
     const maxVal = selectedMed ? parseFloat(selectedMed.strength_unit_value) : 0;
     
     let volumeInput;
+    let stockInput = parseInt(batchForm.current_stock) || 0;
+
     if (isDiscrete) {
       volumeInput = 1;
     } else {
       volumeInput = batchForm.remaining_volume !== '' ? parseFloat(batchForm.remaining_volume) : maxVal;
-      if (volumeInput <= 0 || volumeInput > maxVal) {
-        showAlert(`Remaining volume must be greater than 0 and cannot exceed container capacity (${maxVal} ${selectedMed?.strength_unit_of_measure || ''})`, 'error');
+      
+      // Auto-deduct 1 stock unit when remaining pieces/volume reaches 0
+      if (volumeInput === 0 && stockInput > 0) {
+        stockInput = stockInput - 1;
+        volumeInput = stockInput > 0 ? maxVal : 0;
+        showAlert(`Container depleted! 1 unit automatically deducted from stock. New stock: ${stockInput}, remaining reset to ${volumeInput} ${selectedMed?.strength_unit_of_measure || ''}.`, 'info');
+      } else if (volumeInput < 0 || volumeInput > maxVal) {
+        showAlert(`Value must be between 0 and full container capacity (${maxVal} ${selectedMed?.strength_unit_of_measure || ''})`, 'error');
         return;
       }
     }
 
     const endpoint = editingBatch 
-      ? `http://localhost:3001/api/batches/${editingBatch.batch_id}` 
-      : 'http://localhost:3001/api/batches';
+      ? `${API_BASE_URL}/batches/${editingBatch.batch_id}` 
+      : `${API_BASE_URL}/batches`;
     const method = editingBatch ? 'PUT' : 'POST';
 
     try {
@@ -243,6 +256,7 @@ export default function MedicineInventory() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...batchForm,
+          current_stock: stockInput,
           remaining_volume: volumeInput
         })
       });
@@ -265,17 +279,19 @@ export default function MedicineInventory() {
   const handleDeleteBatch = async (batchId) => {
     if (!window.confirm('Confirm deletion of this batch entry?')) return;
     try {
-      const res = await fetch(`http://localhost:3001/api/batches/${batchId}`, { method: 'DELETE' });
+      const res = await fetch(`${API_BASE_URL}/batches/${batchId}`, { method: 'DELETE' });
       if (res.ok) {
         showAlert('Target batch deleted.', 'success');
         fetchData();
+      } else {
+        const data = await res.json();
+        showAlert(data.error || 'Failed to delete batch.', 'error');
       }
     } catch (err) {
-      showAlert('Extraction script error.', 'error');
+      showAlert('API communication error.', 'error');
     }
   };
 
-  // Helper selectors for Batch Modal setup
   const selectedMedForBatch = medicinesList.find(m => m.medicine_id === batchForm.medicine_id);
   const isBatchDiscreteUnit = selectedMedForBatch && DISCRETE_UNITS.includes(selectedMedForBatch.strength_unit_of_measure);
   const batchUnitMeasure = selectedMedForBatch ? selectedMedForBatch.strength_unit_of_measure : '';
@@ -297,11 +313,11 @@ export default function MedicineInventory() {
             setIsEditingMedicine(false);
             setIsMedicineModalOpen(true);
           }}>
-            <PlusCircle size={18} /> Add Medicine
+            <PlusCircle size={18} /> Add Medicine Item
           </button>
           
           <button className="btn-secondary-action" onClick={() => setIsManageMedicinesOpen(true)}>
-            <Settings2 size={18} /> Manage Medicines
+            <Settings2 size={18} /> Edit Medicine Item
           </button>
 
           <button className="btn-primary-action" onClick={() => setIsBatchModalOpen(true)}>
@@ -357,7 +373,7 @@ export default function MedicineInventory() {
               <th style={{ width: '25%' }}>Medicine</th>
               <th style={{ width: '20%' }}>Connected Indications</th>
               <th style={{ width: '15%' }}>Stock Units</th>
-              <th style={{ width: '15%' }}>Rem. Volume</th>
+              <th style={{ width: '15%' }}>Rem. Capacity/Volume</th>
               <th style={{ width: '10%' }}>Expiry</th>
               <th style={{ width: '10%' }}>Status</th>
               <th style={{ textAlign: 'center', width: '5%' }}>Actions</th>
@@ -398,7 +414,7 @@ export default function MedicineInventory() {
                     <div className="table-action-row-buttons" style={{ justifyContent: 'center' }}>
                       <button
                         className="action-icon-button edit"
-                        title="Adjust Volume"
+                        title="Adjust Volume / Stock"
                         onClick={() => {
                           setEditingBatch(item);
                           const normalizedDate = new Date(item.expiration_date).toISOString().split('T')[0];
@@ -434,7 +450,7 @@ export default function MedicineInventory() {
         <div className="modal-overlay-bg">
           <div className="modal-content-container" style={{ maxWidth: '650px' }}>
             <div className="modal-header-section">
-              <h3><Settings2 size={20} /> Manage Base Medicines</h3>
+              <h3><Settings2 size={20} /> Edit Medicines</h3>
               <button className="action-icon-button" onClick={() => setIsManageMedicinesOpen(false)}>
                 <X size={20} />
               </button>
@@ -508,7 +524,7 @@ export default function MedicineInventory() {
         <div className="modal-overlay-bg">
           <div className="modal-content-container" style={{ maxWidth: '600px' }}>
             <div className="modal-header-section">
-              <h3><FilePlus2 size={20} /> {isEditingMedicine ? 'Edit Medicine' : 'Register Medicine'}</h3>
+              <h3><FilePlus2 size={20} /> {isEditingMedicine ? 'Edit Medicine' : 'Create Medicine Item'}</h3>
               <button 
                 className="action-icon-button" 
                 onClick={() => {
@@ -565,6 +581,7 @@ export default function MedicineInventory() {
                     <input
                       type="number"
                       step="0.01"
+                      min="1"
                       className="modal-input-field"
                       value={medForm.strength_unit_value}
                       onChange={e => setMedForm({ ...medForm, strength_unit_value: e.target.value })}
@@ -587,7 +604,6 @@ export default function MedicineInventory() {
                   </div>
                 </div>
 
-                {/* Conditionally hide Avg Dosage inputs for discrete units */}
                 {!isCurrentMedDiscrete && (
                   <div style={{ display: 'flex', gap: '12px' }}>
                     <div className="modal-form-group" style={{ flex: 1 }}>
@@ -726,11 +742,10 @@ export default function MedicineInventory() {
                     />
                   </div>
 
-                  {/* Conditionally rendered based on selected medicine unit of measure */}
                   {selectedMedForBatch && !isBatchDiscreteUnit && (
                     <div className="modal-form-group" style={{ flex: 1 }}>
                       <label>
-                        Remaining Volume (in {batchUnitMeasure})
+                        Remaining Capacity (in {batchUnitMeasure})
                       </label>
                       <input
                         type="number"

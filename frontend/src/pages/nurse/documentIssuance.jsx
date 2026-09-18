@@ -27,6 +27,7 @@ import {
 import stiLogo from '../../assets/sti-logo.jpg';
 import '../../styles/nurse/DocumentIssuance.css';
 
+
 const DocumentIssuance = () => {
     const { nurseId } = useOutletContext();
 

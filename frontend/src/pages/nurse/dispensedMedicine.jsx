@@ -3,7 +3,35 @@ import { useOutletContext } from 'react-router-dom';
 import { Search, Pill, Calendar, History, PlusCircle, RefreshCw, CheckCircle, AlertTriangle, Filter, X } from 'lucide-react';
 import '../../styles/nurse/DispensedMedicine.css';
 
-const MEASURED_UNITS = ['mg', 'g', 'mcg', 'mL', 'L'];
+// Included 'pcs.' to treat piece-counted boxes as volume-backed stock
+const MEASURED_UNITS = ['mg', 'g', 'mcg', 'mL', 'L', 'pcs.'];
+
+const convertUnit = (val, fromUnit, toUnit) => {
+  if (fromUnit === toUnit || !fromUnit || !toUnit) return val;
+  const toBase = (v, u) => {
+    switch (u) {
+      case 'g': return v * 1000000;
+      case 'mg': return v * 1000;
+      case 'mcg': return v;
+      case 'L': return v * 1000;
+      case 'mL': return v;
+      case 'pcs.': return v;
+      default: return v;
+    }
+  };
+  const fromBase = (v, u) => {
+    switch (u) {
+      case 'g': return v / 1000000;
+      case 'mg': return v / 1000;
+      case 'mcg': return v;
+      case 'L': return v / 1000;
+      case 'mL': return v;
+      case 'pcs.': return v;
+      default: return v;
+    }
+  };
+  return fromBase(toBase(val, fromUnit), toUnit);
+};
 
 const DispensedMedicine = () => {
   const outletContext = useOutletContext() || {};
@@ -74,14 +102,11 @@ const DispensedMedicine = () => {
     }
   }, [fromDate, toDate, filterStudent, filterMedicine]);
 
-  // Initial Data Load
   useEffect(() => {
     fetchInventory();
     fetchHistory();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [fetchInventory, fetchHistory]);
 
-  // Student Search Lookup Effect
   useEffect(() => {
     if (searchStudent.trim().length > 1 && !selectedStudent) {
       fetch(`http://localhost:3001/api/students/direct?search=${encodeURIComponent(searchStudent)}`)
@@ -99,7 +124,6 @@ const DispensedMedicine = () => {
     }
   }, [searchStudent, selectedStudent]);
 
-  // Update batch choices & default dosage attributes on medicine selection
   useEffect(() => {
     if (selectedMedicineId && Array.isArray(inventory)) {
       const batches = inventory.filter(b => b.medicine_id === selectedMedicineId && b.current_stock > 0);
@@ -108,7 +132,7 @@ const DispensedMedicine = () => {
       
       const sample = inventory.find(i => i.medicine_id === selectedMedicineId);
       if (sample) {
-        const unit = sample.avg_dosage_consumption_unit_of_measure || '';
+        const unit = sample.avg_dosage_consumption_unit_of_measure || sample.strength_unit_of_measure || '';
         const rawVal = sample.avg_dosage_consumption_value || '';
         const isMeasuredUnit = MEASURED_UNITS.includes(unit);
 
@@ -180,6 +204,7 @@ const DispensedMedicine = () => {
       const currentStock = parseInt(selectedBatch.current_stock, 10);
       const strengthVal = parseFloat(selectedBatch.strength_unit_value);
       const remainingVol = parseFloat(selectedBatch.remaining_volume);
+      const strengthUnit = selectedBatch.strength_unit_of_measure;
 
       if (!isMeasuredUnit) {
         if (numericValue > currentStock) {
@@ -190,13 +215,15 @@ const DispensedMedicine = () => {
           return;
         }
       } else {
-        const totalAvailableVolume = currentStock > 0 
+        const reqInBatchUnit = convertUnit(numericValue, dosageUnit, strengthUnit);
+        const totalAvailableBatchUnit = currentStock > 0 
           ? remainingVol + (currentStock - 1) * strengthVal 
           : 0;
 
-        if (numericValue > totalAvailableVolume) {
+        if (reqInBatchUnit > totalAvailableBatchUnit) {
+          const availInDispenseUnit = convertUnit(totalAvailableBatchUnit, strengthUnit, dosageUnit);
           setMessage({ 
-            text: `Dosage cannot exceed current available volume (${totalAvailableVolume} ${dosageUnit}).`, 
+            text: `Dosage cannot exceed current available volume/count (${availInDispenseUnit.toFixed(2)} ${dosageUnit}).`, 
             type: 'error' 
           });
           return;
@@ -356,9 +383,9 @@ const DispensedMedicine = () => {
               >
                 <option value="">-- Choose Expiration Date --</option>
                 {availableBatches.map((batch) => {
-                  const batchIsMeasured = MEASURED_UNITS.includes(batch.avg_dosage_consumption_unit_of_measure);
+                  const batchIsMeasured = MEASURED_UNITS.includes(batch.strength_unit_of_measure);
                   const stockInfo = batchIsMeasured
-                    ? `Stock: ${batch.current_stock} | Rem. Vol: ${batch.remaining_volume} ${batch.avg_dosage_consumption_unit_of_measure}`
+                    ? `Stock: ${batch.current_stock} | Rem. Vol/Pcs: ${batch.remaining_volume} ${batch.strength_unit_of_measure}`
                     : `Stock: ${batch.current_stock}`;
                   return (
                     <option key={batch.batch_id} value={batch.batch_id}>
@@ -371,9 +398,9 @@ const DispensedMedicine = () => {
 
             {activeBatch && (
               <div className="batch-details-summary">
-                <p><strong>Current Stock:</strong> {activeBatch.current_stock}</p>
-                {isMeasured && (
-                  <p><strong>Remaining Volume:</strong> {activeBatch.remaining_volume} {activeBatch.avg_dosage_consumption_unit_of_measure}</p>
+                <p><strong>Current Stock (Boxes):</strong> {activeBatch.current_stock}</p>
+                {MEASURED_UNITS.includes(activeBatch.strength_unit_of_measure) && (
+                  <p><strong>Remaining Volume / Pieces:</strong> {activeBatch.remaining_volume} {activeBatch.strength_unit_of_measure}</p>
                 )}
                 <p><strong>Expiration:</strong> {new Date(activeBatch.expiration_date).toLocaleDateString()}</p>
               </div>
@@ -431,7 +458,7 @@ const DispensedMedicine = () => {
                 <tr>
                   <th>Medicine Name</th>
                   <th>Current Stock</th>
-                  <th>Remaining Volume</th>
+                  <th>Remaining Vol/Pcs</th>
                   <th>Expiration Date</th>
                   <th>Status</th>
                 </tr>
@@ -444,12 +471,12 @@ const DispensedMedicine = () => {
                 ) : (
                   inventory.map((item) => {
                     const status = getBatchStatus(item.current_stock, item.expiration_date);
-                    const showVolume = MEASURED_UNITS.includes(item.avg_dosage_consumption_unit_of_measure);
+                    const showVolume = MEASURED_UNITS.includes(item.strength_unit_of_measure);
                     return (
                       <tr key={item.batch_id}>
                         <td><strong>{item.medicine_name}</strong></td>
-                        <td>{item.current_stock} units</td>
-                        <td>{showVolume ? `${item.remaining_volume} ${item.avg_dosage_consumption_unit_of_measure}` : 'N/A'}</td>
+                        <td>{item.current_stock} boxes</td>
+                        <td>{showVolume ? `${item.remaining_volume} ${item.strength_unit_of_measure}` : 'N/A'}</td>
                         <td>{new Date(item.expiration_date).toLocaleDateString()}</td>
                         <td><span className={`status-tag ${status.class}`}>{status.label}</span></td>
                       </tr>

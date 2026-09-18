@@ -15,7 +15,7 @@ import {
   Phone,
   Unlink
 } from 'lucide-react';
-import '../../styles/admin/ManageStudentAccounts.css';
+import '../../styles/nurse/ManageStudentAccounts.css';
 
 const API_BASE = 'http://localhost:3001/api';
 

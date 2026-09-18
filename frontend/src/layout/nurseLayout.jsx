@@ -4,7 +4,7 @@ import {
     LayoutDashboard, FileBarChart, Stethoscope, FolderHeart, 
     Pill, Boxes, FileCheck, ClipboardCheck, HeartPulse, 
     BriefcaseMedical, AlertTriangle, Bell, Vault, LogOut,
-    MessageSquare 
+    MessageSquare, Users, UserCheck
 } from 'lucide-react';
 import '../styles/nurse/NurseLayout.css'; 
 
@@ -223,6 +223,24 @@ const NurseLayout = () => {
                             <>
                                 <Vault className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
                                 <span>Insurance Vault</span>
+                            </>
+                        )}
+                    </NavLink>
+                    
+                    <NavLink to="/ManageStudentAccounts" className="nav-link" onClick={closeSidebar}>
+                        {({ isActive }) => (
+                            <>
+                                <Users className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
+                                <span>Manage Student Account</span>
+                            </>
+                        )}
+                    </NavLink>
+
+                    <NavLink to="/ManageParentAccounts" className="nav-link" onClick={closeSidebar}>
+                        {({ isActive }) => (
+                            <>
+                                <UserCheck className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
+                                <span>Manage Parent Account</span>
                             </>
                         )}
                     </NavLink>

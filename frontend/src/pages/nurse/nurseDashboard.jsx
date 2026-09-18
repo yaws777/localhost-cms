@@ -10,6 +10,21 @@ import {
   ReferenceArea,
   ResponsiveContainer
 } from 'recharts';
+import { 
+  Eye, 
+  ChevronDown, 
+  ChevronUp, 
+  Lightbulb, 
+  CheckCircle2, 
+  X, 
+  Search, 
+  Calendar,
+  FileText,
+  AlertTriangle,
+  Stethoscope,
+  Activity,
+  FileSpreadsheet
+} from 'lucide-react';
 import '../../styles/nurse/NurseDashboard.css';
 
 const COLORS = ['#0250A3', '#F59E0B', '#EF4444', '#10B981', '#8B5CF6', '#EC4899', '#3B82F6', '#14B8A6', '#6366F1'];
@@ -136,6 +151,16 @@ const NurseDashboard = () => {
   const maxCurrentMonth = getCurrentMonthString();
   const defaultNextMonth = getNextMonthString();
 
+  // 0. Actionable Previews State
+  const [previewsData, setPreviewsData] = useState({
+    pendingDocuments: 0,
+    lowStockItems: 0,
+    upcomingScreenings: 0,
+    upcomingDoctorVisits: 0,
+    recentReports: 0
+  });
+  const [isPreviewsLoading, setIsPreviewsLoading] = useState(true);
+
   // 1. Health Trends State
   const [trendData, setTrendData] = useState([]);
   const [complaintsList, setComplaintsList] = useState([]);
@@ -202,6 +227,36 @@ const NurseDashboard = () => {
     }, {}),
     ...medicinesUnitsMap
   };
+
+  // Fetch Actionable Previews
+  const fetchDashboardPreviews = useCallback(async () => {
+    setIsPreviewsLoading(true);
+    try {
+      const [docsRes, invRes, screenRes, docVisitsRes, reportsRes] = await Promise.all([
+        fetch('http://localhost:3001/api/documents-approval'),
+        fetch('http://localhost:3001/api/inventory-updates'),
+        fetch('http://localhost:3001/api/health-screenings'),
+        fetch('http://localhost:3001/api/doctor-visits'),
+        fetch('http://localhost:3001/api/weekly-reports')
+      ]);
+
+      const [docs, inv, screens, visits, reports] = await Promise.all([
+        docsRes.json(), invRes.json(), screenRes.json(), docVisitsRes.json(), reportsRes.json()
+      ]);
+
+      setPreviewsData({
+        pendingDocuments: docs.data?.length || 0,
+        lowStockItems: inv.data?.length || 0,
+        upcomingScreenings: screens.data?.length || 0,
+        upcomingDoctorVisits: visits.data?.length || 0,
+        recentReports: reports.data?.length || 0
+      });
+    } catch (error) {
+      console.error("Failed to fetch dashboard previews:", error);
+    } finally {
+      setIsPreviewsLoading(false);
+    }
+  }, []);
 
   // Fetch Health Trends
   const fetchHealthTrends = useCallback(async () => {
@@ -291,11 +346,12 @@ const NurseDashboard = () => {
   }, []);
 
   useEffect(() => {
+    fetchDashboardPreviews();
     fetchHealthTrends();
     fetchMedicineDispensed();
     fetchPredictiveDemand();
     fetchFrequentAlerts();
-  }, [fetchHealthTrends, fetchMedicineDispensed, fetchPredictiveDemand, fetchFrequentAlerts]);
+  }, [fetchDashboardPreviews, fetchHealthTrends, fetchMedicineDispensed, fetchPredictiveDemand, fetchFrequentAlerts]);
 
   const activeComplaintsInGraph = complaintsList.filter(complaint => 
     trendData.some(dataPoint => (Number(dataPoint[complaint]) || 0) > 0)
@@ -334,6 +390,74 @@ const NurseDashboard = () => {
 
   return (
     <div className="dashboard-container">
+      {/* SECTION 0: ACTIONABLE PREVIEWS & SCHEDULES */}
+      <div className="dashboard-header">
+        <h2 className="dashboard-title">Dashboard Overview</h2>
+      </div>
+
+      {isPreviewsLoading ? (
+        <div className="loading-container">
+          <div className="spinner"></div>
+          <p className="loading-text">Loading actionable previews...</p>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap', marginBottom: '30px' }}>
+          
+          <div style={{ flex: '1 1 18%', background: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', borderLeft: '4px solid #F59E0B' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h4 style={{ margin: 0, color: '#4B5563', fontSize: '13px', fontWeight: 600 }}>Pending Documents</h4>
+                <p style={{ margin: '5px 0 0', fontSize: '24px', fontWeight: 700, color: '#111827' }}>{previewsData.pendingDocuments}</p>
+              </div>
+              <FileText size={28} color="#F59E0B" />
+            </div>
+          </div>
+
+          <div style={{ flex: '1 1 18%', background: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', borderLeft: '4px solid #EF4444' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h4 style={{ margin: 0, color: '#4B5563', fontSize: '13px', fontWeight: 600 }}>Low Stock Alerts</h4>
+                <p style={{ margin: '5px 0 0', fontSize: '24px', fontWeight: 700, color: '#111827' }}>{previewsData.lowStockItems}</p>
+              </div>
+              <AlertTriangle size={28} color="#EF4444" />
+            </div>
+          </div>
+
+          <div style={{ flex: '1 1 18%', background: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', borderLeft: '4px solid #10B981' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h4 style={{ margin: 0, color: '#4B5563', fontSize: '13px', fontWeight: 600 }}>Upcoming Screenings</h4>
+                <p style={{ margin: '5px 0 0', fontSize: '24px', fontWeight: 700, color: '#111827' }}>{previewsData.upcomingScreenings}</p>
+              </div>
+              <Activity size={28} color="#10B981" />
+            </div>
+          </div>
+
+          <div style={{ flex: '1 1 18%', background: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', borderLeft: '4px solid #3B82F6' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h4 style={{ margin: 0, color: '#4B5563', fontSize: '13px', fontWeight: 600 }}>Doctor Visits</h4>
+                <p style={{ margin: '5px 0 0', fontSize: '24px', fontWeight: 700, color: '#111827' }}>{previewsData.upcomingDoctorVisits}</p>
+              </div>
+              <Stethoscope size={28} color="#3B82F6" />
+            </div>
+          </div>
+
+          <div style={{ flex: '1 1 18%', background: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', borderLeft: '4px solid #8B5CF6' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h4 style={{ margin: 0, color: '#4B5563', fontSize: '13px', fontWeight: 600 }}>Weekly Reports</h4>
+                <p style={{ margin: '5px 0 0', fontSize: '24px', fontWeight: 700, color: '#111827' }}>{previewsData.recentReports}</p>
+              </div>
+              <FileSpreadsheet size={28} color="#8B5CF6" />
+            </div>
+          </div>
+
+        </div>
+      )}
+
+      <div className="dashboard-divider-line" />
+
       {/* SECTION 1: HEALTH TREND OVERVIEW */}
       <div className="dashboard-header">
         <h2 className="dashboard-title">Health Trend Overview</h2>
@@ -414,7 +538,7 @@ const NurseDashboard = () => {
           </div>
           {complaintsList.length > 3 && (
             <button className="view-more-toggle-btn" onClick={() => setIsAveragesExpanded(!isAveragesExpanded)}>
-              {isAveragesExpanded ? 'View Less ▲' : 'View More ▼'}
+              {isAveragesExpanded ? <>View Less <ChevronUp size={14} /></> : <>View More <ChevronDown size={14} /></>}
             </button>
           )}
         </div>
@@ -465,11 +589,9 @@ const NurseDashboard = () => {
         <div className="no-data-container"><h3 className="no-data-title">No Dispensation Records Found</h3></div>
       ) : (
         <>
-          {/* GRAPH 1: STANDARD DOSAGE UNITS (mg, g, mcg, mL, L) */}
+          {/* GRAPH 1: STANDARD DOSAGE UNITS */}
           <div className="graph-container">
-            <h3 className="chart-subtitle" style={{ marginBottom: '12px', fontSize: '15px', fontWeight: 600, color: '#374151' }}>
-              Standard Dosage Units (mg, g, mcg, mL, L)
-            </h3>
+            <h3 className="chart-subtitle">Standard Dosage Units (mg, g, mcg, mL, L)</h3>
             {standardMedicinesInGraph.length === 0 ? (
               <div className="no-data-container" style={{ padding: '20px' }}>
                 <p className="no-data-title" style={{ fontSize: '14px' }}>No records found for standard dosage units.</p>
@@ -497,10 +619,8 @@ const NurseDashboard = () => {
           </div>
 
           {/* GRAPH 2: OTHER UNITS OF MEASURE */}
-          <div className="graph-container" style={{ marginTop: '24px' }}>
-            <h3 className="chart-subtitle" style={{ marginBottom: '12px', fontSize: '15px', fontWeight: 600, color: '#374151' }}>
-              Other Units of Measure
-            </h3>
+          <div className="graph-container">
+            <h3 className="chart-subtitle">Other Units of Measure</h3>
             {otherMedicinesInGraph.length === 0 ? (
               <div className="no-data-container" style={{ padding: '20px' }}>
                 <p className="no-data-title" style={{ fontSize: '14px' }}>No records found for other units of measure.</p>
@@ -561,7 +681,7 @@ const NurseDashboard = () => {
           </div>
           {medicinesList.length > 3 && (
             <button className="view-more-toggle-btn" onClick={() => setIsDispensedAveragesExpanded(!isDispensedAveragesExpanded)}>
-              {isDispensedAveragesExpanded ? 'View Less ▲' : 'View More ▼'}
+              {isDispensedAveragesExpanded ? <>View Less <ChevronUp size={14} /></> : <>View More <ChevronDown size={14} /></>}
             </button>
           )}
         </div>
@@ -573,7 +693,7 @@ const NurseDashboard = () => {
       <div className="dashboard-header">
         <h2 className="dashboard-title">{predictiveTitle}</h2>
         <div className="filter-group">
-          <label style={{ fontSize: '13px', fontWeight: 600, color: '#4B5563' }}>Select Month: </label>
+          <label className="filter-label">Select Month: </label>
           <input 
             type="month" 
             value={predictiveMonth} 
@@ -598,7 +718,7 @@ const NurseDashboard = () => {
         ) : activePredictiveData.length === 0 ? (
           <div className="no-data-container"><h3 className="no-data-title">No Predictive Demand Records Found</h3></div>
         ) : (
-          <div className="chart-wrapper" style={{ overflowX: 'auto', width: '100%', WebkitOverflowScrolling: 'touch' }}>
+          <div className="chart-wrapper scrollable-chart">
             <div style={{ width: predictiveChartMinWidth, height: 420 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={activePredictiveData} margin={{ top: 20, right: 30, left: 10, bottom: 60 }}>
@@ -636,7 +756,7 @@ const NurseDashboard = () => {
           </div>
           {predictiveData.length > 2 && (
             <button className="view-more-toggle-btn" onClick={() => setIsPredictiveExpanded(!isPredictiveExpanded)}>
-              {isPredictiveExpanded ? 'View Less ▲' : 'View More ▼'}
+              {isPredictiveExpanded ? <>View Less <ChevronUp size={14} /></> : <>View More <ChevronDown size={14} /></>}
             </button>
           )}
         </div>
@@ -650,7 +770,9 @@ const NurseDashboard = () => {
           <h2 className="dashboard-title">Frequent Complaint Alerts</h2>
           {alerts.length > 0 && <span className="alert-count-badge">{alerts.length}</span>}
         </div>
-        <button className="view-all-btn" onClick={() => setIsModalOpen(true)}>View All Alerts</button>
+        <button className="view-all-btn" onClick={() => setIsModalOpen(true)}>
+          <Eye size={16} /> View All Alerts
+        </button>
       </div>
       <p className="section-subtitle">Students with recurring clinic visits for similar health concerns</p>
 
@@ -661,7 +783,7 @@ const NurseDashboard = () => {
         </div>
       ) : alerts.length === 0 ? (
         <div className="empty-alert-card">
-          <div className="empty-icon">✓</div>
+          <div className="empty-icon"><CheckCircle2 size={28} /></div>
           <h3 className="empty-title">No Frequent Complaint Alerts</h3>
           <p className="empty-subtext">There are currently no students exceeding visit thresholds for recurring complaints.</p>
         </div>
@@ -684,7 +806,7 @@ const NurseDashboard = () => {
               {alert.advice && (
                 <div className="advice-box">
                   <div className="advice-header">
-                    <span>💡</span> <strong>Recommended Advice</strong>
+                    <Lightbulb size={15} /> <strong>Recommended Advice</strong>
                   </div>
                   <p className="advice-text">{alert.advice}</p>
                 </div>
@@ -703,13 +825,36 @@ const NurseDashboard = () => {
                 <h3 className="modal-title">Frequent Complaint Alerts Overview</h3>
                 <p className="modal-subtitle">Detailed record of recurring student visits</p>
               </div>
-              <button className="modal-close-btn" onClick={() => setIsModalOpen(false)}>✕</button>
+              <button className="modal-close-btn" onClick={() => setIsModalOpen(false)} aria-label="Close modal">
+                <X size={18} />
+              </button>
             </div>
 
             <div className="modal-filter-bar">
-              <input type="text" placeholder="Search by student name, ID, or complaint..." value={modalSearch} onChange={(e) => setModalSearch(e.target.value)} className="filter-input modal-search-input" />
-              <input type="date" value={modalDate} onChange={(e) => setModalDate(e.target.value)} className="filter-input date-picker" />
-              {modalDate && <button className="clear-date-btn" onClick={() => setModalDate('')}>Clear Date</button>}
+              <div className="search-input-wrapper">
+                <Search size={16} className="search-icon" />
+                <input 
+                  type="text" 
+                  placeholder="Search student name, ID, complaint..." 
+                  value={modalSearch} 
+                  onChange={(e) => setModalSearch(e.target.value)} 
+                  className="filter-input modal-search-input" 
+                />
+              </div>
+              <div className="date-input-wrapper">
+                <Calendar size={16} className="date-icon" />
+                <input 
+                  type="date" 
+                  value={modalDate} 
+                  onChange={(e) => setModalDate(e.target.value)} 
+                  className="filter-input date-picker" 
+                />
+              </div>
+              {modalDate && (
+                <button className="clear-date-btn" onClick={() => setModalDate('')}>
+                  Clear Date
+                </button>
+              )}
             </div>
 
             <div className="modal-body-scroll">
@@ -722,12 +867,15 @@ const NurseDashboard = () => {
                       <th>Visits</th>
                       <th>Date Recorded</th>
                       <th>Advice / Recommendation</th>
+                      <th className="action-col-header">Action</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredAlerts.length === 0 ? (
                       <tr>
-                        <td colSpan="5" style={{ textAlign: 'center', padding: '24px', color: '#9CA3AF' }}>No matching records found.</td>
+                        <td colSpan="6" className="empty-table-cell">
+                          No matching records found.
+                        </td>
                       </tr>
                     ) : (
                       filteredAlerts.map((alert, idx) => (
@@ -740,6 +888,15 @@ const NurseDashboard = () => {
                           <td><span className="visit-badge-table">{alert.visitCount} visits</span></td>
                           <td>{alert.date || 'N/A'}</td>
                           <td><div className="table-advice-cell">{alert.advice || 'No specific advice provided'}</div></td>
+                          <td className="action-col-cell">
+                            <button 
+                              className="row-action-icon-btn" 
+                              title="View details" 
+                              aria-label="View record details"
+                            >
+                              <Eye size={16} />
+                            </button>
+                          </td>
                         </tr>
                       ))
                     )}
@@ -749,7 +906,9 @@ const NurseDashboard = () => {
             </div>
 
             <div className="modal-footer">
-              <button className="modal-close-secondary-btn" onClick={() => setIsModalOpen(false)}>Close</button>
+              <button className="modal-close-secondary-btn" onClick={() => setIsModalOpen(false)}>
+                Close
+              </button>
             </div>
           </div>
         </div>

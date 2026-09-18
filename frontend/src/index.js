@@ -35,9 +35,8 @@ import ParentNotifications from './pages/parent/parentNotifications';
 import ParentLayout from './layout/parentLayout'
 import HealthRecordProfile from './pages/nurse/healthRecordProfile';
 import HealthTips from './pages/student/HealthTips';
-import AdminLayout from './layout/adminLayout'; 
-import ManageStudentAccounts from './pages/admin/manageStudentAccounts';
-import ManageParentAccounts from './pages/admin/manageParentAccounts';  
+import ManageStudentAccounts from './pages/nurse/manageStudentAccounts';
+import ManageParentAccounts from './pages/nurse/manageParentAccounts';  
 import NurseMessages from './pages/nurse/nurseMessages';
 import StudentMessages from './components/student/StudentMessageModal'; // Import the StudentMessages component
 import MyQr from './pages/student/myQr'; // Import the myQr component
@@ -77,6 +76,8 @@ root.render(
           <Route path="/WeeklyReports" element={<WeeklyReports />} />
           <Route path="/DispensedMedicine" element={<DispensedMedicine />} />
           <Route path="/NurseMessages" element={<NurseMessages />} />
+          <Route path="/ManageStudentAccounts" element={<ManageStudentAccounts />} />
+          <Route path="/ManageParentAccounts" element={<ManageParentAccounts />} />
       </Route>
 
       <Route element={<StudentLayout />}>
@@ -89,11 +90,6 @@ root.render(
           <Route path="/HealthTips" element={<HealthTips />} />
           <Route path="/StudentMessages" element={<StudentMessages />} />
           <Route path="/MyRequirements" element={<MyRequirements />} />
-      </Route>
-
-      <Route element={<AdminLayout />}>
-          <Route path="/ManageStudentAccounts" element={<ManageStudentAccounts />} />
-          <Route path="/ManageParentAccounts" element={<ManageParentAccounts />} />
       </Route>
     </Routes>
   </BrowserRouter>

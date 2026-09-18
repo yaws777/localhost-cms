@@ -8,8 +8,8 @@ import jsQR from 'jsqr';
 import '../../styles/nurse/VisitLogConsultation.css';
 
 const MEASURED_UNITS = ['mg', 'g', 'mcg', 'mL', 'L'];
+const VOLUME_UNITS = ['mg', 'g', 'mcg', 'mL', 'L', 'pcs.'];
 
-// Helper function to format expiration date with literal month names (e.g., June 15, 2026)
 const formatExpirationDate = (dateString) => {
     if (!dateString) return '';
     const date = new Date(dateString);
@@ -20,31 +20,23 @@ const formatExpirationDate = (dateString) => {
 const VisitLogConsultation = () => {
     const { nurseId } = useOutletContext();
 
-    // Mode selection: null | 'search' | 'qr'
     const [searchMode, setSearchMode] = useState(null);
-    
-    // Search & QR states
     const [searchQuery, setSearchQuery] = useState('');
     const [qrCodeInput, setQrCodeInput] = useState('');
     const [students, setStudents] = useState([]);
     const [selectedStudent, setSelectedStudent] = useState(null);
     const [showConfirmModal, setShowConfirmModal] = useState(false);
-
-    // Repeat visit prompt state
     const [previousVisitsCount, setPreviousVisitsCount] = useState(0);
 
-    // Camera Scanner & Permission states
     const [isCameraScanning, setIsCameraScanning] = useState(false);
     const [cameraPermissionError, setCameraPermissionError] = useState(null);
     const videoRef = useRef(null);
     const streamRef = useRef(null);
 
-    // Master list data
     const [complaints, setComplaints] = useState([]);
     const [batches, setBatches] = useState([]);
     const [todayVisits, setTodayVisits] = useState([]);
 
-    // Document Visit Modal State
     const [documentingVisit, setDocumentingVisit] = useState(null);
     const [formData, setFormData] = useState({
         complaint_id: '',
@@ -62,12 +54,10 @@ const VisitLogConsultation = () => {
         dosage_consumption_unit_of_measure: ''
     });
 
-    // Time Out States
     const [inlineTimeouts, setInlineTimeouts] = useState({});
     const [qrTimeoutVisit, setQrTimeoutVisit] = useState(null);
     const [qrTimeoutInput, setQrTimeoutInput] = useState('');
 
-    // Refs for scanner closure synchronization
     const qrTimeoutVisitRef = useRef(qrTimeoutVisit);
     const searchModeRef = useRef(searchMode);
 
@@ -81,7 +71,6 @@ const VisitLogConsultation = () => {
 
     const todayStr = new Date().toISOString().split('T')[0];
 
-    // --- Camera QR Scanning & Permission Handler ---
     const stopCameraScan = useCallback(() => {
         if (streamRef.current) {
             streamRef.current.getTracks().forEach(track => track.stop());
@@ -92,9 +81,8 @@ const VisitLogConsultation = () => {
 
     const requestCameraAndStartScan = useCallback(async () => {
         setCameraPermissionError(null);
-        
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            setCameraPermissionError("Camera access is not supported by your browser or environment (HTTPS or localhost required).");
+            setCameraPermissionError("Camera access is not supported by your browser or environment.");
             return;
         }
 
@@ -102,20 +90,12 @@ const VisitLogConsultation = () => {
             const stream = await navigator.mediaDevices.getUserMedia({ 
                 video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } 
             });
-            
             streamRef.current = stream;
             setIsCameraScanning(true);
         } catch (err) {
             console.error("Camera permission error:", err);
             setIsCameraScanning(false);
-            
-            if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-                setCameraPermissionError("Camera access is blocked by your browser.");
-            } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-                setCameraPermissionError("No camera device was detected on this device.");
-            } else {
-                setCameraPermissionError("Unable to access camera: " + (err.message || ''));
-            }
+            setCameraPermissionError("Unable to access camera: " + (err.message || ''));
         }
     }, []);
 
@@ -132,7 +112,7 @@ const VisitLogConsultation = () => {
 
     const fetchBatches = useCallback(async () => {
         try {
-            const res = await fetch('http://localhost:3001/api/inventory/batches');
+            const res = await fetch('http://localhost:3001/api/medicines/batches');
             const data = await res.json();
             setBatches(Array.isArray(data) ? data : []);
         } catch (err) {
@@ -168,16 +148,13 @@ const VisitLogConsultation = () => {
     const handleSelectStudent = useCallback((student) => {
         stopCameraScan();
         setSelectedStudent(student);
-        
         const existingCount = todayVisits.filter(
             v => String(v.student_id).toLowerCase() === String(student.student_id).toLowerCase()
         ).length;
-
         setPreviousVisitsCount(existingCount);
         setShowConfirmModal(true);
     }, [todayVisits, stopCameraScan]);
 
-    // --- Student QR Search ---
     const searchStudentByQr = useCallback(async (studentId) => {
         if (!studentId || !studentId.trim()) return;
         try {
@@ -195,7 +172,6 @@ const VisitLogConsultation = () => {
         }
     }, [handleSelectStudent, stopCameraScan]);
 
-    // --- Search Handlers ---
     const handleSearch = async (val) => {
         setSearchQuery(val);
         if (val.trim().length === 0) {
@@ -227,7 +203,6 @@ const VisitLogConsultation = () => {
 
     const handleQrScanSubmit = async (e) => {
         if (e) e.preventDefault();
-        
         if (qrCodeInput.trim()) {
             stopCameraScan();
             await searchStudentByQr(qrCodeInput);
@@ -237,10 +212,8 @@ const VisitLogConsultation = () => {
         }
     };
 
-    // Timeout helper: Uses the time set in the inline time input field
     const handleManualTimeout = useCallback(async (visitId, timeOutVal = null) => {
         const selectedTime = timeOutVal || inlineTimeouts[visitId];
-
         if (!selectedTime || !selectedTime.trim()) {
             alert('Please select or enter a time in the Time Out field before clicking Manual Time Out.');
             return;
@@ -265,7 +238,6 @@ const VisitLogConsultation = () => {
         }
     }, [inlineTimeouts, fetchTodayVisits]);
 
-    // Real-time QR decoder
     useEffect(() => {
         let animationFrameId;
         const canvas = document.createElement('canvas');
@@ -274,20 +246,15 @@ const VisitLogConsultation = () => {
         const scanFrame = async () => {
             if (isCameraScanning && videoRef.current && videoRef.current.readyState === videoRef.current.HAVE_ENOUGH_DATA) {
                 const video = videoRef.current;
-                
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
-                
                 context.drawImage(video, 0, 0, canvas.width, canvas.height);
                 const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
                 
-                const code = jsQR(imageData.data, imageData.width, imageData.height, {
-                    inversionAttempts: 'dontInvert',
-                });
+                const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'dontInvert' });
 
                 if (code && code.data && code.data.trim() !== '') {
                     const scannedVal = code.data.trim();
-
                     stopCameraScan();
 
                     if (qrTimeoutVisitRef.current) {
@@ -324,10 +291,8 @@ const VisitLogConsultation = () => {
         };
     }, [isCameraScanning, stopCameraScan, searchStudentByQr, handleManualTimeout]);
 
-    // --- STEP 1: INITIAL ENTRY ---
     const handleConfirmVisitEntry = async () => {
         if (!selectedStudent) return;
-
         const activeVisit = todayVisits.find(
             v => String(v.student_id).toLowerCase() === String(selectedStudent.student_id).toLowerCase() && !v.time_out
         );
@@ -338,9 +303,7 @@ const VisitLogConsultation = () => {
             return;
         }
 
-        const now = new Date();
-        const currentTime = now.toTimeString().split(' ')[0].substring(0, 5);
-
+        const currentTime = new Date().toTimeString().split(' ')[0].substring(0, 5);
         const checkInPayload = {
             student_id: selectedStudent.student_id,
             nurse_id: nurseId || 'NURSE-DEFAULT',
@@ -379,11 +342,8 @@ const VisitLogConsultation = () => {
         setPreviousVisitsCount(0);
     };
 
-    // --- STEP 2: OPEN DOCUMENTATION MODAL ---
     const handleOpenDocumentModal = (visit) => {
-        const now = new Date();
-        const currentTime = now.toTimeString().split(' ')[0].substring(0, 5);
-
+        const currentTime = new Date().toTimeString().split(' ')[0].substring(0, 5);
         setDocumentingVisit(visit);
         setFormData({
             complaint_id: visit.complaint_id || '',
@@ -405,12 +365,11 @@ const VisitLogConsultation = () => {
     const handleBatchChange = (batchId) => {
         const selected = batches.find(b => b.batch_id === batchId);
         if (selected) {
-            const medicineUnit = selected.avg_dosage_unit_of_measure 
-                || selected.avg_dosage_consumption_unit_of_measure 
+            const medicineUnit = selected.avg_dosage_consumption_unit_of_measure 
                 || selected.strength_unit_of_measure 
-                || 'Tablet/s';
+                || 'pcs.';
 
-            let rawValue = selected.avg_dosage_value || selected.avg_dosage_consumption_value;
+            let rawValue = selected.avg_dosage_consumption_value;
             let initialValue = (rawValue && parseFloat(rawValue) > 0) ? String(rawValue) : '1';
             
             if (!MEASURED_UNITS.includes(medicineUnit) && initialValue) {
@@ -433,17 +392,33 @@ const VisitLogConsultation = () => {
         }
     };
 
-    const activeBatchInfo = batches.find(b => b.batch_id === formData.batch_id);
-    const isMeasuredUnit = MEASURED_UNITS.includes(formData.dosage_consumption_unit_of_measure);
-    const calculatedTotalAvailableVolume = activeBatchInfo && isMeasuredUnit
-        ? (parseInt(activeBatchInfo.current_stock, 10) > 0 
-            ? parseFloat(activeBatchInfo.remaining_volume) + (parseInt(activeBatchInfo.current_stock, 10) - 1) * parseFloat(activeBatchInfo.strength_unit_value || 0)
-            : 0)
-        : 0;
+    // Calculation helper for total available pcs/volume
+    const getTotalAvailableStock = (batch) => {
+        if (!batch) return 0;
+        const unit = batch.avg_dosage_consumption_unit_of_measure || batch.strength_unit_of_measure;
+        const isVol = VOLUME_UNITS.includes(unit);
+        
+        if (isVol) {
+            const currentStock = parseInt(batch.current_stock, 10) || 0;
+            if (currentStock <= 0) return 0;
+            const remainingVol = parseFloat(batch.remaining_volume || 0);
+            const unitVal = parseFloat(batch.strength_unit_value || 0);
+            return remainingVol + (currentStock - 1) * unitVal;
+        }
+        return parseInt(batch.current_stock, 10) || 0;
+    };
 
+    const activeBatchInfo = batches.find(b => b.batch_id === formData.batch_id);
+    const activeBatchUnit = activeBatchInfo 
+        ? (activeBatchInfo.avg_dosage_consumption_unit_of_measure || activeBatchInfo.strength_unit_of_measure)
+        : formData.dosage_consumption_unit_of_measure;
+
+    const isMeasuredUnit = MEASURED_UNITS.includes(formData.dosage_consumption_unit_of_measure);
+    const isVolumeUnit = VOLUME_UNITS.includes(activeBatchUnit) || VOLUME_UNITS.includes(formData.dosage_consumption_unit_of_measure);
+
+    const calculatedTotalAvailableVolume = activeBatchInfo && isVolumeUnit ? getTotalAvailableStock(activeBatchInfo) : 0;
     const isAlreadyDispensed = Boolean(documentingVisit?.batch_id || documentingVisit?.medicine_name);
 
-    // --- STEP 3: SAVE VISIT DETAILS ---
     const handleDocumentSubmit = async (e) => {
         e.preventDefault();
         if (!documentingVisit) return;
@@ -461,7 +436,6 @@ const VisitLogConsultation = () => {
             return;
         }
 
-        // Only validate dispensation if not already locked/saved previously
         if (!isAlreadyDispensed && formData.batch_id && formData.dosage_consumption_unit_value) {
             const val = Number(formData.dosage_consumption_unit_value);
             if (isNaN(val) || val <= 0) {
@@ -477,12 +451,14 @@ const VisitLogConsultation = () => {
                     alert('Cannot dispense from an expired batch.');
                     return;
                 }
-                if (isMeasuredUnit && val > calculatedTotalAvailableVolume) {
-                    alert(`Requested volume (${val}) exceeds total available stock (${calculatedTotalAvailableVolume}).`);
+                
+                // Treats 'pcs.' as volume unit so quantity deducts from remaining_volume / total available pcs
+                if (isVolumeUnit && val > calculatedTotalAvailableVolume) {
+                    alert(`Requested quantity (${val} ${formData.dosage_consumption_unit_of_measure}) exceeds total available units (${calculatedTotalAvailableVolume} ${formData.dosage_consumption_unit_of_measure}).`);
                     return;
                 }
-                if (!isMeasuredUnit && val > parseInt(activeBatchInfo.current_stock, 10)) {
-                    alert(`Requested quantity (${val}) exceeds available stock (${activeBatchInfo.current_stock}).`);
+                if (!isVolumeUnit && val > parseInt(activeBatchInfo.current_stock, 10)) {
+                    alert(`Requested quantity (${val}) exceeds available container stock (${activeBatchInfo.current_stock}).`);
                     return;
                 }
             }
@@ -515,7 +491,6 @@ const VisitLogConsultation = () => {
         }
     };
 
-    // --- Camera Time Out Triggers ---
     const handleOpenQrTimeoutModal = (visit) => {
         setQrTimeoutVisit(visit);
         setQrTimeoutInput('');
@@ -647,7 +622,6 @@ const VisitLogConsultation = () => {
                 </div>
             )}
 
-            {/* Live Camera QR Scanner Modal (Check-in Search Mode) */}
             {isCameraScanning && searchMode === 'qr' && (
                 <div className="modal-viewport-backdrop">
                     <div className="modal-body-container confirm-modal-small">
@@ -666,7 +640,6 @@ const VisitLogConsultation = () => {
                 </div>
             )}
 
-            {/* Check-In Confirmation & Grant/Deny Repeat Entry Modal */}
             {showConfirmModal && selectedStudent && (
                 <div className="modal-viewport-backdrop">
                     <div className="modal-body-container confirm-modal-small">
@@ -686,7 +659,6 @@ const VisitLogConsultation = () => {
                                 </p>
                             </div>
 
-                            {/* Multiple Login Warning Box */}
                             {previousVisitsCount > 0 ? (
                                 <div style={{
                                     marginTop: '14px',
@@ -733,7 +705,6 @@ const VisitLogConsultation = () => {
                 </div>
             )}
 
-            {/* Document Visit Modal */}
             {documentingVisit && (
                 <div className="modal-viewport-backdrop">
                     <div className="modal-body-container">
@@ -851,7 +822,6 @@ const VisitLogConsultation = () => {
                                         />
                                     </div>
 
-                                    {/* Dispense Medicine Section: Read-only if medicine was already dispensed */}
                                     <div className="form-input-element full-width-field">
                                         <label>
                                             Dispense Medicine 
@@ -876,15 +846,36 @@ const VisitLogConsultation = () => {
                                                 {batches.map(b => {
                                                     const isExpired = new Date(b.expiration_date) < new Date();
                                                     const formattedExp = formatExpirationDate(b.expiration_date);
+                                                    const unit = b.avg_dosage_consumption_unit_of_measure || b.strength_unit_of_measure || 'pcs.';
+                                                    const totalAvailable = getTotalAvailableStock(b);
+                                                    const isVol = VOLUME_UNITS.includes(unit);
+                                                    
+                                                    const stockText = isVol 
+                                                        ? `${totalAvailable} ${unit} available (${b.remaining_volume} ${unit} open container, ${b.current_stock} container/s)` 
+                                                        : `${b.current_stock} container/s`;
+
                                                     return (
-                                                        <option key={b.batch_id} value={b.batch_id} disabled={isExpired}>
-                                                            {b.medicine_name} — Exp: {formattedExp} {isExpired ? '(EXPIRED)' : `(Stock: ${b.current_stock})`}
+                                                        <option key={b.batch_id} value={b.batch_id} disabled={isExpired || totalAvailable <= 0}>
+                                                            {b.medicine_name} — Exp: {formattedExp} {isExpired ? '(EXPIRED)' : `(${stockText})`}
                                                         </option>
                                                     );
                                                 })}
                                             </select>
                                         )}
                                     </div>
+
+                                    {activeBatchInfo && !isAlreadyDispensed && (
+                                        <div className="form-input-element full-width-field" style={{
+                                            padding: '10px 14px',
+                                            backgroundColor: '#f0fdf4',
+                                            border: '1px solid #bbf7d0',
+                                            borderRadius: '6px',
+                                            fontSize: '13px',
+                                            color: '#166534'
+                                        }}>
+                                            <strong>Open Container Stock:</strong> {activeBatchInfo.remaining_volume} {activeBatchUnit} remaining in current open box/bottle (Total Available: {calculatedTotalAvailableVolume} {activeBatchUnit}).
+                                        </div>
+                                    )}
 
                                     {(formData.batch_id || isAlreadyDispensed) && (
                                         <>
@@ -926,7 +917,6 @@ const VisitLogConsultation = () => {
                 </div>
             )}
 
-            {/* Scan QR Timeout Modal */}
             {qrTimeoutVisit && (
                 <div className="modal-viewport-backdrop">
                     <div className="modal-body-container confirm-modal-small">
@@ -979,7 +969,6 @@ const VisitLogConsultation = () => {
                 </div>
             )}
 
-            {/* Today's Visits Table */}
             <div className="history-table-section-card">
                 <div className="section-title-wrapper">
                     <Clock size={18} className="title-icon-accent" />

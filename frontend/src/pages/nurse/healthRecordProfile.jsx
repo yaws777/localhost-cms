@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Folder, Lock, FileText } from 'lucide-react';
 import '../../styles/nurse/HealthRecordProfile.css';
 
+
 export default function HealthRecordsProfile() {
     const { studentId } = useParams(); 
     const navigate = useNavigate();
