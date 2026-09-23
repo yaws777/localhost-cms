@@ -1,4 +1,4 @@
-/* ManageStudentAccounts.css */
+/* ManageStudentAccounts.css - Desktop-First Responsive Stylesheet */
 
 :root {
   --sti-primary: #0056b3;
@@ -16,9 +16,14 @@
   --sti-badge-blue-text: #1967d2;
 }
 
-/* Base Layout & Container */
+/* ==========================================================================
+   1. DESKTOP BASE STYLES (Default Viewport >= 1025px)
+   ========================================================================== */
+
+/* Outer full-screen viewport container */
 .sti-container {
-  min-height: 100vh;
+  width: 100%;
+  min-height: calc(100vh - 32px);
   background-color: var(--sti-bg-light);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   color: var(--sti-text-dark);
@@ -26,13 +31,15 @@
   box-sizing: border-box;
 }
 
-/* Header */
+/* Header Component */
 .sti-header {
-  background-color: var(--sti-card-bg);
-  padding: 20px 28px;
+  background-color: var(--sti-primary);
+  padding: 18px 24px;
   border-radius: 10px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-  margin-bottom: 24px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  margin-bottom: 20px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .sti-brand {
@@ -42,50 +49,51 @@
 }
 
 .sti-icon-brand {
-  color: white;
+  color: #ffffff;
+  flex-shrink: 0;
 }
 
 .sti-brand h1 {
   margin: 0;
-  font-size: 1.5rem;
+  font-size: 1.4rem;
   font-weight: 700;
-  color: white;
+  color: #ffffff;
 }
 
 .sti-brand p {
-  margin: 4px 0 0 0;
-  font-size: 0.875rem;
-  color: white;
+  margin: 2px 0 0 0;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.85);
 }
 
-/* Content Area */
+/* Main Content Layout */
 .sti-content {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
 }
 
-/* Actions Bar & Search Area Spacing */
+/* Top Action Bar & Search Layout */
 .sti-actions-bar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 20px;
-  flex-wrap: wrap;
-  margin-bottom: 8px; /* Space between action bar and card table */
+  gap: 16px;
+  width: 100%;
 }
 
-/* Main Table Search Field Wrapper */
 .sti-search-wrapper {
   position: relative;
   flex: 1;
-  min-width: 280px;
-  max-width: 480px;
+  max-width: 420px;
 }
 
 .sti-search-icon {
   position: absolute;
-  left: 14px;
+  left: 12px;
   top: 50%;
   transform: translateY(-50%);
   color: var(--sti-secondary);
@@ -94,8 +102,8 @@
 
 .sti-search-input {
   width: 100%;
-  padding: 12px 16px 12px 42px; /* Generous internal left padding for the icon */
-  font-size: 0.95rem;
+  padding: 9px 14px 9px 38px;
+  font-size: 0.9rem;
   border: 1px solid var(--sti-border-color);
   border-radius: 8px;
   background-color: var(--sti-card-bg);
@@ -109,17 +117,32 @@
   box-shadow: 0 0 0 3px rgba(0, 86, 179, 0.15);
 }
 
-/* Buttons */
+/* Button Group Formatting (Prevents Stretched / Overlength Buttons) */
+.sti-btn-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.sti-hidden-input {
+  display: none;
+}
+
 .sti-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  padding: 10px 20px;
-  font-size: 0.9rem;
+  padding: 9px 16px;
+  font-size: 0.875rem;
   font-weight: 600;
-  border-radius: 8px;
+  border-radius: 6px;
   border: none;
   cursor: pointer;
+  width: auto;
+  max-width: fit-content;
+  white-space: nowrap;
   transition: background-color 0.2s, transform 0.1s;
 }
 
@@ -145,51 +168,62 @@
   background-color: var(--sti-secondary-hover);
 }
 
+/* Strictly Lucide-Icon Row Actions Formatting */
+.sti-actions-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: flex-start;
+}
+
 .sti-btn-icon {
   background: transparent;
-  border: none;
+  border: 1px solid transparent;
   padding: 6px;
   border-radius: 6px;
   cursor: pointer;
   color: var(--sti-secondary);
-  transition: background-color 0.2s, color 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  transition: background-color 0.2s, color 0.2s, border-color 0.2s;
 }
 
 .sti-btn-icon:hover {
   background-color: #e9ecef;
   color: var(--sti-primary);
+  border-color: var(--sti-border-color);
 }
 
-.sti-actions-cell {
-  display: flex;
-  gap: 4px;
-}
-
-/* Card & Table */
+/* Table Container Card */
 .sti-card {
   background-color: var(--sti-card-bg);
   border-radius: 10px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
   overflow: hidden;
+  width: 100%;
 }
 
 .sti-card-header {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 18px 24px;
+  padding: 14px 20px;
   border-bottom: 1px solid var(--sti-border-color);
   background-color: #fafafa;
 }
 
 .sti-card-header h2 {
   margin: 0;
-  font-size: 1.15rem;
+  font-size: 1.1rem;
   font-weight: 600;
   color: var(--sti-text-dark);
 }
 
 .sti-table-container {
+  width: 100%;
   overflow-x: auto;
 }
 
@@ -197,12 +231,12 @@
   width: 100%;
   border-collapse: collapse;
   text-align: left;
-  font-size: 0.9rem;
+  font-size: 0.875rem;
 }
 
 .sti-table th {
   background-color: #f8f9fa;
-  padding: 14px 18px;
+  padding: 12px 16px;
   font-weight: 600;
   color: var(--sti-secondary);
   border-bottom: 2px solid var(--sti-border-color);
@@ -210,7 +244,7 @@
 }
 
 .sti-table td {
-  padding: 14px 18px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--sti-border-color);
   vertical-align: middle;
 }
@@ -240,8 +274,8 @@
   align-items: center;
   gap: 4px;
   padding: 4px 10px;
-  border-radius: 20px;
-  font-size: 0.8rem;
+  border-radius: 16px;
+  font-size: 0.775rem;
   font-weight: 600;
 }
 
@@ -269,11 +303,14 @@
 .sti-parent-link {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   color: var(--sti-primary);
 }
 
-/* Modals */
+/* ==========================================================================
+   2. POP-UP MODALS
+   ========================================================================== */
+
 .sti-modal-overlay {
   position: fixed;
   top: 0;
@@ -285,33 +322,45 @@
   justify-content: center;
   align-items: center;
   z-index: 1000;
-  padding: 20px;
+  padding: 16px;
+  box-sizing: border-box;
 }
 
 .sti-modal {
   background-color: var(--sti-card-bg);
-  border-radius: 12px;
+  border-radius: 10px;
   width: 100%;
-  max-width: 650px;
+  max-width: 720px;
   max-height: 90vh;
   display: flex;
   flex-direction: column;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
   overflow: hidden;
+  box-sizing: border-box;
+}
+
+.sti-modal-lg {
+  max-width: 1100px;
 }
 
 .sti-modal-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 18px 24px;
+  padding: 14px 20px;
   border-bottom: 1px solid var(--sti-border-color);
   background-color: #fafafa;
 }
 
+.sti-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .sti-modal-header h3 {
   margin: 0;
-  font-size: 1.2rem;
+  font-size: 1.1rem;
   color: var(--sti-text-dark);
 }
 
@@ -322,6 +371,8 @@
   color: var(--sti-secondary);
   padding: 4px;
   border-radius: 4px;
+  display: flex;
+  align-items: center;
 }
 
 .sti-close-btn:hover {
@@ -330,46 +381,48 @@
 }
 
 .sti-modal-body {
-  padding: 24px;
+  padding: 20px;
   overflow-y: auto;
+  box-sizing: border-box;
 }
 
 .sti-modal-footer {
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
-  margin-top: 24px;
-  padding-top: 16px;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 12px;
   border-top: 1px solid var(--sti-border-color);
 }
 
-/* Forms & Inputs */
+/* Modal Internal Form Layouts */
 .sti-section-title {
   font-weight: 700;
-  font-size: 0.95rem;
+  font-size: 0.825rem;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: var(--sti-primary);
-  margin-bottom: 16px;
-  padding-bottom: 6px;
+  margin-top: 4px;
+  margin-bottom: 12px;
+  padding-bottom: 4px;
   border-bottom: 2px solid var(--sti-badge-blue-bg);
 }
 
 .sti-form-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 16px;
-  margin-bottom: 20px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px 14px;
+  margin-bottom: 16px;
 }
 
 .sti-form-group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 .sti-form-group label {
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   font-weight: 600;
   color: var(--sti-text-dark);
 }
@@ -377,8 +430,8 @@
 .sti-form-group input[type="text"],
 .sti-form-group input[type="password"],
 .sti-form-group select {
-  padding: 10px 12px;
-  font-size: 0.9rem;
+  padding: 8px 10px;
+  font-size: 0.875rem;
   border: 1px solid var(--sti-border-color);
   border-radius: 6px;
   outline: none;
@@ -392,7 +445,7 @@
 
 .sti-checkbox-group {
   grid-column: 1 / -1;
-  margin-top: 6px;
+  margin-top: 2px;
 }
 
 .sti-checkbox-group label {
@@ -401,63 +454,61 @@
   gap: 8px;
   cursor: pointer;
   font-weight: normal;
+  font-size: 0.85rem;
+}
+
+.sti-reset-active {
+  color: var(--sti-danger);
+  font-weight: bold !important;
 }
 
 .sti-radio-options {
   display: flex;
-  gap: 18px;
+  gap: 16px;
   flex-wrap: wrap;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
 .sti-radio-options label {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   cursor: pointer;
 }
 
-/* Parent Search Box & Results Dropdown Spacing */
 .sti-parent-box {
   background-color: #f8f9fa;
   border: 1px solid var(--sti-border-color);
   border-radius: 8px;
-  padding: 18px; /* Added internal padding around the search section */
-  margin-top: 14px;
-  margin-bottom: 14px;
+  padding: 12px 14px;
+  margin-top: 10px;
+  margin-bottom: 10px;
 }
 
 .sti-parent-box > label {
   display: block;
   font-weight: 600;
-  font-size: 0.85rem;
-  margin-bottom: 8px; /* Clear space above search input */
+  font-size: 0.8rem;
+  margin-bottom: 6px;
 }
 
-/* Parent Search Input inside Modals */
 .sti-parent-box input[type="text"] {
   width: 100%;
-  padding: 10px 14px;
-  font-size: 0.9rem;
+  padding: 8px 12px;
+  font-size: 0.875rem;
   border: 1px solid var(--sti-border-color);
   border-radius: 6px;
   outline: none;
   box-sizing: border-box;
-  margin-bottom: 10px; /* Space between search input and list results */
+  margin-bottom: 6px;
 }
 
-.sti-parent-box input[type="text"]:focus {
-  border-color: var(--sti-primary);
-  box-shadow: 0 0 0 3px rgba(0, 86, 179, 0.1);
-}
-
-/* Parent Search Results Dropdown List */
 .sti-search-list {
   list-style: none;
-  margin: 12px 0 0 0; /* Spacing above list */
+  margin: 6px 0 0 0;
   padding: 0;
-  max-height: 180px;
+  max-height: 130px;
   overflow-y: auto;
   border: 1px solid var(--sti-border-color);
   border-radius: 6px;
@@ -465,18 +516,13 @@
 }
 
 .sti-search-list li {
-  padding: 10px 14px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--sti-border-color);
   cursor: pointer;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 0.85rem;
-  transition: background-color 0.15s;
-}
-
-.sti-search-list li:last-child {
-  border-bottom: none;
+  font-size: 0.825rem;
 }
 
 .sti-search-list li:hover {
@@ -490,29 +536,28 @@
 }
 
 .sti-selected-text {
-  margin: 12px 0 0 0;
-  font-size: 0.85rem;
+  margin: 8px 0 0 0;
+  font-size: 0.825rem;
   color: var(--sti-success);
 }
 
 .sti-current-parent-info {
   background-color: #eef4fc;
   border-left: 4px solid var(--sti-primary);
-  padding: 12px 16px;
+  padding: 8px 12px;
   border-radius: 4px;
-  font-size: 0.9rem;
-  margin-top: 8px;
-  margin-bottom: 14px;
+  font-size: 0.85rem;
+  margin-top: 6px;
+  margin-bottom: 10px;
 }
 
-/* View Details Grid */
 .sti-details-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 12px;
-  font-size: 0.9rem;
+  font-size: 0.875rem;
   background-color: #f8f9fa;
-  padding: 16px;
+  padding: 14px;
   border-radius: 8px;
   border: 1px solid var(--sti-border-color);
 }
@@ -520,16 +565,159 @@
 .sti-parent-details-card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  font-size: 0.9rem;
+  gap: 8px;
+  font-size: 0.875rem;
   background-color: #ffffff;
-  padding: 16px;
+  padding: 14px;
   border-radius: 8px;
   border: 1px solid var(--sti-border-color);
 }
 
-.sti-parent-details-card div {
+/* Batch Modal Table Formatting */
+.sti-batch-table-wrapper {
+  max-height: 420px;
+  overflow-y: auto;
+  border: 1px solid var(--sti-border-color);
+  border-radius: 6px;
+}
+
+.sti-table-compact {
+  font-size: 0.825rem;
+}
+
+.sti-table-compact th {
+  position: sticky;
+  top: 0;
+  background: #f8f9fa;
+  z-index: 1;
+}
+
+.sti-batch-parent-info {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.75rem;
+}
+
+/* Precise Table Input Sizes */
+.sti-input-sm { padding: 4px 6px; font-size: 0.825rem; border: 1px solid var(--sti-border-color); border-radius: 4px; }
+.sti-input-xs { padding: 2px 4px; font-size: 0.775rem; border: 1px solid var(--sti-border-color); border-radius: 4px; }
+
+.sti-w-45 { width: 45px; }
+.sti-w-50 { width: 50px; }
+.sti-w-70 { width: 70px; }
+.sti-w-80 { width: 80px; }
+.sti-w-90 { width: 90px; }
+.sti-w-100 { width: 100px; }
+.sti-w-110 { width: 110px; }
+.sti-w-120 { width: 120px; }
+
+.sti-mb-16 { margin-bottom: 16px; }
+.sti-mt-16 { margin-top: 16px; }
+.sti-text-danger { color: var(--sti-danger); }
+.sti-inline-flex-gap-4 { display: flex; gap: 4px; }
+.sti-inline-icon { display: inline; margin-right: 4px; }
+
+
+/* ==========================================================================
+   3. DESKTOP-FIRST RESPONSIVE BREAKPOINTS
+   ========================================================================== */
+
+/* Laptops & Smaller Desktops (max-width: 1024px) */
+@media (max-width: 1024px) {
+  .sti-form-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .sti-details-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .sti-search-wrapper {
+    max-width: 320px;
+  }
+}
+
+/* Tablets & Large Mobile Viewports (max-width: 768px) */
+@media (max-width: 768px) {
+  .sti-container {
+    padding: 16px;
+    min-height: calc(100vh - 16px);
+  }
+
+  .sti-header {
+    padding: 14px 18px;
+    margin-bottom: 16px;
+  }
+
+  .sti-brand h1 {
+    font-size: 1.2rem;
+  }
+
+  .sti-actions-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .sti-search-wrapper {
+    max-width: 100%;
+    width: 100%;
+  }
+
+  .sti-btn-group {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .sti-btn {
+    flex: 1;
+    max-width: none;
+  }
+
+  .sti-modal {
+    max-width: 100%;
+  }
+
+  .sti-modal-body {
+    padding: 16px;
+  }
+
+  .sti-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sti-details-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Small Mobile Viewports (max-width: 480px) */
+@media (max-width: 480px) {
+  .sti-container {
+    padding: 10px;
+  }
+
+  .sti-btn-group {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .sti-btn {
+    width: 100%;
+  }
+
+  .sti-radio-options {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .sti-modal-footer {
+    flex-direction: column-reverse;
+    gap: 8px;
+  }
+
+  .sti-modal-footer .sti-btn {
+    width: 100%;
+  }
 }

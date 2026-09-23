@@ -4,12 +4,14 @@ import {
     LayoutDashboard, 
     FileHeart, 
     User, 
-    Bell, 
     Settings,
     LogOut,
-    RefreshCw
+    RefreshCw,
+    Bell,
+    X
 } from 'lucide-react';
 import '../styles/parent/ParentLayout.css'; 
+import { useWebPush } from '../hooks/useWebPush';
 
 const ParentLayout = () => {
     const navigate = useNavigate();
@@ -21,6 +23,22 @@ const ParentLayout = () => {
     const [childData, setChildData] = useState(null); 
     const [linkedStudentsCount, setLinkedStudentsCount] = useState(0);
     const [errorMsg, setErrorMsg] = useState('');
+
+    // Web Push Hook integration
+    const parentUserId = parentData?.user_id || null;
+    const { isSubscribed, subscribe } = useWebPush(parentUserId);
+
+    // Auto-sync web push subscription if browser permission was already granted
+    useEffect(() => {
+        if (parentUserId && typeof Notification !== 'undefined' && Notification?.permission === 'granted' && !isSubscribed) {
+            subscribe();
+        }
+    }, [parentUserId, isSubscribed, subscribe]);
+
+    // Notification states
+    const [notifications, setNotifications] = useState([]);
+    const [showNotifDropdown, setShowNotifDropdown] = useState(false);
+    const [activeNotifModal, setActiveNotifModal] = useState(null);
 
     useEffect(() => {
         // Read linkedStudents from localStorage to determine if switch option should display
@@ -87,13 +105,49 @@ const ParentLayout = () => {
         }
     }, [navigate]);
 
+    // Fetch notifications for both parent_id and selected student_id
+    useEffect(() => {
+        const fetchAllNotifications = async () => {
+            if (!parentData?.parent_id) return;
+
+            try {
+                const fetchPromises = [
+                    fetch(`http://localhost:3001/api/notifications/parent/${parentData.parent_id}`).then(res => res.json())
+                ];
+
+                if (childData?.student_id) {
+                    fetchPromises.push(
+                        fetch(`http://localhost:3001/api/notifications/student/${childData.student_id}`).then(res => res.json())
+                    );
+                }
+
+                const results = await Promise.all(fetchPromises);
+                const combinedNotifs = results.flat();
+
+                // Deduplicate by notification_id if any overlap occurs
+                const uniqueNotifs = Array.from(
+                    new Map(combinedNotifs.map(item => [item.notification_id, item])).values()
+                );
+
+                // Sort descending by creation date
+                uniqueNotifs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+                setNotifications(uniqueNotifs);
+            } catch (err) {
+                console.error("Error fetching notifications:", err);
+            }
+        };
+
+        fetchAllNotifications();
+    }, [parentData?.parent_id, childData?.student_id]);
+
     const toggleSidebar = () => setIsOpen(!isOpen);
     const closeSidebar = () => setIsOpen(false);
 
     // Handles clearing the active student selection when switching accounts
     const handleSwitchAccount = () => {
-        localStorage.removeItem('selectedStudentId'); // Remove only the active student ID
-        navigate('/ChooseStudentProfile');            // Redirect back to profile selector
+        localStorage.removeItem('selectedStudentId'); 
+        navigate('/ChooseStudentProfile');            
     };
 
     // Full logout cleanup
@@ -109,6 +163,34 @@ const ParentLayout = () => {
         const first = parentData.first_name ? parentData.first_name[0] : '';
         const last = parentData.last_name ? parentData.last_name[0] : '';
         return (first + last).toUpperCase() || 'PR';
+    };
+
+    // Filter unviewed/unread notifications
+    const unviewedNotifications = notifications.filter(n => Number(n.is_read) === 0);
+
+    // Handle clicking individual notification
+    const handleNotificationClick = (notif) => {
+        setShowNotifDropdown(false);
+
+        // Mark as read locally
+        setNotifications(prev =>
+            prev.map(item =>
+                item.notification_id === notif.notification_id ? { ...item, is_read: 1 } : item
+            )
+        );
+
+        const notifType = notif.type ? notif.type.toLowerCase() : '';
+        const notifMsg = notif.message ? notif.message.toLowerCase() : '';
+
+        // Determine destination page vs in-layout modal based on message or type
+        if (notifType.includes('clinic') || notifMsg.includes('clinic') || notifMsg.includes('medical')) {
+            navigate('/ChildClinicRecords');
+        } else if (notifType.includes('profile') || notifMsg.includes('profile')) {
+            navigate('/ChildProfile');
+        } else {
+            // Open modal in parentLayout without exiting
+            setActiveNotifModal(notif);
+        }
     };
 
     return (
@@ -185,15 +267,6 @@ const ParentLayout = () => {
                         )}
                     </NavLink>
 
-                    <NavLink to="/ParentNotifications" className="nav-link" onClick={closeSidebar}>
-                         {({ isActive }) => (
-                            <>
-                                <Bell className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
-                                <span>Notifications</span>
-                            </>
-                        )}
-                    </NavLink>
-
                     <NavLink to="/MyProfileParent" className="nav-link" onClick={closeSidebar}>
                          {({ isActive }) => (
                             <>
@@ -203,10 +276,17 @@ const ParentLayout = () => {
                         )}
                     </NavLink>
 
-                    {/* Divider before logout */}
+                    <NavLink to="/ParentNotificationSettings" className="nav-link" onClick={closeSidebar}>
+                        {({ isActive }) => (
+                            <>
+                                <Bell className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
+                                <span>Notification Settings</span>
+                            </>
+                        )}
+                    </NavLink>
+
                     <hr className="nav-divider" style={{ margin: '15px 0', borderColor: 'rgba(255,255,255,0.1)' }} />
 
-                    {/* Logout Button */}
                     <button 
                         onClick={handleLogout} 
                         className="nav-link logout-btn" 
@@ -221,20 +301,16 @@ const ParentLayout = () => {
             {/* MAIN CONTENT SECTION */}
             <div className="main-content">
                 {/* TOP BAR */}
-                <div className="parent-top-bar">
+                <div className="parent-top-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div className="top-bar-info">
                         <span className="viewing-label">Active Profile:</span>
                         
-                        {/* Check if childData has finished fetching from the server */}
                         {childData ? (
                             <div className="student-topbar-details" style={{ display: 'inline-flex', gap: '8px', alignItems: 'center' }}>
-                                
-                                {/* 1. Getting First Name and Last Name */}
                                 <span className="student-name" style={{ fontWeight: '600', color: '#111' }}>
                                     {childData.first_name} {childData.last_name}
                                 </span>
                                 
-                                {/* 2. Getting the Student ID */}
                                 <span className="student-id-badge" style={{ 
                                     background: '#e1ecf4', 
                                     color: '#3973af', 
@@ -245,23 +321,131 @@ const ParentLayout = () => {
                                 }}>
                                     ID: {childData.student_id}
                                 </span>
-
                             </div>
                         ) : (
                             <span className="student-name">Loading Profile...</span>
                         )}
                     </div>
 
-                    {/* Only show the switch button when there are 2 or more linked student profiles */}
-                    {linkedStudentsCount > 1 && (
-                        <button 
-                            className="btn-switch-child" 
-                            onClick={handleSwitchAccount}
-                        >
-                            <RefreshCw size={14} /> 
-                            Switch Child's Profile
-                        </button>
-                    )}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                        {/* NOTIFICATION BELL BUTTON */}
+                        <div style={{ position: 'relative' }}>
+                            <button 
+                                onClick={() => setShowNotifDropdown(!showNotifDropdown)}
+                                style={{
+                                    background: '#f4f6f8',
+                                    border: 'none',
+                                    borderRadius: '50%',
+                                    width: '38px',
+                                    height: '38px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: 'pointer',
+                                    position: 'relative'
+                                }}
+                                aria-label="Notifications"
+                            >
+                                <Bell size={18} color="#333" />
+                                {unviewedNotifications.length > 0 && (
+                                    <span style={{
+                                        position: 'absolute',
+                                        top: '-2px',
+                                        right: '-2px',
+                                        background: '#ff4d4f',
+                                        color: '#ffffff',
+                                        borderRadius: '50%',
+                                        minWidth: '18px',
+                                        height: '18px',
+                                        fontSize: '10px',
+                                        fontWeight: 'bold',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        padding: '0 4px'
+                                    }}>
+                                        {unviewedNotifications.length > 99 ? '99+' : unviewedNotifications.length}
+                                    </span>
+                                )}
+                            </button>
+
+                            {/* UNVIEWED NOTIFICATIONS DROPDOWN */}
+                            {showNotifDropdown && (
+                                <div style={{
+                                    position: 'absolute',
+                                    right: 0,
+                                    top: '45px',
+                                    width: '320px',
+                                    maxHeight: '380px',
+                                    overflowY: 'auto',
+                                    backgroundColor: '#ffffff',
+                                    boxShadow: '0 6px 16px rgba(0,0,0,0.15)',
+                                    borderRadius: '8px',
+                                    zIndex: 1000,
+                                    border: '1px solid #e8e8e8'
+                                }}>
+                                    <div style={{
+                                        padding: '12px 16px',
+                                        borderBottom: '1px solid #eee',
+                                        fontWeight: 'bold',
+                                        fontSize: '0.9rem',
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        backgroundColor: '#fafafa'
+                                    }}>
+                                        <span>Unread Notifications</span>
+                                        <span style={{ fontSize: '0.75rem', color: '#666', fontWeight: 'normal' }}>
+                                            {unviewedNotifications.length} total
+                                        </span>
+                                    </div>
+
+                                    {unviewedNotifications.length === 0 ? (
+                                        <div style={{ padding: '20px', textAlign: 'center', color: '#888', fontSize: '0.85rem' }}>
+                                            No unread notifications
+                                        </div>
+                                    ) : (
+                                        unviewedNotifications.map((notif) => (
+                                            <div 
+                                                key={notif.notification_id}
+                                                onClick={() => handleNotificationClick(notif)}
+                                                style={{
+                                                    padding: '12px 16px',
+                                                    borderBottom: '1px solid #f0f0f0',
+                                                    cursor: 'pointer',
+                                                    transition: 'background 0.2s',
+                                                    backgroundColor: '#e6f7ff'
+                                                }}
+                                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#bae7ff'}
+                                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#e6f7ff'}
+                                            >
+                                                <div style={{ fontWeight: '600', fontSize: '0.85rem', color: '#111', marginBottom: '4px' }}>
+                                                    {notif.title}
+                                                </div>
+                                                <div style={{ fontSize: '0.78rem', color: '#555', lineHeight: '1.3' }}>
+                                                    {notif.message}
+                                                </div>
+                                                <div style={{ fontSize: '0.68rem', color: '#888', marginTop: '6px' }}>
+                                                    {new Date(notif.created_at).toLocaleString()}
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Switch Child Button */}
+                        {linkedStudentsCount > 1 && (
+                            <button 
+                                className="btn-switch-child" 
+                                onClick={handleSwitchAccount}
+                            >
+                                <RefreshCw size={14} /> 
+                                Switch Child's Profile
+                            </button>
+                        )}
+                    </div>
                 </div>
 
                 {/* Content Wrapper */}
@@ -278,6 +462,75 @@ const ParentLayout = () => {
                     }} />
                 </div>
             </div>
+
+            {/* NOTIFICATION DETAIL MODAL */}
+            {activeNotifModal && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 2000
+                }}>
+                    <div style={{
+                        backgroundColor: '#ffffff',
+                        borderRadius: '8px',
+                        padding: '24px',
+                        maxWidth: '450px',
+                        width: '90%',
+                        boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
+                        position: 'relative'
+                    }}>
+                        <button 
+                            onClick={() => setActiveNotifModal(null)}
+                            style={{
+                                position: 'absolute',
+                                top: '16px',
+                                right: '16px',
+                                background: 'transparent',
+                                border: 'none',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            <X size={18} color="#666" />
+                        </button>
+
+                        <h3 style={{ marginTop: 0, marginBottom: '12px', color: '#111', fontSize: '1.1rem' }}>
+                            {activeNotifModal.title}
+                        </h3>
+
+                        <p style={{ fontSize: '0.9rem', color: '#444', lineHeight: '1.5', marginBottom: '20px' }}>
+                            {activeNotifModal.message}
+                        </p>
+
+                        <div style={{ fontSize: '0.75rem', color: '#888', marginBottom: '20px' }}>
+                            Received: {new Date(activeNotifModal.created_at).toLocaleString()}
+                        </div>
+
+                        <div style={{ textAlign: 'right' }}>
+                            <button 
+                                onClick={() => setActiveNotifModal(null)}
+                                style={{
+                                    backgroundColor: '#003366',
+                                    color: '#ffffff',
+                                    border: 'none',
+                                    padding: '8px 16px',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer',
+                                    fontSize: '0.85rem'
+                                }}
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

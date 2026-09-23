@@ -271,16 +271,14 @@ export default function Login() {
                                 placeholder="Password" 
                                 className="auth-input"
                             />
-                            {password && (
-                                <button 
-                                    type="button" 
-                                    className="password-toggle-btn" 
-                                    onClick={() => setShowPassword(!showPassword)}
-                                    aria-label="Toggle password visibility"
-                                >
-                                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                                </button>
-                            )}
+                            <button 
+                                type="button" 
+                                className="password-toggle-btn" 
+                                onClick={() => setShowPassword(!showPassword)}
+                                aria-label="Toggle password visibility"
+                            >
+                                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                            </button>
                         </div>
 
                         <button type="submit" className="btn-primary">Login</button>
@@ -349,16 +347,14 @@ export default function Login() {
                                     onChange={(e) => setNewPassword(e.target.value)}
                                     className="auth-input"
                                 />
-                                {newPassword && (
-                                    <button 
-                                        type="button" 
-                                        className="password-toggle-btn" 
-                                        onClick={() => setShowNewPassword(!showNewPassword)}
-                                        aria-label="Toggle new password visibility"
-                                    >
-                                        {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                                    </button>
-                                )}
+                                <button 
+                                    type="button" 
+                                    className="password-toggle-btn" 
+                                    onClick={() => setShowNewPassword(!showNewPassword)}
+                                    aria-label="Toggle new password visibility"
+                                >
+                                    {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                                </button>
                             </div>
                             
                             <div className="password-input-wrapper">
@@ -370,16 +366,14 @@ export default function Login() {
                                     onChange={(e) => setConfirmPassword(e.target.value)}
                                     className="auth-input"
                                 />
-                                {confirmPassword && (
-                                    <button 
-                                        type="button" 
-                                        className="password-toggle-btn" 
-                                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                                        aria-label="Toggle confirm password visibility"
-                                    >
-                                        {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                                    </button>
-                                )}
+                                <button 
+                                    type="button" 
+                                    className="password-toggle-btn" 
+                                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                                    aria-label="Toggle confirm password visibility"
+                                >
+                                    {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                                </button>
                             </div>
 
                             {/* Password Indicator & Requirement Checklist */}

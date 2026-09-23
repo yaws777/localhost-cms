@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   BarChart,
   Bar,
@@ -14,16 +15,23 @@ import {
   Eye, 
   ChevronDown, 
   ChevronUp, 
+  ChevronRight, 
   Lightbulb, 
   CheckCircle2, 
   X, 
   Search, 
   Calendar,
   FileText,
-  AlertTriangle,
   Stethoscope,
   Activity,
-  FileSpreadsheet
+  Clock,
+  Pill,
+  AlertCircle,
+  GraduationCap,
+  FileCheck,
+  UserCheck,
+  ShieldAlert,
+  Trash2
 } from 'lucide-react';
 import '../../styles/nurse/NurseDashboard.css';
 
@@ -50,6 +58,46 @@ const getBrandNameOnly = (fullName) => {
   if (!fullName) return '';
   const match = fullName.match(/\(([^)]+)\)/);
   return match && match[1] ? match[1].trim() : fullName;
+};
+
+const formatDate = (dateString) => {
+  if (!dateString) return 'N/A';
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) return dateString;
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+};
+
+const formatDateTime = (dateTimeString) => {
+  if (!dateTimeString) return 'N/A';
+  const date = new Date(dateTimeString);
+  if (isNaN(date.getTime())) return dateTimeString;
+  return date.toLocaleString('en-US', { 
+    month: 'short', 
+    day: 'numeric', 
+    year: 'numeric',
+    hour: '2-digit', 
+    minute: '2-digit', 
+    hour12: true 
+  });
+};
+
+const formatTime = (timeString) => {
+  if (!timeString) return 'N/A';
+  if (timeString.includes('T') || timeString.includes('-')) {
+    const date = new Date(timeString);
+    if (!isNaN(date.getTime())) {
+      return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+    }
+  }
+  const parts = timeString.split(':');
+  if (parts.length >= 2) {
+    const hours = parseInt(parts[0], 10);
+    const minutes = parts[1];
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    const formattedHour = hours % 12 || 12;
+    return `${formattedHour}:${minutes} ${ampm}`;
+  }
+  return timeString;
 };
 
 /* --- CUSTOM CHART TOOLTIPS --- */
@@ -148,18 +196,29 @@ const CustomXAxisTick = ({ x, y, payload, filterType, isCurrentYearSelected, cur
 
 /* --- MAIN DASHBOARD COMPONENT --- */
 const NurseDashboard = () => {
+  const navigate = useNavigate();
+
   const maxCurrentMonth = getCurrentMonthString();
   const defaultNextMonth = getNextMonthString();
 
-  // 0. Actionable Previews State
-  const [previewsData, setPreviewsData] = useState({
-    pendingDocuments: 0,
-    lowStockItems: 0,
-    upcomingScreenings: 0,
-    upcomingDoctorVisits: 0,
-    recentReports: 0
+  // 0. Unified Nurse Dashboard Operational Overview State
+  const [nurseDashboardData, setNurseDashboardData] = useState({
+    requirementsOverview: {
+      waitingForApprovalCount: 0,
+      incompleteCount: 0,
+      totalAttentionCount: 0
+    },
+    upcomingRequirementDeadlines: [],
+    pendingDocumentRequests: {
+      pending_excuse_slips: 0,
+      pending_referral_slips: 0,
+      total_pending_requests: 0
+    },
+    medicineStockAlerts: [],
+    upcomingHealthScreenings: [],
+    upcomingDoctorVisits: []
   });
-  const [isPreviewsLoading, setIsPreviewsLoading] = useState(true);
+  const [isNurseDashboardLoading, setIsNurseDashboardLoading] = useState(true);
 
   // 1. Health Trends State
   const [trendData, setTrendData] = useState([]);
@@ -199,6 +258,12 @@ const NurseDashboard = () => {
   const [modalSearch, setModalSearch] = useState('');
   const [modalDate, setModalDate] = useState('');
 
+  // Frequent Visit Details State
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [selectedAlertHeader, setSelectedAlertHeader] = useState(null);
+  const [detailVisits, setDetailVisits] = useState([]);
+  const [isDetailLoading, setIsDetailLoading] = useState(false);
+
   // Expand / Collapse UI States
   const [isAveragesExpanded, setIsAveragesExpanded] = useState(false);
   const [isDispensedAveragesExpanded, setIsDispensedAveragesExpanded] = useState(false);
@@ -228,33 +293,80 @@ const NurseDashboard = () => {
     ...medicinesUnitsMap
   };
 
-  // Fetch Actionable Previews
-  const fetchDashboardPreviews = useCallback(async () => {
-    setIsPreviewsLoading(true);
+  // Fetch Unified Nurse Operational Dashboard Overview
+  const fetchNurseDashboard = useCallback(async () => {
+    setIsNurseDashboardLoading(true);
     try {
-      const [docsRes, invRes, screenRes, docVisitsRes, reportsRes] = await Promise.all([
-        fetch('http://localhost:3001/api/documents-approval'),
-        fetch('http://localhost:3001/api/inventory-updates'),
-        fetch('http://localhost:3001/api/health-screenings'),
-        fetch('http://localhost:3001/api/doctor-visits'),
-        fetch('http://localhost:3001/api/weekly-reports')
-      ]);
+      const studentsResponse = await fetch('http://localhost:3001/api/students');
+      const studentsData = await studentsResponse.json();
 
-      const [docs, inv, screens, visits, reports] = await Promise.all([
-        docsRes.json(), invRes.json(), screenRes.json(), docVisitsRes.json(), reportsRes.json()
-      ]);
+      let waitingForApprovalCount = 0;
+      let incompleteCount = 0;
 
-      setPreviewsData({
-        pendingDocuments: docs.data?.length || 0,
-        lowStockItems: inv.data?.length || 0,
-        upcomingScreenings: screens.data?.length || 0,
-        upcomingDoctorVisits: visits.data?.length || 0,
-        recentReports: reports.data?.length || 0
+      if (Array.isArray(studentsData)) {
+        studentsData.forEach(student => {
+          const stats = student.stats || {};
+          const hasWaiting = ((stats.submitted || 0) + (stats.late || 0)) > 0;
+          const hasIncomplete = (stats.total || 0) > (stats.completed || 0);
+
+          if (hasWaiting) waitingForApprovalCount++;
+          if (hasIncomplete) incompleteCount++;
+        });
+      }
+
+      const totalAttentionCount = waitingForApprovalCount + incompleteCount;
+
+      const response = await fetch('http://localhost:3001/api/nurse/dashboard');
+      if (!response.ok) throw new Error("Failed to fetch nurse dashboard data");
+      const result = await response.json();
+      const dashData = result.success && result.data ? result.data : {};
+
+      let medicineStockAlerts = [];
+      try {
+        const invResponse = await fetch('http://localhost:3001/api/inventory');
+        if (invResponse.ok) {
+          const inventoryBatches = await invResponse.json();
+          
+          medicineStockAlerts = inventoryBatches
+            .filter(batch => Number(batch.current_stock) <= Number(batch.low_stock_level))
+            .map(batch => {
+              const stock = Number(batch.current_stock);
+              const crit = Number(batch.critical_stock_level);
+              const low = Number(batch.low_stock_level);
+              
+              let stock_status = 'ADEQUATE';
+              if (stock <= crit) {
+                stock_status = 'CRITICAL';
+              } else if (stock <= low) {
+                stock_status = 'LOW';
+              }
+
+              return {
+                ...batch,
+                stock_status
+              };
+            });
+        }
+      } catch (invErr) {
+        console.error("Error fetching batch inventory stock alerts:", invErr);
+      }
+      
+      setNurseDashboardData({
+        requirementsOverview: {
+          waitingForApprovalCount,
+          incompleteCount,
+          totalAttentionCount
+        },
+        upcomingRequirementDeadlines: dashData.upcomingRequirementDeadlines || [],
+        pendingDocumentRequests: dashData.pendingDocumentRequests || { pending_excuse_slips: 0, pending_referral_slips: 0, total_pending_requests: 0 },
+        medicineStockAlerts,
+        upcomingHealthScreenings: dashData.upcomingHealthScreenings || [],
+        upcomingDoctorVisits: dashData.upcomingDoctorVisits || []
       });
     } catch (error) {
-      console.error("Failed to fetch dashboard previews:", error);
+      console.error("Error fetching nurse operational dashboard:", error);
     } finally {
-      setIsPreviewsLoading(false);
+      setIsNurseDashboardLoading(false);
     }
   }, []);
 
@@ -345,13 +457,61 @@ const NurseDashboard = () => {
     }
   }, []);
 
+  // Dismiss / Delete Alert
+  const handleDismissAlert = async (studentId, complaint) => {
+    if (!window.confirm(`Are you sure you want to dismiss the alert for ${complaint}?`)) {
+      return;
+    }
+    try {
+      const response = await fetch('http://localhost:3001/api/frequent-complaints/dismiss', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ studentId, complaint })
+      });
+      const result = await response.json();
+      if (result.success) {
+        setAlerts(prev => prev.filter(a => !(a.studentId === studentId && a.complaint === complaint)));
+      } else {
+        alert(result.message || 'Failed to dismiss alert.');
+      }
+    } catch (error) {
+      console.error('Error dismissing alert:', error);
+      alert('An error occurred while dismissing the alert.');
+    }
+  };
+
+  // View Detailed Visit Records for Alert
+  const handleViewDetails = async (alertData) => {
+    setSelectedAlertHeader(alertData);
+    setIsDetailModalOpen(true);
+    setIsDetailLoading(true);
+
+    try {
+      const targetMonth = alertData.date ? alertData.date.slice(0, 7) : new Date().toISOString().slice(0, 7);
+      const response = await fetch(
+        `http://localhost:3001/api/frequent-complaints/details?studentId=${alertData.studentId}&complaint=${encodeURIComponent(alertData.complaint)}&month=${targetMonth}`
+      );
+      const result = await response.json();
+      if (result.success) {
+        setDetailVisits(result.data || []);
+      } else {
+        setDetailVisits([]);
+      }
+    } catch (error) {
+      console.error('Error fetching frequent visit details:', error);
+      setDetailVisits([]);
+    } finally {
+      setIsDetailLoading(false);
+    }
+  };
+
   useEffect(() => {
-    fetchDashboardPreviews();
+    fetchNurseDashboard();
     fetchHealthTrends();
     fetchMedicineDispensed();
     fetchPredictiveDemand();
     fetchFrequentAlerts();
-  }, [fetchDashboardPreviews, fetchHealthTrends, fetchMedicineDispensed, fetchPredictiveDemand, fetchFrequentAlerts]);
+  }, [fetchNurseDashboard, fetchHealthTrends, fetchMedicineDispensed, fetchPredictiveDemand, fetchFrequentAlerts]);
 
   const activeComplaintsInGraph = complaintsList.filter(complaint => 
     trendData.some(dataPoint => (Number(dataPoint[complaint]) || 0) > 0)
@@ -361,7 +521,6 @@ const NurseDashboard = () => {
     dispensedData.some(dataPoint => (Number(dataPoint[medicine]) || 0) > 0)
   );
 
-  // Split active medicines by dosage unit of measure
   const standardMedicinesInGraph = activeMedicinesInGraph.filter(medicine => {
     const unit = combinedUnitsMap[medicine];
     return STANDARD_UNITS.includes(unit);
@@ -388,68 +547,127 @@ const NurseDashboard = () => {
     return matchesSearch && matchesDate;
   });
 
+  const viewAllBtnStyle = {
+    background: 'transparent',
+    border: 'none',
+    color: '#0250A3',
+    fontSize: '13px',
+    fontWeight: '600',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '4px 8px',
+    borderRadius: '4px',
+    transition: 'background 0.2s ease'
+  };
+
   return (
     <div className="dashboard-container">
-      {/* SECTION 0: ACTIONABLE PREVIEWS & SCHEDULES */}
-      <div className="dashboard-header">
-        <h2 className="dashboard-title">Dashboard Overview</h2>
+      
+      {/* TOP SUMMARY STAT CARDS */}
+      <div className="dashboard-section-header">
+        <h2 className="dashboard-title">Nurse Operational Overview</h2>
+        <span className="last-updated-tag">Live System Data</span>
       </div>
 
-      {isPreviewsLoading ? (
+      {isNurseDashboardLoading ? (
         <div className="loading-container">
           <div className="spinner"></div>
-          <p className="loading-text">Loading actionable previews...</p>
+          <p className="loading-text">Loading operational dashboard overview...</p>
         </div>
       ) : (
-        <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap', marginBottom: '30px' }}>
+        <div className="overview-cards-grid">
           
-          <div style={{ flex: '1 1 18%', background: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', borderLeft: '4px solid #F59E0B' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          {/* Card 1: Requirements Overview */}
+          <div className="overview-card stat-card-blue">
+            <div className="stat-card-header">
               <div>
-                <h4 style={{ margin: 0, color: '#4B5563', fontSize: '13px', fontWeight: 600 }}>Pending Documents</h4>
-                <p style={{ margin: '5px 0 0', fontSize: '24px', fontWeight: 700, color: '#111827' }}>{previewsData.pendingDocuments}</p>
+                <span className="stat-card-label">Requirements Overview</span>
+                <h3 className="stat-card-number">{nurseDashboardData.requirementsOverview.totalAttentionCount || 0}</h3>
+                <p className="stat-card-subtext">Students Needing Requirement Attention</p>
               </div>
-              <FileText size={28} color="#F59E0B" />
+              <div className="stat-icon-wrapper bg-blue-light">
+                <FileCheck size={24} color="#0250A3" />
+              </div>
+            </div>
+            <div className="stat-card-footer">
+              <div className="stat-pill warning-pill">
+                <Clock size={12} />
+                <span><strong>{nurseDashboardData.requirementsOverview.waitingForApprovalCount || 0}</strong> Waiting for Approval</span>
+              </div>
+              <div className="stat-pill danger-pill">
+                <AlertCircle size={12} />
+                <span><strong>{nurseDashboardData.requirementsOverview.incompleteCount || 0}</strong> Incomplete Requirements</span>
+              </div>
             </div>
           </div>
 
-          <div style={{ flex: '1 1 18%', background: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', borderLeft: '4px solid #EF4444' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          {/* Card 2: Document Requests Pending Approval */}
+          <div className="overview-card stat-card-orange">
+            <div className="stat-card-header">
               <div>
-                <h4 style={{ margin: 0, color: '#4B5563', fontSize: '13px', fontWeight: 600 }}>Low Stock Alerts</h4>
-                <p style={{ margin: '5px 0 0', fontSize: '24px', fontWeight: 700, color: '#111827' }}>{previewsData.lowStockItems}</p>
+                <span className="stat-card-label">Pending Document Requests</span>
+                <h3 className="stat-card-number">{nurseDashboardData.pendingDocumentRequests.total_pending_requests || 0}</h3>
+                <p className="stat-card-subtext">Awaiting Nurse Review</p>
               </div>
-              <AlertTriangle size={28} color="#EF4444" />
+              <div className="stat-icon-wrapper bg-orange-light">
+                <FileText size={24} color="#F59E0B" />
+              </div>
+            </div>
+            <div className="stat-card-footer">
+              <div className="stat-pill neutral-pill">
+                <span>Excuse Slips: <strong>{nurseDashboardData.pendingDocumentRequests.pending_excuse_slips || 0}</strong></span>
+              </div>
+              <div className="stat-pill neutral-pill">
+                <span>Referral Slips: <strong>{nurseDashboardData.pendingDocumentRequests.pending_referral_slips || 0}</strong></span>
+              </div>
             </div>
           </div>
 
-          <div style={{ flex: '1 1 18%', background: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', borderLeft: '4px solid #10B981' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          {/* Card 3: Medicine Low & Critical Batch Stock */}
+          <div className="overview-card stat-card-red">
+            <div className="stat-card-header">
               <div>
-                <h4 style={{ margin: 0, color: '#4B5563', fontSize: '13px', fontWeight: 600 }}>Upcoming Screenings</h4>
-                <p style={{ margin: '5px 0 0', fontSize: '24px', fontWeight: 700, color: '#111827' }}>{previewsData.upcomingScreenings}</p>
+                <span className="stat-card-label">Medicine Stock Alerts</span>
+                <h3 className="stat-card-number">{nurseDashboardData.medicineStockAlerts.length}</h3>
+                <p className="stat-card-subtext">Batches Requiring Action</p>
               </div>
-              <Activity size={28} color="#10B981" />
+              <div className="stat-icon-wrapper bg-red-light">
+                <ShieldAlert size={24} color="#EF4444" />
+              </div>
+            </div>
+            <div className="stat-card-footer">
+              <div className="stat-pill danger-pill">
+                <span>Critical: <strong>{nurseDashboardData.medicineStockAlerts.filter(m => m.stock_status === 'CRITICAL').length}</strong></span>
+              </div>
+              <div className="stat-pill warning-pill">
+                <span>Low Stock: <strong>{nurseDashboardData.medicineStockAlerts.filter(m => m.stock_status === 'LOW').length}</strong></span>
+              </div>
             </div>
           </div>
 
-          <div style={{ flex: '1 1 18%', background: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', borderLeft: '4px solid #3B82F6' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          {/* Card 4: Upcoming Screenings & Doctor Visits */}
+          <div className="overview-card stat-card-green">
+            <div className="stat-card-header">
               <div>
-                <h4 style={{ margin: 0, color: '#4B5563', fontSize: '13px', fontWeight: 600 }}>Doctor Visits</h4>
-                <p style={{ margin: '5px 0 0', fontSize: '24px', fontWeight: 700, color: '#111827' }}>{previewsData.upcomingDoctorVisits}</p>
+                <span className="stat-card-label">Upcoming Schedules</span>
+                <h3 className="stat-card-number">
+                  {(nurseDashboardData.upcomingHealthScreenings?.length || 0) + (nurseDashboardData.upcomingDoctorVisits?.length || 0)}
+                </h3>
+                <p className="stat-card-subtext">Screenings & Doctor Visits</p>
               </div>
-              <Stethoscope size={28} color="#3B82F6" />
+              <div className="stat-icon-wrapper bg-green-light">
+                <Calendar size={24} color="#10B981" />
+              </div>
             </div>
-          </div>
-
-          <div style={{ flex: '1 1 18%', background: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', borderLeft: '4px solid #8B5CF6' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <h4 style={{ margin: 0, color: '#4B5563', fontSize: '13px', fontWeight: 600 }}>Weekly Reports</h4>
-                <p style={{ margin: '5px 0 0', fontSize: '24px', fontWeight: 700, color: '#111827' }}>{previewsData.recentReports}</p>
+            <div className="stat-card-footer">
+              <div className="stat-pill success-pill">
+                <span>Screenings: <strong>{nurseDashboardData.upcomingHealthScreenings?.length || 0}</strong></span>
               </div>
-              <FileSpreadsheet size={28} color="#8B5CF6" />
+              <div className="stat-pill info-pill">
+                <span>Doctor Visits: <strong>{nurseDashboardData.upcomingDoctorVisits?.length || 0}</strong></span>
+              </div>
             </div>
           </div>
 
@@ -762,7 +980,264 @@ const NurseDashboard = () => {
         </div>
       )}
 
-      {/* SECTION 4: FREQUENT COMPLAINT ALERTS */}
+      {/* SECTION 4: DETAILED PANELS GRID */}
+      <div className="dashboard-divider-line" />
+
+      <div className="dashboard-section-header">
+        <h2 className="dashboard-title">Detailed Clinic Records & Deadlines</h2>
+      </div>
+
+      {!isNurseDashboardLoading && (
+        <div className="dashboard-details-grid">
+          
+          {/* 1. Upcoming Requirement Deadlines Details */}
+          <div className="detail-panel">
+            <div className="panel-header">
+              <div className="panel-title-wrapper">
+                <Clock size={18} className="panel-icon text-blue" />
+                <h3 className="panel-title">Upcoming Requirement Deadlines</h3>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <span className="count-badge">{nurseDashboardData.upcomingRequirementDeadlines.length}</span>
+                <button 
+                  style={viewAllBtnStyle} 
+                  onClick={() => navigate('/RequirementManagement')}
+                  onMouseOver={(e) => e.currentTarget.style.background = '#f0f5fa'}
+                  onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+                >
+                  View All <ChevronRight size={14} />
+                </button>
+              </div>
+            </div>
+            <div className="panel-content">
+              {nurseDashboardData.upcomingRequirementDeadlines.length === 0 ? (
+                <div className="panel-empty">No upcoming requirement deadlines recorded.</div>
+              ) : (
+                <div className="table-responsive">
+                  <table className="overview-table">
+                    <thead>
+                      <tr>
+                        <th>Requirement Name</th>
+                        <th>Type</th>
+                        <th>Target Scope</th>
+                        <th>Deadline</th>
+                        <th>Late Submission</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {nurseDashboardData.upcomingRequirementDeadlines.map((req, idx) => (
+                        <tr key={req.id || idx}>
+                          <td className="font-semibold">{req.requirement_name}</td>
+                          <td>
+                            <span className={`badge-pill ${req.requirement_type === 'Program' ? 'badge-program' : 'badge-special'}`}>
+                              {req.requirement_type}
+                            </span>
+                          </td>
+                          <td className="text-muted">
+                            {req.requirement_type === 'Program' 
+                              ? `Program: ${req.program_name || req.program_code || 'All Programs'} (Yr ${req.year_level || 'All'})`
+                              : `Student: ${req.student_name || 'Specific Student'}`
+                            }
+                          </td>
+                          <td className="text-highlight">{formatDate(req.submission_deadline)}</td>
+                          <td>
+                            <span className={`status-tag ${req.allow_late_submission ? 'tag-allowed' : 'tag-strict'}`}>
+                              {req.allow_late_submission ? 'Allowed' : 'Not Allowed'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 2. Medicine Inventory Low & Critical Batch Stock Details */}
+          <div className="detail-panel">
+            <div className="panel-header">
+              <div className="panel-title-wrapper">
+                <Pill size={18} className="panel-icon text-red" />
+                <h3 className="panel-title">Medicine Stock Level Alerts</h3>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <span className="count-badge count-badge-red">{nurseDashboardData.medicineStockAlerts.length}</span>
+                <button 
+                  style={viewAllBtnStyle} 
+                  onClick={() => navigate('/MedicineInventory')}
+                  onMouseOver={(e) => e.currentTarget.style.background = '#f0f5fa'}
+                  onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+                >
+                  View All <ChevronRight size={14} />
+                </button>
+              </div>
+            </div>
+            <div className="panel-content">
+              {nurseDashboardData.medicineStockAlerts.length === 0 ? (
+                <div className="panel-empty panel-empty-success">
+                  <CheckCircle2 size={18} color="#10B981" />
+                  <span>All medicine batch stock levels are currently adequate.</span>
+                </div>
+              ) : (
+                <div className="table-responsive">
+                  <table className="overview-table">
+                    <thead>
+                      <tr>
+                        <th>Medicine</th>
+                        <th>Form</th>
+                        <th>Current Stock</th>
+                        <th>Thresholds (Low / Crit)</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {nurseDashboardData.medicineStockAlerts.map((med) => (
+                        <tr key={med.batch_id || med.medicine_id}>
+                          <td>
+                            <div className="font-semibold">{med.generic_name}</div>
+                            {med.brand_name && <div className="text-xs text-muted">({med.brand_name})</div>}
+                          </td>
+                          <td>{med.dosage_form || 'N/A'}</td>
+                          <td>
+                            <strong className={med.stock_status === 'CRITICAL' ? 'text-red' : 'text-orange'}>
+                              {med.current_stock}
+                            </strong>
+                          </td>
+                          <td className="text-xs text-muted">
+                            Low: {med.low_stock_level} | Crit: {med.critical_stock_level}
+                          </td>
+                          <td>
+                            <span className={`status-badge ${med.stock_status === 'CRITICAL' ? 'badge-critical' : 'badge-low'}`}>
+                              {med.stock_status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 3. Upcoming Health Screenings Details */}
+          <div className="detail-panel">
+            <div className="panel-header">
+              <div className="panel-title-wrapper">
+                <Activity size={18} className="panel-icon text-green" />
+                <h3 className="panel-title">Upcoming Health Screenings</h3>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <span className="count-badge">{nurseDashboardData.upcomingHealthScreenings.length}</span>
+                <button 
+                  style={viewAllBtnStyle} 
+                  onClick={() => navigate('/HealthScreening')}
+                  onMouseOver={(e) => e.currentTarget.style.background = '#f0f5fa'}
+                  onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+                >
+                  View All <ChevronRight size={14} />
+                </button>
+              </div>
+            </div>
+            <div className="panel-content">
+              {nurseDashboardData.upcomingHealthScreenings.length === 0 ? (
+                <div className="panel-empty">No upcoming health screenings scheduled.</div>
+              ) : (
+                <div className="cards-list">
+                  {nurseDashboardData.upcomingHealthScreenings.map((screen) => (
+                    <div key={screen.screening_schedule_id} className="detail-card border-left-green">
+                      <div className="card-top-row">
+                        <h4 className="card-item-title">{screen.title}</h4>
+                        <span className="badge-pill badge-green">{screen.screening_type || 'Screening'}</span>
+                      </div>
+                      <div className="card-meta-grid">
+                        <div>
+                          <Calendar size={13} className="inline-icon" />
+                          <strong>Date:</strong> {formatDate(screen.scheduled_date)}
+                        </div>
+                        <div>
+                          <Clock size={13} className="inline-icon" />
+                          <strong>Time:</strong> {formatTime(screen.start_time)} - {formatTime(screen.end_time)}
+                        </div>
+                        <div>
+                          <GraduationCap size={13} className="inline-icon" />
+                          <strong>Target:</strong> Program: {screen.target_program_name || screen.target_program || 'All Programs'}, Yr {screen.target_year_level || 'All'} ({screen.target_section || 'All Sections'})
+                        </div>
+                      </div>
+                      {screen.announcement && (
+                        <div className="card-announcement">
+                          <strong>Announcement:</strong> {screen.announcement}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 4. Upcoming Doctor Visits Details */}
+          <div className="detail-panel">
+            <div className="panel-header">
+              <div className="panel-title-wrapper">
+                <Stethoscope size={18} className="panel-icon text-purple" />
+                <h3 className="panel-title">Upcoming Doctor Visits</h3>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <span className="count-badge">{nurseDashboardData.upcomingDoctorVisits.length}</span>
+                <button 
+                  style={viewAllBtnStyle} 
+                  onClick={() => navigate('/DoctorVisit')}
+                  onMouseOver={(e) => e.currentTarget.style.background = '#f0f5fa'}
+                  onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+                >
+                  View All <ChevronRight size={14} />
+                </button>
+              </div>
+            </div>
+            <div className="panel-content">
+              {nurseDashboardData.upcomingDoctorVisits.length === 0 ? (
+                <div className="panel-empty">No upcoming doctor visits scheduled.</div>
+              ) : (
+                <div className="cards-list">
+                  {nurseDashboardData.upcomingDoctorVisits.map((visit) => (
+                    <div key={visit.appointment_id} className="detail-card border-left-purple">
+                      <div className="card-top-row">
+                        <h4 className="card-item-title">{visit.title || `Doctor Visit`}</h4>
+                        <span className="badge-pill badge-purple">{visit.status || 'Scheduled'}</span>
+                      </div>
+                      <div className="card-meta-grid">
+                        <div>
+                          <Clock size={13} className="inline-icon" />
+                          <strong>Schedule:</strong> {formatDateTime(visit.start_time)}
+                        </div>
+                        <div>
+                          <UserCheck size={13} className="inline-icon" />
+                          <strong>Doctor:</strong> {visit.doctor_name || visit.doctor || 'Assigned Doctor'}
+                        </div>
+                        {visit.assigned_by_nurse_name && (
+                          <div>
+                            <strong>Assigned By:</strong> Nurse {visit.assigned_by_nurse_name}
+                          </div>
+                        )}
+                      </div>
+                      {visit.announcement && (
+                        <div className="card-announcement">
+                          <strong>Notes:</strong> {visit.announcement}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+        </div>
+      )}
+
+      {/* SECTION 5: FREQUENT COMPLAINT ALERTS */}
       <div className="dashboard-divider-line" />
 
       <div className="dashboard-header">
@@ -791,20 +1266,18 @@ const NurseDashboard = () => {
         <div className="frequent-alerts-grid">
           {alerts.slice(0, 6).map((alert, index) => (
             <div key={index} className="alert-card">
-              <div>
-                <div className="alert-card-header">
-                  <div>
-                    <h3 className="alert-student-name">{alert.studentName}</h3>
-                    <span className="alert-student-id">ID: {alert.studentId}</span>
-                  </div>
-                  <span className="visit-badge">{alert.visitCount} Visits</span>
+              <div className="alert-card-header">
+                <div>
+                  <h3 className="alert-student-name">{alert.studentName}</h3>
+                  {alert.gradeSection && <span style={{ fontSize: '12px', color: '#6B7280' }}>{alert.gradeSection}</span>}
                 </div>
-                <div className="complaint-chip">
-                  <strong>Complaint:</strong> {alert.complaint}
-                </div>
+                <span className="visit-badge">{alert.visitCount} Visits</span>
+              </div>
+              <div className="complaint-chip" style={{ marginTop: '8px' }}>
+                <strong>Complaint:</strong> {alert.complaint}
               </div>
               {alert.advice && (
-                <div className="advice-box">
+                <div className="advice-box" style={{ marginTop: '10px' }}>
                   <div className="advice-header">
                     <Lightbulb size={15} /> <strong>Recommended Advice</strong>
                   </div>
@@ -816,7 +1289,7 @@ const NurseDashboard = () => {
         </div>
       )}
 
-      {/* MODAL TABLE */}
+      {/* ALL ALERTS OVERVIEW MODAL */}
       {isModalOpen && (
         <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>
           <div className="modal-container" onClick={(e) => e.stopPropagation()}>
@@ -835,7 +1308,7 @@ const NurseDashboard = () => {
                 <Search size={16} className="search-icon" />
                 <input 
                   type="text" 
-                  placeholder="Search student name, ID, complaint..." 
+                  placeholder="Search student name, complaint..." 
                   value={modalSearch} 
                   onChange={(e) => setModalSearch(e.target.value)} 
                   className="filter-input modal-search-input" 
@@ -867,7 +1340,7 @@ const NurseDashboard = () => {
                       <th>Visits</th>
                       <th>Date Recorded</th>
                       <th>Advice / Recommendation</th>
-                      <th className="action-col-header">Action</th>
+                      <th className="action-col-header" style={{ textAlign: 'right' }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -882,20 +1355,32 @@ const NurseDashboard = () => {
                         <tr key={idx}>
                           <td>
                             <div className="table-student-name">{alert.studentName}</div>
-                            <div className="table-student-id">{alert.studentId}</div>
+                            {alert.gradeSection && <div className="text-xs text-muted">{alert.gradeSection}</div>}
                           </td>
                           <td><span className="complaint-tag">{alert.complaint}</span></td>
                           <td><span className="visit-badge-table">{alert.visitCount} visits</span></td>
                           <td>{alert.date || 'N/A'}</td>
                           <td><div className="table-advice-cell">{alert.advice || 'No specific advice provided'}</div></td>
                           <td className="action-col-cell">
-                            <button 
-                              className="row-action-icon-btn" 
-                              title="View details" 
-                              aria-label="View record details"
-                            >
-                              <Eye size={16} />
-                            </button>
+                            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                              <button 
+                                className="row-action-icon-btn" 
+                                title="View visit details" 
+                                aria-label="View record details"
+                                onClick={() => handleViewDetails(alert)}
+                              >
+                                <Eye size={16} />
+                              </button>
+                              <button 
+                                className="row-action-icon-btn" 
+                                title="Dismiss Alert" 
+                                aria-label="Dismiss Alert"
+                                onClick={() => handleDismissAlert(alert.studentId, alert.complaint)}
+                                style={{ color: '#EF4444' }}
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))
@@ -913,6 +1398,91 @@ const NurseDashboard = () => {
           </div>
         </div>
       )}
+
+      {/* DETAILED VISIT LIST MODAL */}
+      {isDetailModalOpen && (
+        <div className="modal-overlay" onClick={() => setIsDetailModalOpen(false)}>
+          <div className="modal-container" style={{ maxWidth: '850px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h3 className="modal-title">Frequent Visit Details</h3>
+                <p className="modal-subtitle">
+                  <strong>{selectedAlertHeader?.studentName}</strong> — <span style={{ color: '#0250A3', fontWeight: 600 }}>{selectedAlertHeader?.complaint}</span> ({detailVisits.length} Visits within 1 Month)
+                </p>
+              </div>
+              <button className="modal-close-btn" onClick={() => setIsDetailModalOpen(false)} aria-label="Close modal">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="modal-body-scroll" style={{ padding: '20px' }}>
+              {isDetailLoading ? (
+                <div className="loading-container">
+                  <div className="spinner"></div>
+                  <p className="loading-text">Loading visit records for this complaint...</p>
+                </div>
+              ) : detailVisits.length === 0 ? (
+                <div className="panel-empty">No detailed visit records found for this period.</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  {detailVisits.map((visit, vIdx) => (
+                    <div key={visit.visitId || vIdx} style={{ border: '1px solid #E5E7EB', borderRadius: '8px', padding: '16px', backgroundColor: '#FAFAFA' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', paddingBottom: '8px', borderBottom: '1px solid #F3F4F6' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span style={{ fontWeight: 700, fontSize: '15px', color: '#1F2937' }}>Visit #{detailVisits.length - vIdx}</span>
+                          <span className="badge-pill badge-program">{formatDate(visit.visitDate)}</span>
+                        </div>
+                        <div style={{ fontSize: '13px', color: '#6B7280', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <Clock size={14} /> Time In: {formatTime(visit.timeIn)} | Time Out: {formatTime(visit.timeOut)}
+                        </div>
+                      </div>
+
+                      {/* Vital Signs Grid */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginBottom: '12px', background: '#FFFFFF', padding: '10px', borderRadius: '6px', border: '1px solid #E5E7EB' }}>
+                        <div>
+                          <strong style={{ fontSize: '11px', color: '#6B7280', display: 'block', textTransform: 'uppercase' }}>Blood Pressure</strong> 
+                          <span style={{ fontSize: '13px', fontWeight: 600 }}>{visit.bloodPressure || 'N/A'}</span>
+                        </div>
+                        <div>
+                          <strong style={{ fontSize: '11px', color: '#6B7280', display: 'block', textTransform: 'uppercase' }}>Temperature</strong> 
+                          <span style={{ fontSize: '13px', fontWeight: 600 }}>{visit.temperature ? `${visit.temperature} °C` : 'N/A'}</span>
+                        </div>
+                        <div>
+                          <strong style={{ fontSize: '11px', color: '#6B7280', display: 'block', textTransform: 'uppercase' }}>Pulse Rate</strong> 
+                          <span style={{ fontSize: '13px', fontWeight: 600 }}>{visit.pulseRate || 'N/A'}</span>
+                        </div>
+                        <div>
+                          <strong style={{ fontSize: '11px', color: '#6B7280', display: 'block', textTransform: 'uppercase' }}>Respiratory Rate</strong> 
+                          <span style={{ fontSize: '13px', fontWeight: 600 }}>{visit.respiratoryRate || 'N/A'}</span>
+                        </div>
+                      </div>
+
+                      {/* Nursing Intervention & Health Advice */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '13px' }}>
+                        <div style={{ background: '#F0F9FF', padding: '10px 12px', borderRadius: '6px', borderLeft: '3px solid #0250A3' }}>
+                          <strong style={{ color: '#0250A3', display: 'block', marginBottom: '4px' }}>Nursing Intervention:</strong>
+                          <p style={{ margin: 0, color: '#374151' }}>{visit.nursingIntervention || 'None recorded'}</p>
+                        </div>
+                        <div style={{ background: '#FEFCE8', padding: '10px 12px', borderRadius: '6px', borderLeft: '3px solid #EAB308' }}>
+                          <strong style={{ color: '#854D0E', display: 'block', marginBottom: '4px' }}>Health Advice:</strong>
+                          <p style={{ margin: 0, color: '#374151' }}>{visit.healthAdvice || 'None recorded'}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="modal-footer">
+              <button className="modal-close-secondary-btn" onClick={() => setIsDetailModalOpen(false)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

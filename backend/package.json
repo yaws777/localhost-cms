@@ -27,7 +27,8 @@
     "passport": "^0.7.0",
     "passport-azure-ad": "^4.3.5",
     "pg": "^8.23.0",
-    "twilio": "^6.0.2"
+    "twilio": "^6.0.2",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"

@@ -1,0 +1,86 @@
+const webpush = require('web-push');
+
+// Configuration
+const vapidKeys = {
+    publicKey: process.env.VAPID_PUBLIC_KEY || 'YOUR_PUBLIC_VAPID_KEY_HERE',
+    privateKey: process.env.VAPID_PRIVATE_KEY || 'YOUR_PRIVATE_VAPID_KEY_HERE'
+};
+
+webpush.setVapidDetails(
+    'mailto:support@yourdomain.com',
+    vapidKeys.publicKey,
+    vapidKeys.privateKey
+);
+
+
+async function notifyUsers({ sender_id, recipient_ids, title, message, type, payloadData = {} }) {
+    if (!recipient_ids || recipient_ids.length === 0) return;
+
+    // Sanitize and deduplicate user IDs
+    const uniqueRecipients = [...new Set(recipient_ids.filter(Boolean))];
+    if (uniqueRecipients.length === 0) return;
+
+    try {
+        // 1. Bulk insert system notifications into database
+        const notifValues = uniqueRecipients.map((recipient_id) => [
+            uuidv4(),
+            sender_id || null,
+            recipient_id,
+            title,
+            message,
+            type || 'SYSTEM',
+            0 // is_read = false
+        ]);
+
+        await pool.query(
+            `INSERT INTO notifications (notification_id, sender_id, recipient_id, title, message, type, is_read) VALUES ?`,
+            [notifValues]
+        );
+
+        // 2. Query push subscriptions
+        const [subscriptions] = await pool.query(
+            `SELECT * FROM push_subscriptions WHERE user_id IN (?)`,
+            [uniqueRecipients]
+        );
+
+        if (subscriptions.length === 0) {
+            console.warn(`[WebPush] No active subscriptions found for user IDs:`, uniqueRecipients);
+            return;
+        }
+
+        const pushPayload = JSON.stringify({
+            title,
+            body: message,
+            data: payloadData,
+        });
+
+        // 3. Dispatch web push notifications using webpush.sendNotification
+        const pushPromises = subscriptions.map(async (sub) => {
+            const pushSubscription = {
+                endpoint: sub.endpoint,
+                keys: {
+                    p256dh: sub.p256dh,
+                    auth: sub.auth,
+                },
+            };
+
+            try {
+                // FIXED: Changed sendPushNotification to sendNotification
+                await webpush.sendNotification(pushSubscription, pushPayload);
+                console.log(`[WebPush] Successfully sent to subscription: ${sub.subscription_id}`);
+            } catch (err) {
+                console.error(`[WebPush] Error sending to subscription ${sub.subscription_id}:`, err.statusCode || err.message);
+                
+                // Remove expired/unsubscribed tokens (HTTP status 404 or 410)
+                if (err.statusCode === 410 || err.statusCode === 404) {
+                    await pool.query('DELETE FROM push_subscriptions WHERE subscription_id = ?', [sub.subscription_id]);
+                    console.log(`[WebPush] Cleaned up expired subscription: ${sub.subscription_id}`);
+                }
+            }
+        });
+
+        await Promise.allSettled(pushPromises);
+    } catch (err) {
+        console.error('[WebPush] Error inside notifyUsers helper:', err);
+    }
+}

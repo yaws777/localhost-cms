@@ -13,7 +13,6 @@ import ChooseStudentProfile from './pages/parent/chooseStudentProfile';
 import MyProfile from './pages/student/myProfile';
 import ClinicLogsAndRecords from './pages/student/clinicLogs&Records';
 import RequestModule from './pages/student/requestModule';
-import StudentNotifications from './pages/student/notifications';
 import StudentLayout from './layout/studentLayout';
 import NurseLayout from './layout/nurseLayout';
 import DoctorVisit from './pages/nurse/doctorVisits';
@@ -23,7 +22,6 @@ import HealthScreening from './pages/nurse/healthScreening';
 import IncidentReport from './pages/nurse/incidentReports';    
 import InsuranceVault from './pages/nurse/insuranceVault';
 import MedicineInventory from './pages/nurse/medicineInventory';  
-import NurseNotifications from './pages/nurse/notifications';
 import RequirementManagement from './pages/nurse/requirementManagement';
 import VisitLogConsultation from './pages/nurse/visitLogConsultation';
 import WeeklyReports from './pages/nurse/weeklyReports';
@@ -31,7 +29,6 @@ import DispensedMedicine from './pages/nurse/dispensedMedicine';
 import ChildProfile from './pages/parent/childProfile';
 import ChildClinicRecords from './pages/parent/childClinicRecords';
 import MyProfileParent from './pages/parent/myProfile';
-import ParentNotifications from './pages/parent/parentNotifications';
 import ParentLayout from './layout/parentLayout'
 import HealthRecordProfile from './pages/nurse/healthRecordProfile';
 import HealthTips from './pages/student/HealthTips';
@@ -41,6 +38,10 @@ import NurseMessages from './pages/nurse/nurseMessages';
 import StudentMessages from './components/student/StudentMessageModal'; // Import the StudentMessages component
 import MyQr from './pages/student/myQr'; // Import the myQr component
 import MyRequirements from './pages/student/myRequirements'; // Import the myRequirements component
+import NurseNotificationSettings from './pages/nurse/nurseNotificationSettings';
+import NotificationSettings from './components/student/NotificationSettings'; // Import the NotificationSettings component
+import ParentNotificationSettings from './pages/parent/parentNotificationSettings'; // Import the ParentNotificationSettings component
+import StudentNotificationSettings from './pages/student/studentNotificationSettings'; // Import the StudentNotificationSettings component 
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
@@ -52,13 +53,15 @@ root.render(
       <Route path="/HealthHistoryForm" element={<HealthHistoryForm />} />
       <Route path="/ChooseStudentProfile" element={<ChooseStudentProfile />} />
       <Route path="/health-records/view/:studentId" element={<HealthRecordProfile />} />
+      <Route path="/notification-settings" element={<NotificationSettings />} />
 
       <Route element={<ParentLayout/>}>
           <Route path="/ParentDashboard" element={<ParentDashboard />}/>
           <Route path="/ChildProfile" element={<ChildProfile />} />
           <Route path="/ChildClinicRecords" element={<ChildClinicRecords/>}/>
           <Route path="/MyProfileParent" element={<MyProfileParent/>}/>
-          <Route path="/ParentNotifications" element={<ParentNotifications/>} />
+          <Route path="/ParentNotificationSettings" element={<ParentNotificationSettings />} />
+          <Route path="/notification-settings" element={<NotificationSettings />} />
       </Route>
 
       <Route element={<NurseLayout />}>
@@ -70,7 +73,6 @@ root.render(
           <Route path="/IncidentReport" element={<IncidentReport />} />
           <Route path="/InsuranceVault" element={<InsuranceVault />} />
           <Route path="/MedicineInventory" element={<MedicineInventory />} />
-          <Route path="/NurseNotifications" element={<NurseNotifications />} />
           <Route path="/RequirementManagement" element={<RequirementManagement />} />
           <Route path="/VisitLogConsultation" element={<VisitLogConsultation />} />
           <Route path="/WeeklyReports" element={<WeeklyReports />} />
@@ -78,6 +80,8 @@ root.render(
           <Route path="/NurseMessages" element={<NurseMessages />} />
           <Route path="/ManageStudentAccounts" element={<ManageStudentAccounts />} />
           <Route path="/ManageParentAccounts" element={<ManageParentAccounts />} />
+          <Route path="/NurseNotificationSettings" element={<NurseNotificationSettings />} />
+          <Route path="/notification-settings" element={<NotificationSettings />} />
       </Route>
 
       <Route element={<StudentLayout />}>
@@ -85,14 +89,27 @@ root.render(
           <Route path="/MyQr" element={<MyQr />} />
           <Route path="/ClinicLogsAndRecords" element={<ClinicLogsAndRecords />} />
           <Route path="/MyProfile" element={<MyProfile />} />
-          <Route path="/StudentNotifications" element={<StudentNotifications />} />
           <Route path="/RequestModule" element={<RequestModule />} />
           <Route path="/HealthTips" element={<HealthTips />} />
           <Route path="/StudentMessages" element={<StudentMessages />} />
           <Route path="/MyRequirements" element={<MyRequirements />} />
+          <Route path="/StudentNotificationSettings" element={<StudentNotificationSettings />} />
+          <Route path="/notification-settings" element={<NotificationSettings />} />
       </Route>
     </Routes>
   </BrowserRouter>
 );
 
 reportWebVitals();
+
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+            .then((registration) => {
+                console.log('SW Registered successfully:', registration.scope);
+            })
+            .catch((error) => {
+                console.error('SW Registration failed:', error);
+            });
+    });
+}

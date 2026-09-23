@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Search, 
   UserPlus, 
@@ -13,24 +13,31 @@ import {
   Users,
   User,
   Phone,
-  Unlink
+  Unlink,
+  Upload,
+  Download,
+  Trash2,
+  Layers
 } from 'lucide-react';
 import '../../styles/nurse/ManageStudentAccounts.css';
 
 const API_BASE = 'http://localhost:3001/api';
+const DOMAIN_EXTENSION = '@baliuag.sti.edu.ph';
 
 export default function ManageStudentAccounts() {
   const [students, setStudents] = useState([]);
   const [programs, setPrograms] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const fileInputRef = useRef(null);
 
   // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [selectedStudentView, setSelectedStudentView] = useState(null);
 
-  // Form State for Student Creation
+  // Form State for Single Student Creation
   const [studentForm, setStudentForm] = useState({
     student_id: '',
     first_name: '',
@@ -59,6 +66,10 @@ export default function ManageStudentAccounts() {
     is_active: true
   });
 
+  // Batch Pre-Fill State
+  const [batchStudents, setBatchStudents] = useState([]);
+  const [isSubmittingBatch, setIsSubmittingBatch] = useState(false);
+
   // Edit State
   const [editForm, setEditForm] = useState({
     student_id: '',
@@ -68,7 +79,7 @@ export default function ManageStudentAccounts() {
     year_level: '',
     section: '',
     is_active: true,
-    reset_password: false, // Added reset_password state
+    reset_password: false,
     current_parent_id: null,
     current_parent_name: '',
     current_parent_username: ''
@@ -129,6 +140,12 @@ export default function ManageStudentAccounts() {
     fetchStudents(query);
   };
 
+  const formatUsernameInput = (val) => {
+    if (!val) return '';
+    const clean = val.replace(DOMAIN_EXTENSION, '').trim();
+    return clean ? `${clean}${DOMAIN_EXTENSION}` : '';
+  };
+
   const handleParentSearch = async (query, isEdit = false) => {
     if (isEdit) {
       setEditParentSearch(query);
@@ -161,9 +178,13 @@ export default function ManageStudentAccounts() {
     e.preventDefault();
     const payload = {
       ...studentForm,
+      username: formatUsernameInput(studentForm.username),
       parent_option: parentOption,
       selected_parent_id: selectedParentId,
-      new_parent: parentOption === 'new' ? newParentForm : null
+      new_parent: parentOption === 'new' ? {
+        ...newParentForm,
+        username: formatUsernameInput(newParentForm.username)
+      } : null
     };
 
     try {
@@ -194,7 +215,10 @@ export default function ManageStudentAccounts() {
       ...editForm,
       parent_action: parentAction,
       selected_parent_id: editSelectedParentId,
-      new_parent: parentAction === 'new' ? editNewParentForm : null
+      new_parent: parentAction === 'new' ? {
+        ...editNewParentForm,
+        username: formatUsernameInput(editNewParentForm.username)
+      } : null
     };
 
     try {
@@ -205,7 +229,7 @@ export default function ManageStudentAccounts() {
       });
 
       if (res.ok) {
-        alert('Student details and password/parent settings updated successfully!');
+        alert('Student details updated successfully!');
         setIsEditModalOpen(false);
         fetchStudents(searchQuery);
       } else {
@@ -215,6 +239,204 @@ export default function ManageStudentAccounts() {
     } catch (err) {
       console.error('Error updating student:', err);
     }
+  };
+
+  const handleCSVImport = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target.result;
+        const lines = text.split(/\r\n|\n/).filter(line => line.trim() !== '');
+        if (lines.length < 2) {
+          alert('CSV file is empty or missing data rows.');
+          return;
+        }
+
+        const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+        const defaultProg = programs.length > 0 ? programs[0].program_id : '';
+
+        const parsedBatch = lines.slice(1).map((line, idx) => {
+          const values = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+          const row = {};
+          headers.forEach((header, hIdx) => {
+            row[header] = values[hIdx] || '';
+          });
+
+          const studentId = row.student_id || row.id || '';
+          const firstName = row.first_name || row.firstname || '';
+          const lastName = row.last_name || row.lastname || '';
+          const usernameClean = row.username ? row.username.replace(DOMAIN_EXTENSION, '').trim() : '';
+          const password = row.password || '123';
+          const programId = row.program_id || defaultProg;
+          const yearLevel = row.year_level || row.year || '1';
+          const section = row.section || '';
+          const isActive = row.is_active !== undefined ? (String(row.is_active) === '1' || String(row.is_active).toLowerCase() === 'true') : true;
+
+          const hasParent = Boolean(row.parent_id || row.parent_username);
+          const parentOption = hasParent ? 'new' : 'none';
+
+          return {
+            id: idx,
+            student_id: studentId,
+            first_name: firstName,
+            last_name: lastName,
+            username: usernameClean,
+            password: password,
+            program_id: programId,
+            year_level: yearLevel,
+            section: section,
+            is_active: isActive,
+            parent_option: parentOption,
+            selected_parent_id: row.parent_id || '',
+            new_parent: hasParent ? {
+              parent_id: row.parent_id || '',
+              first_name: row.parent_first_name || '',
+              last_name: row.parent_last_name || '',
+              username: row.parent_username ? row.parent_username.replace(DOMAIN_EXTENSION, '').trim() : '',
+              password: row.parent_password || '123',
+              primary_phone: row.parent_phone || row.primary_phone || '',
+              is_active: true
+            } : null
+          };
+        });
+
+        setBatchStudents(parsedBatch);
+        setIsBatchModalOpen(true);
+      } catch (err) {
+        console.error('Error parsing CSV:', err);
+        alert('Failed to parse CSV file.');
+      } finally {
+        e.target.value = '';
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleBatchFieldChange = (index, field, value) => {
+    setBatchStudents(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+  };
+
+  const handleBatchParentFieldChange = (index, field, value) => {
+    setBatchStudents(prev => {
+      const updated = [...prev];
+      if (updated[index].new_parent) {
+        updated[index] = {
+          ...updated[index],
+          new_parent: { ...updated[index].new_parent, [field]: value }
+        };
+      }
+      return updated;
+    });
+  };
+
+  const handleRemoveBatchRow = (index) => {
+    setBatchStudents(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleBatchSubmit = async (e) => {
+    e.preventDefault();
+    if (batchStudents.length === 0) return;
+
+    setIsSubmittingBatch(true);
+    let successCount = 0;
+    let failCount = 0;
+
+    for (let i = 0; i < batchStudents.length; i++) {
+      const item = batchStudents[i];
+      const payload = {
+        student_id: item.student_id,
+        first_name: item.first_name,
+        last_name: item.last_name,
+        username: formatUsernameInput(item.username),
+        password: item.password,
+        program_id: item.program_id,
+        year_level: item.year_level,
+        section: item.section,
+        is_active: item.is_active,
+        parent_option: item.parent_option,
+        selected_parent_id: item.selected_parent_id,
+        new_parent: item.parent_option === 'new' && item.new_parent ? {
+          ...item.new_parent,
+          username: formatUsernameInput(item.new_parent.username)
+        } : null
+      };
+
+      try {
+        const res = await fetch(`${API_BASE}/students/manageStudentAccounts`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (res.ok) successCount++;
+        else failCount++;
+      } catch (err) {
+        failCount++;
+      }
+    }
+
+    setIsSubmittingBatch(false);
+
+    if (successCount > 0) fetchStudents(searchQuery);
+
+    if (failCount === 0) {
+      alert(`Successfully created all ${successCount} student account(s).`);
+      setIsBatchModalOpen(false);
+      setBatchStudents([]);
+    } else {
+      alert(`Batch Finished: Success: ${successCount}, Failed: ${failCount}`);
+    }
+  };
+
+  const handleCSVExport = () => {
+    if (!students || students.length === 0) {
+      alert('No student account data available to export.');
+      return;
+    }
+
+    const headers = [
+      'student_id','first_name','last_name','username','program_id',
+      'program_name','year_level','section','is_active','parent_id',
+      'parent_username','parent_first_name','parent_last_name','parent_phone'
+    ];
+
+    const csvRows = [headers.join(',')];
+
+    students.forEach(s => {
+      const row = [
+        `"${s.student_id || ''}"`,
+        `"${s.first_name || ''}"`,
+        `"${s.last_name || ''}"`,
+        `"${s.username || ''}"`,
+        `"${s.program_id || ''}"`,
+        `"${s.program_name || ''}"`,
+        `"${s.year_level || ''}"`,
+        `"${s.section || ''}"`,
+        `"${s.is_active}"`,
+        `"${s.parent_id || ''}"`,
+        `"${s.parent_username || ''}"`,
+        `"${s.parent_first_name || ''}"`,
+        `"${s.parent_last_name || ''}"`,
+        `"${s.parent_phone || ''}"`
+      ];
+      csvRows.push(row.join(','));
+    });
+
+    const csvContent = 'data:text/csv;charset=utf-8,' + csvRows.join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `student_accounts_${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const openViewModal = (student) => {
@@ -231,7 +453,7 @@ export default function ManageStudentAccounts() {
       year_level: student.year_level,
       section: student.section,
       is_active: Number(student.is_active) === 1,
-      reset_password: false, // Reset checkbox state on modal open
+      reset_password: false,
       current_parent_id: student.parent_id,
       current_parent_name: student.parent_first_name ? `${student.parent_first_name} ${student.parent_last_name}` : '',
       current_parent_username: student.parent_username
@@ -304,13 +526,43 @@ export default function ManageStudentAccounts() {
             />
           </div>
 
-          <button 
-            className="sti-btn sti-btn-primary"
-            onClick={() => { resetAddForm(); setIsAddModalOpen(true); }}
-          >
-            <UserPlus size={18} />
-            <span>Add Student Account</span>
-          </button>
+          <div className="sti-btn-group">
+            <input 
+              type="file" 
+              accept=".csv" 
+              ref={fileInputRef} 
+              className="sti-hidden-input" 
+              onChange={handleCSVImport} 
+            />
+            <button 
+              type="button"
+              className="sti-btn sti-btn-secondary" 
+              onClick={() => fileInputRef.current.click()}
+              title="Import CSV data into batch creation form"
+            >
+              <Upload size={18} />
+              <span>Batch Import CSV</span>
+            </button>
+
+            <button 
+              type="button"
+              className="sti-btn sti-btn-secondary" 
+              onClick={handleCSVExport}
+              title="Export accounts list to CSV"
+            >
+              <Download size={18} />
+              <span>Export CSV</span>
+            </button>
+
+            <button 
+              type="button"
+              className="sti-btn sti-btn-primary"
+              onClick={() => { resetAddForm(); setIsAddModalOpen(true); }}
+            >
+              <UserPlus size={18} />
+              <span>Add Student Account</span>
+            </button>
+          </div>
         </div>
 
         <div className="sti-card">
@@ -373,8 +625,10 @@ export default function ManageStudentAccounts() {
                         )}
                       </td>
                       <td>
+                        {/* Strictly Lucide Icons for Row Actions */}
                         <div className="sti-actions-cell">
                           <button 
+                            type="button"
                             className="sti-btn-icon" 
                             title="View Student Details"
                             onClick={() => openViewModal(student)}
@@ -382,6 +636,7 @@ export default function ManageStudentAccounts() {
                             <Eye size={16} />
                           </button>
                           <button 
+                            type="button"
                             className="sti-btn-icon" 
                             title="Edit Student Account"
                             onClick={() => openEditModal(student)}
@@ -405,13 +660,196 @@ export default function ManageStudentAccounts() {
         </div>
       </main>
 
+      {/* Modal: Batch Pre-Fill & Review CSV Data */}
+      {isBatchModalOpen && (
+        <div className="sti-modal-overlay">
+          <div className="sti-modal sti-modal-lg">
+            <div className="sti-modal-header">
+              <div className="sti-modal-title">
+                <Layers size={22} />
+                <h3>Batch Pre-Fill Account Creation ({batchStudents.length} Records)</h3>
+              </div>
+              <button type="button" className="sti-close-btn" onClick={() => setIsBatchModalOpen(false)}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleBatchSubmit} className="sti-modal-body">
+              <p className="sti-text-muted sti-mb-16">
+                Review and modify the pre-filled CSV batch records below before creating all accounts.
+              </p>
+
+              <div className="sti-batch-table-wrapper">
+                <table className="sti-table sti-table-compact">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Student ID *</th>
+                      <th>First Name *</th>
+                      <th>Last Name *</th>
+                      <th>Username *</th>
+                      <th>Password</th>
+                      <th>Program</th>
+                      <th>Yr / Sec</th>
+                      <th>Parent Pre-Fill Info</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {batchStudents.map((item, idx) => (
+                      <tr key={item.id || idx}>
+                        <td>{idx + 1}</td>
+                        <td>
+                          <input
+                            type="text"
+                            required
+                            className="sti-input-sm sti-w-100"
+                            value={item.student_id}
+                            onChange={(e) => handleBatchFieldChange(idx, 'student_id', e.target.value)}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="text"
+                            required
+                            className="sti-input-sm sti-w-110"
+                            value={item.first_name}
+                            onChange={(e) => handleBatchFieldChange(idx, 'first_name', e.target.value)}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="text"
+                            required
+                            className="sti-input-sm sti-w-110"
+                            value={item.last_name}
+                            onChange={(e) => handleBatchFieldChange(idx, 'last_name', e.target.value)}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="text"
+                            required
+                            placeholder="username"
+                            className="sti-input-sm sti-w-120"
+                            value={item.username}
+                            onChange={(e) => handleBatchFieldChange(idx, 'username', e.target.value)}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="text"
+                            required
+                            className="sti-input-sm sti-w-90"
+                            value={item.password}
+                            onChange={(e) => handleBatchFieldChange(idx, 'password', e.target.value)}
+                          />
+                        </td>
+                        <td>
+                          <select
+                            className="sti-input-sm sti-w-110"
+                            value={item.program_id}
+                            onChange={(e) => handleBatchFieldChange(idx, 'program_id', e.target.value)}
+                          >
+                            {programs.map((p) => (
+                              <option key={p.program_id} value={p.program_id}>
+                                {p.program_id}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td>
+                          <div className="sti-inline-flex-gap-4">
+                            <select
+                              className="sti-input-sm sti-w-45"
+                              value={item.year_level}
+                              onChange={(e) => handleBatchFieldChange(idx, 'year_level', e.target.value)}
+                            >
+                              <option value="1">1</option>
+                              <option value="2">2</option>
+                              <option value="3">3</option>
+                              <option value="4">4</option>
+                            </select>
+                            <input
+                              type="text"
+                              className="sti-input-sm sti-w-50"
+                              value={item.section}
+                              onChange={(e) => handleBatchFieldChange(idx, 'section', e.target.value)}
+                            />
+                          </div>
+                        </td>
+                        <td>
+                          {item.new_parent ? (
+                            <div className="sti-batch-parent-info">
+                              <span>
+                                <strong>P-ID:</strong> 
+                                <input 
+                                  type="text" 
+                                  value={item.new_parent.parent_id} 
+                                  onChange={(e) => handleBatchParentFieldChange(idx, 'parent_id', e.target.value)}
+                                  className="sti-input-xs sti-w-70"
+                                />
+                              </span>
+                              <span>
+                                <strong>User:</strong> 
+                                <input 
+                                  type="text" 
+                                  value={item.new_parent.username} 
+                                  onChange={(e) => handleBatchParentFieldChange(idx, 'username', e.target.value)}
+                                  className="sti-input-xs sti-w-80"
+                                />
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="sti-text-muted">None</span>
+                          )}
+                        </td>
+                        <td>
+                          {/* Strictly Lucide Icon for Row Action */}
+                          <button
+                            type="button"
+                            className="sti-btn-icon sti-text-danger"
+                            title="Remove row from batch"
+                            onClick={() => handleRemoveBatchRow(idx)}
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="sti-modal-footer">
+                <button 
+                  type="button" 
+                  className="sti-btn sti-btn-secondary" 
+                  onClick={() => setIsBatchModalOpen(false)}
+                  disabled={isSubmittingBatch}
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  className="sti-btn sti-btn-primary"
+                  disabled={isSubmittingBatch || batchStudents.length === 0}
+                >
+                  {isSubmittingBatch ? 'Creating Batch...' : `Submit Batch (${batchStudents.length})`}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Modal: View Student & Parent Details */}
       {isViewModalOpen && selectedStudentView && (
         <div className="sti-modal-overlay">
           <div className="sti-modal">
             <div className="sti-modal-header">
               <h3>Student & Linked Parent Details</h3>
-              <button className="sti-close-btn" onClick={() => setIsViewModalOpen(false)}>
+              <button type="button" className="sti-close-btn" onClick={() => setIsViewModalOpen(false)}>
                 <X size={20} />
               </button>
             </div>
@@ -429,7 +867,7 @@ export default function ManageStudentAccounts() {
                 </div>
               </div>
 
-              <div className="sti-section-title" style={{ marginTop: '20px' }}>Linked Parent Account Details</div>
+              <div className="sti-section-title sti-mt-16">Linked Parent Account Details</div>
               {selectedStudentView.parent_id ? (
                 <div className="sti-parent-details-card">
                   <div><User size={16} /> <strong>Parent ID:</strong> {selectedStudentView.parent_id}</div>
@@ -455,13 +893,13 @@ export default function ManageStudentAccounts() {
         </div>
       )}
 
-      {/* Modal: Create Student Account */}
+      {/* Modal: Create Single Student Account */}
       {isAddModalOpen && (
         <div className="sti-modal-overlay">
           <div className="sti-modal">
             <div className="sti-modal-header">
               <h3>Create Student Account</h3>
-              <button className="sti-close-btn" onClick={() => setIsAddModalOpen(false)}>
+              <button type="button" className="sti-close-btn" onClick={() => setIsAddModalOpen(false)}>
                 <X size={20} />
               </button>
             </div>
@@ -499,10 +937,11 @@ export default function ManageStudentAccounts() {
                 </div>
 
                 <div className="sti-form-group">
-                  <label>Username *</label>
+                  <label>Username (Auto appended domain) *</label>
                   <input
                     type="text"
                     required
+                    placeholder="e.g. john.doe"
                     value={studentForm.username}
                     onChange={(e) => setStudentForm({ ...studentForm, username: e.target.value })}
                   />
@@ -715,7 +1154,7 @@ export default function ManageStudentAccounts() {
           <div className="sti-modal">
             <div className="sti-modal-header">
               <h3>Update Student Account ({editForm.student_id})</h3>
-              <button className="sti-close-btn" onClick={() => setIsEditModalOpen(false)}>
+              <button type="button" className="sti-close-btn" onClick={() => setIsEditModalOpen(false)}>
                 <X size={20} />
               </button>
             </div>
@@ -790,9 +1229,8 @@ export default function ManageStudentAccounts() {
                   </label>
                 </div>
 
-                {/* Added Reset Password Checkbox */}
-                <div className="sti-form-group sti-checkbox-group" style={{ gridColumn: 'span 2' }}>
-                  <label style={{ color: editForm.reset_password ? '#d9534f' : 'inherit', fontWeight: editForm.reset_password ? 'bold' : 'normal' }}>
+                <div className="sti-form-group sti-checkbox-group">
+                  <label className={editForm.reset_password ? 'sti-reset-active' : ''}>
                     <input
                       type="checkbox"
                       checked={editForm.reset_password}
@@ -803,7 +1241,6 @@ export default function ManageStudentAccounts() {
                 </div>
               </div>
 
-              {/* Linked Parent Management Section */}
               <div className="sti-section-title">Linked Parent Account Management</div>
               
               <div className="sti-current-parent-info">
@@ -819,7 +1256,7 @@ export default function ManageStudentAccounts() {
                 )}
               </div>
 
-              <div className="sti-radio-options" style={{ marginTop: '10px' }}>
+              <div className="sti-radio-options">
                 <label>
                   <input
                     type="radio"
@@ -839,7 +1276,7 @@ export default function ManageStudentAccounts() {
                       checked={parentAction === 'remove'}
                       onChange={() => setParentAction('remove')}
                     />
-                    <Unlink size={14} style={{ display: 'inline', marginRight: '4px' }} />
+                    <Unlink size={14} className="sti-inline-icon" />
                     Remove Parent Link
                   </label>
                 )}

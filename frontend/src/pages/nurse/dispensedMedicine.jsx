@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useOutletContext } from 'react-router-dom'; 
-import { Search, Pill, Calendar, History, PlusCircle, RefreshCw, CheckCircle, AlertTriangle, Filter, X } from 'lucide-react';
+import { Search, Pill, Calendar, History, PlusCircle, RefreshCw, CheckCircle, AlertTriangle, Filter, X, QrCode } from 'lucide-react';
+import jsQR from 'jsqr';
 import '../../styles/nurse/DispensedMedicine.css';
 
 // Included 'pcs.' to treat piece-counted boxes as volume-backed stock
@@ -23,7 +24,7 @@ const convertUnit = (val, fromUnit, toUnit) => {
     switch (u) {
       case 'g': return v / 1000000;
       case 'mg': return v / 1000;
-      case 'mcg': return v;
+      case 'mcg': return v / 1000000;
       case 'L': return v / 1000;
       case 'mL': return v;
       case 'pcs.': return v;
@@ -31,6 +32,98 @@ const convertUnit = (val, fromUnit, toUnit) => {
     }
   };
   return fromBase(toBase(val, fromUnit), toUnit);
+};
+
+// Helper function to check if item packaging or unit indicates a box
+const isBoxUnit = (item) => {
+  if (!item) return false;
+  const fields = [
+    item.unit,
+    item.unit_of_measure,
+    item.packaging,
+    item.package_type,
+    item.strength_unit_of_measure,
+    item.dosage_unit,
+    item.avg_dosage_consumption_unit_of_measure
+  ];
+  return fields.some(field => typeof field === 'string' && field.toLowerCase().includes('box'));
+};
+
+// Helper function to get the appropriate dosage form/unit label for stock display
+const getStockLabel = (item) => {
+  if (!item) return 'unit';
+  
+  const VALID_DOSAGE_FORMS = {
+    'tablet': 'Tablet',
+    'capsule': 'Capsule',
+    'sachet': 'Sachet',
+    'patch': 'Patch',
+    'syrup': 'Syrup',
+    'suspension': 'Suspension',
+    'drops': 'Drops',
+    'bottle': 'Bottle',
+    'vial': 'Vial',
+    'prefilled syringe': 'Prefilled Syringe',
+    'ointment': 'Ointment',
+    'cream': 'Cream',
+    'inhaler': 'Inhaler',
+    'spray': 'Spray',
+    'gel': 'Gel',
+    'box': 'Box'
+  };
+
+  const PLURAL_FORMS = {
+    'tablet': 'Tablets',
+    'capsule': 'Capsules',
+    'sachet': 'Sachets',
+    'patch': 'Patches',
+    'syrup': 'Syrups',
+    'suspension': 'Suspensions',
+    'drops': 'Drops',
+    'bottle': 'Bottles',
+    'vial': 'Vials',
+    'prefilled syringe': 'Prefilled Syringes',
+    'ointment': 'Ointments',
+    'cream': 'Creams',
+    'inhaler': 'Inhalers',
+    'spray': 'Sprays',
+    'gel': 'Gels',
+    'box': 'Boxes'
+  };
+  
+  const dosageForm = item.dosage_form || item.form_type;
+  const dosageUnit = item.dosage_unit;
+  const strengthUnit = item.strength_unit_of_measure;
+  const avgDosageUnit = item.avg_dosage_consumption_unit_of_measure;
+  const packaging = item.packaging || item.package_type;
+  
+  let unit = dosageForm || dosageUnit || strengthUnit || avgDosageUnit || packaging || 'unit';
+  const unitLower = String(unit).toLowerCase().trim();
+  
+  if (VALID_DOSAGE_FORMS[unitLower]) {
+    const stock = item.current_stock;
+    if (Number(stock) === 1) {
+      return VALID_DOSAGE_FORMS[unitLower];
+    }
+    return PLURAL_FORMS[unitLower] || VALID_DOSAGE_FORMS[unitLower] + 's';
+  }
+  
+  if (MEASURED_UNITS.includes(unitLower)) {
+    return unitLower;
+  }
+  
+  if (Number(item.current_stock) !== 1 && !unitLower.endsWith('s') && unitLower !== 'unit') {
+    return unit + 's';
+  }
+  
+  return unit;
+};
+
+// Stock status helper function aligned exactly with medicineInventory.jsx
+const getStockStatus = (stock, lowThreshold = 10, criticalThreshold = 5) => {
+  if (stock <= criticalThreshold) return { label: 'Critical', class: 'critical' };
+  if (stock <= lowThreshold) return { label: 'Low Stock', class: 'low' };
+  return { label: 'Adequate', class: 'adequate' };
 };
 
 const DispensedMedicine = () => {
@@ -50,6 +143,14 @@ const DispensedMedicine = () => {
   const [students, setStudents] = useState([]);
   const [selectedStudent, setSelectedStudent] = useState(null);
   
+  // QR Code Scanner States & Refs
+  const [isScanningQR, setIsScanningQR] = useState(false);
+  const [qrError, setQrError] = useState('');
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const animationFrameRef = useRef(null);
+  const streamRef = useRef(null);
+
   const [inventory, setInventory] = useState([]);
   const [selectedMedicineId, setSelectedMedicineId] = useState('');
   const [availableBatches, setAvailableBatches] = useState([]);
@@ -66,6 +167,94 @@ const DispensedMedicine = () => {
   const [filterStudent, setFilterStudent] = useState('');
   const [filterMedicine, setFilterMedicine] = useState('');
   const [message, setMessage] = useState({ text: '', type: '' });
+
+  // Stop QR Scanner Stream and Frame Loops
+  const stopQRScan = useCallback(() => {
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    setIsScanningQR(false);
+    setQrError('');
+  }, []);
+
+  // Handle scanned QR result
+  const handleScannedCode = useCallback(async (scannedText) => {
+    const cleanText = scannedText.trim();
+    stopQRScan();
+    setSearchStudent(cleanText);
+
+    try {
+      const res = await fetch(`http://localhost:3001/api/students/direct?search=${encodeURIComponent(cleanText)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          const match = data.find(s => String(s.student_id) === cleanText) || data[0];
+          setSelectedStudent(match);
+          setSearchStudent(`${match.first_name} ${match.last_name} (${match.student_id})`);
+          setStudents([]);
+        }
+      }
+    } catch (err) {
+      console.error("Error fetching scanned student:", err);
+    }
+  }, [stopQRScan]);
+
+  // QR Scanning Continuous Loop via Canvas & jsQR
+  const tick = useCallback(() => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+
+    if (video && video.readyState === video.HAVE_ENOUGH_DATA) {
+      if (!canvas) return;
+      const context = canvas.getContext('2d');
+      canvas.height = video.videoHeight;
+      canvas.width = video.videoWidth;
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+      const code = jsQR(imageData.data, imageData.width, imageData.height, {
+        inversionAttempts: "dontInvert",
+      });
+
+      if (code && code.data) {
+        handleScannedCode(code.data);
+        return;
+      }
+    }
+    animationFrameRef.current = requestAnimationFrame(tick);
+  }, [handleScannedCode]);
+
+  // Start Camera for QR Scanning
+  const startQRScan = async () => {
+    setIsScanningQR(true);
+    setQrError('');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' }
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.setAttribute("playsinline", true);
+        await videoRef.current.play();
+        animationFrameRef.current = requestAnimationFrame(tick);
+      }
+    } catch (err) {
+      console.error("Error accessing camera for QR scan:", err);
+      setQrError('Unable to access camera. Please verify device permissions.');
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      stopQRScan();
+    };
+  }, [stopQRScan]);
 
   const fetchInventory = useCallback(async () => {
     try {
@@ -266,16 +455,6 @@ const DispensedMedicine = () => {
     }
   };
 
-  const getBatchStatus = (stock, expDate) => {
-    const today = new Date();
-    const expiration = new Date(expDate);
-    expiration.setHours(23, 59, 59, 999);
-    if (expiration < today) return { label: 'Expired', class: 'status-expired' };
-    if (stock === 0) return { label: 'Out of Stock', class: 'status-out' };
-    if (stock <= 10) return { label: 'Low Stock', class: 'status-low' };
-    return { label: 'Available', class: 'status-ok' };
-  };
-
   const activeBatch = inventory.find(b => b.batch_id === selectedBatchId);
   const isMeasured = MEASURED_UNITS.includes(dosageUnit);
 
@@ -299,26 +478,132 @@ const DispensedMedicine = () => {
         </div>
       )}
 
+      {/* QR Code Scanner Modal */}
+      {isScanningQR && (
+        <div className="qr-modal-overlay" style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.75)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 1000
+        }}>
+          <div className="qr-modal-content" style={{
+            background: '#fff',
+            padding: '20px',
+            borderRadius: '12px',
+            maxWidth: '450px',
+            width: '90%',
+            position: 'relative',
+            textAlign: 'center'
+          }}>
+            <button
+              type="button"
+              onClick={stopQRScan}
+              style={{
+                position: 'absolute',
+                top: '12px',
+                right: '12px',
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer'
+              }}
+            >
+              <X size={20} />
+            </button>
+            
+            <h3 style={{ marginTop: 0, marginBottom: '15px' }}>Scan Student QR Code</h3>
+            
+            {qrError ? (
+              <div className="alert-banner alert-error" style={{ marginBottom: '15px' }}>
+                <AlertTriangle size={18} />
+                <span>{qrError}</span>
+              </div>
+            ) : (
+              <div style={{ position: 'relative', width: '100%', maxHeight: '300px', overflow: 'hidden', borderRadius: '8px', background: '#000' }}>
+                <video
+                  ref={videoRef}
+                  style={{ width: '100%', height: 'auto', display: 'block' }}
+                />
+                <canvas
+                  ref={canvasRef}
+                  style={{ display: 'none' }}
+                />
+              </div>
+            )}
+
+            <p style={{ marginTop: '15px', color: '#666', fontSize: '0.9rem' }}>
+              Position the student QR code within the frame to scan automatically.
+            </p>
+
+            <button
+              type="button"
+              onClick={stopQRScan}
+              style={{
+                marginTop: '10px',
+                padding: '8px 16px',
+                background: '#64748b',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: 'pointer'
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="dispense-grid">
         <div className="card form-section">
           <h2><PlusCircle size={20} className="icon-blue" /> Dispense Medicine Form</h2>
           <form onSubmit={handleFormSubmit}>
             <div className="form-group student-search-container">
               <label htmlFor="student-search">Search Student (Name or ID)</label>
-              <div className="search-input-wrapper">
-                <Search size={16} className="search-icon" />
-                <input
-                  id="student-search"
-                  type="text"
-                  placeholder="Type student first name, last name, or ID..."
-                  value={searchStudent}
-                  onChange={(e) => {
-                    setSearchStudent(e.target.value);
-                    if (selectedStudent) setSelectedStudent(null);
+              <div className="search-input-wrapper" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ position: 'relative', flex: 1, display: 'flex', alignItems: 'center' }}>
+                  <Search size={16} className="search-icon" />
+                  <input
+                    id="student-search"
+                    type="text"
+                    placeholder="Type student first name, last name, or ID..."
+                    value={searchStudent}
+                    onChange={(e) => {
+                      setSearchStudent(e.target.value);
+                      if (selectedStudent) setSelectedStudent(null);
+                    }}
+                    autoComplete="off"
+                    required
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="qr-scan-btn"
+                  onClick={startQRScan}
+                  title="Search student by QR code"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '3px',
+                    width: 'fit-content',
+                    padding: '8px 12px',
+                    background: '#0284c7',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    fontWeight: '500'
                   }}
-                  autoComplete="off"
-                  required
-                />
+                >
+                  <QrCode size={18} />
+                  <span>Scan QR</span>
+                </button>
               </div>
               
               {searchStudent.trim().length > 1 && !selectedStudent && (
@@ -384,9 +669,13 @@ const DispensedMedicine = () => {
                 <option value="">-- Choose Expiration Date --</option>
                 {availableBatches.map((batch) => {
                   const batchIsMeasured = MEASURED_UNITS.includes(batch.strength_unit_of_measure);
+                  const stockUnit = getStockLabel(batch);
+                  const stockLabel = `${batch.current_stock} ${stockUnit}`;
+
                   const stockInfo = batchIsMeasured
-                    ? `Stock: ${batch.current_stock} | Rem. Vol/Pcs: ${batch.remaining_volume} ${batch.strength_unit_of_measure}`
-                    : `Stock: ${batch.current_stock}`;
+                    ? `Stock: ${stockLabel} | Rem. Vol/Pcs: ${batch.remaining_volume} ${batch.strength_unit_of_measure}`
+                    : `Stock: ${stockLabel}`;
+
                   return (
                     <option key={batch.batch_id} value={batch.batch_id}>
                       {new Date(batch.expiration_date).toLocaleDateString()} ({stockInfo})
@@ -398,7 +687,12 @@ const DispensedMedicine = () => {
 
             {activeBatch && (
               <div className="batch-details-summary">
-                <p><strong>Current Stock (Boxes):</strong> {activeBatch.current_stock}</p>
+                <p>
+                  <strong>Current Stock </strong>{' '}
+                  <span className={isBoxUnit(activeBatch) ? "stock-box-badge" : ""}>
+                    {activeBatch.current_stock} {getStockLabel(activeBatch)}
+                  </span>
+                </p>
                 {MEASURED_UNITS.includes(activeBatch.strength_unit_of_measure) && (
                   <p><strong>Remaining Volume / Pieces:</strong> {activeBatch.remaining_volume} {activeBatch.strength_unit_of_measure}</p>
                 )}
@@ -470,12 +764,19 @@ const DispensedMedicine = () => {
                   </tr>
                 ) : (
                   inventory.map((item) => {
-                    const status = getBatchStatus(item.current_stock, item.expiration_date);
+                    const status = getStockStatus(item.current_stock, item.low_stock_level, item.critical_stock_level);
                     const showVolume = MEASURED_UNITS.includes(item.strength_unit_of_measure);
+                    const stockUnit = getStockLabel(item);
+                    const isBox = isBoxUnit(item);
+
                     return (
                       <tr key={item.batch_id}>
                         <td><strong>{item.medicine_name}</strong></td>
-                        <td>{item.current_stock} boxes</td>
+                        <td>
+                          <span className={isBox ? "stock-box-badge" : ""}>
+                            {item.current_stock} {stockUnit}
+                          </span>
+                        </td>
                         <td>{showVolume ? `${item.remaining_volume} ${item.strength_unit_of_measure}` : 'N/A'}</td>
                         <td>{new Date(item.expiration_date).toLocaleDateString()}</td>
                         <td><span className={`status-tag ${status.class}`}>{status.label}</span></td>

@@ -61,6 +61,242 @@ app.use(bodyParser.urlencoded({ extended: true }));
 });
 
 
+const webpush = require('web-push');
+
+// Configuration
+const vapidKeys = {
+    publicKey: process.env.VAPID_PUBLIC_KEY || 'YOUR_PUBLIC_VAPID_KEY_HERE',
+    privateKey: process.env.VAPID_PRIVATE_KEY || 'YOUR_PRIVATE_VAPID_KEY_HERE'
+};
+
+webpush.setVapidDetails(
+    'mailto:support@yourdomain.com',
+    vapidKeys.publicKey,
+    vapidKeys.privateKey
+);
+
+
+async function notifyUsers({ sender_id, recipient_ids, title, message, type, payloadData = {} }) {
+    if (!recipient_ids || recipient_ids.length === 0) return;
+
+    // Sanitize and deduplicate user IDs
+    const uniqueRecipients = [...new Set(recipient_ids.filter(Boolean))];
+    if (uniqueRecipients.length === 0) return;
+
+    try {
+        // 1. Bulk insert system notifications into database
+        const notifValues = uniqueRecipients.map((recipient_id) => [
+            uuidv4(),
+            sender_id || null,
+            recipient_id,
+            title,
+            message,
+            type || 'SYSTEM',
+            0 // is_read = false
+        ]);
+
+        await pool.query(
+            `INSERT INTO notifications (notification_id, sender_id, recipient_id, title, message, type, is_read) VALUES ?`,
+            [notifValues]
+        );
+
+        // 2. Query push subscriptions
+        const [subscriptions] = await pool.query(
+            `SELECT * FROM push_subscriptions WHERE user_id IN (?)`,
+            [uniqueRecipients]
+        );
+
+        if (subscriptions.length === 0) {
+            console.warn(`[WebPush] No active subscriptions found for user IDs:`, uniqueRecipients);
+            return;
+        }
+
+        const pushPayload = JSON.stringify({
+            title,
+            body: message,
+            data: payloadData,
+        });
+
+        // 3. Dispatch web push notifications using webpush.sendNotification
+        const pushPromises = subscriptions.map(async (sub) => {
+            const pushSubscription = {
+                endpoint: sub.endpoint,
+                keys: {
+                    p256dh: sub.p256dh,
+                    auth: sub.auth,
+                },
+            };
+
+            try {
+                // FIXED: Changed sendPushNotification to sendNotification
+                await webpush.sendNotification(pushSubscription, pushPayload);
+                console.log(`[WebPush] Successfully sent to subscription: ${sub.subscription_id}`);
+            } catch (err) {
+                console.error(`[WebPush] Error sending to subscription ${sub.subscription_id}:`, err.statusCode || err.message);
+                
+                // Remove expired/unsubscribed tokens (HTTP status 404 or 410)
+                if (err.statusCode === 410 || err.statusCode === 404) {
+                    await pool.query('DELETE FROM push_subscriptions WHERE subscription_id = ?', [sub.subscription_id]);
+                    console.log(`[WebPush] Cleaned up expired subscription: ${sub.subscription_id}`);
+                }
+            }
+        });
+
+        await Promise.allSettled(pushPromises);
+    } catch (err) {
+        console.error('[WebPush] Error inside notifyUsers helper:', err);
+    }
+}
+
+// HELPER FUNCTION: Send Web Push to target user_id
+async function sendPushNotification(recipientUserId, notificationPayload) {
+    try {
+        const [subscriptions] = await pool.query(
+            `SELECT subscription_id, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ?`,
+            [recipientUserId]
+        );
+
+        for (const sub of subscriptions) {
+            const pushSubscription = {
+                endpoint: sub.endpoint,
+                keys: {
+                    p256dh: sub.p256dh,
+                    auth: sub.auth
+                }
+            };
+
+            const payload = JSON.stringify(notificationPayload);
+
+            try {
+                await webpush.sendPushNotification(pushSubscription, payload);
+            } catch (err) {
+                // If subscription has expired/unsubscribed (404/410), clean up DB
+                if (err.statusCode === 404 || err.statusCode === 410) {
+                    await pool.query(
+                        `DELETE FROM push_subscriptions WHERE subscription_id = ?`,
+                        [sub.subscription_id]
+                    );
+                } else {
+                    console.error('Push delivery error:', err);
+                }
+            }
+        }
+    } catch (err) {
+        console.error('Failed to trigger web push helper:', err);
+    }
+}
+
+// ==========================================
+// 1. HELPER FUNCTION (Place above routes)
+// ==========================================
+async function sendSystemAndPushNotification(connection, { sender_id, recipient_id, title, message, type = 'clinic_visit' }) {
+    if (!recipient_id) return;
+
+    // 1. Insert System Notification into DB
+    const notification_id = 'NOTIF-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+    const insertNotifSql = `
+        INSERT INTO notifications (
+            notification_id, sender_id, recipient_id, title, message, type, is_read, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, 0, NOW())
+    `;
+    await connection.execute(insertNotifSql, [
+        notification_id,
+        sender_id || null,
+        recipient_id,
+        title,
+        message,
+        type
+    ]);
+
+    // 2. Fetch recipient's Web Push Subscriptions
+    const [subscriptions] = await connection.execute(
+        `SELECT subscription_id, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ?`,
+        [recipient_id]
+    );
+
+    // 3. Send Web Push Notification
+    const payload = JSON.stringify({
+        title,
+        body: message,
+        type,
+        notification_id
+    });
+
+    for (const sub of subscriptions) {
+        const pushSubscription = {
+            endpoint: sub.endpoint,
+            keys: {
+                p256dh: sub.p256dh,
+                auth: sub.auth
+            }
+        };
+
+        try {
+            await webpush.sendPushNotification(pushSubscription, payload);
+        } catch (err) {
+            console.error(`[WebPush Error] Failed for sub ID ${sub.subscription_id}:`, err.message);
+            if (err.statusCode === 410 || err.statusCode === 404) {
+                await connection.execute(`DELETE FROM push_subscriptions WHERE subscription_id = ?`, [sub.subscription_id]);
+            }
+        }
+    }
+}
+
+
+// ==========================================
+// 2. FIXED PUSH SUBSCRIPTION ENDPOINT
+// ==========================================
+app.post('/api/push-subscriptions', async (req, res) => {
+    const { user_id, endpoint, keys } = req.body;
+
+    if (!user_id || !endpoint || !keys?.p256dh || !keys?.auth) {
+        return res.status(400).json({ error: "Missing required subscription data." });
+    }
+
+    try {
+        // Resolve provided ID to actual users.user_id if a student_id, parent_id, or nurse_id was passed
+        const resolveUserSql = `
+            SELECT user_id FROM (
+                SELECT user_id FROM users WHERE user_id = ?
+                UNION
+                SELECT user_id FROM students WHERE student_id = ?
+                UNION
+                SELECT user_id FROM parents WHERE parent_id = ?
+                UNION
+                SELECT user_id FROM nurses WHERE nurse_id = ?
+            ) AS resolved LIMIT 1
+        `;
+
+        const [userRows] = await pool.execute(resolveUserSql, [user_id, user_id, user_id, user_id]);
+
+        if (userRows.length === 0) {
+            return res.status(400).json({ error: `User reference '${user_id}' not found in the database.` });
+        }
+
+        const validUserId = userRows[0].user_id;
+
+        // Upsert subscription into push_subscriptions table
+        const sql = `
+            INSERT INTO push_subscriptions (subscription_id, user_id, endpoint, p256dh, auth, created_at)
+            VALUES (UUID(), ?, ?, ?, ?, NOW())
+            ON DUPLICATE KEY UPDATE 
+                user_id = VALUES(user_id), 
+                p256dh = VALUES(p256dh), 
+                auth = VALUES(auth)
+        `;
+
+        await pool.execute(sql, [validUserId, endpoint, keys.p256dh, keys.auth]);
+        res.status(201).json({ success: true, message: "Push subscription saved successfully." });
+
+    } catch (error) {
+        console.error("Subscription save error:", error);
+        res.status(500).json({ error: "Failed to save push subscription." });
+    }
+});
+
+
+
+
 //Format Number
 function formatPhoneNumber(phone) {
     if (!phone) return null;
@@ -133,6 +369,9 @@ async function sendIprogSms(toPhoneNumber, messageBody) {
     const data = await response.json();
     return data;
 }
+
+
+
 
 //Access role and Management api
 // 1. LOGIN ENDPOINT
@@ -781,10 +1020,10 @@ app.put('/api/update-profile', async (req, res) => {
     }
 });
 
-//Requirement Management API
-// 1. Get all students with comprehensive requirement stats
-// 1. Get all students with comprehensive requirement stats (SAFE VERSION)
-// 1. Get all students with stats filtered by their specific Year Level
+// =========================================================================
+// REQUIREMENT MANAGEMENT API
+// =========================================================================
+
 // 1. Get all students with dynamic metric auto-evaluation pipeline
 app.get('/api/students', async (req, res) => {
     try {
@@ -894,7 +1133,7 @@ app.get('/api/students', async (req, res) => {
     }
 });
 
-// 2. Get combined requirements list matching all statuses for a specific student (SAFE VERSION)
+// 2. Get combined requirements list matching all statuses for a specific student
 app.get('/api/students/:id/full-requirements', async (req, res) => {
     const studentId = req.params.id; 
     try {
@@ -981,8 +1220,6 @@ app.get('/api/students/:id/full-requirements', async (req, res) => {
             // Isolated Database Syncer Layer
             try {
                 if ((sub.status || 'Pending') !== targetDbStatus) {
-                    
-                    // FIX: Ensure requirement_name exists in parent table before sync check
                     await pool.query(
                         `INSERT IGNORE INTO medical_requirements (requirement_name) VALUES (?)`,
                         [req.requirement_name]
@@ -1030,7 +1267,7 @@ app.get('/api/students/:id/full-requirements', async (req, res) => {
     }
 });
 
-// 3. Add Special Requirement
+// 3. Add Special Requirement & notify student via System DB + Web Push
 app.post('/api/students/:id/special-requirements', async (req, res) => {
     const connection = await pool.getConnection();
     try {
@@ -1043,14 +1280,34 @@ app.post('/api/students/:id/special-requirements', async (req, res) => {
             return res.status(400).json({ success: false, error: "Requirement Name and Deadline are required parameters." });
         }
 
+        const [studentRows] = await connection.query(
+            `SELECT s.student_id, s.user_id AS student_user_id, s.first_name, s.last_name, COALESCE(ap.program_name, s.program_id) AS course
+             FROM students s
+             LEFT JOIN academic_programs ap ON s.program_id = ap.program_id
+             WHERE s.student_id = ?`,
+            [studentId]
+        );
+
+        if (studentRows.length === 0) {
+            await connection.rollback();
+            return res.status(404).json({ success: false, error: "Student not found." });
+        }
+
+        const student = studentRows[0];
+
+        let senderUserId = null;
+        if (nurse_id) {
+            const [nurseRows] = await connection.query(
+                `SELECT user_id FROM nurses WHERE nurse_id = ? OR user_id = ?`,
+                [nurse_id, nurse_id]
+            );
+            if (nurseRows.length > 0) senderUserId = nurseRows[0].user_id;
+        }
+
         const lateOverrideValue = allow_late_submission ? 1 : 0;
         const assignedNurseId = nurse_id || 'UNKNOWN_NURSE'; 
 
-        // FIX: Seed the medical_requirements base lookup index within the safe transactional channel 
-        await connection.query(
-            `INSERT IGNORE INTO medical_requirements (requirement_name) VALUES (?)`,
-            [requirement_name]
-        );
+        await connection.query(`INSERT IGNORE INTO medical_requirements (requirement_name) VALUES (?)`, [requirement_name]);
 
         const [existsSpecial] = await connection.query(
             `SELECT 1 FROM student_special_requirements WHERE student_id = ? AND requirement_name = ?`,
@@ -1086,7 +1343,20 @@ app.post('/api/students/:id/special-requirements', async (req, res) => {
         }
 
         await connection.commit();
-        res.json({ success: true });
+
+        // Trigger System + Web Push Notification via Helper
+        if (student.student_user_id) {
+            await notifyUsers({
+                sender_id: senderUserId,
+                recipient_ids: [student.student_user_id],
+                title: 'Special Requirement Assigned',
+                message: `You have been assigned a special requirement: "${requirement_name}". Deadline: ${submission_deadline}`,
+                type: 'special_requirement',
+                payloadData: { url: '/student/requirements', requirement_name }
+            });
+        }
+
+        res.json({ success: true, message: "Special requirement assigned and push notification delivered." });
 
     } catch (err) {
         await connection.rollback();
@@ -1097,20 +1367,12 @@ app.post('/api/students/:id/special-requirements', async (req, res) => {
     }
 });
 
-// 4. Update requirement submission (Removes file attachment if status is rejected or resubmit)
+// 4. Update requirement submission & notify student via System DB + Web Push
 app.put('/api/students/:id/requirements/:reqName', async (req, res) => {
     try {
         const studentId = req.params.id;
         const reqName = req.params.reqName;
         const now = new Date();
-        
-        const [studentVerification] = await pool.query('SELECT student_id FROM students WHERE student_id = ?', [studentId]);
-        if (studentVerification.length === 0) {
-            return res.status(400).json({ 
-                success: false, 
-                error: `Database Integrity Error: Student ID "${studentId}" was not found.` 
-            });
-        }
 
         const { 
             status = 'Pending', 
@@ -1118,15 +1380,33 @@ app.put('/api/students/:id/requirements/:reqName', async (req, res) => {
             submission_deadline = null, 
             type = 'Program', 
             config_id = null, 
-            override_allow_late_submission = false 
+            override_allow_late_submission = false,
+            nurse_id = null 
         } = req.body || {};
-        
+
+        const [studentRows] = await pool.query(
+            `SELECT s.student_id, s.user_id AS student_user_id, s.first_name, s.last_name, COALESCE(ap.program_name, s.program_id) AS course
+             FROM students s
+             LEFT JOIN academic_programs ap ON s.program_id = ap.program_id
+             WHERE s.student_id = ?`,
+            [studentId]
+        );
+
+        if (studentRows.length === 0) {
+            return res.status(400).json({ success: false, error: `Student ID "${studentId}" was not found.` });
+        }
+
+        const student = studentRows[0];
+
+        let senderUserId = null;
+        if (nurse_id) {
+            const [nurseRows] = await pool.query(`SELECT user_id FROM nurses WHERE nurse_id = ? OR user_id = ?`, [nurse_id, nurse_id]);
+            if (nurseRows.length > 0) senderUserId = nurseRows[0].user_id;
+        }
+
         const targetStatusClean = String(status).toLowerCase().trim();
         const incomingAllowLate = !!override_allow_late_submission;
-        
-        const incomingDeadline = submission_deadline && !isNaN(new Date(submission_deadline).getTime()) 
-            ? new Date(submission_deadline) 
-            : null;
+        const incomingDeadline = submission_deadline && !isNaN(new Date(submission_deadline).getTime()) ? new Date(submission_deadline) : null;
         const isExtendedToFuture = incomingDeadline && incomingDeadline > now;
 
         const [currentSub] = await pool.query(
@@ -1141,15 +1421,15 @@ app.put('/api/students/:id/requirements/:reqName', async (req, res) => {
         }
 
         if (existingStatus === 'not submitted' && targetStatusClean === 'pending' && !isExtendedToFuture && !incomingAllowLate) {
-            return res.status(400).json({ success: false, error: "Pending Reset Restriction: Cannot reset a 'Not Submitted' record to Pending unless you extend the deadline to a future date or enable late submission." });
+            return res.status(400).json({ success: false, error: "Cannot reset 'Not Submitted' to Pending without deadline extension." });
         }
 
         if (['submitted late', 'late submitted'].includes(existingStatus) && targetStatusClean === 'pending' && !isExtendedToFuture) {
-            return res.status(400).json({ success: false, error: "Pending Reset Restriction: Cannot reset a 'Late Submitted' record to Pending unless you extend the deadline to a future date." });
+            return res.status(400).json({ success: false, error: "Cannot reset 'Late Submitted' record without extending deadline." });
         }
 
         if (targetStatusClean === 'resubmit' && !isExtendedToFuture && !incomingAllowLate) {
-            return res.status(400).json({ success: false, error: "Resubmission Request Constraint: Setting status to 'Resubmit' requires extending the deadline to a future date or enabling late submission." });
+            return res.status(400).json({ success: false, error: "Setting status to 'Resubmit' requires extending deadline." });
         }
 
         const clearFilePayload = ['rejected', 'resubmit'].includes(targetStatusClean) ? 1 : 0;
@@ -1203,8 +1483,20 @@ app.put('/api/students/:id/requirements/:reqName', async (req, res) => {
             }
         }
 
-        res.json({ success: true });
-        
+        // Trigger System + Web Push Notification via Helper
+        if (student.student_user_id) {
+            await notifyUsers({
+                sender_id: senderUserId,
+                recipient_ids: [student.student_user_id],
+                title: 'Requirement Status Updated',
+                message: `Your requirement "${reqName}" status was updated to "${status}". Remarks: ${nurse_remarks || 'None'}`,
+                type: 'requirement_update',
+                payloadData: { url: '/student/requirements', reqName, status }
+            });
+        }
+
+        res.json({ success: true, message: "Requirement updated and push notification delivered." });
+
     } catch (err) {
         console.error("CRITICAL BACKEND UPDATE FAILURE:", err.message);
         res.status(500).json({ success: false, error: err.message });
@@ -1263,7 +1555,6 @@ app.post('/api/programs/:programId/requirements', async (req, res) => {
     try {
         await connection.beginTransaction();
 
-        // Step A: Ensure requirement exists in base lookup table
         const checkBaseQuery = `SELECT requirement_name FROM medical_requirements WHERE requirement_name = ?`;
         const [baseExists] = await connection.query(checkBaseQuery, [trimmedReqName]);
 
@@ -1272,7 +1563,6 @@ app.post('/api/programs/:programId/requirements', async (req, res) => {
             await connection.query(insertBaseQuery, [trimmedReqName]);
         }
 
-        // Step B: Double check if this exact program definition mapping is already present
         const checkMappingQuery = `SELECT config_id FROM program_requirements_config WHERE program_id = ? AND requirement_name = ?`;
         const [mappingExists] = await connection.query(checkMappingQuery, [programId, trimmedReqName]);
 
@@ -1281,7 +1571,6 @@ app.post('/api/programs/:programId/requirements', async (req, res) => {
             return res.status(400).json({ error: "This medical requirement already exists inside the targeted program rules." });
         }
 
-        // Step C: Construct unique config mapping row
         const newConfigId = `CFG-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
         const insertConfigQuery = `
             INSERT INTO program_requirements_config 
@@ -1298,7 +1587,6 @@ app.post('/api/programs/:programId/requirements', async (req, res) => {
             allow_late_submission ? 1 : 0
         ]);
 
-        // Step D: BATCH REFLECT TO SUBMISSIONS TABLE (With explicit submitted_at = NULL patch)
         const seedSubmissionsQuery = `
             INSERT INTO student_requirement_submissions (submission_id, student_id, requirement_name, status, nurse_remarks, file_url, submitted_at)
             SELECT UUID(), s.student_id, ?, 'Pending', '', NULL, NULL
@@ -1380,7 +1668,6 @@ app.delete('/api/programs/:programId/requirements/:configId', async (req, res) =
     try {
         await connection.beginTransaction();
 
-        // Step 1: Query the config rows to fetch mapping indicators before it drops
         const [configRows] = await connection.query(
             `SELECT requirement_name, year_level FROM program_requirements_config WHERE config_id = ? AND program_id = ?`,
             [configId, programId]
@@ -1393,7 +1680,6 @@ app.delete('/api/programs/:programId/requirements/:configId', async (req, res) =
 
         const { requirement_name, year_level } = configRows[0];
 
-        // Step 2: Delete corresponding tracking elements using synchronized filters matching user view profiles
         await connection.query(
             `DELETE srs FROM student_requirement_submissions srs
              INNER JOIN students s ON srs.student_id = s.student_id
@@ -1403,31 +1689,31 @@ app.delete('/api/programs/:programId/requirements/:configId', async (req, res) =
             [programId, requirement_name, year_level, year_level, year_level]
         );
 
-        // Step 3: Remove lingering custom student overrides referencing this rule config key
         await connection.query(
             `DELETE FROM student_deadline_overrides WHERE config_id = ?`,
             [configId]
         );
 
-        // Step 4: Drop structural definition constraint out of config dashboard registry
         await connection.query(
             `DELETE FROM program_requirements_config WHERE config_id = ? AND program_id = ?`,
             [configId, programId]
         );
 
         await connection.commit();
-        res.json({ success: true, message: "Program rule configuration and related student tracking records dropped successfully." });
+        res.json({ success: true, message: "Configuration removed and matching records cleaned up." });
 
     } catch (error) {
         await connection.rollback();
-        console.error("Failed removal operations processing database entry:", error);
-        res.status(500).json({ error: "Database transaction cascade failure: " + error.message });
+        console.error("Failed executing configuration deletion parameters:", error);
+        res.status(500).json({ error: "Database exception error deleting requirement." });
     } finally {
         connection.release();
     }
 });
 
 //Student Upload Requirements
+// Student Upload Requirement & send notification to nurse
+// Student Upload Requirement & send notification to nurse
 app.post('/api/students/:id/requirements/:reqName/submit', upload.single('file'), async (req, res) => {
     const studentId = req.params.id;
     const reqName = req.params.reqName;
@@ -1439,13 +1725,21 @@ app.post('/api/students/:id/requirements/:reqName/submit', upload.single('file')
     const file_url = `http://localhost:3001/uploads/${req.file.filename}`;
 
     try {
-        const [studentRow] = await pool.query('SELECT program_id, year_level FROM students WHERE student_id = ?', [studentId]); 
-        if (studentRow.length === 0) {
+        const [studentRows] = await pool.query(
+            `SELECT s.student_id, s.user_id AS student_user_id, s.first_name, s.last_name, s.program_id, s.year_level, COALESCE(ap.program_name, s.program_id) AS course
+             FROM students s
+             LEFT JOIN academic_programs ap ON s.program_id = ap.program_id
+             WHERE s.student_id = ?`,
+            [studentId]
+        );
+
+        if (studentRows.length === 0) {
             return res.status(404).json({ success: false, error: 'Student record could not be verified.' }); 
         }
-        
-        const programId = studentRow[0].program_id; 
-        const studentYearLevel = studentRow[0].year_level; 
+
+        const student = studentRows[0];
+        const studentUserId = student.student_user_id;
+        const studentYearLevel = student.year_level; 
         const now = new Date();
 
         const [progReqs] = await pool.query(
@@ -1456,7 +1750,7 @@ app.post('/api/students/:id/requirements/:reqName/submit', upload.single('file')
              LEFT JOIN student_deadline_overrides sdo ON sdo.student_id = ? AND sdo.config_id = prc.config_id
              WHERE prc.program_id = ? AND prc.requirement_name = ?
                AND (prc.year_level IS NULL OR ? LIKE CONCAT('%', prc.year_level, '%') OR prc.year_level = ?)`, 
-            [studentId, programId, reqName, studentYearLevel, studentYearLevel] 
+            [studentId, student.program_id, reqName, studentYearLevel, studentYearLevel] 
         );
 
         let deadline = null;
@@ -1481,7 +1775,6 @@ app.post('/api/students/:id/requirements/:reqName/submit', upload.single('file')
         const deadlineDate = deadline && !isNaN(new Date(deadline).getTime()) ? new Date(deadline) : null;
         const isLate = deadlineDate && now > deadlineDate;
 
-        // Gate: reject if deadline has passed AND late submission is not enabled
         if (isLate && !allowLate) {
             return res.status(400).json({ 
                 success: false, 
@@ -1513,14 +1806,29 @@ app.post('/api/students/:id/requirements/:reqName/submit', upload.single('file')
             );
         }
 
-        res.json({ success: true, message: "Requirement uploaded successfully!", status: targetStatus });
+        // FETCH ALL NURSE USER IDs
+        const [nurses] = await pool.query(`SELECT user_id FROM nurses WHERE user_id IS NOT NULL`);
+        const nurseUserIds = nurses.map(nurse => nurse.user_id);
+
+        // TRIGGER SYSTEM DB + WEB PUSH NOTIFICATIONS VIA HELPER
+        if (nurseUserIds.length > 0) {
+            await notifyUsers({
+                sender_id: studentUserId,
+                recipient_ids: nurseUserIds,
+                title: 'New Student Submission',
+                message: `${student.first_name} ${student.last_name} (${student.course}) submitted "${reqName}" (${targetStatus}).`,
+                type: 'requirement_submission',
+                payloadData: { url: `/nurse/students/${studentId}` }
+            });
+        }
+
+        res.json({ success: true, message: "Requirement uploaded and push notification delivered!", status: targetStatus });
 
     } catch (err) {
         console.error("Critical student submission channel fault:", err.message);
         res.status(500).json({ success: false, error: "Internal processing error: " + err.message });
     }
 });
-
 
 //Health Record Api
 // 1. GET ALL STUDENTS WITH SEARCH FILTERS
@@ -2173,7 +2481,7 @@ app.get('/api/dispensation/history', async (req, res) => {
   }
 });
 
-// Core Dispensation POST Handler with Unit Normalization
+// Core Dispensation POST Handler with Unit Normalization & Push/System Notifications
 app.post('/api/dispensation', async (req, res) => {
   const { 
     student_id, 
@@ -2205,7 +2513,8 @@ app.post('/api/dispensation', async (req, res) => {
 
     const [batchRows] = await connection.execute(
       `SELECT mib.current_stock, mib.remaining_volume, mib.expiration_date, 
-              m.strength_unit_value, m.strength_unit_of_measure 
+              m.strength_unit_value, m.strength_unit_of_measure,
+              m.brand_name, m.generic_name
        FROM medicine_inventory_batches mib 
        JOIN medicines m ON mib.medicine_id = m.medicine_id 
        WHERE mib.batch_id = ? FOR UPDATE`,
@@ -2222,6 +2531,11 @@ app.post('/api/dispensation', async (req, res) => {
     const strengthUnitVal = parseFloat(batchRows[0].strength_unit_value);
     const strengthUnitMeasure = batchRows[0].strength_unit_of_measure;
     const expirationDate = new Date(batchRows[0].expiration_date);
+
+    // Get formatted medicine name for notifications
+    const brandName = batchRows[0].brand_name;
+    const genericName = batchRows[0].generic_name;
+    const medicineName = brandName ? `${brandName} (${genericName})` : genericName;
 
     if (expirationDate < new Date()) {
       await connection.rollback();
@@ -2297,6 +2611,61 @@ app.post('/api/dispensation', async (req, res) => {
     );
 
     await connection.commit();
+
+    // ------------------------------------------------------------------
+    // DISPATCH NOTIFICATIONS (STUDENT & PARENTS)
+    // ------------------------------------------------------------------
+    try {
+      // 1. Get student user_id, student full name, and nurse sender user_id
+      const [studentRows] = await pool.query(
+        `SELECT s.user_id AS student_user_id, s.first_name, s.last_name, n.user_id AS nurse_user_id
+         FROM students s
+         LEFT JOIN nurses n ON n.nurse_id = ?
+         WHERE s.student_id = ?`,
+        [nurse_id, student_id]
+      );
+
+      // 2. Get parent user_ids mapped to the student
+      const [parentRows] = await pool.query(
+        `SELECT p.user_id 
+         FROM parents p
+         INNER JOIN parent_student_mapping psm ON p.parent_id = psm.parent_id
+         WHERE psm.student_id = ?`,
+        [student_id]
+      );
+
+      const sender_id = studentRows[0]?.nurse_user_id || null;
+      const student_user_id = studentRows[0]?.student_user_id;
+      const studentName = studentRows[0] ? `${studentRows[0].first_name} ${studentRows[0].last_name}` : 'Your child';
+      const parentUserIds = parentRows.map(p => p.user_id).filter(Boolean);
+
+      // Notify Student
+      if (student_user_id) {
+        await notifyUsers({
+          sender_id,
+          recipient_ids: [student_user_id],
+          title: 'Medicine Dispensed',
+          message: `Dispensed ${numericVal} ${dosage_consumption_unit_of_measure} of ${medicineName}.`,
+          type: 'MEDICINE_DISPENSE',
+          payloadData: { direct_dispense_id, student_id, batch_id }
+        });
+      }
+
+      // Notify Parents
+      if (parentUserIds.length > 0) {
+        await notifyUsers({
+          sender_id,
+          recipient_ids: parentUserIds,
+          title: 'Child Medicine Dispensing',
+          message: `${studentName} was dispensed ${numericVal} ${dosage_consumption_unit_of_measure} of ${medicineName}.`,
+          type: 'MEDICINE_DISPENSE_PARENT',
+          payloadData: { direct_dispense_id, student_id, batch_id }
+        });
+      }
+    } catch (notifErr) {
+      console.error('Failed to dispatch dispensation notifications:', notifErr);
+    }
+
     res.status(201).json({ 
       success: true, 
       message: 'Transaction posted successfully.', 
@@ -2314,6 +2683,7 @@ app.post('/api/dispensation', async (req, res) => {
 });
 
 //Visit Log Consultation API
+// Visit Log Consultation API
 // GET: Search students
 app.get('/api/students/search', async (req, res) => {
     const { query } = req.query;
@@ -2399,7 +2769,7 @@ app.get('/api/clinic-visits', async (req, res) => {
     }
 });
 
-// POST: Add a new Visit Log Consultation with complete dispensation logic and SMS notification
+// POST: Add a new Visit Log Consultation with validation against duplicate active visits
 app.post('/api/clinic-visits', async (req, res) => {
     const connection = await pool.getConnection();
     try {
@@ -2423,6 +2793,22 @@ app.post('/api/clinic-visits', async (req, res) => {
             dosage_consumption_unit_of_measure
         } = req.body;
 
+        // Prevent duplicate concurrent active clinic visits
+        const [activeVisits] = await connection.execute(
+            `SELECT visit_id FROM clinic_visits 
+             WHERE student_id = ? AND visit_date = ? AND (time_out IS NULL OR time_out = '') 
+             FOR UPDATE`,
+            [student_id, visit_date]
+        );
+
+        if (activeVisits.length > 0) {
+            await connection.rollback();
+            return res.status(400).json({ 
+                success: false, 
+                error: "Student currently has an active, untimed-out clinic visit for today." 
+            });
+        }
+
         const visit_id = 'VISIT-' + Math.random().toString(36).substr(2, 9).toUpperCase();
 
         const visitSql = `
@@ -2438,7 +2824,7 @@ app.post('/api/clinic-visits', async (req, res) => {
             pulse_rate || null, blood_pressure || null, nursing_intervention || null, health_advice || null
         ]);
 
-        // Handle Medicine Dispensation
+        // --- Handle Medicine Dispensation ---
         if (batch_id && dosage_consumption_unit_value) {
             const numericVal = parseFloat(dosage_consumption_unit_value);
 
@@ -2521,15 +2907,20 @@ app.post('/api/clinic-visits', async (req, res) => {
             );
         }
 
-        // SMS Notification Logic
+        // --- System & Push & SMS Notification Logic ---
         let smsNotificationSent = false;
         try {
-            const smsDetailsSql = `
+            const detailsSql = `
                 SELECT 
+                    s.user_id AS student_user_id,
                     s.first_name AS student_first_name,
                     s.last_name AS student_last_name,
+                    p.user_id AS parent_user_id,
                     p.primary_phone,
+                    n.user_id AS nurse_user_id,
                     cc.complaint_name,
+                    cv.time_in,
+                    cv.time_out,
                     cv.nursing_intervention,
                     cv.health_advice,
                     cd.dosage_consumption_unit_value,
@@ -2537,6 +2928,7 @@ app.post('/api/clinic-visits', async (req, res) => {
                     CONCAT(m.brand_name, ' (', m.generic_name, ')') AS medicine_name
                 FROM clinic_visits cv
                 JOIN students s ON cv.student_id = s.student_id
+                LEFT JOIN nurses n ON cv.nurse_id = n.nurse_id
                 LEFT JOIN parent_student_mapping psm ON s.student_id = psm.student_id
                 LEFT JOIN parents p ON psm.parent_id = p.parent_id
                 LEFT JOIN chief_complaints cc ON cv.complaint_id = cc.complaint_id
@@ -2546,38 +2938,52 @@ app.post('/api/clinic-visits', async (req, res) => {
                 WHERE cv.visit_id = ?
             `;
 
-            const [detailsRows] = await pool.execute(smsDetailsSql, [visit_id]);
+            const [detailsRows] = await connection.execute(detailsSql, [visit_id]);
 
-            if (detailsRows.length > 0 && detailsRows[0].primary_phone) {
+            if (detailsRows.length > 0) {
                 const info = detailsRows[0];
                 const studentFullName = `${info.student_first_name} ${info.student_last_name}`;
                 const complaintName = info.complaint_name || 'General Checkup';
-                const interventionText = info.nursing_intervention || 'None';
-                const healthAdviceText = info.health_advice || 'None';
-                const medicineGiven = (info.dosage_consumption_unit_value && info.medicine_name)
-                    ? `${info.dosage_consumption_unit_value} ${info.dosage_consumption_unit_of_measure} of ${info.medicine_name}`
-                    : 'None';
+                const timeInStr = info.time_in ? `Time In: ${info.time_in}` : '';
+                const timeOutStr = info.time_out ? `Time Out: ${info.time_out}` : '';
+                const adviceStr = info.health_advice ? `Advice: ${info.health_advice}` : '';
 
-                const smsMessage = 
-                    `${studentFullName} visited the clinic because of ${complaintName}.\n\n` +
-                    `Other Details:\n` +
-                    `Nursing intervention: ${interventionText}\n` +
-                    `health_advice: ${healthAdviceText}\n` +
-                    `medicine given: ${medicineGiven}`;
+                const notifTitle = `Clinic Visit Logged: ${studentFullName}`;
+                const notifMessage = [
+                    `${studentFullName} visited for ${complaintName}.`,
+                    timeInStr,
+                    timeOutStr,
+                    adviceStr
+                ].filter(Boolean).join(' ');
 
-                await sendIprogSms(info.primary_phone, smsMessage);
-                smsNotificationSent = true;
+                const recipient_ids = [info.parent_user_id, info.student_user_id].filter(Boolean);
+
+                await notifyUsers({
+                    sender_id: info.nurse_user_id || null,
+                    recipient_ids: recipient_ids,
+                    title: notifTitle,
+                    message: notifMessage,
+                    type: 'clinic_visit',
+                    payloadData: { visit_id }
+                });
+
+                if (info.primary_phone) {
+                    const smsMessage = 
+                        `${studentFullName} visited clinic for ${complaintName}. ` +
+                        `${timeInStr} ${adviceStr}`.trim();
+
+                    await sendIprogSms(info.primary_phone, smsMessage);
+                    smsNotificationSent = true;
+                }
             }
-        } catch (smsError) {
-            console.error('[iPROG SMS Error] Failed to send SMS:', smsError.message);
+        } catch (notifError) {
+            console.error('[Notification Error] Failed to send System/Push/SMS notifications:', notifError.message);
         }
 
         await connection.commit();
         res.status(201).json({ 
             success: true, 
-            message: smsNotificationSent 
-                ? "Consultation logged and parent notified via SMS!" 
-                : "Consultation logged successfully (SMS notification failed or skipped).",
+            message: "Consultation logged and notifications processed!",
             smsSent: smsNotificationSent
         });
 
@@ -2610,6 +3016,41 @@ app.patch('/api/clinic-visits/:id/timeout', async (req, res) => {
         }
 
         await pool.execute('UPDATE clinic_visits SET time_out = ? WHERE visit_id = ?', [time_out, id]);
+
+        try {
+            const notifSql = `
+                SELECT 
+                    s.user_id AS student_user_id,
+                    s.first_name AS student_first_name,
+                    s.last_name AS student_last_name,
+                    p.user_id AS parent_user_id,
+                    n.user_id AS nurse_user_id
+                FROM clinic_visits cv
+                JOIN students s ON cv.student_id = s.student_id
+                LEFT JOIN nurses n ON cv.nurse_id = n.nurse_id
+                LEFT JOIN parent_student_mapping psm ON s.student_id = psm.student_id
+                LEFT JOIN parents p ON psm.parent_id = p.parent_id
+                WHERE cv.visit_id = ?
+            `;
+            const [notifRows] = await pool.execute(notifSql, [id]);
+
+            if (notifRows.length > 0) {
+                const info = notifRows[0];
+                const studentFullName = `${info.student_first_name} ${info.student_last_name}`;
+
+                await notifyUsers({
+                    sender_id: info.nurse_user_id || null,
+                    recipient_ids: [info.parent_user_id, info.student_user_id].filter(Boolean),
+                    title: `Clinic Time Out: ${studentFullName}`,
+                    message: `${studentFullName} checked out of the clinic at ${time_out}.`,
+                    type: 'clinic_timeout',
+                    payloadData: { visit_id: id, time_out }
+                });
+            }
+        } catch (notifError) {
+            console.error('[Notification Error] Time out push notification failed:', notifError.message);
+        }
+
         res.json({ success: true, message: "Time out updated successfully!" });
     } catch (error) {
         console.error(error);
@@ -2755,6 +3196,56 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
                     [dispensation_id, id, batch_id, numericVal, dosage_consumption_unit_of_measure]
                 );
             }
+        }
+
+        try {
+            const notifSql = `
+                SELECT 
+                    s.user_id AS student_user_id,
+                    s.first_name AS student_first_name,
+                    s.last_name AS student_last_name,
+                    p.user_id AS parent_user_id,
+                    n.user_id AS nurse_user_id,
+                    cc.complaint_name,
+                    cv.time_in,
+                    cv.time_out,
+                    cv.nursing_intervention,
+                    cv.health_advice
+                FROM clinic_visits cv
+                JOIN students s ON cv.student_id = s.student_id
+                LEFT JOIN nurses n ON cv.nurse_id = n.nurse_id
+                LEFT JOIN parent_student_mapping psm ON s.student_id = psm.student_id
+                LEFT JOIN parents p ON psm.parent_id = p.parent_id
+                LEFT JOIN chief_complaints cc ON cv.complaint_id = cc.complaint_id
+                WHERE cv.visit_id = ?
+            `;
+
+            const [notifRows] = await connection.execute(notifSql, [id]);
+
+            if (notifRows.length > 0) {
+                const info = notifRows[0];
+                const studentFullName = `${info.student_first_name} ${info.student_last_name}`;
+                const complaintName = info.complaint_name || 'General Checkup';
+
+                const notifTitle = `Documentation Updated: ${studentFullName}`;
+                const notifMessage = [
+                    `${studentFullName} - ${complaintName}.`,
+                    info.nursing_intervention ? `Intervention: ${info.nursing_intervention}.` : '',
+                    info.health_advice ? `Advice: ${info.health_advice}.` : '',
+                    info.time_out ? `Time Out: ${info.time_out}.` : ''
+                ].filter(Boolean).join(' ');
+
+                await notifyUsers({
+                    sender_id: info.nurse_user_id || null,
+                    recipient_ids: [info.parent_user_id, info.student_user_id].filter(Boolean),
+                    title: notifTitle,
+                    message: notifMessage,
+                    type: 'clinic_documentation',
+                    payloadData: { visit_id: id }
+                });
+            }
+        } catch (notifError) {
+            console.error('[Notification Error] Documentation update push failed:', notifError.message);
         }
 
         await connection.commit();
@@ -3418,6 +3909,84 @@ app.get('/api/frequent-complaints', async (req, res) => {
   }
 });
 
+// 1. GET Frequent Complaint Details (All visits for a specific student & complaint within the month)
+app.get('/api/frequent-complaints/details', async (req, res) => {
+  try {
+    const { studentId, complaint, month } = req.query;
+
+    if (!studentId || !complaint) {
+      return res.status(400).json({
+        success: false,
+        message: 'studentId and complaint parameters are required.'
+      });
+    }
+
+    const targetMonth = month || new Date().toISOString().slice(0, 7);
+
+    const query = `
+      SELECT 
+        cv.visit_id AS visitId,
+        cv.student_id AS studentId,
+        CONCAT(s.first_name, ' ', s.last_name) AS studentName,
+        CONCAT(s.program_id, ' - Year ', s.year_level) AS gradeSection,
+        cc.complaint_name AS complaint,
+        DATE_FORMAT(cv.visit_date, '%Y-%m-%d') AS visitDate,
+        cv.time_in AS timeIn,
+        cv.time_out AS timeOut,
+        cv.temperature,
+        cv.respiratory_rate AS respiratoryRate,
+        cv.pulse_rate AS pulseRate,
+        cv.blood_pressure AS bloodPressure,
+        cv.nursing_intervention AS nursingIntervention,
+        cv.health_advice AS healthAdvice
+      FROM clinic_visits cv
+      INNER JOIN students s ON cv.student_id = s.student_id
+      INNER JOIN chief_complaints cc ON cv.complaint_id = cc.complaint_id
+      WHERE cv.student_id = ? 
+        AND cc.complaint_name = ?
+        AND DATE_FORMAT(cv.visit_date, '%Y-%m') = ?
+      ORDER BY cv.visit_date DESC, cv.time_in DESC;
+    `;
+
+    const [rows] = await pool.query(query, [studentId, complaint, targetMonth]);
+
+    return res.status(200).json({
+      success: true,
+      month: targetMonth,
+      totalVisits: rows.length,
+      data: rows
+    });
+  } catch (error) {
+    console.error('Error fetching frequent visit details:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve visit details.',
+      error: error.message
+    });
+  }
+});
+
+// 2. DELETE Dismiss Frequent Complaint Alert
+app.delete('/api/frequent-complaints/dismiss', async (req, res) => {
+  try {
+    const { studentId, complaint } = req.body;
+
+    if (!studentId || !complaint) {
+      return res.status(400).json({ success: false, message: 'studentId and complaint are required.' });
+    }
+
+    // Optional DB persistent dismissal table sync can be done here if needed.
+    return res.status(200).json({
+      success: true,
+      message: 'Alert dismissed successfully.'
+    });
+  } catch (error) {
+    console.error('Error dismissing alert:', error);
+    return res.status(500).json({ success: false, message: 'Failed to dismiss alert.' });
+  }
+});
+
+
 // Weekly Reports
 // GET /api/weekly-reports?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
 // GET /api/weekly-reports?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
@@ -3516,193 +4085,402 @@ app.get('/api/weekly-reports', async (req, res) => {
 
 //Document Request API
 // =========================================================================
-// 1. POST: Submit Excuse Slip Request
+// 1. POST: Submit Excuse Slip Request (Notifies All Nurses)
 // =========================================================================
 // =========================================================================
-// 1. POST: Submit Excuse Slip Request
+// 1. POST: Submit Excuse Slip Request (Notifies All Nurses)
 // =========================================================================
 app.post('/api/requests/excuse-slip', upload.single('proof'), async (req, res) => {
-  try {
-    const { student_id, reason_for_excuse, valid_absence_start, valid_absence_end } = req.body;
-    const request_id = `EXC-${uuidv4().substring(0, 8)}`;
-    const student_proof_url = req.file ? `/uploads/${req.file.filename}` : null;
+    try {
+        const { student_id, reason_for_excuse, valid_absence_start, valid_absence_end } = req.body;
+        const request_id = `EXC-${uuidv4().substring(0, 8)}`;
+        const student_proof_url = req.file ? `/uploads/${req.file.filename}` : null;
 
-    const query = `
-      INSERT INTO excuse_slip_requests 
-      (request_id, student_id, reason_for_excuse, valid_absence_start, valid_absence_end, student_proof_url, status) 
-      VALUES (?, ?, ?, ?, ?, ?, 'Pending')
-    `;
+        const query = `
+            INSERT INTO excuse_slip_requests 
+            (request_id, student_id, reason_for_excuse, valid_absence_start, valid_absence_end, student_proof_url, status) 
+            VALUES (?, ?, ?, ?, ?, ?, 'Pending')
+        `;
 
-    await pool.query(query, [
-      request_id,
-      student_id,
-      reason_for_excuse,
-      valid_absence_start,
-      valid_absence_end,
-      student_proof_url
-    ]);
+        await pool.query(query, [
+            request_id,
+            student_id,
+            reason_for_excuse,
+            valid_absence_start,
+            valid_absence_end,
+            student_proof_url
+        ]);
 
-    res.status(201).json({ message: 'Excuse slip request submitted successfully', request_id });
-  } catch (error) {
-    console.error('Error submitting excuse slip:', error);
-    res.status(500).json({ error: 'Failed to submit excuse slip request' });
-  }
+        // Fetch student details to build notification
+        const [studentRows] = await pool.query(
+            `SELECT user_id, CONCAT(first_name, ' ', last_name) AS full_name FROM students WHERE student_id = ?`,
+            [student_id]
+        );
+
+        if (studentRows.length > 0) {
+            const student = studentRows[0];
+            const notifTitle = `New Excuse Slip Request`;
+            const notifMsg = `${student.full_name} submitted an Excuse Slip request for ${valid_absence_start} to ${valid_absence_end}. Reason: ${reason_for_excuse}`;
+
+            // Fetch all clinic nurses using users.user_id
+            const [nurses] = await pool.query(`
+                SELECT DISTINCT u.user_id 
+                FROM users u 
+                LEFT JOIN roles r ON u.role_id = r.role_id 
+                LEFT JOIN nurses n ON (u.user_id = n.user_id OR u.user_id = n.nurse_id)
+                WHERE (LOWER(r.role_name) = 'nurse' OR n.nurse_id IS NOT NULL) 
+                  AND u.user_id IS NOT NULL
+            `);
+            const nurseUserIds = nurses.map(n => n.user_id).filter(Boolean);
+
+            // Send System + Web Push Notification to all Nurses
+            if (nurseUserIds.length > 0) {
+                await notifyUsers({
+                    sender_id: student.user_id,
+                    recipient_ids: nurseUserIds,
+                    title: notifTitle,
+                    message: notifMsg,
+                    type: 'excuse_slip_request',
+                    payloadData: { request_id, type: 'Excuse Slip' }
+                });
+            }
+        }
+
+        res.status(201).json({ message: 'Excuse slip request submitted successfully', request_id });
+    } catch (error) {
+        console.error('Error submitting excuse slip:', error);
+        res.status(500).json({ error: 'Failed to submit excuse slip request' });
+    }
 });
 
 // =========================================================================
-// 0. GET: Fetch Partner Facilities & Associated Services
+// 2. GET: Fetch Partner Facilities & Associated Services
 // =========================================================================
 app.get('/api/partner-facilities', async (req, res) => {
-  try {
-    const [facilities] = await pool.query(`SELECT * FROM partner_facilities ORDER BY facility_name ASC`);
-    const [services] = await pool.query(`SELECT * FROM facility_services ORDER BY service_name ASC`);
+    try {
+        const [facilities] = await pool.query(`SELECT * FROM partner_facilities ORDER BY facility_name ASC`);
+        const [services] = await pool.query(`SELECT * FROM facility_services ORDER BY service_name ASC`);
 
-    // Group services by facility_id
-    const facilitiesWithServices = facilities.map((facility) => ({
-      ...facility,
-      services: services.filter((s) => s.facility_id === facility.facility_id)
-    }));
+        const facilitiesWithServices = facilities.map((facility) => ({
+            ...facility,
+            services: services.filter((s) => s.facility_id === facility.facility_id)
+        }));
 
-    res.json(facilitiesWithServices);
-  } catch (error) {
-    console.error('Error fetching partner facilities:', error);
-    res.status(500).json({ error: 'Failed to fetch partner facilities' });
-  }
+        res.json(facilitiesWithServices);
+    } catch (error) {
+        console.error('Error fetching partner facilities:', error);
+        res.status(500).json({ error: 'Failed to fetch partner facilities' });
+    }
 });
 
 // =========================================================================
-// 2. POST: Submit Referral Slip Request (Updated with Transaction)
+// 3. POST: Submit Referral Slip Request (Notifies All Nurses)
 // =========================================================================
 app.post('/api/requests/referral-slip', async (req, res) => {
-  const connection = await pool.getConnection();
-  try {
-    const { student_id, reason_for_referral, facility_id, service_ids } = req.body;
+    const connection = await pool.getConnection();
+    try {
+        const { student_id, reason_for_referral, facility_id, service_ids } = req.body;
 
-    if (!facility_id) {
-      return res.status(400).json({ error: 'Partner facility is required.' });
+        if (!facility_id) {
+            return res.status(400).json({ error: 'Partner facility is required.' });
+        }
+        if (!service_ids || !Array.isArray(service_ids) || service_ids.length === 0) {
+            return res.status(400).json({ error: 'At least one service must be selected.' });
+        }
+
+        const request_id = `REF-${uuidv4().substring(0, 8)}`;
+
+        await connection.beginTransaction();
+
+        const insertRequestQuery = `
+            INSERT INTO referral_slip_requests 
+            (request_id, student_id, facility_id, reason_for_referral, status) 
+            VALUES (?, ?, ?, ?, 'Pending')
+        `;
+        await connection.query(insertRequestQuery, [
+            request_id,
+            student_id,
+            facility_id,
+            reason_for_referral
+        ]);
+
+        const insertServiceQuery = `
+            INSERT INTO referral_request_services (request_id, service_id) 
+            VALUES ?
+        `;
+        const serviceValues = service_ids.map((serviceId) => [request_id, serviceId]);
+        await connection.query(insertServiceQuery, [serviceValues]);
+
+        await connection.commit();
+
+        // Fetch Student & Facility Info for Notifications
+        const [studentRows] = await pool.query(
+            `SELECT user_id, CONCAT(first_name, ' ', last_name) AS full_name FROM students WHERE student_id = ?`,
+            [student_id]
+        );
+        const [facilityRows] = await pool.query(
+            `SELECT facility_name FROM partner_facilities WHERE facility_id = ?`,
+            [facility_id]
+        );
+
+        if (studentRows.length > 0) {
+            const student = studentRows[0];
+            const facilityName = facilityRows[0]?.facility_name || 'Partner Facility';
+            const notifTitle = `New Referral Slip Request`;
+            const notifMsg = `${student.full_name} submitted a Referral Slip request for ${facilityName}. Reason: ${reason_for_referral}`;
+
+            // Fetch all clinic nurses using users.user_id
+            const [nurses] = await pool.query(`
+                SELECT DISTINCT u.user_id 
+                FROM users u 
+                LEFT JOIN roles r ON u.role_id = r.role_id 
+                LEFT JOIN nurses n ON (u.user_id = n.user_id OR u.user_id = n.nurse_id)
+                WHERE (LOWER(r.role_name) = 'nurse' OR n.nurse_id IS NOT NULL) 
+                  AND u.user_id IS NOT NULL
+            `);
+            const nurseUserIds = nurses.map(n => n.user_id).filter(Boolean);
+
+            // Send System + Web Push Notification to all Nurses
+            if (nurseUserIds.length > 0) {
+                await notifyUsers({
+                    sender_id: student.user_id,
+                    recipient_ids: nurseUserIds,
+                    title: notifTitle,
+                    message: notifMsg,
+                    type: 'referral_slip_request',
+                    payloadData: { request_id, type: 'Referral Slip' }
+                });
+            }
+        }
+
+        res.status(201).json({ message: 'Referral slip request submitted successfully', request_id });
+    } catch (error) {
+        await connection.rollback();
+        console.error('Error submitting referral slip:', error);
+        res.status(500).json({ error: 'Failed to submit referral slip request' });
+    } finally {
+        connection.release();
     }
-    if (!service_ids || !Array.isArray(service_ids) || service_ids.length === 0) {
-      return res.status(400).json({ error: 'At least one service must be selected.' });
-    }
-
-    const request_id = `REF-${uuidv4().substring(0, 8)}`;
-
-    await connection.beginTransaction();
-
-    // 1. Insert into referral_slip_requests
-    const insertRequestQuery = `
-      INSERT INTO referral_slip_requests 
-      (request_id, student_id, facility_id, reason_for_referral, status) 
-      VALUES (?, ?, ?, ?, 'Pending')
-    `;
-    await connection.query(insertRequestQuery, [
-      request_id,
-      student_id,
-      facility_id,
-      reason_for_referral
-    ]);
-
-    // 2. Insert selected services into junction table
-    const insertServiceQuery = `
-      INSERT INTO referral_request_services (request_id, service_id) 
-      VALUES ?
-    `;
-    const serviceValues = service_ids.map((serviceId) => [request_id, serviceId]);
-    await connection.query(insertServiceQuery, [serviceValues]);
-
-    await connection.commit();
-    res.status(201).json({ message: 'Referral slip request submitted successfully', request_id });
-  } catch (error) {
-    await connection.rollback();
-    console.error('Error submitting referral slip:', error);
-    res.status(500).json({ error: 'Failed to submit referral slip request' });
-  } finally {
-    connection.release();
-  }
 });
 
 // =========================================================================
-// 3. GET: Fetch All Requests for a Student (Updated with JOINs)
+// 4. POST: Nurse Issues/Processes Document Request (Notifies Student & Parent)
+// =========================================================================
+app.post('/api/requests/issue', upload.single('issued_slip'), async (req, res) => {
+    try {
+        const { request_id, request_type, status, nurse_id, remarks } = req.body;
+
+        if (!request_id || !request_type || !status || !nurse_id) {
+            return res.status(400).json({ error: 'Missing required fields for document issuance.' });
+        }
+
+        const tableName = request_type === 'Excuse Slip' ? 'excuse_slip_requests' : 'referral_slip_requests';
+        const issued_slip_url = req.file ? `/uploads/${req.file.filename}` : null;
+
+        let updateSql = `UPDATE ${tableName} SET status = ?, issued_by = ?, issued_at = NOW()`;
+        const params = [status, nurse_id];
+
+        if (issued_slip_url) {
+            updateSql += `, issued_slip_url = ?`;
+            params.push(issued_slip_url);
+        }
+
+        updateSql += ` WHERE request_id = ?`;
+        params.push(request_id);
+
+        await pool.query(updateSql, params);
+
+        // Map nurse_id to users.user_id
+        const [nurseUser] = await pool.query(
+            `SELECT u.user_id 
+             FROM users u 
+             LEFT JOIN nurses n ON (u.user_id = n.user_id OR u.user_id = n.nurse_id)
+             WHERE n.nurse_id = ? OR n.user_id = ? OR u.user_id = ?
+             LIMIT 1`,
+            [nurse_id, nurse_id, nurse_id]
+        );
+        const nurseUserId = nurseUser[0]?.user_id || nurse_id;
+
+        const targetSql = `
+            SELECT 
+                req.student_id,
+                s.user_id AS student_user_id,
+                CONCAT(s.first_name, ' ', s.last_name) AS student_name,
+                p.user_id AS parent_user_id
+            FROM ${tableName} req
+            JOIN students s ON req.student_id = s.student_id
+            LEFT JOIN parent_student_mapping psm ON s.student_id = psm.student_id
+            LEFT JOIN parents p ON psm.parent_id = p.parent_id
+            WHERE req.request_id = ?
+        `;
+        const [targetRows] = await pool.query(targetSql, [request_id]);
+
+        if (targetRows.length > 0) {
+            const target = targetRows[0];
+            const recipientIds = [target.student_user_id, target.parent_user_id].filter(Boolean);
+
+            const notifTitle = `${request_type} Issued / Updated`;
+            const notifMsg = `Your ${request_type} (${request_id}) has been ${status.toLowerCase()}.${remarks ? ` Remarks: ${remarks}` : ''}`;
+
+            // Notify Student and Parent via System DB + Web Push
+            if (recipientIds.length > 0) {
+                await notifyUsers({
+                    sender_id: nurseUserId,
+                    recipient_ids: recipientIds,
+                    title: notifTitle,
+                    message: notifMsg,
+                    type: 'document_issued',
+                    payloadData: { request_id, type: request_type, status }
+                });
+            }
+        }
+
+        res.status(200).json({ message: `Document request updated to ${status} successfully.` });
+    } catch (error) {
+        console.error('Error issuing document:', error);
+        res.status(500).json({ error: 'Failed to issue document request' });
+    }
+});
+
+// =========================================================================
+// 5. GET: Fetch All Requests for a Student
 // =========================================================================
 app.get('/api/requests/student/:student_id', async (req, res) => {
-  try {
-    const { student_id } = req.params;
+    try {
+        const { student_id } = req.params;
 
-    const [excuseRequests] = await pool.query(
-      `SELECT *, 'Excuse Slip' AS request_type FROM excuse_slip_requests WHERE student_id = ? ORDER BY created_at DESC`,
-      [student_id]
-    );
+        const [excuseRequests] = await pool.query(
+            `SELECT *, 'Excuse Slip' AS request_type FROM excuse_slip_requests WHERE student_id = ? ORDER BY created_at DESC`,
+            [student_id]
+        );
 
-    // Join partner_facilities and aggregate requested services into string list
-    const [referralRequests] = await pool.query(
-      `SELECT 
-        r.*, 
-        pf.facility_name AS partner_facility_name,
-        GROUP_CONCAT(fs.service_name SEPARATOR ', ') AS requested_services,
-        'Referral Slip' AS request_type 
-        FROM referral_slip_requests r
-        LEFT JOIN partner_facilities pf ON r.facility_id = pf.facility_id
-        LEFT JOIN referral_request_services rrs ON r.request_id = rrs.request_id
-        LEFT JOIN facility_services fs ON rrs.service_id = fs.service_id
-        WHERE r.student_id = ? 
-        GROUP BY r.request_id 
-        ORDER BY r.created_at DESC`,
-      [student_id]
-    );
+        const [referralRequests] = await pool.query(
+            `SELECT 
+                r.*, 
+                pf.facility_name AS partner_facility_name,
+                GROUP_CONCAT(fs.service_name SEPARATOR ', ') AS requested_services,
+                'Referral Slip' AS request_type 
+            FROM referral_slip_requests r
+            LEFT JOIN partner_facilities pf ON r.facility_id = pf.facility_id
+            LEFT JOIN referral_request_services rrs ON r.request_id = rrs.request_id
+            LEFT JOIN facility_services fs ON rrs.service_id = fs.service_id
+            WHERE r.student_id = ? 
+            GROUP BY r.request_id 
+            ORDER BY r.created_at DESC`,
+            [student_id]
+        );
 
-    const allRequests = [...excuseRequests, ...referralRequests].sort(
-      (a, b) => new Date(b.created_at) - new Date(a.created_at)
-    );
+        const allRequests = [...excuseRequests, ...referralRequests].sort(
+            (a, b) => new Date(b.created_at) - new Date(a.created_at)
+        );
 
-    res.json(allRequests);
-  } catch (error) {
-    console.error('Error fetching request history:', error);
-    res.status(500).json({ error: 'Failed to fetch request history' });
-  }
+        res.json(allRequests);
+    } catch (error) {
+        console.error('Error fetching request history:', error);
+        res.status(500).json({ error: 'Failed to fetch request history' });
+    }
 });
 
 // =========================================================================
-// 4. GET & POST: Notes / Messages for a Specific Request
+// 6. GET & POST: Notes / Messages for a Specific Request
 // =========================================================================
 app.get('/api/requests/:type/:request_id/notes', async (req, res) => {
-  try {
-    const { type, request_id } = req.params;
-    const tableName = type === 'Excuse Slip' ? 'excuse_slip_notes' : 'referral_slip_notes';
+    try {
+        const { type, request_id } = req.params;
+        const tableName = type === 'Excuse Slip' ? 'excuse_slip_notes' : 'referral_slip_notes';
 
-    const [notes] = await pool.query(
-      `SELECT * FROM ${tableName} WHERE request_id = ? ORDER BY created_at ASC`,
-      [request_id]
-    );
+        const [notes] = await pool.query(
+            `SELECT * FROM ${tableName} WHERE request_id = ? ORDER BY created_at ASC`,
+            [request_id]
+        );
 
-    res.json(notes);
-  } catch (error) {
-    console.error('Error fetching notes:', error);
-    res.status(500).json({ error: 'Failed to fetch notes' });
-  }
+        res.json(notes);
+    } catch (error) {
+        console.error('Error fetching notes:', error);
+        res.status(500).json({ error: 'Failed to fetch notes' });
+    }
 });
 
 app.post('/api/requests/:type/:request_id/notes', async (req, res) => {
-  try {
-    const { type, request_id } = req.params;
-    const { sender_type, sender_id, message } = req.body;
-    const note_id = `NOTE-${uuidv4().substring(0, 8)}`;
-    const tableName = type === 'Excuse Slip' ? 'excuse_slip_notes' : 'referral_slip_notes';
+    try {
+        const { type, request_id } = req.params;
+        const { sender_type, sender_id, message } = req.body;
+        const note_id = `NOTE-${uuidv4().substring(0, 8)}`;
+        const tableName = type === 'Excuse Slip' ? 'excuse_slip_notes' : 'referral_slip_notes';
+        const requestTable = type === 'Excuse Slip' ? 'excuse_slip_requests' : 'referral_slip_requests';
 
-    await pool.query(
-      `INSERT INTO ${tableName} (note_id, request_id, sender_type, sender_id, message) VALUES (?, ?, ?, ?, ?)`,
-      [note_id, request_id, sender_type, sender_id, message]
-    );
+        await pool.query(
+            `INSERT INTO ${tableName} (note_id, request_id, sender_type, sender_id, message) VALUES (?, ?, ?, ?, ?)`,
+            [note_id, request_id, sender_type, sender_id, message]
+        );
 
-    res.status(201).json({ message: 'Note added successfully' });
-  } catch (error) {
-    console.error('Error adding note:', error);
-    res.status(500).json({ error: 'Failed to send message' });
-  }
+        // Resolve Sender User ID to users.user_id
+        const [senderRows] = await pool.query(
+            `SELECT user_id FROM (
+                SELECT user_id FROM users WHERE user_id = ?
+                UNION
+                SELECT user_id FROM students WHERE student_id = ?
+                UNION
+                SELECT u.user_id FROM nurses n JOIN users u ON (u.user_id = n.user_id OR u.user_id = n.nurse_id) WHERE n.nurse_id = ?
+            ) AS resolved LIMIT 1`,
+            [sender_id, sender_id, sender_id]
+        );
+        const senderUserId = senderRows[0]?.user_id || null;
+
+        // If Nurse sent the note -> Notify Student
+        if (sender_type === 'Nurse') {
+            const [studentRows] = await pool.query(
+                `SELECT s.user_id FROM ${requestTable} req JOIN students s ON req.student_id = s.student_id WHERE req.request_id = ?`,
+                [request_id]
+            );
+
+            if (studentRows.length > 0 && studentRows[0].user_id) {
+                await notifyUsers({
+                    sender_id: senderUserId,
+                    recipient_ids: [studentRows[0].user_id],
+                    title: `New Message on ${type}`,
+                    message: `A nurse sent a message regarding ${type} (${request_id}): "${message.trim()}"`,
+                    type: 'request_note',
+                    payloadData: { request_id, type }
+                });
+            }
+        } 
+        // If Student sent the note -> Notify all Nurses
+        else {
+            const [nurses] = await pool.query(`
+                SELECT DISTINCT u.user_id 
+                FROM users u 
+                LEFT JOIN roles r ON u.role_id = r.role_id 
+                LEFT JOIN nurses n ON (u.user_id = n.user_id OR u.user_id = n.nurse_id)
+                WHERE (LOWER(r.role_name) = 'nurse' OR n.nurse_id IS NOT NULL) 
+                  AND u.user_id IS NOT NULL
+            `);
+            const nurseUserIds = nurses.map(n => n.user_id).filter(Boolean);
+
+            if (nurseUserIds.length > 0) {
+                await notifyUsers({
+                    sender_id: senderUserId,
+                    recipient_ids: nurseUserIds,
+                    title: `New Message on ${type}`,
+                    message: `A student sent a message regarding ${type} (${request_id}): "${message.trim()}"`,
+                    type: 'request_note',
+                    payloadData: { request_id, type }
+                });
+            }
+        }
+
+        res.status(201).json({ message: 'Note added successfully' });
+    } catch (error) {
+        console.error('Error adding note:', error);
+        res.status(500).json({ error: 'Failed to send message' });
+    }
 });
 
-//Document Issuance API
+
+//Document Issuance api
+
 // ==========================================
-// 1. GET ALL DOCUMENT REQUESTS (Updated for New Schema)
+// 1. GET ALL DOCUMENT REQUEST (Updated for New Schema)
 // ==========================================
 app.get('/api/document-requests', async (req, res) => {
     try {
@@ -3784,9 +4562,118 @@ app.get('/api/document-requests', async (req, res) => {
     }
 });
 
+// ==========================================
+// 2. CREATE EXCUSE SLIP REQUEST (Notifies All Nurses)
+// ==========================================
+app.post('/api/document-requests/excuse-slip', upload.single('student_proof'), async (req, res) => {
+    const { student_id, reason_for_excuse, valid_absence_start, valid_absence_end } = req.body;
+
+    if (!student_id || !reason_for_excuse) {
+        return res.status(400).json({ success: false, message: 'Missing required fields.' });
+    }
+
+    const request_id = `EXC-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const student_proof_url = req.file ? `/uploads/${req.file.filename}` : null;
+
+    try {
+        await pool.query(
+            `INSERT INTO excuse_slip_requests 
+            (request_id, student_id, reason_for_excuse, valid_absence_start, valid_absence_end, student_proof_url, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'Pending', NOW())`,
+            [request_id, student_id, reason_for_excuse, valid_absence_start || null, valid_absence_end || null, student_proof_url]
+        );
+
+        // Fetch Student Name and user_id for Notification
+        const [studentRows] = await pool.query(
+            `SELECT user_id, CONCAT(first_name, ' ', last_name) AS full_name FROM students WHERE student_id = ?`,
+            [student_id]
+        );
+        const studentUserId = studentRows[0]?.user_id || null;
+        const studentName = studentRows[0]?.full_name || 'A student';
+
+        // Fetch all Nurses to receive the System + Web Push Notification
+        const [nurses] = await pool.query(`SELECT user_id FROM nurses WHERE user_id IS NOT NULL`);
+        const nurseUserIds = nurses.map(n => n.user_id).filter(Boolean);
+
+        if (nurseUserIds.length > 0) {
+            await notifyUsers({
+                sender_id: studentUserId,
+                recipient_ids: nurseUserIds,
+                title: 'New Excuse Slip Request',
+                message: `${studentName} submitted a new Excuse Slip request (${request_id}).`,
+                type: 'new_document_request',
+                payloadData: { request_id, request_type: 'Excuse Slip' }
+            });
+        }
+
+        res.status(201).json({ success: true, message: 'Excuse slip request submitted successfully.', request_id });
+    } catch (error) {
+        console.error('Error submitting excuse slip request:', error);
+        res.status(500).json({ success: false, message: 'Failed to submit excuse slip request.' });
+    }
+});
 
 // ==========================================
-// 2. GET NOTES FOR A SPECIFIC REQUEST
+// 3. CREATE REFERRAL SLIP REQUEST (Notifies All Nurses)
+// ==========================================
+app.post('/api/document-requests/referral-slip', async (req, res) => {
+    const { student_id, facility_id, reason_for_referral, service_ids } = req.body;
+
+    if (!student_id || !reason_for_referral) {
+        return res.status(400).json({ success: false, message: 'Missing required fields.' });
+    }
+
+    const request_id = `REF-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+    try {
+        await pool.query(
+            `INSERT INTO referral_slip_requests 
+            (request_id, student_id, facility_id, reason_for_referral, status, created_at)
+            VALUES (?, ?, ?, ?, 'Pending', NOW())`,
+            [request_id, student_id, facility_id || null, reason_for_referral]
+        );
+
+        // Attach Requested Services if provided
+        if (service_ids && Array.isArray(service_ids) && service_ids.length > 0) {
+            const serviceValues = service_ids.map(sId => [request_id, sId]);
+            await pool.query(
+                `INSERT INTO referral_request_services (request_id, service_id) VALUES ?`,
+                [serviceValues]
+            );
+        }
+
+        // Fetch Student Name and user_id for Notification
+        const [studentRows] = await pool.query(
+            `SELECT user_id, CONCAT(first_name, ' ', last_name) AS full_name FROM students WHERE student_id = ?`,
+            [student_id]
+        );
+        const studentUserId = studentRows[0]?.user_id || null;
+        const studentName = studentRows[0]?.full_name || 'A student';
+
+        // Fetch all Nurses to receive System + Web Push Notification
+        const [nurses] = await pool.query(`SELECT user_id FROM nurses WHERE user_id IS NOT NULL`);
+        const nurseUserIds = nurses.map(n => n.user_id).filter(Boolean);
+
+        if (nurseUserIds.length > 0) {
+            await notifyUsers({
+                sender_id: studentUserId,
+                recipient_ids: nurseUserIds,
+                title: 'New Referral Slip Request',
+                message: `${studentName} submitted a new Referral Slip request (${request_id}).`,
+                type: 'new_document_request',
+                payloadData: { request_id, request_type: 'Referral Slip' }
+            });
+        }
+
+        res.status(201).json({ success: true, message: 'Referral slip request submitted successfully.', request_id });
+    } catch (error) {
+        console.error('Error submitting referral slip request:', error);
+        res.status(500).json({ success: false, message: 'Failed to submit referral slip request.' });
+    }
+});
+
+// ==========================================
+// 4. GET NOTES FOR A SPECIFIC REQUEST
 // ==========================================
 app.get('/api/document-requests/notes/:requestType/:requestId', async (req, res) => {
     const { requestType, requestId } = req.params;
@@ -3808,7 +4695,7 @@ app.get('/api/document-requests/notes/:requestType/:requestId', async (req, res)
 });
 
 // ==========================================
-// 3. ACTION ENDPOINT: APPROVE / DENY & NOTE
+// 5. ACTION ENDPOINT: APPROVE / DENY & NOTE (Notifies Student & Parent)
 // ==========================================
 app.post('/api/document-requests/action', upload.single('issued_slip'), async (req, res) => {
     const { request_id, request_type, action, nurse_id, message } = req.body;
@@ -3821,12 +4708,10 @@ app.post('/api/document-requests/action', upload.single('issued_slip'), async (r
     const requestTable = isExcuse ? 'excuse_slip_requests' : 'referral_slip_requests';
     const notesTable = isExcuse ? 'excuse_slip_notes' : 'referral_slip_notes';
 
-    // FIXED: Changed '/uploads/issued_slips/' to '/uploads/' to match Express static path
     const issued_slip_url = req.file ? `/uploads/${req.file.filename}` : null;
     const status = action === 'Approve' ? 'Completed' : 'Denied';
 
     try {
-        // Update Request Table Status and Issued info
         let updateQuery = `
             UPDATE ${requestTable} 
             SET status = ?, issued_by = ?, issued_at = NOW()
@@ -3843,7 +4728,6 @@ app.post('/api/document-requests/action', upload.single('issued_slip'), async (r
 
         await pool.query(updateQuery, params);
 
-        // If a message was entered, insert note record
         if (message && message.trim() !== '') {
             const noteId = `NOTE-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
             const insertNoteQuery = `
@@ -3851,6 +4735,54 @@ app.post('/api/document-requests/action', upload.single('issued_slip'), async (r
                 VALUES (?, ?, 'Nurse', ?, ?, NOW())
             `;
             await pool.query(insertNoteQuery, [noteId, request_id, nurse_id, message.trim()]);
+        }
+
+        // --- NOTIFICATION LOGIC ---
+        const [nurseRows] = await pool.query(`SELECT user_id FROM nurses WHERE nurse_id = ?`, [nurse_id]);
+        const nurseUserId = nurseRows[0]?.user_id || null;
+
+        const detailsSql = `
+            SELECT 
+                req.student_id,
+                s.user_id AS student_user_id,
+                CONCAT(s.first_name, ' ', s.last_name) AS student_name,
+                p.user_id AS parent_user_id
+            FROM ${requestTable} req
+            JOIN students s ON req.student_id = s.student_id
+            LEFT JOIN parent_student_mapping psm ON s.student_id = psm.student_id
+            LEFT JOIN parents p ON psm.parent_id = p.parent_id
+            WHERE req.request_id = ?
+        `;
+        const [reqDetails] = await pool.query(detailsSql, [request_id]);
+
+        if (reqDetails.length > 0) {
+            const target = reqDetails[0];
+            const notifTitle = `${request_type} Request ${status}`;
+            const notifMsg = `Your ${request_type} (ID: ${request_id}) has been ${status.toLowerCase()}.${message ? ` Note: ${message}` : ''}`;
+
+            // Notify Student via notifyUsers (System DB + Web Push)
+            if (target.student_user_id) {
+                await notifyUsers({
+                    sender_id: nurseUserId,
+                    recipient_ids: [target.student_user_id],
+                    title: notifTitle,
+                    message: notifMsg,
+                    type: 'document_request_action',
+                    payloadData: { request_id, request_type }
+                });
+            }
+
+            // Notify Parent via notifyUsers (System DB + Web Push)
+            if (target.parent_user_id) {
+                await notifyUsers({
+                    sender_id: nurseUserId,
+                    recipient_ids: [target.parent_user_id],
+                    title: `Update on ${target.student_name}'s Request`,
+                    message: `The ${request_type} requested for ${target.student_name} was ${status.toLowerCase()}.${message ? ` Note: ${message}` : ''}`,
+                    type: 'document_request_action',
+                    payloadData: { request_id, request_type }
+                });
+            }
         }
 
         res.status(200).json({ 
@@ -3864,7 +4796,7 @@ app.post('/api/document-requests/action', upload.single('issued_slip'), async (r
 });
 
 // ==========================================
-// 4. POST A NEW NOTE / MESSAGE FOR A REQUEST
+// 6. POST A NEW NOTE / MESSAGE FOR A REQUEST
 // ==========================================
 app.post('/api/document-requests/notes', async (req, res) => {
     const { request_id, request_type, sender_id, sender_type, message } = req.body;
@@ -3873,8 +4805,9 @@ app.post('/api/document-requests/notes', async (req, res) => {
         return res.status(400).json({ success: false, message: 'Missing required fields.' });
     }
 
-    // Determine target database table
-    const notesTable = request_type === 'Excuse Slip' ? 'excuse_slip_notes' : 'referral_slip_notes';
+    const isExcuse = request_type === 'Excuse Slip';
+    const notesTable = isExcuse ? 'excuse_slip_notes' : 'referral_slip_notes';
+    const requestTable = isExcuse ? 'excuse_slip_requests' : 'referral_slip_requests';
 
     try {
         const noteId = `NOTE-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -3884,6 +4817,53 @@ app.post('/api/document-requests/notes', async (req, res) => {
         `;
 
         await pool.query(query, [noteId, request_id, sender_type, sender_id, message.trim()]);
+
+        const senderUserSql = `
+            SELECT user_id FROM (
+                SELECT user_id FROM users WHERE user_id = ?
+                UNION
+                SELECT user_id FROM students WHERE student_id = ?
+                UNION
+                SELECT user_id FROM nurses WHERE nurse_id = ?
+            ) AS resolved LIMIT 1
+        `;
+        const [senderUserRows] = await pool.query(senderUserSql, [sender_id, sender_id, sender_id]);
+        const senderUserId = senderUserRows[0]?.user_id || null;
+
+        // If Nurse sent message -> Notify Student
+        if (sender_type === 'Nurse') {
+            const [studentRows] = await pool.query(
+                `SELECT s.user_id FROM ${requestTable} req JOIN students s ON req.student_id = s.student_id WHERE req.request_id = ?`,
+                [request_id]
+            );
+
+            if (studentRows.length > 0 && studentRows[0].user_id) {
+                await notifyUsers({
+                    sender_id: senderUserId,
+                    recipient_ids: [studentRows[0].user_id],
+                    title: `New Note on ${request_type}`,
+                    message: `A nurse sent a message regarding your ${request_type}: "${message.trim()}"`,
+                    type: 'request_note',
+                    payloadData: { request_id, request_type }
+                });
+            }
+        } 
+        // If Student sent message -> Notify all Nurses
+        else {
+            const [nurses] = await pool.query(`SELECT user_id FROM nurses WHERE user_id IS NOT NULL`);
+            const nurseUserIds = nurses.map(n => n.user_id).filter(Boolean);
+
+            if (nurseUserIds.length > 0) {
+                await notifyUsers({
+                    sender_id: senderUserId,
+                    recipient_ids: nurseUserIds,
+                    title: `New Note on ${request_type}`,
+                    message: `A student sent a message regarding ${request_type} (${request_id}): "${message.trim()}"`,
+                    type: 'request_note',
+                    payloadData: { request_id, request_type }
+                });
+            }
+        }
 
         res.status(200).json({ 
             success: true, 
@@ -3902,7 +4882,6 @@ app.post('/api/document-requests/notes', async (req, res) => {
 // PARTNER FACILITIES & SERVICES CRUD API
 // ==========================================
 
-// GET ALL FACILITIES WITH THEIR SERVICES
 app.get('/api/partner-facilities', async (req, res) => {
     try {
         const [facilities] = await pool.query('SELECT * FROM partner_facilities ORDER BY facility_name ASC');
@@ -3920,7 +4899,6 @@ app.get('/api/partner-facilities', async (req, res) => {
     }
 });
 
-// CREATE PARTNER FACILITY
 app.post('/api/partner-facilities', async (req, res) => {
     const { facility_name, address, contact_number } = req.body;
     if (!facility_name || !facility_name.trim()) {
@@ -3940,7 +4918,6 @@ app.post('/api/partner-facilities', async (req, res) => {
     }
 });
 
-// UPDATE PARTNER FACILITY
 app.put('/api/partner-facilities/:id', async (req, res) => {
     const { id } = req.params;
     const { facility_name, address, contact_number } = req.body;
@@ -3956,7 +4933,6 @@ app.put('/api/partner-facilities/:id', async (req, res) => {
     }
 });
 
-// DELETE PARTNER FACILITY
 app.delete('/api/partner-facilities/:id', async (req, res) => {
     const { id } = req.params;
     try {
@@ -3968,7 +4944,6 @@ app.delete('/api/partner-facilities/:id', async (req, res) => {
     }
 });
 
-// CREATE FACILITY SERVICE
 app.post('/api/partner-facilities/:facilityId/services', async (req, res) => {
     const { facilityId } = req.params;
     const { service_name, description } = req.body;
@@ -3990,7 +4965,6 @@ app.post('/api/partner-facilities/:facilityId/services', async (req, res) => {
     }
 });
 
-// UPDATE FACILITY SERVICE
 app.put('/api/facility-services/:serviceId', async (req, res) => {
     const { serviceId } = req.params;
     const { service_name, description } = req.body;
@@ -4006,7 +4980,6 @@ app.put('/api/facility-services/:serviceId', async (req, res) => {
     }
 });
 
-// DELETE FACILITY SERVICE
 app.delete('/api/facility-services/:serviceId', async (req, res) => {
     const { serviceId } = req.params;
     try {
@@ -4023,7 +4996,7 @@ app.delete('/api/facility-services/:serviceId', async (req, res) => {
 // ==========================================
 
 // ==========================================
-// UPDATED HEALTH SCREENING API ENDPOINTS
+// HEALTH SCREENING API ENDPOINTS
 // ==========================================
 
 // 1. Get Academic Programs
@@ -4086,13 +5059,23 @@ app.get('/api/screenings', async (req, res) => {
   }
 });
 
-// 4. Create New Screening Schedule (Validation: Must have participants)
+// 4. Create New Screening Schedule
 app.post('/api/screenings', async (req, res) => {
-  const { title, screening_type, target_program_id, target_year_level, target_section, scheduled_date, start_time, end_time, student_ids } = req.body;
-  
-  // REQUIREMENT: Cannot create screening if no participants selected
+  const {
+    sender_id,
+    title,
+    screening_type,
+    target_program_id,
+    target_year_level,
+    target_section,
+    scheduled_date,
+    start_time,
+    end_time,
+    student_ids
+  } = req.body;
+
   if (!student_ids || !Array.isArray(student_ids) || student_ids.length === 0) {
-    return res.status(400).json({ error: 'At least one participant must be selected to create a screening.' });
+    return res.status(400).json({ error: 'At least one participant must be selected.' });
   }
 
   const scheduleId = uuidv4();
@@ -4105,30 +5088,24 @@ app.post('/api/screenings', async (req, res) => {
       [scheduleId, title, screening_type, target_program_id || null, target_year_level || null, target_section || null, scheduled_date, start_time, end_time]
     );
 
-    // Insert Participants with default 'PENDING' attendance
     const participantValues = student_ids.map(sId => [uuidv4(), scheduleId, sId, 'PENDING']);
     await pool.query(
       'INSERT INTO screening_schedule_participants (participant_id, screening_schedule_id, student_id, attendance_status) VALUES ?',
       [participantValues]
     );
 
-    // Fetch User IDs for notifications
     const [users] = await pool.query('SELECT user_id FROM students WHERE student_id IN (?)', [student_ids]);
-    
-    // Insert Notifications
-    const notifValues = users.map(u => [
-      uuidv4(),
-      u.user_id,
-      `New Health Screening Scheduled: ${title}`,
-      `You are scheduled for a ${screening_type} screening on ${scheduled_date} from ${start_time} to ${end_time}.`,
-      0
-    ]);
-    if (notifValues.length > 0) {
-      await pool.query(
-        'INSERT INTO notifications (notification_id, recipient_user_id, title, message_body, is_read) VALUES ?',
-        [notifValues]
-      );
-    }
+    const recipientUserIds = users.map(u => u.user_id);
+
+    // Concise notification payload
+    await notifyUsers({
+      sender_id: sender_id || req.user?.user_id,
+      recipient_ids: recipientUserIds,
+      title: `Scheduled: ${title}`,
+      message: `${screening_type} Screening on ${scheduled_date} from ${start_time} to ${end_time}.`,
+      type: 'SCREENING_SCHEDULED',
+      payloadData: { screening_schedule_id: scheduleId, screening_type, scheduled_date, start_time, end_time }
+    });
 
     res.json({ message: 'Screening scheduled successfully!', scheduleId });
   } catch (err) {
@@ -4139,7 +5116,7 @@ app.post('/api/screenings', async (req, res) => {
 // 5. Update Scheduled Date/Time
 app.put('/api/screenings/:id', async (req, res) => {
   const { id } = req.params;
-  const { scheduled_date, start_time, end_time } = req.body;
+  const { sender_id, scheduled_date, start_time, end_time } = req.body;
 
   try {
     await pool.query(
@@ -4148,7 +5125,7 @@ app.put('/api/screenings/:id', async (req, res) => {
     );
 
     const [students] = await pool.query(
-      `SELECT s.user_id, sc.title, sc.screening_type 
+      `SELECT s.user_id, sc.title, sc.screening_type
        FROM screening_schedule_participants p 
        JOIN students s ON p.student_id = s.student_id 
        JOIN screening_schedules sc ON sc.screening_schedule_id = p.screening_schedule_id 
@@ -4157,32 +5134,32 @@ app.put('/api/screenings/:id', async (req, res) => {
     );
 
     if (students.length > 0) {
-      const notifValues = students.map(st => [
-        uuidv4(),
-        st.user_id,
-        `Updated Schedule: ${st.title}`,
-        `Your ${st.screening_type} screening schedule has been updated to ${scheduled_date} (${start_time} - ${end_time}).`,
-        0
-      ]);
-      await pool.query(
-        'INSERT INTO notifications (notification_id, recipient_user_id, title, message_body, is_read) VALUES ?',
-        [notifValues]
-      );
+      const recipientUserIds = students.map(st => st.user_id);
+
+      await notifyUsers({
+        sender_id: sender_id || req.user?.user_id,
+        recipient_ids: recipientUserIds,
+        title: `Rescheduled: ${students[0].title}`,
+        message: `New schedule: ${scheduled_date} from ${start_time} to ${end_time}.`,
+        type: 'SCREENING_UPDATED',
+        payloadData: { screening_schedule_id: id, scheduled_date, start_time, end_time }
+      });
     }
 
-    res.json({ message: 'Schedule updated and notifications sent successfully.' });
+    res.json({ message: 'Schedule updated successfully.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// 6. Cancel/Delete Screening
+// 6. Cancel Screening
 app.delete('/api/screenings/:id', async (req, res) => {
   const { id } = req.params;
+  const sender_id = req.body?.sender_id || req.user?.user_id;
 
   try {
     const [students] = await pool.query(
-      `SELECT s.user_id, sc.title 
+      `SELECT s.user_id, sc.title, sc.screening_type, sc.scheduled_date 
        FROM screening_schedule_participants p 
        JOIN students s ON p.student_id = s.student_id 
        JOIN screening_schedules sc ON sc.screening_schedule_id = p.screening_schedule_id 
@@ -4191,17 +5168,16 @@ app.delete('/api/screenings/:id', async (req, res) => {
     );
 
     if (students.length > 0) {
-      const notifValues = students.map(st => [
-        uuidv4(),
-        st.user_id,
-        `Cancelled Screening: ${st.title}`,
-        `The scheduled health screening "${st.title}" has been cancelled.`,
-        0
-      ]);
-      await pool.query(
-        'INSERT INTO notifications (notification_id, recipient_user_id, title, message_body, is_read) VALUES ?',
-        [notifValues]
-      );
+      const recipientUserIds = students.map(st => st.user_id);
+
+      await notifyUsers({
+        sender_id,
+        recipient_ids: recipientUserIds,
+        title: `Cancelled: ${students[0].title}`,
+        message: `${students[0].screening_type} Screening scheduled for ${students[0].scheduled_date} has been cancelled.`,
+        type: 'SCREENING_CANCELLED',
+        payloadData: { screening_schedule_id: id }
+      });
     }
 
     await pool.query('DELETE FROM screening_schedules WHERE screening_schedule_id = ?', [id]);
@@ -4211,7 +5187,98 @@ app.delete('/api/screenings/:id', async (req, res) => {
   }
 });
 
-// 7. Get Participants with Attendance & Auto-Absent Logic for Past Screenings
+// 7. Start Batch Screening Notification (Triggered when staff starts the batch)
+app.post('/api/screenings/:id/start', async (req, res) => {
+  const { id } = req.params;
+  const sender_id = req.body?.sender_id || req.user?.user_id;
+
+  try {
+    const [students] = await pool.query(
+      `SELECT s.user_id, sc.title, sc.screening_type, sc.start_time
+       FROM screening_schedule_participants p 
+       JOIN students s ON p.student_id = s.student_id 
+       JOIN screening_schedules sc ON sc.screening_schedule_id = p.screening_schedule_id 
+       WHERE p.screening_schedule_id = ? AND p.attendance_status = 'PENDING'`,
+      [id]
+    );
+
+    if (students.length > 0) {
+      const recipientUserIds = students.map(st => st.user_id);
+
+      await notifyUsers({
+        sender_id,
+        recipient_ids: recipientUserIds,
+        title: `Batch Started: ${students[0].title}`,
+        message: `Your ${students[0].screening_type} Screening is starting now (${students[0].start_time}). Please proceed to the clinic area.`,
+        type: 'SCREENING_BATCH_STARTED',
+        payloadData: { screening_schedule_id: id }
+      });
+    }
+
+    res.json({ message: 'Batch start notifications dispatched successfully.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 8. Cron / Scheduled Job Endpoint for Reminders (1 Day Before & Same Day)
+app.post('/api/screenings/send-reminders', async (req, res) => {
+  try {
+    // A. 1-Day Before Reminder
+    const [oneDayScreenings] = await pool.query(`
+      SELECT sc.screening_schedule_id, sc.title, sc.screening_type, sc.scheduled_date, sc.start_time
+      FROM screening_schedules sc
+      WHERE sc.scheduled_date = CURDATE() + INTERVAL 1 DAY
+    `);
+
+    for (const schedule of oneDayScreenings) {
+      const [students] = await pool.query(
+        `SELECT s.user_id FROM screening_schedule_participants p JOIN students s ON p.student_id = s.student_id WHERE p.screening_schedule_id = ?`,
+        [schedule.screening_schedule_id]
+      );
+      if (students.length > 0) {
+        await notifyUsers({
+          sender_id: null,
+          recipient_ids: students.map(s => s.user_id),
+          title: `Reminder: ${schedule.title}`,
+          message: `Tomorrow (${schedule.scheduled_date}) at ${schedule.start_time} for ${schedule.screening_type} Screening.`,
+          type: 'SCREENING_REMINDER_1DAY',
+          payloadData: { screening_schedule_id: schedule.screening_schedule_id }
+        });
+      }
+    }
+
+    // B. Same Day Reminder
+    const [sameDayScreenings] = await pool.query(`
+      SELECT sc.screening_schedule_id, sc.title, sc.screening_type, sc.start_time
+      FROM screening_schedules sc
+      WHERE sc.scheduled_date = CURDATE()
+    `);
+
+    for (const schedule of sameDayScreenings) {
+      const [students] = await pool.query(
+        `SELECT s.user_id FROM screening_schedule_participants p JOIN students s ON p.student_id = s.student_id WHERE p.screening_schedule_id = ? AND p.attendance_status = 'PENDING'`,
+        [schedule.screening_schedule_id]
+      );
+      if (students.length > 0) {
+        await notifyUsers({
+          sender_id: null,
+          recipient_ids: students.map(s => s.user_id),
+          title: `Today: ${schedule.title}`,
+          message: `Your ${schedule.screening_type} Screening is today at ${schedule.start_time}.`,
+          type: 'SCREENING_REMINDER_SAMEDAY',
+          payloadData: { screening_schedule_id: schedule.screening_schedule_id }
+        });
+      }
+    }
+
+    res.json({ message: 'Screening reminder notifications processed successfully.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 9. Get Participants with Attendance & Auto-Absent Logic for Past Screenings
 app.get('/api/screenings/:id/students', async (req, res) => {
   const { id } = req.params;
   try {
@@ -4221,7 +5288,6 @@ app.get('/api/screenings/:id/students', async (req, res) => {
     const schDate = schedule[0].scheduled_date ? new Date(schedule[0].scheduled_date).toISOString().split('T')[0] : '';
     const todayStr = new Date().toISOString().split('T')[0];
 
-    // REQUIREMENT: If the screening is past, automatically mark un-scanned 'PENDING' students as 'ABSENT'
     if (schDate < todayStr) {
       await pool.query(
         `UPDATE screening_schedule_participants 
@@ -4256,13 +5322,12 @@ app.get('/api/screenings/:id/students', async (req, res) => {
   }
 });
 
-// 8. QR Code Attendance Scanning (Only for Ongoing Screening)
+// 10. QR Code Attendance Scanning
 app.post('/api/screenings/:id/scan-qr', async (req, res) => {
   const { id } = req.params;
   const { student_id } = req.body;
 
   try {
-    // Verify student is assigned to this screening
     const [participant] = await pool.query(
       `SELECT p.*, s.first_name, s.last_name 
        FROM screening_schedule_participants p
@@ -4275,7 +5340,6 @@ app.post('/api/screenings/:id/scan-qr', async (req, res) => {
       return res.status(404).json({ error: 'Student is not assigned to this screening schedule.' });
     }
 
-    // Update attendance status to PRESENT
     await pool.query(
       `UPDATE screening_schedule_participants 
        SET attendance_status = 'PRESENT', attended_at = NOW() 
@@ -4290,7 +5354,7 @@ app.post('/api/screenings/:id/scan-qr', async (req, res) => {
   }
 });
 
-// 9. Modify Participant Attendance Status (For Past Screenings Manual Update)
+// 11. Modify Participant Attendance Status
 app.put('/api/screenings/:id/students/:studentId/attendance', async (req, res) => {
   const { id, studentId } = req.params;
   const { attendance_status } = req.body;
@@ -4314,13 +5378,12 @@ app.put('/api/screenings/:id/students/:studentId/attendance', async (req, res) =
   }
 });
 
-// 10. Document Student Health Screening Results
+// 12. Document Student Health Screening Results
 app.post('/api/screenings/:id/document', async (req, res) => {
   const { id } = req.params;
   const { student_id, screening_type, formData } = req.body;
 
   try {
-    // Verify participant is marked PRESENT
     const [part] = await pool.query(
       `SELECT attendance_status FROM screening_schedule_participants WHERE screening_schedule_id = ? AND student_id = ?`,
       [id, student_id]
@@ -4363,9 +5426,8 @@ app.post('/api/screenings/:id/document', async (req, res) => {
 });
 
 
-//Doctor Visit API
 // ==========================================
-// 1. DOCTOR MANAGEMENT
+// 1. DOCTOR VISIT API
 // ==========================================
 
 // Get all doctors
@@ -4451,6 +5513,8 @@ app.post('/api/mass-schedules', async (req, res) => {
     const { 
         assigned_by_nurse_id, 
         doctor_id, 
+        title, 
+        announcement, 
         target_program, 
         target_year_level, 
         target_section, 
@@ -4468,9 +5532,20 @@ app.post('/api/mass-schedules', async (req, res) => {
     try {
         await connection.beginTransaction();
 
+        const [nurseRows] = await connection.query(
+            `SELECT user_id FROM nurses WHERE nurse_id = ?`,
+            [assigned_by_nurse_id]
+        );
+        const sender_id = nurseRows[0]?.user_id || null;
+
+        const [docRows] = await connection.query(
+            `SELECT first_name, last_name FROM doctors WHERE doctor_id = ?`,
+            [doctor_id]
+        );
+        const doctorName = docRows[0] ? `Dr. ${docRows[0].first_name} ${docRows[0].last_name}` : 'Doctor';
+
         const batch_id = `BATCH-${uuidv4().substring(0, 8)}`;
 
-        // 1. Create Batch Record
         await connection.query(
             `INSERT INTO mass_schedule_batches 
              (batch_id, assigned_by_nurse_id, target_program, target_year_level, target_section, start_time, end_time, created_at) 
@@ -4478,15 +5553,14 @@ app.post('/api/mass-schedules', async (req, res) => {
             [batch_id, assigned_by_nurse_id, target_program, target_year_level, target_section, batch_start_time, batch_end_time]
         );
 
-        // 2. Insert Appointments and Junction Student Records
         for (const appt of student_appointments) {
             const appointment_id = `APPT-${uuidv4().substring(0, 8)}`;
             
             await connection.query(
                 `INSERT INTO doctor_appointments 
-                 (appointment_id, doctor_id, batch_id, start_time, end_time, assigned_by_nurse_id, status) 
-                 VALUES (?, ?, ?, ?, ?, ?, 'Scheduled')`,
-                [appointment_id, doctor_id, batch_id, appt.start_time, appt.end_time, assigned_by_nurse_id]
+                 (appointment_id, doctor_id, batch_id, title, announcement, start_time, end_time, assigned_by_nurse_id, status) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Scheduled')`,
+                [appointment_id, doctor_id, batch_id, title, announcement, appt.start_time, appt.end_time, assigned_by_nurse_id]
             );
 
             await connection.query(
@@ -4496,22 +5570,25 @@ app.post('/api/mass-schedules', async (req, res) => {
                 [appointment_id, appt.student_id]
             );
 
-            // Notify Student
             if (appt.user_id) {
-                const notif_id = `NOTIF-${uuidv4().substring(0, 8)}`;
-                const title = "New Doctor Visit Scheduled";
-                const body = `You have been scheduled for a doctor visit on ${new Date(appt.start_time).toLocaleString()}. Please be at the clinic on time.`;
+                const formattedTime = new Date(appt.start_time).toLocaleString('en-US', {
+                    dateStyle: 'short',
+                    timeStyle: 'short'
+                });
 
-                await connection.query(
-                    `INSERT INTO notifications (notification_id, recipient_user_id, title, message_body, is_read, created_at) 
-                     VALUES (?, ?, ?, ?, 0, NOW())`,
-                    [notif_id, appt.user_id, title, body]
-                );
+                await notifyUsers({
+                    sender_id,
+                    recipient_ids: [appt.user_id],
+                    title: `Doctor Visit Scheduled`,
+                    message: `Appointment with ${doctorName} on ${formattedTime}.`,
+                    type: 'APPOINTMENT_SCHEDULED',
+                    payloadData: { appointment_id, batch_id }
+                });
             }
         }
 
         await connection.commit();
-        res.json({ success: true, message: 'Mass schedule and appointments created successfully!' });
+        res.json({ success: true, message: 'Mass schedule created successfully!' });
     } catch (error) {
         await connection.rollback();
         console.error('Error creating mass schedule:', error);
@@ -4527,7 +5604,6 @@ app.post('/api/mass-schedules', async (req, res) => {
 
 app.get('/api/doctor-visits', async (req, res) => {
     try {
-        // Auto-mark student attendance as 'Absent' when appointment end_time has passed and status is still 'Pending'
         await pool.query(`
             UPDATE doctor_appointment_students das
             JOIN doctor_appointments da ON das.appointment_id = da.appointment_id
@@ -4537,31 +5613,14 @@ app.get('/api/doctor-visits', async (req, res) => {
 
         const query = `
             SELECT 
-                da.appointment_id,
-                da.doctor_id,
-                da.batch_id,
-                da.start_time,
-                da.end_time,
-                da.status,
-                da.assigned_by_nurse_id,
-                das.student_id,
-                das.attendance_status,
-                das.check_in_time,
-                das.notes,
-                s.first_name AS student_first_name,
-                s.last_name AS student_last_name,
-                s.user_id AS student_user_id,
-                s.program_id,
-                s.year_level,
-                s.section,
-                d.first_name AS doc_first_name,
-                d.last_name AS doc_last_name,
-                d.specialization,
-                da_assessment.assessment_id,
-                da_assessment.clinical_findings,
-                da_assessment.diagnosis,
-                da_assessment.treatment_recommendations,
-                da_assessment.assessment_date
+                da.appointment_id, da.doctor_id, da.batch_id, da.title, da.announcement,
+                da.start_time, da.end_time, da.status, da.assigned_by_nurse_id,
+                das.student_id, das.attendance_status, das.check_in_time, das.notes,
+                s.first_name AS student_first_name, s.last_name AS student_last_name,
+                s.user_id AS student_user_id, s.program_id, s.year_level, s.section,
+                d.first_name AS doc_first_name, d.last_name AS doc_last_name, d.specialization,
+                da_assessment.assessment_id, da_assessment.clinical_findings,
+                da_assessment.diagnosis, da_assessment.treatment_recommendations, da_assessment.assessment_date
             FROM doctor_appointments da
             JOIN doctor_appointment_students das ON da.appointment_id = das.appointment_id
             JOIN students s ON das.student_id = s.student_id
@@ -4580,19 +5639,31 @@ app.get('/api/doctor-visits', async (req, res) => {
     }
 });
 
-// Update attendance status (Present, Pending, Absent)
 app.put('/api/doctor-visits/status/:appointment_id', async (req, res) => {
     const { appointment_id } = req.params;
-    const { student_id, status } = req.body; // status: 'Present', 'Pending', or 'Absent'
+    const { student_id, status } = req.body;
+
+    if (!student_id || !status) {
+        return res.status(400).json({ success: false, message: 'Missing student_id or status.' });
+    }
 
     try {
         const checkInQuery = status === 'Present' ? ', check_in_time = NOW()' : '';
-        await pool.query(
+        
+        const [result] = await pool.query(
             `UPDATE doctor_appointment_students 
              SET attendance_status = ? ${checkInQuery} 
              WHERE appointment_id = ? AND student_id = ?`,
             [status, appointment_id, student_id]
         );
+
+        if (result.affectedRows === 0) {
+            return res.status(444).json({ 
+                success: false, 
+                message: 'No matching appointment record found for this student.' 
+            });
+        }
+
         res.json({ success: true, message: `Student attendance updated to ${status}` });
     } catch (error) {
         console.error('Error updating status:', error);
@@ -4601,12 +5672,12 @@ app.put('/api/doctor-visits/status/:appointment_id', async (req, res) => {
 });
 
 // ==========================================
-// 5. RESCHEDULE & CANCEL VISITS
+// 5. RESCHEDULE, CANCEL & BATCH START VISITS
 // ==========================================
 
 app.put('/api/doctor-visits/reschedule/:appointment_id', async (req, res) => {
     const { appointment_id } = req.params;
-    const { start_time, end_time, student_user_id } = req.body;
+    const { start_time, end_time, student_user_id, sender_id } = req.body;
 
     try {
         await pool.query(
@@ -4615,26 +5686,31 @@ app.put('/api/doctor-visits/reschedule/:appointment_id', async (req, res) => {
         );
 
         if (student_user_id) {
-            const notif_id = `NOTIF-${uuidv4().substring(0, 8)}`;
-            const title = "Doctor Visit Rescheduled";
-            const body = `Your doctor visit appointment time has been updated to ${new Date(start_time).toLocaleString()}.`;
+            const formattedTime = new Date(start_time).toLocaleString('en-US', {
+                dateStyle: 'short',
+                timeStyle: 'short'
+            });
 
-            await pool.query(
-                `INSERT INTO notifications (notification_id, recipient_user_id, title, message_body, is_read, created_at) 
-                 VALUES (?, ?, ?, ?, 0, NOW())`,
-                [notif_id, student_user_id, title, body]
-            );
+            await notifyUsers({
+                sender_id: sender_id || null,
+                recipient_ids: [student_user_id],
+                title: 'Doctor Visit Rescheduled',
+                message: `Rescheduled to ${formattedTime}.`,
+                type: 'APPOINTMENT_RESCHEDULED',
+                payloadData: { appointment_id }
+            });
         }
 
         res.json({ success: true, message: 'Appointment rescheduled successfully' });
     } catch (error) {
+        console.error('Error rescheduling appointment:', error);
         res.status(500).json({ success: false, message: 'Failed to reschedule appointment' });
     }
 });
 
 app.put('/api/doctor-visits/cancel/:appointment_id', async (req, res) => {
     const { appointment_id } = req.params;
-    const { student_user_id } = req.body;
+    const { student_user_id, sender_id, reason } = req.body;
 
     try {
         await pool.query(
@@ -4643,20 +5719,116 @@ app.put('/api/doctor-visits/cancel/:appointment_id', async (req, res) => {
         );
 
         if (student_user_id) {
-            const notif_id = `NOTIF-${uuidv4().substring(0, 8)}`;
-            const title = "Doctor Visit Cancelled";
-            const body = `Your scheduled doctor visit appointment has been cancelled by the clinic nurse.`;
-
-            await pool.query(
-                `INSERT INTO notifications (notification_id, recipient_user_id, title, message_body, is_read, created_at) 
-                 VALUES (?, ?, ?, ?, 0, NOW())`,
-                [notif_id, student_user_id, title, body]
-            );
+            await notifyUsers({
+                sender_id: sender_id || null,
+                recipient_ids: [student_user_id],
+                title: 'Doctor Visit Cancelled',
+                message: `Appointment cancelled.${reason ? ` Reason: ${reason}` : ''}`,
+                type: 'APPOINTMENT_CANCELLED',
+                payloadData: { appointment_id }
+            });
         }
 
         res.json({ success: true, message: 'Appointment cancelled successfully' });
     } catch (error) {
+        console.error('Error cancelling appointment:', error);
         res.status(500).json({ success: false, message: 'Failed to cancel appointment' });
+    }
+});
+
+// Batch Start Time Notification Endpoint
+app.post('/api/doctor-visits/batch-start/:batch_id', async (req, res) => {
+    const { batch_id } = req.params;
+    const sender_id = req.body?.sender_id || req.user?.user_id;
+
+    try {
+        const [students] = await pool.query(
+            `SELECT s.user_id, da.start_time
+             FROM doctor_appointments da
+             JOIN doctor_appointment_students das ON da.appointment_id = das.appointment_id
+             JOIN students s ON das.student_id = s.student_id
+             WHERE da.batch_id = ? AND das.attendance_status = 'Pending' AND da.status = 'Scheduled'`,
+            [batch_id]
+        );
+
+        if (students.length > 0) {
+            const recipientUserIds = students.map(st => st.user_id);
+            await notifyUsers({
+                sender_id: sender_id || null,
+                recipient_ids: recipientUserIds,
+                title: 'Doctor Visit Started',
+                message: 'Your doctor visit batch is starting now. Please report to the clinic.',
+                type: 'BATCH_STARTED',
+                payloadData: { batch_id }
+            });
+        }
+
+        res.json({ success: true, message: 'Batch start notifications sent successfully.' });
+    } catch (error) {
+        console.error('Error notifying batch start:', error);
+        res.status(500).json({ success: false, message: 'Failed to send batch start notifications.' });
+    }
+});
+
+// Reminder Notifications Endpoint (1-Day Before & Same-Day)
+app.post('/api/doctor-visits/send-reminders', async (req, res) => {
+    try {
+        // 1. 1-Day Before Reminders
+        const [oneDayAppts] = await pool.query(`
+            SELECT da.appointment_id, da.start_time, s.user_id, d.first_name, d.last_name
+            FROM doctor_appointments da
+            JOIN doctor_appointment_students das ON da.appointment_id = das.appointment_id
+            JOIN students s ON das.student_id = s.student_id
+            JOIN doctors d ON da.doctor_id = d.doctor_id
+            WHERE DATE(da.start_time) = CURDATE() + INTERVAL 1 DAY
+              AND das.attendance_status = 'Pending'
+              AND da.status = 'Scheduled'
+        `);
+
+        for (const appt of oneDayAppts) {
+            const docName = `Dr. ${appt.first_name} ${appt.last_name}`;
+            const timeStr = new Date(appt.start_time).toLocaleTimeString('en-US', { timeStyle: 'short' });
+
+            await notifyUsers({
+                sender_id: null,
+                recipient_ids: [appt.user_id],
+                title: 'Doctor Visit Tomorrow',
+                message: `Visit tomorrow at ${timeStr} with ${docName}.`,
+                type: 'DOCTOR_VISIT_REMINDER_1DAY',
+                payloadData: { appointment_id: appt.appointment_id }
+            });
+        }
+
+        // 2. Same-Day Reminders
+        const [sameDayAppts] = await pool.query(`
+            SELECT da.appointment_id, da.start_time, s.user_id, d.first_name, d.last_name
+            FROM doctor_appointments da
+            JOIN doctor_appointment_students das ON da.appointment_id = das.appointment_id
+            JOIN students s ON das.student_id = s.student_id
+            JOIN doctors d ON da.doctor_id = d.doctor_id
+            WHERE DATE(da.start_time) = CURDATE()
+              AND das.attendance_status = 'Pending'
+              AND da.status = 'Scheduled'
+        `);
+
+        for (const appt of sameDayAppts) {
+            const docName = `Dr. ${appt.first_name} ${appt.last_name}`;
+            const timeStr = new Date(appt.start_time).toLocaleTimeString('en-US', { timeStyle: 'short' });
+
+            await notifyUsers({
+                sender_id: null,
+                recipient_ids: [appt.user_id],
+                title: 'Doctor Visit Today',
+                message: `Visit today at ${timeStr} with ${docName}.`,
+                type: 'DOCTOR_VISIT_REMINDER_SAMEDAY',
+                payloadData: { appointment_id: appt.appointment_id }
+            });
+        }
+
+        res.json({ success: true, message: 'Doctor visit reminders sent successfully.' });
+    } catch (error) {
+        console.error('Error sending reminders:', error);
+        res.status(500).json({ success: false, message: 'Failed to send reminders' });
     }
 });
 
@@ -4665,7 +5837,15 @@ app.put('/api/doctor-visits/cancel/:appointment_id', async (req, res) => {
 // ==========================================
 
 app.post('/api/doctor-assessments', async (req, res) => {
-    const { appointment_id, student_id, clinical_findings, diagnosis, treatment_recommendations, student_user_id } = req.body;
+    const { 
+        appointment_id, 
+        student_id, 
+        clinical_findings, 
+        diagnosis, 
+        treatment_recommendations, 
+        student_user_id,
+        sender_id 
+    } = req.body;
 
     try {
         const [existing] = await pool.query(
@@ -4692,15 +5872,14 @@ app.post('/api/doctor-assessments', async (req, res) => {
         await pool.query(`UPDATE doctor_appointments SET status = 'Completed' WHERE appointment_id = ?`, [appointment_id]);
 
         if (student_user_id) {
-            const notif_id = `NOTIF-${uuidv4().substring(0, 8)}`;
-            const title = "Doctor Visit Assessment Recorded";
-            const body = `Your doctor visit assessment and recommendations have been documented by the clinic staff.`;
-
-            await pool.query(
-                `INSERT INTO notifications (notification_id, recipient_user_id, title, message_body, is_read, created_at) 
-                 VALUES (?, ?, ?, ?, 0, NOW())`,
-                [notif_id, student_user_id, title, body]
-            );
+            await notifyUsers({
+                sender_id: sender_id || null,
+                recipient_ids: [student_user_id],
+                title: 'Assessment Filed',
+                message: `Diagnosis: ${diagnosis || 'N/A'}. Recommendations: ${treatment_recommendations || 'None'}.`,
+                type: 'ASSESSMENT_COMPLETED',
+                payloadData: { appointment_id }
+            });
         }
 
         res.json({ success: true, message: 'Doctor assessment saved successfully!' });
@@ -4710,8 +5889,146 @@ app.post('/api/doctor-assessments', async (req, res) => {
     }
 });
 
+// Batch reschedule appointments
+app.put('/api/doctor-visits/batch-reschedule', async (req, res) => {
+    const { batch_id, batch_start_time, batch_end_time, appointments, sender_id } = req.body;
+
+    const connection = await pool.getConnection();
+
+    try {
+        await connection.beginTransaction();
+
+        if (batch_id) {
+            await connection.query(
+                `UPDATE mass_schedule_batches SET start_time = ?, end_time = ? WHERE batch_id = ?`,
+                [batch_start_time, batch_end_time, batch_id]
+            );
+        }
+
+        if (Array.isArray(appointments)) {
+            for (const appt of appointments) {
+                await connection.query(
+                    `UPDATE doctor_appointments SET start_time = ?, end_time = ? WHERE appointment_id = ?`,
+                    [appt.start_time, appt.end_time, appt.appointment_id]
+                );
+
+                if (appt.student_user_id) {
+                    const formattedTime = new Date(appt.start_time).toLocaleString('en-US', {
+                        dateStyle: 'short',
+                        timeStyle: 'short'
+                    });
+
+                    await notifyUsers({
+                        sender_id: sender_id || null,
+                        recipient_ids: [appt.student_user_id],
+                        title: 'Doctor Visit Rescheduled',
+                        message: `Moved to ${formattedTime}.`,
+                        type: 'BATCH_RESCHEDULED',
+                        payloadData: { batch_id, appointment_id: appt.appointment_id }
+                    });
+                }
+            }
+        }
+
+        await connection.commit();
+        res.json({ success: true, message: 'Batch schedule updated successfully' });
+    } catch (error) {
+        await connection.rollback();
+        console.error('Error updating batch schedule:', error);
+        res.status(500).json({ success: false, message: 'Failed to update batch schedule' });
+    } finally {
+        connection.release();
+    }
+});
+
+// Cancel an entire batch and notify students
+app.put('/api/doctor-visits/batch-cancel/:batch_id', async (req, res) => {
+    const { batch_id } = req.params;
+    const { sender_id, reason } = req.body;
+    const connection = await pool.getConnection();
+
+    try {
+        await connection.beginTransaction();
+
+        const [appointments] = await connection.query(
+            `SELECT das.student_id, s.user_id 
+             FROM doctor_appointments da
+             JOIN doctor_appointment_students das ON da.appointment_id = das.appointment_id
+             JOIN students s ON das.student_id = s.student_id
+             WHERE da.batch_id = ?`,
+            [batch_id]
+        );
+
+        await connection.query(
+            `UPDATE doctor_appointments SET status = 'Cancelled' WHERE batch_id = ?`,
+            [batch_id]
+        );
+
+        const recipientUserIds = appointments.map(a => a.user_id).filter(Boolean);
+        if (recipientUserIds.length > 0) {
+            await notifyUsers({
+                sender_id: sender_id || null,
+                recipient_ids: recipientUserIds,
+                title: 'Doctor Visit Cancelled',
+                message: `Batch doctor visit cancelled.${reason ? ` Reason: ${reason}` : ''}`,
+                type: 'BATCH_CANCELLED',
+                payloadData: { batch_id }
+            });
+        }
+
+        await connection.commit();
+        res.json({ success: true, message: 'Batch schedule cancelled successfully and students notified.' });
+    } catch (error) {
+        await connection.rollback();
+        console.error('Error cancelling batch schedule:', error);
+        res.status(500).json({ success: false, message: 'Failed to cancel batch schedule' });
+    } finally {
+        connection.release();
+    }
+});
+
+// Hard Delete an entire batch and its records
+app.delete('/api/doctor-visits/batch/:batch_id', async (req, res) => {
+    const { batch_id } = req.params;
+    const connection = await pool.getConnection();
+
+    try {
+        await connection.beginTransaction();
+
+        await connection.query(
+            `DELETE das FROM doctor_appointment_students das
+             JOIN doctor_appointments da ON das.appointment_id = da.appointment_id
+             WHERE da.batch_id = ?`,
+            [batch_id]
+        );
+
+        await connection.query(
+            `DELETE da_asm FROM doctor_assessments da_asm
+             JOIN doctor_appointments da ON da_asm.appointment_id = da.appointment_id
+             WHERE da.batch_id = ?`,
+            [batch_id]
+        );
+
+        await connection.query(`DELETE FROM doctor_appointments WHERE batch_id = ?`, [batch_id]);
+        await connection.query(`DELETE FROM mass_schedule_batches WHERE batch_id = ?`, [batch_id]);
+
+        await connection.commit();
+        res.json({ success: true, message: 'Batch appointment deleted successfully.' });
+    } catch (error) {
+        await connection.rollback();
+        console.error('Error deleting batch schedule:', error);
+        res.status(500).json({ success: false, message: 'Failed to delete batch schedule' });
+    } finally {
+        connection.release();
+    }
+});
+
+
 //Incident Reports API
 const generateId = (prefix) => `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+// ----------------================================------------------
+// 1. INCIDENT REPORTS API
+// ----------------================================------------------
 
 // ----------------================================------------------
 // 1. INCIDENT REPORTS API
@@ -4769,7 +6086,7 @@ app.get('/api/incident-reports', async (req, res) => {
     }
 });
 
-// POST: Add new Incident Report
+// POST: Add new Incident Report & Notify Student and Parents
 app.post('/api/incident-reports', async (req, res) => {
     try {
         const {
@@ -4805,6 +6122,58 @@ app.post('/api/incident-reports', async (req, res) => {
             current_physical_situation
         ]);
 
+        // Fetch student details & sender nurse user ID
+        const [studentData] = await pool.query(
+            `SELECT s.user_id AS student_user_id, s.first_name, s.last_name, n.user_id AS nurse_user_id
+             FROM students s
+             LEFT JOIN nurses n ON n.nurse_id = ?
+             WHERE s.student_id = ?`,
+            [nurse_id, student_id]
+        );
+
+        // JOIN parents with parent_student_mapping to get mapped parent user IDs
+        const [parentData] = await pool.query(
+            `SELECT p.user_id 
+             FROM parents p
+             INNER JOIN parent_student_mapping psm ON p.parent_id = psm.parent_id
+             WHERE psm.student_id = ?`,
+            [student_id]
+        );
+
+        const student_user_id = studentData[0]?.student_user_id;
+        const studentName = studentData[0] ? `${studentData[0].first_name} ${studentData[0].last_name}` : 'Your child';
+        const sender_id = studentData[0]?.nurse_user_id || null;
+        const parentUserIds = parentData.map(p => p.user_id).filter(Boolean);
+
+        const formattedDate = new Date(incident_datetime).toLocaleString('en-US', {
+            dateStyle: 'short',
+            timeStyle: 'short'
+        });
+
+        // Send System & Web Push Notification to Student
+        if (student_user_id) {
+            await notifyUsers({
+                sender_id,
+                recipient_ids: [student_user_id],
+                title: 'Incident Report Filed',
+                message: `Incident recorded at ${incident_location} on ${formattedDate}.`,
+                type: 'INCIDENT_REPORT',
+                payloadData: { incident_id }
+            });
+        }
+
+        // Send System & Web Push Notification to Parents
+        if (parentUserIds.length > 0) {
+            await notifyUsers({
+                sender_id,
+                recipient_ids: parentUserIds,
+                title: 'Student Incident Report',
+                message: `Incident involving ${studentName} recorded at ${incident_location} on ${formattedDate}.`,
+                type: 'INCIDENT_REPORT_PARENT',
+                payloadData: { incident_id, student_id }
+            });
+        }
+
         res.json({ success: true, message: 'Incident report created successfully' });
     } catch (error) {
         console.error('Error creating incident report:', error);
@@ -4812,7 +6181,7 @@ app.post('/api/incident-reports', async (req, res) => {
     }
 });
 
-// ----------------================================------------------
+// ----------------================================================--
 // 2. EMERGENCY HOTLINE DIRECTORY API
 // ----------------================================------------------
 
@@ -4875,7 +6244,6 @@ app.delete('/api/emergency-hotlines/:id', async (req, res) => {
     }
 });
 
-// SEARCH STUDENTS for Modal dropdown/autocomplete
 // SEARCH STUDENTS ROUTE
 app.get('/api/incident-reports/students', async (req, res) => {
     try {
@@ -4887,7 +6255,6 @@ app.get('/api/incident-reports/students', async (req, res) => {
 
         const searchTerm = `%${q.trim()}%`;
 
-        // Safe query selecting directly from students table with fallbacks
         const query = `
             SELECT 
                 s.*,
@@ -4908,7 +6275,6 @@ app.get('/api/incident-reports/students', async (req, res) => {
     } catch (error) {
         console.error('Error executing student search:', error);
 
-        // Fallback: simple query if the JOIN or CONCAT_WS failed
         try {
             const searchTerm = `%${req.query.q.trim()}%`;
             const [rows] = await pool.query(
@@ -5154,6 +6520,11 @@ app.get('/api/all-chief-complaints', async (req, res) => {
 //Clinic Logs & Records API 
 // 1. Clinic Visit Logs -> GET /clinic-visits/clinicLogs&Records
 // 1. Clinic Visit Logs
+// ==========================================
+// Clinic Logs & Records API 
+// ==========================================
+
+// 1. Clinic Visit Logs
 app.get('/clinic-visits/clinicLogs&Records', async (req, res) => {
   try {
     const { studentId, startDate, endDate } = req.query;
@@ -5175,7 +6546,7 @@ app.get('/clinic-visits/clinicLogs&Records', async (req, res) => {
   }
 });
 
-// 2. Medicine Dispensed
+// 2. Medicine Dispensed (Updated for dosage_consumption_unit_value & measure)
 app.get('/medicine-dispensed/clinicLogs&Records', async (req, res) => {
   try {
     const { studentId, startDate, endDate } = req.query;
@@ -5205,7 +6576,9 @@ app.get('/medicine-dispensed/clinicLogs&Records', async (req, res) => {
         d.nurse_id,
         NULL AS visit_id,
         d.batch_id,
-        d.quantity_dispensed,
+        d.dosage_consumption_unit_value,
+        d.dosage_consumption_unit_of_measure,
+        CONCAT(d.dosage_consumption_unit_value, ' ', d.dosage_consumption_unit_of_measure) AS quantity_dispensed,
         d.dispensed_at
       FROM direct_dispensation d
       ${directWhere}
@@ -5219,7 +6592,9 @@ app.get('/medicine-dispensed/clinicLogs&Records', async (req, res) => {
         cv.nurse_id,
         c.visit_id,
         c.batch_id,
-        c.quantity_dispensed,
+        c.dosage_consumption_unit_value,
+        c.dosage_consumption_unit_of_measure,
+        CONCAT(c.dosage_consumption_unit_value, ' ', c.dosage_consumption_unit_of_measure) AS quantity_dispensed,
         c.dispensed_at
       FROM consultation_dispensation c
       LEFT JOIN clinic_visits cv ON c.visit_id = cv.visit_id
@@ -5257,8 +6632,7 @@ app.get('/incident-reports/clinicLogs&Records', async (req, res) => {
   }
 });
 
-// 4. Health Screenings (FIXED QUERY & PARAMETER BINDING)
-// 4. Health Screenings (Includes Upcoming, Ongoing, Completed, and Missed)
+// 4. Health Screenings
 app.get('/health-screenings/clinicLogs&Records', async (req, res) => {
   try {
     const { studentId, startDate, endDate } = req.query;
@@ -5389,7 +6763,7 @@ app.get('/health-screenings/clinicLogs&Records', async (req, res) => {
   }
 });
 
-// 5. Doctor Visit Records
+// 5. Doctor Visit Records (Updated to join doctor_appointment_students)
 app.get('/doctor-visits/clinicLogs&Records', async (req, res) => {
   try {
     const { studentId, startDate, endDate } = req.query;
@@ -5398,21 +6772,29 @@ app.get('/doctor-visits/clinicLogs&Records', async (req, res) => {
     let query = `
       SELECT 
         da.appointment_id,
-        da.student_id,
+        das.student_id,
         da.doctor_id,
         da.batch_id,
+        da.title,
+        da.announcement,
         da.start_time,
         da.end_time,
         da.assigned_by_nurse_id,
         da.status,
+        das.attendance_status,
+        das.check_in_time,
+        das.notes AS student_notes,
         doc_ast.assessment_id,
         doc_ast.clinical_findings,
         doc_ast.diagnosis,
         doc_ast.treatment_recommendations,
         doc_ast.assessment_date
       FROM doctor_appointments da
-      LEFT JOIN doctor_assessments doc_ast ON da.appointment_id = doc_ast.appointment_id
-      WHERE da.student_id = ?
+      JOIN doctor_appointment_students das ON da.appointment_id = das.appointment_id
+      LEFT JOIN doctor_assessments doc_ast 
+        ON da.appointment_id = doc_ast.appointment_id 
+        AND das.student_id = doc_ast.student_id
+      WHERE das.student_id = ?
     `;
     const params = [studentId];
 
@@ -5440,7 +6822,6 @@ app.get('/document-requests/childClinicRecords', async (req, res) => {
 
     const params = [];
 
-    // Excuse Slip Filter
     let excuseWhere = `WHERE student_id = ?`;
     params.push(studentId);
     if (startDate && endDate) {
@@ -5448,7 +6829,6 @@ app.get('/document-requests/childClinicRecords', async (req, res) => {
       params.push(startDate, endDate);
     }
 
-    // Referral Slip Filter
     let referralWhere = `WHERE student_id = ?`;
     params.push(studentId);
     if (startDate && endDate) {
@@ -5533,7 +6913,10 @@ app.get('/student-requirements/childClinicRecords', async (req, res) => {
   }
 });
 
-//Contact Settings API
+// ==========================================
+// Contact Settings API
+// ==========================================
+
 // GET: Fetch current contact number
 app.get('/api/parents/:parentId', async (req, res) => {
   const { parentId } = req.params;
@@ -5560,7 +6943,6 @@ app.put('/api/parents/:parentId/contact', async (req, res) => {
   const { parentId } = req.params;
   const { primary_phone } = req.body;
 
-  // PH phone number regex (Supports 09XXXXXXXXX or +639XXXXXXXXX)
   const phPhoneRegex = /^(09|\+639)\d{9}$/;
 
   if (!primary_phone || !phPhoneRegex.test(primary_phone)) {
@@ -5599,7 +6981,6 @@ app.put('/api/parents/:parentId', async (req, res) => {
     });
   }
 
-  // PH phone number regex (Supports 09XXXXXXXXX or +639XXXXXXXXX)
   const phPhoneRegex = /^(09|\+639)\d{9}$/;
 
   if (!primary_phone || !phPhoneRegex.test(primary_phone)) {
@@ -5628,6 +7009,13 @@ app.put('/api/parents/:parentId', async (req, res) => {
 
 //ManageStudentAccounts.jsx API
 // Helper function hashPassword removed temporarily
+// Helper function to enforce username domain extension
+const formatUsername = (username) => {
+  if (!username) return '';
+  const domain = '@baliuag.sti.edu.ph';
+  const clean = username.trim().split('@')[0];
+  return `${clean}${domain}`;
+};
 
 // 1. GET: Fetch all academic programs for dropdown
 app.get('/api/academic-programs/manageStudentAccounts', async (req, res) => {
@@ -5712,7 +7100,7 @@ app.get('/api/parents/search/manageStudentAccounts', async (req, res) => {
   }
 });
 
-// 4. POST: Create a Student Account (with optional Parent linking/creation)
+// 4. POST: Create a Single Student Account
 app.post('/api/students/manageStudentAccounts', async (req, res) => {
   const {
     student_id,
@@ -5724,17 +7112,18 @@ app.post('/api/students/manageStudentAccounts', async (req, res) => {
     year_level,
     section,
     is_active,
-    parent_option, // 'none' | 'existing' | 'new'
+    parent_option,
     selected_parent_id,
-    new_parent // { parent_id, first_name, last_name, username, password, primary_phone, is_active }
+    new_parent
   } = req.body;
+
+  const formattedStudentUsername = formatUsername(username);
 
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
 
     const studentUserId = crypto.randomUUID();
-    // Using plain password directly (hashing disabled)
     const studentPasswordHash = password;
 
     const [studentRoles] = await connection.query("SELECT role_id FROM roles WHERE role_name = 'Student' LIMIT 1");
@@ -5742,7 +7131,7 @@ app.post('/api/students/manageStudentAccounts', async (req, res) => {
 
     await connection.query(
       `INSERT INTO users (user_id, username, password_hash, role_id, is_active, created_at) VALUES (?, ?, ?, ?, ?, NOW())`,
-      [studentUserId, username, studentPasswordHash, studentRoleId, is_active ? 1 : 0]
+      [studentUserId, formattedStudentUsername, studentPasswordHash, studentRoleId, is_active ? 1 : 0]
     );
 
     await connection.query(
@@ -5756,15 +7145,15 @@ app.post('/api/students/manageStudentAccounts', async (req, res) => {
       finalParentId = selected_parent_id;
     } else if (parent_option === 'new' && new_parent) {
       const parentUserId = crypto.randomUUID();
-      // Using plain password directly (hashing disabled)
       const parentPasswordHash = new_parent.password;
+      const formattedParentUsername = formatUsername(new_parent.username);
 
       const [parentRoles] = await connection.query("SELECT role_id FROM roles WHERE role_name = 'Parent' LIMIT 1");
       const parentRoleId = parentRoles.length > 0 ? parentRoles[0].role_id : 'ROLE_PARENT';
 
       await connection.query(
         `INSERT INTO users (user_id, username, password_hash, role_id, is_active, created_at) VALUES (?, ?, ?, ?, ?, NOW())`,
-        [parentUserId, new_parent.username, parentPasswordHash, parentRoleId, new_parent.is_active ? 1 : 0]
+        [parentUserId, formattedParentUsername, parentPasswordHash, parentRoleId, new_parent.is_active ? 1 : 0]
       );
 
       await connection.query(
@@ -5793,8 +7182,68 @@ app.post('/api/students/manageStudentAccounts', async (req, res) => {
   }
 });
 
-// 5. PUT: Update Student Details and Manage Linked Parent Account
-// 5. PUT: Update Student Details and Manage Linked Parent Account
+// 5. POST: Bulk Import Students via CSV array
+// POST: Bulk Import Students via CSV (Simplified 5-field schema)
+app.post('/api/students/import/manageStudentAccounts', async (req, res) => {
+  const { students, default_program_id } = req.body; // Array of { student_id, first_name, last_name, year_level, section }
+
+  if (!Array.isArray(students) || students.length === 0) {
+    return res.status(400).json({ error: 'No student data provided for import.' });
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const [studentRoles] = await connection.query("SELECT role_id FROM roles WHERE role_name = 'Student' LIMIT 1");
+    const studentRoleId = studentRoles.length > 0 ? studentRoles[0].role_id : 'ROLE_STUDENT';
+
+    let importedCount = 0;
+
+    for (const item of students) {
+      if (!item.student_id || !item.first_name || !item.last_name) continue;
+
+      const studentUserId = crypto.randomUUID();
+      
+      // Auto-generate username from student_id with enforced domain extension
+      const generatedUsername = formatUsername(item.student_id);
+      const defaultPassword = '123456';
+
+      // 1. Create User Account
+      await connection.query(
+        `INSERT INTO users (user_id, username, password_hash, role_id, is_active, created_at) VALUES (?, ?, ?, ?, 1, NOW())`,
+        [studentUserId, generatedUsername, defaultPassword, studentRoleId]
+      );
+
+      // 2. Insert Student Details
+      await connection.query(
+        `INSERT INTO students (student_id, user_id, first_name, last_name, program_id, year_level, section) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          item.student_id,
+          studentUserId,
+          item.first_name,
+          item.last_name,
+          item.program_id || default_program_id || null,
+          item.year_level || '1',
+          item.section || ''
+        ]
+      );
+
+      importedCount++;
+    }
+
+    await connection.commit();
+    res.status(200).json({ message: `Successfully imported ${importedCount} student accounts.` });
+  } catch (err) {
+    await connection.rollback();
+    console.error('Import Error:', err);
+    res.status(500).json({ error: err.message || 'Failed to import student CSV data.' });
+  } finally {
+    connection.release();
+  }
+});
+
+// 6. PUT: Update Student Details and Manage Linked Parent Account
 app.put('/api/students/:student_id/manageStudentAccounts', async (req, res) => {
   const { student_id } = req.params;
   const { 
@@ -5804,8 +7253,8 @@ app.put('/api/students/:student_id/manageStudentAccounts', async (req, res) => {
     year_level, 
     section, 
     is_active,
-    reset_password, // <-- Received from request body
-    parent_action, // 'keep' | 'remove' | 'existing' | 'new'
+    reset_password,
+    parent_action,
     selected_parent_id,
     new_parent 
   } = req.body;
@@ -5821,13 +7270,11 @@ app.put('/api/students/:student_id/manageStudentAccounts', async (req, res) => {
     }
     const userId = rows[0].user_id;
 
-    // Update Student Record
     await connection.query(
       `UPDATE students SET first_name = ?, last_name = ?, program_id = ?, year_level = ?, section = ? WHERE student_id = ?`,
       [first_name, last_name, program_id, year_level, section, student_id]
     );
 
-    // Update User Account Status and optionally Reset Password to '123'
     if (reset_password) {
       await connection.query(
         `UPDATE users SET is_active = ?, password_hash = '123' WHERE user_id = ?`,
@@ -5840,7 +7287,6 @@ app.put('/api/students/:student_id/manageStudentAccounts', async (req, res) => {
       );
     }
 
-    // Parent Account Management Logic
     if (parent_action === 'remove') {
       await connection.query('DELETE FROM parent_student_mapping WHERE student_id = ?', [student_id]);
     } else if (parent_action === 'existing' && selected_parent_id) {
@@ -5852,13 +7298,14 @@ app.put('/api/students/:student_id/manageStudentAccounts', async (req, res) => {
     } else if (parent_action === 'new' && new_parent) {
       const parentUserId = crypto.randomUUID();
       const parentPasswordHash = new_parent.password;
+      const formattedParentUsername = formatUsername(new_parent.username);
 
       const [parentRoles] = await connection.query("SELECT role_id FROM roles WHERE role_name = 'Parent' LIMIT 1");
       const parentRoleId = parentRoles.length > 0 ? parentRoles[0].role_id : 'ROLE_PARENT';
 
       await connection.query(
         `INSERT INTO users (user_id, username, password_hash, role_id, is_active, created_at) VALUES (?, ?, ?, ?, ?, NOW())`,
-        [parentUserId, new_parent.username, parentPasswordHash, parentRoleId, new_parent.is_active ? 1 : 0]
+        [parentUserId, formattedParentUsername, parentPasswordHash, parentRoleId, new_parent.is_active ? 1 : 0]
       );
 
       await connection.query(
@@ -6502,111 +7949,1016 @@ app.get('/api/students/qr/:id', async (req, res) => {
 
 // ==================== NURSE DASHBOARD ENDPOINTS ====================
 
-// 1. Actionable Previews & Schedules
-app.get('/api/documents-approval', async (req, res) => {
-    try {
-        const [rows] = await pool.execute(`SELECT * FROM documents_approval WHERE status = 'pending'`);
-        res.json({ data: rows });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+app.get('/api/nurse/dashboard', async (req, res) => {
+  try {
+    const [
+      requirementApprovalSummary,
+      upcomingRequirementDeadlines,
+      documentRequestsPending,
+      medicineStockAlerts,
+      upcomingHealthScreenings,
+      upcomingDoctorVisits
+    ] = await Promise.all([
+      
+      // 1. Overview of waiting for approval and incomplete requirements
+      pool.query(`
+        SELECT 
+          SUM(CASE WHEN status IN ('Submitted', 'Submitted Late', 'Pending') THEN 1 ELSE 0 END) AS waiting_for_approval_count,
+          SUM(CASE WHEN status IN ('Not Submitted', 'Resubmit', 'Rejected') THEN 1 ELSE 0 END) AS incomplete_count,
+          COUNT(*) AS total_submissions
+        FROM student_requirement_submissions
+      `),
+
+      // 2. Overview of upcoming deadline of requirements with details (Program + Special Requirements)
+      pool.query(`
+        SELECT * FROM (
+          SELECT 
+            'Program' AS requirement_type,
+            config_id AS id,
+            requirement_name,
+            program_id,
+            year_level,
+            NULL AS student_id,
+            submission_deadline,
+            allow_late_submission
+          FROM program_requirements_config
+          WHERE submission_deadline >= CURDATE()
+          
+          UNION ALL
+          
+          SELECT 
+            'Special' AS requirement_type,
+            CONCAT(student_id, '_', requirement_name) AS id,
+            requirement_name,
+            NULL AS program_id,
+            NULL AS year_level,
+            student_id,
+            submission_deadline,
+            allow_late_submission
+          FROM student_special_requirements
+          WHERE submission_deadline >= CURDATE()
+        ) AS upcoming_requirements
+        ORDER BY submission_deadline ASC
+        LIMIT 10
+      `),
+
+      // 3. Overview of waiting for approval document requests (Excuse Slips & Referral Slips)
+      pool.query(`
+        SELECT 
+          (SELECT COUNT(*) FROM excuse_slip_requests WHERE status = 'Pending') AS pending_excuse_slips,
+          (SELECT COUNT(*) FROM referral_slip_requests WHERE status = 'Pending') AS pending_referral_slips,
+          (
+            (SELECT COUNT(*) FROM excuse_slip_requests WHERE status = 'Pending') + 
+            (SELECT COUNT(*) FROM referral_slip_requests WHERE status = 'Pending')
+          ) AS total_pending_requests
+      `),
+
+      // 4. Overview of medicine inventory low and critical stock
+      pool.query(`
+            SELECT 
+        m.medicine_id,
+        m.generic_name,
+        m.brand_name,
+        m.dosage_form,
+        m.low_stock_level,
+        m.critical_stock_level,
+        COALESCE(SUM(b.current_stock), 0) AS total_current_stock,
+        CASE 
+          WHEN COALESCE(SUM(b.current_stock), 0) <= m.critical_stock_level THEN 'CRITICAL'
+          WHEN COALESCE(SUM(b.current_stock), 0) <= m.low_stock_level THEN 'LOW'
+          ELSE 'ADEQUATE'
+        END AS stock_status
+      FROM medicines m
+      LEFT JOIN medicine_inventory_batches b ON m.medicine_id = b.medicine_id
+      GROUP BY m.medicine_id
+      HAVING stock_status IN ('CRITICAL', 'LOW')
+    `),
+
+      // 5. Overview of upcoming health screening with details
+      pool.query(`
+        SELECT 
+          screening_schedule_id,
+          title,
+          screening_type,
+          target_program_id,
+          target_year_level,
+          target_section,
+          scheduled_date,
+          start_time,
+          end_time,
+          announcement
+        FROM screening_schedules
+        WHERE scheduled_date >= CURDATE()
+        ORDER BY scheduled_date ASC, start_time ASC
+        LIMIT 10
+      `),
+
+      // 6. Overview of upcoming doctor visit with details
+      pool.query(`
+        SELECT 
+          appointment_id,
+          doctor_id,
+          batch_id,
+          title,
+          start_time,
+          end_time,
+          status,
+          announcement,
+          assigned_by_nurse_id
+        FROM doctor_appointments
+        WHERE start_time >= NOW() 
+          AND status NOT IN ('Cancelled', 'Completed')
+        ORDER BY start_time ASC
+        LIMIT 10
+      `)
+    ]);
+
+    // Format response structure for nurseDashboard.jsx
+    res.status(200).json({
+      success: true,
+      data: {
+        requirementsOverview: {
+          waitingForApprovalCount: parseInt(requirementApprovalSummary[0][0]?.waiting_for_approval_count || 0),
+          incompleteCount: parseInt(requirementApprovalSummary[0][0]?.incomplete_count || 0),
+          totalSubmissions: parseInt(requirementApprovalSummary[0][0]?.total_submissions || 0)
+        },
+        upcomingRequirementDeadlines: upcomingRequirementDeadlines[0],
+        pendingDocumentRequests: documentRequestsPending[0][0],
+        medicineStockAlerts: medicineStockAlerts[0],
+        upcomingHealthScreenings: upcomingHealthScreenings[0],
+        upcomingDoctorVisits: upcomingDoctorVisits[0]
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching nurse dashboard data:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve nurse dashboard data',
+      error: error.message
+    });
+  }
 });
 
-app.get('/api/inventory-updates', async (req, res) => {
-    try {
-        const [rows] = await pool.execute(`SELECT * FROM inventory WHERE current_stock <= reorder_level`);
-        res.json({ data: rows });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
+//student dashboard api
+// -----------------------------------------------------------------------------
+// 1. Overview of Student Recent Visits & Medicine Dispensation (with details)
+// -----------------------------------------------------------------------------
+app.get('/api/student/dashboard/visits-dispensation/:studentId', async (req, res) => {
+  const { studentId } = req.params;
 
-app.get('/api/health-screenings', async (req, res) => {
-    try {
-        const [rows] = await pool.execute(`SELECT * FROM health_screenings WHERE date >= CURDATE()`);
-        res.json({ data: rows });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
+  try {
+    // Fetch clinic visits along with consultation dispensations
+    const visitsQuery = `
+      SELECT 
+        v.visit_id,
+        v.visit_date,
+        v.time_in,
+        v.time_out,
+        v.temperature,
+        v.respiratory_rate,
+        v.pulse_rate,
+        v.blood_pressure,
+        v.nursing_intervention,
+        v.health_advice,
+        cd.consultation_dispense_id,
+        cd.batch_id AS consultation_medicine_batch_id,
+        cd.dosage_consumption_unit_value AS consultation_dosage_value,
+        cd.dosage_consumption_unit_of_measure AS consultation_dosage_unit,
+        cd.dispensed_at AS consultation_dispensed_at
+      FROM clinic_visits v
+      LEFT JOIN consultation_dispensation cd ON v.visit_id = cd.visit_id
+      WHERE v.student_id = ?
+      ORDER BY v.visit_date DESC, v.time_in DESC
+      LIMIT 10;
+    `;
 
-app.get('/api/doctor-visits', async (req, res) => {
-    try {
-        const [rows] = await pool.execute(`SELECT * FROM doctor_visits WHERE visit_date >= CURDATE()`);
-        res.json({ data: rows });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
+    // Fetch direct medicine dispensations
+    const directDispenseQuery = `
+      SELECT 
+        direct_dispense_id,
+        nurse_id,
+        batch_id,
+        dosage_consumption_unit_value,
+        dosage_consumption_unit_of_measure,
+        dispensed_at
+      FROM direct_dispensation
+      WHERE student_id = ?
+      ORDER BY dispensed_at DESC
+      LIMIT 10;
+    `;
 
-app.get('/api/weekly-reports', async (req, res) => {
-    try {
-        const [rows] = await pool.execute(`SELECT * FROM weekly_reports ORDER BY created_at DESC LIMIT 5`);
-        res.json({ data: rows });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
+    const [visits] = await pool.query(visitsQuery, [studentId]);
+    const [directDispensations] = await pool.query(directDispenseQuery, [studentId]);
 
-// 2. Health Trends Overview
-app.get('/api/health-trends', async (req, res) => {
-    const { filterType, date } = req.query;
-    try {
-        // Replace with your trend aggregation logic
-        res.json({ 
-            data: [], 
-            complaintsList: [], 
-            averages: {}, 
-            averagesLabel: "Average Complaints", 
-            timelineLabel: "Timeline", 
-            periodLabel: "Period" 
+    // Group consultation dispensations inside their corresponding visit object
+    const visitMap = {};
+    visits.forEach((row) => {
+      if (!visitMap[row.visit_id]) {
+        visitMap[row.visit_id] = {
+          visit_id: row.visit_id,
+          visit_date: row.visit_date,
+          time_in: row.time_in,
+          time_out: row.time_out,
+          vitals: {
+            temperature: row.temperature,
+            respiratory_rate: row.respiratory_rate,
+            pulse_rate: row.pulse_rate,
+            blood_pressure: row.blood_pressure,
+          },
+          nursing_intervention: row.nursing_intervention,
+          health_advice: row.health_advice,
+          dispensed_medicines: [],
+        };
+      }
+
+      if (row.consultation_dispense_id) {
+        visitMap[row.visit_id].dispensed_medicines.push({
+          dispense_id: row.consultation_dispense_id,
+          batch_id: row.consultation_medicine_batch_id,
+          dosage_value: row.consultation_dosage_value,
+          dosage_unit: row.consultation_dosage_unit,
+          dispensed_at: row.consultation_dispensed_at,
         });
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        clinic_visits: Object.values(visitMap),
+        direct_dispensations: directDispensations,
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching visits and dispensation:', error);
+    res.status(500).json({ success: false, message: 'Server Error', error: error.message });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// 2. Overview of Student Incomplete & Updates on Requirements (with details)
+// -----------------------------------------------------------------------------
+app.get('/api/student/dashboard/requirements/:studentId', async (req, res) => {
+  const { studentId } = req.params;
+
+  try {
+    const query = `
+      SELECT 
+        sr.requirement_name,
+        sr.submission_deadline,
+        sr.allow_late_submission,
+        sr.assigned_at,
+        sub.submission_id,
+        sub.file_url,
+        COALESCE(sub.status, 'Not Submitted') AS status,
+        sub.is_late,
+        sub.nurse_remarks,
+        sub.submitted_at
+      FROM student_special_requirements sr
+      LEFT JOIN student_requirement_submissions sub 
+        ON sr.student_id = sub.student_id 
+        AND sr.requirement_name = sub.requirement_name
+      WHERE sr.student_id = ?
+      ORDER BY sr.submission_deadline ASC;
+    `;
+
+    const [requirements] = await pool.query(query, [studentId]);
+
+    // Filter incomplete vs completed requirements
+    const incompleteRequirements = requirements.filter((req) =>
+      ['Pending', 'Rejected', 'Resubmit', 'Not Submitted'].includes(req.status)
+    );
+
+    res.status(200).json({
+      success: true,
+      data: {
+        all_requirements: requirements,
+        incomplete_requirements: incompleteRequirements,
+        total_assigned: requirements.length,
+        total_incomplete: incompleteRequirements.length,
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching student requirements:', error);
+    res.status(500).json({ success: false, message: 'Server Error', error: error.message });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// 3. Overview of Student Updates in Document Requests (with details)
+// -----------------------------------------------------------------------------
+app.get('/api/student/dashboard/document-requests/:studentId', async (req, res) => {
+  const { studentId } = req.params;
+
+  try {
+    const excuseSlipsQuery = `
+      SELECT 
+        request_id,
+        reason_for_excuse,
+        valid_absence_start,
+        valid_absence_end,
+        student_proof_url,
+        status,
+        issued_by,
+        issued_at,
+        issued_slip_url,
+        created_at,
+        'Excuse Slip' AS request_type
+      FROM excuse_slip_requests
+      WHERE student_id = ?
+      ORDER BY created_at DESC;
+    `;
+
+    const referralSlipsQuery = `
+      SELECT 
+        request_id,
+        facility_id,
+        reason_for_referral,
+        status,
+        issued_by,
+        issued_at,
+        issued_slip_url,
+        created_at,
+        'Referral Slip' AS request_type
+      FROM referral_slip_requests
+      WHERE student_id = ?
+      ORDER BY created_at DESC;
+    `;
+
+    const [excuseSlips] = await pool.query(excuseSlipsQuery, [studentId]);
+    const [referralSlips] = await pool.query(referralSlipsQuery, [studentId]);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        excuse_slip_requests: excuseSlips,
+        referral_slip_requests: referralSlips,
+        recent_updates: [...excuseSlips, ...referralSlips].sort(
+          (a, b) => new Date(b.created_at) - new Date(a.created_at)
+        ),
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching document requests:', error);
+    res.status(500).json({ success: false, message: 'Server Error', error: error.message });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// 4. Overview of Student Upcoming Health Screening (with details)
+// -----------------------------------------------------------------------------
+app.get('/api/student/dashboard/upcoming-health-screenings', async (req, res) => {
+  const { programId, yearLevel, section } = req.query;
+
+  try {
+    const query = `
+      SELECT 
+        screening_schedule_id,
+        title,
+        screening_type,
+        target_program_id,
+        target_year_level,
+        target_section,
+        scheduled_date,
+        start_time,
+        end_time,
+        announcement
+      FROM screening_schedules
+      WHERE scheduled_date >= CURDATE()
+        AND (target_program_id = ? OR target_program_id IS NULL)
+        AND (target_year_level = ? OR target_year_level IS NULL)
+        AND (target_section = ? OR target_section IS NULL)
+      ORDER BY scheduled_date ASC, start_time ASC;
+    `;
+
+    const [screenings] = await pool.query(query, [programId || null, yearLevel || null, section || null]);
+
+    res.status(200).json({
+      success: true,
+      data: screenings,
+    });
+  } catch (error) {
+    console.error('Error fetching upcoming health screenings:', error);
+    res.status(500).json({ success: false, message: 'Server Error', error: error.message });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// 5. Overview of Student Upcoming Doctor Visit Schedule (with details)
+// -----------------------------------------------------------------------------
+app.get('/api/student/dashboard/doctor-appointments/:studentId', async (req, res) => {
+  const { studentId } = req.params;
+
+  try {
+    const query = `
+      SELECT 
+        da.appointment_id,
+        da.title,
+        da.doctor_id,
+        da.batch_id,
+        da.start_time,
+        da.end_time,
+        da.status AS appointment_status,
+        da.announcement,
+        das.attendance_status,
+        das.check_in_time,
+        das.notes
+      FROM doctor_appointments da
+      INNER JOIN doctor_appointment_students das 
+        ON da.appointment_id = das.appointment_id
+      WHERE das.student_id = ?
+        AND da.start_time >= NOW()
+      ORDER BY da.start_time ASC;
+    `;
+
+    const [appointments] = await pool.query(query, [studentId]);
+
+    res.status(200).json({
+      success: true,
+      data: appointments,
+    });
+  } catch (error) {
+    console.error('Error fetching upcoming doctor appointments:', error);
+    res.status(500).json({ success: false, message: 'Server Error', error: error.message });
+  }
+});
+
+//Parent Dashboard api
+// 1. Overview of student's recent clinic visits
+app.get('/api/student/:studentId/clinic-visits', async (req, res) => {
+    try {
+        const { studentId } = req.params;
+        // Queries the clinic_visits table as defined in sdb 1 .png[cite: 10]
+        const query = `
+            SELECT visit_date, time_in, time_out, temperature, respiratory_rate, 
+                   pulse_rate, blood_pressure, nursing_intervention, health_advice 
+            FROM clinic_visits 
+            WHERE student_id = ? 
+            ORDER BY visit_date DESC, time_in DESC 
+            LIMIT 5
+        `;
+        const [visits] = await pool.query(query, [studentId]);
+        res.status(200).json(visits);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
-// 3. Medicine Dispensed Overview
-app.get('/api/medicine-dispensed-overview', async (req, res) => {
-    const { filterType, date } = req.query;
+// 2. Overview of recent medicine dispensation (Direct and Consultation)
+app.get('/api/student/:studentId/dispensations', async (req, res) => {
     try {
-        // Replace with your medicine aggregation logic
-        res.json({ 
-            data: [], 
-            medicinesList: [], 
-            medicinesUnitsMap: {}, 
-            averages: {}, 
-            averagesLabel: "Dispensed Averages", 
-            timelineLabel: "Timeline", 
-            periodLabel: "Period" 
-        });
+        const { studentId } = req.params;
+        
+        // Fetches direct dispensation records referencing sdp 3.png[cite: 8]
+        const directQuery = `
+            SELECT 'Direct' AS type, dosage_consumption_unit_value, 
+                   dosage_consumption_unit_of_measure, dispensed_at 
+            FROM direct_dispensation 
+            WHERE student_id = ? 
+            ORDER BY dispensed_at DESC LIMIT 5
+        `;
+        
+        // Fetches consultation dispensation records by joining clinic_visits to match the student, based on sdp 2.png and sdb 1 .png[cite: 9, 10]
+        const consultQuery = `
+            SELECT 'Consultation' AS type, cd.dosage_consumption_unit_value, 
+                   cd.dosage_consumption_unit_of_measure, cd.dispensed_at 
+            FROM consultation_dispensation cd
+            JOIN clinic_visits cv ON cd.visit_id = cv.visit_id
+            WHERE cv.student_id = ? 
+            ORDER BY cd.dispensed_at DESC LIMIT 5
+        `;
+
+        const [directDispense] = await pool.query(directQuery, [studentId]);
+        const [consultDispense] = await pool.query(consultQuery, [studentId]);
+        
+        // Combine and sort both arrays to provide a unified timeline
+        const allDispensations = [...directDispense, ...consultDispense]
+            .sort((a, b) => new Date(b.dispensed_at) - new Date(a.dispensed_at))
+            .slice(0, 10);
+
+        res.status(200).json(allDispensations);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
-// 4. Predictive Medicine Demand
-app.get('/api/predictive-medicine', async (req, res) => {
-    const { month } = req.query;
+// 3. Overview of student's list of requirements
+app.get('/api/student/:studentId/requirements', async (req, res) => {
     try {
-        // Replace with predictive demand query mapping to expected JSON structure
-        res.json({ data: [], graphTitle: "Predictive Medicine Demand" });
+        const { studentId } = req.params;
+        // Joins student_special_requirements (sdb 5.png) with student_requirement_submissions (sdb4.png) to get current status[cite: 6, 7]
+        const query = `
+            SELECT req.requirement_name, req.submission_deadline, req.allow_late_submission,
+                   sub.status, sub.submitted_at, sub.is_late, sub.nurse_remarks 
+            FROM student_special_requirements req
+            LEFT JOIN student_requirement_submissions sub 
+                   ON req.student_id = sub.student_id AND req.requirement_name = sub.requirement_name
+            WHERE req.student_id = ?
+            ORDER BY req.submission_deadline ASC
+        `;
+        const [requirements] = await pool.query(query, [studentId]);
+        res.status(200).json(requirements);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
-// 5. Frequent Complaint Alerts
-app.get('/api/frequent-complaints', async (req, res) => {
+// 4. Upcoming health screenings
+app.get('/api/student/:studentId/screenings', async (req, res) => {
     try {
-        const [rows] = await pool.execute(`
-            SELECT studentName, studentId, visitCount, complaint, advice, date 
-            FROM frequent_complaints 
-            WHERE visitCount > 3
-        `);
-        res.json({ data: rows });
+        // Note: Screening schedules are targeted by program, year, and section (sdb 8.png)[cite: 3].
+        // Pass these variables in req.query when calling this endpoint from parentDashboard.jsx.
+        const { programId, yearLevel, section } = req.query; 
+        
+        const query = `
+            SELECT title, scheduled_date, start_time, end_time, announcement, screening_type 
+            FROM screening_schedules 
+            WHERE target_program_id = ? AND target_year_level = ? AND target_section = ? 
+              AND scheduled_date >= CURDATE()
+            ORDER BY scheduled_date ASC
+        `;
+        const [screenings] = await pool.query(query, [programId, yearLevel, section]);
+        res.status(200).json(screenings);
     } catch (error) {
         res.status(500).json({ error: error.message });
+    }
+});
+
+// 5. Doctor visits / appointments
+app.get('/api/student/:studentId/doctor-appointments', async (req, res) => {
+    try {
+        const { studentId } = req.params;
+        // Joins doctor_appointments (sdb 9.png) with doctor_appointment_students (sdb 10.png)[cite: 2, 1]
+        const query = `
+            SELECT da.title, da.start_time, da.end_time, da.status AS appointment_status, 
+                   das.attendance_status, das.check_in_time, das.notes 
+            FROM doctor_appointment_students das
+            JOIN doctor_appointments da ON das.appointment_id = da.appointment_id
+            WHERE das.student_id = ?
+            ORDER BY da.start_time DESC
+        `;
+        const [appointments] = await pool.query(query, [studentId]);
+        res.status(200).json(appointments);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 6. Incident reports
+app.get('/api/student/:studentId/incidents', async (req, res) => {
+    try {
+        const { studentId } = req.params;
+        const query = `
+            SELECT incident_datetime, incident_location, incident_description, 
+                   first_aid_administered, current_physical_situation 
+            FROM incident_reports 
+            WHERE student_id = ? 
+            ORDER BY incident_datetime DESC
+        `;
+        const [incidents] = await pool.query(query, [studentId]);
+        res.status(200).json(incidents);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 7. Document requests (Referral & Excuse Slips)
+app.get('/api/student/:studentId/document-requests', async (req, res) => {
+    try {
+        const { studentId } = req.params;
+        
+        // Fetches from referral_slip_requests (sdb 7.png)[cite: 4]
+        const referralQuery = `
+            SELECT request_id, 'Referral Slip' AS document_type, reason_for_referral AS details, 
+                   status, issued_at, created_at 
+            FROM referral_slip_requests 
+            WHERE student_id = ?
+        `;
+        
+        // Fetches from excuse_slip_requests (sdb 6.png)[cite: 5]
+        const excuseQuery = `
+            SELECT request_id, 'Excuse Slip' AS document_type, reason_for_excuse AS details, 
+                   status, issued_at, created_at 
+            FROM excuse_slip_requests 
+            WHERE student_id = ?
+        `;
+
+        const [referrals] = await pool.query(referralQuery, [studentId]);
+        const [excuses] = await pool.query(excuseQuery, [studentId]);
+        
+        // Combines both document types into a single chronologically sorted history
+        const allDocuments = [...referrals, ...excuses].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+        res.status(200).json(allDocuments);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+
+//Fetch Nurse Notification
+// 1. Get all unread notifications for a nurse using nurse_id
+app.get('/api/notifications/nurse/:nurse_id', async (req, res) => {
+  const { nurse_id } = req.params;
+
+  try {
+    const query = `
+      SELECT 
+        n.notification_id,
+        n.sender_id,
+        n.recipient_id,
+        n.title,
+        n.message,
+        n.type,
+        n.is_read,
+        n.created_at,
+        n.read_at
+      FROM notifications n
+      INNER JOIN nurses nu ON n.recipient_id = nu.user_id
+      WHERE nu.nurse_id = ? AND n.is_read = 0
+      ORDER BY n.created_at DESC
+    `;
+
+    const [notifications] = await pool.query(query, [nurse_id]);
+
+    res.status(200).json({
+      success: true,
+      count: notifications.length,
+      data: notifications
+    });
+  } catch (error) {
+    console.error('Error fetching notifications:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// 2. Mark a notification as read
+app.patch('/api/notifications/:notification_id/read', async (req, res) => {
+  const { notification_id } = req.params;
+
+  try {
+    const query = `
+      UPDATE notifications 
+      SET is_read = 1, read_at = CURRENT_TIMESTAMP 
+      WHERE notification_id = ?
+    `;
+
+    await pool.query(query, [notification_id]);
+
+    res.status(200).json({
+      success: true,
+      message: 'Notification marked as read'
+    });
+  } catch (error) {
+    console.error('Error updating notification:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+
+//Fetch Student Notification 
+// Get all unread notifications for a student using student_id
+// 1. Get all unread notifications for a student using student_id
+app.get('/api/notifications/student/:student_id', async (req, res) => {
+  const { student_id } = req.params;
+
+  try {
+    const query = `
+      SELECT 
+        n.notification_id,
+        n.sender_id,
+        n.recipient_id,
+        n.title,
+        n.message,
+        n.type,
+        n.is_read,
+        n.created_at,
+        n.read_at
+      FROM notifications n
+      INNER JOIN students s ON n.recipient_id = s.user_id
+      WHERE s.student_id = ? AND n.is_read = 0
+      ORDER BY n.created_at DESC
+    `;
+
+    const [notifications] = await pool.query(query, [student_id]);
+
+    res.status(200).json({
+      success: true,
+      count: notifications.length,
+      data: notifications
+    });
+  } catch (error) {
+    console.error('Error fetching student notifications:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// 2. Mark a notification as read
+app.patch('/api/notifications/:notification_id/read', async (req, res) => {
+  const { notification_id } = req.params;
+
+  try {
+    const query = `
+      UPDATE notifications 
+      SET is_read = 1, read_at = CURRENT_TIMESTAMP 
+      WHERE notification_id = ?
+    `;
+
+    await pool.query(query, [notification_id]);
+
+    res.status(200).json({
+      success: true,
+      message: 'Notification marked as read'
+    });
+  } catch (error) {
+    console.error('Error updating notification:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+
+//Parent Notification
+// GET /api/notifications/parent/:parentId
+app.get('/api/notifications/parent/:parentId', async (req, res) => {
+  const { parentId } = req.params;
+
+  if (!parentId) {
+    return res.status(400).json({ error: 'parentId is required' });
+  }
+
+  try {
+    const query = `
+      SELECT 
+        n.notification_id,
+        n.sender_id,
+        n.recipient_id,
+        n.title,
+        n.message,
+        n.type,
+        n.is_read,
+        n.created_at,
+        n.read_at
+      FROM notifications n
+      INNER JOIN parents p ON n.recipient_id = p.user_id
+      WHERE p.parent_id = ?
+      ORDER BY n.created_at DESC;
+    `;
+
+    const [rows] = await pool.query(query, [parentId]);
+    return res.status(200).json(rows);
+  } catch (error) {
+    console.error('Error fetching parent notifications:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/notifications/student/:studentId
+app.get('/api/notifications/student/:studentId', async (req, res) => {
+  const { studentId } = req.params;
+
+  if (!studentId) {
+    return res.status(400).json({ error: 'studentId is required' });
+  }
+
+  try {
+    const query = `
+      SELECT 
+        n.notification_id,
+        n.sender_id,
+        n.recipient_id,
+        n.title,
+        n.message,
+        n.type,
+        n.is_read,
+        n.created_at,
+        n.read_at
+      FROM notifications n
+      INNER JOIN students s ON n.recipient_id = s.user_id
+      WHERE s.student_id = ?
+      ORDER BY n.created_at DESC;
+    `;
+
+    const [rows] = await pool.query(query, [studentId]);
+    return res.status(200).json(rows);
+  } catch (error) {
+    console.error('Error fetching student notifications:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+//Web Push Notification API
+// 1. Get Public VAPID Key (Frontend needs this to subscribe)
+app.get('/api/push/public-key', (req, res) => {
+    res.json({ publicKey: vapidKeys.publicKey });
+});
+
+// 2. Save Push Subscription for User
+app.post('/api/push/subscribe', async (req, res) => {
+    const { user_id, subscription } = req.body;
+
+    if (!user_id || !subscription || !subscription.endpoint || !subscription.keys) {
+        return res.status(400).json({ success: false, error: "Missing required subscription parameters." });
+    }
+
+    try {
+        const { endpoint, keys } = subscription;
+        const { p256dh, auth } = keys;
+
+        // Upsert push subscription
+        const [existing] = await pool.query(
+            `SELECT subscription_id FROM push_subscriptions WHERE user_id = ? AND endpoint = ?`,
+            [user_id, endpoint]
+        );
+
+        if (existing.length > 0) {
+            await pool.query(
+                `UPDATE push_subscriptions SET p256dh = ?, auth = ? WHERE subscription_id = ?`,
+                [p256dh, auth, existing[0].subscription_id]
+            );
+        } else {
+            await pool.query(
+                `INSERT INTO push_subscriptions (subscription_id, user_id, endpoint, p256dh, auth) 
+                 VALUES (UUID(), ?, ?, ?, ?)`,
+                [user_id, endpoint, p256dh, auth]
+            );
+        }
+
+        res.json({ success: true, message: "Push subscription successfully stored." });
+    } catch (err) {
+        console.error("Subscription save error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// 3. Unsubscribe Web Push
+app.post('/api/push/unsubscribe', async (req, res) => {
+    const { user_id, endpoint } = req.body;
+    try {
+        await pool.query(`DELETE FROM push_subscriptions WHERE user_id = ? AND endpoint = ?`, [user_id, endpoint]);
+        res.json({ success: true, message: "Push subscription removed." });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.get('/api/push/vapid-public-key', (req, res) => {
+    res.json({ publicKey: process.env.VAPID_PUBLIC_KEY });
+});
+
+// 2. Subscribe user endpoint
+app.post('/api/push/subscribe', async (req, res) => {
+    const { userId, subscription } = req.body;
+    // Save subscription object to your database associated with userId
+    res.status(201).json({ success: true, message: 'Push subscription stored successfully.' });
+});
+
+// 3. Unsubscribe user endpoint
+app.post('/api/push/unsubscribe', async (req, res) => {
+    const { userId, endpoint } = req.body;
+    // Remove subscription matching endpoint for userId from database
+    res.json({ success: true, message: 'Push subscription removed successfully.' });
+});
+
+// 4. Send Test Notification Endpoint
+app.post('/api/push/send-test', async (req, res) => {
+    const { userId, title, message } = req.body;
+    // Retrieve subscription object from DB for userId and trigger push:
+    // await webpush.sendNotification(userSubscription, JSON.stringify({ title, message }));
+    res.json({ success: true, message: 'Test notification sent.' });
+});
+
+// POST: Save or Update Web Push Subscription for a User
+app.post('/api/push-subscriptions', async (req, res) => {
+    const { user_id, endpoint, keys } = req.body;
+
+    if (!user_id || !endpoint || !keys?.p256dh || !keys?.auth) {
+        return res.status(400).json({ error: "Missing required subscription data." });
+    }
+
+    try {
+        const subscription_id = 'SUB-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+        
+        // Upsert subscription based on endpoint
+        const sql = `
+            INSERT INTO push_subscriptions (subscription_id, user_id, endpoint, p256dh, auth, created_at)
+            VALUES (?, ?, ?, ?, ?, NOW())
+            ON DUPLICATE KEY UPDATE user_id = VALUES(user_id), p256dh = VALUES(p256dh), auth = VALUES(auth)
+        `;
+        
+        await pool.execute(sql, [subscription_id, user_id, endpoint, keys.p256dh, keys.auth]);
+        res.status(201).json({ success: true, message: "Push subscription saved successfully." });
+    } catch (error) {
+        console.error("Error saving push subscription:", error);
+        res.status(500).json({ error: "Failed to save push subscription." });
+    }
+});
+
+// GET: Retrieve Notifications for a specific Recipient (User)
+app.get('/api/notifications', async (req, res) => {
+    const { recipient_id } = req.query;
+
+    if (!recipient_id) {
+        return res.status(400).json({ error: "recipient_id query parameter is required." });
+    }
+
+    try {
+        const sql = `
+            SELECT 
+                notification_id, sender_id, recipient_id, title, message, type, is_read, created_at, read_at
+            FROM notifications
+            WHERE recipient_id = ?
+            ORDER BY created_at DESC
+            LIMIT 50
+        `;
+        const [rows] = await pool.execute(sql, [recipient_id]);
+        res.json(rows);
+    } catch (error) {
+        console.error("Error fetching notifications:", error);
+        res.status(500).json({ error: "Failed to fetch notifications." });
+    }
+});
+
+// PATCH: Mark a Notification as Read
+app.patch('/api/notifications/:id/read', async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const sql = `
+            UPDATE notifications 
+            SET is_read = 1, read_at = NOW() 
+            WHERE notification_id = ?
+        `;
+        const [result] = await pool.execute(sql, [id]);
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ error: "Notification not found." });
+        }
+
+        res.json({ success: true, message: "Notification marked as read." });
+    } catch (error) {
+        console.error("Error marking notification read:", error);
+        res.status(500).json({ error: "Failed to update notification status." });
+    }
+});
+
+// Register / Save Web Push Subscription
+app.post('/api/push-subscriptions', async (req, res) => {
+  try {
+    const { user_id, endpoint, keys } = req.body;
+    if (!user_id || !endpoint || !keys) {
+      return res.status(400).json({ error: 'Missing required subscription parameters.' });
+    }
+
+    const { p256dh, auth } = keys;
+
+    // Remove duplicates for the same endpoint
+    await pool.query('DELETE FROM push_subscriptions WHERE endpoint = ?', [endpoint]);
+
+    const subscription_id = uuidv4();
+    await pool.query(
+      `INSERT INTO push_subscriptions (subscription_id, user_id, endpoint, p256dh, auth) VALUES (?, ?, ?, ?, ?)`,
+      [subscription_id, user_id, endpoint, p256dh, auth]
+    );
+
+    res.status(201).json({ message: 'Push subscription registered successfully.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Register or update Web Push Subscription
+app.post('/api/push-subscribe', async (req, res) => {
+    const { user_id, endpoint, keys } = req.body;
+
+    if (!user_id || !endpoint || !keys?.p256dh || !keys?.auth) {
+        return res.status(400).json({ success: false, message: 'Invalid subscription payload.' });
+    }
+
+    try {
+        const [existing] = await pool.query(
+            `SELECT subscription_id FROM push_subscriptions WHERE endpoint = ?`,
+            [endpoint]
+        );
+
+        if (existing.length > 0) {
+            await pool.query(
+                `UPDATE push_subscriptions SET user_id = ?, p256dh = ?, auth = ? WHERE endpoint = ?`,
+                [user_id, keys.p256dh, keys.auth, endpoint]
+            );
+        } else {
+            const subscription_id = `SUB-${uuidv4().substring(0, 8)}`;
+            await pool.query(
+                `INSERT INTO push_subscriptions (subscription_id, user_id, endpoint, p256dh, auth, created_at)
+                 VALUES (?, ?, ?, ?, ?, NOW())`,
+                [subscription_id, user_id, endpoint, keys.p256dh, keys.auth]
+            );
+        }
+
+        res.json({ success: true, message: 'Push subscription saved.' });
+    } catch (error) {
+        console.error('Error saving push subscription:', error);
+        res.status(500).json({ success: false, message: 'Failed to subscribe to push notifications.' });
     }
 });
 
