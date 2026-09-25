@@ -2002,13 +2002,20 @@ app.get('/api/complaints', async (req, res) => {
   }
 });
 
-// 2. Fetch medicines
+// 2. Fetch medicines (includes specify_complaint_text in indication data)
 app.get('/api/medicines', async (req, res) => {
   try {
     const query = `
-      SELECT m.*, GROUP_CONCAT(mi.complaint_id SEPARATOR ',') AS complaint_ids
+      SELECT m.*, 
+        GROUP_CONCAT(mi.complaint_id SEPARATOR ',') AS complaint_ids,
+        GROUP_CONCAT(CONCAT_WS(':', mi.complaint_id, COALESCE(mi.specify_complaint_text, '')) SEPARATOR '||') AS indication_details,
+        GROUP_CONCAT(
+          CONCAT(c.complaint_name, IF(mi.specify_complaint_text IS NOT NULL AND mi.specify_complaint_text != '', CONCAT(' (', mi.specify_complaint_text, ')'), '')) 
+          SEPARATOR ', '
+        ) AS connected_complaints
       FROM medicines m
       LEFT JOIN medicine_indications mi ON m.medicine_id = mi.medicine_id
+      LEFT JOIN chief_complaints c ON mi.complaint_id = c.complaint_id
       GROUP BY m.medicine_id
       ORDER BY m.generic_name ASC
     `;
@@ -2017,13 +2024,26 @@ app.get('/api/medicines', async (req, res) => {
     const formattedRows = rows.map(row => {
       const convertedStrength = autoConvertUnit(row.strength_unit_value, row.strength_unit_of_measure);
       const convertedAvg = autoConvertUnit(row.avg_dosage_consumption_value, row.avg_dosage_consumption_unit_of_measure);
+      
+      const indications = row.indication_details 
+        ? row.indication_details.split('||').map(item => {
+            const idx = item.indexOf(':');
+            if (idx === -1) return { complaint_id: item, specify_complaint_text: '' };
+            return {
+              complaint_id: item.substring(0, idx),
+              specify_complaint_text: item.substring(idx + 1)
+            };
+          })
+        : [];
+
       return {
         ...row,
         display_strength_value: convertedStrength.value,
         display_strength_unit: convertedStrength.unit,
         display_avg_value: convertedAvg.value,
         display_avg_unit: convertedAvg.unit,
-        complaint_ids: row.complaint_ids ? row.complaint_ids.split(',') : []
+        complaint_ids: row.complaint_ids ? row.complaint_ids.split(',') : [],
+        indications: indications
       };
     });
     
@@ -2033,7 +2053,7 @@ app.get('/api/medicines', async (req, res) => {
   }
 });
 
-// 3. Fetch inventory
+// 3. Fetch inventory (joins medicine indications and specify_complaint_text)
 app.get('/api/inventory', async (req, res) => {
   const connection = await pool.getConnection();
   try {
@@ -2046,7 +2066,10 @@ app.get('/api/inventory', async (req, res) => {
         b.batch_id, b.medicine_id, b.expiration_date, b.current_stock, b.remaining_volume,
         m.generic_name, m.brand_name, m.dosage_form, m.strength_unit_value, m.strength_unit_of_measure,
         m.low_stock_level, m.critical_stock_level, m.adequate_stock_level,
-        GROUP_CONCAT(c.complaint_name SEPARATOR ', ') AS connected_complaints
+        GROUP_CONCAT(
+          CONCAT(c.complaint_name, IF(mi.specify_complaint_text IS NOT NULL AND mi.specify_complaint_text != '', CONCAT(' (', mi.specify_complaint_text, ')'), '')) 
+          SEPARATOR ', '
+        ) AS connected_complaints
       FROM medicine_inventory_batches b
       JOIN medicines m ON b.medicine_id = m.medicine_id
       LEFT JOIN medicine_indications mi ON m.medicine_id = mi.medicine_id
@@ -2075,7 +2098,7 @@ app.get('/api/inventory', async (req, res) => {
   }
 });
 
-// 4. Create medicine
+// 4. Create medicine with indications and specify_complaint_text
 app.post('/api/medicines', async (req, res) => {
   const payload = normalizeMedicinePayload(req.body);
   const {
@@ -2083,8 +2106,13 @@ app.post('/api/medicines', async (req, res) => {
     strength_unit_value, strength_unit_of_measure,
     avg_dosage_consumption_value, avg_dosage_consumption_unit_of_measure,
     low_stock_level, critical_stock_level, adequate_stock_level,
-    complaint_ids
+    indications, complaint_ids
   } = payload;
+
+  const targetIndications = indications || (complaint_ids || []).map(id => ({
+    complaint_id: id,
+    specify_complaint_text: null
+  }));
 
   const connection = await pool.getConnection();
   try {
@@ -2106,11 +2134,13 @@ app.post('/api/medicines', async (req, res) => {
       ]
     );
 
-    if (complaint_ids?.length) {
-      for (const complaint_id of complaint_ids) {
+    if (targetIndications?.length) {
+      for (const ind of targetIndications) {
+        const indication_id = uuidv4().substring(0, 45);
         await connection.execute(
-          'INSERT INTO medicine_indications (medicine_id, complaint_id) VALUES (?, ?)',
-          [medicine_id, complaint_id]
+          `INSERT INTO medicine_indications (indication_id, medicine_id, complaint_id, specify_complaint_text) 
+           VALUES (?, ?, ?, ?)`,
+          [indication_id, medicine_id, ind.complaint_id, ind.specify_complaint_text || null]
         );
       }
     }
@@ -2125,7 +2155,7 @@ app.post('/api/medicines', async (req, res) => {
   }
 });
 
-// 5. Update medicine
+// 5. Update medicine with indications and specify_complaint_text
 app.put('/api/medicines/:id', async (req, res) => {
   const { id } = req.params;
   const payload = normalizeMedicinePayload(req.body);
@@ -2134,8 +2164,13 @@ app.put('/api/medicines/:id', async (req, res) => {
     strength_unit_value, strength_unit_of_measure,
     avg_dosage_consumption_value, avg_dosage_consumption_unit_of_measure,
     low_stock_level, critical_stock_level, adequate_stock_level,
-    complaint_ids
+    indications, complaint_ids
   } = payload;
+
+  const targetIndications = indications || (complaint_ids || []).map(cid => ({
+    complaint_id: cid,
+    specify_complaint_text: null
+  }));
 
   const connection = await pool.getConnection();
   try {
@@ -2159,11 +2194,13 @@ app.put('/api/medicines/:id', async (req, res) => {
 
     await connection.execute('DELETE FROM medicine_indications WHERE medicine_id = ?', [id]);
 
-    if (complaint_ids?.length) {
-      for (const complaint_id of complaint_ids) {
+    if (targetIndications?.length) {
+      for (const ind of targetIndications) {
+        const indication_id = uuidv4().substring(0, 45);
         await connection.execute(
-          'INSERT INTO medicine_indications (medicine_id, complaint_id) VALUES (?, ?)',
-          [id, complaint_id]
+          `INSERT INTO medicine_indications (indication_id, medicine_id, complaint_id, specify_complaint_text) 
+           VALUES (?, ?, ?, ?)`,
+          [indication_id, id, ind.complaint_id, ind.specify_complaint_text || null]
         );
       }
     }
@@ -2272,49 +2309,6 @@ app.delete('/api/batches/:id', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
-app.post('/api/batches', async (req, res) => {
-  const { medicine_id, expiration_date, current_stock, remaining_volume } = req.body;
-
-  try {
-    const [meds] = await pool.execute(
-      'SELECT strength_unit_value, strength_unit_of_measure FROM medicines WHERE medicine_id = ?', 
-      [medicine_id]
-    );
-    if (meds.length === 0) return res.status(404).json({ error: 'Medicine reference not found.' });
-
-    const { strength_unit_value, strength_unit_of_measure } = meds[0];
-    const isDiscrete = DISCRETE_UNITS.includes(strength_unit_of_measure);
-
-    let finalVolume;
-    if (isDiscrete) {
-      finalVolume = 1; // Default value in database for discrete items
-    } else {
-      const maxVal = parseFloat(strength_unit_value);
-      finalVolume = remaining_volume !== undefined && remaining_volume !== '' ? parseFloat(remaining_volume) : maxVal;
-
-      if (isNaN(finalVolume) || finalVolume <= 0 || finalVolume > maxVal) {
-        return res.status(400).json({ 
-          error: `Please provide a valid volume in ${strength_unit_of_measure} (must be between > 0 and ${maxVal} ${strength_unit_of_measure}).` 
-        });
-      }
-    }
-
-    const batch_id = uuidv4().substring(0, 45);
-    await pool.execute(
-      `INSERT INTO medicine_inventory_batches 
-       (batch_id, medicine_id, expiration_date, current_stock, remaining_volume, created_at) 
-       VALUES (?, ?, ?, ?, ?, NOW())`,
-      [batch_id, medicine_id, expiration_date, current_stock, finalVolume]
-    );
-
-    res.status(201).json({ message: 'Batch added successfully.' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-
 
 // Direct Medicine Dispensed api
 // Helper for continuous unit conversions (g/mg/mcg and L/mL)
@@ -2685,6 +2679,7 @@ app.post('/api/dispensation', async (req, res) => {
 //Visit Log Consultation API
 // Visit Log Consultation API
 // GET: Search students
+// GET: Search students
 app.get('/api/students/search', async (req, res) => {
     const { query } = req.query;
     if (!query) return res.json([]);
@@ -2779,6 +2774,8 @@ app.post('/api/clinic-visits', async (req, res) => {
             student_id,
             nurse_id,
             complaint_id,
+            specify_complaint_text,
+            specify_complaints_text, // fallback mapping
             visit_date,
             time_in,
             time_out,
@@ -2787,11 +2784,13 @@ app.post('/api/clinic-visits', async (req, res) => {
             pulse_rate,
             blood_pressure,
             nursing_intervention,
-            health_advice,
+            recommendations,
             batch_id,
             dosage_consumption_unit_value,
             dosage_consumption_unit_of_measure
         } = req.body;
+
+        const specifyText = specify_complaint_text || specify_complaints_text || null;
 
         // Prevent duplicate concurrent active clinic visits
         const [activeVisits] = await connection.execute(
@@ -2813,15 +2812,15 @@ app.post('/api/clinic-visits', async (req, res) => {
 
         const visitSql = `
             INSERT INTO clinic_visits (
-                visit_id, student_id, nurse_id, complaint_id, visit_date, 
+                visit_id, student_id, nurse_id, complaint_id, specify_complaint_text, visit_date, 
                 time_in, time_out, temperature, respiratory_rate, pulse_rate, 
-                blood_pressure, nursing_intervention, health_advice
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                blood_pressure, nursing_intervention, recommendations
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
         await connection.execute(visitSql, [
-            visit_id, student_id, nurse_id || null, complaint_id || null, visit_date,
+            visit_id, student_id, nurse_id || null, complaint_id || null, specifyText, visit_date,
             time_in || null, time_out || null, temperature || null, respiratory_rate || null,
-            pulse_rate || null, blood_pressure || null, nursing_intervention || null, health_advice || null
+            pulse_rate || null, blood_pressure || null, nursing_intervention || null, recommendations || null
         ]);
 
         // --- Handle Medicine Dispensation ---
@@ -2922,7 +2921,7 @@ app.post('/api/clinic-visits', async (req, res) => {
                     cv.time_in,
                     cv.time_out,
                     cv.nursing_intervention,
-                    cv.health_advice,
+                    cv.recommendations,
                     cd.dosage_consumption_unit_value,
                     cd.dosage_consumption_unit_of_measure,
                     CONCAT(m.brand_name, ' (', m.generic_name, ')') AS medicine_name
@@ -2946,7 +2945,7 @@ app.post('/api/clinic-visits', async (req, res) => {
                 const complaintName = info.complaint_name || 'General Checkup';
                 const timeInStr = info.time_in ? `Time In: ${info.time_in}` : '';
                 const timeOutStr = info.time_out ? `Time Out: ${info.time_out}` : '';
-                const adviceStr = info.health_advice ? `Advice: ${info.health_advice}` : '';
+                const adviceStr = info.recommendations ? `Advice: ${info.recommendations}` : '';
 
                 const notifTitle = `Clinic Visit Logged: ${studentFullName}`;
                 const notifMessage = [
@@ -3065,16 +3064,20 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
         time_in,
         time_out,
         complaint_id,
+        specify_complaint_text,
+        specify_complaints_text, // fallback mapping
         temperature,
         respiratory_rate,
         pulse_rate,
         blood_pressure,
         nursing_intervention,
-        health_advice,
+        recommendations,
         batch_id,
         dosage_consumption_unit_value,
         dosage_consumption_unit_of_measure
     } = req.body;
+
+    const specifyText = specify_complaint_text || specify_complaints_text || null;
 
     const connection = await pool.getConnection();
 
@@ -3087,12 +3090,13 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
                 time_in = COALESCE(?, time_in),
                 time_out = ?,
                 complaint_id = ?,
+                specify_complaint_text = ?,
                 temperature = ?,
                 respiratory_rate = ?,
                 pulse_rate = ?,
                 blood_pressure = ?,
                 nursing_intervention = ?,
-                health_advice = ?
+                recommendations = ?
             WHERE visit_id = ?
         `;
 
@@ -3100,12 +3104,13 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
             time_in,
             time_out || null,
             complaint_id || null,
+            specifyText,
             temperature || null,
             respiratory_rate || null,
             pulse_rate || null,
             blood_pressure || null,
             nursing_intervention || null,
-            health_advice || null,
+            recommendations || null,
             id
         ]);
 
@@ -3131,6 +3136,7 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
                 [id]
             );
 
+            // Only process inventory deduction if medicine has not already been dispensed for this visit
             if (existingDisp.length === 0) {
                 const [batchRows] = await connection.execute(
                     `SELECT mib.current_stock, mib.remaining_volume, mib.expiration_date, m.strength_unit_value 
@@ -3198,19 +3204,22 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
             }
         }
 
+        // --- System, Push & SMS Notification Logic for Documented Visit ---
+        let smsNotificationSent = false;
         try {
-            const notifSql = `
+            const detailsSql = `
                 SELECT 
                     s.user_id AS student_user_id,
                     s.first_name AS student_first_name,
                     s.last_name AS student_last_name,
                     p.user_id AS parent_user_id,
+                    p.primary_phone,
                     n.user_id AS nurse_user_id,
                     cc.complaint_name,
                     cv.time_in,
                     cv.time_out,
                     cv.nursing_intervention,
-                    cv.health_advice
+                    cv.recommendations
                 FROM clinic_visits cv
                 JOIN students s ON cv.student_id = s.student_id
                 LEFT JOIN nurses n ON cv.nurse_id = n.nurse_id
@@ -3220,41 +3229,57 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
                 WHERE cv.visit_id = ?
             `;
 
-            const [notifRows] = await connection.execute(notifSql, [id]);
+            const [detailsRows] = await connection.execute(detailsSql, [id]);
 
-            if (notifRows.length > 0) {
-                const info = notifRows[0];
+            if (detailsRows.length > 0) {
+                const info = detailsRows[0];
                 const studentFullName = `${info.student_first_name} ${info.student_last_name}`;
                 const complaintName = info.complaint_name || 'General Checkup';
+                const timeInStr = info.time_in ? `Time In: ${info.time_in}` : '';
+                const adviceStr = info.recommendations ? `Recommendations: ${info.recommendations}` : '';
 
-                const notifTitle = `Documentation Updated: ${studentFullName}`;
+                const notifTitle = `Clinic Visit Documented: ${studentFullName}`;
                 const notifMessage = [
-                    `${studentFullName} - ${complaintName}.`,
-                    info.nursing_intervention ? `Intervention: ${info.nursing_intervention}.` : '',
-                    info.health_advice ? `Advice: ${info.health_advice}.` : '',
-                    info.time_out ? `Time Out: ${info.time_out}.` : ''
+                    `${studentFullName} visit documented for ${complaintName}.`,
+                    timeInStr,
+                    adviceStr
                 ].filter(Boolean).join(' ');
+
+                const recipient_ids = [info.parent_user_id, info.student_user_id].filter(Boolean);
 
                 await notifyUsers({
                     sender_id: info.nurse_user_id || null,
-                    recipient_ids: [info.parent_user_id, info.student_user_id].filter(Boolean),
+                    recipient_ids: recipient_ids,
                     title: notifTitle,
                     message: notifMessage,
-                    type: 'clinic_documentation',
+                    type: 'clinic_visit_update',
                     payloadData: { visit_id: id }
                 });
+
+                if (info.primary_phone) {
+                    const smsMessage = 
+                        `${studentFullName} clinic visit documented for ${complaintName}. ` +
+                        `${timeInStr} ${adviceStr}`.trim();
+
+                    await sendIprogSms(info.primary_phone, smsMessage);
+                    smsNotificationSent = true;
+                }
             }
         } catch (notifError) {
-            console.error('[Notification Error] Documentation update push failed:', notifError.message);
+            console.error('[Notification Error] Failed to send System/Push/SMS notifications:', notifError.message);
         }
 
         await connection.commit();
-        res.json({ success: true, message: 'Documentation saved successfully!' });
+        res.status(200).json({ 
+            success: true, 
+            message: "Visit documentation updated successfully!",
+            smsSent: smsNotificationSent
+        });
 
     } catch (error) {
         await connection.rollback();
-        console.error('Error updating visit documentation:', error);
-        res.status(400).json({ success: false, error: error.message || 'Database update failed' });
+        console.error(error);
+        res.status(400).json({ success: false, error: error.message || "Failed to update visit documentation" });
     } finally {
         connection.release();
     }
@@ -3860,7 +3885,7 @@ app.get('/api/frequent-complaints', async (req, res) => {
     // Default to current year-month (e.g., "2026-07") if not provided
     const targetMonth = req.query.month || new Date().toISOString().slice(0, 7);
 
-    // SQL Query without DB health_advice
+    // SQL Query without DB recommendations
     const query = `
       SELECT 
         cv.student_id AS studentId,
@@ -3938,7 +3963,7 @@ app.get('/api/frequent-complaints/details', async (req, res) => {
         cv.pulse_rate AS pulseRate,
         cv.blood_pressure AS bloodPressure,
         cv.nursing_intervention AS nursingIntervention,
-        cv.health_advice AS healthAdvice
+        cv.recommendations AS healthAdvice
       FROM clinic_visits cv
       INNER JOIN students s ON cv.student_id = s.student_id
       INNER JOIN chief_complaints cc ON cv.complaint_id = cc.complaint_id
@@ -8120,7 +8145,7 @@ app.get('/api/student/dashboard/visits-dispensation/:studentId', async (req, res
         v.pulse_rate,
         v.blood_pressure,
         v.nursing_intervention,
-        v.health_advice,
+        v.recommendations,
         cd.consultation_dispense_id,
         cd.batch_id AS consultation_medicine_batch_id,
         cd.dosage_consumption_unit_value AS consultation_dosage_value,
@@ -8167,7 +8192,7 @@ app.get('/api/student/dashboard/visits-dispensation/:studentId', async (req, res
             blood_pressure: row.blood_pressure,
           },
           nursing_intervention: row.nursing_intervention,
-          health_advice: row.health_advice,
+          recommendations: row.recommendations,
           dispensed_medicines: [],
         };
       }
@@ -8392,7 +8417,7 @@ app.get('/api/student/:studentId/clinic-visits', async (req, res) => {
         // Queries the clinic_visits table as defined in sdb 1 .png[cite: 10]
         const query = `
             SELECT visit_date, time_in, time_out, temperature, respiratory_rate, 
-                   pulse_rate, blood_pressure, nursing_intervention, health_advice 
+                   pulse_rate, blood_pressure, nursing_intervention, recommmedations 
             FROM clinic_visits 
             WHERE student_id = ? 
             ORDER BY visit_date DESC, time_in DESC 

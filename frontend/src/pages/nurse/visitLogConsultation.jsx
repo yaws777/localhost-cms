@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import { useLocation, useOutletContext } from 'react-router-dom';
 import { 
     Search, QrCode, User, Activity, ShieldAlert, Clock, 
     XCircle, CheckCircle, FileText, LogOut, RefreshCw, Camera, 
@@ -10,6 +10,13 @@ import '../../styles/nurse/VisitLogConsultation.css';
 
 const MEASURED_UNITS = ['mg', 'g', 'mcg', 'mL', 'L'];
 const VOLUME_UNITS = ['mg', 'g', 'mcg', 'mL', 'L', 'pcs.'];
+
+const CONDITIONAL_COMPLAINT_NAMES = [
+    'injury', 
+    'others', 
+    'gastrointestinal issues', 
+    'body pain'
+];
 
 const formatExpirationDate = (dateString) => {
     if (!dateString) return '';
@@ -51,9 +58,12 @@ const formatTimeDisplay = (timeStr) => {
 };
 
 const VisitLogConsultation = () => {
+    const location = useLocation();
     const { nurseId } = useOutletContext();
 
-    const [searchMode, setSearchMode] = useState(null);
+    const [searchMode, setSearchMode] = useState(() => (
+        location.state?.openQrScanner ? 'qr' : null
+    ));
     const [searchQuery, setSearchQuery] = useState('');
     const [qrCodeInput, setQrCodeInput] = useState('');
     const [students, setStudents] = useState([]);
@@ -66,12 +76,13 @@ const VisitLogConsultation = () => {
     const videoRef = useRef(null);
     const streamRef = useRef(null);
 
-    // Lock flag to prevent double-processing scans across frame cycles
     const isProcessingScan = useRef(false);
 
     const [complaints, setComplaints] = useState([]);
     const [batches, setBatches] = useState([]);
     const [todayVisits, setTodayVisits] = useState([]);
+
+    const [inlineTimeouts, setInlineTimeouts] = useState({});
 
     const [showAllLogsModal, setShowAllLogsModal] = useState(false);
     const [allVisits, setAllVisits] = useState([]);
@@ -83,6 +94,7 @@ const VisitLogConsultation = () => {
     const [documentingVisit, setDocumentingVisit] = useState(null);
     const [formData, setFormData] = useState({
         complaint_id: '',
+        specify_complaint_text: '',
         visit_date: new Date().toISOString().split('T')[0],
         time_in: '',
         time_out: '',
@@ -91,13 +103,12 @@ const VisitLogConsultation = () => {
         pulse_rate: '',
         blood_pressure: '',
         nursing_intervention: '',
-        health_advice: '',
+        recommendations: '',
         batch_id: '',
         dosage_consumption_unit_value: '',
         dosage_consumption_unit_of_measure: ''
     });
 
-    const [inlineTimeouts, setInlineTimeouts] = useState({});
     const [qrTimeoutVisit, setQrTimeoutVisit] = useState(null);
     const [qrTimeoutInput, setQrTimeoutInput] = useState('');
 
@@ -113,6 +124,13 @@ const VisitLogConsultation = () => {
     }, [searchMode]);
 
     const todayStr = new Date().toISOString().split('T')[0];
+
+    const handleInlineTimeoutChange = (visitId, value) => {
+        setInlineTimeouts(prev => ({
+            ...prev,
+            [visitId]: value
+        }));
+    };
 
     const stopCameraScan = useCallback(() => {
         if (streamRef.current) {
@@ -141,6 +159,12 @@ const VisitLogConsultation = () => {
             setCameraPermissionError("Unable to access camera: " + (err.message || ''));
         }
     }, []);
+
+    useEffect(() => {
+        if (location.state?.openQrScanner) {
+            requestCameraAndStartScan();
+        }
+    }, [location.state, requestCameraAndStartScan]);
 
     const fetchComplaints = useCallback(async () => {
         try {
@@ -217,7 +241,6 @@ const VisitLogConsultation = () => {
         requestCameraAndStartScan();
     }, [requestCameraAndStartScan]);
 
-    // Active visit interceptor to prevent duplicate clinic check-ins
     const handleSelectStudent = useCallback((student) => {
         stopCameraScan();
 
@@ -306,8 +329,9 @@ const VisitLogConsultation = () => {
 
     const handleManualTimeout = useCallback(async (visitId, timeOutVal = null) => {
         const selectedTime = timeOutVal || inlineTimeouts[visitId];
+        
         if (!selectedTime || !selectedTime.trim()) {
-            alert('Please select or enter a time in the Time Out field before clicking Manual Time Out.');
+            alert('Please select or enter a Time Out time first before clicking Manual Time Out.');
             return;
         }
 
@@ -320,6 +344,11 @@ const VisitLogConsultation = () => {
             const data = await res.json();
             if (data.success) {
                 alert('Student successfully timed out.');
+                setInlineTimeouts(prev => {
+                    const copy = { ...prev };
+                    delete copy[visitId];
+                    return copy;
+                });
                 fetchTodayVisits();
                 if (showAllLogsModal) fetchAllVisits();
             } else {
@@ -331,7 +360,6 @@ const VisitLogConsultation = () => {
         }
     }, [inlineTimeouts, fetchTodayVisits, fetchAllVisits, showAllLogsModal]);
 
-    // QR camera stream loop protected with processing state flags
     useEffect(() => {
         let animationFrameId;
         const canvas = document.createElement('canvas');
@@ -451,6 +479,7 @@ const VisitLogConsultation = () => {
         setDocumentingVisit(visit);
         setFormData({
             complaint_id: visit.complaint_id || '',
+            specify_complaint_text: visit.specify_complaint_text || visit.specify_complaints_text || '',
             visit_date: visitDateVal,
             time_in: visit.time_in || currentTime,
             time_out: visit.time_out || '',
@@ -459,7 +488,7 @@ const VisitLogConsultation = () => {
             pulse_rate: visit.pulse_rate || '',
             blood_pressure: visit.blood_pressure || '',
             nursing_intervention: visit.nursing_intervention || '',
-            health_advice: visit.health_advice || '',
+            recommendations: visit.recommendations || visit.health_advice || '',
             batch_id: visit.batch_id || '',
             dosage_consumption_unit_value: visit.dosage_consumption_unit_value || '',
             dosage_consumption_unit_of_measure: visit.dosage_consumption_unit_of_measure || ''
@@ -522,20 +551,26 @@ const VisitLogConsultation = () => {
     const calculatedTotalAvailableVolume = activeBatchInfo && isVolumeUnit ? getTotalAvailableStock(activeBatchInfo) : 0;
     const isAlreadyDispensed = Boolean(documentingVisit?.batch_id || documentingVisit?.medicine_name);
 
+    const selectedComplaintObj = complaints.find(c => String(c.complaint_id) === String(formData.complaint_id));
+    const isSpecifyComplaintRequired = selectedComplaintObj && CONDITIONAL_COMPLAINT_NAMES.includes(
+        selectedComplaintObj.complaint_name.trim().toLowerCase()
+    );
+
     const handleDocumentSubmit = async (e) => {
         e.preventDefault();
         if (!documentingVisit) return;
 
         if (
             !formData.complaint_id || 
+            (isSpecifyComplaintRequired && !formData.specify_complaint_text.trim()) ||
             !formData.blood_pressure.trim() || 
             !formData.temperature || 
             !formData.pulse_rate || 
             !formData.respiratory_rate || 
             !formData.nursing_intervention.trim() || 
-            !formData.health_advice.trim()
+            !formData.recommendations.trim()
         ) {
-            alert('All visit documentation fields are required.');
+            alert('All required visit documentation fields must be filled out.');
             return;
         }
 
@@ -641,6 +676,14 @@ const VisitLogConsultation = () => {
     const currentTimeFormatted = formatTimeDisplay(currentTimeRaw);
 
     const isVisitDocumented = (visit) => Boolean(visit?.complaint_id || visit?.complaint_name || visit?.nursing_intervention);
+
+    const renderComplaintBadgeText = (visit) => {
+        if (!visit.complaint_name) return 'General Checkup';
+        const specifyText = visit.specify_complaint_text || visit.specify_complaints_text;
+        return specifyText 
+            ? `${visit.complaint_name} (${specifyText})` 
+            : visit.complaint_name;
+    };
 
     return (
         <div className="consultation-wrapper">
@@ -813,218 +856,6 @@ const VisitLogConsultation = () => {
                 </div>
             )}
 
-            {documentingVisit && (
-                <div className="modal-viewport-backdrop">
-                    <div className="modal-body-container">
-                        <div className="modal-header-accent">
-                            <h3>Document Visit - {documentingVisit.first_name} {documentingVisit.last_name}</h3>
-                            <button className="modal-dismiss-btn" onClick={() => setDocumentingVisit(null)}><XCircle size={22} /></button>
-                        </div>
-                        <form onSubmit={handleDocumentSubmit} className="modal-form-scrollable">
-                            {!isVisitDocumented(documentingVisit) && (
-                                <div className="undocumented-banner">
-                                    <AlertTriangle size={18} />
-                                    <span>This visit is <strong>not yet documented</strong>. Please complete the vital signs and intervention fields below.</span>
-                                </div>
-                            )}
-
-                            <div className="form-content-section">
-                                <h4 className="section-subtitle-indicator"><User size={16} /> Student & Time Info</h4>
-                                <div className="form-fields-grid-layout">
-                                    <div className="form-input-element">
-                                        <label>Full Name</label>
-                                        <input type="text" readOnly value={`${documentingVisit.first_name} ${documentingVisit.last_name}`} />
-                                    </div>
-                                    <div className="form-input-element">
-                                        <label>Student ID</label>
-                                        <input type="text" readOnly value={documentingVisit.student_id} />
-                                    </div>
-                                    <div className="form-input-element">
-                                        <label>Time In <span className="required-star">*</span></label>
-                                        <input type="time" required value={formData.time_in} onChange={e => setFormData({...formData, time_in: e.target.value})} />
-                                    </div>
-                                    <div className="form-input-element">
-                                        <label>Time Out <span className="label-optional">(Optional)</span></label>
-                                        <input type="time" value={formData.time_out} onChange={e => setFormData({...formData, time_out: e.target.value})} />
-                                    </div>
-                                    <div className="form-input-element full-width-field">
-                                        <label>Chief Complaint <span className="required-star">*</span></label>
-                                        <select required value={formData.complaint_id} onChange={e => setFormData({...formData, complaint_id: e.target.value})}>
-                                            <option value="">-- Choose matching complaint --</option>
-                                            {complaints.map(c => (
-                                                <option key={c.complaint_id} value={c.complaint_id}>{c.complaint_name}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="form-content-section">
-                                <h4 className="section-subtitle-indicator"><Activity size={16} /> Vital Signs <span className="required-star">*</span></h4>
-                                <div className="form-fields-grid-layout four-col-layout">
-                                    <div className="form-input-element">
-                                        <label>BP (mmHg) <span className="required-star">*</span></label>
-                                        <input 
-                                            type="text" 
-                                            required 
-                                            placeholder="120/80" 
-                                            pattern="^\d{2,3}\/\d{2,3}$" 
-                                            value={formData.blood_pressure} 
-                                            onChange={e => setFormData({...formData, blood_pressure: e.target.value})} 
-                                        />
-                                    </div>
-                                    <div className="form-input-element">
-                                        <label>Temp (°C) <span className="required-star">*</span></label>
-                                        <input 
-                                            type="number" 
-                                            required 
-                                            step="0.1" 
-                                            min="30" 
-                                            max="45" 
-                                            placeholder="36.5" 
-                                            value={formData.temperature} 
-                                            onChange={e => setFormData({...formData, temperature: e.target.value})} 
-                                        />
-                                    </div>
-                                    <div className="form-input-element">
-                                        <label>Pulse (bpm) <span className="required-star">*</span></label>
-                                        <input 
-                                            type="number" 
-                                            required 
-                                            min="30" 
-                                            max="250" 
-                                            placeholder="72" 
-                                            value={formData.pulse_rate} 
-                                            onChange={e => setFormData({...formData, pulse_rate: e.target.value})} 
-                                        />
-                                    </div>
-                                    <div className="form-input-element">
-                                        <label>Resp Rate <span className="required-star">*</span></label>
-                                        <input 
-                                            type="number" 
-                                            required 
-                                            min="8" 
-                                            max="60" 
-                                            placeholder="18" 
-                                            value={formData.respiratory_rate} 
-                                            onChange={e => setFormData({...formData, respiratory_rate: e.target.value})} 
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="form-content-section">
-                                <h4 className="section-subtitle-indicator"><ShieldAlert size={16} /> Intervention & Dispensation</h4>
-                                <div className="form-fields-grid-layout">
-                                    <div className="form-input-element full-width-field">
-                                        <label>Nursing Intervention <span className="required-star">*</span></label>
-                                        <textarea 
-                                            required 
-                                            rows={2} 
-                                            placeholder="Interventions applied..." 
-                                            value={formData.nursing_intervention} 
-                                            onChange={e => setFormData({...formData, nursing_intervention: e.target.value})} 
-                                        />
-                                    </div>
-                                    <div className="form-input-element full-width-field">
-                                        <label>Health Advice <span className="required-star">*</span></label>
-                                        <textarea 
-                                            required 
-                                            rows={2} 
-                                            placeholder="Counseling provided..." 
-                                            value={formData.health_advice} 
-                                            onChange={e => setFormData({...formData, health_advice: e.target.value})} 
-                                        />
-                                    </div>
-
-                                    <div className="form-input-element full-width-field">
-                                        <label>
-                                            Dispense Medicine 
-                                            {isAlreadyDispensed && <span className="dispensed-flag">(Dispensed / Read-Only)</span>}
-                                        </label>
-                                        {isAlreadyDispensed ? (
-                                            <input 
-                                                type="text" 
-                                                readOnly 
-                                                disabled
-                                                className="read-only-input"
-                                                value={
-                                                    documentingVisit.medicine_name || 
-                                                    batches.find(b => b.batch_id === formData.batch_id)?.medicine_name || 
-                                                    formData.batch_id || 
-                                                    'No medication dispensed'
-                                                } 
-                                            />
-                                        ) : (
-                                            <select value={formData.batch_id} onChange={e => handleBatchChange(e.target.value)}>
-                                                <option value="">-- No medication needed --</option>
-                                                {batches.map(b => {
-                                                    const isExpired = new Date(b.expiration_date) < new Date();
-                                                    const formattedExp = formatExpirationDate(b.expiration_date);
-                                                    const unit = b.avg_dosage_consumption_unit_of_measure || b.strength_unit_of_measure || 'pcs.';
-                                                    const totalAvailable = getTotalAvailableStock(b);
-                                                    const isVol = VOLUME_UNITS.includes(unit);
-                                                    
-                                                    const stockText = isVol 
-                                                        ? `${totalAvailable} ${unit} available (${b.remaining_volume} ${unit} open container, ${b.current_stock} container/s)` 
-                                                        : `${b.current_stock} container/s`;
-
-                                                    return (
-                                                        <option key={b.batch_id} value={b.batch_id} disabled={isExpired || totalAvailable <= 0}>
-                                                            {b.medicine_name} — Exp: {formattedExp} {isExpired ? '(EXPIRED)' : `(${stockText})`}
-                                                        </option>
-                                                    );
-                                                })}
-                                            </select>
-                                        )}
-                                    </div>
-
-                                    {activeBatchInfo && !isAlreadyDispensed && (
-                                        <div className="stock-info-banner">
-                                            <strong>Open Container Stock:</strong> {activeBatchInfo.remaining_volume} {activeBatchUnit} remaining in current open box/bottle (Total Available: {calculatedTotalAvailableVolume} {activeBatchUnit}).
-                                        </div>
-                                    )}
-
-                                    {(formData.batch_id || isAlreadyDispensed) && (
-                                        <>
-                                            <div className="form-input-element">
-                                                <label>Dosage / Quantity {!isAlreadyDispensed && <span className="required-star">*</span>}</label>
-                                                <input 
-                                                    type="number" 
-                                                    step={isMeasuredUnit ? "any" : "1"} 
-                                                    min={isMeasuredUnit ? "0.01" : "1"} 
-                                                    required={!isAlreadyDispensed} 
-                                                    readOnly={isAlreadyDispensed}
-                                                    disabled={isAlreadyDispensed}
-                                                    className={isAlreadyDispensed ? "read-only-input" : ""}
-                                                    value={formData.dosage_consumption_unit_value} 
-                                                    onChange={e => setFormData({...formData, dosage_consumption_unit_value: e.target.value})} 
-                                                />
-                                            </div>
-                                            <div className="form-input-element">
-                                                <label>Unit of Measure</label>
-                                                <input 
-                                                    type="text" 
-                                                    readOnly 
-                                                    disabled={isAlreadyDispensed}
-                                                    className={isAlreadyDispensed ? "read-only-input" : ""}
-                                                    value={formData.dosage_consumption_unit_of_measure} 
-                                                />
-                                            </div>
-                                        </>
-                                    )}
-                                </div>
-                            </div>
-
-                            <div className="modal-action-footer">
-                                <button type="button" className="btn-cancel-action" onClick={() => setDocumentingVisit(null)}>Cancel</button>
-                                <button type="submit" className="btn-confirm-action">Save Documentation</button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            )}
-
             {qrTimeoutVisit && (
                 <div className="modal-viewport-backdrop">
                     <div className="modal-body-container confirm-modal-small">
@@ -1190,7 +1021,7 @@ const VisitLogConsultation = () => {
                                                         </td>
                                                         <td>
                                                             {documented ? (
-                                                                <span className="complaint-badge">{visit.complaint_name}</span>
+                                                                <span className="complaint-badge">{renderComplaintBadgeText(visit)}</span>
                                                             ) : (
                                                                 <span className="status-pill status-undocumented" title="Visit needs documentation">
                                                                     <AlertTriangle size={12} /> Not Documented
@@ -1234,15 +1065,33 @@ const VisitLogConsultation = () => {
                                                                 </button>
 
                                                                 {!isTimedOut && (
-                                                                    <button 
-                                                                        type="button" 
-                                                                        className="icon-action-btn btn-manual-timeout"
-                                                                        title="Manual Time Out"
-                                                                        aria-label="Manual Time Out"
-                                                                        onClick={() => handleManualTimeout(visit.visit_id)}
-                                                                    >
-                                                                        <LogOut size={16} />
-                                                                    </button>
+                                                                    <>
+                                                                        <button 
+                                                                            type="button" 
+                                                                            className="icon-action-btn btn-qr-timeout"
+                                                                            title="Scan QR to Time Out"
+                                                                            aria-label="Scan QR to Time Out"
+                                                                            onClick={() => handleOpenQrTimeoutModal(visit)}
+                                                                        >
+                                                                            <QrCode size={16} />
+                                                                        </button>
+                                                                        <input 
+                                                                            type="time" 
+                                                                            className="inline-time-input" 
+                                                                            title="Select custom time-out before manual time out"
+                                                                            value={inlineTimeouts[visit.visit_id] || ''} 
+                                                                            onChange={(e) => handleInlineTimeoutChange(visit.visit_id, e.target.value)} 
+                                                                        />
+                                                                        <button 
+                                                                            type="button" 
+                                                                            className="icon-action-btn btn-manual-timeout"
+                                                                            title="Manual Time Out"
+                                                                            aria-label="Manual Time Out"
+                                                                            onClick={() => handleManualTimeout(visit.visit_id)}
+                                                                        >
+                                                                            <LogOut size={16} />
+                                                                        </button>
+                                                                    </>
                                                                 )}
                                                             </div>
                                                         </td>
@@ -1260,6 +1109,241 @@ const VisitLogConsultation = () => {
                                 Close Logs
                             </button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {documentingVisit && (
+                <div className="modal-viewport-backdrop" style={{ zIndex: 1100 }}>
+                    <div className="modal-body-container">
+                        <div className="modal-header-accent">
+                            <h3>Document Visit - {documentingVisit.first_name} {documentingVisit.last_name}</h3>
+                            <button className="modal-dismiss-btn" onClick={() => setDocumentingVisit(null)}><XCircle size={22} /></button>
+                        </div>
+                        <form onSubmit={handleDocumentSubmit} className="modal-form-scrollable">
+                            {!isVisitDocumented(documentingVisit) && (
+                                <div className="undocumented-banner">
+                                    <AlertTriangle size={18} />
+                                    <span>This visit is <strong>not yet documented</strong>. Please complete the vital signs and intervention fields below.</span>
+                                </div>
+                            )}
+
+                            <div className="form-content-section">
+                                <h4 className="section-subtitle-indicator"><User size={16} /> Student & Time Info</h4>
+                                <div className="form-fields-grid-layout">
+                                    <div className="form-input-element">
+                                        <label>Full Name</label>
+                                        <input type="text" readOnly value={`${documentingVisit.first_name} ${documentingVisit.last_name}`} />
+                                    </div>
+                                    <div className="form-input-element">
+                                        <label>Student ID</label>
+                                        <input type="text" readOnly value={documentingVisit.student_id} />
+                                    </div>
+                                    <div className="form-input-element">
+                                        <label>Time In <span className="required-star">*</span></label>
+                                        <input type="time" required value={formData.time_in} onChange={e => setFormData({...formData, time_in: e.target.value})} />
+                                    </div>
+                                    <div className="form-input-element">
+                                        <label>Time Out <span className="label-optional">(Optional)</span></label>
+                                        <input type="time" value={formData.time_out} onChange={e => setFormData({...formData, time_out: e.target.value})} />
+                                    </div>
+                                    <div className="form-input-element full-width-field">
+                                        <label>Chief Complaint <span className="required-star">*</span></label>
+                                        <select 
+                                            required 
+                                            value={formData.complaint_id} 
+                                            onChange={e => setFormData({
+                                                ...formData, 
+                                                complaint_id: e.target.value,
+                                                specify_complaint_text: ''
+                                            })}
+                                        >
+                                            <option value="">-- Choose matching complaint --</option>
+                                            {complaints.map(c => (
+                                                <option key={c.complaint_id} value={c.complaint_id}>{c.complaint_name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    {isSpecifyComplaintRequired && (
+                                        <div className="form-input-element full-width-field">
+                                            <label>
+                                                Specify Complaint Details <span className="required-star">*</span>
+                                            </label>
+                                            <input 
+                                                type="text" 
+                                                required 
+                                                placeholder="Provide specific details regarding the selected complaint..." 
+                                                value={formData.specify_complaint_text} 
+                                                onChange={e => setFormData({...formData, specify_complaint_text: e.target.value})} 
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="form-content-section">
+                                <h4 className="section-subtitle-indicator"><Activity size={16} /> Vital Signs <span className="required-star">*</span></h4>
+                                <div className="form-fields-grid-layout four-col-layout">
+                                    <div className="form-input-element">
+                                        <label>BP (mmHg) <span className="required-star">*</span></label>
+                                        <input 
+                                            type="text" 
+                                            required 
+                                            placeholder="120/80" 
+                                            pattern="^\d{2,3}\/\d{2,3}$" 
+                                            value={formData.blood_pressure} 
+                                            onChange={e => setFormData({...formData, blood_pressure: e.target.value})} 
+                                        />
+                                    </div>
+                                    <div className="form-input-element">
+                                        <label>Temp (°C) <span className="required-star">*</span></label>
+                                        <input 
+                                            type="number" 
+                                            required 
+                                            step="0.1" 
+                                            min="30" 
+                                            max="45" 
+                                            placeholder="36.5" 
+                                            value={formData.temperature} 
+                                            onChange={e => setFormData({...formData, temperature: e.target.value})} 
+                                        />
+                                    </div>
+                                    <div className="form-input-element">
+                                        <label>Pulse (bpm) <span className="required-star">*</span></label>
+                                        <input 
+                                            type="number" 
+                                            required 
+                                            min="30" 
+                                            max="250" 
+                                            placeholder="72" 
+                                            value={formData.pulse_rate} 
+                                            onChange={e => setFormData({...formData, pulse_rate: e.target.value})} 
+                                        />
+                                    </div>
+                                    <div className="form-input-element">
+                                        <label>Resp Rate <span className="required-star">*</span></label>
+                                        <input 
+                                            type="number" 
+                                            required 
+                                            min="8" 
+                                            max="60" 
+                                            placeholder="18" 
+                                            value={formData.respiratory_rate} 
+                                            onChange={e => setFormData({...formData, respiratory_rate: e.target.value})} 
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="form-content-section">
+                                <h4 className="section-subtitle-indicator"><ShieldAlert size={16} /> Intervention & Dispensation</h4>
+                                <div className="form-fields-grid-layout">
+                                    <div className="form-input-element full-width-field">
+                                        <label>Nursing Intervention <span className="required-star">*</span></label>
+                                        <textarea 
+                                            required 
+                                            rows={2} 
+                                            placeholder="Interventions applied..." 
+                                            value={formData.nursing_intervention} 
+                                            onChange={e => setFormData({...formData, nursing_intervention: e.target.value})} 
+                                        />
+                                    </div>
+                                    <div className="form-input-element full-width-field">
+                                        <label>Recommendations <span className="required-star">*</span></label>
+                                        <textarea 
+                                            required 
+                                            rows={2} 
+                                            placeholder="Recommendations and counseling provided..." 
+                                            value={formData.recommendations} 
+                                            onChange={e => setFormData({...formData, recommendations: e.target.value})} 
+                                        />
+                                    </div>
+
+                                    <div className="form-input-element full-width-field">
+                                        <label>
+                                            Dispense Medicine 
+                                            {isAlreadyDispensed && <span className="dispensed-flag">(Dispensed / Read-Only)</span>}
+                                        </label>
+                                        {isAlreadyDispensed ? (
+                                            <input 
+                                                type="text" 
+                                                readOnly 
+                                                disabled
+                                                className="read-only-input"
+                                                value={
+                                                    documentingVisit.medicine_name || 
+                                                    batches.find(b => b.batch_id === formData.batch_id)?.medicine_name || 
+                                                    formData.batch_id || 
+                                                    'No medication dispensed'
+                                                } 
+                                            />
+                                        ) : (
+                                            <select value={formData.batch_id} onChange={e => handleBatchChange(e.target.value)}>
+                                                <option value="">-- No medication needed --</option>
+                                                {batches.map(b => {
+                                                    const isExpired = new Date(b.expiration_date) < new Date();
+                                                    const formattedExp = formatExpirationDate(b.expiration_date);
+                                                    const unit = b.avg_dosage_consumption_unit_of_measure || b.strength_unit_of_measure || 'pcs.';
+                                                    const totalAvailable = getTotalAvailableStock(b);
+                                                    const isVol = VOLUME_UNITS.includes(unit);
+                                                    
+                                                    const stockText = isVol 
+                                                        ? `${totalAvailable} ${unit} available (${b.remaining_volume} ${unit} open container, ${b.current_stock} container/s)` 
+                                                        : `${b.current_stock} container/s`;
+
+                                                    return (
+                                                        <option key={b.batch_id} value={b.batch_id} disabled={isExpired || totalAvailable <= 0}>
+                                                            {b.medicine_name} — Exp: {formattedExp} {isExpired ? '(EXPIRED)' : `(${stockText})`}
+                                                        </option>
+                                                    );
+                                                })}
+                                            </select>
+                                        )}
+                                    </div>
+
+                                    {activeBatchInfo && !isAlreadyDispensed && (
+                                        <div className="stock-info-banner">
+                                            <strong>Open Container Stock:</strong> {activeBatchInfo.remaining_volume} {activeBatchUnit} remaining in current open box/bottle (Total Available: {calculatedTotalAvailableVolume} {activeBatchUnit}).
+                                        </div>
+                                    )}
+
+                                    {(formData.batch_id || isAlreadyDispensed) && (
+                                        <>
+                                            <div className="form-input-element">
+                                                <label>Dosage / Quantity {!isAlreadyDispensed && <span className="required-star">*</span>}</label>
+                                                <input 
+                                                    type="number" 
+                                                    step={isMeasuredUnit ? "any" : "1"} 
+                                                    min={isMeasuredUnit ? "0.01" : "1"} 
+                                                    required={!isAlreadyDispensed} 
+                                                    readOnly={isAlreadyDispensed}
+                                                    disabled={isAlreadyDispensed}
+                                                    className={isAlreadyDispensed ? "read-only-input" : ""}
+                                                    value={formData.dosage_consumption_unit_value} 
+                                                    onChange={e => setFormData({...formData, dosage_consumption_unit_value: e.target.value})} 
+                                                />
+                                            </div>
+                                            <div className="form-input-element">
+                                                <label>Unit of Measure</label>
+                                                <input 
+                                                    type="text" 
+                                                    readOnly 
+                                                    disabled={isAlreadyDispensed}
+                                                    className={isAlreadyDispensed ? "read-only-input" : ""}
+                                                    value={formData.dosage_consumption_unit_of_measure} 
+                                                />
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="modal-action-footer">
+                                <button type="button" className="btn-cancel-action" onClick={() => setDocumentingVisit(null)}>Cancel</button>
+                                <button type="submit" className="btn-confirm-action">Save Documentation</button>
+                            </div>
+                        </form>
                     </div>
                 </div>
             )}
@@ -1310,7 +1394,7 @@ const VisitLogConsultation = () => {
                                             </td>
                                             <td>
                                                 {documented ? (
-                                                    <span className="complaint-badge">{visit.complaint_name}</span>
+                                                    <span className="complaint-badge">{renderComplaintBadgeText(visit)}</span>
                                                 ) : (
                                                     <span className="status-pill status-undocumented" title="Visit needs documentation">
                                                         <AlertTriangle size={12} /> Not Documented
@@ -1327,20 +1411,15 @@ const VisitLogConsultation = () => {
                                                     <span className="no-med-text">None</span>
                                                 )}
                                             </td>
-                                            <td>{formatTimeDisplay(visit.time_in)}</td>
                                             <td>
-                                                {isTimedOut ? (
-                                                    <span className="timestamp-locked-badge">{formatTimeDisplay(visit.time_out)}</span>
-                                                ) : (
-                                                    <div className="inline-timeout-group">
-                                                        <input 
-                                                            type="time"
-                                                            className="table-inline-time-input"
-                                                            value={inlineTimeouts[visit.visit_id] || ''}
-                                                            onChange={(e) => setInlineTimeouts({ ...inlineTimeouts, [visit.visit_id]: e.target.value })}
-                                                        />
-                                                    </div>
-                                                )}
+                                                <div className="table-time-range">
+                                                    <span>{formatTimeDisplay(visit.time_in)}</span>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <div className="table-time-range">
+                                                    <span>{formatTimeDisplay(visit.time_out)}</span>
+                                                </div>
                                             </td>
                                             <td>
                                                 {isTimedOut ? (
@@ -1354,35 +1433,43 @@ const VisitLogConsultation = () => {
                                                     <button 
                                                         type="button" 
                                                         className={`icon-action-btn btn-document ${!documented ? 'needs-doc' : ''}`}
-                                                        title={documented ? "Document Visit" : "Needs Documentation"}
-                                                        aria-label="Document Visit"
+                                                        title={documented ? "View / Edit Documentation" : "Needs Documentation"}
+                                                        aria-label="View or Edit Documentation"
                                                         onClick={() => handleOpenDocumentModal(visit)}
                                                     >
                                                         <FileText size={16} />
                                                         {!documented && <span className="doc-warning-dot" title="Not documented yet" />}
                                                     </button>
 
-                                                    <button 
-                                                        type="button" 
-                                                        className="icon-action-btn btn-manual-timeout"
-                                                        title="Manual Time Out"
-                                                        aria-label="Manual Time Out"
-                                                        disabled={isTimedOut}
-                                                        onClick={() => handleManualTimeout(visit.visit_id)}
-                                                    >
-                                                        <LogOut size={16} />
-                                                    </button>
-
-                                                    <button 
-                                                        type="button" 
-                                                        className="icon-action-btn btn-qr-timeout"
-                                                        title="Scan Time Out with QR"
-                                                        aria-label="Scan Time Out with QR"
-                                                        disabled={isTimedOut}
-                                                        onClick={() => handleOpenQrTimeoutModal(visit)}
-                                                    >
-                                                        <QrCode size={16} />
-                                                    </button>
+                                                    {!isTimedOut && (
+                                                        <>
+                                                            <button 
+                                                                type="button" 
+                                                                className="icon-action-btn btn-qr-timeout"
+                                                                title="Scan QR to Time Out"
+                                                                aria-label="Scan QR to Time Out"
+                                                                onClick={() => handleOpenQrTimeoutModal(visit)}
+                                                            >
+                                                                <QrCode size={16} />
+                                                            </button>
+                                                            <input 
+                                                                type="time" 
+                                                                className="inline-time-input" 
+                                                                title="Select custom time-out before manual time out"
+                                                                value={inlineTimeouts[visit.visit_id] || ''} 
+                                                                onChange={(e) => handleInlineTimeoutChange(visit.visit_id, e.target.value)} 
+                                                            />
+                                                            <button 
+                                                                type="button" 
+                                                                className="icon-action-btn btn-manual-timeout"
+                                                                title="Manual Time Out"
+                                                                aria-label="Manual Time Out"
+                                                                onClick={() => handleManualTimeout(visit.visit_id)}
+                                                            >
+                                                                <LogOut size={16} />
+                                                            </button>
+                                                        </>
+                                                    )}
                                                 </div>
                                             </td>
                                         </tr>

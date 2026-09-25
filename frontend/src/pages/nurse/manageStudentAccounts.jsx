@@ -669,7 +669,7 @@ export default function ManageStudentAccounts() {
                 <Layers size={22} />
                 <h3>Batch Pre-Fill Account Creation ({batchStudents.length} Records)</h3>
               </div>
-              <button type="button" className="sti-close-btn" onClick={() => setIsBatchModalOpen(false)}>
+              <button type="button" className="sti-close-btn" aria-label="Close batch import modal" onClick={() => setIsBatchModalOpen(false)}>
                 <X size={20} />
               </button>
             </div>
@@ -810,6 +810,7 @@ export default function ManageStudentAccounts() {
                             type="button"
                             className="sti-btn-icon sti-text-danger"
                             title="Remove row from batch"
+                            aria-label={`Remove row ${idx + 1} from batch`}
                             onClick={() => handleRemoveBatchRow(idx)}
                           >
                             <Trash2 size={16} />

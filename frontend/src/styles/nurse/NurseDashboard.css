@@ -68,11 +68,17 @@
   flex-direction: column;
   justify-content: space-between;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
+  cursor: pointer;
 }
 
 .overview-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06);
+}
+
+.overview-card:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
 }
 
 .stat-card-blue { border-top: 4px solid #0250A3; }
@@ -130,6 +136,17 @@
   margin-top: 14px;
   padding-top: 10px;
   border-top: 1px solid #F3F4F6;
+}
+
+.overview-card-view-all {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-end;
+  gap: 3px;
+  margin-top: 12px;
+  color: var(--primary-color);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .stat-pill {
@@ -753,6 +770,74 @@
   margin: 32px 0;
 }
 
+.quick-actions-section {
+  margin-top: 4px;
+}
+
+.quick-actions-header {
+  margin-bottom: 12px;
+}
+
+.quick-action-card {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  text-align: left;
+  color: var(--text-dark);
+  background: linear-gradient(105deg, #EFF6FF 0%, #FFFFFF 72%);
+  border: 1px solid #BFDBFE;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.quick-action-card:hover {
+  border-color: #60A5FA;
+  box-shadow: 0 6px 16px rgba(2, 80, 163, 0.1);
+  transform: translateY(-1px);
+}
+
+.quick-action-card:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+}
+
+.quick-action-icon {
+  width: 42px;
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--primary-color);
+  background-color: #DBEAFE;
+  border-radius: 8px;
+}
+
+.quick-action-content {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+}
+
+.quick-action-content strong {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.quick-action-content span {
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+.quick-action-arrow {
+  flex-shrink: 0;
+  color: var(--primary-color);
+}
+
 /* CSS Grid for Predictive Breakdown */
 .predictive-mapping-grid {
   display: grid;
@@ -918,6 +1003,10 @@
 }
 
 /* --- MODAL DIALOG COMPONENT --- */
+body.modal-open {
+  overflow: hidden;
+}
+
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -926,7 +1015,7 @@
   height: 100vh;
   background-color: rgba(17, 24, 39, 0.55);
   backdrop-filter: blur(4px);
-  z-index: 1000;
+  z-index: 1100;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -945,6 +1034,15 @@
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
   overflow: hidden;
   animation: modalFadeIn 0.2s ease-out;
+}
+
+.modal-container-narrow {
+  max-width: 850px;
+}
+
+.modal-complaint-label {
+  color: var(--primary-color);
+  font-weight: 600;
 }
 
 @keyframes modalFadeIn {
@@ -1160,6 +1258,207 @@
 
 .modal-close-secondary-btn:hover {
   background-color: #F3F4F6;
+}
+
+/* ==========================================================================
+   DETAIL VISIT CARDS (Frequent Visit Details Modal)
+   ========================================================================== */
+
+.visit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.visit-card {
+  border: 1px solid #E5E7EB;
+  border-radius: 8px;
+  padding: 16px;
+  background-color: #FAFAFA;
+}
+
+.visit-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #F3F4F6;
+}
+
+.visit-title-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.visit-number {
+  font-weight: 700;
+  font-size: 15px;
+  color: #1F2937;
+}
+
+.visit-time-meta {
+  font-size: 13px;
+  color: #6B7280;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.vitals-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+  background: #FFFFFF;
+  padding: 10px;
+  border-radius: 6px;
+  border: 1px solid #E5E7EB;
+}
+
+.vital-sign strong {
+  font-size: 11px;
+  color: #6B7280;
+  display: block;
+  text-transform: uppercase;
+}
+
+.vital-sign span {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1F2937;
+}
+
+.visit-note-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.visit-note {
+  padding: 10px 12px;
+  border-radius: 6px;
+}
+
+.visit-note strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.visit-note p {
+  margin: 0;
+  color: #374151;
+}
+
+.intervention-note {
+  background: #F0F9FF;
+  border-left: 3px solid #0250A3;
+}
+
+.intervention-note strong {
+  color: #0250A3;
+}
+
+.advice-note {
+  background: #FEFCE8;
+  border-left: 3px solid #EAB308;
+}
+
+.advice-note strong {
+  color: #854D0E;
+}
+
+/* ==========================================================================
+   ERROR STATE & RETRY
+   ========================================================================== */
+
+.error-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--alert-red);
+  min-height: 240px;
+}
+
+.error-state-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-dark);
+  margin: 6px 0 0 0;
+}
+
+.error-state-subtext {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0;
+  max-width: 420px;
+  line-height: 1.5;
+}
+
+.retry-btn {
+  margin-top: 10px;
+  background-color: var(--primary-color);
+  border: none;
+  color: #FFFFFF;
+  height: 38px;
+  padding: 0 22px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.retry-btn:hover {
+  background-color: var(--primary-hover);
+}
+
+/* ==========================================================================
+   "VIEW ALL" PANEL LINK BUTTON
+   ========================================================================== */
+
+.panel-view-all-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: transparent;
+  border: none;
+  color: var(--primary-color);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.panel-view-all-btn:hover,
+.panel-view-all-btn:focus-visible {
+  background-color: #f0f5fa;
+}
+
+/* ==========================================================================
+   KEYBOARD FOCUS VISIBILITY
+   ========================================================================== */
+
+.view-all-btn:focus-visible,
+.row-action-icon-btn:focus-visible,
+.view-more-toggle-btn:focus-visible,
+.modal-close-btn:focus-visible,
+.modal-close-secondary-btn:focus-visible,
+.clear-date-btn:focus-visible,
+.panel-view-all-btn:focus-visible,
+.retry-btn:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
 }
 
 /* ==========================================================================

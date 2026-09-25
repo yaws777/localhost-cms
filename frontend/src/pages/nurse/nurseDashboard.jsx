@@ -26,6 +26,7 @@ import {
   Activity,
   Clock,
   Pill,
+  QrCode,
   AlertCircle,
   GraduationCap,
   FileCheck,
@@ -562,6 +563,13 @@ const NurseDashboard = () => {
     transition: 'background 0.2s ease'
   };
 
+  const handleOverviewCardKeyDown = (event, path) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      navigate(path);
+    }
+  };
+
   return (
     <div className="dashboard-container">
       
@@ -580,7 +588,13 @@ const NurseDashboard = () => {
         <div className="overview-cards-grid">
           
           {/* Card 1: Requirements Overview */}
-          <div className="overview-card stat-card-blue">
+          <div
+            className="overview-card stat-card-blue"
+            role="button"
+            tabIndex={0}
+            onClick={() => navigate('/RequirementManagement')}
+            onKeyDown={(event) => handleOverviewCardKeyDown(event, '/RequirementManagement')}
+          >
             <div className="stat-card-header">
               <div>
                 <span className="stat-card-label">Requirements Overview</span>
@@ -601,10 +615,17 @@ const NurseDashboard = () => {
                 <span><strong>{nurseDashboardData.requirementsOverview.incompleteCount || 0}</strong> Incomplete Requirements</span>
               </div>
             </div>
+            <span className="overview-card-view-all">View All <ChevronRight size={14} /></span>
           </div>
 
           {/* Card 2: Document Requests Pending Approval */}
-          <div className="overview-card stat-card-orange">
+          <div
+            className="overview-card stat-card-orange"
+            role="button"
+            tabIndex={0}
+            onClick={() => navigate('/DocumentIssuance')}
+            onKeyDown={(event) => handleOverviewCardKeyDown(event, '/DocumentIssuance')}
+          >
             <div className="stat-card-header">
               <div>
                 <span className="stat-card-label">Pending Document Requests</span>
@@ -623,10 +644,17 @@ const NurseDashboard = () => {
                 <span>Referral Slips: <strong>{nurseDashboardData.pendingDocumentRequests.pending_referral_slips || 0}</strong></span>
               </div>
             </div>
+            <span className="overview-card-view-all">View All <ChevronRight size={14} /></span>
           </div>
 
           {/* Card 3: Medicine Low & Critical Batch Stock */}
-          <div className="overview-card stat-card-red">
+          <div
+            className="overview-card stat-card-red"
+            role="button"
+            tabIndex={0}
+            onClick={() => navigate('/MedicineInventory')}
+            onKeyDown={(event) => handleOverviewCardKeyDown(event, '/MedicineInventory')}
+          >
             <div className="stat-card-header">
               <div>
                 <span className="stat-card-label">Medicine Stock Alerts</span>
@@ -645,10 +673,17 @@ const NurseDashboard = () => {
                 <span>Low Stock: <strong>{nurseDashboardData.medicineStockAlerts.filter(m => m.stock_status === 'LOW').length}</strong></span>
               </div>
             </div>
+            <span className="overview-card-view-all">View All <ChevronRight size={14} /></span>
           </div>
 
           {/* Card 4: Upcoming Screenings & Doctor Visits */}
-          <div className="overview-card stat-card-green">
+          <div
+            className="overview-card stat-card-green"
+            role="button"
+            tabIndex={0}
+            onClick={() => navigate('/HealthScreening')}
+            onKeyDown={(event) => handleOverviewCardKeyDown(event, '/HealthScreening')}
+          >
             <div className="stat-card-header">
               <div>
                 <span className="stat-card-label">Upcoming Schedules</span>
@@ -669,10 +704,31 @@ const NurseDashboard = () => {
                 <span>Doctor Visits: <strong>{nurseDashboardData.upcomingDoctorVisits?.length || 0}</strong></span>
               </div>
             </div>
+            <span className="overview-card-view-all">View All <ChevronRight size={14} /></span>
           </div>
 
         </div>
       )}
+
+      <div className="quick-actions-section">
+        <div className="quick-actions-header">
+          <h2 className="dashboard-title">Quick Actions</h2>
+        </div>
+        <button
+          type="button"
+          className="quick-action-card"
+          onClick={() => navigate('/VisitLogConsultation', { state: { openQrScanner: true } })}
+        >
+          <span className="quick-action-icon">
+            <QrCode size={22} />
+          </span>
+          <span className="quick-action-content">
+            <strong>Clinic Visit with QR</strong>
+            <span>Scan a student QR code to start a clinic visit</span>
+          </span>
+          <ChevronRight size={18} className="quick-action-arrow" />
+        </button>
+      </div>
 
       <div className="dashboard-divider-line" />
 

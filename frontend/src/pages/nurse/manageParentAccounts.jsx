@@ -46,7 +46,7 @@ export default function ManageParentAccount() {
   const [studentSearchResults, setStudentSearchResults] = useState([]);
   const [isSearchingStudents, setIsSearchingStudents] = useState(false);
 
-  // Fetch Parent Accounts (wrapped with useCallback to satisfy useEffect dependencies)
+  // Fetch Parent Accounts
   const fetchParents = useCallback(async () => {
     setLoading(true);
     try {
@@ -181,62 +181,76 @@ export default function ManageParentAccount() {
 
       {/* Parent Accounts Table */}
       <div className="sti-card">
-        <table className="sti-table">
-          <thead>
-            <tr>
-              <th>Parent ID</th>
-              <th>Full Name</th>
-              <th>Username</th>
-              <th>Linked Students</th>
-              <th>Status</th>
-              <th className="text-center">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
+        <div className="sti-table-container">
+          <table className="sti-table">
+            <thead>
               <tr>
-                <td colSpan="6" className="text-center py-4">Loading accounts...</td>
+                <th>Parent ID</th>
+                <th>Full Name</th>
+                <th>Username</th>
+                <th>Linked Students</th>
+                <th>Status</th>
+                <th className="text-center">Actions</th>
               </tr>
-            ) : parents.length === 0 ? (
-              <tr>
-                <td colSpan="6" className="text-center py-4">No parent accounts found.</td>
-              </tr>
-            ) : (
-              parents.map((parent) => (
-                <tr key={parent.parent_id}>
-                  <td className="font-bold">{parent.parent_id}</td>
-                  <td>{`${parent.first_name} ${parent.last_name}`}</td>
-                  <td>{parent.username}</td>
-                  <td>
-                    <span className="badge badge-info">
-                      <Users size={14} style={{ marginRight: '4px' }} />
-                      {parent.linked_students ? parent.linked_students.length : 0} Linked
-                    </span>
-                  </td>
-                  <td>
-                    {parent.is_active ? (
-                      <span className="badge badge-success">
-                        <UserCheck size={12} style={{ marginRight: '4px' }} /> Active
-                      </span>
-                    ) : (
-                      <span className="badge badge-danger">
-                        <UserX size={12} style={{ marginRight: '4px' }} /> Inactive
-                      </span>
-                    )}
-                  </td>
-                  <td className="text-center">
-                    <button className="btn-icon btn-view" onClick={() => setViewModalData(parent)} title="View Details">
-                      <Eye size={16} />
-                    </button>
-                    <button className="btn-icon btn-edit" onClick={() => handleOpenEdit(parent)} title="Edit Account">
-                      <Edit size={16} />
-                    </button>
-                  </td>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan="6" className="text-center py-4">Loading accounts...</td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ) : parents.length === 0 ? (
+                <tr>
+                  <td colSpan="6" className="text-center py-4">No parent accounts found.</td>
+                </tr>
+              ) : (
+                parents.map((parent) => (
+                  <tr key={parent.parent_id}>
+                    <td className="font-bold">{parent.parent_id}</td>
+                    <td>{`${parent.first_name} ${parent.last_name}`}</td>
+                    <td className="username-cell">{parent.username}</td>
+                    <td>
+                      <span className="badge badge-info">
+                        <Users size={14} style={{ marginRight: '4px' }} />
+                        {parent.linked_students ? parent.linked_students.length : 0} Linked
+                      </span>
+                    </td>
+                    <td>
+                      {parent.is_active ? (
+                        <span className="badge badge-success">
+                          <UserCheck size={12} style={{ marginRight: '4px' }} /> Active
+                        </span>
+                      ) : (
+                        <span className="badge badge-danger">
+                          <UserX size={12} style={{ marginRight: '4px' }} /> Inactive
+                        </span>
+                      )}
+                    </td>
+                    <td className="text-center">
+                      <button
+                        type="button"
+                        className="btn-icon btn-view"
+                        onClick={() => setViewModalData(parent)}
+                        title="View Details"
+                        aria-label={`View details for ${parent.parent_id}`}
+                      >
+                        <Eye size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-icon btn-edit"
+                        onClick={() => handleOpenEdit(parent)}
+                        title="Edit Account"
+                        aria-label={`Edit account for ${parent.parent_id}`}
+                      >
+                        <Edit size={16} />
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* VIEW DETAILS MODAL */}
@@ -245,7 +259,12 @@ export default function ManageParentAccount() {
           <div className="modal-content">
             <div className="modal-header">
               <h2>Parent & Linked Students Details</h2>
-              <button className="btn-close" onClick={() => setViewModalData(null)}>
+              <button
+                type="button"
+                className="btn-close"
+                aria-label="Close parent details"
+                onClick={() => setViewModalData(null)}
+              >
                 <X size={20} />
               </button>
             </div>
@@ -295,11 +314,18 @@ export default function ManageParentAccount() {
           <div className="modal-content modal-lg">
             <div className="modal-header">
               <h2>Edit Parent Account</h2>
-              <button className="btn-close" onClick={() => setEditModalData(null)}>
+              <button
+                type="button"
+                className="btn-close"
+                aria-label="Close edit parent modal"
+                onClick={() => setEditModalData(null)}
+              >
                 <X size={20} />
               </button>
             </div>
+
             <form onSubmit={handleSaveUpdate}>
+              {/* Scrollable Form Body */}
               <div className="modal-body">
                 {/* Account Details */}
                 <div className="form-section">
@@ -445,9 +471,11 @@ export default function ManageParentAccount() {
                           <button
                             type="button"
                             className="btn-danger-sm"
+                            title={`Unlink ${student.student_id}`}
+                            aria-label={`Unlink student ${student.student_id}`}
                             onClick={() => handleRemoveStudent(student.student_id)}
                           >
-                            <Trash2 size={14} /> Remove
+                            <Trash2 size={14} />
                           </button>
                         </div>
                       ))
@@ -456,6 +484,7 @@ export default function ManageParentAccount() {
                 </div>
               </div>
 
+              {/* Lower Portion Fixed Action Buttons */}
               <div className="modal-footer">
                 <button type="button" className="btn-secondary" onClick={() => setEditModalData(null)}>
                   Cancel

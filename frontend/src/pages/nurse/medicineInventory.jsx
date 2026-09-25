@@ -24,13 +24,18 @@ const DOSAGE_FORMS = [
   'Ointment', 'Cream', 'Inhaler', 'Spray', 'Gel', 'Box'
 ];
 
-// Discrete units strictly fixed to 1 item per unit. 'pcs.' is intentionally excluded so it behaves like continuous capacity (mg, mL, g, etc.)
 const DISCRETE_UNITS = [
   'Tablet/s', 'Capsule/s', 'Patch/es', 'Sachet', 
   'Vial', 'Prefilled Syringe', 'Spray/s', 'Inhaler', 'Box/es'
 ];
 
-// Mapping according to constraint chk_valid_dosage_units
+const REQUIRES_SPECIFY_COMPLAINTS = [
+  'injury', 
+  'others', 
+  'gastrointestinal issues', 
+  'body pain'
+];
+
 const DOSAGE_FORM_UNITS = {
   'Tablet': ['mg', 'g', 'mcg', 'Tablet/s'],
   'Capsule': ['mg', 'g', 'mcg', 'Capsule/s'],
@@ -50,7 +55,6 @@ const DOSAGE_FORM_UNITS = {
   'Box': [ 'Box/es', 'pcs.']
 };
 
-// Consumption hierarchy options based on chk_consumption_unit_hierarchy
 const getConsumptionUnitOptions = (strengthUnit) => {
   if (DISCRETE_UNITS.includes(strengthUnit)) return [strengthUnit];
   switch (strengthUnit) {
@@ -89,7 +93,7 @@ export default function MedicineInventory() {
     low_stock_level: 10,
     critical_stock_level: 5,
     adequate_stock_level: 20,
-    complaint_ids: []
+    indications: []
   };
 
   const [medForm, setMedForm] = useState(initialMedForm);
@@ -180,6 +184,36 @@ export default function MedicineInventory() {
     return { msg: expiryDate, style: { color: 'inherit' } };
   };
 
+  const requiresSpecifyText = (complaintName) => {
+    if (!complaintName) return false;
+    return REQUIRES_SPECIFY_COMPLAINTS.includes(complaintName.toLowerCase().trim());
+  };
+
+  const toggleComplaint = (comp, isChecked) => {
+    if (isChecked) {
+      setMedForm(prev => ({
+        ...prev,
+        indications: [...prev.indications, { complaint_id: String(comp.complaint_id), specify_complaint_text: '' }]
+      }));
+    } else {
+      setMedForm(prev => ({
+        ...prev,
+        indications: prev.indications.filter(ind => String(ind.complaint_id) !== String(comp.complaint_id))
+      }));
+    }
+  };
+
+  const handleSpecifyTextChange = (complaintId, text) => {
+    setMedForm(prev => ({
+      ...prev,
+      indications: prev.indications.map(ind => 
+        String(ind.complaint_id) === String(complaintId)
+          ? { ...ind, specify_complaint_text: text }
+          : ind
+      )
+    }));
+  };
+
   const handleSaveMedicine = async (e) => {
     e.preventDefault();
     if (!medForm.generic_name.trim() || !medForm.brand_name.trim()) return;
@@ -189,7 +223,8 @@ export default function MedicineInventory() {
       ...medForm,
       strength_unit_value: isDiscrete ? 1 : (parseFloat(medForm.strength_unit_value) || 1),
       avg_dosage_consumption_value: isDiscrete ? 1 : (parseFloat(medForm.avg_dosage_consumption_value) || 1),
-      avg_dosage_consumption_unit_of_measure: isDiscrete ? medForm.strength_unit_of_measure : medForm.avg_dosage_consumption_unit_of_measure
+      avg_dosage_consumption_unit_of_measure: isDiscrete ? medForm.strength_unit_of_measure : medForm.avg_dosage_consumption_unit_of_measure,
+      indications: medForm.indications
     };
 
     const endpoint = isEditingMedicine 
@@ -234,7 +269,6 @@ export default function MedicineInventory() {
     } else {
       volumeInput = batchForm.remaining_volume !== '' ? parseFloat(batchForm.remaining_volume) : maxVal;
       
-      // Auto-deduct 1 stock unit when remaining pieces/volume reaches 0
       if (volumeInput === 0 && stockInput > 0) {
         stockInput = stockInput - 1;
         volumeInput = stockInput > 0 ? maxVal : 0;
@@ -355,12 +389,13 @@ export default function MedicineInventory() {
         </div>
       </div>
 
+      {/* Main Inventory Search Bar (Searches medicine names AND chief complaints/indications) */}
       <div className="search-bar-container">
         <Search size={18} className="search-icon-placement" />
         <input
           type="text"
           className="rounded-search-input"
-          placeholder="Search inventory..."
+          placeholder="Search inventory by medicine or complaint/indication..."
           value={searchTerm}
           onChange={e => setSearchTerm(e.target.value)}
         />
@@ -380,9 +415,12 @@ export default function MedicineInventory() {
             </tr>
           </thead>
           <tbody>
-            {inventory.filter(item => 
-              `${item.generic_name} ${item.brand_name}`.toLowerCase().includes(searchTerm.toLowerCase())
-            ).map(item => {
+            {inventory.filter(item => {
+              const query = searchTerm.toLowerCase();
+              const medName = `${item.generic_name} ${item.brand_name}`.toLowerCase();
+              const complaintsText = (item.connected_complaints || '').toLowerCase();
+              return medName.includes(query) || complaintsText.includes(query);
+            }).map(item => {
               const statusEval = getStockStatus(item.current_stock, item.low_stock_level, item.critical_stock_level);
               const expiryDetails = getExpirationAlert(item.expiration_date);
               const isDiscreteItem = DISCRETE_UNITS.includes(item.strength_unit_of_measure);
@@ -461,7 +499,7 @@ export default function MedicineInventory() {
                 <input
                   type="text"
                   className="rounded-search-input"
-                  placeholder="Search medicines..."
+                  placeholder="Search medicines by name or complaint..."
                   value={medicineSearchTerm}
                   onChange={e => setMedicineSearchTerm(e.target.value)}
                 />
@@ -470,7 +508,12 @@ export default function MedicineInventory() {
                 <table className="clean-dashboard-table">
                   <tbody>
                     {medicinesList
-                      .filter(m => `${m.generic_name} ${m.brand_name}`.toLowerCase().includes(medicineSearchTerm.toLowerCase()))
+                      .filter(m => {
+                        const query = medicineSearchTerm.toLowerCase();
+                        const medName = `${m.generic_name} ${m.brand_name}`.toLowerCase();
+                        const complaintsText = (m.connected_complaints || '').toLowerCase();
+                        return medName.includes(query) || complaintsText.includes(query);
+                      })
                       .map(med => {
                         const isDiscreteMed = DISCRETE_UNITS.includes(med.strength_unit_of_measure);
                         return (
@@ -479,6 +522,9 @@ export default function MedicineInventory() {
                               {med.generic_name} ({med.brand_name})
                               <div style={{ fontSize: '0.75rem', color: '#667085' }}>
                                 {med.dosage_form} | {med.display_strength_value} {med.display_strength_unit}
+                              </div>
+                              <div style={{ fontSize: '0.75rem', color: '#475467' }}>
+                                <em>Indications: {med.connected_complaints || 'None'}</em>
                               </div>
                             </td>
                             <td style={{ width: '80px', textAlign: 'center' }}>
@@ -497,7 +543,7 @@ export default function MedicineInventory() {
                                     low_stock_level: med.low_stock_level,
                                     critical_stock_level: med.critical_stock_level,
                                     adequate_stock_level: med.adequate_stock_level,
-                                    complaint_ids: med.complaint_ids || []
+                                    indications: med.indications || []
                                   });
                                   setIsEditingMedicine(true);
                                   setIsManageMedicinesOpen(false);
@@ -519,7 +565,7 @@ export default function MedicineInventory() {
         </div>
       )}
 
-      {/* Register/Edit Medicine Modal */}
+      {/* Register / Edit Medicine Modal */}
       {isMedicineModalOpen && (
         <div className="modal-overlay-bg">
           <div className="modal-content-container" style={{ maxWidth: '600px' }}>
@@ -661,24 +707,39 @@ export default function MedicineInventory() {
                   </div>
                 </div>
 
+                {/* Indications & Complaint mapping with specify_complaint_text for specific complaints */}
                 <div className="modal-form-group">
                   <label>Indications / Chief Complaints</label>
                   <div className="scrollable-checkbox-box">
-                    {complaints.map(comp => (
-                      <label key={comp.complaint_id}>
-                        <input
-                          type="checkbox"
-                          checked={medForm.complaint_ids.some(id => String(id) === String(comp.complaint_id))}
-                          onChange={e => {
-                            const nextList = e.target.checked
-                              ? [...medForm.complaint_ids, String(comp.complaint_id)]
-                              : medForm.complaint_ids.filter(id => String(id) !== String(comp.complaint_id));
-                            setMedForm({ ...medForm, complaint_ids: nextList });
-                          }}
-                        />
-                        <span>{comp.complaint_name}</span>
-                      </label>
-                    ))}
+                    {complaints.map(comp => {
+                      const currentIndication = medForm.indications.find(ind => String(ind.complaint_id) === String(comp.complaint_id));
+                      const isChecked = !!currentIndication;
+                      const needsSpecify = requiresSpecifyText(comp.complaint_name);
+
+                      return (
+                        <div key={comp.complaint_id} style={{ marginBottom: '8px' }}>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={e => toggleComplaint(comp, e.target.checked)}
+                            />
+                            <span>{comp.complaint_name}</span>
+                          </label>
+
+                          {isChecked && needsSpecify && (
+                            <input
+                              type="text"
+                              className="modal-input-field"
+                              placeholder={`Specify details for ${comp.complaint_name}...`}
+                              value={currentIndication?.specify_complaint_text || ''}
+                              onChange={e => handleSpecifyTextChange(comp.complaint_id, e.target.value)}
+                              style={{ marginTop: '4px', marginLeft: '24px', width: 'calc(100% - 24px)' }}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
@@ -788,4 +849,4 @@ export default function MedicineInventory() {
       )}
     </div>
   );
-}
+} 
