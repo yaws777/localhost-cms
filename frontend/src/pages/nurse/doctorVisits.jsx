@@ -756,18 +756,18 @@ const DoctorVisit = () => {
     }, [appointments, groupedVisits, selectedGroup]);
 
     return (
-        <div className="doctor-visit-container">
+        <div className="container-dv">
             {/* Header Section */}
-            <div className="dv-header">
+            <div className="header-dv">
                 <div>
                     <h2>Doctor Visit Management</h2>
-                    <p className="dv-subtitle">Schedule, track, and document student doctor visits.</p>
+                    <p className="subtitle-dv">Schedule, track, and document student doctor visits.</p>
                 </div>
-                <div className="dv-header-actions">
-                    <button className="sti-btn sti-btn-secondary" onClick={() => { setIsEditDoctor(false); setShowDoctorModal(true); }}>
+                <div className="header-actions-dv">
+                    <button className="sti-btn-dv sti-btn-secondary-dv" onClick={() => { setIsEditDoctor(false); setShowDoctorModal(true); }}>
                         <UserPlus size={18} /> Manage Doctor Profile
                     </button>
-                    <button className="sti-btn sti-btn-primary" onClick={() => setShowScheduleModal(true)}>
+                    <button className="sti-btn-dv sti-btn-primary-dv" onClick={() => setShowScheduleModal(true)}>
                         <Calendar size={18} /> Schedule Doctor Visit
                     </button>
                 </div>
@@ -775,13 +775,13 @@ const DoctorVisit = () => {
 
             {/* Doctors Bar */}
             {doctors.length > 0 && (
-                <div className="doctors-bar">
-                    <span className="doctors-bar-title"><Stethoscope size={16} /> Available Doctors:</span>
-                    <div className="doctors-chip-list">
+                <div className="doctors-bar-dv">
+                    <span className="doctors-bar-title-dv"><Stethoscope size={16} /> Available Doctors:</span>
+                    <div className="doctors-chip-list-dv">
                         {doctors.map(doc => (
-                            <div key={doc.doctor_id} className="doctor-chip">
+                            <div key={doc.doctor_id} className="doctor-chip-dv">
                                 <span>Dr. {doc.first_name} {doc.last_name} ({doc.specialization})</span>
-                                <button onClick={() => openEditDoctor(doc)} className="chip-edit-btn" title="Edit Doctor Profile">
+                                <button onClick={() => openEditDoctor(doc)} className="chip-edit-btn-dv" title="Edit Doctor Profile">
                                     <Edit size={13} />
                                 </button>
                             </div>
@@ -791,20 +791,20 @@ const DoctorVisit = () => {
             )}
 
             {/* Navigation Tabs & Search */}
-            <div className="dv-tabs-container">
-                <div className="dv-tabs">
-                    <button className={`tab-btn ${activeTab === 'upcoming' ? 'active' : ''}`} onClick={() => setActiveTab('upcoming')}>
+            <div className="tabs-container-dv">
+                <div className="tabs-dv">
+                    <button className={`tab-btn-dv ${activeTab === 'upcoming' ? 'active-dv' : ''}`} onClick={() => setActiveTab('upcoming')}>
                         <Clock size={16} /> Upcoming Visits
                     </button>
-                    <button className={`tab-btn ${activeTab === 'ongoing' ? 'active' : ''}`} onClick={() => setActiveTab('ongoing')}>
+                    <button className={`tab-btn-dv ${activeTab === 'ongoing' ? 'active-dv' : ''}`} onClick={() => setActiveTab('ongoing')}>
                         <UserCheck size={16} /> Ongoing Visits
                     </button>
-                    <button className={`tab-btn ${activeTab === 'past' ? 'active' : ''}`} onClick={() => setActiveTab('past')}>
+                    <button className={`tab-btn-dv ${activeTab === 'past' ? 'active-dv' : ''}`} onClick={() => setActiveTab('past')}>
                         <CheckCircle size={16} /> Past Visits
                     </button>
                 </div>
 
-                <div className="dv-search-box">
+                <div className="search-box-dv">
                     <Search size={16} />
                     <input 
                         type="text" 
@@ -817,21 +817,21 @@ const DoctorVisit = () => {
 
             {/* Group Cards Grid Section */}
             {loading ? (
-                <div className="dv-loading">Loading doctor visits...</div>
+                <div className="loading-dv">Loading doctor visits...</div>
             ) : groupedVisits.length === 0 ? (
-                <div className="dv-empty-state">
+                <div className="empty-state-dv">
                     <AlertCircle size={36} />
                     <p>No {activeTab} doctor visit schedules found.</p>
                 </div>
             ) : (
-                <div className="dv-cards-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px', marginTop: '15px' }}>
+                <div className="cards-grid-dv" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px', marginTop: '15px' }}>
                     {groupedVisits.map((group) => {
                         const dateFormatted = group.apptStart ? formatLocalDateOnly(group.apptStart) : 'N/A';
                         const startTimeFormatted = group.apptStart ? group.apptStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }) : '';
                         const endTimeFormatted = group.apptEnd ? group.apptEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }) : '';
 
                         return (
-                            <div key={group.groupKey} className="dv-card" style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.04)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                            <div key={group.groupKey} className="card-dv" style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.04)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                                 <div>
                                     <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#e0f2fe', color: '#0369a1', padding: '4px 12px', borderRadius: '20px', fontSize: '13px', fontWeight: '600' }}>
@@ -869,7 +869,7 @@ const DoctorVisit = () => {
 
                                 <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '15px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                                     <button 
-                                        className="sti-btn sti-btn-primary" 
+                                        className="sti-btn-dv sti-btn-primary-dv" 
                                         style={{ flex: 1, justifyContent: 'center', display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 12px' }}
                                         onClick={() => setSelectedGroup(group)}
                                     >
@@ -877,7 +877,7 @@ const DoctorVisit = () => {
                                     </button>
                                     {activeTab === 'ongoing' && (
                                         <button 
-                                            className="sti-btn sti-btn-secondary" 
+                                            className="sti-btn-dv sti-btn-secondary-dv" 
                                             style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 12px' }}
                                             onClick={() => openScannerForBatch(group)}
                                             title="Scan QR Attendance for this batch"
@@ -888,7 +888,7 @@ const DoctorVisit = () => {
                                     {activeTab === 'upcoming' && (
                                         <>
                                             <button 
-                                                className="sti-btn sti-btn-secondary" 
+                                                className="sti-btn-dv sti-btn-secondary-dv" 
                                                 style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 12px' }}
                                                 onClick={() => openBatchRescheduleModal(group)}
                                                 title="Edit Batch Date & Start/End Time"
@@ -896,7 +896,7 @@ const DoctorVisit = () => {
                                                 <Edit size={16} /> Edit
                                             </button>
                                             <button 
-                                                className="sti-btn" 
+                                                className="sti-btn-dv" 
                                                 style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 12px', background: '#ef4444', color: '#ffffff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
                                                 onClick={() => handleDeleteBatch(group)}
                                                 title="Delete Batch Schedule Permanently"
@@ -914,16 +914,16 @@ const DoctorVisit = () => {
 
             {/* MODAL: BATCH PARTICIPANT SCHEDULE & DOCUMENTATION */}
             {selectedGroup && (
-                <div className="modal-overlay">
-                    <div className="modal-content modal-large">
-                        <div className="modal-header">
+                <div className="modal-overlay-dv">
+                    <div className="modal-content-dv modal-large-dv">
+                        <div className="modal-header-dv">
                             <div>
                                 <h3 style={{ margin: 0 }}>{selectedGroup.title}</h3>
                                 <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#64748b' }}>
                                     {selectedGroup.doctorName} ({selectedGroup.specialization}) • {selectedGroup.appointments.length} Total Student Participants
                                 </p>
                             </div>
-                            <button className="close-btn" onClick={() => setSelectedGroup(null)}><X size={20} /></button>
+                            <button className="close-btn-dv" onClick={() => setSelectedGroup(null)}><X size={20} /></button>
                         </div>
 
                         {selectedGroup.announcement && (
@@ -933,7 +933,7 @@ const DoctorVisit = () => {
                         )}
 
                         <div style={{ padding: '15px 0' }}>
-                            <table className="sti-table">
+                            <table className="sti-table-dv">
                                 <thead>
                                     <tr>
                                         <th>Student ID & Name</th>
@@ -966,7 +966,7 @@ const DoctorVisit = () => {
                                             <tr key={appt.appointment_id}>
                                                 <td>
                                                     <strong>{appt.student_first_name} {appt.student_last_name}</strong>
-                                                    <div className="sub-text">ID: {appt.student_id}</div>
+                                                    <div className="sub-text-dv">ID: {appt.student_id}</div>
                                                 </td>
                                                 <td>
                                                     {appt.program_id ? `${appt.program_id} - ${appt.year_level || ''}${appt.section || ''}` : 'N/A'}
@@ -975,33 +975,33 @@ const DoctorVisit = () => {
                                                     {studentTimeFormatted}
                                                 </td>
                                                 <td>
-                                                    <span className={`status-badge badge-${currentAttendance.toLowerCase()}`}>
+                                                    <span className={`status-badge-dv badge-${currentAttendance.toLowerCase()}-dv`}>
                                                         {currentAttendance}
                                                     </span>
                                                 </td>
                                                 <td>
                                                     {appt.assessment_id ? (
-                                                        <span className="doc-done-badge"><CheckCircle size={14} /> Documented</span>
+                                                        <span className="doc-done-badge-dv"><CheckCircle size={14} /> Documented</span>
                                                     ) : (
-                                                        <span className="doc-pending-badge">Pending</span>
+                                                        <span className="doc-pending-badge-dv">Pending</span>
                                                     )}
                                                 </td>
-                                                <td className="table-actions">
+                                                <td className="table-actions-dv">
                                                     {activeTab === 'upcoming' && (
-                                                        <button className="action-btn cancel" onClick={() => handleCancelAppointment(appt)}>
+                                                        <button className="action-btn-dv cancel-dv" onClick={() => handleCancelAppointment(appt)}>
                                                             <XCircle size={15} /> Cancel
                                                         </button>
                                                     )}
                                                     {activeTab === 'ongoing' && (
                                                         <>
                                                             <button 
-                                                                className="action-btn cancel" 
+                                                                className="action-btn-dv cancel-dv" 
                                                                 onClick={() => updateAppointmentStatus(appt.appointment_id, appt.student_id, 'Absent')}
                                                             >
                                                                 <XCircle size={15} /> Absent
                                                             </button>
                                                             <button 
-                                                                className={`action-btn document ${!isPresent ? 'disabled' : ''}`} 
+                                                                className={`action-btn-dv document-dv ${!isPresent ? 'disabled-dv' : ''}`} 
                                                                 onClick={() => isPresent && openAssessmentModal(appt)}
                                                                 disabled={!isPresent}
                                                                 title={!isPresent ? "Documentation is only available when participant is marked Present." : ""}
@@ -1013,7 +1013,7 @@ const DoctorVisit = () => {
                                                     )}
                                                     {activeTab === 'past' && (
                                                         <button 
-                                                            className={`action-btn document ${!isPresent ? 'disabled' : ''}`} 
+                                                            className={`action-btn-dv document-dv ${!isPresent ? 'disabled-dv' : ''}`} 
                                                             onClick={() => isPresent && openAssessmentModal(appt)}
                                                             disabled={!isPresent}
                                                             title={!isPresent ? "Documentation is only available when participant is marked Present." : ""}
@@ -1030,12 +1030,12 @@ const DoctorVisit = () => {
                             </table>
                         </div>
 
-                        <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div className="modal-footer-dv" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div style={{ display: 'flex', gap: '8px' }}>
                                 {activeTab === 'ongoing' && (
                                     <button 
                                         type="button" 
-                                        className="sti-btn sti-btn-secondary" 
+                                        className="sti-btn-dv sti-btn-secondary-dv" 
                                         onClick={() => openScannerForBatch(selectedGroup)}
                                     >
                                         <QrCode size={16} /> Scan QR Attendance
@@ -1045,14 +1045,14 @@ const DoctorVisit = () => {
                                     <>
                                         <button 
                                             type="button" 
-                                            className="sti-btn sti-btn-secondary" 
+                                            className="sti-btn-dv sti-btn-secondary-dv" 
                                             onClick={() => { setSelectedGroup(null); openBatchRescheduleModal(selectedGroup); }}
                                         >
                                             <Edit size={16} /> Edit Schedule
                                         </button>
                                         <button 
                                             type="button" 
-                                            className="sti-btn" 
+                                            className="sti-btn-dv" 
                                             style={{ background: '#ef4444', color: '#ffffff', border: 'none', borderRadius: '6px', padding: '8px 12px', cursor: 'pointer' }}
                                             onClick={() => handleDeleteBatch(selectedGroup)}
                                         >
@@ -1061,7 +1061,7 @@ const DoctorVisit = () => {
                                     </>
                                 )}
                             </div>
-                            <button type="button" className="sti-btn sti-btn-light" onClick={() => setSelectedGroup(null)}>Close</button>
+                            <button type="button" className="sti-btn-dv sti-btn-light-dv" onClick={() => setSelectedGroup(null)}>Close</button>
                         </div>
                     </div>
                 </div>
@@ -1069,11 +1069,11 @@ const DoctorVisit = () => {
 
             {/* MODAL: JSQR SCANNER */}
             {showScannerModal && (
-                <div className="modal-overlay">
-                    <div className="modal-content">
-                        <div className="modal-header">
+                <div className="modal-overlay-dv">
+                    <div className="modal-content-dv">
+                        <div className="modal-header-dv">
                             <h3>Scan Student QR Code {activeScanGroup ? `- ${activeScanGroup.title}` : ''}</h3>
-                            <button className="close-btn" onClick={() => { setShowScannerModal(false); setActiveScanGroup(null); }}><X size={20} /></button>
+                            <button className="close-btn-dv" onClick={() => { setShowScannerModal(false); setActiveScanGroup(null); }}><X size={20} /></button>
                         </div>
                         <div style={{ textAlign: 'center', padding: '10px' }}>
                             <p style={{ fontSize: '14px', marginBottom: '10px' }}>
@@ -1082,8 +1082,8 @@ const DoctorVisit = () => {
                             <video ref={videoRef} style={{ width: '100%', maxHeight: '300px', borderRadius: '8px', border: '2px solid #ccc' }} />
                             <canvas ref={canvasRef} style={{ display: 'none' }} />
                         </div>
-                        <div className="modal-footer">
-                            <button type="button" className="sti-btn sti-btn-light" onClick={() => { setShowScannerModal(false); setActiveScanGroup(null); }}>Close Scanner</button>
+                        <div className="modal-footer-dv">
+                            <button type="button" className="sti-btn-dv sti-btn-light-dv" onClick={() => { setShowScannerModal(false); setActiveScanGroup(null); }}>Close Scanner</button>
                         </div>
                     </div>
                 </div>
@@ -1091,32 +1091,32 @@ const DoctorVisit = () => {
 
             {/* MODAL 1: ADD / EDIT DOCTOR */}
             {showDoctorModal && (
-                <div className="modal-overlay">
-                    <div className="modal-content">
-                        <div className="modal-header">
+                <div className="modal-overlay-dv">
+                    <div className="modal-content-dv">
+                        <div className="modal-header-dv">
                             <h3>{isEditDoctor ? 'Edit Doctor Profile' : 'Add New Doctor Profile'}</h3>
-                            <button className="close-btn" onClick={() => setShowDoctorModal(false)}><X size={20} /></button>
+                            <button className="close-btn-dv" onClick={() => setShowDoctorModal(false)}><X size={20} /></button>
                         </div>
                         <form onSubmit={handleSaveDoctor}>
-                            <div className="form-group">
+                            <div className="form-group-dv">
                                 <label>First Name</label>
                                 <input type="text" required value={doctorForm.first_name} onChange={e => setDoctorForm({...doctorForm, first_name: e.target.value})} />
                             </div>
-                            <div className="form-group">
+                            <div className="form-group-dv">
                                 <label>Last Name</label>
                                 <input type="text" required value={doctorForm.last_name} onChange={e => setDoctorForm({...doctorForm, last_name: e.target.value})} />
                             </div>
-                            <div className="form-group">
+                            <div className="form-group-dv">
                                 <label>Specialization</label>
                                 <input type="text" placeholder="e.g. General Physician, Dentist" required value={doctorForm.specialization} onChange={e => setDoctorForm({...doctorForm, specialization: e.target.value})} />
                             </div>
-                            <div className="form-group">
+                            <div className="form-group-dv">
                                 <label>Contact Number</label>
                                 <input type="text" required value={doctorForm.contact_number} onChange={e => setDoctorForm({...doctorForm, contact_number: e.target.value})} />
                             </div>
-                            <div className="modal-footer">
-                                <button type="button" className="sti-btn sti-btn-light" onClick={() => setShowDoctorModal(false)}>Cancel</button>
-                                <button type="submit" className="sti-btn sti-btn-primary">Save Doctor Profile</button>
+                            <div className="modal-footer-dv">
+                                <button type="button" className="sti-btn-dv sti-btn-light-dv" onClick={() => setShowDoctorModal(false)}>Cancel</button>
+                                <button type="submit" className="sti-btn-dv sti-btn-primary-dv">Save Doctor Profile</button>
                             </div>
                         </form>
                     </div>
@@ -1125,18 +1125,18 @@ const DoctorVisit = () => {
 
             {/* MODAL 2: BATCH SCHEDULE & APPOINTMENTS WITH TIME BLOCK ESTIMATIONS */}
             {showScheduleModal && (
-                <div className="modal-overlay">
-                    <div className="modal-content modal-large">
-                        <div className="modal-header">
+                <div className="modal-overlay-dv">
+                    <div className="modal-content-dv modal-large-dv">
+                        <div className="modal-header-dv">
                             <h3>Mass Batch Schedule Doctor Visit</h3>
-                            <button className="close-btn" onClick={() => setShowScheduleModal(false)}><X size={20} /></button>
+                            <button className="close-btn-dv" onClick={() => setShowScheduleModal(false)}><X size={20} /></button>
                         </div>
                         <form onSubmit={handleCreateMassSchedule}>
                             {timeSlotCollisions && (
-                                <div className="error-banner"><AlertCircle size={16} /> {timeSlotCollisions}</div>
+                                <div className="error-banner-dv"><AlertCircle size={16} /> {timeSlotCollisions}</div>
                             )}
 
-                            <div className="form-group">
+                            <div className="form-group-dv">
                                 <label>Visit Title</label>
                                 <input 
                                     type="text" 
@@ -1147,7 +1147,7 @@ const DoctorVisit = () => {
                                 />
                             </div>
 
-                            <div className="form-group">
+                            <div className="form-group-dv">
                                 <label>Announcement / Instructions (Optional)</label>
                                 <textarea 
                                     rows="2"
@@ -1157,8 +1157,8 @@ const DoctorVisit = () => {
                                 />
                             </div>
 
-                            <div className="form-row">
-                                <div className="form-group">
+                            <div className="form-row-dv">
+                                <div className="form-group-dv">
                                     <label>Assign Doctor</label>
                                     <select required value={scheduleForm.doctor_id} onChange={e => setScheduleForm({...scheduleForm, doctor_id: e.target.value})}>
                                         <option value="">-- Select Doctor --</option>
@@ -1167,22 +1167,22 @@ const DoctorVisit = () => {
                                         ))}
                                     </select>
                                 </div>
-                                <div className="form-group">
+                                <div className="form-group-dv">
                                     <label>Scheduled Date</label>
                                     <input type="date" required value={scheduleForm.scheduled_date} onChange={e => setScheduleForm({...scheduleForm, scheduled_date: e.target.value})} />
                                 </div>
                             </div>
 
-                            <div className="form-row">
-                                <div className="form-group">
+                            <div className="form-row-dv">
+                                <div className="form-group-dv">
                                     <label>Batch Start Time</label>
                                     <input type="time" required value={scheduleForm.batch_start_time} onChange={e => setScheduleForm({...scheduleForm, batch_start_time: e.target.value})} />
                                 </div>
-                                <div className="form-group">
+                                <div className="form-group-dv">
                                     <label>Batch End Time</label>
                                     <input type="time" required value={scheduleForm.batch_end_time} onChange={e => setScheduleForm({...scheduleForm, batch_end_time: e.target.value})} />
                                 </div>
-                                <div className="form-group">
+                                <div className="form-group-dv">
                                     <label>Duration Slot (Mins / Student)</label>
                                     <input 
                                         type="number" 
@@ -1207,8 +1207,8 @@ const DoctorVisit = () => {
                                 </div>
                             )}
 
-                            <div className="form-row">
-                                <div className="form-group">
+                            <div className="form-row-dv">
+                                <div className="form-group-dv">
                                     <label>Target Academic Program</label>
                                     <select 
                                         value={scheduleForm.target_program} 
@@ -1223,7 +1223,7 @@ const DoctorVisit = () => {
                                     </select>
                                 </div>
 
-                                <div className="form-group">
+                                <div className="form-group-dv">
                                     <label>Year Level</label>
                                     <select 
                                         value={scheduleForm.target_year_level} 
@@ -1237,7 +1237,7 @@ const DoctorVisit = () => {
                                     </select>
                                 </div>
 
-                                <div className="form-group">
+                                <div className="form-group-dv">
                                     <label>Section</label>
                                     <select 
                                         value={scheduleForm.target_section} 
@@ -1251,7 +1251,7 @@ const DoctorVisit = () => {
                                 </div>
                             </div>
 
-                            <div className="form-group">
+                            <div className="form-group-dv">
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                                     <label style={{ margin: 0 }}>
                                         Select Group Participants ({selectedStudentIds.length} selected / {filteredStudents.length} available):
@@ -1259,7 +1259,7 @@ const DoctorVisit = () => {
                                     <div>
                                         <button 
                                             type="button" 
-                                            className="sti-btn-link"
+                                            className="sti-btn-link-dv"
                                             onClick={handleSelectAllFiltered}
                                             style={{ background: 'none', border: 'none', color: '#0056b3', cursor: 'pointer', textDecoration: 'underline', fontSize: '13px' }}
                                         >
@@ -1267,7 +1267,7 @@ const DoctorVisit = () => {
                                         </button>
                                         <button 
                                             type="button" 
-                                            className="sti-btn-link"
+                                            className="sti-btn-link-dv"
                                             onClick={handleDeselectAllFiltered}
                                             style={{ background: 'none', border: 'none', color: '#d9534f', cursor: 'pointer', textDecoration: 'underline', fontSize: '13px', marginLeft: '12px' }}
                                         >
@@ -1276,14 +1276,14 @@ const DoctorVisit = () => {
                                     </div>
                                 </div>
 
-                                <div className="student-select-list">
+                                <div className="student-select-list-dv">
                                     {filteredStudents.length === 0 ? (
                                         <div style={{ padding: '15px', color: '#666', gridColumn: '1 / -1', textAlign: 'center' }}>
                                             No students found matching the selected filters.
                                         </div>
                                     ) : (
                                         filteredStudents.map(s => (
-                                            <label key={s.student_id} className={`student-checkbox-item ${selectedStudentIds.includes(s.student_id) ? 'selected' : ''}`}>
+                                            <label key={s.student_id} className={`student-checkbox-item-dv ${selectedStudentIds.includes(s.student_id) ? 'selected-dv' : ''}`}>
                                                 <input 
                                                     type="checkbox" 
                                                     checked={selectedStudentIds.includes(s.student_id)} 
@@ -1296,9 +1296,9 @@ const DoctorVisit = () => {
                                 </div>
                             </div>
 
-                            <div className="modal-footer">
-                                <button type="button" className="sti-btn sti-btn-light" onClick={() => setShowScheduleModal(false)}>Cancel</button>
-                                <button type="submit" className="sti-btn sti-btn-primary">Confirm & Batch Schedule</button>
+                            <div className="modal-footer-dv">
+                                <button type="button" className="sti-btn-dv sti-btn-light-dv" onClick={() => setShowScheduleModal(false)}>Cancel</button>
+                                <button type="submit" className="sti-btn-dv sti-btn-primary-dv">Confirm & Batch Schedule</button>
                             </div>
                         </form>
                     </div>
@@ -1307,21 +1307,21 @@ const DoctorVisit = () => {
 
             {/* MODAL 3: DOCUMENT DOCTOR ASSESSMENT */}
             {showAssessmentModal && selectedAppt && (
-                <div className="modal-overlay">
-                    <div className="modal-content">
-                        <div className="modal-header">
+                <div className="modal-overlay-dv">
+                    <div className="modal-content-dv">
+                        <div className="modal-header-dv">
                             <h3>Document Doctor Assessment</h3>
-                            <button className="close-btn" onClick={() => setShowAssessmentModal(false)}><X size={20} /></button>
+                            <button className="close-btn-dv" onClick={() => setShowAssessmentModal(false)}><X size={20} /></button>
                         </div>
                         <form onSubmit={handleSaveAssessment}>
-                            <div className="appt-info-card">
+                            <div className="appt-info-card-dv">
                                 <strong>Student: {selectedAppt.student_first_name} {selectedAppt.student_last_name}</strong>
                                 <div>Visit: {selectedAppt.title || 'Doctor Visit'}</div>
                                 <div>Doctor: Dr. {selectedAppt.doc_first_name} {selectedAppt.doc_last_name}</div>
                                 <div>Attendance Status: <strong>{selectedAppt.attendance_status || 'Pending'}</strong></div>
                             </div>
 
-                            <div className="form-group">
+                            <div className="form-group-dv">
                                 <label>Clinical Findings</label>
                                 <textarea 
                                     rows="3" 
@@ -1331,7 +1331,7 @@ const DoctorVisit = () => {
                                 ></textarea>
                             </div>
 
-                            <div className="form-group">
+                            <div className="form-group-dv">
                                 <label>Diagnosis</label>
                                 <textarea 
                                     rows="2" 
@@ -1341,7 +1341,7 @@ const DoctorVisit = () => {
                                 ></textarea>
                             </div>
 
-                            <div className="form-group">
+                            <div className="form-group-dv">
                                 <label>Treatment & Recommendations</label>
                                 <textarea 
                                     rows="3" 
@@ -1351,9 +1351,9 @@ const DoctorVisit = () => {
                                 ></textarea>
                             </div>
 
-                            <div className="modal-footer">
-                                <button type="button" className="sti-btn sti-btn-light" onClick={() => setShowAssessmentModal(false)}>Cancel</button>
-                                <button type="submit" className="sti-btn sti-btn-primary">Save Assessment</button>
+                            <div className="modal-footer-dv">
+                                <button type="button" className="sti-btn-dv sti-btn-light-dv" onClick={() => setShowAssessmentModal(false)}>Cancel</button>
+                                <button type="submit" className="sti-btn-dv sti-btn-primary-dv">Save Assessment</button>
                             </div>
                         </form>
                     </div>
@@ -1362,14 +1362,14 @@ const DoctorVisit = () => {
 
             {/* MODAL 4: EDIT BATCH APPOINTMENT DATE & START/END TIME */}
             {showBatchRescheduleModal && (
-                <div className="modal-overlay">
-                    <div className="modal-content">
-                        <div className="modal-header">
+                <div className="modal-overlay-dv">
+                    <div className="modal-content-dv">
+                        <div className="modal-header-dv">
                             <h3>Edit Batch Appointment Schedule</h3>
-                            <button className="close-btn" onClick={() => setShowBatchRescheduleModal(false)}><X size={20} /></button>
+                            <button className="close-btn-dv" onClick={() => setShowBatchRescheduleModal(false)}><X size={20} /></button>
                         </div>
                         <form onSubmit={handleSaveBatchReschedule}>
-                            <div className="form-group">
+                            <div className="form-group-dv">
                                 <label>Batch Appointment Scheduled Date</label>
                                 <input 
                                     type="date" 
@@ -1379,7 +1379,7 @@ const DoctorVisit = () => {
                                 />
                             </div>
 
-                            <div className="form-group">
+                            <div className="form-group-dv">
                                 <label>Batch Start Time</label>
                                 <input 
                                     type="time" 
@@ -1389,7 +1389,7 @@ const DoctorVisit = () => {
                                 />
                             </div>
 
-                            <div className="form-group">
+                            <div className="form-group-dv">
                                 <label>Batch End Time</label>
                                 <input 
                                     type="time" 
@@ -1399,7 +1399,7 @@ const DoctorVisit = () => {
                                 />
                             </div>
 
-                            <div className="form-group">
+                            <div className="form-group-dv">
                                 <label>Per-Slot Duration (Minutes)</label>
                                 <input 
                                     type="number" 
@@ -1411,9 +1411,9 @@ const DoctorVisit = () => {
                                 />
                             </div>
 
-                            <div className="modal-footer">
-                                <button type="button" className="sti-btn sti-btn-light" onClick={() => setShowBatchRescheduleModal(false)}>Cancel</button>
-                                <button type="submit" className="sti-btn sti-btn-primary">Save Batch Date & Times</button>
+                            <div className="modal-footer-dv">
+                                <button type="button" className="sti-btn-dv sti-btn-light-dv" onClick={() => setShowBatchRescheduleModal(false)}>Cancel</button>
+                                <button type="submit" className="sti-btn-dv sti-btn-primary-dv">Save Batch Date & Times</button>
                             </div>
                         </form>
                     </div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { 
     AlertTriangle, 
@@ -15,8 +15,10 @@ import {
     FileText, 
     Activity, 
     Check, 
-    RefreshCw 
+    RefreshCw,
+    Camera
 } from 'lucide-react';
+import jsQR from 'jsqr';
 import '../../styles/nurse/IncidentReports.css';
 
 const IncidentReport = () => {
@@ -38,6 +40,13 @@ const IncidentReport = () => {
     const [showViewModal, setShowViewModal] = useState(false);
     const [selectedReport, setSelectedReport] = useState(null);
 
+    // Camera QR Scanning States & Refs
+    const [isCameraScanning, setIsCameraScanning] = useState(false);
+    const [cameraPermissionError, setCameraPermissionError] = useState(null);
+    const videoRef = useRef(null);
+    const streamRef = useRef(null);
+    const isProcessingScan = useRef(false);
+
     // Add Incident Form State
     const [studentSearch, setStudentSearch] = useState('');
     const [studentResults, setStudentResults] = useState([]);
@@ -57,6 +66,51 @@ const IncidentReport = () => {
         contact_number: '',
         description_notes: ''
     });
+
+    // Stop Camera Stream
+    const stopCameraScan = useCallback(() => {
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach(track => track.stop());
+            streamRef.current = null;
+        }
+        setIsCameraScanning(false);
+    }, []);
+
+    // Request Camera Access & Start Stream
+    const requestCameraAndStartScan = useCallback(async () => {
+        setCameraPermissionError(null);
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            setCameraPermissionError("Camera access is not supported by your browser or environment.");
+            return;
+        }
+
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } 
+            });
+            streamRef.current = stream;
+            setIsCameraScanning(true);
+        } catch (err) {
+            console.error("Camera permission error:", err);
+            setIsCameraScanning(false);
+            setCameraPermissionError("Unable to access camera: " + (err.message || ''));
+        }
+    }, []);
+
+    // Clean up camera stream on unmount
+    useEffect(() => {
+        return () => {
+            stopCameraScan();
+        };
+    }, [stopCameraScan]);
+
+    // Attach stream to video ref when scanning begins
+    useEffect(() => {
+        if (isCameraScanning && streamRef.current && videoRef.current) {
+            videoRef.current.srcObject = streamRef.current;
+            videoRef.current.play().catch(err => console.error("Error playing video stream:", err));
+        }
+    }, [isCameraScanning]);
 
     // Fetch Incident Reports
     const fetchIncidentReports = useCallback(async () => {
@@ -96,12 +150,98 @@ const IncidentReport = () => {
         fetchHotlines();
     }, [fetchIncidentReports, fetchHotlines]);
 
+    const handleSelectStudent = useCallback((student) => {
+        const sId = student.student_id || student.id || '';
+        const fName = student.first_name || student.firstname || student.name || 'Student';
+        const lName = student.last_name || student.lastname || '';
+
+        setSelectedStudent(student);
+        setStudentSearch(`${fName} ${lName} (${sId})`.trim());
+        setStudentResults([]);
+    }, []);
+
+    // Search Student by Scanned QR Value
+    const searchStudentByQr = useCallback(async (studentId) => {
+        if (!studentId || !studentId.trim() || isProcessingScan.current) return;
+        isProcessingScan.current = true;
+
+        try {
+            const url = `http://localhost:3001/api/incident-reports/students?q=${encodeURIComponent(studentId.trim())}`;
+            const res = await fetch(url);
+            if (!res.ok) {
+                throw new Error(`HTTP error! status: ${res.status}`);
+            }
+
+            const data = await res.json();
+            let studentList = [];
+            if (data.success && Array.isArray(data.students)) {
+                studentList = data.students;
+            } else if (Array.isArray(data)) {
+                studentList = data;
+            }
+
+            if (studentList.length > 0) {
+                stopCameraScan();
+                handleSelectStudent(studentList[0]);
+            } else {
+                alert(`No student found with QR / Student ID: ${studentId}`);
+            }
+        } catch (err) {
+            console.error("Error reading QR code:", err);
+            alert("Failed to read QR code data.");
+        } finally {
+            isProcessingScan.current = false;
+        }
+    }, [stopCameraScan, handleSelectStudent]);
+
+    // Continuously scan video frames with jsQR
+    useEffect(() => {
+        let animationFrameId;
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+
+        const scanFrame = async () => {
+            if (
+                isCameraScanning && 
+                !isProcessingScan.current && 
+                videoRef.current && 
+                videoRef.current.readyState === videoRef.current.HAVE_ENOUGH_DATA
+            ) {
+                const video = videoRef.current;
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+                
+                const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'dontInvert' });
+
+                if (code && code.data && code.data.trim() !== '') {
+                    const scannedVal = code.data.trim();
+                    stopCameraScan();
+                    await searchStudentByQr(scannedVal);
+                    return;
+                }
+            }
+
+            if (isCameraScanning) {
+                animationFrameId = requestAnimationFrame(scanFrame);
+            }
+        };
+
+        if (isCameraScanning) {
+            animationFrameId = requestAnimationFrame(scanFrame);
+        }
+
+        return () => {
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+        };
+    }, [isCameraScanning, stopCameraScan, searchStudentByQr]);
+
     // Search Students for Add Modal
     const handleStudentSearchChange = async (e) => {
         const query = e.target.value;
         setStudentSearch(query);
 
-        // Clear selected student if query is edited
         if (selectedStudent) {
             setSelectedStudent(null);
         }
@@ -109,16 +249,12 @@ const IncidentReport = () => {
         if (query.trim().length > 0) {
             try {
                 const url = `http://localhost:3001/api/incident-reports/students?q=${encodeURIComponent(query.trim())}`;
-                console.log('[Frontend] Searching students:', url);
-
                 const res = await fetch(url);
                 if (!res.ok) {
                     throw new Error(`HTTP error! status: ${res.status}`);
                 }
 
                 const data = await res.json();
-                console.log('[Frontend] Search results:', data);
-
                 if (data.success && Array.isArray(data.students)) {
                     setStudentResults(data.students);
                 } else if (Array.isArray(data)) {
@@ -135,23 +271,13 @@ const IncidentReport = () => {
         }
     };
 
-    const handleSelectStudent = (student) => {
-        const sId = student.student_id || student.id || '';
-        const fName = student.first_name || student.firstname || student.name || 'Student';
-        const lName = student.last_name || student.lastname || '';
-
-        setSelectedStudent(student);
-        setStudentSearch(`${fName} ${lName} (${sId})`.trim());
-        setStudentResults([]);
-    };
-
     // Submit Incident Report Form
     const handleSaveIncident = async (e) => {
         e.preventDefault();
         
         const sId = selectedStudent?.student_id || selectedStudent?.id;
         if (!selectedStudent || !sId) {
-            alert('Please search and select a valid student from the dropdown list.');
+            alert('Please search and select a valid student or scan a student QR code.');
             return;
         }
         if (!nurseId) {
@@ -188,6 +314,7 @@ const IncidentReport = () => {
     };
 
     const resetIncidentForm = () => {
+        stopCameraScan();
         setSelectedStudent(null);
         setStudentSearch('');
         setStudentResults([]);
@@ -339,9 +466,10 @@ const IncidentReport = () => {
                                         <button 
                                             className="btn-icon btn-view" 
                                             title="View Details"
+                                            aria-label="View Details"
                                             onClick={() => { setSelectedReport(report); setShowViewModal(true); }}
                                         >
-                                            <Eye size={16} /> View
+                                            <Eye size={16} />
                                         </button>
                                     </td>
                                 </tr>
@@ -359,13 +487,24 @@ const IncidentReport = () => {
                     <div className="modal-container large-modal">
                         <div className="modal-header">
                             <h3><AlertTriangle size={20} /> Document Incident Report</h3>
-                            <button className="close-btn" onClick={() => setShowAddIncidentModal(false)}><X size={20} /></button>
+                            <button className="close-btn" onClick={() => { stopCameraScan(); setShowAddIncidentModal(false); }}><X size={20} /></button>
                         </div>
                         <form onSubmit={handleSaveIncident} className="modal-body">
                             
-                            {/* Student Search Field */}
+                            {/* Student Search & Camera QR Field */}
                             <div className="form-group relative-container">
-                                <label><User size={16} /> Search & Select Student *</label>
+                                <div className="flex-between" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                                    <label style={{ margin: 0 }}><User size={16} /> Search & Select Student *</label>
+                                    <button 
+                                        type="button" 
+                                        className="btn btn-secondary" 
+                                        style={{ padding: '4px 10px', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                                        onClick={requestCameraAndStartScan}
+                                    >
+                                        <Camera size={14} />
+                                        <span>Scan Student QR</span>
+                                    </button>
+                                </div>
                                 <input 
                                     type="text" 
                                     placeholder="Type student name or ID..."
@@ -375,6 +514,12 @@ const IncidentReport = () => {
                                     autoComplete="off"
                                     required
                                 />
+
+                                {cameraPermissionError && (
+                                    <div style={{ marginTop: '8px', padding: '8px 12px', backgroundColor: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '6px', color: '#991b1b', fontSize: '0.82rem' }}>
+                                        <strong>{cameraPermissionError}</strong>
+                                    </div>
+                                )}
 
                                 {/* Search Results Dropdown */}
                                 {studentResults.length > 0 && (
@@ -430,43 +575,74 @@ const IncidentReport = () => {
                             </div>
 
                             <div className="form-group">
-                                <label><FileText size={16} /> Incident Description</label>
+                                <label><FileText size={16} /> Incident Description *</label>
                                 <textarea 
                                     rows="3" 
                                     placeholder="Describe what happened..."
                                     value={incidentData.incident_description}
                                     onChange={(e) => setIncidentData({ ...incidentData, incident_description: e.target.value })}
                                     className="form-control"
+                                    required
                                 />
                             </div>
 
                             <div className="form-group">
-                                <label><Activity size={16} /> First Aid Administered</label>
+                                <label><Activity size={16} /> First Aid Administered *</label>
                                 <textarea 
                                     rows="2" 
                                     placeholder="Details of first aid or immediate care provided..."
                                     value={incidentData.first_aid_administered}
                                     onChange={(e) => setIncidentData({ ...incidentData, first_aid_administered: e.target.value })}
                                     className="form-control"
+                                    required
                                 />
                             </div>
 
                             <div className="form-group">
-                                <label>Current Physical Situation / Disposition</label>
+                                <label>Current Physical Situation / Disposition *</label>
                                 <textarea 
                                     rows="2" 
                                     placeholder="e.g. Sent home, Referred to hospital, Back to class..."
                                     value={incidentData.current_physical_situation}
                                     onChange={(e) => setIncidentData({ ...incidentData, current_physical_situation: e.target.value })}
                                     className="form-control"
+                                    required
                                 />
                             </div>
 
                             <div className="modal-footer">
-                                <button type="button" className="btn btn-light" onClick={() => setShowAddIncidentModal(false)}>Cancel</button>
+                                <button type="button" className="btn btn-light" onClick={() => { stopCameraScan(); setShowAddIncidentModal(false); }}>Cancel</button>
                                 <button type="submit" className="btn btn-primary">Save Incident Report</button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* =========================================
+               CAMERA SCANNER MODAL OVERLAY
+            ========================================= */}
+            {isCameraScanning && (
+                <div className="modal-overlay" style={{ zIndex: 1200 }}>
+                    <div className="modal-container medium-modal" style={{ maxWidth: '480px' }}>
+                        <div className="modal-header">
+                            <h3><Camera size={20} /> Scan Student QR Code</h3>
+                            <button type="button" className="close-btn" onClick={stopCameraScan}><X size={20} /></button>
+                        </div>
+                        <div className="modal-body" style={{ textAlign: 'center', padding: '20px' }}>
+                            <video 
+                                ref={videoRef} 
+                                style={{ width: '100%', maxHeight: '280px', borderRadius: '8px', backgroundColor: '#000000', objectFit: 'cover' }} 
+                                muted 
+                                playsInline 
+                            />
+                            <p style={{ marginTop: '12px', fontSize: '0.88rem', color: '#64748b' }}>
+                                Point camera directly at the student's QR code to scan automatically.
+                            </p>
+                            <div className="modal-footer" style={{ marginTop: '16px', justifyContent: 'center' }}>
+                                <button type="button" className="btn btn-secondary" onClick={stopCameraScan}>Cancel Scanner</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}
@@ -622,4 +798,4 @@ const IncidentReport = () => {
     );
 };
 
-export default IncidentReport;  
+export default IncidentReport;

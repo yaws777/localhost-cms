@@ -135,7 +135,7 @@ export default function ManageParentAccount() {
         first_name: editForm.first_name,
         last_name: editForm.last_name,
         username: editForm.username,
-        password: editForm.resetToDefault ? '123' : editForm.password,
+        password: editForm.resetToDefault ? '123' : '',
         resetToDefault: editForm.resetToDefault,
         is_active: editForm.is_active,
         linked_student_ids: editForm.linkedStudents.map((s) => s.student_id)
@@ -154,22 +154,22 @@ export default function ManageParentAccount() {
   };
 
   return (
-    <div className="sti-container">
+    <div className="container-mpa">
       {/* STI Top Header Banner */}
-      <div className="sti-header">
-        <div className="sti-brand">
-          <div className="sti-logo-accent">STI</div>
-          <div>
+      <header className="header-mpa">
+        <div className="brand-mpa">
+          <div className="logo-accent-mpa">STI</div>
+          <div className="brand-text-mpa">
             <h1>Parent Account Management</h1>
-            <p className="sti-subtitle">Administrator Portal</p>
+            <p className="subtitle-mpa">Administrator Portal</p>
           </div>
         </div>
-      </div>
+      </header>
 
       {/* Search Bar & Controls */}
-      <div className="sti-controls">
-        <div className="sti-search-box">
-          <Search size={18} className="search-icon" />
+      <div className="controls-mpa">
+        <div className="search-box-mpa">
+          <Search size={18} className="search-icon-mpa" />
           <input
             type="text"
             placeholder="Search by Parent ID, Name, Username..."
@@ -179,10 +179,10 @@ export default function ManageParentAccount() {
         </div>
       </div>
 
-      {/* Parent Accounts Table */}
-      <div className="sti-card">
-        <div className="sti-table-container">
-          <table className="sti-table">
+      {/* Parent Accounts Table Card */}
+      <div className="card-mpa">
+        <div className="table-container-mpa">
+          <table className="table-mpa">
             <thead>
               <tr>
                 <th>Parent ID</th>
@@ -190,60 +190,66 @@ export default function ManageParentAccount() {
                 <th>Username</th>
                 <th>Linked Students</th>
                 <th>Status</th>
-                <th className="text-center">Actions</th>
+                <th className="text-center-mpa">Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="6" className="text-center py-4">Loading accounts...</td>
+                  <td colSpan="6" className="text-center-mpa py-4-mpa">
+                    Loading accounts...
+                  </td>
                 </tr>
               ) : parents.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="text-center py-4">No parent accounts found.</td>
+                  <td colSpan="6" className="text-center-mpa py-4-mpa">
+                    No parent accounts found.
+                  </td>
                 </tr>
               ) : (
                 parents.map((parent) => (
                   <tr key={parent.parent_id}>
-                    <td className="font-bold">{parent.parent_id}</td>
+                    <td className="font-bold-mpa nowrap-cell-mpa">{parent.parent_id}</td>
                     <td>{`${parent.first_name} ${parent.last_name}`}</td>
-                    <td className="username-cell">{parent.username}</td>
-                    <td>
-                      <span className="badge badge-info">
-                        <Users size={14} style={{ marginRight: '4px' }} />
+                    <td className="username-cell-mpa">{parent.username}</td>
+                    <td className="nowrap-cell-mpa">
+                      <span className="badge-mpa badge-info-mpa">
+                        <Users size={14} className="badge-icon-mpa" />
                         {parent.linked_students ? parent.linked_students.length : 0} Linked
                       </span>
                     </td>
-                    <td>
+                    <td className="nowrap-cell-mpa">
                       {parent.is_active ? (
-                        <span className="badge badge-success">
-                          <UserCheck size={12} style={{ marginRight: '4px' }} /> Active
+                        <span className="badge-mpa badge-success-mpa">
+                          <UserCheck size={12} className="badge-icon-mpa" /> Active
                         </span>
                       ) : (
-                        <span className="badge badge-danger">
-                          <UserX size={12} style={{ marginRight: '4px' }} /> Inactive
+                        <span className="badge-mpa badge-danger-mpa">
+                          <UserX size={12} className="badge-icon-mpa" /> Inactive
                         </span>
                       )}
                     </td>
-                    <td className="text-center">
-                      <button
-                        type="button"
-                        className="btn-icon btn-view"
-                        onClick={() => setViewModalData(parent)}
-                        title="View Details"
-                        aria-label={`View details for ${parent.parent_id}`}
-                      >
-                        <Eye size={16} />
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-icon btn-edit"
-                        onClick={() => handleOpenEdit(parent)}
-                        title="Edit Account"
-                        aria-label={`Edit account for ${parent.parent_id}`}
-                      >
-                        <Edit size={16} />
-                      </button>
+                    <td className="text-center-mpa action-cell-mpa">
+                      <div className="action-buttons-mpa">
+                        <button
+                          type="button"
+                          className="btn-icon-mpa btn-view-mpa"
+                          onClick={() => setViewModalData(parent)}
+                          title="View Details"
+                          aria-label={`View details for ${parent.parent_id}`}
+                        >
+                          <Eye size={18} />
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-icon-mpa btn-edit-mpa"
+                          onClick={() => handleOpenEdit(parent)}
+                          title="Edit Account"
+                          aria-label={`Edit account for ${parent.parent_id}`}
+                        >
+                          <Edit size={18} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -255,54 +261,83 @@ export default function ManageParentAccount() {
 
       {/* VIEW DETAILS MODAL */}
       {viewModalData && (
-        <div className="modal-backdrop">
-          <div className="modal-content">
-            <div className="modal-header">
-              <h2>Parent & Linked Students Details</h2>
+        <div className="modal-backdrop-mpa" onClick={() => setViewModalData(null)}>
+          <div
+            className="modal-content-mpa"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="view-modal-title"
+          >
+            <div className="modal-header-mpa">
+              <h2 id="view-modal-title">Parent & Linked Students</h2>
               <button
                 type="button"
-                className="btn-close"
+                className="btn-close-mpa"
                 aria-label="Close parent details"
                 onClick={() => setViewModalData(null)}
               >
                 <X size={20} />
               </button>
             </div>
-            <div className="modal-body">
-              <div className="details-section">
+            <div className="modal-body-mpa">
+              <div className="details-section-mpa">
                 <h3>Parent Account Information</h3>
-                <div className="grid-2">
-                  <div><strong>Parent ID:</strong> {viewModalData.parent_id}</div>
-                  <div><strong>Username:</strong> {viewModalData.username}</div>
-                  <div><strong>First Name:</strong> {viewModalData.first_name}</div>
-                  <div><strong>Last Name:</strong> {viewModalData.last_name}</div>
-                  <div><strong>Primary Phone:</strong> {viewModalData.primary_phone || 'N/A'}</div>
-                  <div><strong>Status:</strong> {viewModalData.is_active ? 'Active' : 'Inactive'}</div>
+                <div className="grid-2-mpa">
+                  <div>
+                    <strong>Parent ID:</strong> {viewModalData.parent_id}
+                  </div>
+                  <div>
+                    <strong>Username:</strong> {viewModalData.username}
+                  </div>
+                  <div>
+                    <strong>First Name:</strong> {viewModalData.first_name}
+                  </div>
+                  <div>
+                    <strong>Last Name:</strong> {viewModalData.last_name}
+                  </div>
+                  <div>
+                    <strong>Primary Phone:</strong> {viewModalData.primary_phone || 'N/A'}
+                  </div>
+                  <div>
+                    <strong>Status:</strong> {viewModalData.is_active ? 'Active' : 'Inactive'}
+                  </div>
                 </div>
               </div>
 
-              <div className="details-section">
+              <div className="details-section-mpa">
                 <h3>Linked Student Accounts</h3>
                 {viewModalData.linked_students && viewModalData.linked_students.length > 0 ? (
-                  <div className="student-grid">
+                  <div className="student-grid-mpa">
                     {viewModalData.linked_students.map((student) => (
-                      <div key={student.student_id} className="student-card">
-                        <div className="student-card-header">
+                      <div key={student.student_id} className="student-card-mpa">
+                        <div className="student-card-header-mpa">
                           <GraduationCap size={18} />
                           <span>{student.student_id}</span>
                         </div>
-                        <div className="student-card-body">
-                          <p className="student-name">{student.first_name} {student.last_name}</p>
-                          <p><strong>Program:</strong> {student.program_name || 'N/A'}</p>
-                          <p><strong>Year Level & Section:</strong> Year {student.year_level} - {student.section}</p>
+                        <div className="student-card-body-mpa">
+                          <p className="student-name-mpa">
+                            {student.first_name} {student.last_name}
+                          </p>
+                          <p>
+                            <strong>Program:</strong> {student.program_name || 'N/A'}
+                          </p>
+                          <p>
+                            <strong>Year Level & Section:</strong> Year {student.year_level} - {student.section}
+                          </p>
                         </div>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <p className="text-muted">No students currently linked to this parent account.</p>
+                  <p className="text-muted-mpa">No students currently linked to this parent account.</p>
                 )}
               </div>
+            </div>
+            <div className="modal-footer-mpa">
+              <button type="button" className="btn-secondary-mpa" onClick={() => setViewModalData(null)}>
+                Close
+              </button>
             </div>
           </div>
         </div>
@@ -310,13 +345,19 @@ export default function ManageParentAccount() {
 
       {/* EDIT MODAL */}
       {editModalData && (
-        <div className="modal-backdrop">
-          <div className="modal-content modal-lg">
-            <div className="modal-header">
-              <h2>Edit Parent Account</h2>
+        <div className="modal-backdrop-mpa" onClick={() => setEditModalData(null)}>
+          <div
+            className="modal-content-mpa modal-lg-mpa"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-modal-title"
+          >
+            <div className="modal-header-mpa">
+              <h2 id="edit-modal-title">Edit Parent Account</h2>
               <button
                 type="button"
-                className="btn-close"
+                className="btn-close-mpa"
                 aria-label="Close edit parent modal"
                 onClick={() => setEditModalData(null)}
               >
@@ -324,43 +365,46 @@ export default function ManageParentAccount() {
               </button>
             </div>
 
-            <form onSubmit={handleSaveUpdate}>
-              {/* Scrollable Form Body */}
-              <div className="modal-body">
+            <form onSubmit={handleSaveUpdate} className="modal-form-mpa">
+              <div className="modal-body-mpa">
                 {/* Account Details */}
-                <div className="form-section">
-                  <h3 className="section-title">Account Details</h3>
-                  <div className="grid-2">
-                    <div className="form-group">
-                      <label>Parent ID</label>
+                <div className="form-section-mpa">
+                  <h3 className="section-title-mpa">Account Details</h3>
+                  <div className="grid-2-mpa">
+                    <div className="form-group-mpa">
+                      <label htmlFor="edit-parent-id">Parent ID</label>
                       <input
+                        id="edit-parent-id"
                         type="text"
                         value={editForm.parent_id}
                         onChange={(e) => setEditForm({ ...editForm, parent_id: e.target.value })}
                         required
                       />
                     </div>
-                    <div className="form-group">
-                      <label>Username</label>
+                    <div className="form-group-mpa">
+                      <label htmlFor="edit-username">Username</label>
                       <input
+                        id="edit-username"
                         type="text"
                         value={editForm.username}
                         onChange={(e) => setEditForm({ ...editForm, username: e.target.value })}
                         required
                       />
                     </div>
-                    <div className="form-group">
-                      <label>First Name</label>
+                    <div className="form-group-mpa">
+                      <label htmlFor="edit-first-name">First Name</label>
                       <input
+                        id="edit-first-name"
                         type="text"
                         value={editForm.first_name}
                         onChange={(e) => setEditForm({ ...editForm, first_name: e.target.value })}
                         required
                       />
                     </div>
-                    <div className="form-group">
-                      <label>Last Name</label>
+                    <div className="form-group-mpa">
+                      <label htmlFor="edit-last-name">Last Name</label>
                       <input
+                        id="edit-last-name"
                         type="text"
                         value={editForm.last_name}
                         onChange={(e) => setEditForm({ ...editForm, last_name: e.target.value })}
@@ -369,42 +413,31 @@ export default function ManageParentAccount() {
                     </div>
                   </div>
 
-                  {/* Password & Reset */}
-                  <div className="grid-2" style={{ marginTop: '12px' }}>
-                    <div className="form-group">
-                      <label>Password</label>
+                  {/* Password Reset Checkbox */}
+                  <div className="form-group-mpa checkbox-group-mpa">
+                    <label className="checkbox-label-mpa">
                       <input
-                        type="password"
-                        placeholder={editForm.resetToDefault ? 'Set to "123"' : 'Enter new password'}
-                        value={editForm.resetToDefault ? '123' : editForm.password}
-                        disabled={editForm.resetToDefault}
-                        onChange={(e) => setEditForm({ ...editForm, password: e.target.value })}
+                        type="checkbox"
+                        checked={editForm.resetToDefault}
+                        onChange={(e) =>
+                          setEditForm({
+                            ...editForm,
+                            resetToDefault: e.target.checked,
+                            password: e.target.checked ? '123' : ''
+                          })
+                        }
                       />
-                    </div>
-                    <div className="form-group checkbox-group">
-                      <label className="checkbox-label">
-                        <input
-                          type="checkbox"
-                          checked={editForm.resetToDefault}
-                          onChange={(e) =>
-                            setEditForm({
-                              ...editForm,
-                              resetToDefault: e.target.checked,
-                              password: e.target.checked ? '123' : ''
-                            })
-                          }
-                        />
-                        <Key size={16} /> Reset to Default ("123")
-                      </label>
-                    </div>
+                      <Key size={16} /> Reset Password to Default ("123")
+                    </label>
                   </div>
 
                   {/* Account Status */}
-                  <div className="form-group" style={{ marginTop: '12px' }}>
-                    <label>Account Status</label>
+                  <div className="form-group-mpa spacing-top-sm">
+                    <label htmlFor="edit-status">Account Status</label>
                     <select
+                      id="edit-status"
                       value={editForm.is_active}
-                      onChange={(e) => setEditForm({ ...editForm, is_active: parseInt(e.target.value) })}
+                      onChange={(e) => setEditForm({ ...editForm, is_active: parseInt(e.target.value, 10) })}
                     >
                       <option value={1}>Active</option>
                       <option value={0}>Inactive</option>
@@ -413,15 +446,16 @@ export default function ManageParentAccount() {
                 </div>
 
                 {/* Manage Linked Students */}
-                <div className="form-section">
-                  <h3 className="section-title">Manage Linked Students</h3>
+                <div className="form-section-mpa">
+                  <h3 className="section-title-mpa">Manage Linked Students</h3>
 
                   {/* Search and Add Student */}
-                  <div className="student-search-container">
-                    <label>Search Student to Link</label>
-                    <div className="sti-search-box">
-                      <Search size={16} className="search-icon" />
+                  <div className="student-search-container-mpa">
+                    <label htmlFor="search-student-input">Search Student to Link</label>
+                    <div className="search-box-mpa">
+                      <Search size={16} className="search-icon-mpa" />
                       <input
+                        id="search-student-input"
                         type="text"
                         placeholder="Search student by ID or Name..."
                         value={studentSearchInput}
@@ -431,46 +465,49 @@ export default function ManageParentAccount() {
 
                     {/* Search Loading / Results Dropdown */}
                     {isSearchingStudents ? (
-                      <div className="search-results-dropdown">
-                        <div className="dropdown-item text-muted">Searching students...</div>
+                      <div className="search-results-dropdown-mpa">
+                        <div className="dropdown-item-mpa text-muted-mpa">Searching students...</div>
                       </div>
-                    ) : studentSearchResults.length > 0 && (
-                      <div className="search-results-dropdown">
-                        {studentSearchResults.map((student) => (
-                          <div key={student.student_id} className="dropdown-item">
-                            <div>
-                              <strong>{student.student_id}</strong> - {student.first_name} {student.last_name} ({student.program_name || 'N/A'})
+                    ) : (
+                      studentSearchResults.length > 0 && (
+                        <div className="search-results-dropdown-mpa">
+                          {studentSearchResults.map((student) => (
+                            <div key={student.student_id} className="dropdown-item-mpa">
+                              <div className="dropdown-item-text-mpa">
+                                <strong>{student.student_id}</strong> - {student.first_name} {student.last_name} (
+                                {student.program_name || 'N/A'})
+                              </div>
+                              <button
+                                type="button"
+                                className="btn-add-sm-mpa"
+                                onClick={() => handleAddStudent(student)}
+                              >
+                                <Plus size={14} /> Link
+                              </button>
                             </div>
-                            <button
-                              type="button"
-                              className="btn-add-sm"
-                              onClick={() => handleAddStudent(student)}
-                            >
-                              <Plus size={14} /> Link
-                            </button>
-                          </div>
-                        ))}
-                      </div>
+                          ))}
+                        </div>
+                      )
                     )}
                   </div>
 
                   {/* Currently Linked Students List */}
-                  <div className="linked-students-list">
+                  <div className="linked-students-list-mpa">
                     <h4>Currently Linked Students ({editForm.linkedStudents.length})</h4>
                     {editForm.linkedStudents.length === 0 ? (
-                      <p className="text-muted">No students currently linked.</p>
+                      <p className="text-muted-mpa">No students currently linked.</p>
                     ) : (
                       editForm.linkedStudents.map((student) => (
-                        <div key={student.student_id} className="linked-student-item">
-                          <div>
+                        <div key={student.student_id} className="linked-student-item-mpa">
+                          <div className="linked-student-info-mpa">
                             <strong>{student.student_id}</strong> - {student.first_name} {student.last_name}
-                            <span className="sub-text">
+                            <span className="sub-text-mpa">
                               ({student.program_name || 'N/A'} | Year {student.year_level} - {student.section})
                             </span>
                           </div>
                           <button
                             type="button"
-                            className="btn-danger-sm"
+                            className="btn-danger-sm-mpa"
                             title={`Unlink ${student.student_id}`}
                             aria-label={`Unlink student ${student.student_id}`}
                             onClick={() => handleRemoveStudent(student.student_id)}
@@ -485,11 +522,11 @@ export default function ManageParentAccount() {
               </div>
 
               {/* Lower Portion Fixed Action Buttons */}
-              <div className="modal-footer">
-                <button type="button" className="btn-secondary" onClick={() => setEditModalData(null)}>
+              <div className="modal-footer-mpa">
+                <button type="button" className="btn-secondary-mpa" onClick={() => setEditModalData(null)}>
                   Cancel
                 </button>
-                <button type="submit" className="btn-primary">
+                <button type="submit" className="btn-primary-mpa">
                   <Save size={16} /> Save Changes
                 </button>
               </div>

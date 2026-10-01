@@ -111,7 +111,7 @@ export default function ClinicLogsAndRecords() {
           </button>
         </form>
 
-        {/* Navigation Tabs */}
+        {/* Navigation Tabs (Restored to exact original structure) */}
         <nav className="sti-tabs">
           <button 
             className={`sti-tab ${activeTab === 'clinic-visits' ? 'active' : ''}`}
@@ -246,7 +246,7 @@ function renderTableHeader(tab) {
   }
 }
 
-// Dynamic Table Row
+// Dynamic Table Row (Action contains ONLY the Lucide icon)
 function renderTableRow(tab, item, index, onViewDetails) {
   switch (tab) {
     case 'clinic-visits':
@@ -259,8 +259,8 @@ function renderTableRow(tab, item, index, onViewDetails) {
           <td>{item.time_in} - {item.time_out || 'N/A'}</td>
           <td>BP: {item.blood_pressure || 'N/A'} | Temp: {item.temperature || 'N/A'}°C</td>
           <td>
-            <button className="sti-btn-icon" onClick={onViewDetails}>
-              <Eye size={16} /> View
+            <button className="sti-btn-icon" onClick={onViewDetails} title="View Details" aria-label="View Details">
+              <Eye size={18} />
             </button>
           </td>
         </tr>
@@ -280,8 +280,8 @@ function renderTableRow(tab, item, index, onViewDetails) {
           <td>{item.quantity_dispensed}</td>
           <td>{item.dispensed_at ? new Date(item.dispensed_at).toLocaleString() : 'N/A'}</td>
           <td>
-            <button className="sti-btn-icon" onClick={onViewDetails}>
-              <Eye size={16} /> View
+            <button className="sti-btn-icon" onClick={onViewDetails} title="View Details" aria-label="View Details">
+              <Eye size={18} />
             </button>
           </td>
         </tr>
@@ -296,8 +296,8 @@ function renderTableRow(tab, item, index, onViewDetails) {
           <td>{item.incident_location}</td>
           <td>{item.incident_datetime ? new Date(item.incident_datetime).toLocaleString() : 'N/A'}</td>
           <td>
-            <button className="sti-btn-icon" onClick={onViewDetails}>
-              <Eye size={16} /> View
+            <button className="sti-btn-icon" onClick={onViewDetails} title="View Details" aria-label="View Details">
+              <Eye size={18} />
             </button>
           </td>
         </tr>
@@ -319,8 +319,8 @@ function renderTableRow(tab, item, index, onViewDetails) {
             </span>
           </td>
           <td>
-            <button className="sti-btn-icon" onClick={onViewDetails}>
-              <Eye size={16} /> View
+            <button className="sti-btn-icon" onClick={onViewDetails} title="View Details" aria-label="View Details">
+              <Eye size={18} />
             </button>
           </td>
         </tr>
@@ -342,8 +342,8 @@ function renderTableRow(tab, item, index, onViewDetails) {
             </span>
           </td>
           <td>
-            <button className="sti-btn-icon" onClick={onViewDetails}>
-              <Eye size={16} /> View
+            <button className="sti-btn-icon" onClick={onViewDetails} title="View Details" aria-label="View Details">
+              <Eye size={18} />
             </button>
           </td>
         </tr>

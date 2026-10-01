@@ -1,15 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import { useOutletContext, useLocation } from 'react-router-dom';
+import { Eye } from 'lucide-react';
 import '../../styles/student/RequestModule.css';
 
 const API_BASE = 'http://localhost:3001/api';
 
 export default function RequestModule() {
+  const location = useLocation();
   const { studentId, firstName, lastName } = useOutletContext() || {};
   const student_id = studentId;
 
-  // UI state
-  const [activeModal, setActiveModal] = useState(null); // 'excuse' | 'referral' | 'view' | null
+  // UI state - initializes activeModal if triggered via route state (e.g. from Dashboard quick action buttons)
+  const [activeModal, setActiveModal] = useState(location.state?.openModal || null); // 'excuse' | 'referral' | 'view' | null
   const [requests, setRequests] = useState([]);
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [notes, setNotes] = useState([]);
@@ -33,6 +35,13 @@ export default function RequestModule() {
     facility_id: '',
     selected_services: []
   });
+
+  // Listen to navigation state changes to auto-open modal when navigating back and forth
+  useEffect(() => {
+    if (location.state?.openModal) {
+      setActiveModal(location.state.openModal);
+    }
+  }, [location.state]);
 
   // Fetch Partner Facilities
   const fetchPartnerFacilities = async () => {
@@ -274,8 +283,13 @@ export default function RequestModule() {
                     </span>
                   </td>
                   <td>
-                    <button className="sti-btn-icon" onClick={() => handleViewDetails(req)} title="View Details">
-                      👁️ View
+                    <button 
+                      className="sti-btn-icon" 
+                      onClick={() => handleViewDetails(req)} 
+                      title="View Details"
+                      aria-label="View Details"
+                    >
+                      <Eye size={18} />
                     </button>
                   </td>
                 </tr>
@@ -312,7 +326,14 @@ export default function RequestModule() {
                     type="date"
                     required
                     value={excuseForm.valid_absence_start}
-                    onChange={(e) => setExcuseForm({ ...excuseForm, valid_absence_start: e.target.value })}
+                    onChange={(e) => {
+                      const newStart = e.target.value;
+                      setExcuseForm((prev) => ({
+                        ...prev,
+                        valid_absence_start: newStart,
+                        valid_absence_end: prev.valid_absence_end && prev.valid_absence_end < newStart ? newStart : prev.valid_absence_end
+                      }));
+                    }}
                   />
                 </div>
                 <div className="sti-form-group">
@@ -320,6 +341,7 @@ export default function RequestModule() {
                   <input
                     type="date"
                     required
+                    min={excuseForm.valid_absence_start}
                     value={excuseForm.valid_absence_end}
                     onChange={(e) => setExcuseForm({ ...excuseForm, valid_absence_end: e.target.value })}
                   />

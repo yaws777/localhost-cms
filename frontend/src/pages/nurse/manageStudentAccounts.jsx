@@ -24,6 +24,15 @@ import '../../styles/nurse/ManageStudentAccounts.css';
 const API_BASE = 'http://localhost:3001/api';
 const DOMAIN_EXTENSION = '@baliuag.sti.edu.ph';
 
+// Helper function to auto-generate parent_id in PARENT-[LASTNAME]001 format
+const generateParentId = (lastName, count = 1) => {
+  if (!lastName || !lastName.trim()) return '';
+  const cleanLastName = lastName.trim().toUpperCase().replace(/[^A-Z]/g, '');
+  if (!cleanLastName) return '';
+  const paddedIndex = String(count).padStart(3, '0');
+  return `PARENT-${cleanLastName}${paddedIndex}`;
+};
+
 export default function ManageStudentAccounts() {
   const [students, setStudents] = useState([]);
   const [programs, setPrograms] = useState([]);
@@ -37,18 +46,35 @@ export default function ManageStudentAccounts() {
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [selectedStudentView, setSelectedStudentView] = useState(null);
 
-  // Form State for Single Student Creation
+  // Helper to determine program type ('strand' vs 'course')
+  const getProgramType = (programId) => {
+    const selectedProg = programs.find((p) => String(p.program_id) === String(programId));
+    if (!selectedProg) return 'course';
+    const type = (
+      selectedProg.academic_program ||
+      selectedProg.type ||
+      selectedProg.program_type ||
+      ''
+    ).toLowerCase();
+    return type.includes('strand') ? 'strand' : 'course';
+  };
+
+  // Form State for Single Student Creation (Default ID initialized with '02000')
   const [studentForm, setStudentForm] = useState({
-    student_id: '',
+    student_id: '02000',
     first_name: '',
     last_name: '',
     username: '',
-    password: '',
+    password: '123',
     program_id: '',
     year_level: '1',
-    section: '',
+    section: 'A',
     is_active: true
   });
+
+  // Password default toggle states
+  const [useDefaultPassword, setUseDefaultPassword] = useState(true);
+  const [useParentDefaultPassword, setUseParentDefaultPassword] = useState(true);
 
   // Parent Creation Option State (For Add Modal)
   const [parentOption, setParentOption] = useState('none');
@@ -61,7 +87,7 @@ export default function ManageStudentAccounts() {
     first_name: '',
     last_name: '',
     username: '',
-    password: '',
+    password: '123',
     primary_phone: '',
     is_active: true
   });
@@ -76,8 +102,8 @@ export default function ManageStudentAccounts() {
     first_name: '',
     last_name: '',
     program_id: '',
-    year_level: '',
-    section: '',
+    year_level: '1',
+    section: 'A',
     is_active: true,
     reset_password: false,
     current_parent_id: null,
@@ -95,7 +121,7 @@ export default function ManageStudentAccounts() {
     first_name: '',
     last_name: '',
     username: '',
-    password: '',
+    password: '123',
     primary_phone: '',
     is_active: true
   });
@@ -134,6 +160,39 @@ export default function ManageStudentAccounts() {
     }
   };
 
+  // Enforce student_id prefix '02000'
+  const handleStudentIdChange = (e) => {
+    const value = e.target.value;
+    if (!value.startsWith('02000')) {
+      setStudentForm((prev) => ({ ...prev, student_id: '02000' }));
+    } else {
+      setStudentForm((prev) => ({ ...prev, student_id: value }));
+    }
+  };
+
+  const handleProgramChange = (e, isEdit = false) => {
+    const selectedProgId = e.target.value;
+    const progType = getProgramType(selectedProgId);
+
+    if (isEdit) {
+      setEditForm(prev => {
+        let yLevel = prev.year_level;
+        if (progType === 'strand' && Number(yLevel) > 2) {
+          yLevel = '1';
+        }
+        return { ...prev, program_id: selectedProgId, year_level: yLevel };
+      });
+    } else {
+      setStudentForm(prev => {
+        let yLevel = prev.year_level;
+        if (progType === 'strand' && Number(yLevel) > 2) {
+          yLevel = '1';
+        }
+        return { ...prev, program_id: selectedProgId, year_level: yLevel };
+      });
+    }
+  };
+
   const handleSearchChange = (e) => {
     const query = e.target.value;
     setSearchQuery(query);
@@ -144,6 +203,55 @@ export default function ManageStudentAccounts() {
     if (!val) return '';
     const clean = val.replace(DOMAIN_EXTENSION, '').trim();
     return clean ? `${clean}${DOMAIN_EXTENSION}` : '';
+  };
+
+  const handleDefaultPasswordToggle = (e) => {
+    const checked = e.target.checked;
+    setUseDefaultPassword(checked);
+    setStudentForm(prev => ({ ...prev, password: checked ? '123' : '' }));
+  };
+
+  const handleParentDefaultPasswordToggle = (e) => {
+    const checked = e.target.checked;
+    setUseParentDefaultPassword(checked);
+    setNewParentForm(prev => ({ ...prev, password: checked ? '123' : '' }));
+  };
+
+  // Handlers for dynamic student/parent last name changes with auto parent_id generation
+  const handleStudentLastNameChange = (e) => {
+    const lastName = e.target.value;
+    setStudentForm(prev => ({ ...prev, last_name: lastName }));
+
+    // Auto-fill parent last_name and auto-generate parent_id if parent_id hasn't been manually set differently
+    setNewParentForm(prev => {
+      const effectiveParentLastName = prev.last_name && prev.last_name !== studentForm.last_name 
+        ? prev.last_name 
+        : lastName;
+      
+      return {
+        ...prev,
+        last_name: effectiveParentLastName,
+        parent_id: generateParentId(effectiveParentLastName)
+      };
+    });
+  };
+
+  const handleParentLastNameChange = (e) => {
+    const parentLastName = e.target.value;
+    setNewParentForm(prev => ({
+      ...prev,
+      last_name: parentLastName,
+      parent_id: generateParentId(parentLastName)
+    }));
+  };
+
+  const handleEditParentLastNameChange = (e) => {
+    const parentLastName = e.target.value;
+    setEditNewParentForm(prev => ({
+      ...prev,
+      last_name: parentLastName,
+      parent_id: generateParentId(parentLastName)
+    }));
   };
 
   const handleParentSearch = async (query, isEdit = false) => {
@@ -265,17 +373,25 @@ export default function ManageStudentAccounts() {
             row[header] = values[hIdx] || '';
           });
 
-          const studentId = row.student_id || row.id || '';
+          const rawStudentId = row.student_id || row.id || '';
+          const studentId = rawStudentId.startsWith('02000') ? rawStudentId : `02000${rawStudentId}`;
           const firstName = row.first_name || row.firstname || '';
           const lastName = row.last_name || row.lastname || '';
           const usernameClean = row.username ? row.username.replace(DOMAIN_EXTENSION, '').trim() : '';
           const password = row.password || '123';
           const programId = row.program_id || defaultProg;
-          const yearLevel = row.year_level || row.year || '1';
-          const section = row.section || '';
+          const progType = getProgramType(programId);
+          let yearLevel = row.year_level || row.year || '1';
+          if (progType === 'strand' && Number(yearLevel) > 2) {
+            yearLevel = '1';
+          }
+          const rawSection = (row.section || 'A').toUpperCase();
+          const section = ['A', 'B', 'C'].includes(rawSection) ? rawSection : 'A';
           const isActive = row.is_active !== undefined ? (String(row.is_active) === '1' || String(row.is_active).toLowerCase() === 'true') : true;
 
-          const hasParent = Boolean(row.parent_id || row.parent_username);
+          const parentLastName = row.parent_last_name || lastName;
+          const autoParentId = row.parent_id || generateParentId(parentLastName, idx + 1);
+          const hasParent = Boolean(row.parent_id || row.parent_username || row.parent_last_name);
           const parentOption = hasParent ? 'new' : 'none';
 
           return {
@@ -290,11 +406,11 @@ export default function ManageStudentAccounts() {
             section: section,
             is_active: isActive,
             parent_option: parentOption,
-            selected_parent_id: row.parent_id || '',
+            selected_parent_id: autoParentId,
             new_parent: hasParent ? {
-              parent_id: row.parent_id || '',
+              parent_id: autoParentId,
               first_name: row.parent_first_name || '',
-              last_name: row.parent_last_name || '',
+              last_name: parentLastName,
               username: row.parent_username ? row.parent_username.replace(DOMAIN_EXTENSION, '').trim() : '',
               password: row.parent_password || '123',
               primary_phone: row.parent_phone || row.primary_phone || '',
@@ -318,7 +434,16 @@ export default function ManageStudentAccounts() {
   const handleBatchFieldChange = (index, field, value) => {
     setBatchStudents(prev => {
       const updated = [...prev];
-      updated[index] = { ...updated[index], [field]: value };
+      const item = { ...updated[index], [field]: value };
+
+      if (field === 'program_id') {
+        const progType = getProgramType(value);
+        if (progType === 'strand' && Number(item.year_level) > 2) {
+          item.year_level = '1';
+        }
+      }
+
+      updated[index] = item;
       return updated;
     });
   };
@@ -445,13 +570,22 @@ export default function ManageStudentAccounts() {
   };
 
   const openEditModal = (student) => {
+    const progType = getProgramType(student.program_id);
+    let yLevel = String(student.year_level || '1');
+    if (progType === 'strand' && Number(yLevel) > 2) {
+      yLevel = '1';
+    }
+    const sec = ['A', 'B', 'C'].includes((student.section || '').toUpperCase()) 
+      ? student.section.toUpperCase() 
+      : 'A';
+
     setEditForm({
       student_id: student.student_id,
       first_name: student.first_name,
       last_name: student.last_name,
       program_id: student.program_id,
-      year_level: student.year_level,
-      section: student.section,
+      year_level: yLevel,
+      section: sec,
       is_active: Number(student.is_active) === 1,
       reset_password: false,
       current_parent_id: student.parent_id,
@@ -463,11 +597,11 @@ export default function ManageStudentAccounts() {
     setEditParentSearchResults([]);
     setEditSelectedParentId('');
     setEditNewParentForm({
-      parent_id: '',
+      parent_id: generateParentId(student.last_name),
       first_name: '',
-      last_name: '',
+      last_name: student.last_name || '',
       username: '',
-      password: '',
+      password: '123',
       primary_phone: '',
       is_active: true
     });
@@ -476,16 +610,17 @@ export default function ManageStudentAccounts() {
 
   const resetAddForm = () => {
     setStudentForm({
-      student_id: '',
+      student_id: '02000',
       first_name: '',
       last_name: '',
       username: '',
-      password: '',
+      password: '123',
       program_id: Array.isArray(programs) && programs.length > 0 ? programs[0].program_id : '',
       year_level: '1',
-      section: '',
+      section: 'A',
       is_active: true
     });
+    setUseDefaultPassword(true);
     setParentOption('none');
     setParentSearch('');
     setParentSearchResults([]);
@@ -495,17 +630,18 @@ export default function ManageStudentAccounts() {
       first_name: '',
       last_name: '',
       username: '',
-      password: '',
+      password: '123',
       primary_phone: '',
       is_active: true
     });
+    setUseParentDefaultPassword(true);
   };
 
   return (
-    <div className="sti-container">
-      <header className="sti-header">
-        <div className="sti-brand">
-          <GraduationCap className="sti-icon-brand" size={32} />
+    <div className="student-container-msa">
+      <header className="header-msa">
+        <div className="brand-msa">
+          <GraduationCap className="icon-brand-msa" size={32} />
           <div>
             <h1>STI College Student Management</h1>
             <p>Admin Portal - Account Administration</p>
@@ -513,30 +649,30 @@ export default function ManageStudentAccounts() {
         </div>
       </header>
 
-      <main className="sti-content">
-        <div className="sti-actions-bar">
-          <div className="sti-search-wrapper">
-            <Search className="sti-search-icon" size={18} />
+      <main className="content-msa">
+        <div className="actions-bar-msa">
+          <div className="search-wrapper-msa">
+            <Search className="search-icon-msa" size={18} />
             <input
               type="text"
-              className="sti-search-input"
+              className="search-input-msa"
               placeholder="Search student ID, name, or username..."
               value={searchQuery}
               onChange={handleSearchChange}
             />
           </div>
 
-          <div className="sti-btn-group">
+          <div className="btn-group-msa">
             <input 
               type="file" 
               accept=".csv" 
               ref={fileInputRef} 
-              className="sti-hidden-input" 
+              className="hidden-input-msa" 
               onChange={handleCSVImport} 
             />
             <button 
               type="button"
-              className="sti-btn sti-btn-secondary" 
+              className="btn-msa btn-secondary-msa" 
               onClick={() => fileInputRef.current.click()}
               title="Import CSV data into batch creation form"
             >
@@ -546,7 +682,7 @@ export default function ManageStudentAccounts() {
 
             <button 
               type="button"
-              className="sti-btn sti-btn-secondary" 
+              className="btn-msa btn-secondary-msa" 
               onClick={handleCSVExport}
               title="Export accounts list to CSV"
             >
@@ -556,7 +692,7 @@ export default function ManageStudentAccounts() {
 
             <button 
               type="button"
-              className="sti-btn sti-btn-primary"
+              className="btn-msa btn-primary-msa"
               onClick={() => { resetAddForm(); setIsAddModalOpen(true); }}
             >
               <UserPlus size={18} />
@@ -565,13 +701,13 @@ export default function ManageStudentAccounts() {
           </div>
         </div>
 
-        <div className="sti-card">
-          <div className="sti-card-header">
+        <div className="card-msa">
+          <div className="card-header-msa">
             <Users size={20} />
             <h2>Student Accounts List</h2>
           </div>
-          <div className="sti-table-container">
-            <table className="sti-table">
+          <div className="table-container-msa">
+            <table className="table-msa">
               <thead>
                 <tr>
                   <th>Student ID</th>
@@ -588,48 +724,47 @@ export default function ManageStudentAccounts() {
                 {Array.isArray(students) && students.length > 0 ? (
                   students.map((student) => (
                     <tr key={student.student_id}>
-                      <td className="sti-font-bold">{student.student_id}</td>
+                      <td className="font-bold-msa">{student.student_id}</td>
                       <td>{`${student.first_name} ${student.last_name}`}</td>
-                      <td>{student.username || <span className="sti-text-muted">N/A</span>}</td>
+                      <td>{student.username || <span className="text-muted-msa">N/A</span>}</td>
                       <td>
-                        <span className="sti-badge sti-badge-blue">
+                        <span className="badge-msa badge-blue-msa">
                           {student.program_name || student.program_id}
                         </span>
                       </td>
                       <td>Yr {student.year_level} - {student.section}</td>
                       <td>
                         {student.parent_id ? (
-                          <div className="sti-parent-info-cell">
-                            <span className="sti-parent-link" title={`Username: ${student.parent_username || 'N/A'}`}>
+                          <div className="parent-info-cell-msa">
+                            <span className="parent-link-msa" title={`Username: ${student.parent_username || 'N/A'}`}>
                               <LinkIcon size={14} /> <strong>{student.parent_id}</strong>
                             </span>
                             {student.parent_first_name && (
-                              <small className="sti-text-muted">
+                              <small className="text-muted-msa">
                                 ({student.parent_first_name} {student.parent_last_name})
                               </small>
                             )}
                           </div>
                         ) : (
-                          <span className="sti-text-muted">None</span>
+                          <span className="text-muted-msa">None</span>
                         )}
                       </td>
                       <td>
                         {Number(student.is_active) === 1 ? (
-                          <span className="sti-badge sti-badge-success">
+                          <span className="badge-msa badge-success-msa">
                             <UserCheck size={12} /> Active
                           </span>
                         ) : (
-                          <span className="sti-badge sti-badge-danger">
+                          <span className="badge-msa badge-danger-msa">
                             <UserX size={12} /> Inactive
                           </span>
                         )}
                       </td>
                       <td>
-                        {/* Strictly Lucide Icons for Row Actions */}
-                        <div className="sti-actions-cell">
+                        <div className="actions-cell-msa">
                           <button 
                             type="button"
-                            className="sti-btn-icon" 
+                            className="btn-icon-msa" 
                             title="View Student Details"
                             onClick={() => openViewModal(student)}
                           >
@@ -637,7 +772,7 @@ export default function ManageStudentAccounts() {
                           </button>
                           <button 
                             type="button"
-                            className="sti-btn-icon" 
+                            className="btn-icon-msa" 
                             title="Edit Student Account"
                             onClick={() => openEditModal(student)}
                           >
@@ -649,7 +784,7 @@ export default function ManageStudentAccounts() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan="8" className="sti-empty-table">
+                    <td colSpan="8" className="empty-table-msa">
                       No student accounts found.
                     </td>
                   </tr>
@@ -662,170 +797,178 @@ export default function ManageStudentAccounts() {
 
       {/* Modal: Batch Pre-Fill & Review CSV Data */}
       {isBatchModalOpen && (
-        <div className="sti-modal-overlay">
-          <div className="sti-modal sti-modal-lg">
-            <div className="sti-modal-header">
-              <div className="sti-modal-title">
+        <div className="modal-overlay-msa" onClick={(e) => { if (e.target === e.currentTarget) setIsBatchModalOpen(false); }}>
+          <div className="modal-msa modal-lg-msa">
+            <div className="modal-header-msa">
+              <div className="modal-title-msa">
                 <Layers size={22} />
                 <h3>Batch Pre-Fill Account Creation ({batchStudents.length} Records)</h3>
               </div>
-              <button type="button" className="sti-close-btn" aria-label="Close batch import modal" onClick={() => setIsBatchModalOpen(false)}>
+              <button type="button" className="close-btn-msa" aria-label="Close batch import modal" onClick={() => setIsBatchModalOpen(false)}>
                 <X size={20} />
               </button>
             </div>
 
-            <form onSubmit={handleBatchSubmit} className="sti-modal-body">
-              <p className="sti-text-muted sti-mb-16">
-                Review and modify the pre-filled CSV batch records below before creating all accounts.
-              </p>
+            <form onSubmit={handleBatchSubmit} className="modal-content-msa">
+              <div className="modal-body-msa">
+                <p className="text-muted-msa mb-16-msa">
+                  Review and modify the pre-filled CSV batch records below before creating all accounts.
+                </p>
 
-              <div className="sti-batch-table-wrapper">
-                <table className="sti-table sti-table-compact">
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>Student ID *</th>
-                      <th>First Name *</th>
-                      <th>Last Name *</th>
-                      <th>Username *</th>
-                      <th>Password</th>
-                      <th>Program</th>
-                      <th>Yr / Sec</th>
-                      <th>Parent Pre-Fill Info</th>
-                      <th>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {batchStudents.map((item, idx) => (
-                      <tr key={item.id || idx}>
-                        <td>{idx + 1}</td>
-                        <td>
-                          <input
-                            type="text"
-                            required
-                            className="sti-input-sm sti-w-100"
-                            value={item.student_id}
-                            onChange={(e) => handleBatchFieldChange(idx, 'student_id', e.target.value)}
-                          />
-                        </td>
-                        <td>
-                          <input
-                            type="text"
-                            required
-                            className="sti-input-sm sti-w-110"
-                            value={item.first_name}
-                            onChange={(e) => handleBatchFieldChange(idx, 'first_name', e.target.value)}
-                          />
-                        </td>
-                        <td>
-                          <input
-                            type="text"
-                            required
-                            className="sti-input-sm sti-w-110"
-                            value={item.last_name}
-                            onChange={(e) => handleBatchFieldChange(idx, 'last_name', e.target.value)}
-                          />
-                        </td>
-                        <td>
-                          <input
-                            type="text"
-                            required
-                            placeholder="username"
-                            className="sti-input-sm sti-w-120"
-                            value={item.username}
-                            onChange={(e) => handleBatchFieldChange(idx, 'username', e.target.value)}
-                          />
-                        </td>
-                        <td>
-                          <input
-                            type="text"
-                            required
-                            className="sti-input-sm sti-w-90"
-                            value={item.password}
-                            onChange={(e) => handleBatchFieldChange(idx, 'password', e.target.value)}
-                          />
-                        </td>
-                        <td>
-                          <select
-                            className="sti-input-sm sti-w-110"
-                            value={item.program_id}
-                            onChange={(e) => handleBatchFieldChange(idx, 'program_id', e.target.value)}
-                          >
-                            {programs.map((p) => (
-                              <option key={p.program_id} value={p.program_id}>
-                                {p.program_id}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td>
-                          <div className="sti-inline-flex-gap-4">
-                            <select
-                              className="sti-input-sm sti-w-45"
-                              value={item.year_level}
-                              onChange={(e) => handleBatchFieldChange(idx, 'year_level', e.target.value)}
-                            >
-                              <option value="1">1</option>
-                              <option value="2">2</option>
-                              <option value="3">3</option>
-                              <option value="4">4</option>
-                            </select>
+                <div className="batch-table-wrapper-msa">
+                  <table className="table-msa table-compact-msa">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Student ID *</th>
+                        <th>First Name *</th>
+                        <th>Last Name *</th>
+                        <th>Username *</th>
+                        <th>Password</th>
+                        <th>Program</th>
+                        <th>Yr / Sec</th>
+                        <th>Parent Pre-Fill Info</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {batchStudents.map((item, idx) => (
+                        <tr key={item.id || idx}>
+                          <td>{idx + 1}</td>
+                          <td>
                             <input
                               type="text"
-                              className="sti-input-sm sti-w-50"
-                              value={item.section}
-                              onChange={(e) => handleBatchFieldChange(idx, 'section', e.target.value)}
+                              required
+                              className="input-sm-msa w-100-msa"
+                              value={item.student_id}
+                              onChange={(e) => handleBatchFieldChange(idx, 'student_id', e.target.value)}
                             />
-                          </div>
-                        </td>
-                        <td>
-                          {item.new_parent ? (
-                            <div className="sti-batch-parent-info">
-                              <span>
-                                <strong>P-ID:</strong> 
-                                <input 
-                                  type="text" 
-                                  value={item.new_parent.parent_id} 
-                                  onChange={(e) => handleBatchParentFieldChange(idx, 'parent_id', e.target.value)}
-                                  className="sti-input-xs sti-w-70"
-                                />
-                              </span>
-                              <span>
-                                <strong>User:</strong> 
-                                <input 
-                                  type="text" 
-                                  value={item.new_parent.username} 
-                                  onChange={(e) => handleBatchParentFieldChange(idx, 'username', e.target.value)}
-                                  className="sti-input-xs sti-w-80"
-                                />
-                              </span>
+                          </td>
+                          <td>
+                            <input
+                              type="text"
+                              required
+                              className="input-sm-msa w-110-msa"
+                              value={item.first_name}
+                              onChange={(e) => handleBatchFieldChange(idx, 'first_name', e.target.value)}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              type="text"
+                              required
+                              className="input-sm-msa w-110-msa"
+                              value={item.last_name}
+                              onChange={(e) => handleBatchFieldChange(idx, 'last_name', e.target.value)}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              type="text"
+                              required
+                              placeholder="username"
+                              className="input-sm-msa w-120-msa"
+                              value={item.username}
+                              onChange={(e) => handleBatchFieldChange(idx, 'username', e.target.value)}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              type="text"
+                              required
+                              className="input-sm-msa w-90-msa"
+                              value={item.password}
+                              onChange={(e) => handleBatchFieldChange(idx, 'password', e.target.value)}
+                            />
+                          </td>
+                          <td>
+                            <select
+                              className="input-sm-msa w-110-msa"
+                              value={item.program_id}
+                              onChange={(e) => handleBatchFieldChange(idx, 'program_id', e.target.value)}
+                            >
+                              {programs.map((p) => (
+                                <option key={p.program_id} value={p.program_id}>
+                                  {p.program_id}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          <td>
+                            <div className="inline-flex-gap-4-msa">
+                              <select
+                                className="input-sm-msa w-45-msa"
+                                value={item.year_level}
+                                onChange={(e) => handleBatchFieldChange(idx, 'year_level', e.target.value)}
+                              >
+                                <option value="1">1</option>
+                                <option value="2">2</option>
+                                {getProgramType(item.program_id) !== 'strand' && (
+                                  <>
+                                    <option value="3">3</option>
+                                    <option value="4">4</option>
+                                  </>
+                                )}
+                              </select>
+                              <select
+                                className="input-sm-msa w-50-msa"
+                                value={item.section}
+                                onChange={(e) => handleBatchFieldChange(idx, 'section', e.target.value)}
+                              >
+                                <option value="A">A</option>
+                                <option value="B">B</option>
+                                <option value="C">C</option>
+                              </select>
                             </div>
-                          ) : (
-                            <span className="sti-text-muted">None</span>
-                          )}
-                        </td>
-                        <td>
-                          {/* Strictly Lucide Icon for Row Action */}
-                          <button
-                            type="button"
-                            className="sti-btn-icon sti-text-danger"
-                            title="Remove row from batch"
-                            aria-label={`Remove row ${idx + 1} from batch`}
-                            onClick={() => handleRemoveBatchRow(idx)}
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                          </td>
+                          <td>
+                            {item.new_parent ? (
+                              <div className="batch-parent-info-msa">
+                                <span>
+                                  <strong>P-ID:</strong> 
+                                  <input 
+                                    type="text" 
+                                    value={item.new_parent.parent_id} 
+                                    onChange={(e) => handleBatchParentFieldChange(idx, 'parent_id', e.target.value)}
+                                    className="input-xs-msa w-70-msa"
+                                  />
+                                </span>
+                                <span>
+                                  <strong>User:</strong> 
+                                  <input 
+                                    type="text" 
+                                    value={item.new_parent.username} 
+                                    onChange={(e) => handleBatchParentFieldChange(idx, 'username', e.target.value)}
+                                    className="input-xs-msa w-80-msa"
+                                  />
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-muted-msa">None</span>
+                            )}
+                          </td>
+                          <td>
+                            <button
+                              type="button"
+                              className="btn-icon-msa text-danger-msa"
+                              title="Remove row from batch"
+                              aria-label={`Remove row ${idx + 1} from batch`}
+                              onClick={() => handleRemoveBatchRow(idx)}
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
 
-              <div className="sti-modal-footer">
+              <div className="modal-footer-msa">
                 <button 
                   type="button" 
-                  className="sti-btn sti-btn-secondary" 
+                  className="btn-msa btn-secondary-msa" 
                   onClick={() => setIsBatchModalOpen(false)}
                   disabled={isSubmittingBatch}
                 >
@@ -833,7 +976,7 @@ export default function ManageStudentAccounts() {
                 </button>
                 <button 
                   type="submit" 
-                  className="sti-btn sti-btn-primary"
+                  className="btn-msa btn-primary-msa"
                   disabled={isSubmittingBatch || batchStudents.length === 0}
                 >
                   {isSubmittingBatch ? 'Creating Batch...' : `Submit Batch (${batchStudents.length})`}
@@ -846,46 +989,48 @@ export default function ManageStudentAccounts() {
 
       {/* Modal: View Student & Parent Details */}
       {isViewModalOpen && selectedStudentView && (
-        <div className="sti-modal-overlay">
-          <div className="sti-modal">
-            <div className="sti-modal-header">
+        <div className="modal-overlay-msa" onClick={(e) => { if (e.target === e.currentTarget) setIsViewModalOpen(false); }}>
+          <div className="modal-msa">
+            <div className="modal-header-msa">
               <h3>Student & Linked Parent Details</h3>
-              <button type="button" className="sti-close-btn" onClick={() => setIsViewModalOpen(false)}>
+              <button type="button" className="close-btn-msa" onClick={() => setIsViewModalOpen(false)}>
                 <X size={20} />
               </button>
             </div>
-            <div className="sti-modal-body">
-              <div className="sti-section-title">Student Details</div>
-              <div className="sti-details-grid">
-                <div><strong>Student ID:</strong> {selectedStudentView.student_id}</div>
-                <div><strong>Full Name:</strong> {selectedStudentView.first_name} {selectedStudentView.last_name}</div>
-                <div><strong>Username:</strong> {selectedStudentView.username}</div>
-                <div><strong>Program:</strong> {selectedStudentView.program_name || selectedStudentView.program_id}</div>
-                <div><strong>Year & Section:</strong> Yr {selectedStudentView.year_level} - {selectedStudentView.section}</div>
-                <div>
-                  <strong>Status: </strong>
-                  {Number(selectedStudentView.is_active) === 1 ? 'Active' : 'Inactive'}
-                </div>
-              </div>
-
-              <div className="sti-section-title sti-mt-16">Linked Parent Account Details</div>
-              {selectedStudentView.parent_id ? (
-                <div className="sti-parent-details-card">
-                  <div><User size={16} /> <strong>Parent ID:</strong> {selectedStudentView.parent_id}</div>
-                  <div><strong>Full Name:</strong> {selectedStudentView.parent_first_name ? `${selectedStudentView.parent_first_name} ${selectedStudentView.parent_last_name}` : 'Not specified'}</div>
-                  <div><strong>Username:</strong> {selectedStudentView.parent_username || 'N/A'}</div>
-                  <div><Phone size={16} /> <strong>Primary Phone:</strong> {selectedStudentView.parent_phone || 'Not specified'}</div>
+            <div className="modal-content-msa">
+              <div className="modal-body-msa">
+                <div className="section-title-msa">Student Details</div>
+                <div className="details-grid-msa">
+                  <div><strong>Student ID:</strong> {selectedStudentView.student_id}</div>
+                  <div><strong>Full Name:</strong> {selectedStudentView.first_name} {selectedStudentView.last_name}</div>
+                  <div><strong>Username:</strong> {selectedStudentView.username}</div>
+                  <div><strong>Program:</strong> {selectedStudentView.program_name || selectedStudentView.program_id}</div>
+                  <div><strong>Year & Section:</strong> Yr {selectedStudentView.year_level} - {selectedStudentView.section}</div>
                   <div>
                     <strong>Status: </strong>
-                    {Number(selectedStudentView.parent_is_active) === 1 ? 'Active' : 'Inactive'}
+                    {Number(selectedStudentView.is_active) === 1 ? 'Active' : 'Inactive'}
                   </div>
                 </div>
-              ) : (
-                <p className="sti-text-muted">No parent account is linked to this student.</p>
-              )}
 
-              <div className="sti-modal-footer">
-                <button type="button" className="sti-btn sti-btn-secondary" onClick={() => setIsViewModalOpen(false)}>
+                <div className="section-title-msa mt-16-msa">Linked Parent Account Details</div>
+                {selectedStudentView.parent_id ? (
+                  <div className="parent-details-card-msa">
+                    <div><User size={16} /> <strong>Parent ID:</strong> {selectedStudentView.parent_id}</div>
+                    <div><strong>Full Name:</strong> {selectedStudentView.parent_first_name ? `${selectedStudentView.parent_first_name} ${selectedStudentView.parent_last_name}` : 'Not specified'}</div>
+                    <div><strong>Username:</strong> {selectedStudentView.parent_username || 'N/A'}</div>
+                    <div><Phone size={16} /> <strong>Primary Phone:</strong> {selectedStudentView.parent_phone || 'Not specified'}</div>
+                    <div>
+                      <strong>Status: </strong>
+                      {Number(selectedStudentView.parent_is_active) === 1 ? 'Active' : 'Inactive'}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-muted-msa">No parent account is linked to this student.</p>
+                )}
+              </div>
+
+              <div className="modal-footer-msa">
+                <button type="button" className="btn-msa btn-secondary-msa" onClick={() => setIsViewModalOpen(false)}>
                   Close
                 </button>
               </div>
@@ -896,251 +1041,271 @@ export default function ManageStudentAccounts() {
 
       {/* Modal: Create Single Student Account */}
       {isAddModalOpen && (
-        <div className="sti-modal-overlay">
-          <div className="sti-modal">
-            <div className="sti-modal-header">
+        <div className="modal-overlay-msa" onClick={(e) => { if (e.target === e.currentTarget) setIsAddModalOpen(false); }}>
+          <div className="modal-msa">
+            <div className="modal-header-msa">
               <h3>Create Student Account</h3>
-              <button type="button" className="sti-close-btn" onClick={() => setIsAddModalOpen(false)}>
+              <button type="button" className="close-btn-msa" onClick={() => setIsAddModalOpen(false)}>
                 <X size={20} />
               </button>
             </div>
-            <form onSubmit={handleCreateStudent} className="sti-modal-body">
-              <div className="sti-section-title">Student Information</div>
-              <div className="sti-form-grid">
-                <div className="sti-form-group">
-                  <label>Student ID *</label>
-                  <input
-                    type="text"
-                    required
-                    value={studentForm.student_id}
-                    onChange={(e) => setStudentForm({ ...studentForm, student_id: e.target.value })}
-                  />
-                </div>
-
-                <div className="sti-form-group">
-                  <label>First Name *</label>
-                  <input
-                    type="text"
-                    required
-                    value={studentForm.first_name}
-                    onChange={(e) => setStudentForm({ ...studentForm, first_name: e.target.value })}
-                  />
-                </div>
-
-                <div className="sti-form-group">
-                  <label>Last Name *</label>
-                  <input
-                    type="text"
-                    required
-                    value={studentForm.last_name}
-                    onChange={(e) => setStudentForm({ ...studentForm, last_name: e.target.value })}
-                  />
-                </div>
-
-                <div className="sti-form-group">
-                  <label>Username (Auto appended domain) *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. john.doe"
-                    value={studentForm.username}
-                    onChange={(e) => setStudentForm({ ...studentForm, username: e.target.value })}
-                  />
-                </div>
-
-                <div className="sti-form-group">
-                  <label>Password *</label>
-                  <input
-                    type="password"
-                    required
-                    value={studentForm.password}
-                    onChange={(e) => setStudentForm({ ...studentForm, password: e.target.value })}
-                  />
-                </div>
-
-                <div className="sti-form-group">
-                  <label>Program *</label>
-                  <select
-                    value={studentForm.program_id}
-                    onChange={(e) => setStudentForm({ ...studentForm, program_id: e.target.value })}
-                  >
-                    {Array.isArray(programs) && programs.map((p) => (
-                      <option key={p.program_id} value={p.program_id}>
-                        {p.program_id} - {p.program_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="sti-form-group">
-                  <label>Year Level *</label>
-                  <select
-                    value={studentForm.year_level}
-                    onChange={(e) => setStudentForm({ ...studentForm, year_level: e.target.value })}
-                  >
-                    <option value="1">1st Year</option>
-                    <option value="2">2nd Year</option>
-                    <option value="3">3rd Year</option>
-                    <option value="4">4th Year</option>
-                  </select>
-                </div>
-
-                <div className="sti-form-group">
-                  <label>Section *</label>
-                  <input
-                    type="text"
-                    required
-                    value={studentForm.section}
-                    onChange={(e) => setStudentForm({ ...studentForm, section: e.target.value })}
-                  />
-                </div>
-
-                <div className="sti-form-group sti-checkbox-group">
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={studentForm.is_active}
-                      onChange={(e) => setStudentForm({ ...studentForm, is_active: e.target.checked })}
-                    />
-                    Is Active Account
-                  </label>
-                </div>
-              </div>
-
-              <div className="sti-section-title">Parent Account Association</div>
-              <div className="sti-radio-options">
-                <label>
-                  <input
-                    type="radio"
-                    name="parentOption"
-                    value="none"
-                    checked={parentOption === 'none'}
-                    onChange={() => setParentOption('none')}
-                  />
-                  No Parent Account
-                </label>
-                <label>
-                  <input
-                    type="radio"
-                    name="parentOption"
-                    value="existing"
-                    checked={parentOption === 'existing'}
-                    onChange={() => setParentOption('existing')}
-                  />
-                  Link Existing Parent
-                </label>
-                <label>
-                  <input
-                    type="radio"
-                    name="parentOption"
-                    value="new"
-                    checked={parentOption === 'new'}
-                    onChange={() => setParentOption('new')}
-                  />
-                  Create New Parent
-                </label>
-              </div>
-
-              {parentOption === 'existing' && (
-                <div className="sti-parent-box">
-                  <label>Search Parent ID, Username, or Name</label>
-                  <input
-                    type="text"
-                    placeholder="Type to search parent..."
-                    value={parentSearch}
-                    onChange={(e) => handleParentSearch(e.target.value, false)}
-                  />
-                  {Array.isArray(parentSearchResults) && parentSearchResults.length > 0 && (
-                    <ul className="sti-search-list">
-                      {parentSearchResults.map((parent) => (
-                        <li 
-                          key={parent.parent_id}
-                          className={selectedParentId === parent.parent_id ? 'selected' : ''}
-                          onClick={() => setSelectedParentId(parent.parent_id)}
-                        >
-                          <strong>ID: {parent.parent_id}</strong> | User: {parent.username} ({parent.first_name} {parent.last_name})
-                          {selectedParentId === parent.parent_id && <Check size={16} />}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  {selectedParentId && (
-                    <p className="sti-selected-text">Selected Parent ID: <strong>{selectedParentId}</strong></p>
-                  )}
-                </div>
-              )}
-
-              {parentOption === 'new' && (
-                <div className="sti-parent-box sti-form-grid">
-                  <div className="sti-form-group">
-                    <label>Parent ID *</label>
+            <form onSubmit={handleCreateStudent} className="modal-content-msa">
+              <div className="modal-body-msa">
+                <div className="section-title-msa">Student Information</div>
+                <div className="form-grid-msa">
+                  <div className="form-group-msa">
+                    <label>Student ID *</label>
                     <input
                       type="text"
                       required
-                      value={newParentForm.parent_id}
-                      onChange={(e) => setNewParentForm({ ...newParentForm, parent_id: e.target.value })}
+                      value={studentForm.student_id}
+                      onChange={handleStudentIdChange}
                     />
                   </div>
-                  <div className="sti-form-group">
-                    <label>First Name</label>
-                    <input
-                      type="text"
-                      value={newParentForm.first_name}
-                      onChange={(e) => setNewParentForm({ ...newParentForm, first_name: e.target.value })}
-                    />
-                  </div>
-                  <div className="sti-form-group">
-                    <label>Last Name</label>
-                    <input
-                      type="text"
-                      value={newParentForm.last_name}
-                      onChange={(e) => setNewParentForm({ ...newParentForm, last_name: e.target.value })}
-                    />
-                  </div>
-                  <div className="sti-form-group">
-                    <label>Parent Username *</label>
+
+                  <div className="form-group-msa">
+                    <label>First Name *</label>
                     <input
                       type="text"
                       required
-                      value={newParentForm.username}
-                      onChange={(e) => setNewParentForm({ ...newParentForm, username: e.target.value })}
+                      value={studentForm.first_name}
+                      onChange={(e) => setStudentForm({ ...studentForm, first_name: e.target.value })}
                     />
                   </div>
-                  <div className="sti-form-group">
-                    <label>Parent Password *</label>
-                    <input
-                      type="password"
-                      required
-                      value={newParentForm.password}
-                      onChange={(e) => setNewParentForm({ ...newParentForm, password: e.target.value })}
-                    />
-                  </div>
-                  <div className="sti-form-group">
-                    <label>Primary Phone</label>
+
+                  <div className="form-group-msa">
+                    <label>Last Name *</label>
                     <input
                       type="text"
-                      value={newParentForm.primary_phone}
-                      onChange={(e) => setNewParentForm({ ...newParentForm, primary_phone: e.target.value })}
+                      required
+                      value={studentForm.last_name}
+                      onChange={handleStudentLastNameChange}
                     />
                   </div>
-                  <div className="sti-form-group sti-checkbox-group">
+
+                  <div className="form-group-msa">
+                    <label>Username *</label>
+                    <div className="domain-input-group-msa">
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. john.doe"
+                        value={studentForm.username}
+                        onChange={(e) => setStudentForm({ ...studentForm, username: e.target.value })}
+                      />
+                      <span className="domain-suffix-msa">{DOMAIN_EXTENSION}</span>
+                    </div>
+                  </div>
+
+                  <div className="form-group-msa checkbox-group-msa">
                     <label>
                       <input
                         type="checkbox"
-                        checked={newParentForm.is_active}
-                        onChange={(e) => setNewParentForm({ ...newParentForm, is_active: e.target.checked })}
+                        checked={useDefaultPassword}
+                        onChange={handleDefaultPasswordToggle}
+                        required
                       />
-                      Parent Active
+                      Use default password ("123")
+                    </label>
+                  </div>
+
+                  <div className="form-group-msa">
+                    <label>Program *</label>
+                    <select
+                      value={studentForm.program_id}
+                      onChange={(e) => handleProgramChange(e, false)}
+                    >
+                      {Array.isArray(programs) && programs.map((p) => (
+                        <option key={p.program_id} value={p.program_id}>
+                          {p.program_id} - {p.program_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="form-group-msa">
+                    <label>Year Level *</label>
+                    <select
+                      value={studentForm.year_level}
+                      onChange={(e) => setStudentForm({ ...studentForm, year_level: e.target.value })}
+                    >
+                      <option value="1">1st Year</option>
+                      <option value="2">2nd Year</option>
+                      {getProgramType(studentForm.program_id) !== 'strand' && (
+                        <>
+                          <option value="3">3rd Year</option>
+                          <option value="4">4th Year</option>
+                        </>
+                      )}
+                    </select>
+                  </div>
+
+                  <div className="form-group-msa">
+                    <label>Section *</label>
+                    <select
+                      required
+                      value={studentForm.section}
+                      onChange={(e) => setStudentForm({ ...studentForm, section: e.target.value })}
+                    >
+                      <option value="A">A</option>
+                      <option value="B">B</option>
+                      <option value="C">C</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group-msa checkbox-group-msa">
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={studentForm.is_active}
+                        onChange={(e) => setStudentForm({ ...studentForm, is_active: e.target.checked })}
+                      />
+                      Is Active Account
                     </label>
                   </div>
                 </div>
-              )}
 
-              <div className="sti-modal-footer">
-                <button type="button" className="sti-btn sti-btn-secondary" onClick={() => setIsAddModalOpen(false)}>
+                <div className="section-title-msa">Parent Account Association</div>
+                <div className="radio-options-msa">
+                  <label>
+                    <input
+                      type="radio"
+                      name="parentOption"
+                      value="none"
+                      checked={parentOption === 'none'}
+                      onChange={() => setParentOption('none')}
+                    />
+                    No Parent Account
+                  </label>
+                  <label>
+                    <input
+                      type="radio"
+                      name="parentOption"
+                      value="existing"
+                      checked={parentOption === 'existing'}
+                      onChange={() => setParentOption('existing')}
+                    />
+                    Link Existing Parent
+                  </label>
+                  <label>
+                    <input
+                      type="radio"
+                      name="parentOption"
+                      value="new"
+                      checked={parentOption === 'new'}
+                      onChange={() => setParentOption('new')}
+                    />
+                    Create New Parent
+                  </label>
+                </div>
+
+                {parentOption === 'existing' && (
+                  <div className="parent-box-msa">
+                    <label>Search Parent ID, Username, or Name</label>
+                    <input
+                      type="text"
+                      placeholder="Type to search parent..."
+                      value={parentSearch}
+                      onChange={(e) => handleParentSearch(e.target.value, false)}
+                    />
+                    {Array.isArray(parentSearchResults) && parentSearchResults.length > 0 && (
+                      <ul className="search-list-msa">
+                        {parentSearchResults.map((parent) => (
+                          <li 
+                            key={parent.parent_id}
+                            className={selectedParentId === parent.parent_id ? 'selected' : ''}
+                            onClick={() => setSelectedParentId(parent.parent_id)}
+                          >
+                            <strong>ID: {parent.parent_id}</strong> | User: {parent.username} ({parent.first_name} {parent.last_name})
+                            {selectedParentId === parent.parent_id && <Check size={16} />}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {selectedParentId && (
+                      <p className="selected-text-msa">Selected Parent ID: <strong>{selectedParentId}</strong></p>
+                    )}
+                  </div>
+                )}
+
+                {parentOption === 'new' && (
+                  <div className="parent-box-msa form-grid-msa">
+                    <div className="form-group-msa">
+                      <label>Parent ID *</label>
+                      <input
+                        type="text"
+                        required
+                        value={newParentForm.parent_id}
+                        onChange={(e) => setNewParentForm({ ...newParentForm, parent_id: e.target.value })}
+                      />
+                    </div>
+                    <div className="form-group-msa">
+                      <label>First Name</label>
+                      <input
+                        type="text"
+                        value={newParentForm.first_name}
+                        onChange={(e) => setNewParentForm({ ...newParentForm, first_name: e.target.value })}
+                      />
+                    </div>
+                    <div className="form-group-msa">
+                      <label>Last Name</label>
+                      <input
+                        type="text"
+                        value={newParentForm.last_name}
+                        onChange={handleParentLastNameChange}
+                      />
+                    </div>
+                    <div className="form-group-msa">
+                      <label>Parent Username *</label>
+                      <div className="domain-input-group-msa">
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. parent.doe"
+                          value={newParentForm.username}
+                          onChange={(e) => setNewParentForm({ ...newParentForm, username: e.target.value })}
+                        />
+                        <span className="domain-suffix-msa">{DOMAIN_EXTENSION}</span>
+                      </div>
+                    </div>
+                    <div className="form-group-msa checkbox-group-msa">
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={useParentDefaultPassword}
+                          onChange={handleParentDefaultPasswordToggle}
+                          required
+                        />
+                        Use default password ("123")
+                      </label>
+                    </div>
+                    <div className="form-group-msa">
+                      <label>Primary Phone</label>
+                      <input
+                        type="text"
+                        value={newParentForm.primary_phone}
+                        onChange={(e) => setNewParentForm({ ...newParentForm, primary_phone: e.target.value })}
+                      />
+                    </div>
+                    <div className="form-group-msa checkbox-group-msa">
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={newParentForm.is_active}
+                          onChange={(e) => setNewParentForm({ ...newParentForm, is_active: e.target.checked })}
+                        />
+                        Parent Active
+                      </label>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="modal-footer-msa">
+                <button type="button" className="btn-msa btn-secondary-msa" onClick={() => setIsAddModalOpen(false)}>
                   Cancel
                 </button>
-                <button type="submit" className="sti-btn sti-btn-primary">
+                <button type="submit" className="btn-msa btn-primary-msa">
                   Create Student
                 </button>
               </div>
@@ -1151,258 +1316,273 @@ export default function ManageStudentAccounts() {
 
       {/* Modal: Edit Student Account & Manage Parent Link */}
       {isEditModalOpen && (
-        <div className="sti-modal-overlay">
-          <div className="sti-modal">
-            <div className="sti-modal-header">
+        <div className="modal-overlay-msa" onClick={(e) => { if (e.target === e.currentTarget) setIsEditModalOpen(false); }}>
+          <div className="modal-msa">
+            <div className="modal-header-msa">
               <h3>Update Student Account ({editForm.student_id})</h3>
-              <button type="button" className="sti-close-btn" onClick={() => setIsEditModalOpen(false)}>
+              <button type="button" className="close-btn-msa" onClick={() => setIsEditModalOpen(false)}>
                 <X size={20} />
               </button>
             </div>
-            <form onSubmit={handleUpdateStudent} className="sti-modal-body">
-              <div className="sti-section-title">Student Details</div>
-              <div className="sti-form-grid">
-                <div className="sti-form-group">
-                  <label>First Name</label>
-                  <input
-                    type="text"
-                    required
-                    value={editForm.first_name}
-                    onChange={(e) => setEditForm({ ...editForm, first_name: e.target.value })}
-                  />
-                </div>
-
-                <div className="sti-form-group">
-                  <label>Last Name</label>
-                  <input
-                    type="text"
-                    required
-                    value={editForm.last_name}
-                    onChange={(e) => setEditForm({ ...editForm, last_name: e.target.value })}
-                  />
-                </div>
-
-                <div className="sti-form-group">
-                  <label>Program</label>
-                  <select
-                    value={editForm.program_id}
-                    onChange={(e) => setEditForm({ ...editForm, program_id: e.target.value })}
-                  >
-                    {Array.isArray(programs) && programs.map((p) => (
-                      <option key={p.program_id} value={p.program_id}>
-                        {p.program_id} - {p.program_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="sti-form-group">
-                  <label>Year Level</label>
-                  <select
-                    value={editForm.year_level}
-                    onChange={(e) => setEditForm({ ...editForm, year_level: e.target.value })}
-                  >
-                    <option value="1">1st Year</option>
-                    <option value="2">2nd Year</option>
-                    <option value="3">3rd Year</option>
-                    <option value="4">4th Year</option>
-                  </select>
-                </div>
-
-                <div className="sti-form-group">
-                  <label>Section</label>
-                  <input
-                    type="text"
-                    required
-                    value={editForm.section}
-                    onChange={(e) => setEditForm({ ...editForm, section: e.target.value })}
-                  />
-                </div>
-
-                <div className="sti-form-group sti-checkbox-group">
-                  <label>
+            <form onSubmit={handleUpdateStudent} className="modal-content-msa">
+              <div className="modal-body-msa">
+                <div className="section-title-msa">Student Details</div>
+                <div className="form-grid-msa">
+                  <div className="form-group-msa">
+                    <label>First Name</label>
                     <input
-                      type="checkbox"
-                      checked={editForm.is_active}
-                      onChange={(e) => setEditForm({ ...editForm, is_active: e.target.checked })}
+                      type="text"
+                      required
+                      value={editForm.first_name}
+                      onChange={(e) => setEditForm({ ...editForm, first_name: e.target.value })}
                     />
-                    Is Active Account
-                  </label>
-                </div>
+                  </div>
 
-                <div className="sti-form-group sti-checkbox-group">
-                  <label className={editForm.reset_password ? 'sti-reset-active' : ''}>
+                  <div className="form-group-msa">
+                    <label>Last Name</label>
                     <input
-                      type="checkbox"
-                      checked={editForm.reset_password}
-                      onChange={(e) => setEditForm({ ...editForm, reset_password: e.target.checked })}
+                      type="text"
+                      required
+                      value={editForm.last_name}
+                      onChange={(e) => setEditForm({ ...editForm, last_name: e.target.value })}
                     />
-                    Reset password to default ("123")
-                  </label>
+                  </div>
+
+                  <div className="form-group-msa">
+                    <label>Program</label>
+                    <select
+                      value={editForm.program_id}
+                      onChange={(e) => handleProgramChange(e, true)}
+                    >
+                      {Array.isArray(programs) && programs.map((p) => (
+                        <option key={p.program_id} value={p.program_id}>
+                          {p.program_id} - {p.program_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="form-group-msa">
+                    <label>Year Level</label>
+                    <select
+                      value={editForm.year_level}
+                      onChange={(e) => setEditForm({ ...editForm, year_level: e.target.value })}
+                    >
+                      <option value="1">1st Year</option>
+                      <option value="2">2nd Year</option>
+                      {getProgramType(editForm.program_id) !== 'strand' && (
+                        <>
+                          <option value="3">3rd Year</option>
+                          <option value="4">4th Year</option>
+                        </>
+                      )}
+                    </select>
+                  </div>
+
+                  <div className="form-group-msa">
+                    <label>Section</label>
+                    <select
+                      required
+                      value={editForm.section}
+                      onChange={(e) => setEditForm({ ...editForm, section: e.target.value })}
+                    >
+                      <option value="A">A</option>
+                      <option value="B">B</option>
+                      <option value="C">C</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group-msa checkbox-group-msa">
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={editForm.is_active}
+                        onChange={(e) => setEditForm({ ...editForm, is_active: e.target.checked })}
+                      />
+                      Is Active Account
+                    </label>
+                  </div>
+
+                  <div className="form-group-msa checkbox-group-msa">
+                    <label className={editForm.reset_password ? 'reset-active-msa' : ''}>
+                      <input
+                        type="checkbox"
+                        checked={editForm.reset_password}
+                        onChange={(e) => setEditForm({ ...editForm, reset_password: e.target.checked })}
+                      />
+                      Reset password to default ("123")
+                    </label>
+                  </div>
                 </div>
-              </div>
 
-              <div className="sti-section-title">Linked Parent Account Management</div>
-              
-              <div className="sti-current-parent-info">
-                <strong>Current Linked Parent: </strong> 
-                {editForm.current_parent_id ? (
-                  <span>
-                    ID: <strong>{editForm.current_parent_id}</strong> 
-                    {editForm.current_parent_name && ` (${editForm.current_parent_name})`}
-                    {editForm.current_parent_username && ` - Username: ${editForm.current_parent_username}`}
-                  </span>
-                ) : (
-                  <span className="sti-text-muted">No Parent Linked</span>
-                )}
-              </div>
+                <div className="section-title-msa">Linked Parent Account Management</div>
+                
+                <div className="current-parent-info-msa">
+                  <strong>Current Linked Parent: </strong> 
+                  {editForm.current_parent_id ? (
+                    <span>
+                      ID: <strong>{editForm.current_parent_id}</strong> 
+                      {editForm.current_parent_name && ` (${editForm.current_parent_name})`}
+                      {editForm.current_parent_username && ` - Username: ${editForm.current_parent_username}`}
+                    </span>
+                  ) : (
+                    <span className="text-muted-msa">No Parent Linked</span>
+                  )}
+                </div>
 
-              <div className="sti-radio-options">
-                <label>
-                  <input
-                    type="radio"
-                    name="parentAction"
-                    value="keep"
-                    checked={parentAction === 'keep'}
-                    onChange={() => setParentAction('keep')}
-                  />
-                  Keep Current Link
-                </label>
-                {editForm.current_parent_id && (
+                <div className="radio-options-msa">
                   <label>
                     <input
                       type="radio"
                       name="parentAction"
-                      value="remove"
-                      checked={parentAction === 'remove'}
-                      onChange={() => setParentAction('remove')}
+                      value="keep"
+                      checked={parentAction === 'keep'}
+                      onChange={() => setParentAction('keep')}
                     />
-                    <Unlink size={14} className="sti-inline-icon" />
-                    Remove Parent Link
+                    Keep Current Link
                   </label>
-                )}
-                <label>
-                  <input
-                    type="radio"
-                    name="parentAction"
-                    value="existing"
-                    checked={parentAction === 'existing'}
-                    onChange={() => setParentAction('existing')}
-                  />
-                  Replace / Link Existing Parent
-                </label>
-                <label>
-                  <input
-                    type="radio"
-                    name="parentAction"
-                    value="new"
-                    checked={parentAction === 'new'}
-                    onChange={() => setParentAction('new')}
-                  />
-                  Create & Link New Parent
-                </label>
-              </div>
-
-              {parentAction === 'existing' && (
-                <div className="sti-parent-box">
-                  <label>Search Existing Parent Account</label>
-                  <input
-                    type="text"
-                    placeholder="Search parent ID, username, or name..."
-                    value={editParentSearch}
-                    onChange={(e) => handleParentSearch(e.target.value, true)}
-                  />
-                  {Array.isArray(editParentSearchResults) && editParentSearchResults.length > 0 && (
-                    <ul className="sti-search-list">
-                      {editParentSearchResults.map((parent) => (
-                        <li 
-                          key={parent.parent_id}
-                          className={editSelectedParentId === parent.parent_id ? 'selected' : ''}
-                          onClick={() => setEditSelectedParentId(parent.parent_id)}
-                        >
-                          <strong>ID: {parent.parent_id}</strong> | User: {parent.username} ({parent.first_name} {parent.last_name})
-                          {editSelectedParentId === parent.parent_id && <Check size={16} />}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  {editSelectedParentId && (
-                    <p className="sti-selected-text">Selected Parent ID to Link: <strong>{editSelectedParentId}</strong></p>
-                  )}
-                </div>
-              )}
-
-              {parentAction === 'new' && (
-                <div className="sti-parent-box sti-form-grid">
-                  <div className="sti-form-group">
-                    <label>Parent ID *</label>
-                    <input
-                      type="text"
-                      required
-                      value={editNewParentForm.parent_id}
-                      onChange={(e) => setEditNewParentForm({ ...editNewParentForm, parent_id: e.target.value })}
-                    />
-                  </div>
-                  <div className="sti-form-group">
-                    <label>First Name</label>
-                    <input
-                      type="text"
-                      value={editNewParentForm.first_name}
-                      onChange={(e) => setEditNewParentForm({ ...editNewParentForm, first_name: e.target.value })}
-                    />
-                  </div>
-                  <div className="sti-form-group">
-                    <label>Last Name</label>
-                    <input
-                      type="text"
-                      value={editNewParentForm.last_name}
-                      onChange={(e) => setEditNewParentForm({ ...editNewParentForm, last_name: e.target.value })}
-                    />
-                  </div>
-                  <div className="sti-form-group">
-                    <label>Parent Username *</label>
-                    <input
-                      type="text"
-                      required
-                      value={editNewParentForm.username}
-                      onChange={(e) => setEditNewParentForm({ ...editNewParentForm, username: e.target.value })}
-                    />
-                  </div>
-                  <div className="sti-form-group">
-                    <label>Parent Password *</label>
-                    <input
-                      type="password"
-                      required
-                      value={editNewParentForm.password}
-                      onChange={(e) => setEditNewParentForm({ ...editNewParentForm, password: e.target.value })}
-                    />
-                  </div>
-                  <div className="sti-form-group">
-                    <label>Primary Phone</label>
-                    <input
-                      type="text"
-                      value={editNewParentForm.primary_phone}
-                      onChange={(e) => setEditNewParentForm({ ...editNewParentForm, primary_phone: e.target.value })}
-                    />
-                  </div>
-                  <div className="sti-form-group sti-checkbox-group">
+                  {editForm.current_parent_id && (
                     <label>
                       <input
-                        type="checkbox"
-                        checked={editNewParentForm.is_active}
-                        onChange={(e) => setEditNewParentForm({ ...editNewParentForm, is_active: e.target.checked })}
+                        type="radio"
+                        name="parentAction"
+                        value="remove"
+                        checked={parentAction === 'remove'}
+                        onChange={() => setParentAction('remove')}
                       />
-                      Parent Active
+                      <Unlink size={14} className="inline-icon-msa" />
+                      Remove Parent Link
                     </label>
-                  </div>
+                  )}
+                  <label>
+                    <input
+                      type="radio"
+                      name="parentAction"
+                      value="existing"
+                      checked={parentAction === 'existing'}
+                      onChange={() => setParentAction('existing')}
+                    />
+                    Replace / Link Existing Parent
+                  </label>
+                  <label>
+                    <input
+                      type="radio"
+                      name="parentAction"
+                      value="new"
+                      checked={parentAction === 'new'}
+                      onChange={() => setParentAction('new')}
+                    />
+                    Create & Link New Parent
+                  </label>
                 </div>
-              )}
 
-              <div className="sti-modal-footer">
-                <button type="button" className="sti-btn sti-btn-secondary" onClick={() => setIsEditModalOpen(false)}>
+                {parentAction === 'existing' && (
+                  <div className="parent-box-msa">
+                    <label>Search Existing Parent Account</label>
+                    <input
+                      type="text"
+                      placeholder="Search parent ID, username, or name..."
+                      value={editParentSearch}
+                      onChange={(e) => handleParentSearch(e.target.value, true)}
+                    />
+                    {Array.isArray(editParentSearchResults) && editParentSearchResults.length > 0 && (
+                      <ul className="search-list-msa">
+                        {editParentSearchResults.map((parent) => (
+                          <li 
+                            key={parent.parent_id}
+                            className={editSelectedParentId === parent.parent_id ? 'selected' : ''}
+                            onClick={() => setEditSelectedParentId(parent.parent_id)}
+                          >
+                            <strong>ID: {parent.parent_id}</strong> | User: {parent.username} ({parent.first_name} {parent.last_name})
+                            {editSelectedParentId === parent.parent_id && <Check size={16} />}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {editSelectedParentId && (
+                      <p className="selected-text-msa">Selected Parent ID to Link: <strong>{editSelectedParentId}</strong></p>
+                    )}
+                  </div>
+                )}
+
+                {parentAction === 'new' && (
+                  <div className="parent-box-msa form-grid-msa">
+                    <div className="form-group-msa">
+                      <label>Parent ID *</label>
+                      <input
+                        type="text"
+                        required
+                        value={editNewParentForm.parent_id}
+                        onChange={(e) => setEditNewParentForm({ ...editNewParentForm, parent_id: e.target.value })}
+                      />
+                    </div>
+                    <div className="form-group-msa">
+                      <label>First Name</label>
+                      <input
+                        type="text"
+                        value={editNewParentForm.first_name}
+                        onChange={(e) => setEditNewParentForm({ ...editNewParentForm, first_name: e.target.value })}
+                      />
+                    </div>
+                    <div className="form-group-msa">
+                      <label>Last Name</label>
+                      <input
+                        type="text"
+                        value={editNewParentForm.last_name}
+                        onChange={handleEditParentLastNameChange}
+                      />
+                    </div>
+                    <div className="form-group-msa">
+                      <label>Parent Username *</label>
+                      <div className="domain-input-group-msa">
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. parent.doe"
+                          value={editNewParentForm.username}
+                          onChange={(e) => setEditNewParentForm({ ...editNewParentForm, username: e.target.value })}
+                        />
+                        <span className="domain-suffix-msa">{DOMAIN_EXTENSION}</span>
+                      </div>
+                    </div>
+                    <div className="form-group-msa checkbox-group-msa">
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={editNewParentForm.password === '123'}
+                          onChange={(e) => setEditNewParentForm({ ...editNewParentForm, password: e.target.checked ? '123' : '' })}
+                          required
+                        />
+                        Use default password ("123")
+                      </label>
+                    </div>
+                    <div className="form-group-msa">
+                      <label>Primary Phone</label>
+                      <input
+                        type="text"
+                        value={editNewParentForm.primary_phone}
+                        onChange={(e) => setEditNewParentForm({ ...editNewParentForm, primary_phone: e.target.value })}
+                      />
+                    </div>
+                    <div className="form-group-msa checkbox-group-msa">
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={editNewParentForm.is_active}
+                          onChange={(e) => setEditNewParentForm({ ...editNewParentForm, is_active: e.target.checked })}
+                        />
+                        Parent Active
+                      </label>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="modal-footer-msa">
+                <button type="button" className="btn-msa btn-secondary-msa" onClick={() => setIsEditModalOpen(false)}>
                   Cancel
                 </button>
-                <button type="submit" className="sti-btn sti-btn-primary">
+                <button type="submit" className="btn-msa btn-primary-msa">
                   Save Changes
                 </button>
               </div>

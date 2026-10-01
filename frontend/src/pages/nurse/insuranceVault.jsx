@@ -252,7 +252,7 @@ const InsuranceVault = () => {
         }
     };
 
-    // DELETE ENTIRE VAULT FOLDER (Fixed endpoint singular 'insurance-vault')
+    // DELETE ENTIRE VAULT FOLDER
     const handleDeleteVaultFolder = async (studentId) => {
         if (window.confirm("Are you sure you want to delete this entire insurance vault folder and all its contents?")) {
             try {
@@ -270,50 +270,50 @@ const InsuranceVault = () => {
     };
 
     return (
-        <div className="insurance-vault-container">
+        <div className="insurance-vault-container-iv">
             {/* Header */}
-            <div className="vault-header">
+            <div className="vault-header-iv">
                 <div>
                     <h2>Insurance Vault Repository</h2>
-                    <p className="subtitle">Manage student insurance folders and document repositories.</p>
+                    <p className="subtitle-iv">Manage student insurance folders and document repositories.</p>
                 </div>
-                <button className="btn-add-vault" onClick={handleOpenCreateVaultModal}>
+                <button className="btn-add-vault-iv" onClick={handleOpenCreateVaultModal}>
                     <FolderPlus size={18} /> Add Insurance Vault/Folder
                 </button>
             </div>
 
             {/* Filter Bar */}
-            <div className="vault-filter-bar">
-                <div className="search-box">
-                    <Search className="search-icon" size={18} />
+            <div className="vault-filter-bar-iv">
+                <div className="search-box-iv">
+                    <Search className="search-icon-iv" size={18} />
                     <input 
                         type="text" 
                         placeholder="Search student name, ID, program, section, or year level..."
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
-                    {searchTerm && <X className="clear-icon" size={16} onClick={() => setSearchTerm('')} />}
+                    {searchTerm && <X className="clear-icon-iv" size={16} onClick={() => setSearchTerm('')} />}
                 </div>
 
-                <div className="date-filter-box">
-                    <Calendar size={18} className="date-icon" />
+                <div className="date-filter-box-iv">
+                    <Calendar size={18} className="date-icon-iv" />
                     <input 
                         type="date" 
                         value={dateFilter}
                         onChange={(e) => setDateFilter(e.target.value)}
                     />
-                    {dateFilter && <X className="clear-icon" size={16} onClick={() => setDateFilter('')} />}
+                    {dateFilter && <X className="clear-icon-iv" size={16} onClick={() => setDateFilter('')} />}
                 </div>
             </div>
 
             {/* Vault Folders Table */}
-            <div className="vault-table-wrapper">
+            <div className="vault-table-wrapper-iv">
                 {loading ? (
-                    <div className="vault-loading">Loading Insurance Vault Folders...</div>
+                    <div className="vault-loading-iv">Loading Insurance Vault Folders...</div>
                 ) : filteredFolders.length === 0 ? (
-                    <div className="vault-empty">No insurance vaults found.</div>
+                    <div className="vault-empty-iv">No insurance vaults found.</div>
                 ) : (
-                    <table className="vault-table">
+                    <table className="vault-table-iv">
                         <thead>
                             <tr>
                                 <th>Student ID</th>
@@ -328,32 +328,32 @@ const InsuranceVault = () => {
                         <tbody>
                             {filteredFolders.map((folder) => (
                                 <tr key={folder.student_id}>
-                                    <td className="font-semibold">{folder.student_id}</td>
-                                    <td className="student-name-cell">
-                                        <Folder size={16} className="folder-icon" />
+                                    <td className="font-semibold-iv">{folder.student_id}</td>
+                                    <td className="student-name-cell-iv">
+                                        <Folder size={16} className="folder-icon-iv" />
                                         {folder.student_first_name} {folder.student_last_name}
                                     </td>
                                     <td>
-                                        <span className="badge-program">
+                                        <span className="badge-program-iv">
                                             {folder.program_name} {folder.year_level ? `- Yr ${folder.year_level}` : ''} ({folder.section || 'N/A'})
                                         </span>
                                     </td>
                                     <td>
-                                        <span className="badge-file-count">
+                                        <span className="badge-file-count-iv">
                                             {folder.total_files} File(s)
                                         </span>
                                     </td>
                                     <td>{folder.last_updated ? new Date(folder.last_updated).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : 'N/A'}</td>
                                     <td>{folder.nurse_name || folder.managed_by_nurse_id}</td>
                                     <td>
-                                        <div className="action-buttons">
-                                            <button className="btn-action view" title="Open Vault Folder" onClick={() => handleOpenViewVault(folder)}>
+                                        <div className="action-buttons-iv">
+                                            <button className="btn-action-iv view-iv" title="Open Vault Folder" onClick={() => handleOpenViewVault(folder)}>
                                                 <Eye size={16} />
                                             </button>
-                                            <button className="btn-action add-file" title="Add File to Vault" onClick={() => handleOpenAddFileModal(folder)}>
+                                            <button className="btn-action-iv add-file-iv" title="Add File to Vault" onClick={() => handleOpenAddFileModal(folder)}>
                                                 <FileUp size={16} />
                                             </button>
-                                            <button className="btn-action delete" title="Delete Folder" onClick={() => handleDeleteVaultFolder(folder.student_id)}>
+                                            <button className="btn-action-iv delete-iv" title="Delete Folder" onClick={() => handleDeleteVaultFolder(folder.student_id)}>
                                                 <Trash2 size={16} />
                                             </button>
                                         </div>
@@ -367,15 +367,15 @@ const InsuranceVault = () => {
 
             {/* MODAL 1: ADD INSURANCE VAULT / FOLDER */}
             {isCreateVaultModalOpen && (
-                <div className="modal-overlay">
-                    <div className="modal-card">
-                        <div className="modal-header">
+                <div className="modal-overlay-iv">
+                    <div className="modal-card-iv">
+                        <div className="modal-header-iv">
                             <h3>Add Insurance Vault Folder</h3>
-                            <button className="close-btn" onClick={() => setIsCreateVaultModalOpen(false)}><X size={20} /></button>
+                            <button className="close-btn-iv" onClick={() => setIsCreateVaultModalOpen(false)}><X size={20} /></button>
                         </div>
                         <form onSubmit={handleConfirmCreateVault}>
-                            <div className="modal-body">
-                                <div className="form-group search-form-group">
+                            <div className="modal-body-iv">
+                                <div className="form-group-iv search-form-group-iv">
                                     <label>Search Student (Name or Student ID)</label>
                                     <input 
                                         type="text"
@@ -388,7 +388,7 @@ const InsuranceVault = () => {
                                         required
                                     />
                                     {searchResults.length > 0 && !selectedStudent && (
-                                        <ul className="search-dropdown">
+                                        <ul className="search-dropdown-iv">
                                             {searchResults.map((st) => (
                                                 <li 
                                                     key={st.student_id} 
@@ -398,8 +398,8 @@ const InsuranceVault = () => {
                                                         setSearchResults([]);
                                                     }}
                                                 >
-                                                    <div className="search-item-name">{st.first_name} {st.last_name}</div>
-                                                    <div className="search-item-sub">ID: {st.student_id} | {st.program_name} ({st.section || 'N/A'})</div>
+                                                    <div className="search-item-name-iv">{st.first_name} {st.last_name}</div>
+                                                    <div className="search-item-sub-iv">ID: {st.student_id} | {st.program_name} ({st.section || 'N/A'})</div>
                                                 </li>
                                             ))}
                                         </ul>
@@ -407,17 +407,17 @@ const InsuranceVault = () => {
                                 </div>
 
                                 {selectedStudent && (
-                                    <div className="selected-student-card">
-                                        <div className="card-row"><UserCheck size={18} color="#0055a5" /> <strong>Student Name:</strong> {selectedStudent.first_name} {selectedStudent.last_name}</div>
-                                        <div className="card-row"><strong>Student ID:</strong> {selectedStudent.student_id}</div>
-                                        <div className="card-row"><strong>Program:</strong> {selectedStudent.program_name}</div>
-                                        <div className="card-row"><strong>Year & Section:</strong> Year {selectedStudent.year_level || 'N/A'} - {selectedStudent.section || 'N/A'}</div>
+                                    <div className="selected-student-card-iv">
+                                        <div className="card-row-iv"><UserCheck size={18} color="#0055a5" /> <strong>Student Name:</strong> {selectedStudent.first_name} {selectedStudent.last_name}</div>
+                                        <div className="card-row-iv"><strong>Student ID:</strong> {selectedStudent.student_id}</div>
+                                        <div className="card-row-iv"><strong>Program:</strong> {selectedStudent.program_name}</div>
+                                        <div className="card-row-iv"><strong>Year & Section:</strong> Year {selectedStudent.year_level || 'N/A'} - {selectedStudent.section || 'N/A'}</div>
                                     </div>
                                 )}
                             </div>
-                            <div className="modal-footer">
-                                <button type="button" className="btn-secondary" onClick={() => setIsCreateVaultModalOpen(false)}>Cancel</button>
-                                <button type="submit" className="btn-primary" disabled={!selectedStudent}>Confirm Vault Folder</button>
+                            <div className="modal-footer-iv">
+                                <button type="button" className="btn-secondary-iv" onClick={() => setIsCreateVaultModalOpen(false)}>Cancel</button>
+                                <button type="submit" className="btn-primary-iv" disabled={!selectedStudent}>Confirm Vault Folder</button>
                             </div>
                         </form>
                     </div>
@@ -426,19 +426,19 @@ const InsuranceVault = () => {
 
             {/* MODAL 2: UPLOAD FILE INTO VAULT */}
             {isAddFileModalOpen && selectedFolder && (
-                <div className="modal-overlay">
-                    <div className="modal-card">
-                        <div className="modal-header">
+                <div className="modal-overlay-iv">
+                    <div className="modal-card-iv">
+                        <div className="modal-header-iv">
                             <h3>Upload File to Vault</h3>
-                            <button className="close-btn" onClick={() => setIsAddFileModalOpen(false)}><X size={20} /></button>
+                            <button className="close-btn-iv" onClick={() => setIsAddFileModalOpen(false)}><X size={20} /></button>
                         </div>
                         <form onSubmit={handleAddFileToVault}>
-                            <div className="modal-body">
-                                <div className="selected-student-card">
+                            <div className="modal-body-iv">
+                                <div className="selected-student-card-iv">
                                     <strong>Vault Folder:</strong> {selectedFolder.student_first_name} {selectedFolder.student_last_name} ({selectedFolder.student_id})
                                 </div>
 
-                                <div className="form-group" style={{ marginTop: '14px' }}>
+                                <div className="form-group-iv" style={{ marginTop: '14px' }}>
                                     <label>Document Name / Title</label>
                                     <input 
                                         type="text" 
@@ -449,7 +449,7 @@ const InsuranceVault = () => {
                                     />
                                 </div>
 
-                                <div className="form-group">
+                                <div className="form-group-iv">
                                     <label>Select Document File</label>
                                     <input 
                                         type="file" 
@@ -458,7 +458,7 @@ const InsuranceVault = () => {
                                     />
                                 </div>
 
-                                <div className="form-group">
+                                <div className="form-group-iv">
                                     <label>Description / Notes</label>
                                     <textarea 
                                         rows="3" 
@@ -468,9 +468,9 @@ const InsuranceVault = () => {
                                     ></textarea>
                                 </div>
                             </div>
-                            <div className="modal-footer">
-                                <button type="button" className="btn-secondary" onClick={() => setIsAddFileModalOpen(false)}>Cancel</button>
-                                <button type="submit" className="btn-primary">Upload File</button>
+                            <div className="modal-footer-iv">
+                                <button type="button" className="btn-secondary-iv" onClick={() => setIsAddFileModalOpen(false)}>Cancel</button>
+                                <button type="submit" className="btn-primary-iv">Upload File</button>
                             </div>
                         </form>
                     </div>
@@ -479,48 +479,48 @@ const InsuranceVault = () => {
 
             {/* MODAL 3: VIEW VAULT FOLDER CONTENTS */}
             {isViewModalOpen && selectedFolder && (
-                <div className="modal-overlay">
-                    <div className="modal-card modal-large">
-                        <div className="modal-header">
+                <div className="modal-overlay-iv">
+                    <div className="modal-card-iv modal-large-iv">
+                        <div className="modal-header-iv">
                             <h3>Vault Contents - {selectedFolder.student_first_name} {selectedFolder.student_last_name}</h3>
-                            <button className="close-btn" onClick={() => setIsViewModalOpen(false)}><X size={20} /></button>
+                            <button className="close-btn-iv" onClick={() => setIsViewModalOpen(false)}><X size={20} /></button>
                         </div>
-                        <div className="modal-body">
-                            <div className="vault-info-banner">
+                        <div className="modal-body-iv">
+                            <div className="vault-info-banner-iv">
                                 <div><strong>Student ID:</strong> {selectedFolder.student_id}</div>
                                 <div><strong>Program:</strong> {selectedFolder.program_name} ({selectedFolder.section})</div>
                             </div>
 
-                            <div className="vault-files-header">
+                            <div className="vault-files-header-iv">
                                 <h4>Files Stored in Vault ({vaultFiles.length})</h4>
-                                <button className="btn-add-vault" style={{ padding: '6px 12px', fontSize: '0.85rem' }} onClick={() => handleOpenAddFileModal(selectedFolder)}>
+                                <button className="btn-add-vault-iv" style={{ padding: '6px 12px', fontSize: '0.85rem' }} onClick={() => handleOpenAddFileModal(selectedFolder)}>
                                     <FileUp size={14} /> Add File
                                 </button>
                             </div>
 
                             {vaultFiles.length === 0 ? (
-                                <div className="vault-empty">No files uploaded in this student's vault folder yet.</div>
+                                <div className="vault-empty-iv">No files uploaded in this student's vault folder yet.</div>
                             ) : (
-                                <ul className="files-list">
+                                <ul className="files-list-iv">
                                     {vaultFiles.map((file) => (
-                                        <li key={file.vault_file_id} className="file-item">
-                                            <div className="file-info">
-                                                <FileText size={20} className="file-icon" />
+                                        <li key={file.vault_file_id} className="file-item-iv">
+                                            <div className="file-info-iv">
+                                                <FileText size={20} className="file-icon-iv" />
                                                 <div>
-                                                    <strong className="file-title">{file.document_name}</strong>
-                                                    <p className="file-meta">
+                                                    <strong className="file-title-iv">{file.document_name}</strong>
+                                                    <p className="file-meta-iv">
                                                         Uploaded: {new Date(file.uploaded_at).toLocaleDateString()} | By: {file.nurse_name || file.managed_by_nurse_id}
                                                     </p>
-                                                    {file.description_notes && <p className="file-notes">{file.description_notes}</p>}
+                                                    {file.description_notes && <p className="file-notes-iv">{file.description_notes}</p>}
                                                 </div>
                                             </div>
-                                            <div className="file-actions">
+                                            <div className="file-actions-iv">
                                                 {file.file_url && (
-                                                    <a href={`http://localhost:3001${file.file_url}`} target="_blank" rel="noopener noreferrer" className="btn-action view" title="View/Download">
+                                                    <a href={`http://localhost:3001${file.file_url}`} target="_blank" rel="noopener noreferrer" className="btn-action-iv view-iv" title="View/Download">
                                                         <Download size={16} />
                                                     </a>
                                                 )}
-                                                <button className="btn-action delete" onClick={() => handleDeleteFile(file.vault_file_id)} title="Delete File">
+                                                <button className="btn-action-iv delete-iv" onClick={() => handleDeleteFile(file.vault_file_id)} title="Delete File">
                                                     <Trash2 size={16} />
                                                 </button>
                                             </div>
@@ -529,8 +529,8 @@ const InsuranceVault = () => {
                                 </ul>
                             )}
                         </div>
-                        <div className="modal-footer">
-                            <button type="button" className="btn-primary" onClick={() => setIsViewModalOpen(false)}>Close Vault</button>
+                        <div className="modal-footer-iv">
+                            <button type="button" className="btn-primary-iv" onClick={() => setIsViewModalOpen(false)}>Close Vault</button>
                         </div>
                     </div>
                 </div>

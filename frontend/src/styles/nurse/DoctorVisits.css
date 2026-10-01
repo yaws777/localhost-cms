@@ -1,5 +1,5 @@
 /* ==========================================================================
-   DOCTOR VISIT MODULE - STI THEME STYLESHEET
+   DOCTOR VISIT MODULE - STI THEME STYLESHEET (-dv scoped)
    ========================================================================== */
 
 :root {
@@ -15,7 +15,7 @@
     --sti-danger: #ef4444;
 }
 
-.doctor-visit-container {
+.container-dv {
     padding: 24px;
     background-color: var(--sti-light-bg);
     min-height: 100vh;
@@ -24,7 +24,7 @@
 }
 
 /* Header Section */
-.dv-header {
+.header-dv {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -36,25 +36,25 @@
     border-left: 5px solid var(--sti-blue);
 }
 
-.dv-header h2 {
+.header-dv h2 {
     margin: 0;
     color: var(--sti-navy);
     font-size: 1.5rem;
 }
 
-.dv-subtitle {
+.subtitle-dv {
     margin: 4px 0 0 0;
     color: var(--sti-text-muted);
     font-size: 0.88rem;
 }
 
-.dv-header-actions {
+.header-actions-dv {
     display: flex;
     gap: 12px;
 }
 
 /* STI Button Styles */
-.sti-btn {
+.sti-btn-dv {
     display: inline-flex;
     align-items: center;
     gap: 8px;
@@ -67,31 +67,31 @@
     transition: all 0.2s ease;
 }
 
-.sti-btn-primary {
+.sti-btn-primary-dv {
     background-color: var(--sti-blue);
     color: #ffffff;
 }
 
-.sti-btn-primary:hover {
+.sti-btn-primary-dv:hover {
     background-color: var(--sti-navy);
 }
 
-.sti-btn-secondary {
+.sti-btn-secondary-dv {
     background-color: var(--sti-yellow);
     color: var(--sti-navy);
 }
 
-.sti-btn-secondary:hover {
+.sti-btn-secondary-dv:hover {
     background-color: var(--sti-yellow-hover);
 }
 
-.sti-btn-light {
+.sti-btn-light-dv {
     background-color: #e2e8f0;
     color: var(--sti-text-dark);
 }
 
 /* Doctors Bar */
-.doctors-bar {
+.doctors-bar-dv {
     background: #ffffff;
     padding: 12px 16px;
     border-radius: 8px;
@@ -102,7 +102,7 @@
     border: 1px solid var(--sti-border);
 }
 
-.doctors-bar-title {
+.doctors-bar-title-dv {
     display: flex;
     align-items: center;
     gap: 6px;
@@ -112,13 +112,13 @@
     white-space: nowrap;
 }
 
-.doctors-chip-list {
+.doctors-chip-list-dv {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
 }
 
-.doctor-chip {
+.doctor-chip-dv {
     background: #eef6ff;
     border: 1px solid #bedbff;
     padding: 4px 10px;
@@ -130,7 +130,7 @@
     gap: 6px;
 }
 
-.chip-edit-btn {
+.chip-edit-btn-dv {
     background: none;
     border: none;
     color: var(--sti-blue);
@@ -140,12 +140,12 @@
     align-items: center;
 }
 
-.chip-edit-btn:hover {
+.chip-edit-btn-dv:hover {
     color: var(--sti-navy);
 }
 
 /* Tabs & Filter Bar */
-.dv-tabs-container {
+.tabs-container-dv {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -153,7 +153,7 @@
     gap: 16px;
 }
 
-.dv-tabs {
+.tabs-dv {
     display: flex;
     background: #ffffff;
     padding: 4px;
@@ -161,7 +161,7 @@
     border: 1px solid var(--sti-border);
 }
 
-.tab-btn {
+.tab-btn-dv {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -176,12 +176,12 @@
     transition: all 0.2s;
 }
 
-.tab-btn.active {
+.tab-btn-dv.active-dv {
     background-color: var(--sti-blue);
     color: #ffffff;
 }
 
-.dv-search-box {
+.search-box-dv {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -192,7 +192,7 @@
     width: 300px;
 }
 
-.dv-search-box input {
+.search-box-dv input {
     border: none;
     outline: none;
     width: 100%;
@@ -200,7 +200,7 @@
 }
 
 /* Table Card */
-.dv-table-card {
+.table-card-dv {
     background: #ffffff;
     border-radius: 8px;
     border: 1px solid var(--sti-border);
@@ -208,13 +208,13 @@
     overflow-x: auto;
 }
 
-.sti-table {
+.sti-table-dv {
     width: 100%;
     border-collapse: collapse;
     text-align: left;
 }
 
-.sti-table th {
+.sti-table-dv th {
     background: #f1f5f9;
     color: var(--sti-navy);
     padding: 12px 16px;
@@ -224,21 +224,21 @@
     border-bottom: 2px solid var(--sti-border);
 }
 
-.sti-table td {
+.sti-table-dv td {
     padding: 14px 16px;
     border-bottom: 1px solid var(--sti-border);
     font-size: 0.88rem;
     vertical-align: middle;
 }
 
-.sub-text {
+.sub-text-dv {
     font-size: 0.78rem;
     color: var(--sti-text-muted);
     margin-top: 2px;
 }
 
 /* Status Badges */
-.status-badge {
+.status-badge-dv {
     padding: 4px 10px;
     border-radius: 12px;
     font-size: 0.75rem;
@@ -246,27 +246,42 @@
     text-transform: uppercase;
 }
 
-.badge-upcoming {
+.badge-upcoming-dv {
     background: #e0f2fe;
     color: #0369a1;
 }
 
-.badge-ongoing {
+.badge-ongoing-dv {
     background: #fef3c7;
     color: #b45309;
 }
 
-.badge-completed {
+.badge-completed-dv {
     background: #dcfce7;
     color: #15803d;
 }
 
-.badge-cancelled {
+.badge-cancelled-dv {
     background: #fee2e2;
     color: #b91c1c;
 }
 
-.doc-done-badge {
+.badge-present-dv {
+    background: #dcfce7;
+    color: #15803d;
+}
+
+.badge-absent-dv {
+    background: #fee2e2;
+    color: #b91c1c;
+}
+
+.badge-pending-dv {
+    background: #f1f5f9;
+    color: #64748b;
+}
+
+.doc-done-badge-dv {
     color: var(--sti-success);
     font-weight: 600;
     display: inline-flex;
@@ -275,19 +290,19 @@
     font-size: 0.82rem;
 }
 
-.doc-pending-badge {
+.doc-pending-badge-dv {
     color: var(--sti-text-muted);
     font-style: italic;
     font-size: 0.82rem;
 }
 
 /* Table Action Buttons */
-.table-actions {
+.table-actions-dv {
     display: flex;
     gap: 8px;
 }
 
-.action-btn {
+.action-btn-dv {
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -301,28 +316,28 @@
     transition: background 0.15s;
 }
 
-.action-btn.edit:hover {
+.action-btn-dv.edit-dv:hover {
     background: #e0f2fe;
     color: var(--sti-blue);
 }
 
-.action-btn.cancel:hover {
+.action-btn-dv.cancel-dv:hover {
     background: #fee2e2;
     color: var(--sti-danger);
 }
 
-.action-btn.document {
+.action-btn-dv.document-dv {
     background: var(--sti-navy);
     color: #ffffff;
     border: none;
 }
 
-.action-btn.document:hover {
+.action-btn-dv.document-dv:hover {
     background: var(--sti-blue);
 }
 
 /* Modal Styling */
-.modal-overlay {
+.modal-overlay-dv {
     position: fixed;
     top: 0;
     left: 0;
@@ -335,7 +350,7 @@
     z-index: 1000;
 }
 
-.modal-content {
+.modal-content-dv {
     background: #ffffff;
     width: 480px;
     max-width: 90%;
@@ -346,12 +361,12 @@
     overflow-y: auto;
 }
 
-.modal-content.modal-large {
-    width: 850px;           /* Widened from 680px to 850px */
-    max-width: 95vw;        /* Responsive safeguard on small screens */
+.modal-content-dv.modal-large-dv {
+    width: 95%;
+    max-width: 95%;
 }
 
-.modal-header {
+.modal-header-dv {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -360,23 +375,23 @@
     padding-bottom: 12px;
 }
 
-.modal-header h3 {
+.modal-header-dv h3 {
     margin: 0;
     color: var(--sti-navy);
 }
 
-.close-btn {
+.close-btn-dv {
     background: none;
     border: none;
     cursor: pointer;
     color: var(--sti-text-muted);
 }
 
-.form-group {
+.form-group-dv {
     margin-bottom: 14px;
 }
 
-.form-group label {
+.form-group-dv label {
     display: block;
     font-size: 0.82rem;
     font-weight: 600;
@@ -384,9 +399,9 @@
     margin-bottom: 6px;
 }
 
-.form-group input,
-.form-group select,
-.form-group textarea {
+.form-group-dv input,
+.form-group-dv select,
+.form-group-dv textarea {
     width: 100%;
     padding: 9px 12px;
     border: 1px solid var(--sti-border);
@@ -395,16 +410,16 @@
     box-sizing: border-box;
 }
 
-.form-row {
+.form-row-dv {
     display: flex;
     gap: 12px;
 }
 
-.form-row .form-group {
+.form-row-dv .form-group-dv {
     flex: 1;
 }
 
-.modal-footer {
+.modal-footer-dv {
     display: flex;
     justify-content: flex-end;
     gap: 10px;
@@ -413,18 +428,18 @@
     border-top: 1px solid var(--sti-border);
 }
 
-.student-select-list {
-    max-height: 220px;       /* Increased height for easier scrolling */
+.student-select-list-dv {
+    max-height: 220px;
     overflow-y: auto;
     border: 1px solid var(--sti-border);
     border-radius: 6px;
     padding: 10px;
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); /* Automatically forms clean multi-column grid in wide view */
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
     gap: 8px;
 }
 
-.student-checkbox-item {
+.student-checkbox-item-dv {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -434,11 +449,12 @@
     font-size: 0.85rem;
 }
 
-.student-checkbox-item:hover, .student-checkbox-item.selected {
+.student-checkbox-item-dv:hover, 
+.student-checkbox-item-dv.selected-dv {
     background-color: #eef6ff;
 }
 
-.error-banner {
+.error-banner-dv {
     background-color: #fef2f2;
     border: 1px solid #fecaca;
     color: #991b1b;
@@ -451,7 +467,7 @@
     margin-bottom: 14px;
 }
 
-.appt-info-card {
+.appt-info-card-dv {
     background: #f1f5f9;
     padding: 10px;
     border-radius: 6px;
@@ -459,9 +475,9 @@
     font-size: 0.88rem;
 }
 
-.dv-loading, .dv-empty-state {
+.loading-dv, 
+.empty-state-dv {
     padding: 40px;
     text-align: center;
     color: var(--sti-text-muted);
 }
-

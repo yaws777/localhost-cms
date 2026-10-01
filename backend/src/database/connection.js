@@ -1024,6 +1024,10 @@ app.put('/api/update-profile', async (req, res) => {
 // REQUIREMENT MANAGEMENT API
 // =========================================================================
 
+// =========================================================================
+// REQUIREMENT MANAGEMENT API
+// =========================================================================
+
 // 1. Get all students with dynamic metric auto-evaluation pipeline
 app.get('/api/students', async (req, res) => {
     try {
@@ -1133,7 +1137,7 @@ app.get('/api/students', async (req, res) => {
     }
 });
 
-// 2. Get combined requirements list matching all statuses for a specific student
+// 2. Get combined requirements list matching all statuses for a specific student (Includes submission_id)
 app.get('/api/students/:id/full-requirements', async (req, res) => {
     const studentId = req.params.id; 
     try {
@@ -1166,7 +1170,7 @@ app.get('/api/students/:id/full-requirements', async (req, res) => {
         ); 
         
         const [submissions] = await pool.query(
-            `SELECT requirement_name, status, file_url, nurse_remarks, submitted_at 
+            `SELECT submission_id, requirement_name, status, file_url, nurse_remarks, submitted_at 
              FROM student_requirement_submissions WHERE student_id = ?`, [studentId]
         ); 
 
@@ -1250,6 +1254,7 @@ app.get('/api/students/:id/full-requirements', async (req, res) => {
 
             return {
                 ...req, 
+                submission_id: sub.submission_id || null,
                 status: sub.status, 
                 file_url: fileUrl, 
                 nurse_remarks: sub.nurse_remarks || '', 
@@ -1344,7 +1349,6 @@ app.post('/api/students/:id/special-requirements', async (req, res) => {
 
         await connection.commit();
 
-        // Trigger System + Web Push Notification via Helper
         if (student.student_user_id) {
             await notifyUsers({
                 sender_id: senderUserId,
@@ -1367,7 +1371,7 @@ app.post('/api/students/:id/special-requirements', async (req, res) => {
     }
 });
 
-// 4. Update requirement submission & notify student via System DB + Web Push
+// 4. Update requirement submission & notify student
 app.put('/api/students/:id/requirements/:reqName', async (req, res) => {
     try {
         const studentId = req.params.id;
@@ -1483,7 +1487,6 @@ app.put('/api/students/:id/requirements/:reqName', async (req, res) => {
             }
         }
 
-        // Trigger System + Web Push Notification via Helper
         if (student.student_user_id) {
             await notifyUsers({
                 sender_id: senderUserId,
@@ -1539,7 +1542,7 @@ app.get('/api/program-requirements-config', async (req, res) => {
     }
 });
 
-// 8. ADD REQUIREMENT RULE ARCHITECTURE AND AUTOMATICALLY SEED STUDENT SUBMISSIONS
+// 8. ADD REQUIREMENT RULE ARCHITECTURE
 app.post('/api/programs/:programId/requirements', async (req, res) => {
     const { programId } = req.params;
     const { requirement_name, year_level, submission_deadline, allow_late_submission } = req.body;
@@ -1660,7 +1663,7 @@ app.put('/api/programs/:programId/requirements/:configId', async (req, res) => {
     }
 });
 
-// 10. REMOVE CONFIGURATION RULE WITH AUTOMATIC TRACKER CASCADE CLEANUP
+// 10. REMOVE CONFIGURATION RULE
 app.delete('/api/programs/:programId/requirements/:configId', async (req, res) => {
     const { programId, configId } = req.params;
     const connection = await pool.getConnection();
@@ -1711,9 +1714,7 @@ app.delete('/api/programs/:programId/requirements/:configId', async (req, res) =
     }
 });
 
-//Student Upload Requirements
-// Student Upload Requirement & send notification to nurse
-// Student Upload Requirement & send notification to nurse
+// 11. Student Upload Requirement & send notification with navigate_id (submission_id)
 app.post('/api/students/:id/requirements/:reqName/submit', upload.single('file'), async (req, res) => {
     const studentId = req.params.id;
     const reqName = req.params.reqName;
@@ -1790,7 +1791,10 @@ app.post('/api/students/:id/requirements/:reqName/submit', upload.single('file')
             [studentId, reqName]
         );
 
+        let activeSubmissionId;
+
         if (checkExisting.length > 0) {
+            activeSubmissionId = checkExisting[0].submission_id;
             await pool.query(
                 `UPDATE student_requirement_submissions 
                  SET file_url = ?, status = ?, is_late = ?, submitted_at = NOW() 
@@ -1798,11 +1802,12 @@ app.post('/api/students/:id/requirements/:reqName/submit', upload.single('file')
                 [file_url, targetStatus, isLateTinyInt, studentId, reqName]
             );
         } else {
+            activeSubmissionId = `SUB-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
             await pool.query(
                 `INSERT INTO student_requirement_submissions 
                  (submission_id, student_id, requirement_name, file_url, status, is_late, submitted_at, nurse_remarks) 
-                 VALUES (UUID(), ?, ?, ?, ?, ?, NOW(), '')`,
-                [studentId, reqName, file_url, targetStatus, isLateTinyInt]
+                 VALUES (?, ?, ?, ?, ?, ?, NOW(), '')`,
+                [activeSubmissionId, studentId, reqName, file_url, targetStatus, isLateTinyInt]
             );
         }
 
@@ -1810,23 +1815,53 @@ app.post('/api/students/:id/requirements/:reqName/submit', upload.single('file')
         const [nurses] = await pool.query(`SELECT user_id FROM nurses WHERE user_id IS NOT NULL`);
         const nurseUserIds = nurses.map(nurse => nurse.user_id);
 
-        // TRIGGER SYSTEM DB + WEB PUSH NOTIFICATIONS VIA HELPER
+        // TRIGGER NOTIFICATIONS WITH navigate_id = activeSubmissionId
         if (nurseUserIds.length > 0) {
             await notifyUsers({
                 sender_id: studentUserId,
                 recipient_ids: nurseUserIds,
                 title: 'New Student Submission',
-                message: `${student.first_name} ${student.last_name} (${student.course}) submitted "${reqName}" (${targetStatus}).`,
+                message: `${student.first_name} ${student.last_name} (${student.course}) submitted "${reqName}".`,
                 type: 'requirement_submission',
-                payloadData: { url: `/nurse/students/${studentId}` }
+                navigate_id: activeSubmissionId, // <--- Passes submission_id
+                payloadData: { url: `/RequirementManagement`, submission_id: activeSubmissionId }
             });
         }
 
-        res.json({ success: true, message: "Requirement uploaded and push notification delivered!", status: targetStatus });
+        res.json({ 
+            success: true, 
+            message: "Requirement uploaded and push notification delivered!", 
+            status: targetStatus,
+            submission_id: activeSubmissionId 
+        });
 
     } catch (err) {
         console.error("Critical student submission channel fault:", err.message);
         res.status(500).json({ success: false, error: "Internal processing error: " + err.message });
+    }
+});
+
+// 12. GET SUBMISSION & STUDENT DETAILS BY SUBMISSION_ID FOR DIRECT DEEP LINKING
+app.get('/api/submissions/:submissionId', async (req, res) => {
+    const { submissionId } = req.params;
+    try {
+        const [rows] = await pool.query(
+            `SELECT srs.submission_id, srs.requirement_name, srs.status, srs.file_url, srs.nurse_remarks, srs.submitted_at,
+                    s.student_id, s.first_name, s.last_name, s.program_id, s.year_level, s.section
+             FROM student_requirement_submissions srs
+             JOIN students s ON srs.student_id = s.student_id
+             WHERE srs.submission_id = ?`,
+            [submissionId]
+        );
+
+        if (rows.length === 0) {
+            return res.status(404).json({ success: false, error: "Submission record not found." });
+        }
+
+        res.json({ success: true, submission: rows[0] });
+    } catch (err) {
+        console.error("Error retrieving submission details:", err.message);
+        res.status(500).json({ success: false, error: err.message });
     }
 });
 
@@ -2680,6 +2715,57 @@ app.post('/api/dispensation', async (req, res) => {
 // Visit Log Consultation API
 // GET: Search students
 // GET: Search students
+/**
+ * Helper function to send SMS notifications via Semaphore API
+ * @param {string} phoneNumber - Recipient phone number (e.g., 09171234567 or +639171234567)
+ * @param {string} message - Text content of the SMS
+ * @returns {Promise<boolean>} - Returns true if dispatched successfully
+ */
+const sendSemaphoreSms = async (phoneNumber, message) => {
+    const apiKey = process.env.SEMAPHORE_API_KEY;
+    const senderName = process.env.SEMAPHORE_SENDER_NAME;
+
+    if (!apiKey) {
+        console.warn('[SMS Warning] SEMAPHORE_API_KEY is not defined in environment variables.');
+        return false;
+    }
+
+    try {
+        const payload = new URLSearchParams({
+            apikey: apiKey,
+            number: phoneNumber,
+            message: message
+        });
+
+        if (senderName) {
+            payload.append('sendername', senderName);
+        }
+
+        const response = await fetch('https://api.semaphore.co/api/v4/messages', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: payload.toString()
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            console.log(`[SMS Success] Sent to ${phoneNumber}:`, data);
+            return true;
+        } else {
+            console.error(`[SMS Error] Failed to send to ${phoneNumber}:`, data);
+            return false;
+        }
+    } catch (error) {
+        console.error(`[SMS Exception] Semaphore API Error for ${phoneNumber}:`, error.message);
+        return false;
+    }
+};
+
+// GET: Search students
+// GET: Search students
 app.get('/api/students/search', async (req, res) => {
     const { query } = req.query;
     if (!query) return res.json([]);
@@ -2710,7 +2796,7 @@ app.get('/api/chief-complaints', async (req, res) => {
     }
 });
 
-// GET: Retrieve available medicine batches with parent medicine details
+// GET: Retrieve available medicine batches
 app.get('/api/medicines/batches', async (req, res) => {
     try {
         const sql = `
@@ -2721,6 +2807,7 @@ app.get('/api/medicines/batches', async (req, res) => {
                 b.expiration_date, 
                 b.current_stock,
                 b.remaining_volume,
+                m.dosage_form,
                 m.strength_unit_value,
                 m.strength_unit_of_measure,
                 m.avg_dosage_consumption_value,
@@ -2764,7 +2851,7 @@ app.get('/api/clinic-visits', async (req, res) => {
     }
 });
 
-// POST: Add a new Visit Log Consultation with validation against duplicate active visits
+// POST: Add a new Visit Log Consultation
 app.post('/api/clinic-visits', async (req, res) => {
     const connection = await pool.getConnection();
     try {
@@ -2775,7 +2862,7 @@ app.post('/api/clinic-visits', async (req, res) => {
             nurse_id,
             complaint_id,
             specify_complaint_text,
-            specify_complaints_text, // fallback mapping
+            specify_complaints_text,
             visit_date,
             time_in,
             time_out,
@@ -2784,7 +2871,7 @@ app.post('/api/clinic-visits', async (req, res) => {
             pulse_rate,
             blood_pressure,
             nursing_intervention,
-            recommendations,
+            assessment,
             batch_id,
             dosage_consumption_unit_value,
             dosage_consumption_unit_of_measure
@@ -2792,7 +2879,6 @@ app.post('/api/clinic-visits', async (req, res) => {
 
         const specifyText = specify_complaint_text || specify_complaints_text || null;
 
-        // Prevent duplicate concurrent active clinic visits
         const [activeVisits] = await connection.execute(
             `SELECT visit_id FROM clinic_visits 
              WHERE student_id = ? AND visit_date = ? AND (time_out IS NULL OR time_out = '') 
@@ -2808,22 +2894,34 @@ app.post('/api/clinic-visits', async (req, res) => {
             });
         }
 
-        const visit_id = 'VISIT-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+        // --- Generate Custom Sequential Visit ID (VISIT-MMDDYYXXX) ---
+        // Converts "YYYY-MM-DD" -> "MMDDYY" (e.g., "2026-09-29" -> "092926")
+        const [yearStr, monthStr, dayStr] = visit_date.split('-');
+        const datePrefix = `${monthStr}${dayStr}${yearStr.slice(-2)}`;
+
+        // Lock existing visits for today to safely increment sequence number
+        const [countRows] = await connection.execute(
+            `SELECT COUNT(*) AS totalToday FROM clinic_visits WHERE visit_date = ? FOR UPDATE`,
+            [visit_date]
+        );
+
+        const sequenceNum = String(countRows[0].totalToday + 1).padStart(3, '0');
+        const visit_id = `VISIT-${datePrefix}${sequenceNum}`; // Generates format: VISIT-092926001
 
         const visitSql = `
             INSERT INTO clinic_visits (
                 visit_id, student_id, nurse_id, complaint_id, specify_complaint_text, visit_date, 
                 time_in, time_out, temperature, respiratory_rate, pulse_rate, 
-                blood_pressure, nursing_intervention, recommendations
+                blood_pressure, nursing_intervention, assessment
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
         await connection.execute(visitSql, [
             visit_id, student_id, nurse_id || null, complaint_id || null, specifyText, visit_date,
             time_in || null, time_out || null, temperature || null, respiratory_rate || null,
-            pulse_rate || null, blood_pressure || null, nursing_intervention || null, recommendations || null
+            pulse_rate || null, blood_pressure || null, nursing_intervention || null, assessment || null
         ]);
 
-        // --- Handle Medicine Dispensation ---
+        // Medicine Dispensation
         if (batch_id && dosage_consumption_unit_value) {
             const numericVal = parseFloat(dosage_consumption_unit_value);
 
@@ -2906,7 +3004,7 @@ app.post('/api/clinic-visits', async (req, res) => {
             );
         }
 
-        // --- System & Push & SMS Notification Logic ---
+        // --- System, Push, and Semaphore SMS Notification Logic (Time In) ---
         let smsNotificationSent = false;
         try {
             const detailsSql = `
@@ -2917,23 +3015,12 @@ app.post('/api/clinic-visits', async (req, res) => {
                     p.user_id AS parent_user_id,
                     p.primary_phone,
                     n.user_id AS nurse_user_id,
-                    cc.complaint_name,
-                    cv.time_in,
-                    cv.time_out,
-                    cv.nursing_intervention,
-                    cv.recommendations,
-                    cd.dosage_consumption_unit_value,
-                    cd.dosage_consumption_unit_of_measure,
-                    CONCAT(m.brand_name, ' (', m.generic_name, ')') AS medicine_name
+                    cv.time_in
                 FROM clinic_visits cv
                 JOIN students s ON cv.student_id = s.student_id
                 LEFT JOIN nurses n ON cv.nurse_id = n.nurse_id
                 LEFT JOIN parent_student_mapping psm ON s.student_id = psm.student_id
                 LEFT JOIN parents p ON psm.parent_id = p.parent_id
-                LEFT JOIN chief_complaints cc ON cv.complaint_id = cc.complaint_id
-                LEFT JOIN consultation_dispensation cd ON cv.visit_id = cd.visit_id
-                LEFT JOIN medicine_inventory_batches mib ON cd.batch_id = mib.batch_id
-                LEFT JOIN medicines m ON mib.medicine_id = m.medicine_id
                 WHERE cv.visit_id = ?
             `;
 
@@ -2942,21 +3029,13 @@ app.post('/api/clinic-visits', async (req, res) => {
             if (detailsRows.length > 0) {
                 const info = detailsRows[0];
                 const studentFullName = `${info.student_first_name} ${info.student_last_name}`;
-                const complaintName = info.complaint_name || 'General Checkup';
-                const timeInStr = info.time_in ? `Time In: ${info.time_in}` : '';
-                const timeOutStr = info.time_out ? `Time Out: ${info.time_out}` : '';
-                const adviceStr = info.recommendations ? `Advice: ${info.recommendations}` : '';
-
-                const notifTitle = `Clinic Visit Logged: ${studentFullName}`;
-                const notifMessage = [
-                    `${studentFullName} visited for ${complaintName}.`,
-                    timeInStr,
-                    timeOutStr,
-                    adviceStr
-                ].filter(Boolean).join(' ');
+                
+                const notifMessage = `${studentFullName} visit in clinic with time of ${info.time_in}`;
+                const notifTitle = `Clinic Check-In: ${studentFullName}`;
 
                 const recipient_ids = [info.parent_user_id, info.student_user_id].filter(Boolean);
 
+                // Send System / Push Notification
                 await notifyUsers({
                     sender_id: info.nurse_user_id || null,
                     recipient_ids: recipient_ids,
@@ -2966,23 +3045,20 @@ app.post('/api/clinic-visits', async (req, res) => {
                     payloadData: { visit_id }
                 });
 
+                // Send SMS Notification via Semaphore
                 if (info.primary_phone) {
-                    const smsMessage = 
-                        `${studentFullName} visited clinic for ${complaintName}. ` +
-                        `${timeInStr} ${adviceStr}`.trim();
-
-                    await sendIprogSms(info.primary_phone, smsMessage);
-                    smsNotificationSent = true;
+                    smsNotificationSent = await sendSemaphoreSms(info.primary_phone, notifMessage);
                 }
             }
         } catch (notifError) {
-            console.error('[Notification Error] Failed to send System/Push/SMS notifications:', notifError.message);
+            console.error('[Notification Error] System/Push/SMS failed:', notifError.message);
         }
 
         await connection.commit();
         res.status(201).json({ 
             success: true, 
             message: "Consultation logged and notifications processed!",
+            visit_id: visit_id,
             smsSent: smsNotificationSent
         });
 
@@ -3016,6 +3092,7 @@ app.patch('/api/clinic-visits/:id/timeout', async (req, res) => {
 
         await pool.execute('UPDATE clinic_visits SET time_out = ? WHERE visit_id = ?', [time_out, id]);
 
+        // --- System, Push & Semaphore SMS Notification Logic (Time Out) ---
         try {
             const notifSql = `
                 SELECT 
@@ -3023,6 +3100,7 @@ app.patch('/api/clinic-visits/:id/timeout', async (req, res) => {
                     s.first_name AS student_first_name,
                     s.last_name AS student_last_name,
                     p.user_id AS parent_user_id,
+                    p.primary_phone,
                     n.user_id AS nurse_user_id
                 FROM clinic_visits cv
                 JOIN students s ON cv.student_id = s.student_id
@@ -3037,17 +3115,27 @@ app.patch('/api/clinic-visits/:id/timeout', async (req, res) => {
                 const info = notifRows[0];
                 const studentFullName = `${info.student_first_name} ${info.student_last_name}`;
 
+                // Notification Message: {firstname} {lastname} was leave in the time of {time_out}
+                const notifMessage = `${studentFullName} was leave in the time of ${time_out}`;
+                const notifTitle = `Clinic Time Out: ${studentFullName}`;
+
+                // Send System / Push Notification
                 await notifyUsers({
                     sender_id: info.nurse_user_id || null,
                     recipient_ids: [info.parent_user_id, info.student_user_id].filter(Boolean),
-                    title: `Clinic Time Out: ${studentFullName}`,
-                    message: `${studentFullName} checked out of the clinic at ${time_out}.`,
+                    title: notifTitle,
+                    message: notifMessage,
                     type: 'clinic_timeout',
                     payloadData: { visit_id: id, time_out }
                 });
+
+                // Send SMS Notification via Semaphore
+                if (info.primary_phone) {
+                    await sendSemaphoreSms(info.primary_phone, notifMessage);
+                }
             }
         } catch (notifError) {
-            console.error('[Notification Error] Time out push notification failed:', notifError.message);
+            console.error('[Notification Error] Time out notification failed:', notifError.message);
         }
 
         res.json({ success: true, message: "Time out updated successfully!" });
@@ -3065,20 +3153,19 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
         time_out,
         complaint_id,
         specify_complaint_text,
-        specify_complaints_text, // fallback mapping
+        specify_complaints_text,
         temperature,
         respiratory_rate,
         pulse_rate,
         blood_pressure,
         nursing_intervention,
-        recommendations,
+        assessment,
         batch_id,
         dosage_consumption_unit_value,
         dosage_consumption_unit_of_measure
     } = req.body;
 
     const specifyText = specify_complaint_text || specify_complaints_text || null;
-
     const connection = await pool.getConnection();
 
     try {
@@ -3096,7 +3183,7 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
                 pulse_rate = ?,
                 blood_pressure = ?,
                 nursing_intervention = ?,
-                recommendations = ?
+                assessment = ?
             WHERE visit_id = ?
         `;
 
@@ -3110,7 +3197,7 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
             pulse_rate || null,
             blood_pressure || null,
             nursing_intervention || null,
-            recommendations || null,
+            assessment || null,
             id
         ]);
 
@@ -3136,7 +3223,6 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
                 [id]
             );
 
-            // Only process inventory deduction if medicine has not already been dispensed for this visit
             if (existingDisp.length === 0) {
                 const [batchRows] = await connection.execute(
                     `SELECT mib.current_stock, mib.remaining_volume, mib.expiration_date, m.strength_unit_value 
@@ -3204,7 +3290,7 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
             }
         }
 
-        // --- System, Push & SMS Notification Logic for Documented Visit ---
+        // --- System, Push & Semaphore SMS Notification Logic (Document) ---
         let smsNotificationSent = false;
         try {
             const detailsSql = `
@@ -3216,10 +3302,8 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
                     p.primary_phone,
                     n.user_id AS nurse_user_id,
                     cc.complaint_name,
-                    cv.time_in,
-                    cv.time_out,
-                    cv.nursing_intervention,
-                    cv.recommendations
+                    cv.specify_complaint_text,
+                    cv.assessment
                 FROM clinic_visits cv
                 JOIN students s ON cv.student_id = s.student_id
                 LEFT JOIN nurses n ON cv.nurse_id = n.nurse_id
@@ -3234,19 +3318,16 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
             if (detailsRows.length > 0) {
                 const info = detailsRows[0];
                 const studentFullName = `${info.student_first_name} ${info.student_last_name}`;
-                const complaintName = info.complaint_name || 'General Checkup';
-                const timeInStr = info.time_in ? `Time In: ${info.time_in}` : '';
-                const adviceStr = info.recommendations ? `Recommendations: ${info.recommendations}` : '';
+                const complaintText = info.specify_complaint_text || info.complaint_name || 'General Checkup';
+                const assessmentText = info.assessment || 'N/A';
 
+                // Notification Message: {firstname} {lastname} with the complaint of {complaint or specific_complaint_text}. Assessment: {assessment}.
+                const notifMessage = `${studentFullName} with the complaint of ${complaintText}. Assessment: ${assessmentText}.`;
                 const notifTitle = `Clinic Visit Documented: ${studentFullName}`;
-                const notifMessage = [
-                    `${studentFullName} visit documented for ${complaintName}.`,
-                    timeInStr,
-                    adviceStr
-                ].filter(Boolean).join(' ');
 
                 const recipient_ids = [info.parent_user_id, info.student_user_id].filter(Boolean);
 
+                // Send System / Push Notification
                 await notifyUsers({
                     sender_id: info.nurse_user_id || null,
                     recipient_ids: recipient_ids,
@@ -3256,17 +3337,13 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
                     payloadData: { visit_id: id }
                 });
 
+                // Send SMS Notification via Semaphore
                 if (info.primary_phone) {
-                    const smsMessage = 
-                        `${studentFullName} clinic visit documented for ${complaintName}. ` +
-                        `${timeInStr} ${adviceStr}`.trim();
-
-                    await sendIprogSms(info.primary_phone, smsMessage);
-                    smsNotificationSent = true;
+                    smsNotificationSent = await sendSemaphoreSms(info.primary_phone, notifMessage);
                 }
             }
         } catch (notifError) {
-            console.error('[Notification Error] Failed to send System/Push/SMS notifications:', notifError.message);
+            console.error('[Notification Error] System/Push/SMS failed:', notifError.message);
         }
 
         await connection.commit();
@@ -3963,7 +4040,7 @@ app.get('/api/frequent-complaints/details', async (req, res) => {
         cv.pulse_rate AS pulseRate,
         cv.blood_pressure AS bloodPressure,
         cv.nursing_intervention AS nursingIntervention,
-        cv.recommendations AS healthAdvice
+        cv.assessment AS assessment
       FROM clinic_visits cv
       INNER JOIN students s ON cv.student_id = s.student_id
       INNER JOIN chief_complaints cc ON cv.complaint_id = cc.complaint_id
@@ -6812,7 +6889,7 @@ app.get('/doctor-visits/clinicLogs&Records', async (req, res) => {
         doc_ast.assessment_id,
         doc_ast.clinical_findings,
         doc_ast.diagnosis,
-        doc_ast.treatment_recommendations,
+        doc_ast.treatment_assessment,
         doc_ast.assessment_date
       FROM doctor_appointments da
       JOIN doctor_appointment_students das ON da.appointment_id = das.appointment_id
@@ -8127,16 +8204,21 @@ app.get('/api/nurse/dashboard', async (req, res) => {
 
 //student dashboard api
 // -----------------------------------------------------------------------------
-// 1. Overview of Student Recent Visits & Medicine Dispensation (with details)
+// 1. Overview of Student Recent Visits & Medicine Dispensation (With Medicine Names)
 // -----------------------------------------------------------------------------
 app.get('/api/student/dashboard/visits-dispensation/:studentId', async (req, res) => {
   const { studentId } = req.params;
 
   try {
-    // Fetch clinic visits along with consultation dispensations
+    // Fetch clinic visits joined with chief_complaints, consultation_dispensation, batch, and medicines
     const visitsQuery = `
       SELECT 
         v.visit_id,
+        v.student_id,
+        v.nurse_id,
+        v.complaint_id,
+        cc.complaint_name,
+        v.specify_complaint_text,
         v.visit_date,
         v.time_in,
         v.time_out,
@@ -8145,36 +8227,55 @@ app.get('/api/student/dashboard/visits-dispensation/:studentId', async (req, res
         v.pulse_rate,
         v.blood_pressure,
         v.nursing_intervention,
-        v.recommendations,
+        v.assessment,
         cd.consultation_dispense_id,
-        cd.batch_id AS consultation_medicine_batch_id,
         cd.dosage_consumption_unit_value AS consultation_dosage_value,
         cd.dosage_consumption_unit_of_measure AS consultation_dosage_unit,
-        cd.dispensed_at AS consultation_dispensed_at
+        cd.dispensed_at AS consultation_dispensed_at,
+        m.generic_name AS medicine_generic_name,
+        m.brand_name AS medicine_brand_name
       FROM clinic_visits v
+      LEFT JOIN chief_complaints cc ON v.complaint_id = cc.complaint_id
       LEFT JOIN consultation_dispensation cd ON v.visit_id = cd.visit_id
+      LEFT JOIN medicine_inventory_batches mb ON cd.batch_id = mb.batch_id
+      LEFT JOIN medicines m ON mb.medicine_id = m.medicine_id
       WHERE v.student_id = ?
       ORDER BY v.visit_date DESC, v.time_in DESC
       LIMIT 10;
     `;
 
-    // Fetch direct medicine dispensations
+    // Fetch direct medicine dispensations joined with batch and medicines
     const directDispenseQuery = `
       SELECT 
-        direct_dispense_id,
-        nurse_id,
-        batch_id,
-        dosage_consumption_unit_value,
-        dosage_consumption_unit_of_measure,
-        dispensed_at
-      FROM direct_dispensation
-      WHERE student_id = ?
-      ORDER BY dispensed_at DESC
+        dd.direct_dispense_id,
+        dd.nurse_id,
+        dd.dosage_consumption_unit_value,
+        dd.dosage_consumption_unit_of_measure,
+        dd.dispensed_at,
+        m.generic_name AS medicine_generic_name,
+        m.brand_name AS medicine_brand_name
+      FROM direct_dispensation dd
+      LEFT JOIN medicine_inventory_batches mb ON dd.batch_id = mb.batch_id
+      LEFT JOIN medicines m ON mb.medicine_id = m.medicine_id
+      WHERE dd.student_id = ?
+      ORDER BY dd.dispensed_at DESC
       LIMIT 10;
     `;
 
     const [visits] = await pool.query(visitsQuery, [studentId]);
     const [directDispensations] = await pool.query(directDispenseQuery, [studentId]);
+
+    // Format direct dispensations with medicine_name
+    const formattedDirectDispensations = directDispensations.map((dd) => {
+      let medName = dd.medicine_generic_name || dd.medicine_brand_name || 'Medicine';
+      if (dd.medicine_generic_name && dd.medicine_brand_name) {
+        medName = `${dd.medicine_generic_name} (${dd.medicine_brand_name})`;
+      }
+      return {
+        ...dd,
+        medicine_name: medName,
+      };
+    });
 
     // Group consultation dispensations inside their corresponding visit object
     const visitMap = {};
@@ -8185,6 +8286,9 @@ app.get('/api/student/dashboard/visits-dispensation/:studentId', async (req, res
           visit_date: row.visit_date,
           time_in: row.time_in,
           time_out: row.time_out,
+          complaint_id: row.complaint_id,
+          complaint_name: row.complaint_name,
+          specify_complaint_text: row.specify_complaint_text,
           vitals: {
             temperature: row.temperature,
             respiratory_rate: row.respiratory_rate,
@@ -8192,18 +8296,25 @@ app.get('/api/student/dashboard/visits-dispensation/:studentId', async (req, res
             blood_pressure: row.blood_pressure,
           },
           nursing_intervention: row.nursing_intervention,
-          recommendations: row.recommendations,
+          assessment: row.assessment,
           dispensed_medicines: [],
         };
       }
 
       if (row.consultation_dispense_id) {
+        let medName = row.medicine_generic_name || row.medicine_brand_name || 'Medicine';
+        if (row.medicine_generic_name && row.medicine_brand_name) {
+          medName = `${row.medicine_generic_name} (${row.medicine_brand_name})`;
+        }
+
         visitMap[row.visit_id].dispensed_medicines.push({
           dispense_id: row.consultation_dispense_id,
-          batch_id: row.consultation_medicine_batch_id,
           dosage_value: row.consultation_dosage_value,
           dosage_unit: row.consultation_dosage_unit,
           dispensed_at: row.consultation_dispensed_at,
+          medicine_name: medName,
+          generic_name: row.medicine_generic_name,
+          brand_name: row.medicine_brand_name,
         });
       }
     });
@@ -8212,7 +8323,7 @@ app.get('/api/student/dashboard/visits-dispensation/:studentId', async (req, res
       success: true,
       data: {
         clinic_visits: Object.values(visitMap),
-        direct_dispensations: directDispensations,
+        direct_dispensations: formattedDirectDispensations,
       },
     });
   } catch (error) {
@@ -8222,7 +8333,7 @@ app.get('/api/student/dashboard/visits-dispensation/:studentId', async (req, res
 });
 
 // -----------------------------------------------------------------------------
-// 2. Overview of Student Incomplete & Updates on Requirements (with details)
+// 2. Overview of Student Requirements (Updated to include 'Incomplete')
 // -----------------------------------------------------------------------------
 app.get('/api/student/dashboard/requirements/:studentId', async (req, res) => {
   const { studentId } = req.params;
@@ -8236,7 +8347,7 @@ app.get('/api/student/dashboard/requirements/:studentId', async (req, res) => {
         sr.assigned_at,
         sub.submission_id,
         sub.file_url,
-        COALESCE(sub.status, 'Not Submitted') AS status,
+        COALESCE(sub.status, 'Incomplete') AS status,
         sub.is_late,
         sub.nurse_remarks,
         sub.submitted_at
@@ -8250,9 +8361,9 @@ app.get('/api/student/dashboard/requirements/:studentId', async (req, res) => {
 
     const [requirements] = await pool.query(query, [studentId]);
 
-    // Filter incomplete vs completed requirements
+    // Filter incomplete vs completed requirements (Includes 'Incomplete')
     const incompleteRequirements = requirements.filter((req) =>
-      ['Pending', 'Rejected', 'Resubmit', 'Not Submitted'].includes(req.status)
+      ['Pending', 'Rejected', 'Resubmit', 'Not Submitted', 'Incomplete'].includes(req.status)
     );
 
     res.status(200).json({
@@ -8987,5 +9098,301 @@ app.post('/api/push-subscribe', async (req, res) => {
     }
 });
 
+
+//Parent Messaging
+// 1. SEND MESSAGE (Parent -> Nurse or Nurse -> Parent / Student)
+app.post('/api/messages/send', async (req, res) => {
+    const { sender_id, receiver_id, content, message_type = 'text' } = req.body;
+
+    if (!sender_id || !receiver_id || !content) {
+        return res.status(400).json({ success: false, message: 'Missing required fields' });
+    }
+
+    try {
+        const query = `
+            INSERT INTO messages (sender_id, receiver_id, message_type, content, is_read, created_at)
+            VALUES (?, ?, ?, ?, 0, NOW(3));
+        `;
+        // Explicitly cast parameters to String to prevent MySQL type coercion
+        const [result] = await pool.query(query, [
+            String(sender_id), 
+            String(receiver_id), 
+            String(message_type), 
+            String(content)
+        ]);
+
+        res.json({ success: true, message_id: result.insertId });
+    } catch (err) {
+        console.error('Error sending message:', err);
+        res.status(500).json({ success: false, message: 'Failed to send message' });
+    }
+});
+
+// 2. RECEIVE / FETCH MESSAGES THREAD (Both Sent & Received)
+app.get('/api/messages/:userId/:contactUserId', async (req, res) => {
+    const { userId, contactUserId } = req.params;
+
+    if (!userId || !contactUserId) {
+        return res.status(400).json({ success: false, message: 'Missing userId or contactUserId' });
+    }
+
+    try {
+        const query = `
+            SELECT message_id, sender_id, receiver_id, message_type, content, media_url, is_read, created_at
+            FROM messages
+            WHERE (sender_id = ? AND receiver_id = ?)
+               OR (sender_id = ? AND receiver_id = ?)
+            ORDER BY created_at ASC;
+        `;
+        // Explicitly cast parameters to String to prevent MySQL type coercion
+        const strUserId = String(userId);
+        const strContactUserId = String(contactUserId);
+        const [messages] = await pool.query(query, [strUserId, strContactUserId, strContactUserId, strUserId]);
+
+        res.json({ success: true, messages });
+    } catch (err) {
+        console.error('Error fetching chat messages:', err);
+        res.status(500).json({ success: false, message: 'Failed to fetch messages' });
+    }
+});
+
+// 3. UNREAD MESSAGES COUNT FOR BADGE (Received Messages)
+app.get('/api/messages/unread-count/:userId', async (req, res) => {
+    const { userId } = req.params;
+
+    if (!userId) {
+        return res.status(400).json({ success: false, message: 'Missing userId' });
+    }
+
+    try {
+        const query = `
+            SELECT COUNT(*) AS unreadCount 
+            FROM messages 
+            WHERE receiver_id = ? AND is_read = 0;
+        `;
+        const [rows] = await pool.query(query, [String(userId)]);
+
+        res.json({ success: true, unreadCount: rows[0]?.unreadCount || 0 });
+    } catch (err) {
+        console.error('Error fetching unread count:', err);
+        res.status(500).json({ success: false, message: 'Failed to fetch unread count' });
+    }
+});
+
+// 4. MARK MESSAGES AS READ WHEN PARENT OPENS CHAT
+app.patch('/api/messages/mark-read', async (req, res) => {
+    const { sender_id, receiver_id } = req.body;
+
+    if (!sender_id || !receiver_id) {
+        return res.status(400).json({ success: false, message: 'Missing sender_id or receiver_id' });
+    }
+
+    try {
+        const query = `
+            UPDATE messages 
+            SET is_read = 1 
+            WHERE sender_id = ? AND receiver_id = ? AND is_read = 0;
+        `;
+        // Explicitly cast parameters to String to prevent TRUNCATED_WRONG_VALUE error
+        await pool.query(query, [String(sender_id), String(receiver_id)]);
+
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Error marking messages read:', err);
+        res.status(500).json({ success: false, message: 'Failed to mark read' });
+    }
+});
+
+// 5. GET PARENT CONTACTS (Linked Students)
+app.get('/api/parent/:parentId/contacts', async (req, res) => {
+    const { parentId } = req.params;
+
+    if (!parentId) {
+        return res.status(400).json({ success: false, message: 'Missing parentId' });
+    }
+
+    try {
+        const query = `
+            SELECT 
+                s.student_id,
+                s.user_id AS contact_user_id,
+                s.first_name,
+                s.last_name,
+                s.program_id,
+                s.year_level,
+                s.section,
+                'Student' AS role
+            FROM parent_student_mapping psm
+            JOIN students s ON psm.student_id = s.student_id
+            WHERE psm.parent_id = ?;
+        `;
+        const [contacts] = await pool.query(query, [String(parentId)]);
+
+        res.json({ success: true, contacts });
+    } catch (err) {
+        console.error('Error fetching parent contacts:', err);
+        res.status(500).json({ success: false, message: 'Failed to fetch contacts' });
+    }
+});
+
+
+
+//unified
+// 1. Unified Send Message (Handles Text, Image, Video, Audio, and Documents)
+app.post('/api/messages/send', upload.single('media'), async (req, res) => {
+    const { sender_id, receiver_id, message_type, content } = req.body;
+
+    if (!sender_id || !receiver_id || sender_id === 'undefined' || receiver_id === 'undefined') {
+        return res.status(400).json({ 
+            success: false, 
+            message: 'Invalid sender_id or receiver_id provided.' 
+        });
+    }
+
+    const media_url = req.file ? `/uploads/${req.file.filename}` : null;
+    const safeContent = content && content.trim() !== '' ? content.trim() : null;
+
+    if (!safeContent && !media_url) {
+        return res.status(400).json({ success: false, message: 'Message content or file attachment is required.' });
+    }
+
+    const sql = `
+        INSERT INTO messages (sender_id, receiver_id, message_type, content, media_url, is_read, created_at)
+        VALUES (?, ?, ?, ?, ?, FALSE, NOW(3));
+    `;
+
+    try {
+        const [result] = await pool.query(sql, [
+            sender_id,
+            receiver_id,
+            message_type || 'text',
+            safeContent,
+            media_url
+        ]);
+
+        const [newMessage] = await pool.query('SELECT * FROM messages WHERE message_id = ?', [result.insertId]);
+        res.json({ success: true, message: newMessage[0], message_id: result.insertId });
+    } catch (error) {
+        console.error('Database error in /api/messages/send:', error);
+        res.status(500).json({ success: false, message: 'Database failed to store message.', error: error.message });
+    }
+});
+
+// 2. Fetch Chat History / Thread (Both Nurse & Parent)
+app.get('/api/messages/:userId/:contactUserId', async (req, res) => {
+    const { userId, contactUserId } = req.params;
+
+    try {
+        const query = `
+            SELECT message_id, sender_id, receiver_id, message_type, content, media_url, is_read, created_at
+            FROM messages
+            WHERE (sender_id = ? AND receiver_id = ?)
+               OR (sender_id = ? AND receiver_id = ?)
+            ORDER BY created_at ASC;
+        `;
+        const [messages] = await pool.query(query, [userId, contactUserId, contactUserId, userId]);
+        res.json({ success: true, messages });
+    } catch (err) {
+        console.error('Error fetching chat messages:', err);
+        res.status(500).json({ success: false, message: 'Failed to fetch messages' });
+    }
+});
+
+// 3. Get Total Unread Message Count for Badge
+app.get('/api/messages/unread-count/:userId', async (req, res) => {
+    const { userId } = req.params;
+
+    try {
+        const query = `
+            SELECT COUNT(DISTINCT sender_id) AS unreadCount 
+            FROM messages 
+            WHERE receiver_id = ? AND is_read = 0;
+        `;
+        const [rows] = await pool.query(query, [userId]);
+        res.json({ success: true, unreadCount: rows[0]?.unreadCount || 0 });
+    } catch (err) {
+        console.error('Error fetching unread count:', err);
+        res.status(500).json({ success: false, message: 'Failed to fetch unread count' });
+    }
+});
+
+// 4. Mark Messages as Read
+app.patch('/api/messages/mark-read', async (req, res) => {
+    const { sender_id, receiver_id } = req.body;
+
+    try {
+        const query = `
+            UPDATE messages 
+            SET is_read = 1 
+            WHERE sender_id = ? AND receiver_id = ? AND is_read = 0;
+        `;
+        await pool.query(query, [sender_id, receiver_id]);
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Error marking messages read:', err);
+        res.status(500).json({ success: false, message: 'Failed to mark read' });
+    }
+});
+
+// 5. Unsend / Delete an Individual Message
+app.delete('/api/messages/:messageId', async (req, res) => {
+    const { messageId } = req.params;
+
+    try {
+        await pool.query('DELETE FROM messages WHERE message_id = ?', [messageId]);
+        res.json({ success: true, message: 'Message deleted successfully' });
+    } catch (error) {
+        console.error('Error deleting message:', error);
+        res.status(500).json({ success: false, message: 'Error deleting message' });
+    }
+});
+
+// 6. Get Linked Student Contacts for Parent
+app.get('/api/parent/:parentId/contacts', async (req, res) => {
+    const { parentId } = req.params;
+
+    try {
+        const query = `
+            SELECT 
+                s.student_id,
+                s.user_id AS contact_user_id,
+                s.first_name,
+                s.last_name,
+                s.program_id,
+                s.year_level,
+                s.section,
+                'Student' AS role
+            FROM parent_student_mapping psm
+            JOIN students s ON psm.student_id = s.student_id
+            WHERE psm.parent_id = ?;
+        `;
+        const [contacts] = await pool.query(query, [parentId]);
+        res.json({ success: true, contacts });
+    } catch (err) {
+        console.error('Error fetching parent contacts:', err);
+        res.status(500).json({ success: false, message: 'Failed to fetch contacts' });
+    }
+});
+
+
+// Express.js Route: GET /api/nurses
+app.get('/api/nurses', async (req, res) => {
+    try {
+        // Query nurses table guaranteeing user_id is retrieved
+        const [rows] = await pool.query(
+            `SELECT nurse_id, user_id, first_name, last_name 
+             FROM nurses 
+             WHERE user_id IS NOT NULL`
+        );
+
+        return res.json({
+            success: true,
+            nurses: rows
+        });
+    } catch (error) {
+        console.error('Error fetching nurses:', error);
+        return res.status(500).json({ success: false, message: 'Server error fetching nurses' });
+    }
+});
 
 app.listen(3001, () => console.log('Server running on port 3001'));

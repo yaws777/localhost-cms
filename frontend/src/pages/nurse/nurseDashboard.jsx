@@ -40,6 +40,30 @@ const COLORS = ['#0250A3', '#F59E0B', '#EF4444', '#10B981', '#8B5CF6', '#EC4899'
 const STANDARD_UNITS = ['mg', 'g', 'mcg', 'mL', 'L'];
 
 /* --- HELPER FUNCTIONS --- */
+const pluralize = (word, count) => {
+  if (!word) return '';
+  if (count <= 1) return word; // Uses singular form for 0 or 1
+  return /(x|s|ch|sh|z)$/i.test(word) ? `${word}es` : `${word}s`;
+};
+
+const formatCeilAvg = (val) => {
+  if (val === undefined || val === null || val === '') return '0';
+  const num = Number(val);
+  if (isNaN(num)) return val;
+
+  const ceilVal = Math.ceil(num);
+  if (num !== ceilVal) {
+    const rawFormatted = Number.isInteger(num) ? num : parseFloat(num.toFixed(1));
+    return (
+      <>
+        <strong>{ceilVal}</strong>
+        <span style={{ color: '#6B7280', fontWeight: 'normal' }}>({rawFormatted})</span>
+      </>
+    );
+  }
+  return <strong>{ceilVal}</strong>;
+};
+
 const getNextMonthString = () => {
   const now = new Date();
   const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
@@ -101,6 +125,32 @@ const formatTime = (timeString) => {
   return timeString;
 };
 
+/**
+ * Checks whether a schedule's start date and time is still in the future.
+ * Returns false if the schedule date & start time has already passed.
+ */
+const isScheduleUpcoming = (dateStr, timeStr) => {
+  if (!dateStr && !timeStr) return false;
+  const now = new Date();
+  let scheduleDate;
+
+  if (timeStr && (timeStr.includes('T') || timeStr.includes('Z'))) {
+    scheduleDate = new Date(timeStr);
+  } else if (dateStr && (dateStr.includes('T') || dateStr.includes('Z'))) {
+    scheduleDate = new Date(dateStr);
+  } else if (dateStr && timeStr) {
+    const cleanDate = dateStr.split('T')[0];
+    scheduleDate = new Date(`${cleanDate}T${timeStr}`);
+  } else if (dateStr) {
+    scheduleDate = new Date(dateStr);
+  } else if (timeStr) {
+    scheduleDate = new Date(timeStr);
+  }
+
+  if (!scheduleDate || isNaN(scheduleDate.getTime())) return true;
+  return scheduleDate > now;
+};
+
 /* --- CUSTOM CHART TOOLTIPS --- */
 const PredictiveTooltip = ({ active, payload, label }) => {
   if (active && payload && payload.length) {
@@ -114,7 +164,7 @@ const PredictiveTooltip = ({ active, payload, label }) => {
           {payload.map((entry, index) => {
             const isStock = entry.dataKey === 'currentStock';
             const displayUnit = isStock 
-              ? `${dosageUnit}${entry.value === 1 ? '' : 's'}`
+              ? pluralize(dosageUnit, entry.value)
               : 'package(s)/bottle(s)';
 
             return (
@@ -124,7 +174,7 @@ const PredictiveTooltip = ({ active, payload, label }) => {
                   <span className="tooltip-item-name">{entry.name}</span>
                 </div>
                 <span className="tooltip-item-value" style={{ color: entry.color }}>
-                  {entry.value} {displayUnit}
+                  {formatCeilAvg(entry.value)} {displayUnit}
                 </span>
               </li>
             );
@@ -294,6 +344,15 @@ const NurseDashboard = () => {
     ...medicinesUnitsMap
   };
 
+  // Dynamically Filtered Upcoming Schedules (hides any schedule whose date & start time has passed)
+  const upcomingHealthScreenings = (nurseDashboardData.upcomingHealthScreenings || []).filter((screen) =>
+    isScheduleUpcoming(screen.scheduled_date, screen.start_time)
+  );
+
+  const upcomingDoctorVisits = (nurseDashboardData.upcomingDoctorVisits || []).filter((visit) =>
+    isScheduleUpcoming(visit.scheduled_date || visit.start_time, visit.start_time)
+  );
+
   // Fetch Unified Nurse Operational Dashboard Overview
   const fetchNurseDashboard = useCallback(async () => {
     setIsNurseDashboardLoading(true);
@@ -351,6 +410,18 @@ const NurseDashboard = () => {
       } catch (invErr) {
         console.error("Error fetching batch inventory stock alerts:", invErr);
       }
+
+      // Filter upcoming schedules to ensure start date/time hasn't passed
+      const rawScreenings = dashData.upcomingHealthScreenings || [];
+      const rawDoctorVisits = dashData.upcomingDoctorVisits || [];
+
+      const filteredScreenings = rawScreenings.filter((screen) =>
+        isScheduleUpcoming(screen.scheduled_date, screen.start_time)
+      );
+
+      const filteredDoctorVisits = rawDoctorVisits.filter((visit) =>
+        isScheduleUpcoming(visit.scheduled_date || visit.start_time, visit.start_time)
+      );
       
       setNurseDashboardData({
         requirementsOverview: {
@@ -361,8 +432,8 @@ const NurseDashboard = () => {
         upcomingRequirementDeadlines: dashData.upcomingRequirementDeadlines || [],
         pendingDocumentRequests: dashData.pendingDocumentRequests || { pending_excuse_slips: 0, pending_referral_slips: 0, total_pending_requests: 0 },
         medicineStockAlerts,
-        upcomingHealthScreenings: dashData.upcomingHealthScreenings || [],
-        upcomingDoctorVisits: dashData.upcomingDoctorVisits || []
+        upcomingHealthScreenings: filteredScreenings,
+        upcomingDoctorVisits: filteredDoctorVisits
       });
     } catch (error) {
       console.error("Error fetching nurse operational dashboard:", error);
@@ -688,7 +759,7 @@ const NurseDashboard = () => {
               <div>
                 <span className="stat-card-label">Upcoming Schedules</span>
                 <h3 className="stat-card-number">
-                  {(nurseDashboardData.upcomingHealthScreenings?.length || 0) + (nurseDashboardData.upcomingDoctorVisits?.length || 0)}
+                  {upcomingHealthScreenings.length + upcomingDoctorVisits.length}
                 </h3>
                 <p className="stat-card-subtext">Screenings & Doctor Visits</p>
               </div>
@@ -698,10 +769,10 @@ const NurseDashboard = () => {
             </div>
             <div className="stat-card-footer">
               <div className="stat-pill success-pill">
-                <span>Screenings: <strong>{nurseDashboardData.upcomingHealthScreenings?.length || 0}</strong></span>
+                <span>Screenings: <strong>{upcomingHealthScreenings.length}</strong></span>
               </div>
               <div className="stat-pill info-pill">
-                <span>Doctor Visits: <strong>{nurseDashboardData.upcomingDoctorVisits?.length || 0}</strong></span>
+                <span>Doctor Visits: <strong>{upcomingDoctorVisits.length}</strong></span>
               </div>
             </div>
             <span className="overview-card-view-all">View All <ChevronRight size={14} /></span>
@@ -710,24 +781,44 @@ const NurseDashboard = () => {
         </div>
       )}
 
+      {/* QUICK ACTIONS SECTION */}
       <div className="quick-actions-section">
         <div className="quick-actions-header">
           <h2 className="dashboard-title">Quick Actions</h2>
         </div>
-        <button
-          type="button"
-          className="quick-action-card"
-          onClick={() => navigate('/VisitLogConsultation', { state: { openQrScanner: true } })}
-        >
-          <span className="quick-action-icon">
-            <QrCode size={22} />
-          </span>
-          <span className="quick-action-content">
-            <strong>Clinic Visit with QR</strong>
-            <span>Scan a student QR code to start a clinic visit</span>
-          </span>
-          <ChevronRight size={18} className="quick-action-arrow" />
-        </button>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
+          {/* Quick Action 1: Clinic Visit with QR */}
+          <button
+            type="button"
+            className="quick-action-card"
+            onClick={() => navigate('/VisitLogConsultation', { state: { openQrScanner: true } })}
+          >
+            <span className="quick-action-icon">
+              <QrCode size={22} />
+            </span>
+            <span className="quick-action-content">
+              <strong>Clinic Visit with QR</strong>
+              <span>Scan a student QR code to start a clinic visit</span>
+            </span>
+            <ChevronRight size={18} className="quick-action-arrow" />
+          </button>
+
+          {/* Quick Action 2: Dispense Medicine with QR */}
+          <button
+            type="button"
+            className="quick-action-card"
+            onClick={() => navigate('/DispensedMedicine', { state: { openQrScanner: true } })}
+          >
+            <span className="quick-action-icon" style={{ backgroundColor: '#EEF2FF', color: '#4F46E5' }}>
+              <Pill size={22} />
+            </span>
+            <span className="quick-action-content">
+              <strong>Dispense Medicine with QR</strong>
+              <span>Scan a student QR code to dispense medicine</span>
+            </span>
+            <ChevronRight size={18} className="quick-action-arrow" />
+          </button>
+        </div>
       </div>
 
       <div className="dashboard-divider-line" />
@@ -805,7 +896,13 @@ const NurseDashboard = () => {
                 <div key={complaint} className="average-badge-card">
                   <span className="badge-dot" style={{ backgroundColor: getComplaintColor(complaint) }} />
                   <span className="badge-name">{complaint}</span>
-                  <span className="badge-value">{averages[complaint] !== undefined ? `${averages[complaint]} avg/mo` : '0 avg/mo'}</span>
+                  <span className="badge-value">
+                    {averages[complaint] !== undefined ? (
+                      <>{formatCeilAvg(averages[complaint])} avg/mo</>
+                    ) : (
+                      '0 avg/mo'
+                    )}
+                  </span>
                 </div>
               ))}
             </div>
@@ -935,7 +1032,7 @@ const NurseDashboard = () => {
                 if (avgValue === undefined || avgValue === null) {
                   if (dispensedData.length > 0) {
                     const total = dispensedData.reduce((sum, item) => sum + (Number(item[medicine]) || 0), 0);
-                    avgValue = total > 0 ? (total / dispensedData.length).toFixed(1) : 0;
+                    avgValue = total > 0 ? (total / dispensedData.length) : 0;
                   } else {
                     avgValue = 0;
                   }
@@ -946,7 +1043,7 @@ const NurseDashboard = () => {
                     <span className="badge-dot" style={{ backgroundColor: getMedicineColor(medicine) }} />
                     <span className="badge-name">{medicine}</span>
                     <span className="badge-value">
-                      {`${avgValue} ${unit}/mo`}
+                      {formatCeilAvg(avgValue)} {unit}/mo
                     </span>
                   </div>
                 );
@@ -1020,9 +1117,9 @@ const NurseDashboard = () => {
                   <div className="predictive-card-title">{med.name}</div>
                   <div className="predictive-card-text">
                     <strong>Package Strength: </strong>{med.packageStrength} ({med.dosageForm})<br />
-                    <strong>Stock at Date: </strong>{med.currentStock} {med.dosageForm}{med.currentStock === 1 ? '' : 's'}<br />
-                    <strong>Monthly Avg Dispense: </strong>{med.avgMonthlyDispensedBase} {med.unitOfMeasure}<br />
-                    <strong>Calculated Container Demand: </strong>{med.predictedNeed} package(s)/bottle(s)
+                    <strong>Stock at Date: </strong>{med.currentStock} {pluralize(med.dosageForm, med.currentStock)}<br />
+                    <strong>Monthly Avg Dispense: </strong>{formatCeilAvg(med.avgMonthlyDispensedBase)} {med.unitOfMeasure}<br />
+                    <strong>Calculated Container Demand: </strong>{formatCeilAvg(med.predictedNeed)} package(s)/bottle(s)
                   </div>
                 </div>
               ))}
@@ -1185,7 +1282,7 @@ const NurseDashboard = () => {
                 <h3 className="panel-title">Upcoming Health Screenings</h3>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <span className="count-badge">{nurseDashboardData.upcomingHealthScreenings.length}</span>
+                <span className="count-badge">{upcomingHealthScreenings.length}</span>
                 <button 
                   style={viewAllBtnStyle} 
                   onClick={() => navigate('/HealthScreening')}
@@ -1197,11 +1294,11 @@ const NurseDashboard = () => {
               </div>
             </div>
             <div className="panel-content">
-              {nurseDashboardData.upcomingHealthScreenings.length === 0 ? (
+              {upcomingHealthScreenings.length === 0 ? (
                 <div className="panel-empty">No upcoming health screenings scheduled.</div>
               ) : (
                 <div className="cards-list">
-                  {nurseDashboardData.upcomingHealthScreenings.map((screen) => (
+                  {upcomingHealthScreenings.map((screen) => (
                     <div key={screen.screening_schedule_id} className="detail-card border-left-green">
                       <div className="card-top-row">
                         <h4 className="card-item-title">{screen.title}</h4>
@@ -1241,7 +1338,7 @@ const NurseDashboard = () => {
                 <h3 className="panel-title">Upcoming Doctor Visits</h3>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <span className="count-badge">{nurseDashboardData.upcomingDoctorVisits.length}</span>
+                <span className="count-badge">{upcomingDoctorVisits.length}</span>
                 <button 
                   style={viewAllBtnStyle} 
                   onClick={() => navigate('/DoctorVisit')}
@@ -1253,11 +1350,11 @@ const NurseDashboard = () => {
               </div>
             </div>
             <div className="panel-content">
-              {nurseDashboardData.upcomingDoctorVisits.length === 0 ? (
+              {upcomingDoctorVisits.length === 0 ? (
                 <div className="panel-empty">No upcoming doctor visits scheduled.</div>
               ) : (
                 <div className="cards-list">
-                  {nurseDashboardData.upcomingDoctorVisits.map((visit) => (
+                  {upcomingDoctorVisits.map((visit) => (
                     <div key={visit.appointment_id} className="detail-card border-left-purple">
                       <div className="card-top-row">
                         <h4 className="card-item-title">{visit.title || `Doctor Visit`}</h4>

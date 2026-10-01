@@ -4,12 +4,12 @@ import {
     LayoutDashboard, FileBarChart, Stethoscope, FolderHeart, 
     Pill, Boxes, FileCheck, ClipboardCheck, HeartPulse, 
     BriefcaseMedical, AlertTriangle, Vault, LogOut,
-    MessageSquare, Users, UserCheck, Bell
+    MessageSquare, Users, UserCheck, Bell 
 } from 'lucide-react';
-import '../styles/nurse/NurseLayout.css'; 
+import '../styles/nurse/NurseLayout.css';
 import { useWebPush } from '../hooks/useWebPush';
 
-const NurseLayout = () => {
+export const NurseLayout = () => {
     const navigate = useNavigate();
     const [isOpen, setIsOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
@@ -69,7 +69,6 @@ const NurseLayout = () => {
 
                 if (data.success && data.nurse) {
                     setNurseData(data.nurse);
-                    // Initial notification fetch
                     if (data.nurse.nurse_id) {
                         fetchNotifications(data.nurse.nurse_id);
                     }
@@ -94,7 +93,6 @@ const NurseLayout = () => {
                 fetchNurseProfile(accurateUserId);
                 fetchUnreadCount(accurateUserId);
 
-                // Setup polling interval for messages and notifications
                 const interval = setInterval(() => {
                     fetchUnreadCount(accurateUserId);
                     if (nurseData?.nurse_id) {
@@ -111,49 +109,39 @@ const NurseLayout = () => {
         }
     }, [navigate, nurseData?.nurse_id]);
 
-    // Handle routing logic based on notification content/type
     const getNotificationRoute = (notification) => {
         const type = (notification.type || '').toLowerCase();
         const title = (notification.title || '').toLowerCase();
         const msg = (notification.message || '').toLowerCase();
 
-        if (type.includes('visit') || msg.includes('visit') || title.includes('consultation')) return '/VisitLogConsultation';
-        if (type.includes('health') || msg.includes('health record') || title.includes('health')) return '/HealthRecords';
-        if (type.includes('medicine') || msg.includes('dispense')) return '/DispensedMedicine';
-        if (type.includes('inventory') || msg.includes('stock')) return '/MedicineInventory';
-        if (type.includes('document') || msg.includes('issuance')) return '/DocumentIssuance';
-        if (type.includes('requirement') || msg.includes('requirement')) return '/RequirementManagement';
-        if (type.includes('screening') || msg.includes('screening')) return '/HealthScreening';
-        if (type.includes('doctor') || msg.includes('doctor')) return '/DoctorVisit';
-        if (type.includes('incident') || msg.includes('incident')) return '/IncidentReport';
-        if (type.includes('insurance') || msg.includes('insurance')) return '/InsuranceVault';
-        if (type.includes('student') || msg.includes('student')) return '/ManageStudentAccounts';
-        if (type.includes('parent') || msg.includes('parent')) return '/ManageParentAccounts';
-        if (type.includes('message') || msg.includes('message')) return '/NurseMessages';
-
-        return '/NurseDashboard'; // Default fallback route
+        if (type.includes('requirement') || msg.includes('requirement') || title.includes('submission')) {
+            return '/RequirementManagement';
+        }
+        return '/NurseDashboard';
     };
 
-    // Mark notification as read and route to target view
     const handleNotificationClick = async (notification) => {
         try {
-            // 1. Call PATCH API to mark notification as read
             await fetch(`http://localhost:3001/api/notifications/${notification.notification_id}/read`, {
                 method: 'PATCH'
             });
-
-            // 2. Remove read notification from local state
             setNotifications(prev => prev.filter(n => n.notification_id !== notification.notification_id));
         } catch (err) {
             console.error('Error marking notification as read:', err);
         }
 
-        // 3. Close notification dropdown
         setShowNotifDropdown(false);
-
-        // 4. Navigate to appropriate route within NurseLayout
         const targetRoute = getNotificationRoute(notification);
-        navigate(targetRoute);
+
+        // Combined notification navigation payload
+        navigate(targetRoute, { 
+            state: { 
+                navigateId: notification.navigate_id || null,
+                submissionId: notification.submission_id || notification.navigate_id || null,
+                studentId: notification.student_id || notification.navigate_id || null,
+                reqName: notification.requirement_name || null
+            } 
+        });
     };
 
     const toggleSidebar = () => setIsOpen(!isOpen);
@@ -350,14 +338,12 @@ const NurseLayout = () => {
                 </nav>
             </div>
             
-            {/* ==================== TOP BAR WITH MESSAGES & NOTIFICATIONS ==================== */}
             <div className="student-top-bar">
                 <div className="top-bar-left">
                     <span className="system-name">STI Baliuag Clinic Management System</span>
                 </div>
                 <div className="top-bar-right" style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
                     
-                    {/* Top Bar Message Link & Badge */}
                     <NavLink to="/NurseMessages" className="topbar-message-link" style={{ position: 'relative', display: 'flex', alignItems: 'center', color: '#333', textDecoration: 'none' }} title="Messages">
                         <MessageSquare size={20} />
                         {unreadContactsCount > 0 && (
@@ -378,7 +364,6 @@ const NurseLayout = () => {
                         )}
                     </NavLink>
 
-                    {/* Top Bar Notification Bell Dropdown */}
                     <div style={{ position: 'relative' }}>
                         <button 
                             onClick={() => setShowNotifDropdown(!showNotifDropdown)} 
@@ -404,7 +389,6 @@ const NurseLayout = () => {
                             )}
                         </button>
 
-                        {/* Notification List Dropdown Panel */}
                         {showNotifDropdown && (
                             <div style={{
                                 position: 'absolute',

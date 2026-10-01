@@ -1,13 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useOutletContext, useLocation } from 'react-router-dom';
 import { 
-    Search, Calendar, Edit, Trash2, X, Plus, FileText, 
-    CheckCircle, Clock, FileCheck, Filter, Eye, AlertCircle 
+    Search, Calendar, Edit, Trash2, X, Plus, 
+    FileText, CheckCircle, Clock, Eye, AlertCircle, FileCheck 
 } from 'lucide-react';
 import '../../styles/nurse/RequirementManagement.css';
 
-const RequirementManagement = () => {
-    const { nurseId } = useOutletContext();
+export const RequirementManagement = () => {
+    const { nurseId } = useOutletContext() || {};
+    const location = useLocation();
     const [activeTab, setActiveTab] = useState('student');
     const [students, setStudents] = useState([]);
     
@@ -15,7 +16,9 @@ const RequirementManagement = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('default'); 
     const [courseFilter, setCourseFilter] = useState('all');
+    const [sectionFilter, setSectionFilter] = useState('all');
     const [yearFilter, setYearFilter] = useState('all');
+    const [requirementFilter, setRequirementFilter] = useState('all');
 
     // Program Configuration States
     const [programs, setPrograms] = useState([]);
@@ -30,6 +33,7 @@ const RequirementManagement = () => {
     // Active Modals Data Anchors
     const [selectedStudent, setSelectedStudent] = useState(null);
     const [studentReqs, setStudentReqs] = useState([]);
+    const [highlightedReqName, setHighlightedReqName] = useState(null);
     
     // Add Special Requirement context hooks
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -38,11 +42,147 @@ const RequirementManagement = () => {
     // Nested Requirement Editor Configuration State
     const [editingReq, setEditingReq] = useState(null);
 
+    const fetchStudentFullRequirements = useCallback(async (studentId) => {
+        try {
+            const res = await fetch(`http://localhost:3001/api/students/${studentId}/full-requirements`);
+            const data = await res.json();
+            
+            if (data && data.error) {
+                alert("Backend Database Error: " + data.error);
+                setStudentReqs([]);
+                return;
+            }
+
+            setStudentReqs(Array.isArray(data) ? data : []);
+        } catch (error) {
+            console.error("Network connectivity issue:", error);
+            alert("Failed to connect to backend api service layer.");
+        }
+    }, []);
+
+    // Deep linking resolver supporting submission_id or student_id to auto-open modal immediately
+    const handleDeepLink = useCallback(async (targetId, fallbackStudentId, fallbackReqName) => {
+        const primaryId = targetId || fallbackStudentId;
+        if (!primaryId) return;
+
+        setActiveTab('student');
+
+        let foundStudentId = null;
+        let reqNameToHighlight = fallbackReqName || null;
+
+        // 1. Try resolving primaryId as a submission_id
+        try {
+            const res = await fetch(`http://localhost:3001/api/submissions/${primaryId}`);
+            if (res.ok) {
+                const data = await res.json();
+                const sub = data.submission || data.data || (data.student_id ? data : null);
+                
+                if (sub && sub.student_id) {
+                    foundStudentId = sub.student_id;
+                    if (sub.requirement_name) {
+                        reqNameToHighlight = sub.requirement_name;
+                    }
+                    
+                    const studentObj = {
+                        student_id: sub.student_id,
+                        first_name: sub.first_name || '',
+                        last_name: sub.last_name || '',
+                        program_id: sub.program_id || '',
+                        year_level: sub.year_level || '',
+                        section: sub.section || ''
+                    };
+                    setSelectedStudent(studentObj); // Auto-opens student modal immediately
+                    setHighlightedReqName(reqNameToHighlight);
+                    fetchStudentFullRequirements(sub.student_id);
+                    return;
+                }
+            }
+        } catch (err) {
+            console.warn("Identifier resolution as submission_id failed:", err);
+        }
+
+        // 2. Fallback: Direct student lookup using target student identifier
+        const targetStudentId = fallbackStudentId || foundStudentId || primaryId;
+        if (targetStudentId) {
+            try {
+                const studentRes = await fetch(`http://localhost:3001/api/students/${targetStudentId}`);
+                if (studentRes.ok) {
+                    const studentData = await studentRes.json();
+                    const studentObj = studentData.student || studentData.data || (studentData.student_id ? studentData : null);
+                    if (studentObj && studentObj.student_id) {
+                        setSelectedStudent(studentObj); // Auto-opens modal immediately
+                        setHighlightedReqName(reqNameToHighlight);
+                        fetchStudentFullRequirements(studentObj.student_id);
+                        return;
+                    }
+                }
+            } catch (err) {
+                console.warn("Direct student fetch failed, searching full student list...", err);
+            }
+
+            // 3. Fallback: Search in overall student list
+            try {
+                const res = await fetch('http://localhost:3001/api/students');
+                if (res.ok) {
+                    const studentList = await res.json();
+                    if (Array.isArray(studentList)) {
+                        setStudents(studentList);
+                        const matchedStudent = studentList.find(s => String(s.student_id) === String(targetStudentId));
+                        
+                        if (matchedStudent) {
+                            setSelectedStudent(matchedStudent); // Auto-opens modal immediately
+                            setHighlightedReqName(reqNameToHighlight);
+                            fetchStudentFullRequirements(matchedStudent.student_id);
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error("Error processing student_id lookup during deep link:", err);
+            }
+        }
+    }, [fetchStudentFullRequirements]);
+
     useEffect(() => {
         fetchStudents();
         fetchPrograms();
         fetchProgramConfigs();
     }, []);
+
+    // Handles navigation state and triggers deep-link auto-lookup
+    useEffect(() => {
+        const state = location.state || {};
+        const targetId = state.submissionId || state.submission_id || state.navigateId || state.navigate_id;
+        const studentId = state.studentId || state.student_id;
+        const reqName = state.reqName || state.requirement_name;
+
+        if (targetId || studentId) {
+            handleDeepLink(targetId, studentId, reqName);
+        }
+    }, [location.state, handleDeepLink]);
+
+    const getYearLevelOptions = (program) => {
+        const type = (program?.academic_program || program?.type || program?.program_type || '').toLowerCase();
+        return type === 'strand' ? [1, 2] : [1, 2, 3, 4];
+    };
+
+    const selectedProgram = programs.find(p => String(p.program_id) === String(courseFilter));
+    const isStrand = (selectedProgram?.academic_program || selectedProgram?.type || selectedProgram?.program_type || '').toLowerCase() === 'strand';
+    const yearLevelOptions = getYearLevelOptions(selectedProgram);
+
+    useEffect(() => {
+        if (isStrand && Number(yearFilter) > 2) {
+            setYearFilter('all');
+        }
+    }, [courseFilter, isStrand, yearFilter]);
+
+    const availableSections = ['A', 'B', 'C'];
+
+    const availableRequirements = Array.from(
+        new Set([
+            ...programConfigs.map(c => c.requirement_name),
+            ...students.flatMap(s => (s.requirements || s.requirements_list || []).map(r => r.requirement_name || r.name))
+        ].filter(Boolean))
+    ).sort();
 
     const fetchStudents = async () => {
         try {
@@ -74,24 +214,6 @@ const RequirementManagement = () => {
         }
     };
 
-    const fetchStudentFullRequirements = async (studentId) => {
-        try {
-            const res = await fetch(`http://localhost:3001/api/students/${studentId}/full-requirements`);
-            const data = await res.json();
-            
-            if (data && data.error) {
-                alert("Backend Database Error: " + data.error);
-                setStudentReqs([]);
-                return;
-            }
-
-            setStudentReqs(Array.isArray(data) ? data : []);
-        } catch (error) {
-            console.error("Network connectivity issue:", error);
-            alert("Failed to connect to backend api service layer.");
-        }
-    };
-
     const formatDeadlineDate = (dateVal) => {
         if (!dateVal) return '';
         try {
@@ -105,6 +227,7 @@ const RequirementManagement = () => {
 
     const handleManageStudent = async (student) => {
         setSelectedStudent(student);
+        setHighlightedReqName(null);
         fetchStudentFullRequirements(student.student_id);
     };
 
@@ -156,7 +279,10 @@ const RequirementManagement = () => {
             const response = await fetch(`http://localhost:3001/api/students/${studentId}/requirements/${encodeURIComponent(reqName)}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(updatePayload),
+                body: JSON.stringify({
+                    ...updatePayload,
+                    nurse_id: nurseId || 'UNKNOWN_NURSE'
+                }),
             });
 
             const data = await response.json();
@@ -332,10 +458,6 @@ const RequirementManagement = () => {
         }
     };
 
-    const standardYears = [1, 2, 3, 4];
-    const fetchedYears = students.map(s => Number(s.year_level)).filter(y => !isNaN(y) && y > 0);
-    const availableYearLevels = Array.from(new Set([...standardYears, ...fetchedYears])).sort((a, b) => a - b);
-
     const filteredStudents = students
         .filter(student => {
             const term = searchTerm.toLowerCase();
@@ -343,16 +465,26 @@ const RequirementManagement = () => {
             const matchesSearch = 
                 fullName.includes(term) || 
                 student.student_id?.toLowerCase().includes(term) ||
-                student.program_id?.toLowerCase().includes(term);
+                student.program_id?.toLowerCase().includes(term) ||
+                (student.section && student.section.toLowerCase().includes(term));
 
             if (!matchesSearch) return false;
 
-            if (courseFilter !== 'all' && student.program_id !== courseFilter) {
-                return false;
-            }
+            if (courseFilter !== 'all' && String(student.program_id) !== String(courseFilter)) return false;
+            if (sectionFilter !== 'all' && String(student.section) !== String(sectionFilter)) return false;
+            if (yearFilter !== 'all' && String(student.year_level) !== String(yearFilter)) return false;
 
-            if (yearFilter !== 'all' && String(student.year_level) !== String(yearFilter)) {
-                return false;
+            if (requirementFilter !== 'all') {
+                const hasInStudentReqs = Array.isArray(student.requirements) && 
+                    student.requirements.some(r => (r.requirement_name || r.name) === requirementFilter);
+                
+                const hasInProgramConfigs = programConfigs.some(
+                    c => String(c.program_id) === String(student.program_id) && 
+                         c.requirement_name === requirementFilter &&
+                         (!c.year_level || String(c.year_level) === String(student.year_level))
+                );
+
+                if (!hasInStudentReqs && !hasInProgramConfigs) return false;
             }
 
             const stats = student.stats || {};
@@ -429,8 +561,6 @@ const RequirementManagement = () => {
             {/* VIEW: MAIN STUDENT MATRIX */}
             {activeTab === 'student' && (
                 <div className="tab-content">
-                    
-                    {/* DASHBOARD CARDS */}
                     <div className="dashboard-summary-cards">
                         <div 
                             className={`summary-card card-blue ${statusFilter === 'waiting' ? 'active-card-filter' : ''}`}
@@ -458,73 +588,117 @@ const RequirementManagement = () => {
                         </div>
                     </div>
 
-                    {/* FILTER TOOLBAR */}
                     <div className="filter-toolbar">
                         <div className="search-wrapper">
                             <Search className="search-icon" size={18} />
                             <input 
                                 type="text" 
-                                placeholder="Search by student name, ID..." 
+                                placeholder="Search by student name, ID, section..." 
                                 className="search-bar" 
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
                             />
                         </div>
 
-                        <div className="filter-group">
-                            <Filter size={16} style={{ color: '#6b7280' }} />
-                            
-                            <select 
-                                value={courseFilter} 
-                                onChange={(e) => setCourseFilter(e.target.value)}
-                                className="filter-select"
-                            >
-                                <option value="all">All Courses / Strands</option>
-                                {programs.map(p => (
-                                    <option key={p.program_id} value={p.program_id}>
-                                        {p.program_name || p.program_id}
-                                    </option>
-                                ))}
-                            </select>
-
-                            <select 
-                                value={yearFilter} 
-                                onChange={(e) => setYearFilter(e.target.value)}
-                                className="filter-select"
-                            >
-                                <option value="all">All Year Levels</option>
-                                {availableYearLevels.map(y => (
-                                    <option key={y} value={y}>{y}{y === 1 ? 'st' : y === 2 ? 'nd' : y === 3 ? 'rd' : 'th'} Year</option>
-                                ))}
-                            </select>
-
-                            <select 
-                                value={statusFilter} 
-                                onChange={(e) => setStatusFilter(e.target.value)}
-                                className="filter-select"
-                            >
-                                <option value="default">Default (Waiting & Incomplete)</option>
-                                <option value="all">All Statuses (Including Complete)</option>
-                                <option value="waiting">Waiting for Approval Only</option>
-                                <option value="incomplete">Incomplete Only</option>
-                                <option value="complete">Complete Only</option>
-                                <option value="missed">Missed</option>
-                                <option value="rejected">Rejected</option>
-                                <option value="resubmit">Resubmit</option>
-                            </select>
-
-                            {(courseFilter !== 'all' || yearFilter !== 'all' || statusFilter !== 'default' || searchTerm !== '') && (
-                                <button 
-                                    onClick={() => {
-                                        setCourseFilter('all');
-                                        setYearFilter('all');
-                                        setStatusFilter('default');
-                                        setSearchTerm('');
-                                    }}
-                                    className="btn-clear-filters"
+                        <div className="filter-grid">
+                            <div className="filter-item-rqm">
+                                <label className="filter-label">Course / Strand</label>
+                                <select 
+                                    value={courseFilter} 
+                                    onChange={(e) => setCourseFilter(e.target.value)}
+                                    className="filter-select"
                                 >
-                                    Reset Filters
-                                </button>
+                                    <option value="all">All Courses / Strands</option>
+                                    {programs.map(p => (
+                                        <option key={p.program_id} value={p.program_id}>
+                                            {p.program_name || p.program_id}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="filter-item-rqm">
+                                <label className="filter-label">Year Level</label>
+                                <select 
+                                    value={yearFilter} 
+                                    onChange={(e) => setYearFilter(e.target.value)}
+                                    className="filter-select"
+                                >
+                                    <option value="all">All Year Levels</option>
+                                    {yearLevelOptions.map(y => (
+                                        <option key={y} value={y}>
+                                            {y}{y === 1 ? 'st' : y === 2 ? 'nd' : y === 3 ? 'rd' : 'th'} Year
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="filter-item-rqm">
+                                <label className="filter-label">Section</label>
+                                <select 
+                                    value={sectionFilter} 
+                                    onChange={(e) => setSectionFilter(e.target.value)}
+                                    className="filter-select"
+                                >
+                                    <option value="all">All Sections</option>
+                                    {availableSections.map(sec => (
+                                        <option key={sec} value={sec}>
+                                            {sec}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="filter-item-rqm">
+                                <label className="filter-label">Requirement</label>
+                                <select 
+                                    value={requirementFilter} 
+                                    onChange={(e) => setRequirementFilter(e.target.value)}
+                                    className="filter-select"
+                                >
+                                    <option value="all">All Requirements</option>
+                                    {availableRequirements.map(req => (
+                                        <option key={req} value={req}>
+                                            {req}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="filter-item-rqm">
+                                <label className="filter-label">Compliance Status</label>
+                                <select 
+                                    value={statusFilter} 
+                                    onChange={(e) => setStatusFilter(e.target.value)}
+                                    className="filter-select"
+                                >
+                                    <option value="default">Default (Waiting & Incomplete)</option>
+                                    <option value="all">All Statuses (Including Complete)</option>
+                                    <option value="waiting">Waiting for Approval Only</option>
+                                    <option value="incomplete">Incomplete Only</option>
+                                    <option value="complete">Complete Only</option>
+                                    <option value="missed">Missed</option>
+                                    <option value="rejected">Rejected</option>
+                                    <option value="resubmit">Resubmit</option>
+                                </select>
+                            </div>
+
+                            {(courseFilter !== 'all' || sectionFilter !== 'all' || yearFilter !== 'all' || requirementFilter !== 'all' || statusFilter !== 'default' || searchTerm !== '') && (
+                                <div className="filter-item-rqm filter-reset-action">
+                                    <button 
+                                        onClick={() => {
+                                            setCourseFilter('all');
+                                            setSectionFilter('all');
+                                            setYearFilter('all');
+                                            setRequirementFilter('all');
+                                            setStatusFilter('default');
+                                            setSearchTerm('');
+                                        }}
+                                        className="btn-clear-filters"
+                                    >
+                                        Reset Filters
+                                    </button>
+                                </div>
                             )}
                         </div>
                     </div>
@@ -534,7 +708,7 @@ const RequirementManagement = () => {
                             <thead>
                                 <tr>
                                     <th>Student</th>
-                                    <th>Course/Year</th>
+                                    <th>Course/Section/Year</th>
                                     <th>Requirements Overview</th>
                                     <th className="text-center">Action</th>
                                 </tr>
@@ -550,7 +724,8 @@ const RequirementManagement = () => {
                                                 </div>
                                             </td>
                                             <td>
-                                                <b>{student.program_id}</b><br/> 
+                                                <b>{student.program_id}</b>
+                                                {student.section && <span className="text-muted"> - {student.section}</span>}<br/> 
                                                 <small className="text-muted">
                                                     {student.year_level}{Number(student.year_level) === 1 ? 'st' : Number(student.year_level) === 2 ? 'nd' : Number(student.year_level) === 3 ? 'rd' : 'th'} Year
                                                 </small>
@@ -560,9 +735,7 @@ const RequirementManagement = () => {
                                                     <div className="stats-overview">
                                                         <div>
                                                             {Number(student.stats.total) === 0 ? (
-                                                                <span className="text-muted">
-                                                                    No Requirements (0/0)
-                                                                </span>
+                                                                <span className="text-muted">No Requirements (0/0)</span>
                                                             ) : Number(student.stats.completed) === Number(student.stats.total) ? (
                                                                 <span className="stat-complete">
                                                                     <CheckCircle size={14} style={{ display: 'inline', marginRight: '4px' }}/> 
@@ -583,14 +756,10 @@ const RequirementManagement = () => {
                                                                 </span>
                                                             )}
                                                             {student.stats.resubmit > 0 && (
-                                                                <span className="status-tag-chip chip-resubmit">
-                                                                    {student.stats.resubmit} Resubmit
-                                                                </span>
+                                                                <span className="status-tag-chip chip-resubmit">{student.stats.resubmit} Resubmit</span>
                                                             )}
                                                             {student.stats.rejected > 0 && (
-                                                                <span className="status-tag-chip chip-rejected">
-                                                                    {student.stats.rejected} Rejected
-                                                                </span>
+                                                                <span className="status-tag-chip chip-rejected">{student.stats.rejected} Rejected</span>
                                                             )}
                                                             {(Number(student.stats.noSubmission) > 0 || Number(student.stats.notSubmitted) > 0) && (
                                                                 <span className="status-tag-chip chip-missing">
@@ -599,9 +768,7 @@ const RequirementManagement = () => {
                                                                 </span>
                                                             )}
                                                             {Number(student.stats.pending) > 0 && (
-                                                                <span className="status-tag-chip chip-pending">
-                                                                    {student.stats.pending} Pending
-                                                                </span>
+                                                                <span className="status-tag-chip chip-pending">{student.stats.pending} Pending</span>
                                                             )}
                                                         </div>
                                                     </div>
@@ -638,6 +805,7 @@ const RequirementManagement = () => {
                     {programs.map(prog => {
                         const assignedConfigs = programConfigs.filter(config => config.program_id === prog.program_id);
                         const currentInline = programInlineInputs[prog.program_id] || { name: '', year_level: '', deadline: '', allowLate: false };
+                        const progYearLevelOptions = getYearLevelOptions(prog);
 
                         return (
                             <div className="program-card" key={prog.program_id}>
@@ -696,7 +864,7 @@ const RequirementManagement = () => {
                                                                 className="flex-1 filter-select"
                                                             >
                                                                 <option value="">Year Level</option>
-                                                                {availableYearLevels.map(y => (
+                                                                {progYearLevelOptions.map(y => (
                                                                     <option key={y} value={y}>{y}{y === 1 ? 'st' : y === 2 ? 'nd' : y === 3 ? 'rd' : 'th'} Year</option>
                                                                 ))}
                                                             </select>
@@ -744,7 +912,7 @@ const RequirementManagement = () => {
                                                 className="flex-1 filter-select"
                                             >
                                                 <option value="">Year Level</option>
-                                                {availableYearLevels.map(y => (
+                                                {progYearLevelOptions.map(y => (
                                                     <option key={y} value={y}>{y}{y === 1 ? 'st' : y === 2 ? 'nd' : y === 3 ? 'rd' : 'th'} Year</option>
                                                 ))}
                                             </select>
@@ -782,7 +950,7 @@ const RequirementManagement = () => {
                                 <h3>Manage Submissions</h3>
                                 <p className="modal-subtitle">{selectedStudent.first_name} {selectedStudent.last_name} ({selectedStudent.student_id})</p>
                             </div>
-                            <button onClick={() => setSelectedStudent(null)} className="btn-close" title="Close Modal"><X size={20}/></button>
+                            <button onClick={() => { setSelectedStudent(null); setHighlightedReqName(null); }} className="btn-close" title="Close Modal"><X size={20}/></button>
                         </div>
                         
                         <div className="modal-body">
@@ -809,8 +977,14 @@ const RequirementManagement = () => {
                                                 ? String(req.status).toLowerCase().replace(/\s+/g, "-") 
                                                 : "pending";
 
+                                            const isHighlighted = highlightedReqName && req.requirement_name === highlightedReqName;
+
                                             return (
-                                                <div className="req-card" key={req.requirement_name || i}>
+                                                <div 
+                                                    className={`req-card ${isHighlighted ? 'highlighted-req-card' : ''}`} 
+                                                    key={req.requirement_name || i}
+                                                    style={isHighlighted ? { border: '2px solid #2563eb', boxShadow: '0 0 10px rgba(37,99,235,0.3)' } : {}}
+                                                >
                                                     <div className="req-card-header">
                                                         <div className="req-card-title-group">
                                                             <h4>
