@@ -120,7 +120,7 @@ const IncidentReport = () => {
             if (searchQuery) params.append('search', searchQuery);
             if (dateFilter) params.append('date', dateFilter);
 
-            const res = await fetch(`http://localhost:3001/api/incident-reports?${params.toString()}`);
+            const res = await fetch(`https://localhost-cms.onrender.com/api/incident-reports?${params.toString()}`);
             const data = await res.json();
             if (data.success) {
                 setReports(data.reports);

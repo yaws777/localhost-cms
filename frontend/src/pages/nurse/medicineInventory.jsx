@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import '../../styles/nurse/MedicineInventory.css'; 
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://localhost-cms.onrender.com/api';
 
 const DOSAGE_FORMS = [
   'Tablet', 'Capsule', 'Sachet', 'Patch',

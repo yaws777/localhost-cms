@@ -3,7 +3,7 @@ import { useOutletContext, useLocation } from 'react-router-dom';
 import { Eye } from 'lucide-react';
 import '../../styles/student/RequestModule.css';
 
-const API_BASE = 'http://localhost:3001/api';
+const API_BASE = 'https://localhost-cms.onrender.com/api';
 
 export default function RequestModule() {
   const location = useLocation();
@@ -459,7 +459,7 @@ export default function RequestModule() {
                     {selectedRequest.student_proof_url && (
                       <p>
                         <strong>Attachment:</strong>{' '}
-                        <a href={`http://localhost:3001${selectedRequest.student_proof_url}`} target="_blank" rel="noreferrer">
+                        <a href={`https://localhost-cms.onrender.com${selectedRequest.student_proof_url}`} target="_blank" rel="noreferrer">
                           View Uploaded Proof
                         </a>
                       </p>
@@ -476,7 +476,7 @@ export default function RequestModule() {
                 {selectedRequest.issued_slip_url ? (
                   <p className="sti-issued-link">
                     <strong>Issued Slip Document:</strong>{' '}
-                    <a href={`http://localhost:3001${selectedRequest.issued_slip_url}`} target="_blank" rel="noreferrer">
+                    <a href={`https://localhost-cms.onrender.com${selectedRequest.issued_slip_url}`} target="_blank" rel="noreferrer">
                       📄 Download Issued Slip
                     </a>
                   </p>

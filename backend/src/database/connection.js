@@ -1723,7 +1723,7 @@ app.post('/api/students/:id/requirements/:reqName/submit', upload.single('file')
         return res.status(400).json({ success: false, error: "A local file upload stream is required." });
     }
 
-    const file_url = `http://localhost:3001/uploads/${req.file.filename}`;
+    const file_url = `https://localhost-cms.onrender.com/uploads/${req.file.filename}`;
 
     try {
         const [studentRows] = await pool.query(

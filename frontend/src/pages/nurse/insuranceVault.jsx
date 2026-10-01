@@ -52,7 +52,7 @@ const InsuranceVault = () => {
     const fetchVaultFolders = async () => {
         try {
             setLoading(true);
-            const res = await fetch('http://localhost:3001/api/insurance-vault');
+            const res = await fetch('https://localhost-cms.onrender.com/api/insurance-vault');
             const data = await res.json();
             if (Array.isArray(data)) {
                 setVaultFolders(data);
@@ -79,7 +79,7 @@ const InsuranceVault = () => {
         const delayDebounce = setTimeout(async () => {
             if (studentSearch.trim().length > 0 && !selectedStudent) {
                 try {
-                    const res = await fetch(`http://localhost:3001/api/insurance-vault/search?query=${encodeURIComponent(studentSearch.trim())}`);
+                    const res = await fetch(`https://localhost-cms.onrender.com/api/insurance-vault/search?query=${encodeURIComponent(studentSearch.trim())}`);
                     if (!res.ok) {
                         console.error("API response error status:", res.status);
                         setSearchResults([]);
@@ -133,7 +133,7 @@ const InsuranceVault = () => {
     // Fetch Files inside a Student Vault Folder
     const fetchStudentVaultFiles = async (studentId) => {
         try {
-            const res = await fetch(`http://localhost:3001/api/insurance-vault/student/${studentId}/files`);
+            const res = await fetch(`https://localhost-cms.onrender.com/api/insurance-vault/student/${studentId}/files`);
             const data = await res.json();
             if (Array.isArray(data)) {
                 setVaultFiles(data);
@@ -163,7 +163,7 @@ const InsuranceVault = () => {
         }
 
         try {
-            const res = await fetch('http://localhost:3001/api/insurance-vault/create-vault', {
+            const res = await fetch('https://localhost-cms.onrender.com/api/insurance-vault/create-vault', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -208,7 +208,7 @@ const InsuranceVault = () => {
         }
 
         try {
-            const res = await fetch('http://localhost:3001/api/insurance-vault/add-file', {
+            const res = await fetch('https://localhost-cms.onrender.com/api/insurance-vault/add-file', {
                 method: 'POST',
                 body: formData
             });
@@ -238,7 +238,7 @@ const InsuranceVault = () => {
     const handleDeleteFile = async (vaultFileId) => {
         if (window.confirm("Are you sure you want to delete this file from the vault?")) {
             try {
-                const res = await fetch(`http://localhost:3001/api/insurance-vault/file/${vaultFileId}`, {
+                const res = await fetch(`https://localhost-cms.onrender.com/api/insurance-vault/file/${vaultFileId}`, {
                     method: 'DELETE'
                 });
                 const result = await res.json();
@@ -256,7 +256,7 @@ const InsuranceVault = () => {
     const handleDeleteVaultFolder = async (studentId) => {
         if (window.confirm("Are you sure you want to delete this entire insurance vault folder and all its contents?")) {
             try {
-                const res = await fetch(`http://localhost:3001/api/insurance-vault/student/${studentId}`, {
+                const res = await fetch(`https://localhost-cms.onrender.com/api/insurance-vault/student/${studentId}`, {
                     method: 'DELETE'
                 });
                 const result = await res.json();
@@ -516,7 +516,7 @@ const InsuranceVault = () => {
                                             </div>
                                             <div className="file-actions-iv">
                                                 {file.file_url && (
-                                                    <a href={`http://localhost:3001${file.file_url}`} target="_blank" rel="noopener noreferrer" className="btn-action-iv view-iv" title="View/Download">
+                                                    <a href={`https://localhost-cms.onrender.com${file.file_url}`} target="_blank" rel="noopener noreferrer" className="btn-action-iv view-iv" title="View/Download">
                                                         <Download size={16} />
                                                     </a>
                                                 )}

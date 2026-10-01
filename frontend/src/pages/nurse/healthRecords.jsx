@@ -43,7 +43,7 @@ export default function HealthRecord() {
                 year_level: selectedYear
             }).toString();
 
-            const response = await fetch(`http://localhost:3001/api/health-records/students?${queryParams}`);
+            const response = await fetch(`https://localhost-cms.onrender.com/api/health-records/students?${queryParams}`);
             const data = await response.json();
 
             if (data.success) {

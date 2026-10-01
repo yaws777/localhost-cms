@@ -39,7 +39,7 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
     const fetchContacts = useCallback(async () => {
         if (!userId) return;
         try {
-            const res = await fetch(`http://localhost:3001/api/messages/student-contacts/${userId}`);
+            const res = await fetch(`https://localhost-cms.onrender.com/api/messages/student-contacts/${userId}`);
             const data = await res.json();
             if (data.success) {
                 setContacts(data.contacts || []);
@@ -52,7 +52,7 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
     const fetchConversations = useCallback(async () => {
         if (!userId) return;
         try {
-            const res = await fetch(`http://localhost:3001/api/messages/conversations/${userId}`);
+            const res = await fetch(`https://localhost-cms.onrender.com/api/messages/conversations/${userId}`);
             const data = await res.json();
             if (data.success) {
                 setConversations(data.conversations || []);
@@ -82,7 +82,7 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
         fetchChatHistory(contactUserId);
 
         try {
-            await fetch(`http://localhost:3001/api/messages/read/${userId}/${contactUserId}`, { method: 'PUT' });
+            await fetch(`https://localhost-cms.onrender.com/api/messages/read/${userId}/${contactUserId}`, { method: 'PUT' });
             fetchConversations();
             if (refreshUnreadCount) refreshUnreadCount();
         } catch (err) {
@@ -92,7 +92,7 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
 
     const fetchChatHistory = async (contactUserId) => {
         try {
-            const res = await fetch(`http://localhost:3001/api/messages/history/${userId}/${contactUserId}`);
+            const res = await fetch(`https://localhost-cms.onrender.com/api/messages/history/${userId}/${contactUserId}`);
             const data = await res.json();
             if (data.success) {
                 setMessages(data.messages);
@@ -107,7 +107,7 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
         if (!window.confirm('Unsend this message?')) return;
 
         try {
-            const res = await fetch(`http://localhost:3001/api/messages/${messageId}`, { method: 'DELETE' });
+            const res = await fetch(`https://localhost-cms.onrender.com/api/messages/${messageId}`, { method: 'DELETE' });
             const data = await res.json();
 
             if (data.success) {
@@ -127,7 +127,7 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
         if (!window.confirm('Delete this conversation? This cannot be undone.')) return;
 
         try {
-            const res = await fetch(`http://localhost:3001/api/messages/conversations/${userId}/${contactUserId}`, { method: 'DELETE' });
+            const res = await fetch(`https://localhost-cms.onrender.com/api/messages/conversations/${userId}/${contactUserId}`, { method: 'DELETE' });
             const data = await res.json();
 
             if (data.success) {
@@ -220,7 +220,7 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
         }
 
         try {
-            const res = await fetch('http://localhost:3001/api/messages/send', {
+            const res = await fetch('https://localhost-cms.onrender.com/api/messages/send', {
                 method: 'POST',
                 body: formData
             });
@@ -354,19 +354,19 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
                                                     {msg.content && <p>{msg.content}</p>}
                                                     
                                                     {msg.message_type === 'image' && msg.media_url && (
-                                                        <img src={`http://localhost:3001${msg.media_url}`} alt="attachment" className="chat-image-preview" />
+                                                        <img src={`https://localhost-cms.onrender.com${msg.media_url}`} alt="attachment" className="chat-image-preview" />
                                                     )}
                                                     
                                                     {msg.message_type === 'video' && msg.media_url && (
-                                                        <video controls src={`http://localhost:3001${msg.media_url}`} className="chat-video-preview" />
+                                                        <video controls src={`https://localhost-cms.onrender.com${msg.media_url}`} className="chat-video-preview" />
                                                     )}
 
                                                     {msg.message_type === 'audio' && msg.media_url && (
-                                                        <audio controls src={`http://localhost:3001${msg.media_url}`} />
+                                                        <audio controls src={`https://localhost-cms.onrender.com${msg.media_url}`} />
                                                     )}
 
                                                     {msg.message_type === 'file' && msg.media_url && (
-                                                        <a href={`http://localhost:3001${msg.media_url}`} target="_blank" rel="noreferrer" className="file-attachment-link">
+                                                        <a href={`https://localhost-cms.onrender.com${msg.media_url}`} target="_blank" rel="noreferrer" className="file-attachment-link">
                                                             <FileText size={16} /> Download File
                                                         </a>
                                                     )}
