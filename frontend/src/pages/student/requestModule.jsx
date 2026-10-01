@@ -3,22 +3,25 @@ import { useOutletContext, useLocation } from 'react-router-dom';
 import { Eye } from 'lucide-react';
 import '../../styles/student/RequestModule.css';
 
+const API_BASE = 'https://localhost-cms.onrender.com/api';
+const BASE_URL = 'https://localhost-cms.onrender.com';
+
 export default function RequestModule() {
   const location = useLocation();
   const { studentId, firstName, lastName } = useOutletContext() || {};
   const student_id = studentId;
 
-  // Helper to format file URLs without an explicit API host
+  // Helper to format file URLs using standard base URL
   const getFileUrl = (url) => {
     if (!url) return '#';
     if (url.startsWith('http://') || url.startsWith('https://')) {
       return url;
     }
-    return url.startsWith('/') ? url : `/${url}`;
+    return `${BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
   };
 
-  // UI state - initializes activeModal if triggered via route state (e.g. from Dashboard quick action buttons)
-  const [activeModal, setActiveModal] = useState(location.state?.openModal || null); // 'excuse' | 'referral' | 'view' | null
+  // UI state - initializes activeModal if triggered via route state
+  const [activeModal, setActiveModal] = useState(location.state?.openModal || null);
   const [requests, setRequests] = useState([]);
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [notes, setNotes] = useState([]);
@@ -43,7 +46,6 @@ export default function RequestModule() {
     selected_services: []
   });
 
-  // Listen to navigation state changes to auto-open modal when navigating back and forth
   useEffect(() => {
     if (location.state?.openModal) {
       setActiveModal(location.state.openModal);
@@ -53,11 +55,10 @@ export default function RequestModule() {
   // Fetch Partner Facilities
   const fetchPartnerFacilities = async () => {
     try {
-      const res = await fetch('/api/partner-facilities');
+      const res = await fetch(`${API_BASE}/partner-facilities`);
       const data = await res.json();
       setPartnerFacilities(data);
 
-      // Default select the first facility if available
       if (data.length > 0) {
         setReferralForm((prev) => ({
           ...prev,
@@ -75,7 +76,7 @@ export default function RequestModule() {
   const fetchRequests = useCallback(async () => {
     if (!student_id) return;
     try {
-      const res = await fetch(`/api/requests/student/${student_id}`);
+      const res = await fetch(`${API_BASE}/requests/student/${student_id}`);
       const data = await res.json();
       setRequests(data);
     } catch (err) {
@@ -88,7 +89,6 @@ export default function RequestModule() {
     fetchPartnerFacilities();
   }, [fetchRequests]);
 
-  // Handle facility selection change
   const handleFacilityChange = (e) => {
     const facilityId = e.target.value;
     const selectedFac = partnerFacilities.find((f) => f.facility_id === facilityId);
@@ -96,12 +96,11 @@ export default function RequestModule() {
     setReferralForm({
       ...referralForm,
       facility_id: facilityId,
-      selected_services: [] // Reset selected checkboxes when facility changes
+      selected_services: []
     });
     setAvailableServices(selectedFac ? selectedFac.services : []);
   };
 
-  // Handle service checkbox toggles
   const handleServiceCheckbox = (serviceId) => {
     setReferralForm((prev) => {
       const isAlreadySelected = prev.selected_services.includes(serviceId);
@@ -117,7 +116,7 @@ export default function RequestModule() {
   // Fetch Notes for selected request
   const fetchNotes = async (reqItem) => {
     try {
-      const res = await fetch(`/api/requests/${encodeURIComponent(reqItem.request_type)}/${reqItem.request_id}/notes`);
+      const res = await fetch(`${API_BASE}/requests/${encodeURIComponent(reqItem.request_type)}/${reqItem.request_id}/notes`);
       const data = await res.json();
       setNotes(data);
     } catch (err) {
@@ -141,7 +140,7 @@ export default function RequestModule() {
     }
 
     try {
-      const res = await fetch('/api/requests/excuse-slip', {
+      const res = await fetch(`${API_BASE}/requests/excuse-slip`, {
         method: 'POST',
         body: formData
       });
@@ -168,7 +167,7 @@ export default function RequestModule() {
     setLoading(true);
 
     try {
-      const res = await fetch('/api/requests/referral-slip', {
+      const res = await fetch(`${API_BASE}/requests/referral-slip`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -194,20 +193,18 @@ export default function RequestModule() {
     }
   };
 
-  // View Details Modal Trigger
   const handleViewDetails = (reqItem) => {
     setSelectedRequest(reqItem);
     setActiveModal('view');
     fetchNotes(reqItem);
   };
 
-  // Send Note/Message
   const handleSendNote = async (e) => {
     e.preventDefault();
     if (!newMessage.trim() || !selectedRequest) return;
 
     try {
-      const res = await fetch(`/api/requests/${encodeURIComponent(selectedRequest.request_type)}/${selectedRequest.request_id}/notes`, {
+      const res = await fetch(`${API_BASE}/requests/${encodeURIComponent(selectedRequest.request_type)}/${selectedRequest.request_id}/notes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
