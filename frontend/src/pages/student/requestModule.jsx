@@ -53,7 +53,7 @@ export default function RequestModule() {
   // Fetch Partner Facilities
   const fetchPartnerFacilities = async () => {
     try {
-      const res = await fetch('https://localhost-cms.onrender.com/api/partner-facilities');
+      const res = await fetch('/api/partner-facilities');
       const data = await res.json();
       setPartnerFacilities(data);
 
@@ -75,7 +75,7 @@ export default function RequestModule() {
   const fetchRequests = useCallback(async () => {
     if (!student_id) return;
     try {
-      const res = await fetch(`https://localhost-cms.onrender.com/api/requests/student/${student_id}`);
+      const res = await fetch(`/api/requests/student/${student_id}`);
       const data = await res.json();
       setRequests(data);
     } catch (err) {
@@ -117,7 +117,7 @@ export default function RequestModule() {
   // Fetch Notes for selected request
   const fetchNotes = async (reqItem) => {
     try {
-      const res = await fetch(`https://localhost-cms.onrender.com/api/requests/${encodeURIComponent(reqItem.request_type)}/${reqItem.request_id}/notes`);
+      const res = await fetch(`/api/requests/${encodeURIComponent(reqItem.request_type)}/${reqItem.request_id}/notes`);
       const data = await res.json();
       setNotes(data);
     } catch (err) {
@@ -141,7 +141,7 @@ export default function RequestModule() {
     }
 
     try {
-      const res = await fetch('https://localhost-cms.onrender.com/api/requests/excuse-slip', {
+      const res = await fetch('/api/requests/excuse-slip', {
         method: 'POST',
         body: formData
       });
@@ -168,7 +168,7 @@ export default function RequestModule() {
     setLoading(true);
 
     try {
-      const res = await fetch('https://localhost-cms.onrender.com/api/requests/referral-slip', {
+      const res = await fetch('/api/requests/referral-slip', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -207,7 +207,7 @@ export default function RequestModule() {
     if (!newMessage.trim() || !selectedRequest) return;
 
     try {
-      const res = await fetch(`https://localhost-cms.onrender.com/api/requests/${encodeURIComponent(selectedRequest.request_type)}/${selectedRequest.request_id}/notes`, {
+      const res = await fetch(`/api/requests/${encodeURIComponent(selectedRequest.request_type)}/${selectedRequest.request_id}/notes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

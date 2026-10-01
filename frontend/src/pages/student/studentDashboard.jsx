@@ -17,6 +17,9 @@ import {
 import HealthTipsModal from '../../components/student/HealthTips';
 import '../../styles/student/StudentDashboard.css';
 
+const API_BASE = 'https://localhost-cms.onrender.com/api';
+const BASE_URL = 'https://localhost-cms.onrender.com';
+
 const StudentDashboard = () => {
   const navigate = useNavigate();
 
@@ -65,13 +68,13 @@ const StudentDashboard = () => {
 
   const [currentTipIndex, setCurrentTipIndex] = useState(0);
 
-  // Helper to format uploaded document URLs
+  // Helper to format uploaded document URLs using standard base URL
   const getFileUrl = (url) => {
     if (!url) return '#';
     if (url.startsWith('http://') || url.startsWith('https://')) {
       return url;
     }
-    return url.startsWith('/') ? url : `/${url}`;
+    return `${BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
   };
 
   // Fetch all dashboard endpoints
@@ -89,11 +92,11 @@ const StudentDashboard = () => {
         }).toString();
 
         const [visitsRes, reqsRes, docsRes, screeningsRes, appointmentsRes] = await Promise.all([
-          fetch(`https://localhost-cms.onrender.com/api/student/dashboard/visits-dispensation/${studentId}`),
-          fetch(`https://localhost-cms.onrender.com/api/student/dashboard/requirements/${studentId}`),
-          fetch(`https://localhost-cms.onrender.com/api/student/dashboard/document-requests/${studentId}`),
-          fetch(`https://localhost-cms.onrender.com/api/student/dashboard/upcoming-health-screenings?${queryParams}`),
-          fetch(`https://localhost-cms.onrender.com/api/student/dashboard/doctor-appointments/${studentId}`)
+          fetch(`${API_BASE}/student/dashboard/visits-dispensation/${studentId}`),
+          fetch(`${API_BASE}/student/dashboard/requirements/${studentId}`),
+          fetch(`${API_BASE}/student/dashboard/document-requests/${studentId}`),
+          fetch(`${API_BASE}/student/dashboard/upcoming-health-screenings?${queryParams}`),
+          fetch(`${API_BASE}/student/dashboard/doctor-appointments/${studentId}`)
         ]);
 
         const responses = [
