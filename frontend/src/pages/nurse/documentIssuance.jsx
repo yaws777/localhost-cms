@@ -17,15 +17,46 @@ import {
     FileText,
     Settings,
     Plus,
-    Trash2,
-    Building,
-    Stethoscope,
     RefreshCw,
     FileCode
 } from 'lucide-react';
 
-import stiLogo from '../../assets/sti-logo.jpg';
+import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/DocumentIssuance.css';
+
+// Vector signature data URL generated from Nurse Marilou H. Balarao's photo ("MBalarao")
+const NURSE_SIGNATURE_SVG = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 100" width="260" height="100">
+  <path d="
+    M 22 72 
+    C 18 45, 25 18, 38 24 
+    C 48 29, 44 58, 48 74 
+    C 53 48, 64 22, 75 26 
+    C 84 30, 80 58, 83 72 
+    C 87 45, 98 28, 114 31 
+    C 126 33, 122 50, 112 53 
+    C 128 55, 126 74, 108 74 
+    C 96 74, 92 70, 90 66 
+    C 95 62, 105 60, 115 60 
+    C 122 53, 130 52, 134 56 
+    C 138 60, 134 71, 128 71 
+    C 123 71, 125 61, 136 61 
+    C 141 44, 147 28, 149 32 
+    C 151 36, 144 70, 151 70 
+    C 155 61, 161 57, 165 60 
+    C 169 63, 165 71, 160 71 
+    C 156 71, 158 61, 168 61 
+    C 173 57, 178 55, 180 58 
+    C 180 62, 176 68, 184 68 
+    C 188 59, 194 56, 198 59 
+    C 202 62, 198 71, 193 71 
+    C 189 71, 191 61, 201 61 
+    C 206 57, 213 57, 213 63 
+    C 213 70, 204 71, 202 63 
+    C 202 58, 211 56, 225 56
+  " fill="none" stroke="#0f172a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+`)}`;
 
 const DocumentIssuance = () => {
     const { nurseId } = useOutletContext();
@@ -35,7 +66,7 @@ const DocumentIssuance = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     
-    // Filter & Search states - Default filter set to 'Waiting for Approval'
+    // Filter & Search states
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('Waiting for Approval');
     const [typeFilter, setTypeFilter] = useState('All');
@@ -48,6 +79,16 @@ const DocumentIssuance = () => {
     const [selectedFile, setSelectedFile] = useState(null);
     const [submitting, setSubmitting] = useState(false);
     const [modalError, setModalError] = useState('');
+
+    // Confirmation Popup State
+    const [confirmState, setConfirmState] = useState({
+        isOpen: false,
+        title: '',
+        message: '',
+        confirmText: 'Confirm',
+        type: 'warning',
+        onConfirm: null
+    });
 
     // Referral Mode Toggle ('autogen' | 'upload')
     const [referralMode, setReferralMode] = useState('autogen');
@@ -69,7 +110,7 @@ const DocumentIssuance = () => {
     const [showServiceForm, setShowServiceForm] = useState(false);
     const [activeFacilityName, setActiveFacilityName] = useState('');
 
-    // Auto-Generated Slip Editable State (Supports both Excuse and Referral)
+    // Auto-Generated Slip Editable State
     const [slipDetails, setSlipDetails] = useState({
         date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
         studentName: '',
@@ -77,13 +118,13 @@ const DocumentIssuance = () => {
         reason: '',
         partnerFacility: '',
         requestedServices: '',
-        nurseName: 'MARILOU H. BALARAO'
+        nurseName: 'MARILOU H. BALARAO, RN, LPT'
     });
 
     const fetchRequests = async () => {
         setLoading(true);
         try {
-            const response = await fetch('http://localhost:3001/api/document-requests');
+            const response = await fetch('https://localhost-cms.onrender.com/api/document-requests');
             const data = await response.json();
             if (data.success) {
                 setRequests(data.requests || []);
@@ -103,7 +144,7 @@ const DocumentIssuance = () => {
         setConfigLoading(true);
         setConfigError('');
         try {
-            const res = await fetch('http://localhost:3001/api/partner-facilities');
+            const res = await fetch('https://localhost-cms.onrender.com/api/partner-facilities');
             if (!res.ok) throw new Error(`Server returned status ${res.status}`);
             const data = await res.json();
             
@@ -119,7 +160,7 @@ const DocumentIssuance = () => {
             setFacilities(loadedFacilities);
         } catch (err) {
             console.error('Error fetching facilities:', err);
-            setConfigError('Failed to load partner facilities. Please ensure your backend is running at http://localhost:3001.');
+            setConfigError('Failed to load partner facilities. Please ensure your backend is running.');
         } finally {
             setConfigLoading(false);
         }
@@ -175,7 +216,7 @@ const DocumentIssuance = () => {
 
     const fetchNotes = async (requestType, requestId) => {
         try {
-            const res = await fetch(`http://localhost:3001/api/document-requests/notes/${requestType}/${requestId}`);
+            const res = await fetch(`https://localhost-cms.onrender.com/api/document-requests/notes/${requestType}/${requestId}`);
             const data = await res.json();
             if (data.success) {
                 setNotes(data.notes || []);
@@ -206,7 +247,7 @@ const DocumentIssuance = () => {
             reason: reqItem.reason || reqItem.reason_for_excuse || '',
             partnerFacility: reqItem.partner_facility_name || 'N/A',
             requestedServices: reqItem.requested_services || 'N/A',
-            nurseName: 'MARILOU H. BALARAO'
+            nurseName: 'MARILOU H. BALARAO, RN, LPT'
         });
 
         await fetchNotes(reqItem.request_type, reqItem.request_id);
@@ -221,15 +262,11 @@ const DocumentIssuance = () => {
         setModalError('');
     };
 
-    // CRUD Handlers for Partner Facilities
-    const handleSaveFacility = async (e) => {
-        e.preventDefault();
-        if (!facilityForm.facility_name.trim()) return;
-
+    const executeSaveFacility = async () => {
         const targetId = facilityForm.facility_id || facilityForm.id;
         const url = isEditingFacility 
-            ? `http://localhost:3001/api/partner-facilities/${targetId}`
-            : 'http://localhost:3001/api/partner-facilities';
+            ? `https://localhost-cms.onrender.com/api/partner-facilities/${targetId}`
+            : 'https://localhost-cms.onrender.com/api/partner-facilities';
         const method = isEditingFacility ? 'PUT' : 'POST';
 
         try {
@@ -253,30 +290,33 @@ const DocumentIssuance = () => {
         }
     };
 
-    const handleDeleteFacility = async (facilityId) => {
-        if (!window.confirm('Are you sure you want to delete this facility and all its services?')) return;
-        try {
-            const res = await fetch(`http://localhost:3001/api/partner-facilities/${facilityId}`, { method: 'DELETE' });
-            const data = await res.json();
-            if (data.success || res.ok) {
-                fetchFacilities();
-            } else {
-                alert(data.message || 'Failed to delete facility');
-            }
-        } catch (err) {
-            console.error('Error deleting facility:', err);
-        }
+    const handleSaveFacility = (e) => {
+        e.preventDefault();
+        if (!facilityForm.facility_name.trim()) return;
+
+        setConfirmState({
+            isOpen: true,
+            title: isEditingFacility ? 'Confirm Facility Update' : 'Confirm Save Facility',
+            message: `Are you sure you want to ${isEditingFacility ? 'update' : 'add'} "${facilityForm.facility_name}" as a partner facility?`,
+            confirmText: isEditingFacility ? 'Update Facility' : 'Save Facility',
+            type: 'approve',
+            onConfirm: executeSaveFacility
+        });
     };
 
-    // CRUD Handlers for Facility Services
-    const handleSaveService = async (e) => {
-        e.preventDefault();
-        if (!serviceForm.facility_id || !serviceForm.service_name.trim()) return;
+    const handleOpenAddService = (facility) => {
+        setServiceForm({ service_id: '', facility_id: facility.facility_id || facility.id, service_name: '', description: '' });
+        setActiveFacilityName(facility.facility_name || '');
+        setIsEditingService(false);
+        setShowServiceForm(true);
+        setShowFacilityForm(false);
+    };
 
+    const executeSaveService = async () => {
         const targetServiceId = serviceForm.service_id || serviceForm.id;
         const url = isEditingService 
-            ? `http://localhost:3001/api/facility-services/${targetServiceId}`
-            : `http://localhost:3001/api/partner-facilities/${serviceForm.facility_id}/services`;
+            ? `https://localhost-cms.onrender.com/api/facility-services/${targetServiceId}`
+            : `https://localhost-cms.onrender.com/api/partner-facilities/${serviceForm.facility_id}/services`;
         const method = isEditingService ? 'PUT' : 'POST';
 
         try {
@@ -290,6 +330,7 @@ const DocumentIssuance = () => {
                 setServiceForm({ service_id: '', facility_id: '', service_name: '', description: '' });
                 setIsEditingService(false);
                 setShowServiceForm(false);
+                setActiveFacilityName('');
                 fetchFacilities();
             } else {
                 alert(data.message || 'Failed to save service');
@@ -299,19 +340,18 @@ const DocumentIssuance = () => {
         }
     };
 
-    const handleDeleteService = async (serviceId) => {
-        if (!window.confirm('Are you sure you want to delete this service?')) return;
-        try {
-            const res = await fetch(`http://localhost:3001/api/facility-services/${serviceId}`, { method: 'DELETE' });
-            const data = await res.json();
-            if (data.success || res.ok) {
-                fetchFacilities();
-            } else {
-                alert(data.message || 'Failed to delete service');
-            }
-        } catch (err) {
-            console.error('Error deleting service:', err);
-        }
+    const handleSaveService = (e) => {
+        e.preventDefault();
+        if (!serviceForm.facility_id || !serviceForm.service_name.trim()) return;
+
+        setConfirmState({
+            isOpen: true,
+            title: isEditingService ? 'Confirm Service Update' : 'Confirm Save Service',
+            message: `Are you sure you want to ${isEditingService ? 'update' : 'add'} "${serviceForm.service_name}" service for ${activeFacilityName}?`,
+            confirmText: isEditingService ? 'Update Service' : 'Save Service',
+            type: 'approve',
+            onConfirm: executeSaveService
+        });
     };
 
     const handleSendMessage = async () => {
@@ -325,7 +365,7 @@ const DocumentIssuance = () => {
         setModalError('');
 
         try {
-            const response = await fetch('http://localhost:3001/api/document-requests/notes', {
+            const response = await fetch('https://localhost-cms.onrender.com/api/document-requests/notes', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -362,6 +402,10 @@ const DocumentIssuance = () => {
             const logo = new Image();
             logo.src = stiLogo;
 
+            const sig = new Image();
+            sig.src = NURSE_SIGNATURE_SVG;
+
+            let loadedCount = 0;
             const isExcuse = selectedRequest.request_type === 'Excuse Slip';
 
             const renderCanvasAndPDF = () => {
@@ -375,7 +419,6 @@ const DocumentIssuance = () => {
                     ctx.drawImage(logo, 45, 38, 115, 60);
                 }
 
-                // STI Header
                 ctx.fillStyle = '#1e293b';
                 ctx.textAlign = 'center';
                 ctx.font = 'bold 26px "Times New Roman", Serif';
@@ -383,11 +426,9 @@ const DocumentIssuance = () => {
                 ctx.font = '16px "Times New Roman", Serif';
                 ctx.fillText('A&C Bldg. Gil Carlos Poblacion Baliuag, Bulacan', 450, 90);
 
-                // Title
                 ctx.font = 'bold italic 28px "Times New Roman", Serif';
                 ctx.fillText(isExcuse ? 'CLINIC EXCUSE SLIP' : 'CLINIC REFERRAL SLIP', 430, 155);
 
-                // Date
                 ctx.textAlign = 'left';
                 ctx.font = '18px "Times New Roman", Serif';
                 ctx.fillText('DATE:', 500, 215);
@@ -398,7 +439,6 @@ const DocumentIssuance = () => {
                 ctx.font = 'bold 18px "Times New Roman", Serif';
                 ctx.fillText(slipDetails.date, 565, 214);
 
-                // Student Name
                 ctx.font = '18px "Times New Roman", Serif';
                 ctx.fillText('NAME:', 60, 270);
                 ctx.beginPath();
@@ -408,7 +448,6 @@ const DocumentIssuance = () => {
                 ctx.font = 'bold 18px "Times New Roman", Serif';
                 ctx.fillText(slipDetails.studentName, 140, 268);
 
-                // Course / Year & Section
                 ctx.font = '18px "Times New Roman", Serif';
                 ctx.fillText('COURSE/YEAR&SECTION:', 60, 320);
                 ctx.beginPath();
@@ -419,7 +458,6 @@ const DocumentIssuance = () => {
                 ctx.fillText(slipDetails.courseYearSection, 320, 318);
 
                 if (isExcuse) {
-                    // Excuse Slip Specific Layout
                     ctx.font = '20px "Times New Roman", Serif';
                     ctx.fillText('Please excuse the said student in your class.', 120, 395);
 
@@ -442,7 +480,6 @@ const DocumentIssuance = () => {
                         ctx.stroke();
                     }
                 } else {
-                    // Referral Slip Specific Layout
                     ctx.font = '18px "Times New Roman", Serif';
                     ctx.fillText('REFERRED TO:', 60, 370);
                     ctx.beginPath();
@@ -487,6 +524,11 @@ const DocumentIssuance = () => {
                 ctx.font = '20px "Times New Roman", Serif';
                 ctx.fillText('Thank you.', 120, 670);
 
+                // Draw generated Nurse Signature above line
+                if (sig.complete && sig.naturalWidth !== 0) {
+                    ctx.drawImage(sig, 470, 720, 160, 75);
+                }
+
                 ctx.textAlign = 'center';
                 ctx.beginPath();
                 ctx.moveTo(420, 810);
@@ -517,8 +559,15 @@ const DocumentIssuance = () => {
                 resolve(pdfFile);
             };
 
-            logo.onload = renderCanvasAndPDF;
-            logo.onerror = renderCanvasAndPDF;
+            const onImgLoad = () => {
+                loadedCount++;
+                if (loadedCount >= 2) renderCanvasAndPDF();
+            };
+
+            logo.onload = onImgLoad;
+            logo.onerror = onImgLoad;
+            sig.onload = onImgLoad;
+            sig.onerror = onImgLoad;
         });
     };
 
@@ -560,7 +609,7 @@ const DocumentIssuance = () => {
         }
 
         try {
-            const response = await fetch('http://localhost:3001/api/document-requests/action', {
+            const response = await fetch('https://localhost-cms.onrender.com/api/document-requests/action', {
                 method: 'POST',
                 body: formData,
             });
@@ -580,11 +629,41 @@ const DocumentIssuance = () => {
         }
     };
 
+    // Trigger Popup Confirmation for Sending File to Student
+    const triggerApprove = () => {
+        if (selectedRequest.request_type === 'Referral Slip' && referralMode === 'upload' && !selectedFile) {
+            setModalError('Please upload the issued referral document.');
+            return;
+        }
+        setModalError('');
+        setConfirmState({
+            isOpen: true,
+            title: 'Confirm File Issuance',
+            message: `Are you sure you want to approve and send the ${selectedRequest.request_type} document to ${selectedRequest.first_name} ${selectedRequest.last_name}?`,
+            confirmText: 'Yes, Send File',
+            type: 'approve',
+            onConfirm: () => handleAction('Approve')
+        });
+    };
+
+    // Trigger Popup Confirmation for Denying Request
+    const triggerDeny = () => {
+        setModalError('');
+        setConfirmState({
+            isOpen: true,
+            title: 'Confirm Request Denial',
+            message: `Are you sure you want to deny this request for ${selectedRequest.first_name} ${selectedRequest.last_name}? The student will be notified.`,
+            confirmText: 'Yes, Deny Request',
+            type: 'deny',
+            onConfirm: () => handleAction('Deny')
+        });
+    };
+
     return (
         <div className="doc-issuance-container">
-            {/* Page Header */}
-            <div className="doc-header">
-                <div>
+            {/* Header Section */}
+            <header className="doc-header">
+                <div className="doc-header-text">
                     <h2>Document Issuance</h2>
                     <p>Review, approve, and issue Excuse Slips and Referral Slips for students.</p>
                 </div>
@@ -598,12 +677,12 @@ const DocumentIssuance = () => {
                 >
                     <Settings size={18} /> Configure Referral Services
                 </button>
-            </div>
+            </header>
 
-            {/* Summary Cards */}
-            <div className="doc-summary-cards">
+            {/* Summary Grid Cards */}
+            <section className="doc-summary-cards">
                 <div className="summary-card pending-card">
-                    <div className="card-icon"><Clock size={28} /></div>
+                    <div className="card-icon"><Clock size={26} /></div>
                     <div className="card-info">
                         <span>Waiting for Approval</span>
                         <h3>{summary.pending}</h3>
@@ -611,7 +690,7 @@ const DocumentIssuance = () => {
                 </div>
 
                 <div className="summary-card approved-card">
-                    <div className="card-icon"><CheckCircle2 size={28} /></div>
+                    <div className="card-icon"><CheckCircle2 size={26} /></div>
                     <div className="card-info">
                         <span>Completed / Approved</span>
                         <h3>{summary.completed}</h3>
@@ -619,16 +698,16 @@ const DocumentIssuance = () => {
                 </div>
 
                 <div className="summary-card denied-card">
-                    <div className="card-icon"><XCircle size={28} /></div>
+                    <div className="card-icon"><XCircle size={26} /></div>
                     <div className="card-info">
                         <span>Denied Requests</span>
                         <h3>{summary.denied}</h3>
                     </div>
                 </div>
-            </div>
+            </section>
 
-            {/* Controls & Search */}
-            <div className="doc-controls">
+            {/* Controls Bar */}
+            <section className="doc-controls">
                 <div className="search-box">
                     <Search size={18} className="search-icon" />
                     <input 
@@ -653,10 +732,10 @@ const DocumentIssuance = () => {
                         <option value="Denied">Denied</option>
                     </select>
                 </div>
-            </div>
+            </section>
 
-            {/* Requests Table */}
-            <div className="table-responsive">
+            {/* Table Area */}
+            <main className="table-responsive">
                 {loading ? (
                     <div className="doc-loading">Loading requests...</div>
                 ) : error ? (
@@ -673,7 +752,7 @@ const DocumentIssuance = () => {
                                 <th>Reason / Facility</th>
                                 <th>Date Requested</th>
                                 <th>Status</th>
-                                <th>Action</th>
+                                <th className="text-center">Action</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -700,9 +779,15 @@ const DocumentIssuance = () => {
                                             {(req.status || '').toLowerCase() === 'pending' ? 'Waiting for Approval' : req.status}
                                         </span>
                                     </td>
-                                    <td>
-                                        <button className="btn-view" onClick={() => handleViewDetails(req)}>
-                                            <Eye size={15} /> View
+                                    <td className="text-center">
+                                        <button 
+                                            type="button"
+                                            className="btn-action-icon btn-view" 
+                                            onClick={() => handleViewDetails(req)}
+                                            title="View Details"
+                                            aria-label="View Details"
+                                        >
+                                            <Eye size={18} />
                                         </button>
                                     </td>
                                 </tr>
@@ -710,9 +795,9 @@ const DocumentIssuance = () => {
                         </tbody>
                     </table>
                 )}
-            </div>
+            </main>
 
-            {/* Request Detail Modal */}
+            {/* Detail Modal */}
             {selectedRequest && !isApproving && (
                 <div className="doc-modal-overlay">
                     <div className="doc-modal">
@@ -721,7 +806,7 @@ const DocumentIssuance = () => {
                                 <h3>Document Request Details</h3>
                                 <span className="modal-subtitle">Request ID: {selectedRequest.request_id}</span>
                             </div>
-                            <button className="btn-close" onClick={closeModal}><X size={20} /></button>
+                            <button className="btn-close" onClick={closeModal} aria-label="Close modal"><X size={20} /></button>
                         </div>
 
                         <div className="modal-body">
@@ -760,7 +845,7 @@ const DocumentIssuance = () => {
                                         {selectedRequest.student_proof_url && (
                                             <div className="file-attachment">
                                                 <Paperclip size={16} />
-                                                <a href={`http://localhost:3001${selectedRequest.student_proof_url}`} target="_blank" rel="noreferrer">
+                                                <a href={`https://localhost-cms.onrender.com${selectedRequest.student_proof_url}`} target="_blank" rel="noreferrer">
                                                     View Student Attachment Proof
                                                 </a>
                                             </div>
@@ -812,49 +897,50 @@ const DocumentIssuance = () => {
                                         className="btn-send-message" 
                                         onClick={handleSendMessage}
                                         disabled={submitting || !newNote.trim()}
+                                        aria-label="Send Message"
                                     >
                                         <Send size={18} />
                                     </button>
                                 </div>
                             </div>
 
-                            {['pending', 'waiting for approval'].includes((selectedRequest.status || '').toLowerCase()) ? (
-                                <div className="action-form">
-                                    <h4>Process Request (Waiting for Approval)</h4>
-                                    {modalError && (
-                                        <div className="modal-error">
-                                            <AlertCircle size={16} /> {modalError}
-                                        </div>
-                                    )}
-                                    <div className="modal-actions">
-                                        <button className="btn-approve" onClick={() => setIsApproving(true)}>
-                                            <CheckCircle2 size={16} /> Approve & Issue Slip
-                                        </button>
-                                        <button className="btn-deny" onClick={() => handleAction('Deny')} disabled={submitting}>
-                                            <XCircle size={16} /> {submitting ? 'Processing...' : 'Deny Request'}
-                                        </button>
-                                    </div>
-                                </div>
-                            ) : (
+                            {!['pending', 'waiting for approval'].includes((selectedRequest.status || '').toLowerCase()) && (
                                 <div className="issued-info-box">
                                     <p><strong>Processed By Nurse ID:</strong> {selectedRequest.issued_by || 'N/A'}</p>
                                     <p><strong>Processed At:</strong> {selectedRequest.issued_at ? new Date(selectedRequest.issued_at).toLocaleString() : 'N/A'}</p>
                                     {selectedRequest.issued_slip_url && (
                                         <div className="file-attachment mt-2">
                                             <FileText size={16} />
-                                            <a href={`http://localhost:3001${selectedRequest.issued_slip_url}`} target="_blank" rel="noreferrer">
+                                            <a href={`https://localhost-cms.onrender.com${selectedRequest.issued_slip_url}`} target="_blank" rel="noreferrer">
                                                 View Official Issued PDF Slip
                                             </a>
                                         </div>
                                     )}
                                 </div>
                             )}
+
+                            {modalError && (
+                                <div className="modal-error">
+                                    <AlertCircle size={16} /> {modalError}
+                                </div>
+                            )}
                         </div>
+
+                        {['pending', 'waiting for approval'].includes((selectedRequest.status || '').toLowerCase()) && (
+                            <div className="modal-footer">
+                                <button className="btn-approve" onClick={() => setIsApproving(true)}>
+                                    <CheckCircle2 size={16} /> Approve & Issue Slip
+                                </button>
+                                <button className="btn-deny" onClick={triggerDeny} disabled={submitting}>
+                                    <XCircle size={16} /> {submitting ? 'Processing...' : 'Deny Request'}
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
 
-            {/* Approval / Upload / Auto-Generation Modal */}
+            {/* Approval Modal */}
             {selectedRequest && isApproving && (
                 <div className="doc-modal-overlay">
                     <div className="doc-modal modal-wide">
@@ -863,11 +949,10 @@ const DocumentIssuance = () => {
                                 <h3>Approve & Issue {selectedRequest.request_type}</h3>
                                 <span className="modal-subtitle">Request ID: {selectedRequest.request_id}</span>
                             </div>
-                            <button className="btn-close" onClick={() => setIsApproving(false)}><X size={20} /></button>
+                            <button className="btn-close" onClick={() => setIsApproving(false)} aria-label="Close modal"><X size={20} /></button>
                         </div>
 
                         <div className="modal-body">
-                            {/* Option Selector for Referral Slip */}
                             {selectedRequest.request_type === 'Referral Slip' && (
                                 <div className="referral-mode-selector">
                                     <button 
@@ -887,7 +972,6 @@ const DocumentIssuance = () => {
                                 </div>
                             )}
 
-                            {/* Render Auto-Generated Slip UI (For Excuse Slip OR Referral Slip with autogen mode) */}
                             {(selectedRequest.request_type === 'Excuse Slip' || (selectedRequest.request_type === 'Referral Slip' && referralMode === 'autogen')) && (
                                 <div className="slip-auto-container">
                                     <div className="slip-controls-card">
@@ -957,8 +1041,8 @@ const DocumentIssuance = () => {
                                     </div>
 
                                     <div className="slip-preview-card">
-                                        <div className="clinic-slip-paper" style={{ position: 'relative' }}>
-                                            <img src={stiLogo} alt="STI Logo" style={{ position: 'absolute', top: '15px', left: '20px', width: '90px' }} />
+                                        <div className="clinic-slip-paper">
+                                            <img src={stiLogo} alt="STI Logo" className="slip-logo" />
                                             <div className="slip-header-center">
                                                 <h3>STI COLLEGE BALIUAG</h3>
                                                 <p>A&C Bldg. Gil Carlos Poblacion Baliuag, Bulacan</p>
@@ -1001,6 +1085,8 @@ const DocumentIssuance = () => {
 
                                             <p className="slip-thanks">Thank you.</p>
                                             <div className="slip-signature-block">
+                                                {/* Auto-generated SVG vector signature preview */}
+                                                <img src={NURSE_SIGNATURE_SVG} alt="Nurse Signature" className="slip-signature-img" />
                                                 <div className="signature-line-text">{slipDetails.nurseName}</div>
                                                 <div className="nurse-title">SCHOOL NURSE</div>
                                             </div>
@@ -1009,7 +1095,6 @@ const DocumentIssuance = () => {
                                 </div>
                             )}
 
-                            {/* Render Upload Box UI (When Referral Slip & mode is 'upload') */}
                             {selectedRequest.request_type === 'Referral Slip' && referralMode === 'upload' && (
                                 <div className="upload-step-box">
                                     <div className="upload-step-header">
@@ -1035,21 +1120,21 @@ const DocumentIssuance = () => {
                                     <AlertCircle size={16} /> {modalError}
                                 </div>
                             )}
+                        </div>
 
-                            <div className="modal-actions mt-3">
-                                <button className="btn-approve" onClick={() => handleAction('Approve')} disabled={submitting}>
-                                    <Send size={16} /> {submitting ? 'Processing...' : 'Send File to Student'}
-                                </button>
-                                <button className="btn-secondary" onClick={() => setIsApproving(false)} disabled={submitting}>
-                                    <ArrowLeft size={16} /> Back
-                                </button>
-                            </div>
+                        <div className="modal-footer">
+                            <button className="btn-approve" onClick={triggerApprove} disabled={submitting}>
+                                <Send size={16} /> {submitting ? 'Processing...' : 'Send File to Student'}
+                            </button>
+                            <button className="btn-secondary" onClick={() => setIsApproving(false)} disabled={submitting}>
+                                <ArrowLeft size={16} /> Back
+                            </button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* REFERRAL SERVICES CONFIGURATION MODAL */}
+            {/* Config Modal */}
             {showConfigModal && (
                 <div className="doc-modal-overlay">
                     <div className="doc-modal modal-wide config-modal">
@@ -1058,11 +1143,10 @@ const DocumentIssuance = () => {
                                 <h3>Configure Referral Services & Partner Facilities</h3>
                                 <span className="modal-subtitle">Manage healthcare facilities and available services</span>
                             </div>
-                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                            <div className="modal-header-actions">
                                 <button 
                                     type="button" 
-                                    className="btn-secondary" 
-                                    style={{ padding: '6px 10px' }}
+                                    className="btn-secondary btn-sm"
                                     onClick={fetchFacilities}
                                     title="Reload Facilities"
                                 >
@@ -1078,10 +1162,10 @@ const DocumentIssuance = () => {
                                             setShowFacilityForm(true);
                                         }}
                                     >
-                                        <Plus size={14} /> Add Partner Facility
+                                        <Plus size={14} /> Add Facility
                                     </button>
                                 )}
-                                <button className="btn-close" onClick={() => setShowConfigModal(false)}><X size={20} /></button>
+                                <button className="btn-close" onClick={() => setShowConfigModal(false)} aria-label="Close modal"><X size={20} /></button>
                             </div>
                         </div>
 
@@ -1089,21 +1173,19 @@ const DocumentIssuance = () => {
                             {configLoading ? (
                                 <div className="doc-loading">Loading configuration from server...</div>
                             ) : configError ? (
-                                <div className="doc-error" style={{ margin: '15px 0' }}>
+                                <div className="doc-error my-3">
                                     <AlertCircle size={18} /> {configError}
                                     <button className="btn-secondary mt-2" onClick={fetchFacilities}>Try Again</button>
                                 </div>
                             ) : (
                                 <div className="config-container">
-
-                                    {/* Facility Add/Edit Form */}
                                     {showFacilityForm && (
                                         <form onSubmit={handleSaveFacility} className="config-form mb-3">
                                             <h5>{isEditingFacility ? 'Edit Partner Facility' : 'Add New Partner Facility'}</h5>
                                             <div className="form-grid-3">
                                                 <input 
                                                     type="text" 
-                                                    placeholder="Facility Name (e.g. Allied Care Clinic)" 
+                                                    placeholder="Facility Name" 
                                                     value={facilityForm.facility_name}
                                                     onChange={(e) => setFacilityForm({ ...facilityForm, facility_name: e.target.value })}
                                                     required
@@ -1140,14 +1222,13 @@ const DocumentIssuance = () => {
                                         </form>
                                     )}
 
-                                    {/* Service Add/Edit Form */}
                                     {showServiceForm && (
                                         <form onSubmit={handleSaveService} className="config-form mb-3">
                                             <h5>{isEditingService ? `Edit Service for ${activeFacilityName}` : `Add Service to ${activeFacilityName}`}</h5>
                                             <div className="form-grid-2">
                                                 <input 
                                                     type="text" 
-                                                    placeholder="Service Name (e.g. Chest X-Ray, CBC)" 
+                                                    placeholder="Service Name" 
                                                     value={serviceForm.service_name}
                                                     onChange={(e) => setServiceForm({ ...serviceForm, service_name: e.target.value })}
                                                     required
@@ -1169,6 +1250,7 @@ const DocumentIssuance = () => {
                                                     onClick={() => {
                                                         setShowServiceForm(false);
                                                         setIsEditingService(false);
+                                                        setActiveFacilityName('');
                                                         setServiceForm({ service_id: '', facility_id: '', service_name: '', description: '' });
                                                     }}
                                                 >
@@ -1178,135 +1260,90 @@ const DocumentIssuance = () => {
                                         </form>
                                     )}
 
-                                    {/* ALWAYS VISIBLE LIST OF PARTNER FACILITIES AND THEIR SERVICES */}
                                     <div className="facility-full-list">
                                         {facilities.length === 0 ? (
-                                            <div className="doc-empty">
-                                                No partner facilities found. Click <strong>"+ Add Partner Facility"</strong> above to add one.
-                                            </div>
+                                            <p className="no-notes">No partner facilities found.</p>
                                         ) : (
-                                            facilities.map((fac) => {
-                                                const facilityId = fac.facility_id || fac.id;
-                                                const facilityName = fac.facility_name || fac.name || 'Unnamed Facility';
-                                                const servicesList = fac.services || fac.facility_services || [];
-
-                                                return (
-                                                    <div key={facilityId || Math.random()} className="facility-block">
-                                                        {/* Facility Card Header */}
-                                                        <div className="facility-block-header">
-                                                            <div className="facility-info">
-                                                                <div className="facility-title-row">
-                                                                    <Building size={18} className="text-sti-blue" />
-                                                                    <h4>{facilityName}</h4>
-                                                                </div>
-                                                                <div className="facility-meta">
-                                                                    <span><strong>Address:</strong> {fac.address || 'N/A'}</span>
-                                                                    <span><strong>Contact:</strong> {fac.contact_number || fac.contact || 'N/A'}</span>
-                                                                </div>
+                                            facilities.map((fac) => (
+                                                <div key={fac.facility_id || fac.id} className="facility-block">
+                                                    <div className="facility-block-header">
+                                                        <div className="facility-info">
+                                                            <div className="facility-title-row">
+                                                                <h4>{fac.facility_name}</h4>
                                                             </div>
-
-                                                            {/* View / Edit / Delete Actions */}
-                                                            <div className="facility-actions">
-                                                                <button 
-                                                                    className="btn-save-sm"
-                                                                    onClick={() => {
-                                                                        setActiveFacilityName(facilityName);
-                                                                        setServiceForm({ service_id: '', facility_id: facilityId, service_name: '', description: '' });
-                                                                        setIsEditingService(false);
-                                                                        setShowServiceForm(true);
-                                                                        setShowFacilityForm(false);
-                                                                    }}
-                                                                >
-                                                                    <Plus size={14} /> Add Service
-                                                                </button>
-                                                                <button 
-                                                                    className="btn-icon-action"
-                                                                    title="Edit Facility"
-                                                                    onClick={() => {
-                                                                        setFacilityForm({
-                                                                            facility_id: facilityId,
-                                                                            facility_name: facilityName,
-                                                                            address: fac.address || '',
-                                                                            contact_number: fac.contact_number || fac.contact || ''
-                                                                        });
-                                                                        setIsEditingFacility(true);
-                                                                        setShowFacilityForm(true);
-                                                                        setShowServiceForm(false);
-                                                                    }}
-                                                                >
-                                                                    <Edit3 size={15} /> Edit
-                                                                </button>
-                                                                <button 
-                                                                    className="btn-icon-action delete"
-                                                                    title="Delete Facility"
-                                                                    onClick={() => handleDeleteFacility(facilityId)}
-                                                                >
-                                                                    <Trash2 size={15} /> Delete
-                                                                </button>
+                                                            <div className="facility-meta">
+                                                                <span><strong>Address:</strong> {fac.address || 'N/A'}</span>
+                                                                <span><strong>Contact:</strong> {fac.contact_number || 'N/A'}</span>
                                                             </div>
                                                         </div>
-
-                                                        {/* Facility Services List */}
-                                                        <div className="facility-services-container">
-                                                            <div className="services-label">
-                                                                <Stethoscope size={14} /> Offered Services ({servicesList.length}):
-                                                            </div>
-                                                            {servicesList.length > 0 ? (
-                                                                <div className="services-grid">
-                                                                    {servicesList.map((srv) => {
-                                                                        const serviceId = srv.service_id || srv.id;
-                                                                        const serviceName = srv.service_name || srv.name || 'Unnamed Service';
-                                                                        const description = srv.description || '';
-
-                                                                        return (
-                                                                            <div key={serviceId || Math.random()} className="service-item-chip">
-                                                                                <div className="service-chip-details">
-                                                                                    <span className="service-name">{serviceName}</span>
-                                                                                    {description && <span className="service-desc">{description}</span>}
-                                                                                </div>
-                                                                                <div className="service-chip-actions">
-                                                                                    <button 
-                                                                                        className="btn-icon-action" 
-                                                                                        title="Edit Service"
-                                                                                        onClick={() => {
-                                                                                            setActiveFacilityName(facilityName);
-                                                                                            setServiceForm({
-                                                                                                service_id: serviceId,
-                                                                                                facility_id: facilityId,
-                                                                                                service_name: serviceName,
-                                                                                                description: description
-                                                                                            });
-                                                                                            setIsEditingService(true);
-                                                                                            setShowServiceForm(true);
-                                                                                            setShowFacilityForm(false);
-                                                                                        }}
-                                                                                    >
-                                                                                        <Edit3 size={13} />
-                                                                                    </button>
-                                                                                    <button 
-                                                                                        className="btn-icon-action delete" 
-                                                                                        title="Delete Service"
-                                                                                        onClick={() => handleDeleteService(serviceId)}
-                                                                                    >
-                                                                                        <Trash2 size={13} />
-                                                                                    </button>
-                                                                                </div>
-                                                                            </div>
-                                                                        );
-                                                                    })}
-                                                                </div>
-                                                            ) : (
-                                                                <p className="no-services-text">No services added for this facility yet.</p>
-                                                            )}
-                                                        </div>
+                                                        <button 
+                                                            type="button"
+                                                            className="btn-save-sm mt-2"
+                                                            onClick={() => handleOpenAddService(fac)}
+                                                        >
+                                                            <Plus size={14} /> Add Service
+                                                        </button>
                                                     </div>
-                                                );
-                                            })
+                                                </div>
+                                            ))
                                         )}
                                     </div>
-
                                 </div>
                             )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Confirmation Popup Modal */}
+            {confirmState.isOpen && (
+                <div className="doc-modal-overlay doc-confirm-overlay">
+                    <div className="doc-modal doc-confirm-modal">
+                        <div className="modal-header">
+                            <div>
+                                <h3>{confirmState.title || 'Confirmation'}</h3>
+                            </div>
+                            <button 
+                                className="btn-close" 
+                                onClick={() => setConfirmState({ ...confirmState, isOpen: false })} 
+                                aria-label="Close confirmation"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <div className="modal-body doc-confirm-body">
+                            <div className={`confirm-icon-wrapper confirm-icon-${confirmState.type || 'warning'}`}>
+                                {confirmState.type === 'deny' ? (
+                                    <XCircle size={36} />
+                                ) : confirmState.type === 'approve' ? (
+                                    <CheckCircle2 size={36} />
+                                ) : (
+                                    <AlertCircle size={36} />
+                                )}
+                            </div>
+                            <p className="confirm-message">{confirmState.message}</p>
+                        </div>
+
+                        <div className="modal-footer doc-confirm-footer">
+                            <button 
+                                type="button" 
+                                className="btn-secondary" 
+                                onClick={() => setConfirmState({ ...confirmState, isOpen: false })}
+                            >
+                                Cancel
+                            </button>
+                            <button 
+                                type="button" 
+                                className={confirmState.type === 'deny' ? 'btn-deny' : 'btn-approve'} 
+                                onClick={() => {
+                                    const action = confirmState.onConfirm;
+                                    setConfirmState({ ...confirmState, isOpen: false });
+                                    if (action) action();
+                                }}
+                            >
+                                {confirmState.confirmText || 'Confirm'}
+                            </button>
                         </div>
                     </div>
                 </div>

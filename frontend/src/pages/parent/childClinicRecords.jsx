@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { 
   FileText, 
@@ -12,16 +12,16 @@ import {
   Eye, 
   X, 
   Filter,
-  ExternalLink 
+  ExternalLink,
+  User 
 } from 'lucide-react';
 import '../../styles/parent/ChildClinicRecords.css';
 
-const API_BASE = 'http://localhost:3001';
+const API_BASE = 'https://localhost-cms.onrender.com';
 
 const formatDate = (dateStr) => {
   if (!dateStr) return 'N/A';
 
-  // Normalize string formats (e.g. convert MySQL "YYYY-MM-DD HH:MM:SS" to "YYYY-MM-DDTHH:MM:SS")
   let dateObj;
   if (typeof dateStr === 'string') {
     const normalizedStr = dateStr.replace(' ', 'T');
@@ -30,13 +30,11 @@ const formatDate = (dateStr) => {
     dateObj = new Date(dateStr);
   }
 
-  // Fallback if Date conversion yields NaN
   if (isNaN(dateObj.getTime())) return 'N/A';
 
   return dateObj.toLocaleDateString();
 };
 
-// Helper to resolve full URL for local or external file paths
 const getFileUrl = (path) => {
   if (!path) return '';
   if (path.startsWith('http://') || path.startsWith('https://')) return path;
@@ -44,20 +42,49 @@ const getFileUrl = (path) => {
   return `${API_BASE}${cleanPath}`;
 };
 
-
 export default function ChildClinicRecords() {
   const context = useOutletContext();
-  const studentId = context?.selectedChildId || context?.studentId;
+
+  // Retrieve linked students list from outlet context or localStorage fallback
+  const linkedStudents = useMemo(() => {
+    if (context?.linkedStudents && Array.isArray(context.linkedStudents) && context.linkedStudents.length > 0) {
+      return context.linkedStudents;
+    }
+    try {
+      const stored = localStorage.getItem('linkedStudents');
+      return stored ? JSON.parse(stored) : [];
+    } catch (e) {
+      console.error("Error parsing linkedStudents from localStorage:", e);
+      return [];
+    }
+  }, [context?.linkedStudents]);
 
   const [activeTab, setActiveTab] = useState('document-requests');
+  const [selectedStudentId, setSelectedStudentId] = useState('ALL');
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(false);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [selectedRecord, setSelectedRecord] = useState(null);
 
-  const fetchLogs = useCallback(async (overrideStartDate = startDate, overrideEndDate = endDate) => {
-    if (!studentId) return;
+  // Fetch logs based on selected student(s) and date range
+  const fetchLogs = useCallback(async (
+    overrideStartDate = startDate, 
+    overrideEndDate = endDate, 
+    overrideStudentFilter = selectedStudentId
+  ) => {
+    // Determine target student ID list
+    let idsToFetch = [];
+    if (overrideStudentFilter === 'ALL') {
+      idsToFetch = linkedStudents.map(st => st.student_id);
+    } else if (overrideStudentFilter) {
+      idsToFetch = [overrideStudentFilter];
+    }
+
+    if (idsToFetch.length === 0) {
+      setRecords([]);
+      return;
+    }
 
     setLoading(true);
     try {
@@ -66,28 +93,34 @@ export default function ChildClinicRecords() {
         endpoint = `${activeTab}/childClinicRecords`;
       }
 
-      let url = `${API_BASE}/${endpoint}?studentId=${encodeURIComponent(studentId)}`;
-      
-      if (overrideStartDate && overrideEndDate) {
-        url += `&startDate=${overrideStartDate}&endDate=${overrideEndDate}`;
-      }
+      // Fetch data concurrently for selected student ID(s)
+      const fetchPromises = idsToFetch.map(async (sId) => {
+        let url = `${API_BASE}/${endpoint}?studentId=${encodeURIComponent(sId)}`;
+        if (overrideStartDate && overrideEndDate) {
+          url += `&startDate=${overrideStartDate}&endDate=${overrideEndDate}`;
+        }
+        const response = await fetch(url);
+        const data = await response.json();
+        return Array.isArray(data) ? data : [];
+      });
 
-      const response = await fetch(url);
-      const data = await response.json();
-      setRecords(Array.isArray(data) ? data : []);
+      const results = await Promise.all(fetchPromises);
+      const combinedRecords = results.flat();
+
+      setRecords(combinedRecords);
     } catch (error) {
       console.error('Error fetching records:', error);
       setRecords([]);
     } finally {
       setLoading(false);
     }
-  }, [studentId, activeTab, startDate, endDate]);
+  }, [activeTab, linkedStudents, startDate, endDate, selectedStudentId]);
 
   useEffect(() => {
-    if (studentId) {
+    if (linkedStudents.length > 0) {
       fetchLogs();
     }
-  }, [studentId, activeTab, fetchLogs]);
+  }, [activeTab, selectedStudentId, linkedStudents, fetchLogs]);
 
   const handleFilter = (e) => {
     e.preventDefault();
@@ -97,7 +130,8 @@ export default function ChildClinicRecords() {
   const clearFilter = () => {
     setStartDate('');
     setEndDate('');
-    fetchLogs('', '');
+    setSelectedStudentId('ALL');
+    fetchLogs('', '', 'ALL');
   };
 
   return (
@@ -111,6 +145,29 @@ export default function ChildClinicRecords() {
 
       <div className="ccr-control-panel">
         <form className="ccr-filter-bar" onSubmit={handleFilter}>
+          {/* Student Filter Selection */}
+          <div className="ccr-input-group">
+            <label><User size={14} /> Student:</label>
+            <select 
+              value={selectedStudentId} 
+              onChange={(e) => setSelectedStudentId(e.target.value)}
+              className="ccr-select"
+              style={{
+                padding: '6px 10px',
+                borderRadius: '4px',
+                border: '1px solid #ccc',
+                fontSize: '0.85rem'
+              }}
+            >
+              <option value="ALL">All Linked Students</option>
+              {linkedStudents.map((st) => (
+                <option key={st.student_id} value={st.student_id}>
+                  {st.first_name ? `${st.first_name} ${st.last_name} (${st.student_id})` : st.student_id}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="ccr-input-group">
             <label><Calendar size={14} /> From:</label>
             <input 
@@ -196,7 +253,7 @@ export default function ChildClinicRecords() {
                 ) : (
                   <tr>
                     <td colSpan="10" className="ccr-no-data">
-                      No records found for Student ID: {studentId || 'N/A'}.
+                      No records found for Student: {selectedStudentId === 'ALL' ? 'All Linked Students' : selectedStudentId}.
                     </td>
                   </tr>
                 )}

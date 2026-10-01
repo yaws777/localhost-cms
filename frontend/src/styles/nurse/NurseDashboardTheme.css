@@ -1,0 +1,333 @@
+/* ==========================================================================
+   UNIFIED CLINIC THEME & LAYOUT VARIABLES (DESKTOP-FIRST)
+   ========================================================================== */
+:root {
+  --primary-blue: #0056b3;
+  --primary-blue-hover: #003d80;
+  --primary-blue-light: #e6f0fa;
+  --bg-main: #f8fafc;
+  --card-bg: #ffffff;
+  --text-dark: #1e293b;
+  --text-muted: #64748b;
+  --border-color: #e2e8f0;
+  
+  --status-success-bg: #dcfce7;
+  --status-success-text: #15803d;
+  --status-warning-bg: #fef3c7;
+  --status-warning-text: #b45309;
+  --status-danger-bg: #fee2e2;
+  --status-danger-text: #b91c1c;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+/* Base Full-Screen Containers */
+.dispense-container,
+.doctor-visit-container,
+.doc-issuance-container,
+.health-profile-container {
+  width: 100%;
+  min-height: 100vh;
+  padding: 24px;
+  background-color: var(--bg-main);
+  box-sizing: border-box;
+  color: var(--text-dark);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Header Uniformity */
+.dispense-header,
+.dv-header,
+.doc-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  width: 100%;
+}
+
+.dispense-header h1,
+.dv-header h2,
+.doc-header h2 {
+  font-size: 1.65rem;
+  font-weight: 700;
+  color: var(--primary-blue);
+  margin: 0;
+}
+
+.dv-subtitle,
+.doc-header p {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin-top: 4px;
+}
+
+/* Flexible Cards and Full-Width Layout Occupancy */
+.card,
+.dv-table-card,
+.doc-summary-cards,
+.table-responsive {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Responsive Grid Layouts (Desktop Standard) */
+.dispense-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  width: 100%;
+}
+
+.doc-summary-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  margin-bottom: 20px;
+}
+
+/* Standardized Custom Tables */
+.table-responsive {
+  overflow-x: auto;
+  width: 100%;
+}
+
+.custom-table,
+.sti-table,
+.doc-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 0.9rem;
+}
+
+.custom-table th,
+.sti-table th,
+.doc-table th {
+  background-color: #f1f5f9;
+  color: var(--text-dark);
+  font-weight: 600;
+  padding: 12px 16px;
+  border-bottom: 2px solid var(--border-color);
+  white-space: nowrap;
+}
+
+.custom-table td,
+.sti-table td,
+.doc-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-color);
+  vertical-align: middle;
+}
+
+/* Icon-Only Table Row Action Buttons */
+.table-actions,
+.facility-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.btn-view-icon,
+.btn-icon-action,
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background-color: #ffffff;
+  color: var(--text-dark);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-view-icon:hover,
+.btn-icon-action:hover,
+.action-btn.edit:hover {
+  background-color: var(--primary-blue-light);
+  color: var(--primary-blue);
+  border-color: var(--primary-blue);
+}
+
+.btn-icon-action.delete:hover,
+.action-btn.cancel:hover {
+  background-color: var(--status-danger-bg);
+  color: var(--status-danger-text);
+  border-color: var(--status-danger-text);
+}
+
+.action-btn.skip:hover {
+  background-color: var(--status-warning-bg);
+  color: var(--status-warning-text);
+}
+
+.action-btn.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Standard Badges across views */
+.status-tag,
+.badge-status,
+.status-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.status-ok, .status-completed, .badge-present {
+  background-color: var(--status-success-bg);
+  color: var(--status-success-text);
+}
+
+.status-low, .status-pending, .badge-pending {
+  background-color: var(--status-warning-bg);
+  color: var(--status-warning-text);
+}
+
+.status-expired, .status-out, .status-denied, .badge-absent {
+  background-color: var(--status-danger-bg);
+  color: var(--status-danger-text);
+}
+
+/* Form Fields & Controls */
+input[type="text"],
+input[type="date"],
+input[type="time"],
+input[type="number"],
+select,
+textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  box-sizing: border-box;
+  font-size: 0.9rem;
+  outline: none;
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: var(--primary-blue);
+  box-shadow: 0 0 0 3px rgba(0, 86, 179, 0.15);
+}
+
+/* Primary Action Buttons */
+.btn-submit,
+.sti-btn-primary {
+  background-color: var(--primary-blue);
+  color: #ffffff;
+  border: none;
+  padding: 10px 18px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.btn-submit:hover,
+.sti-btn-primary:hover {
+  background-color: var(--primary-blue-hover);
+}
+
+/* ==========================================================================
+   DESKTOP-FIRST MEDIA QUERIES (BREAKPOINTS)
+   ========================================================================== */
+
+/* Laptop & Tablet Landscape (<= 1024px) */
+@media (max-width: 1024px) {
+  .dispense-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .doc-summary-cards {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .dv-header,
+  .doc-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .dv-header-actions {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+}
+
+/* Tablet Portrait & Mobile Devices (<= 768px) */
+@media (max-width: 768px) {
+  .dispense-container,
+  .doctor-visit-container,
+  .doc-issuance-container,
+  .health-profile-container {
+    padding: 12px;
+  }
+
+  .doc-summary-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .dv-tabs-container {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .filter-toolbar {
+    flex-direction: column;
+    align-items: stretch !important;
+  }
+
+  .filter-toolbar > div,
+  .filter-toolbar input {
+    width: 100% !important;
+  }
+}
+
+/* Compact Mobile Screens (<= 480px) */
+@media (max-width: 480px) {
+  .dispense-header h1,
+  .dv-header h2,
+  .doc-header h2 {
+    font-size: 1.3rem;
+  }
+
+  .custom-table th, .custom-table td,
+  .sti-table th, .sti-table td,
+  .doc-table th, .doc-table td {
+    padding: 8px 10px;
+    font-size: 0.82rem;
+  }
+
+  .btn-view-icon,
+  .btn-icon-action,
+  .action-btn {
+    width: 30px;
+    height: 30px;
+  }
+}

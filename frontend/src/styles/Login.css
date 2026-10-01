@@ -71,6 +71,9 @@
 .btn-primary {
     background-color: #004d99; /* STI Blue Accent */
     color: #ffffff;
+    display: flex;
+    justify-content: center; 
+    align-items: center;     
     border: none;
     border-radius: 8px;
     padding: 14px;
@@ -79,6 +82,8 @@
     cursor: pointer;
     transition: background-color 0.2s ease;
     margin-top: 8px;
+    align-items: center;
+    
 }
 
 .btn-primary:hover {
@@ -370,4 +375,44 @@
     background-color: #94a3b8 !important;
     cursor: not-allowed;
     opacity: 0.7;
+}
+
+
+/* 1. Wrapper around the input and eye icon */
+/* Password Input Wrapper & Eye Toggle Icon */
+.password-input-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+/* Add padding to the right so input text doesn't flow underneath the icon */
+.password-input-wrapper .auth-input {
+  padding-right: 42px;
+}
+
+/* Position and style the eye icon button */
+.password-toggle-btn {
+  position: absolute;
+  width: fit-content;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin-left: 90%;
+  margin-top: auto;
+  cursor: pointer;
+  color: #6b7280; /* Neutral icon color matching your image */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s ease;
+}
+
+.password-toggle-btn:hover {
+  color: #374151;
+}
+
+.password-toggle-btn:focus {
+  outline: none;
 }

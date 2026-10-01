@@ -3,24 +3,41 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { 
     LayoutDashboard, FileBarChart, Stethoscope, FolderHeart, 
     Pill, Boxes, FileCheck, ClipboardCheck, HeartPulse, 
-    BriefcaseMedical, AlertTriangle, Bell, Vault, LogOut,
-    MessageSquare 
+    BriefcaseMedical, AlertTriangle, Vault, LogOut,
+    MessageSquare, Users, UserCheck, Bell 
 } from 'lucide-react';
-import '../styles/nurse/NurseLayout.css'; 
+import '../styles/nurse/NurseLayout.css';
+import { useWebPush } from '../hooks/useWebPush';
 
-const NurseLayout = () => {
+export const NurseLayout = () => {
     const navigate = useNavigate();
     const [isOpen, setIsOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [nurseData, setNurseData] = useState(null);
     const [errorMsg, setErrorMsg] = useState('');
     
+    // Web Push Hook integration
+    const nurseUserId = nurseData?.user_id || null;
+    const { isSubscribed, subscribe } = useWebPush(nurseUserId);
+
+    // Auto-sync web push subscription if browser permission was already granted
+    useEffect(() => {
+        if (nurseUserId && typeof Notification !== 'undefined' && Notification?.permission === 'granted' && !isSubscribed) {
+            subscribe();
+        }
+    }, [nurseUserId, isSubscribed, subscribe]);
+
     // State for overall unread contacts count
     const [unreadContactsCount, setUnreadContactsCount] = useState(0);
 
+    // State for notifications
+    const [notifications, setNotifications] = useState([]);
+    const [showNotifDropdown, setShowNotifDropdown] = useState(false);
+
+    // Fetch unread messages count
     const fetchUnreadCount = async (userId) => {
         try {
-            const res = await fetch(`http://localhost:3001/api/messages/unread-count/${userId}`);
+            const res = await fetch(`https://localhost-cms.onrender.com/api/messages/unread-count/${userId}`);
             const data = await res.json();
             if (data.success) {
                 setUnreadContactsCount(data.unreadCount);
@@ -30,14 +47,31 @@ const NurseLayout = () => {
         }
     };
 
+    // Fetch unread notifications
+    const fetchNotifications = async (nurseId) => {
+        if (!nurseId) return;
+        try {
+            const res = await fetch(`https://localhost-cms.onrender.com/api/notifications/nurse/${nurseId}`);
+            const data = await res.json();
+            if (data.success) {
+                setNotifications(data.data || []);
+            }
+        } catch (err) {
+            console.error('Failed to fetch notifications:', err);
+        }
+    };
+
     useEffect(() => {
         const fetchNurseProfile = async (userId) => {
             try {
-                const response = await fetch(`http://localhost:3001/api/get-nurse/${userId}`);
+                const response = await fetch(`https://localhost-cms.onrender.com/api/get-nurse/${userId}`);
                 const data = await response.json();
 
                 if (data.success && data.nurse) {
                     setNurseData(data.nurse);
+                    if (data.nurse.nurse_id) {
+                        fetchNotifications(data.nurse.nurse_id);
+                    }
                 } else {
                     setErrorMsg(data.message || 'Failed to fetch nurse data');
                 }
@@ -59,7 +93,13 @@ const NurseLayout = () => {
                 fetchNurseProfile(accurateUserId);
                 fetchUnreadCount(accurateUserId);
 
-                const interval = setInterval(() => fetchUnreadCount(accurateUserId), 5000);
+                const interval = setInterval(() => {
+                    fetchUnreadCount(accurateUserId);
+                    if (nurseData?.nurse_id) {
+                        fetchNotifications(nurseData.nurse_id);
+                    }
+                }, 5000);
+
                 return () => clearInterval(interval);
             } else {
                 setIsLoading(false);
@@ -67,7 +107,42 @@ const NurseLayout = () => {
         } else {
             navigate('/');
         }
-    }, [navigate]);
+    }, [navigate, nurseData?.nurse_id]);
+
+    const getNotificationRoute = (notification) => {
+        const type = (notification.type || '').toLowerCase();
+        const title = (notification.title || '').toLowerCase();
+        const msg = (notification.message || '').toLowerCase();
+
+        if (type.includes('requirement') || msg.includes('requirement') || title.includes('submission')) {
+            return '/RequirementManagement';
+        }
+        return '/NurseDashboard';
+    };
+
+    const handleNotificationClick = async (notification) => {
+        try {
+            await fetch(`https://localhost-cms.onrender.com/api/notifications/${notification.notification_id}/read`, {
+                method: 'PATCH'
+            });
+            setNotifications(prev => prev.filter(n => n.notification_id !== notification.notification_id));
+        } catch (err) {
+            console.error('Error marking notification as read:', err);
+        }
+
+        setShowNotifDropdown(false);
+        const targetRoute = getNotificationRoute(notification);
+
+        // Combined notification navigation payload
+        navigate(targetRoute, { 
+            state: { 
+                navigateId: notification.navigate_id || null,
+                submissionId: notification.submission_id || notification.navigate_id || null,
+                studentId: notification.student_id || notification.navigate_id || null,
+                reqName: notification.requirement_name || null
+            } 
+        });
+    };
 
     const toggleSidebar = () => setIsOpen(!isOpen);
     const closeSidebar = () => setIsOpen(false);
@@ -226,12 +301,30 @@ const NurseLayout = () => {
                             </>
                         )}
                     </NavLink>
+                    
+                    <NavLink to="/ManageStudentAccounts" className="nav-link" onClick={closeSidebar}>
+                        {({ isActive }) => (
+                            <>
+                                <Users className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
+                                <span>Manage Student Account</span>
+                            </>
+                        )}
+                    </NavLink>
 
-                    <NavLink to="/NurseNotifications" className="nav-link" onClick={closeSidebar}>
+                    <NavLink to="/ManageParentAccounts" className="nav-link" onClick={closeSidebar}>
+                        {({ isActive }) => (
+                            <>
+                                <UserCheck className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
+                                <span>Manage Parent Account</span>
+                            </>
+                        )}
+                    </NavLink>
+
+                    <NavLink to="/NurseNotificationSettings" className="nav-link" onClick={closeSidebar}>
                         {({ isActive }) => (
                             <>
                                 <Bell className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
-                                <span>Notifications</span>
+                                <span>Notification Settings</span>
                             </>
                         )}
                     </NavLink>
@@ -245,14 +338,12 @@ const NurseLayout = () => {
                 </nav>
             </div>
             
-            {/* ==================== TOP BAR WITH MESSAGES BUTTON ==================== */}
             <div className="student-top-bar">
                 <div className="top-bar-left">
                     <span className="system-name">STI Baliuag Clinic Management System</span>
                 </div>
                 <div className="top-bar-right" style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
                     
-                    {/* Top Bar Message Link & Badge */}
                     <NavLink to="/NurseMessages" className="topbar-message-link" style={{ position: 'relative', display: 'flex', alignItems: 'center', color: '#333', textDecoration: 'none' }} title="Messages">
                         <MessageSquare size={20} />
                         {unreadContactsCount > 0 && (
@@ -273,6 +364,95 @@ const NurseLayout = () => {
                         )}
                     </NavLink>
 
+                    <div style={{ position: 'relative' }}>
+                        <button 
+                            onClick={() => setShowNotifDropdown(!showNotifDropdown)} 
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', position: 'relative', display: 'flex', alignItems: 'center', color: '#333', padding: 0 }}
+                            title="Notifications"
+                        >
+                            <Bell size={20} />
+                            {notifications.length > 0 && (
+                                <span style={{
+                                    position: 'absolute',
+                                    top: '-6px',
+                                    right: '-10px',
+                                    backgroundColor: '#ff4d4f',
+                                    color: '#ffffff',
+                                    borderRadius: '10px',
+                                    padding: '2px 6px',
+                                    fontSize: '11px',
+                                    fontWeight: 'bold',
+                                    lineHeight: '1'
+                                }}>
+                                    {notifications.length}
+                                </span>
+                            )}
+                        </button>
+
+                        {showNotifDropdown && (
+                            <div style={{
+                                position: 'absolute',
+                                right: 0,
+                                top: '35px',
+                                width: '320px',
+                                maxHeight: '400px',
+                                backgroundColor: '#ffffff',
+                                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                                borderRadius: '8px',
+                                zIndex: 1000,
+                                overflowY: 'auto',
+                                border: '1px solid #e8e8e8'
+                            }}>
+                                <div style={{
+                                    padding: '12px 16px',
+                                    borderBottom: '1px solid #f0f0f0',
+                                    fontWeight: 'bold',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    backgroundColor: '#fafafa',
+                                    borderTopLeftRadius: '8px',
+                                    borderTopRightRadius: '8px'
+                                }}>
+                                    <span>Unread Notifications</span>
+                                    <span style={{ fontSize: '12px', color: '#8c8c8c' }}>{notifications.length} unread</span>
+                                </div>
+
+                                {notifications.length === 0 ? (
+                                    <div style={{ padding: '20px', textAlign: 'center', color: '#8c8c8c', fontSize: '14px' }}>
+                                        No unread notifications
+                                    </div>
+                                ) : (
+                                    notifications.map((item) => (
+                                        <div 
+                                            key={item.notification_id}
+                                            onClick={() => handleNotificationClick(item)}
+                                            style={{
+                                                padding: '12px 16px',
+                                                borderBottom: '1px solid #f0f0f0',
+                                                cursor: 'pointer',
+                                                transition: 'background 0.2s',
+                                                backgroundColor: '#ffffff'
+                                            }}
+                                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f5f5f5'}
+                                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#ffffff'}
+                                        >
+                                            <div style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: '4px', color: '#1f1f1f' }}>
+                                                {item.title || 'Notification'}
+                                            </div>
+                                            <div style={{ fontSize: '13px', color: '#595959', marginBottom: '6px', lineHeight: '1.4' }}>
+                                                {item.message}
+                                            </div>
+                                            <div style={{ fontSize: '11px', color: '#bfbfbf', textAlign: 'right' }}>
+                                                {new Date(item.created_at).toLocaleString()}
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        )}
+                    </div>
+
                     <span className="current-date">{currentDate}</span>
                 </div>
             </div>
@@ -284,7 +464,8 @@ const NurseLayout = () => {
                     firstName: nurseData?.first_name || '', 
                     lastName: nurseData?.last_name || '',
                     username: nurseData?.username || '',
-                    refreshUnreadCount: () => fetchUnreadCount(nurseData?.user_id)
+                    refreshUnreadCount: () => fetchUnreadCount(nurseData?.user_id),
+                    refreshNotifications: () => fetchNotifications(nurseData?.nurse_id)
                 }} />
             </div>
         </div>

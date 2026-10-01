@@ -66,7 +66,7 @@ export default function Login() {
         setSuccessMsg('');
 
         try {
-            const response = await fetch('http://localhost:3001/api/login', {
+            const response = await fetch('https://localhost-cms.onrender.com/api/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username, password })
@@ -74,7 +74,7 @@ export default function Login() {
             const data = await response.json();
             
             if (data.success) {
-                // STEP 1 & 2: Check for Default Password ("123")
+                // Check for Default Password ("123")
                 if (data.isDefaultPassword) {
                     setShowChangePassModal(true);
                     return; // Halt login sequence until password is changed
@@ -90,14 +90,12 @@ export default function Login() {
         }
     };
 
-    // Sequential Flow Handler for Authenticated User
+    // Sequential Flow Handler for Authenticated User (Admin removed)
     const proceedLoginFlow = (data) => {
         localStorage.setItem('user', JSON.stringify(data.user));
 
         // Role Routing
-        if (data.user.role_id === 'ADMN' || data.user.role === 'admin') {
-            navigate('/ManageStudentAccounts');
-        } else if (data.user.role === 'student') {
+        if (data.user.role === 'student') {
             if (data.isFormCompleted) {
                 navigate('/StudentDashboard');
             } else {
@@ -108,7 +106,7 @@ export default function Login() {
         } else if (data.user.role === 'parent') {
             localStorage.setItem('parent_id', data.user.parent_id);
 
-            // STEP 3: Check Parent Details Completion
+            // Check Parent Details Completion
             if (data.isProfileIncomplete) {
                 setPendingAuthData(data);
                 setParentFirstName(data.user.first_name || '');
@@ -118,24 +116,23 @@ export default function Login() {
                 return;
             }
 
-            // STEP 4: Check Linked Students Count
+            // Direct Routing for Parent regardless of single or multiple linked students
             finalizeParentRouting(data.students);
         }
     };
 
-    // Helper to finalize Parent Routing based on student count
+    // Helper to finalize Parent Routing directly to parent portal
     const finalizeParentRouting = (students) => {
         if (students && students.length > 0) {
             localStorage.setItem('linkedStudents', JSON.stringify(students));
-
-            if (students.length > 1) {
-                navigate('/ChooseStudentProfile');
-            } else {
-                localStorage.setItem('selectedStudentId', students[0].student_id);
-                navigate('/ParentDashboard');
-            }
+            // Keep fallback selectedStudentId so child page guards do not trigger auto-exit
+            localStorage.setItem('selectedStudentId', students[0].student_id);
+            navigate('/ParentDashboard');
         } else {
-            setErrorMsg("No student profiles are currently linked to this account.");
+            // Still allow access even if no linked students exist yet
+            localStorage.setItem('linkedStudents', JSON.stringify([]));
+            localStorage.removeItem('selectedStudentId');
+            navigate('/ParentDashboard');
         }
     };
 
@@ -155,7 +152,7 @@ export default function Login() {
         }
 
         try {
-            const response = await fetch('http://localhost:3001/api/change-password', {
+            const response = await fetch('https://localhost-cms.onrender.com/api/change-password', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username, newPassword })
@@ -193,7 +190,7 @@ export default function Login() {
         }
 
         try {
-            const response = await fetch('http://localhost:3001/api/update-parent-profile', {
+            const response = await fetch('https://localhost-cms.onrender.com/api/update-parent-profile', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -222,7 +219,7 @@ export default function Login() {
         setErrorMsg('');
         setRetrievedPassword('');
         try {
-            const response = await fetch('http://localhost:3001/api/forgot-password', {
+            const response = await fetch('https://localhost-cms.onrender.com/api/forgot-password', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username, firstName, lastName })
@@ -271,16 +268,14 @@ export default function Login() {
                                 placeholder="Password" 
                                 className="auth-input"
                             />
-                            {password && (
-                                <button 
-                                    type="button" 
-                                    className="password-toggle-btn" 
-                                    onClick={() => setShowPassword(!showPassword)}
-                                    aria-label="Toggle password visibility"
-                                >
-                                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                                </button>
-                            )}
+                            <button 
+                                type="button" 
+                                className="password-toggle-btn" 
+                                onClick={() => setShowPassword(!showPassword)}
+                                aria-label="Toggle password visibility"
+                            >
+                                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                            </button>
                         </div>
 
                         <button type="submit" className="btn-primary">Login</button>
@@ -349,16 +344,14 @@ export default function Login() {
                                     onChange={(e) => setNewPassword(e.target.value)}
                                     className="auth-input"
                                 />
-                                {newPassword && (
-                                    <button 
-                                        type="button" 
-                                        className="password-toggle-btn" 
-                                        onClick={() => setShowNewPassword(!showNewPassword)}
-                                        aria-label="Toggle new password visibility"
-                                    >
-                                        {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                                    </button>
-                                )}
+                                <button 
+                                    type="button" 
+                                    className="password-toggle-btn" 
+                                    onClick={() => setShowNewPassword(!showNewPassword)}
+                                    aria-label="Toggle new password visibility"
+                                >
+                                    {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                                </button>
                             </div>
                             
                             <div className="password-input-wrapper">
@@ -370,16 +363,14 @@ export default function Login() {
                                     onChange={(e) => setConfirmPassword(e.target.value)}
                                     className="auth-input"
                                 />
-                                {confirmPassword && (
-                                    <button 
-                                        type="button" 
-                                        className="password-toggle-btn" 
-                                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                                        aria-label="Toggle confirm password visibility"
-                                    >
-                                        {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                                    </button>
-                                )}
+                                <button 
+                                    type="button" 
+                                    className="password-toggle-btn" 
+                                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                                    aria-label="Toggle confirm password visibility"
+                                >
+                                    {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                                </button>
                             </div>
 
                             {/* Password Indicator & Requirement Checklist */}

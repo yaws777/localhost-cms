@@ -1,13 +1,33 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useOutletContext, useNavigate } from 'react-router-dom';
 import '../../styles/parent/ChildProfile.css';
 
 export default function ChildProfile() {
     const navigate = useNavigate();
-    
-    // Get selectedChildId from ParentLayout Outlet context
     const outletContext = useOutletContext();
-    const studentId = outletContext?.selectedChildId || localStorage.getItem('selectedStudentId');
+
+    // Extract linked students list from Outlet Context or fallback to localStorage
+    const linkedStudents = useMemo(() => {
+        if (outletContext?.linkedStudents && Array.isArray(outletContext.linkedStudents) && outletContext.linkedStudents.length > 0) {
+            return outletContext.linkedStudents;
+        }
+        try {
+            const stored = localStorage.getItem('linkedStudents');
+            return stored ? JSON.parse(stored) : [];
+        } catch (e) {
+            console.error("Error parsing linkedStudents from localStorage:", e);
+            return [];
+        }
+    }, [outletContext?.linkedStudents]);
+
+    // Track currently selected student ID
+    const [selectedStudentId, setSelectedStudentId] = useState(() => {
+        return (
+            outletContext?.selectedChildId || 
+            localStorage.getItem('selectedStudentId') || 
+            (linkedStudents.length > 0 ? linkedStudents[0].student_id : '')
+        );
+    });
 
     const [activeTab, setActiveTab] = useState('personal');
     const [loading, setLoading] = useState(true);
@@ -21,6 +41,22 @@ export default function ChildProfile() {
     const [requirementsList, setRequirementsList] = useState([]);
     const [reqLoading, setReqLoading] = useState(false);
 
+    // Keep selectedStudentId updated if context or list changes initially
+    useEffect(() => {
+        if (!selectedStudentId && linkedStudents.length > 0) {
+            const defaultId = linkedStudents[0].student_id;
+            setSelectedStudentId(defaultId);
+            localStorage.setItem('selectedStudentId', defaultId);
+        }
+    }, [linkedStudents, selectedStudentId]);
+
+    // Handle child selection change
+    const handleStudentChange = (e) => {
+        const newStudentId = e.target.value;
+        setSelectedStudentId(newStudentId);
+        localStorage.setItem('selectedStudentId', newStudentId);
+    };
+
     // Helper function to extract initials
     const getInitials = (firstName, lastName) => {
         const firstInitial = firstName ? firstName.trim().charAt(0) : '';
@@ -28,11 +64,11 @@ export default function ChildProfile() {
         return `${firstInitial}${lastInitial}`.toUpperCase();
     };
 
-    // Fetch Student Header and Profile Information
+    // Fetch Student Header and Profile Information for selected student
     useEffect(() => {
         const loadProfileData = async () => {
-            if (!studentId) {
-                navigate('/ChooseStudentProfile');
+            if (!selectedStudentId) {
+                setLoading(false);
                 return;
             }
 
@@ -41,14 +77,14 @@ export default function ChildProfile() {
 
             try {
                 // Fetch Student Header Details
-                const studentRes = await fetch(`http://localhost:3001/api/get-student-by-studentId/${studentId}`);
+                const studentRes = await fetch(`https://localhost-cms.onrender.com/api/get-student-by-studentId/${selectedStudentId}`);
                 const studentData = await studentRes.json();
 
                 if (studentData.success) {
                     setStudentHeader(studentData.student);
 
                     // Fetch Profile Data (Personal, Health, Emergency)
-                    const profileRes = await fetch(`http://localhost:3001/api/profile/${studentId}`);
+                    const profileRes = await fetch(`https://localhost-cms.onrender.com/api/profile/${selectedStudentId}`);
                     const profileData = await profileRes.json();
 
                     if (profileData.success) {
@@ -84,33 +120,75 @@ export default function ChildProfile() {
         };
 
         loadProfileData();
-    }, [studentId, navigate]);
+    }, [selectedStudentId, navigate]);
 
-    // Fetch Academic/Medical Requirements
+    // Fetch Academic/Medical Requirements for selected student
     useEffect(() => {
         const fetchRequirements = async () => {
-            if (activeTab !== 'requirements' || !studentId) return;
+            if (activeTab !== 'requirements' || !selectedStudentId) return;
             setReqLoading(true);
             try {
-                const response = await fetch(`http://localhost:3001/api/students/${studentId}/full-requirements`);
+                const response = await fetch(`https://localhost-cms.onrender.com/api/students/${selectedStudentId}/full-requirements`);
                 const data = await response.json();
                 if (Array.isArray(data)) {
                     setRequirementsList(data);
+                } else {
+                    setRequirementsList([]);
                 }
             } catch (err) {
                 console.error("Failed fetching requirements checklist:", err);
+                setRequirementsList([]);
             } finally {
                 setReqLoading(false);
             }
         };
 
         fetchRequirements();
-    }, [activeTab, studentId]);
+    }, [activeTab, selectedStudentId]);
 
     if (loading) return <div className="profile-page-wrapper">Loading child profile...</div>;
 
     return (
         <div className="profile-page-wrapper">
+            {/* Student Selector Control */}
+            {linkedStudents.length > 0 && (
+                <div className="student-selector-container" style={{
+                    marginBottom: '15px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    backgroundColor: '#ffffff',
+                    padding: '12px 16px',
+                    borderRadius: '8px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.06)'
+                }}>
+                    <label htmlFor="studentSelect" style={{ fontWeight: '600', color: '#333', fontSize: '0.9rem' }}>
+                        Select Child:
+                    </label>
+                    <select
+                        id="studentSelect"
+                        value={selectedStudentId}
+                        onChange={handleStudentChange}
+                        style={{
+                            padding: '8px 12px',
+                            borderRadius: '6px',
+                            border: '1px solid #d9d9d9',
+                            fontSize: '0.9rem',
+                            fontWeight: '500',
+                            backgroundColor: '#fafafa',
+                            cursor: 'pointer',
+                            outline: 'none'
+                        }}
+                    >
+                        {linkedStudents.map((st) => (
+                            <option key={st.student_id} value={st.student_id}>
+                                {st.first_name ? `${st.first_name} ${st.last_name} (${st.student_id})` : st.student_id}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+            )}
+
             {/* Header Banner */}
             <div className="profile-header-banner">
                 <div className="profile-avatar">
@@ -119,7 +197,7 @@ export default function ChildProfile() {
                 <div className="profile-header-details">
                     <h2>{studentHeader?.first_name} {studentHeader?.last_name}</h2>
                     <p>{studentHeader?.program_id || 'N/A'} - {studentHeader?.year_level ? `${studentHeader.year_level} Year` : 'Student'}</p>
-                    <span className="student-id-badge">{studentId}</span>
+                    <span className="student-id-badge">{selectedStudentId}</span>
                 </div>
             </div>
 

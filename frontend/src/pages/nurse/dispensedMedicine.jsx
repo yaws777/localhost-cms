@@ -1,11 +1,211 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { useOutletContext } from 'react-router-dom'; 
-import { Search, Pill, Calendar, History, PlusCircle, RefreshCw, CheckCircle, AlertTriangle, Filter, X } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useOutletContext, useLocation } from 'react-router-dom'; 
+import { 
+  Search, 
+  Pill, 
+  Calendar, 
+  History, 
+  PlusCircle, 
+  RefreshCw, 
+  CheckCircle, 
+  AlertTriangle, 
+  Filter, 
+  X, 
+  QrCode, 
+  Eye, 
+  RotateCcw,
+  Clock
+} from 'lucide-react';
+import jsQR from 'jsqr';
 import '../../styles/nurse/DispensedMedicine.css';
 
-const MEASURED_UNITS = ['mg', 'g', 'mcg', 'mL', 'L'];
+// Included 'pcs.' to treat piece-counted boxes as volume-backed stock
+const MEASURED_UNITS = ['mg', 'g', 'mcg', 'mL', 'L', 'pcs.'];
+
+const convertUnit = (val, fromUnit, toUnit) => {
+  if (fromUnit === toUnit || !fromUnit || !toUnit) return val;
+  const toBase = (v, u) => {
+    switch (u) {
+      case 'g': return v * 1000000;
+      case 'mg': return v * 1000;
+      case 'mcg': return v;
+      case 'L': return v * 1000;
+      case 'mL': return v;
+      case 'pcs.': return v;
+      default: return v;
+    }
+  };
+  const fromBase = (v, u) => {
+    switch (u) {
+      case 'g': return v / 1000000;
+      case 'mg': return v / 1000;
+      case 'mcg': return v / 1000000;
+      case 'L': return v / 1000;
+      case 'mL': return v;
+      case 'pcs.': return v;
+      default: return v;
+    }
+  };
+  return fromBase(toBase(val, fromUnit), toUnit);
+};
+
+// Helper function to check if item packaging or unit indicates a box
+const isBoxUnit = (item) => {
+  if (!item) return false;
+  const fields = [
+    item.unit,
+    item.unit_of_measure,
+    item.packaging,
+    item.package_type,
+    item.strength_unit_of_measure,
+    item.dosage_unit,
+    item.avg_dosage_consumption_unit_of_measure
+  ];
+  return fields.some(field => typeof field === 'string' && field.toLowerCase().includes('box'));
+};
+
+// Helper function to derive singular dosage form name
+const getSingularDosageForm = (item) => {
+  if (!item) return 'unit';
+
+  const VALID_DOSAGE_FORMS = {
+    'tablet': 'tablet',
+    'capsule': 'capsule',
+    'sachet': 'sachet',
+    'patch': 'patch',
+    'syrup': 'syrup',
+    'suspension': 'suspension',
+    'drops': 'drop',
+    'bottle': 'bottle',
+    'vial': 'vial',
+    'prefilled syringe': 'prefilled syringe',
+    'ointment': 'ointment',
+    'cream': 'cream',
+    'inhaler': 'inhaler',
+    'spray': 'spray',
+    'gel': 'gel',
+    'box': 'box'
+  };
+
+  const dosageForm = item.dosage_form || item.form_type;
+  const dosageUnit = item.dosage_unit;
+  const packaging = item.packaging || item.package_type;
+  
+  let unit = dosageForm || dosageUnit || packaging || 'unit';
+  const unitLower = String(unit).toLowerCase().trim();
+
+  if (VALID_DOSAGE_FORMS[unitLower]) {
+    return VALID_DOSAGE_FORMS[unitLower];
+  }
+
+  if (unitLower.endsWith('s') && unitLower.length > 1) {
+    return unitLower.slice(0, -1);
+  }
+
+  return unitLower;
+};
+
+// Helper function to format strength per dosage form (e.g. "(80 ml per spray)")
+const getStrengthPerDosageForm = (item) => {
+  if (!item || item.strength_unit_value === undefined || item.strength_unit_value === null || item.strength_unit_value === '' || !item.strength_unit_of_measure) {
+    return '';
+  }
+  
+  const val = item.strength_unit_value;
+  const unit = item.strength_unit_of_measure;
+  const form = getSingularDosageForm(item);
+
+  return `(${val} ${unit} per ${form})`;
+};
+
+// Helper function to get the appropriate dosage form/unit label for stock display
+const getStockLabel = (item) => {
+  if (!item) return 'unit';
+  
+  const VALID_DOSAGE_FORMS = {
+    'tablet': 'Tablet',
+    'capsule': 'Capsule',
+    'sachet': 'Sachet',
+    'patch': 'Patch',
+    'syrup': 'Syrup',
+    'suspension': 'Suspension',
+    'drops': 'Drops',
+    'bottle': 'Bottle',
+    'vial': 'Vial',
+    'prefilled syringe': 'Prefilled Syringe',
+    'ointment': 'Ointment',
+    'cream': 'Cream',
+    'inhaler': 'Inhaler',
+    'spray': 'Spray',
+    'gel': 'Gel',
+    'box': 'Box'
+  };
+
+  const PLURAL_FORMS = {
+    'tablet': 'Tablets',
+    'capsule': 'Capsules',
+    'sachet': 'Sachets',
+    'patch': 'Patches',
+    'syrup': 'Syrups',
+    'suspension': 'Suspensions',
+    'drops': 'Drops',
+    'bottle': 'Bottles',
+    'vial': 'Vials',
+    'prefilled syringe': 'Prefilled Syringes',
+    'ointment': 'Ointments',
+    'cream': 'Creams',
+    'inhaler': 'Inhalers',
+    'spray': 'Sprays',
+    'gel': 'Gels',
+    'box': 'Boxes'
+  };
+  
+  const dosageForm = item.dosage_form || item.form_type;
+  const dosageUnit = item.dosage_unit;
+  const strengthUnit = item.strength_unit_of_measure;
+  const avgDosageUnit = item.avg_dosage_consumption_unit_of_measure;
+  const packaging = item.packaging || item.package_type;
+  
+  let unit = dosageForm || dosageUnit || strengthUnit || avgDosageUnit || packaging || 'unit';
+  const unitLower = String(unit).toLowerCase().trim();
+  const stock = Number(item.current_stock);
+  
+  if (VALID_DOSAGE_FORMS[unitLower]) {
+    // 0 or 1 stock uses singular form, 2 or more uses plural form
+    if (stock <= 1) {
+      return VALID_DOSAGE_FORMS[unitLower];
+    }
+    return PLURAL_FORMS[unitLower] || VALID_DOSAGE_FORMS[unitLower] + 's';
+  }
+  
+  if (MEASURED_UNITS.includes(unitLower)) {
+    return unitLower;
+  }
+  
+  if (stock >= 2 && !unitLower.endsWith('s') && unitLower !== 'unit') {
+    return unit + 's';
+  }
+  
+  return unit;
+};
+
+// Helper function to format full current stock display with strength unit per dosage form
+const formatCurrentStock = (item) => {
+  if (!item) return '0 units';
+  const stockUnit = getStockLabel(item);
+  const strengthInfo = getStrengthPerDosageForm(item);
+  return `${item.current_stock} ${stockUnit}${strengthInfo ? ` ${strengthInfo}` : ''}`;
+};
+
+// Stock status helper function
+const getStockStatus = (stock, lowThreshold = 10, criticalThreshold = 5) => {
+  if (stock <= criticalThreshold) return { label: 'Critical', class: 'critical' };
+  if (stock <= lowThreshold) return { label: 'Low Stock', class: 'low' };
+  return { label: 'Adequate', class: 'adequate' };
+};
 
 const DispensedMedicine = () => {
+  const location = useLocation();
   const outletContext = useOutletContext() || {};
   const nurseId = typeof outletContext === 'string' || typeof outletContext === 'number'
     ? outletContext
@@ -22,6 +222,14 @@ const DispensedMedicine = () => {
   const [students, setStudents] = useState([]);
   const [selectedStudent, setSelectedStudent] = useState(null);
   
+  // QR Code Scanner States & Refs
+  const [isScanningQR, setIsScanningQR] = useState(false);
+  const [qrError, setQrError] = useState('');
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const animationFrameRef = useRef(null);
+  const streamRef = useRef(null);
+
   const [inventory, setInventory] = useState([]);
   const [selectedMedicineId, setSelectedMedicineId] = useState('');
   const [availableBatches, setAvailableBatches] = useState([]);
@@ -39,9 +247,107 @@ const DispensedMedicine = () => {
   const [filterMedicine, setFilterMedicine] = useState('');
   const [message, setMessage] = useState({ text: '', type: '' });
 
+  // Modal States
+  const [isLogModalOpen, setIsLogModalOpen] = useState(false);
+  const [selectedLogDetail, setSelectedLogDetail] = useState(null);
+
+  // Stop QR Scanner Stream and Frame Loops
+  const stopQRScan = useCallback(() => {
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    setIsScanningQR(false);
+    setQrError('');
+  }, []);
+
+  // Handle scanned QR result
+  const handleScannedCode = useCallback(async (scannedText) => {
+    const cleanText = scannedText.trim();
+    stopQRScan();
+    setSearchStudent(cleanText);
+
+    try {
+      const res = await fetch(`https://localhost-cms.onrender.com/api/students/direct?search=${encodeURIComponent(cleanText)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          const match = data.find(s => String(s.student_id) === cleanText) || data[0];
+          setSelectedStudent(match);
+          setSearchStudent(`${match.first_name} ${match.last_name} (${match.student_id})`);
+          setStudents([]);
+        }
+      }
+    } catch (err) {
+      console.error("Error fetching scanned student:", err);
+    }
+  }, [stopQRScan]);
+
+  // QR Scanning Continuous Loop via Canvas & jsQR
+  const tick = useCallback(() => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+
+    if (video && video.readyState === video.HAVE_ENOUGH_DATA) {
+      if (!canvas) return;
+      const context = canvas.getContext('2d');
+      canvas.height = video.videoHeight;
+      canvas.width = video.videoWidth;
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+      const code = jsQR(imageData.data, imageData.width, imageData.height, {
+        inversionAttempts: "dontInvert",
+      });
+
+      if (code && code.data) {
+        handleScannedCode(code.data);
+        return;
+      }
+    }
+    animationFrameRef.current = requestAnimationFrame(tick);
+  }, [handleScannedCode]);
+
+  // Start Camera for QR Scanning
+  const startQRScan = useCallback(async () => {
+    setIsScanningQR(true);
+    setQrError('');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' }
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.setAttribute("playsinline", true);
+        await videoRef.current.play();
+        animationFrameRef.current = requestAnimationFrame(tick);
+      }
+    } catch (err) {
+      console.error("Error accessing camera for QR scan:", err);
+      setQrError('Unable to access camera. Please verify device permissions.');
+    }
+  }, [tick]);
+
+  useEffect(() => {
+    if (location.state?.openQrScanner) {
+      startQRScan();
+    }
+  }, [location.state, startQRScan]);
+
+  useEffect(() => {
+    return () => {
+      stopQRScan();
+    };
+  }, [stopQRScan]);
+
   const fetchInventory = useCallback(async () => {
     try {
-      const res = await fetch('http://localhost:3001/api/inventory/batches');
+      const res = await fetch('https://localhost-cms.onrender.com/api/inventory/batches');
       if (!res.ok) throw new Error(`HTTP status ${res.status}`);
       const data = await res.json();
       setInventory(Array.isArray(data) ? data : []);
@@ -64,7 +370,7 @@ const DispensedMedicine = () => {
       if (st) params.append('student', st);
       if (med) params.append('medicine', med);
 
-      const res = await fetch(`http://localhost:3001/api/dispensation/history?${params.toString()}`);
+      const res = await fetch(`https://localhost-cms.onrender.com/api/dispensation/history?${params.toString()}`);
       if (!res.ok) throw new Error(`Server returned status ${res.status}`);
       const data = await res.json();
       setHistory(Array.isArray(data) ? data : []);
@@ -74,17 +380,14 @@ const DispensedMedicine = () => {
     }
   }, [fromDate, toDate, filterStudent, filterMedicine]);
 
-  // Initial Data Load
   useEffect(() => {
     fetchInventory();
     fetchHistory();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [fetchInventory, fetchHistory]);
 
-  // Student Search Lookup Effect
   useEffect(() => {
     if (searchStudent.trim().length > 1 && !selectedStudent) {
-      fetch(`http://localhost:3001/api/students/direct?search=${encodeURIComponent(searchStudent)}`)
+      fetch(`https://localhost-cms.onrender.com/api/students/direct?search=${encodeURIComponent(searchStudent)}`)
         .then((res) => {
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           return res.json();
@@ -99,7 +402,6 @@ const DispensedMedicine = () => {
     }
   }, [searchStudent, selectedStudent]);
 
-  // Update batch choices & default dosage attributes on medicine selection
   useEffect(() => {
     if (selectedMedicineId && Array.isArray(inventory)) {
       const batches = inventory.filter(b => b.medicine_id === selectedMedicineId && b.current_stock > 0);
@@ -108,7 +410,7 @@ const DispensedMedicine = () => {
       
       const sample = inventory.find(i => i.medicine_id === selectedMedicineId);
       if (sample) {
-        const unit = sample.avg_dosage_consumption_unit_of_measure || '';
+        const unit = sample.avg_dosage_consumption_unit_of_measure || sample.strength_unit_of_measure || '';
         const rawVal = sample.avg_dosage_consumption_value || '';
         const isMeasuredUnit = MEASURED_UNITS.includes(unit);
 
@@ -126,6 +428,25 @@ const DispensedMedicine = () => {
       setDosageUnit('');
     }
   }, [selectedMedicineId, inventory]);
+
+  // Date Range Constraint Handlers
+  const handleFromDateChange = (e) => {
+    const newFromDate = e.target.value;
+    setFromDate(newFromDate);
+
+    if (toDate && newFromDate > toDate) {
+      setToDate(newFromDate);
+    }
+  };
+
+  const handleToDateChange = (e) => {
+    const newToDate = e.target.value;
+    if (fromDate && newToDate < fromDate) {
+      setToDate(fromDate);
+    } else {
+      setToDate(newToDate);
+    }
+  };
 
   const handleApplyFilters = () => {
     fetchHistory();
@@ -180,6 +501,7 @@ const DispensedMedicine = () => {
       const currentStock = parseInt(selectedBatch.current_stock, 10);
       const strengthVal = parseFloat(selectedBatch.strength_unit_value);
       const remainingVol = parseFloat(selectedBatch.remaining_volume);
+      const strengthUnit = selectedBatch.strength_unit_of_measure;
 
       if (!isMeasuredUnit) {
         if (numericValue > currentStock) {
@@ -190,13 +512,15 @@ const DispensedMedicine = () => {
           return;
         }
       } else {
-        const totalAvailableVolume = currentStock > 0 
+        const reqInBatchUnit = convertUnit(numericValue, dosageUnit, strengthUnit);
+        const totalAvailableBatchUnit = currentStock > 0 
           ? remainingVol + (currentStock - 1) * strengthVal 
           : 0;
 
-        if (numericValue > totalAvailableVolume) {
+        if (reqInBatchUnit > totalAvailableBatchUnit) {
+          const availInDispenseUnit = convertUnit(totalAvailableBatchUnit, strengthUnit, dosageUnit);
           setMessage({ 
-            text: `Dosage cannot exceed current available volume (${totalAvailableVolume} ${dosageUnit}).`, 
+            text: `Dosage cannot exceed current available volume/count (${availInDispenseUnit.toFixed(2)} ${dosageUnit}).`, 
             type: 'error' 
           });
           return;
@@ -205,7 +529,7 @@ const DispensedMedicine = () => {
     }
 
     try {
-      const response = await fetch('http://localhost:3001/api/dispensation', {
+      const response = await fetch('https://localhost-cms.onrender.com/api/dispensation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -239,15 +563,15 @@ const DispensedMedicine = () => {
     }
   };
 
-  const getBatchStatus = (stock, expDate) => {
-    const today = new Date();
-    const expiration = new Date(expDate);
-    expiration.setHours(23, 59, 59, 999);
-    if (expiration < today) return { label: 'Expired', class: 'status-expired' };
-    if (stock === 0) return { label: 'Out of Stock', class: 'status-out' };
-    if (stock <= 10) return { label: 'Low Stock', class: 'status-low' };
-    return { label: 'Available', class: 'status-ok' };
-  };
+  // Filter logs specifically for TODAY'S DISPENSED
+  const todaysDispensedLogs = useMemo(() => {
+    if (!Array.isArray(history)) return [];
+    const today = new Date().toLocaleDateString();
+    return history.filter(log => {
+      if (!log.dispensed_at) return false;
+      return new Date(log.dispensed_at).toLocaleDateString() === today;
+    });
+  }, [history]);
 
   const activeBatch = inventory.find(b => b.batch_id === selectedBatchId);
   const isMeasured = MEASURED_UNITS.includes(dosageUnit);
@@ -255,43 +579,115 @@ const DispensedMedicine = () => {
   return (
     <div className="dispense-container">
       <header className="dispense-header">
-        <h1>Medicine Dispensation Management Panel</h1>
+        <div className="header-title-block">
+          <h1>Medicine Dispensation Management Panel</h1>
+          <p className="header-subtitle">Process student medication dispensing and monitor inventory real-time.</p>
+        </div>
+        <div className="header-actions">
+          <button 
+            type="button" 
+            className="btn-dispense-log"
+            onClick={() => setIsLogModalOpen(true)}
+            title="Open Full Dispensed Records Log History"
+          >
+            <History size={18} />
+            <span>Dispense Log</span>
+          </button>
+        </div>
       </header>
 
       {message.text && (
         <div className={`alert-banner ${message.type === 'success' ? 'alert-success' : 'alert-error'}`}>
-          {message.type === 'success' ? <CheckCircle size={18} /> : <AlertTriangle size={18} />}
-          <span>{message.text}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {message.type === 'success' ? <CheckCircle size={18} /> : <AlertTriangle size={18} />}
+            <span>{message.text}</span>
+          </div>
+          <button className="alert-close-btn" onClick={() => setMessage({ text: '', type: '' })} aria-label="Close message">
+            <X size={16} />
+          </button>
         </div>
       )}
 
       {!nurseId && (
         <div className="alert-banner alert-error">
-          <AlertTriangle size={18} />
-          <span>Warning: No active nurse session detected from NurseLayout context.</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <AlertTriangle size={18} />
+            <span>Warning: No active nurse session detected from NurseLayout context.</span>
+          </div>
+        </div>
+      )}
+
+      {/* QR Code Scanner Modal */}
+      {isScanningQR && (
+        <div className="modal-overlay">
+          <div className="qr-modal-card">
+            <button
+              type="button"
+              className="modal-close-icon"
+              onClick={stopQRScan}
+              title="Close QR Scanner"
+              aria-label="Close QR Scanner"
+            >
+              <X size={20} />
+            </button>
+            
+            <h3>Scan Student QR Code</h3>
+            
+            {qrError ? (
+              <div className="alert-banner alert-error" style={{ margin: '12px 0' }}>
+                <AlertTriangle size={18} />
+                <span>{qrError}</span>
+              </div>
+            ) : (
+              <div className="qr-video-wrapper">
+                <video ref={videoRef} className="qr-video-element" />
+                <canvas ref={canvasRef} style={{ display: 'none' }} />
+              </div>
+            )}
+
+            <p className="qr-hint-text">
+              Position student QR code within camera view to automatically scan ID.
+            </p>
+
+            <button type="button" onClick={stopQRScan} className="btn-secondary-action">
+              Cancel Scan
+            </button>
+          </div>
         </div>
       )}
 
       <div className="dispense-grid">
+        {/* Dispense Medicine Form */}
         <div className="card form-section">
           <h2><PlusCircle size={20} className="icon-blue" /> Dispense Medicine Form</h2>
           <form onSubmit={handleFormSubmit}>
             <div className="form-group student-search-container">
               <label htmlFor="student-search">Search Student (Name or ID)</label>
               <div className="search-input-wrapper">
-                <Search size={16} className="search-icon" />
-                <input
-                  id="student-search"
-                  type="text"
-                  placeholder="Type student first name, last name, or ID..."
-                  value={searchStudent}
-                  onChange={(e) => {
-                    setSearchStudent(e.target.value);
-                    if (selectedStudent) setSelectedStudent(null);
-                  }}
-                  autoComplete="off"
-                  required
-                />
+                <div className="input-with-icon">
+                  <Search size={16} className="search-icon" />
+                  <input
+                    id="student-search"
+                    type="text"
+                    placeholder="Type student first name, last name, or ID..."
+                    value={searchStudent}
+                    onChange={(e) => {
+                      setSearchStudent(e.target.value);
+                      if (selectedStudent) setSelectedStudent(null);
+                    }}
+                    autoComplete="off"
+                    required
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="qr-scan-btn"
+                  onClick={startQRScan}
+                  title="Search student by QR code"
+                >
+                  <QrCode size={18} />
+                  <span>Scan QR</span>
+                </button>
               </div>
               
               {searchStudent.trim().length > 1 && !selectedStudent && (
@@ -338,7 +734,13 @@ const DispensedMedicine = () => {
                 required
               >
                 <option value="">-- Choose Medicine --</option>
-                {Array.isArray(inventory) && Array.from(new Set(inventory.map(i => i.medicine_id))).map(medId => {
+                {Array.isArray(inventory) && Array.from(
+                  new Set(
+                    inventory
+                      .filter(item => Number(item.current_stock) >= 1)
+                      .map(item => item.medicine_id)
+                  )
+                ).map(medId => {
                   const med = inventory.find(i => i.medicine_id === medId);
                   return <option key={medId} value={medId}>{med?.medicine_name}</option>;
                 })}
@@ -356,10 +758,13 @@ const DispensedMedicine = () => {
               >
                 <option value="">-- Choose Expiration Date --</option>
                 {availableBatches.map((batch) => {
-                  const batchIsMeasured = MEASURED_UNITS.includes(batch.avg_dosage_consumption_unit_of_measure);
+                  const batchIsMeasured = MEASURED_UNITS.includes(batch.strength_unit_of_measure);
+                  const stockLabel = formatCurrentStock(batch);
+
                   const stockInfo = batchIsMeasured
-                    ? `Stock: ${batch.current_stock} | Rem. Vol: ${batch.remaining_volume} ${batch.avg_dosage_consumption_unit_of_measure}`
-                    : `Stock: ${batch.current_stock}`;
+                    ? `Stock: ${stockLabel} | Rem. Vol/Pcs: ${batch.remaining_volume} ${batch.strength_unit_of_measure}`
+                    : `Stock: ${stockLabel}`;
+
                   return (
                     <option key={batch.batch_id} value={batch.batch_id}>
                       {new Date(batch.expiration_date).toLocaleDateString()} ({stockInfo})
@@ -371,9 +776,14 @@ const DispensedMedicine = () => {
 
             {activeBatch && (
               <div className="batch-details-summary">
-                <p><strong>Current Stock:</strong> {activeBatch.current_stock}</p>
-                {isMeasured && (
-                  <p><strong>Remaining Volume:</strong> {activeBatch.remaining_volume} {activeBatch.avg_dosage_consumption_unit_of_measure}</p>
+                <p>
+                  <strong>Current Stock:</strong>{' '}
+                  <span className={isBoxUnit(activeBatch) ? "stock-box-badge" : ""}>
+                    {formatCurrentStock(activeBatch)}
+                  </span>
+                </p>
+                {MEASURED_UNITS.includes(activeBatch.strength_unit_of_measure) && (
+                  <p><strong>Remaining Volume / Pieces:</strong> {activeBatch.remaining_volume} {activeBatch.strength_unit_of_measure}</p>
                 )}
                 <p><strong>Expiration:</strong> {new Date(activeBatch.expiration_date).toLocaleDateString()}</p>
               </div>
@@ -383,7 +793,7 @@ const DispensedMedicine = () => {
               <label htmlFor="dosage-input">
                 {isMeasured ? `Dosage Value (${dosageUnit})` : 'Quantity Dispensed'}
               </label>
-              <div className="dosage-input-group" style={{ display: 'flex', gap: '8px' }}>
+              <div className="dosage-input-group">
                 <input
                   id="dosage-input"
                   type="number"
@@ -411,19 +821,26 @@ const DispensedMedicine = () => {
                   value={dosageUnit} 
                   readOnly 
                   className="unit-readonly-input" 
-                  style={{ width: '120px', backgroundColor: '#f0f0f0', textAlign: 'center' }}
+                  placeholder="Unit"
                 />
               </div>
             </div>
 
-            <button type="submit" className="btn-submit" disabled={!nurseId}>Submit Dispensation</button>
+            <div className="form-submit-wrapper">
+              <button type="submit" className="btn-submit" disabled={!nurseId}>
+                Submit Dispensation
+              </button>
+            </div>
           </form>
         </div>
 
+        {/* Real-time Inventory Section */}
         <div className="card inventory-section">
           <div className="section-title-row">
             <h2><Pill size={20} className="icon-blue" /> Inventory Batches Real-time</h2>
-            <button onClick={fetchInventory} className="btn-icon" title="Refresh Live Data"><RefreshCw size={16} /></button>
+            <button onClick={fetchInventory} className="btn-icon" title="Refresh Live Data" aria-label="Refresh inventory list">
+              <RefreshCw size={16} />
+            </button>
           </div>
           <div className="table-responsive">
             <table className="custom-table">
@@ -431,7 +848,7 @@ const DispensedMedicine = () => {
                 <tr>
                   <th>Medicine Name</th>
                   <th>Current Stock</th>
-                  <th>Remaining Volume</th>
+                  <th>Remaining Vol/Pcs</th>
                   <th>Expiration Date</th>
                   <th>Status</th>
                 </tr>
@@ -443,13 +860,19 @@ const DispensedMedicine = () => {
                   </tr>
                 ) : (
                   inventory.map((item) => {
-                    const status = getBatchStatus(item.current_stock, item.expiration_date);
-                    const showVolume = MEASURED_UNITS.includes(item.avg_dosage_consumption_unit_of_measure);
+                    const status = getStockStatus(item.current_stock, item.low_stock_level, item.critical_stock_level);
+                    const showVolume = MEASURED_UNITS.includes(item.strength_unit_of_measure);
+                    const isBox = isBoxUnit(item);
+
                     return (
                       <tr key={item.batch_id}>
                         <td><strong>{item.medicine_name}</strong></td>
-                        <td>{item.current_stock} units</td>
-                        <td>{showVolume ? `${item.remaining_volume} ${item.avg_dosage_consumption_unit_of_measure}` : 'N/A'}</td>
+                        <td>
+                          <span className={isBox ? "stock-box-badge" : ""}>
+                            {formatCurrentStock(item)}
+                          </span>
+                        </td>
+                        <td>{showVolume ? `${item.remaining_volume} ${item.strength_unit_of_measure}` : 'N/A'}</td>
                         <td>{new Date(item.expiration_date).toLocaleDateString()}</td>
                         <td><span className={`status-tag ${status.class}`}>{status.label}</span></td>
                       </tr>
@@ -462,46 +885,13 @@ const DispensedMedicine = () => {
         </div>
       </div>
 
-      <div className="card history-section-wrapper" style={{ marginTop: '20px' }}>
+      {/* TODAY'S DISPENSED SECTION */}
+      <div className="card history-section-wrapper">
         <div className="section-title-row">
-          <h2><History size={20} className="icon-blue" /> Dispensed Records Log History</h2>
+          <h2><Clock size={20} className="icon-blue" /> Today's Dispensed</h2>
+          <span className="todays-badge">{new Date().toLocaleDateString()}</span>
         </div>
 
-        <div className="filter-toolbar" style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '15px', alignItems: 'center', background: '#f8fafc', padding: '12px', borderRadius: '8px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-            <Calendar size={16} />
-            <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} title="From Date" />
-            <span>to</span>
-            <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} title="To Date" />
-          </div>
-
-          <input
-            type="text"
-            placeholder="Search student (Name/ID)..."
-            value={filterStudent}
-            onChange={(e) => setFilterStudent(e.target.value)}
-            style={{ padding: '6px 10px', borderRadius: '4px', border: '1px solid #ccc' }}
-          />
-
-          <input
-            type="text"
-            placeholder="Search medicine name..."
-            value={filterMedicine}
-            onChange={(e) => setFilterMedicine(e.target.value)}
-            style={{ padding: '6px 10px', borderRadius: '4px', border: '1px solid #ccc' }}
-          />
-
-          <button onClick={handleApplyFilters} className="btn-submit" style={{ padding: '6px 14px', width: 'auto' }}>
-            <Filter size={14} style={{ marginRight: '4px' }} /> Apply
-          </button>
-          
-          {(fromDate || toDate || filterStudent || filterMedicine) && (
-            <button onClick={handleResetFilters} style={{ padding: '6px 10px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <X size={14} /> Clear
-            </button>
-          )}
-        </div>
-        
         <div className="table-responsive">
           <table className="custom-table">
             <thead>
@@ -512,15 +902,18 @@ const DispensedMedicine = () => {
                 <th>Student Name</th>
                 <th>Medicine Dispensed</th>
                 <th>Qty./Volume</th>
+                <th className="action-column">Action</th>
               </tr>
             </thead>
             <tbody>
-              {!Array.isArray(history) || history.length === 0 ? (
+              {todaysDispensedLogs.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="text-center-empty">No transaction history logs matched your parameters.</td>
+                  <td colSpan="7" className="text-center-empty">
+                    No medicine dispensations recorded for today yet.
+                  </td>
                 </tr>
               ) : (
-                history.map((log) => (
+                todaysDispensedLogs.map((log) => (
                   <tr key={log.id}>
                     <td>{new Date(log.dispensed_at).toLocaleString()}</td>
                     <td>
@@ -532,6 +925,17 @@ const DispensedMedicine = () => {
                     <td>{log.first_name} {log.last_name}</td>
                     <td>{log.medicine_name}</td>
                     <td><strong>{log.dosage_consumption_unit_value} {log.dosage_consumption_unit_of_measure}</strong></td>
+                    <td className="action-column">
+                      <button 
+                        type="button" 
+                        className="btn-icon-row"
+                        onClick={() => setSelectedLogDetail(log)}
+                        title="View Dispensation Record Details"
+                        aria-label={`View details for transaction ${log.id}`}
+                      >
+                        <Eye size={17} />
+                      </button>
+                    </td>
                   </tr>
                 ))
               )}
@@ -539,6 +943,211 @@ const DispensedMedicine = () => {
           </table>
         </div>
       </div>
+
+      {/* MODAL: FULL DISPENSED LOG HISTORY */}
+      {isLogModalOpen && (
+        <div className="modal-overlay">
+          <div className="modal-card log-history-modal">
+            <div className="modal-header">
+              <div className="modal-header-title">
+                <History size={22} className="icon-blue" />
+                <h3>Dispensed Records Log History</h3>
+              </div>
+              <button 
+                type="button" 
+                className="modal-close-icon"
+                onClick={() => setIsLogModalOpen(false)}
+                title="Close Log History Modal"
+                aria-label="Close Modal"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="modal-body">
+              {/* Filter Toolbar */}
+              <div className="filter-toolbar">
+                <div className="filter-item date-range-group">
+                  <Calendar size={16} className="filter-icon" />
+                  <input 
+                    type="date" 
+                    value={fromDate} 
+                    max={toDate || undefined}
+                    onChange={handleFromDateChange} 
+                    title="From Date" 
+                  />
+                  <span className="date-sep">to</span>
+                  <input 
+                    type="date" 
+                    value={toDate} 
+                    min={fromDate || undefined}
+                    onChange={handleToDateChange} 
+                    title="To Date" 
+                  />
+                </div>
+
+                <div className="filter-item">
+                  <input
+                    type="text"
+                    placeholder="Search student (Name/ID)..."
+                    value={filterStudent}
+                    onChange={(e) => setFilterStudent(e.target.value)}
+                    className="filter-text-input"
+                  />
+                </div>
+
+                <div className="filter-item">
+                  <input
+                    type="text"
+                    placeholder="Search medicine name..."
+                    value={filterMedicine}
+                    onChange={(e) => setFilterMedicine(e.target.value)}
+                    className="filter-text-input"
+                  />
+                </div>
+
+                <div className="filter-actions-row">
+                  <button onClick={handleApplyFilters} className="btn-filter-apply">
+                    <Filter size={14} /> <span>Apply</span>
+                  </button>
+                  
+                  {(fromDate || toDate || filterStudent || filterMedicine) && (
+                    <button onClick={handleResetFilters} className="btn-filter-reset">
+                      <RotateCcw size={14} /> <span>Reset</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Full Log History Table */}
+              <div className="table-responsive modal-table-wrap">
+                <table className="custom-table">
+                  <thead>
+                    <tr>
+                      <th>Date / Time Logged</th>
+                      <th>Dispensation Type</th>
+                      <th>Student ID</th>
+                      <th>Student Name</th>
+                      <th>Medicine Dispensed</th>
+                      <th>Qty./Volume</th>
+                      <th className="action-column">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {!Array.isArray(history) || history.length === 0 ? (
+                      <tr>
+                        <td colSpan="7" className="text-center-empty">
+                          No transaction history logs matched your parameters.
+                        </td>
+                      </tr>
+                    ) : (
+                      history.map((log) => (
+                        <tr key={log.id}>
+                          <td>{new Date(log.dispensed_at).toLocaleString()}</td>
+                          <td>
+                            <span className={`status-tag ${log.dispensation_type === 'Direct Dispensation' ? 'status-ok' : 'status-low'}`}>
+                              {log.dispensation_type}
+                            </span>
+                          </td>
+                          <td><code>{log.student_id}</code></td>
+                          <td>{log.first_name} {log.last_name}</td>
+                          <td>{log.medicine_name}</td>
+                          <td><strong>{log.dosage_consumption_unit_value} {log.dosage_consumption_unit_of_measure}</strong></td>
+                          <td className="action-column">
+                            <button 
+                              type="button" 
+                              className="btn-icon-row"
+                              onClick={() => setSelectedLogDetail(log)}
+                              title="View Dispensation Record Details"
+                              aria-label={`View details for transaction ${log.id}`}
+                            >
+                              <Eye size={17} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="modal-footer">
+              <button 
+                type="button" 
+                onClick={() => setIsLogModalOpen(false)} 
+                className="btn-secondary-action"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: DISPENSATION DETAIL VIEW */}
+      {selectedLogDetail && (
+        <div className="modal-overlay">
+          <div className="modal-card detail-view-modal">
+            <div className="modal-header">
+              <h3>Dispensation Transaction Detail</h3>
+              <button 
+                type="button" 
+                className="modal-close-icon"
+                onClick={() => setSelectedLogDetail(null)}
+                aria-label="Close Details Modal"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="modal-body detail-grid">
+              <div className="detail-item">
+                <span className="detail-label">Transaction ID:</span>
+                <span className="detail-value">#{selectedLogDetail.id}</span>
+              </div>
+              <div className="detail-item">
+                <span className="detail-label">Date & Time:</span>
+                <span className="detail-value">{new Date(selectedLogDetail.dispensed_at).toLocaleString()}</span>
+              </div>
+              <div className="detail-item">
+                <span className="detail-label">Student Name:</span>
+                <span className="detail-value">{selectedLogDetail.first_name} {selectedLogDetail.last_name}</span>
+              </div>
+              <div className="detail-item">
+                <span className="detail-label">Student ID:</span>
+                <span className="detail-value"><code>{selectedLogDetail.student_id}</code></span>
+              </div>
+              <div className="detail-item">
+                <span className="detail-label">Medicine Name:</span>
+                <span className="detail-value">{selectedLogDetail.medicine_name}</span>
+              </div>
+              <div className="detail-item">
+                <span className="detail-label">Dispensed Amount:</span>
+                <span className="detail-value">{selectedLogDetail.dosage_consumption_unit_value} {selectedLogDetail.dosage_consumption_unit_of_measure}</span>
+              </div>
+              <div className="detail-item">
+                <span className="detail-label">Dispensation Type:</span>
+                <span className="detail-value">{selectedLogDetail.dispensation_type}</span>
+              </div>
+              {selectedLogDetail.nurse_name && (
+                <div className="detail-item">
+                  <span className="detail-label">Dispensed By:</span>
+                  <span className="detail-value">{selectedLogDetail.nurse_name}</span>
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button 
+                type="button" 
+                className="btn-secondary-action" 
+                onClick={() => setSelectedLogDetail(null)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,21 +1,24 @@
-import React, { useState, useEffect } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useOutletContext, useLocation } from 'react-router-dom';
 import { 
-    Search, Calendar, Edit, Trash2, X, Plus, FileText, 
-    CheckCircle, Clock, FileCheck, Filter 
+    Search, Calendar, Edit, Trash2, X, Plus, 
+    FileText, CheckCircle, Clock, Eye, AlertCircle, FileCheck 
 } from 'lucide-react';
 import '../../styles/nurse/RequirementManagement.css';
 
-const RequirementManagement = () => {
-    const { nurseId } = useOutletContext();
+export const RequirementManagement = () => {
+    const { nurseId } = useOutletContext() || {};
+    const location = useLocation();
     const [activeTab, setActiveTab] = useState('student');
     const [students, setStudents] = useState([]);
     
-    // Filter States - Default statusFilter set to 'default' (Waiting & Incomplete only)
+    // Filter States
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('default'); 
     const [courseFilter, setCourseFilter] = useState('all');
+    const [sectionFilter, setSectionFilter] = useState('all');
     const [yearFilter, setYearFilter] = useState('all');
+    const [requirementFilter, setRequirementFilter] = useState('all');
 
     // Program Configuration States
     const [programs, setPrograms] = useState([]);
@@ -30,6 +33,7 @@ const RequirementManagement = () => {
     // Active Modals Data Anchors
     const [selectedStudent, setSelectedStudent] = useState(null);
     const [studentReqs, setStudentReqs] = useState([]);
+    const [highlightedReqName, setHighlightedReqName] = useState(null);
     
     // Add Special Requirement context hooks
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -38,45 +42,9 @@ const RequirementManagement = () => {
     // Nested Requirement Editor Configuration State
     const [editingReq, setEditingReq] = useState(null);
 
-    useEffect(() => {
-        fetchStudents();
-        fetchPrograms();
-        fetchProgramConfigs();
-    }, []);
-
-    const fetchStudents = async () => {
+    const fetchStudentFullRequirements = useCallback(async (studentId) => {
         try {
-            const res = await fetch('http://localhost:3001/api/students');
-            const data = await res.json();
-            setStudents(Array.isArray(data) ? data : []);
-        } catch (error) {
-            console.error("Error fetching students:", error);
-        }
-    };
-
-    const fetchPrograms = async () => {
-        try {
-            const res = await fetch('http://localhost:3001/api/programs');
-            const data = await res.json();
-            setPrograms(Array.isArray(data) ? data : []);
-        } catch (error) {
-            console.error("Error fetching programs:", error);
-        }
-    };
-
-    const fetchProgramConfigs = async () => {
-        try {
-            const res = await fetch('http://localhost:3001/api/program-requirements-config');
-            const data = await res.json();
-            setProgramConfigs(Array.isArray(data) ? data : []);
-        } catch (error) {
-            console.error("Error fetching program configs:", error);
-        }
-    };
-
-    const fetchStudentFullRequirements = async (studentId) => {
-        try {
-            const res = await fetch(`http://localhost:3001/api/students/${studentId}/full-requirements`);
+            const res = await fetch(`https://localhost-cms.onrender.com/api/students/${studentId}/full-requirements`);
             const data = await res.json();
             
             if (data && data.error) {
@@ -89,6 +57,160 @@ const RequirementManagement = () => {
         } catch (error) {
             console.error("Network connectivity issue:", error);
             alert("Failed to connect to backend api service layer.");
+        }
+    }, []);
+
+    // Deep linking resolver supporting submission_id or student_id to auto-open modal immediately
+    const handleDeepLink = useCallback(async (targetId, fallbackStudentId, fallbackReqName) => {
+        const primaryId = targetId || fallbackStudentId;
+        if (!primaryId) return;
+
+        setActiveTab('student');
+
+        let foundStudentId = null;
+        let reqNameToHighlight = fallbackReqName || null;
+
+        // 1. Try resolving primaryId as a submission_id
+        try {
+            const res = await fetch(`https://localhost-cms.onrender.com/api/submissions/${primaryId}`);
+            if (res.ok) {
+                const data = await res.json();
+                const sub = data.submission || data.data || (data.student_id ? data : null);
+                
+                if (sub && sub.student_id) {
+                    foundStudentId = sub.student_id;
+                    if (sub.requirement_name) {
+                        reqNameToHighlight = sub.requirement_name;
+                    }
+                    
+                    const studentObj = {
+                        student_id: sub.student_id,
+                        first_name: sub.first_name || '',
+                        last_name: sub.last_name || '',
+                        program_id: sub.program_id || '',
+                        year_level: sub.year_level || '',
+                        section: sub.section || ''
+                    };
+                    setSelectedStudent(studentObj); // Auto-opens student modal immediately
+                    setHighlightedReqName(reqNameToHighlight);
+                    fetchStudentFullRequirements(sub.student_id);
+                    return;
+                }
+            }
+        } catch (err) {
+            console.warn("Identifier resolution as submission_id failed:", err);
+        }
+
+        // 2. Fallback: Direct student lookup using target student identifier
+        const targetStudentId = fallbackStudentId || foundStudentId || primaryId;
+        if (targetStudentId) {
+            try {
+                const studentRes = await fetch(`https://localhost-cms.onrender.com/api/students/${targetStudentId}`);
+                if (studentRes.ok) {
+                    const studentData = await studentRes.json();
+                    const studentObj = studentData.student || studentData.data || (studentData.student_id ? studentData : null);
+                    if (studentObj && studentObj.student_id) {
+                        setSelectedStudent(studentObj); // Auto-opens modal immediately
+                        setHighlightedReqName(reqNameToHighlight);
+                        fetchStudentFullRequirements(studentObj.student_id);
+                        return;
+                    }
+                }
+            } catch (err) {
+                console.warn("Direct student fetch failed, searching full student list...", err);
+            }
+
+            // 3. Fallback: Search in overall student list
+            try {
+                const res = await fetch('https://localhost-cms.onrender.com/api/students');
+                if (res.ok) {
+                    const studentList = await res.json();
+                    if (Array.isArray(studentList)) {
+                        setStudents(studentList);
+                        const matchedStudent = studentList.find(s => String(s.student_id) === String(targetStudentId));
+                        
+                        if (matchedStudent) {
+                            setSelectedStudent(matchedStudent); // Auto-opens modal immediately
+                            setHighlightedReqName(reqNameToHighlight);
+                            fetchStudentFullRequirements(matchedStudent.student_id);
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error("Error processing student_id lookup during deep link:", err);
+            }
+        }
+    }, [fetchStudentFullRequirements]);
+
+    useEffect(() => {
+        fetchStudents();
+        fetchPrograms();
+        fetchProgramConfigs();
+    }, []);
+
+    // Handles navigation state and triggers deep-link auto-lookup
+    useEffect(() => {
+        const state = location.state || {};
+        const targetId = state.submissionId || state.submission_id || state.navigateId || state.navigate_id;
+        const studentId = state.studentId || state.student_id;
+        const reqName = state.reqName || state.requirement_name;
+
+        if (targetId || studentId) {
+            handleDeepLink(targetId, studentId, reqName);
+        }
+    }, [location.state, handleDeepLink]);
+
+    const getYearLevelOptions = (program) => {
+        const type = (program?.academic_program || program?.type || program?.program_type || '').toLowerCase();
+        return type === 'strand' ? [1, 2] : [1, 2, 3, 4];
+    };
+
+    const selectedProgram = programs.find(p => String(p.program_id) === String(courseFilter));
+    const isStrand = (selectedProgram?.academic_program || selectedProgram?.type || selectedProgram?.program_type || '').toLowerCase() === 'strand';
+    const yearLevelOptions = getYearLevelOptions(selectedProgram);
+
+    useEffect(() => {
+        if (isStrand && Number(yearFilter) > 2) {
+            setYearFilter('all');
+        }
+    }, [courseFilter, isStrand, yearFilter]);
+
+    const availableSections = ['A', 'B', 'C'];
+
+    const availableRequirements = Array.from(
+        new Set([
+            ...programConfigs.map(c => c.requirement_name),
+            ...students.flatMap(s => (s.requirements || s.requirements_list || []).map(r => r.requirement_name || r.name))
+        ].filter(Boolean))
+    ).sort();
+
+    const fetchStudents = async () => {
+        try {
+            const res = await fetch('https://localhost-cms.onrender.com/api/students');
+            const data = await res.json();
+            setStudents(Array.isArray(data) ? data : []);
+        } catch (error) {
+            console.error("Error fetching students:", error);
+        }
+    };
+
+    const fetchPrograms = async () => {
+        try {
+            const res = await fetch('https://localhost-cms.onrender.com/api/programs');
+            const data = await res.json();
+            setPrograms(Array.isArray(data) ? data : []);
+        } catch (error) {
+            console.error("Error fetching programs:", error);
+        }
+    };
+
+    const fetchProgramConfigs = async () => {
+        try {
+            const res = await fetch('https://localhost-cms.onrender.com/api/program-requirements-config');
+            const data = await res.json();
+            setProgramConfigs(Array.isArray(data) ? data : []);
+        } catch (error) {
+            console.error("Error fetching program configs:", error);
         }
     };
 
@@ -105,6 +227,7 @@ const RequirementManagement = () => {
 
     const handleManageStudent = async (student) => {
         setSelectedStudent(student);
+        setHighlightedReqName(null);
         fetchStudentFullRequirements(student.student_id);
     };
 
@@ -115,7 +238,7 @@ const RequirementManagement = () => {
         }
 
         try {
-            const response = await fetch(`http://localhost:3001/api/students/${selectedStudent.student_id}/special-requirements`, {
+            const response = await fetch(`https://localhost-cms.onrender.com/api/students/${selectedStudent.student_id}/special-requirements`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
@@ -153,10 +276,13 @@ const RequirementManagement = () => {
         }
 
         try {
-            const response = await fetch(`http://localhost:3001/api/students/${studentId}/requirements/${encodeURIComponent(reqName)}`, {
+            const response = await fetch(`https://localhost-cms.onrender.com/api/students/${studentId}/requirements/${encodeURIComponent(reqName)}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(updatePayload),
+                body: JSON.stringify({
+                    ...updatePayload,
+                    nurse_id: nurseId || 'UNKNOWN_NURSE'
+                }),
             });
 
             const data = await response.json();
@@ -178,7 +304,7 @@ const RequirementManagement = () => {
         if (!window.confirm(`Delete special requirement: ${reqName}?`)) return;
 
         try {
-            await fetch(`http://localhost:3001/api/students/${selectedStudent.student_id}/special-requirements/${encodeURIComponent(reqName)}`, {
+            await fetch(`https://localhost-cms.onrender.com/api/students/${selectedStudent.student_id}/special-requirements/${encodeURIComponent(reqName)}`, {
                 method: 'DELETE'
             });
             alert("Requirement record removed.");
@@ -212,7 +338,7 @@ const RequirementManagement = () => {
         }
 
         try {
-            const response = await fetch(`http://localhost:3001/api/programs/${programId}/requirements`, {
+            const response = await fetch(`https://localhost-cms.onrender.com/api/programs/${programId}/requirements`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
@@ -258,7 +384,7 @@ const RequirementManagement = () => {
         }
 
         try {
-            const response = await fetch(`http://localhost:3001/api/programs/${programId}/requirements/${configId}`, {
+            const response = await fetch(`https://localhost-cms.onrender.com/api/programs/${programId}/requirements/${configId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -285,7 +411,7 @@ const RequirementManagement = () => {
         if (!window.confirm(`Permanently delete "${reqName}" from this program track?`)) return;
 
         try {
-            await fetch(`http://localhost:3001/api/programs/${programId}/requirements/${configId}`, {
+            await fetch(`https://localhost-cms.onrender.com/api/programs/${programId}/requirements/${configId}`, {
                 method: 'DELETE'
             });
             alert("Requirement deleted.");
@@ -322,21 +448,16 @@ const RequirementManagement = () => {
             case 'submitted late':
                 return { color: '#1d4ed8', backgroundColor: '#dbeafe', border: '1px solid #93c5fd' };
             case 'rejected':
-            case 'missing':
-            case 'not submitted':
                 return { color: '#dc2626', backgroundColor: '#fee2e2', border: '1px solid #fca5a5' };
+            case 'missed':
+            case 'not submitted':
+                return { color: '#374151', backgroundColor: '#f3f4f6', border: '1px solid #d1d5db' };
             case 'pending':
             default:
                 return { color: '#ca8a04', backgroundColor: '#fef9c3', border: '1px solid #fde047' };
         }
     };
 
-    // Ensure 1st, 2nd, 3rd, and 4th year are ALWAYS included explicitly along with any dynamic year level values
-    const standardYears = [1, 2, 3, 4];
-    const fetchedYears = students.map(s => Number(s.year_level)).filter(y => !isNaN(y) && y > 0);
-    const availableYearLevels = Array.from(new Set([...standardYears, ...fetchedYears])).sort((a, b) => a - b);
-
-    // Dynamic Filtering & Sorting Logic
     const filteredStudents = students
         .filter(student => {
             const term = searchTerm.toLowerCase();
@@ -344,29 +465,38 @@ const RequirementManagement = () => {
             const matchesSearch = 
                 fullName.includes(term) || 
                 student.student_id?.toLowerCase().includes(term) ||
-                student.program_id?.toLowerCase().includes(term);
+                student.program_id?.toLowerCase().includes(term) ||
+                (student.section && student.section.toLowerCase().includes(term));
 
             if (!matchesSearch) return false;
 
-            // Course / Program Filter
-            if (courseFilter !== 'all' && student.program_id !== courseFilter) {
-                return false;
+            if (courseFilter !== 'all' && String(student.program_id) !== String(courseFilter)) return false;
+            if (sectionFilter !== 'all' && String(student.section) !== String(sectionFilter)) return false;
+            if (yearFilter !== 'all' && String(student.year_level) !== String(yearFilter)) return false;
+
+            if (requirementFilter !== 'all') {
+                const hasInStudentReqs = Array.isArray(student.requirements) && 
+                    student.requirements.some(r => (r.requirement_name || r.name) === requirementFilter);
+                
+                const hasInProgramConfigs = programConfigs.some(
+                    c => String(c.program_id) === String(student.program_id) && 
+                         c.requirement_name === requirementFilter &&
+                         (!c.year_level || String(c.year_level) === String(student.year_level))
+                );
+
+                if (!hasInStudentReqs && !hasInProgramConfigs) return false;
             }
 
-            // Year Level Filter
-            if (yearFilter !== 'all' && String(student.year_level) !== String(yearFilter)) {
-                return false;
-            }
-
-            // Status Filter Processing
             const stats = student.stats || {};
-            const isComplete = stats.total > 0 && Number(stats.completed) === Number(stats.total);
-            const hasWaiting = Number(stats.submitted || 0) > 0 || Number(stats.late || 0) > 0 || Number(stats.waiting || 0) > 0;
-            const isIncomplete = !isComplete;
+            const total = Number(stats.total || 0);
+            const completed = Number(stats.completed || 0);
 
-            // DEFAULT RULE: Show ONLY Waiting for Approval & Incomplete students by default
+            const isComplete = total > 0 && completed === total;
+            const isIncomplete = total > 0 && completed < total;
+            const hasWaiting = Number(stats.submitted || 0) > 0 || Number(stats.late || 0) > 0 || Number(stats.waiting || 0) > 0;
+
             if (statusFilter === 'default') {
-                if (!hasWaiting && !isIncomplete) return false; // Hide 100% complete with no waiting items
+                if (!hasWaiting && !isIncomplete) return false;
             } else if (statusFilter === 'waiting') {
                 if (!hasWaiting) return false;
             } else if (statusFilter === 'incomplete') {
@@ -375,7 +505,7 @@ const RequirementManagement = () => {
                 if (!isComplete) return false;
             } else if (statusFilter === 'rejected') {
                 if (!(Number(stats.rejected) > 0)) return false;
-            } else if (statusFilter === 'missing') {
+            } else if (statusFilter === 'missed') {
                 if (!(Number(stats.noSubmission) > 0 || Number(stats.notSubmitted) > 0)) return false;
             } else if (statusFilter === 'resubmit') {
                 if (!(Number(stats.resubmit) > 0)) return false;
@@ -392,41 +522,48 @@ const RequirementManagement = () => {
 
             if (aWaiting !== bWaiting) return bWaiting - aWaiting;
 
-            const aComplete = (aStats.total > 0 && Number(aStats.completed) === Number(aStats.total)) ? 1 : 0;
-            const bComplete = (bStats.total > 0 && Number(bStats.completed) === Number(bStats.total)) ? 1 : 0;
+            const aComplete = (Number(aStats.total || 0) > 0 && Number(aStats.completed) === Number(aStats.total)) ? 1 : 0;
+            const bComplete = (Number(bStats.total || 0) > 0 && Number(bStats.completed) === Number(bStats.total)) ? 1 : 0;
 
             return aComplete - bComplete;
         });
 
-    // Metric Counts
     const submittedRequirementsCount = students.filter(s => 
         s.stats && (Number(s.stats.submitted || 0) > 0 || Number(s.stats.late || 0) > 0 || Number(s.stats.waiting || 0) > 0)
     ).length;
 
     const completeStudentsCount = students.filter(s => 
-        s.stats && s.stats.total > 0 && Number(s.stats.completed) === Number(s.stats.total)
+        s.stats && Number(s.stats.total || 0) > 0 && Number(s.stats.completed) === Number(s.stats.total)
     ).length;
 
-    const incompleteStudentsCount = students.length - completeStudentsCount;
+    const incompleteStudentsCount = students.filter(s => {
+        const total = Number(s.stats?.total || 0);
+        const completed = Number(s.stats?.completed || 0);
+        return total > 0 && completed < total;
+    }).length;
 
     return (
         <div className="req-container">
-            <h2>Requirement Management</h2>
-            <p>Configure structural compliance pipelines and monitor student submissions</p>
+            <div className="req-header-section">
+                <h2>Requirement Management</h2>
+                <p>Configure structural compliance pipelines and monitor student submissions</p>
+            </div>
 
             <div className="tabs">
-                <button className={activeTab === 'student' ? 'active' : ''} onClick={() => setActiveTab('student')}>Student Requirements</button>
-                <button className={activeTab === 'course' ? 'active' : ''} onClick={() => setActiveTab('course')}>Course / Strand Requirements</button>
+                <button className={`tab-btn ${activeTab === 'student' ? 'active' : ''}`} onClick={() => setActiveTab('student')}>
+                    Student Requirements
+                </button>
+                <button className={`tab-btn ${activeTab === 'course' ? 'active' : ''}`} onClick={() => setActiveTab('course')}>
+                    Course / Strand Requirements
+                </button>
             </div>
 
             {/* VIEW: MAIN STUDENT MATRIX */}
             {activeTab === 'student' && (
                 <div className="tab-content">
-                    
-                    {/* DASHBOARD CARDS */}
                     <div className="dashboard-summary-cards">
                         <div 
-                            className={`summary-card ${statusFilter === 'waiting' ? 'active-card-filter' : ''}`}
+                            className={`summary-card card-blue ${statusFilter === 'waiting' ? 'active-card-filter' : ''}`}
                             onClick={() => setStatusFilter(statusFilter === 'waiting' ? 'default' : 'waiting')}
                             title="Click to filter students waiting for approval"
                         >
@@ -434,7 +571,7 @@ const RequirementManagement = () => {
                             <div className="summary-card-label">Waiting for Approval</div>
                         </div>
                         <div 
-                            className={`summary-card ${statusFilter === 'incomplete' ? 'active-card-filter' : ''}`}
+                            className={`summary-card card-orange ${statusFilter === 'incomplete' ? 'active-card-filter' : ''}`}
                             onClick={() => setStatusFilter(statusFilter === 'incomplete' ? 'default' : 'incomplete')}
                             title="Click to filter incomplete students"
                         >
@@ -442,7 +579,7 @@ const RequirementManagement = () => {
                             <div className="summary-card-label">Incomplete</div>
                         </div>
                         <div 
-                            className={`summary-card ${statusFilter === 'complete' ? 'active-card-filter' : ''}`}
+                            className={`summary-card card-green ${statusFilter === 'complete' ? 'active-card-filter' : ''}`}
                             onClick={() => setStatusFilter(statusFilter === 'complete' ? 'default' : 'complete')}
                             title="Click to filter complete students"
                         >
@@ -451,76 +588,117 @@ const RequirementManagement = () => {
                         </div>
                     </div>
 
-                    {/* FILTER TOOLBAR */}
                     <div className="filter-toolbar">
                         <div className="search-wrapper">
                             <Search className="search-icon" size={18} />
                             <input 
                                 type="text" 
-                                placeholder="Search by student name, ID..." 
+                                placeholder="Search by student name, ID, section..." 
                                 className="search-bar" 
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
                             />
                         </div>
 
-                        <div className="filter-group">
-                            <Filter size={16} style={{ color: '#6b7280' }} />
-                            
-                            {/* Course / Program Filter */}
-                            <select 
-                                value={courseFilter} 
-                                onChange={(e) => setCourseFilter(e.target.value)}
-                                className="filter-select"
-                            >
-                                <option value="all">All Courses / Strands</option>
-                                {programs.map(p => (
-                                    <option key={p.program_id} value={p.program_id}>
-                                        {p.program_name || p.program_id}
-                                    </option>
-                                ))}
-                            </select>
-
-                            {/* Year Level Filter (Includes 1st, 2nd, 3rd, 4th Year) */}
-                            <select 
-                                value={yearFilter} 
-                                onChange={(e) => setYearFilter(e.target.value)}
-                                className="filter-select"
-                            >
-                                <option value="all">All Year Levels</option>
-                                {availableYearLevels.map(y => (
-                                    <option key={y} value={y}>{y}{y === 1 ? 'st' : y === 2 ? 'nd' : y === 3 ? 'rd' : 'th'} Year</option>
-                                ))}
-                            </select>
-
-                            {/* Status Filter (Default set to Waiting & Incomplete) */}
-                            <select 
-                                value={statusFilter} 
-                                onChange={(e) => setStatusFilter(e.target.value)}
-                                className="filter-select"
-                            >
-                                <option value="default">Default (Waiting & Incomplete)</option>
-                                <option value="all">All Statuses (Including Complete)</option>
-                                <option value="waiting">Waiting for Approval Only</option>
-                                <option value="incomplete">Incomplete Only</option>
-                                <option value="complete">Complete Only</option>
-                                <option value="missing">Missing</option>
-                                <option value="rejected">Rejected</option>
-                                <option value="resubmit">Resubmit</option>
-                            </select>
-
-                            {(courseFilter !== 'all' || yearFilter !== 'all' || statusFilter !== 'default' || searchTerm !== '') && (
-                                <button 
-                                    onClick={() => {
-                                        setCourseFilter('all');
-                                        setYearFilter('all');
-                                        setStatusFilter('default');
-                                        setSearchTerm('');
-                                    }}
-                                    className="btn-clear-filters"
+                        <div className="filter-grid">
+                            <div className="filter-item-rqm">
+                                <label className="filter-label">Course / Strand</label>
+                                <select 
+                                    value={courseFilter} 
+                                    onChange={(e) => setCourseFilter(e.target.value)}
+                                    className="filter-select"
                                 >
-                                    Reset Filters
-                                </button>
+                                    <option value="all">All Courses / Strands</option>
+                                    {programs.map(p => (
+                                        <option key={p.program_id} value={p.program_id}>
+                                            {p.program_name || p.program_id}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="filter-item-rqm">
+                                <label className="filter-label">Year Level</label>
+                                <select 
+                                    value={yearFilter} 
+                                    onChange={(e) => setYearFilter(e.target.value)}
+                                    className="filter-select"
+                                >
+                                    <option value="all">All Year Levels</option>
+                                    {yearLevelOptions.map(y => (
+                                        <option key={y} value={y}>
+                                            {y}{y === 1 ? 'st' : y === 2 ? 'nd' : y === 3 ? 'rd' : 'th'} Year
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="filter-item-rqm">
+                                <label className="filter-label">Section</label>
+                                <select 
+                                    value={sectionFilter} 
+                                    onChange={(e) => setSectionFilter(e.target.value)}
+                                    className="filter-select"
+                                >
+                                    <option value="all">All Sections</option>
+                                    {availableSections.map(sec => (
+                                        <option key={sec} value={sec}>
+                                            {sec}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="filter-item-rqm">
+                                <label className="filter-label">Requirement</label>
+                                <select 
+                                    value={requirementFilter} 
+                                    onChange={(e) => setRequirementFilter(e.target.value)}
+                                    className="filter-select"
+                                >
+                                    <option value="all">All Requirements</option>
+                                    {availableRequirements.map(req => (
+                                        <option key={req} value={req}>
+                                            {req}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="filter-item-rqm">
+                                <label className="filter-label">Compliance Status</label>
+                                <select 
+                                    value={statusFilter} 
+                                    onChange={(e) => setStatusFilter(e.target.value)}
+                                    className="filter-select"
+                                >
+                                    <option value="default">Default (Waiting & Incomplete)</option>
+                                    <option value="all">All Statuses (Including Complete)</option>
+                                    <option value="waiting">Waiting for Approval Only</option>
+                                    <option value="incomplete">Incomplete Only</option>
+                                    <option value="complete">Complete Only</option>
+                                    <option value="missed">Missed</option>
+                                    <option value="rejected">Rejected</option>
+                                    <option value="resubmit">Resubmit</option>
+                                </select>
+                            </div>
+
+                            {(courseFilter !== 'all' || sectionFilter !== 'all' || yearFilter !== 'all' || requirementFilter !== 'all' || statusFilter !== 'default' || searchTerm !== '') && (
+                                <div className="filter-item-rqm filter-reset-action">
+                                    <button 
+                                        onClick={() => {
+                                            setCourseFilter('all');
+                                            setSectionFilter('all');
+                                            setYearFilter('all');
+                                            setRequirementFilter('all');
+                                            setStatusFilter('default');
+                                            setSearchTerm('');
+                                        }}
+                                        className="btn-clear-filters"
+                                    >
+                                        Reset Filters
+                                    </button>
+                                </div>
                             )}
                         </div>
                     </div>
@@ -530,9 +708,9 @@ const RequirementManagement = () => {
                             <thead>
                                 <tr>
                                     <th>Student</th>
-                                    <th>Course/Year</th>
+                                    <th>Course/Section/Year</th>
                                     <th>Requirements Overview</th>
-                                    <th>Action</th>
+                                    <th className="text-center">Action</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -540,11 +718,14 @@ const RequirementManagement = () => {
                                     filteredStudents.map(student => (
                                         <tr key={student.student_id}>
                                             <td>
-                                                <b>{student.first_name} {student.last_name}</b><br/>
-                                                <small className="text-muted">{student.student_id}</small>
+                                                <div className="student-info-cell">
+                                                    <span className="student-name">{student.first_name} {student.last_name}</span>
+                                                    <span className="student-id">{student.student_id}</span>
+                                                </div>
                                             </td>
                                             <td>
-                                                {student.program_id} <br/> 
+                                                <b>{student.program_id}</b>
+                                                {student.section && <span className="text-muted"> - {student.section}</span>}<br/> 
                                                 <small className="text-muted">
                                                     {student.year_level}{Number(student.year_level) === 1 ? 'st' : Number(student.year_level) === 2 ? 'nd' : Number(student.year_level) === 3 ? 'rd' : 'th'} Year
                                                 </small>
@@ -553,7 +734,9 @@ const RequirementManagement = () => {
                                                 {student.stats && (
                                                     <div className="stats-overview">
                                                         <div>
-                                                            {Number(student.stats.completed) === Number(student.stats.total) && Number(student.stats.total) > 0 ? (
+                                                            {Number(student.stats.total) === 0 ? (
+                                                                <span className="text-muted">No Requirements (0/0)</span>
+                                                            ) : Number(student.stats.completed) === Number(student.stats.total) ? (
                                                                 <span className="stat-complete">
                                                                     <CheckCircle size={14} style={{ display: 'inline', marginRight: '4px' }}/> 
                                                                     {student.stats.completed}/{student.stats.total} Complete
@@ -566,39 +749,40 @@ const RequirementManagement = () => {
                                                             )}
                                                         </div>
                                                         <div className="status-tags-container">
-                                                            {/* Explicitly show 'Waiting for Approval' count */}
                                                             {(Number(student.stats.waiting || 0) > 0 || (Number(student.stats.submitted || 0) + Number(student.stats.late || 0)) > 0) && (
                                                                 <span className="status-tag-chip chip-waiting">
-                                                                    <Clock size={12} style={{ display: 'inline', marginRight: '3px' }}/>
-                                                                    {student.stats.waiting ?? (Number(student.stats.submitted || 0) + Number(student.stats.late || 0))} Waiting for Approval
+                                                                    <Clock size={12}/>
+                                                                    {student.stats.waiting ?? (Number(student.stats.submitted || 0) + Number(student.stats.late || 0))} Waiting
                                                                 </span>
                                                             )}
                                                             {student.stats.resubmit > 0 && (
-                                                                <span className="status-tag-chip chip-resubmit">
-                                                                    {student.stats.resubmit} Resubmit
-                                                                </span>
+                                                                <span className="status-tag-chip chip-resubmit">{student.stats.resubmit} Resubmit</span>
                                                             )}
                                                             {student.stats.rejected > 0 && (
-                                                                <span className="status-tag-chip chip-rejected">
-                                                                    {student.stats.rejected} Rejected
-                                                                </span>
+                                                                <span className="status-tag-chip chip-rejected">{student.stats.rejected} Rejected</span>
                                                             )}
                                                             {(Number(student.stats.noSubmission) > 0 || Number(student.stats.notSubmitted) > 0) && (
                                                                 <span className="status-tag-chip chip-missing">
-                                                                    {student.stats.noSubmission || student.stats.notSubmitted} Missing
+                                                                    <AlertCircle size={12}/>
+                                                                    {student.stats.noSubmission || student.stats.notSubmitted} Missed
                                                                 </span>
                                                             )}
                                                             {Number(student.stats.pending) > 0 && (
-                                                                <span className="status-tag-chip chip-pending">
-                                                                    {student.stats.pending} Pending
-                                                                </span>
+                                                                <span className="status-tag-chip chip-pending">{student.stats.pending} Pending</span>
                                                             )}
                                                         </div>
                                                     </div>
                                                 )}
                                             </td>
-                                            <td>
-                                                <button onClick={() => handleManageStudent(student)} className="btn-manage">Manage</button>
+                                            <td className="text-center">
+                                                <button 
+                                                    onClick={() => handleManageStudent(student)} 
+                                                    className="btn-action-icon" 
+                                                    title="Manage Student Requirements"
+                                                    aria-label="Manage Student Requirements"
+                                                >
+                                                    <Eye size={18} />
+                                                </button>
                                             </td>
                                         </tr>
                                     ))
@@ -621,6 +805,7 @@ const RequirementManagement = () => {
                     {programs.map(prog => {
                         const assignedConfigs = programConfigs.filter(config => config.program_id === prog.program_id);
                         const currentInline = programInlineInputs[prog.program_id] || { name: '', year_level: '', deadline: '', allowLate: false };
+                        const progYearLevelOptions = getYearLevelOptions(prog);
 
                         return (
                             <div className="program-card" key={prog.program_id}>
@@ -658,8 +843,8 @@ const RequirementManagement = () => {
                                                         </div>
                                                         {isNewMode[prog.program_id] && (
                                                             <div className="req-actions">
-                                                                <button onClick={() => startInlineEditingConfig(req)} className="btn-icon btn-edit"><Edit size={14}/></button>
-                                                                <button onClick={() => deleteProgramRequirement(prog.program_id, req.config_id, req.requirement_name)} className="btn-icon btn-delete-x"><Trash2 size={14}/></button>
+                                                                <button onClick={() => startInlineEditingConfig(req)} className="btn-icon btn-edit" title="Edit Requirement"><Edit size={14}/></button>
+                                                                <button onClick={() => deleteProgramRequirement(prog.program_id, req.config_id, req.requirement_name)} className="btn-icon btn-delete-x" title="Delete Requirement"><Trash2 size={14}/></button>
                                                             </div>
                                                         )}
                                                     </div>
@@ -679,7 +864,7 @@ const RequirementManagement = () => {
                                                                 className="flex-1 filter-select"
                                                             >
                                                                 <option value="">Year Level</option>
-                                                                {availableYearLevels.map(y => (
+                                                                {progYearLevelOptions.map(y => (
                                                                     <option key={y} value={y}>{y}{y === 1 ? 'st' : y === 2 ? 'nd' : y === 3 ? 'rd' : 'th'} Year</option>
                                                                 ))}
                                                             </select>
@@ -691,7 +876,7 @@ const RequirementManagement = () => {
                                                             />
                                                         </div>
                                                         <div className="inline-edit-footer">
-                                                            <label>
+                                                            <label className="checkbox-label">
                                                                 <input 
                                                                     type="checkbox"
                                                                     checked={inlineEditForm.allow_late_submission}
@@ -727,7 +912,7 @@ const RequirementManagement = () => {
                                                 className="flex-1 filter-select"
                                             >
                                                 <option value="">Year Level</option>
-                                                {availableYearLevels.map(y => (
+                                                {progYearLevelOptions.map(y => (
                                                     <option key={y} value={y}>{y}{y === 1 ? 'st' : y === 2 ? 'nd' : y === 3 ? 'rd' : 'th'} Year</option>
                                                 ))}
                                             </select>
@@ -739,7 +924,7 @@ const RequirementManagement = () => {
                                             />
                                         </div>
                                         <div className="inline-add-footer">
-                                            <label>
+                                            <label className="checkbox-label">
                                                 <input 
                                                     type="checkbox"
                                                     checked={currentInline.allowLate || false}
@@ -761,121 +946,141 @@ const RequirementManagement = () => {
                 <div className="modal-overlay">
                     <div className="modal-content large-modal">
                         <div className="modal-header">
-                            <h3>Manage Submissions — {selectedStudent.first_name} {selectedStudent.last_name}</h3>
-                            <button onClick={() => setSelectedStudent(null)} className="btn-close"><X size={20}/></button>
+                            <div>
+                                <h3>Manage Submissions</h3>
+                                <p className="modal-subtitle">{selectedStudent.first_name} {selectedStudent.last_name} ({selectedStudent.student_id})</p>
+                            </div>
+                            <button onClick={() => { setSelectedStudent(null); setHighlightedReqName(null); }} className="btn-close" title="Close Modal"><X size={20}/></button>
                         </div>
                         
-                        {!isAddModalOpen ? (
-                            <>
-                                <button className="btn-add-primary" onClick={() => setIsAddModalOpen(true)}>
-                                    <Plus size={16}/> Assign Special Requirement
-                                </button>
-                                
-                                <div className="student-req-list">
-                                    {studentReqs.map((req, i) => {
-                                        const overdueDays = calculateOverdueDays(req.submission_deadline, req.submitted_at, req.status);
-                                        const isSpecial = req.type === 'Special';
-                                        const isLateAllowed = req.allow_late_submission === 1 || req.allow_late_submission === true || req.allow_late_submission === '1';
+                        <div className="modal-body">
+                            {!isAddModalOpen ? (
+                                <>
+                                    <div className="modal-toolbar">
+                                        <button className="btn-add-primary" onClick={() => setIsAddModalOpen(true)}>
+                                            <Plus size={16}/> Assign Special Requirement
+                                        </button>
+                                    </div>
+                                    
+                                    <div className="student-req-grid">
+                                        {studentReqs.map((req, i) => {
+                                            const overdueDays = calculateOverdueDays(req.submission_deadline, req.submitted_at, req.status);
+                                            const isSpecial = req.type === 'Special';
+                                            const isLateAllowed = req.allow_late_submission === 1 || req.allow_late_submission === true || req.allow_late_submission === '1';
 
-                                        const normalizedStatus = req.status?.toLowerCase();
-                                        const displayStatus = (normalizedStatus === 'submitted' || normalizedStatus === 'submitted late' || normalizedStatus === 'late')
-                                            ? 'Waiting for approval' 
-                                            : (normalizedStatus === 'not submitted' ? 'Missing' : (req.status || 'Pending'));
+                                            const normalizedStatus = req.status?.toLowerCase();
+                                            const displayStatus = (normalizedStatus === 'submitted' || normalizedStatus === 'submitted late' || normalizedStatus === 'late')
+                                                ? 'Waiting for approval' 
+                                                : (normalizedStatus === 'not submitted' ? 'Missed' : (req.status || 'Pending'));
 
-                                        const sanitizedStatusClass = req.status 
-                                            ? String(req.status).toLowerCase().replace(/\s+/g, "-") 
-                                            : "pending";
+                                            const sanitizedStatusClass = req.status 
+                                                ? String(req.status).toLowerCase().replace(/\s+/g, "-") 
+                                                : "pending";
 
-                                        return (
-                                            <div className="req-card" key={req.requirement_name || i}>
-                                                <div className="req-card-header">
-                                                    <div>
-                                                        <h4><FileText size={16} className="req-icon"/> {req.requirement_name || "Unnamed Requirement"} <span className="tag">{req.type || 'Standard'} Field</span></h4>
-                                                        
-                                                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '4px', marginBottom: '4px' }}>
-                                                            <span 
-                                                                className={`status-badge ${sanitizedStatusClass}`}
-                                                                style={{
-                                                                    padding: '2px 8px',
-                                                                    borderRadius: '4px',
-                                                                    fontWeight: '600',
-                                                                    fontSize: '0.8rem',
-                                                                    ...getStatusStyle(req.status)
-                                                                }}
-                                                            >
-                                                                {displayStatus}
-                                                            </span>
+                                            const isHighlighted = highlightedReqName && req.requirement_name === highlightedReqName;
+
+                                            return (
+                                                <div 
+                                                    className={`req-card ${isHighlighted ? 'highlighted-req-card' : ''}`} 
+                                                    key={req.requirement_name || i}
+                                                    style={isHighlighted ? { border: '2px solid #2563eb', boxShadow: '0 0 10px rgba(37,99,235,0.3)' } : {}}
+                                                >
+                                                    <div className="req-card-header">
+                                                        <div className="req-card-title-group">
+                                                            <h4>
+                                                                <FileText size={16} className="req-icon"/> 
+                                                                {req.requirement_name || "Unnamed Requirement"} 
+                                                                <span className="tag">{req.type || 'Standard'} Field</span>
+                                                            </h4>
                                                             
-                                                            <span className={`late-badge ${isLateAllowed ? 'allowed' : 'blocked'}`} style={{ fontSize: '11px', padding: '2px 6px', borderRadius: '4px' }}>
-                                                                {isLateAllowed ? 'Late Allowed' : 'Late Blocked'}
-                                                            </span>
+                                                            <div className="badge-row">
+                                                                <span 
+                                                                    className={`status-badge ${sanitizedStatusClass}`}
+                                                                    style={getStatusStyle(req.status)}
+                                                                >
+                                                                    {(displayStatus === 'Missed' || normalizedStatus === 'not submitted') && <AlertCircle size={12}/>}
+                                                                    {displayStatus}
+                                                                </span>
+                                                                
+                                                                <span className={`late-badge ${isLateAllowed ? 'allowed' : 'blocked'}`}>
+                                                                    {isLateAllowed ? 'Late Allowed' : 'Late Blocked'}
+                                                                </span>
+                                                            </div>
+                                                            
+                                                            {req.submission_deadline && (
+                                                                <div className="deadline-info">
+                                                                    <Calendar size={13}/> Target: {formatDeadlineDate(req.submission_deadline)} 
+                                                                    {overdueDays && <span className="overdue-text"> ({overdueDays}d overdue)</span>}
+                                                                </div>
+                                                            )}
                                                         </div>
-                                                        
-                                                        {req.submission_deadline && (
-                                                            <div className="deadline-info">
-                                                                <Calendar size={14}/> Deadline: {formatDeadlineDate(req.submission_deadline)} 
-                                                                {overdueDays && <span className="overdue-text"> ({overdueDays}d overdue)</span>}
+                                                        <div className="card-actions">
+                                                            <button className="btn-icon btn-edit" title="Edit Parameters" onClick={() => setEditingReq({
+                                                                ...req,
+                                                                status: req.status || 'Pending',
+                                                                override_allow_late_submission: isLateAllowed
+                                                            })}><Edit size={14}/></button>
+                                                            {isSpecial && (
+                                                                <button className="btn-icon btn-delete-x" title="Delete Special Requirement" onClick={() => handleDeleteSpecialRequirement(req.requirement_name)}><Trash2 size={14}/></button>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    <div className="req-card-body">
+                                                        <div className="attachment-section">
+                                                            <b>Attachment:</b> {req.file_url ? (
+                                                                <a href={req.file_url} target="_blank" rel="noreferrer">Open Document</a>
+                                                            ) : (
+                                                                <span className="no-file-text">No document attached</span>
+                                                            )}
+                                                        </div>
+                                                        {req.nurse_remarks && (
+                                                            <div className="nurse-comment">
+                                                                Remarks: {req.nurse_remarks}
                                                             </div>
                                                         )}
                                                     </div>
-                                                    <div className="card-actions">
-                                                        <button className="btn-edit" onClick={() => setEditingReq({
-                                                            ...req,
-                                                            status: req.status || 'Pending',
-                                                            override_allow_late_submission: isLateAllowed
-                                                        })}><Edit size={14}/></button>
-                                                        {isSpecial && (
-                                                            <button className="btn-delete" onClick={() => handleDeleteSpecialRequirement(req.requirement_name)}><Trash2 size={14}/></button>
-                                                        )}
-                                                    </div>
                                                 </div>
-                                                
-                                                <div className="req-card-body">
-                                                    <div className="attachment-section">
-                                                        <b>Attached Document:</b> {req.file_url ? (
-                                                            <a href={req.file_url} target="_blank" rel="noreferrer">Open Asset Attachment</a>
-                                                        ) : (
-                                                            <span className="no-file-text">No document file delivered</span>
-                                                        )}
-                                                    </div>
-                                                    {req.nurse_remarks && (
-                                                        <div className="nurse-comment">
-                                                            Nurse Remarks: {req.nurse_remarks}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
+                                            );
+                                        })}
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="add-special-req-form">
+                                    <h4>Add Special Requirement to Student Profile</h4>
+                                    <div className="form-grid-2">
+                                        <div className="form-group">
+                                            <label>Requirement Name</label>
+                                            <input 
+                                                type="text" 
+                                                placeholder="Enter requirement name..."
+                                                value={newReqInput.name}
+                                                onChange={e => setNewReqInput({...newReqInput, name: e.target.value})}
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label>Submission Deadline</label>
+                                            <input 
+                                                type="date" 
+                                                value={newReqInput.deadline}
+                                                onChange={e => setNewReqInput({...newReqInput, deadline: e.target.value})}
+                                            />
+                                        </div>
+                                    </div>
+                                    <label className="checkbox-label mt-2">
+                                        <input 
+                                            type="checkbox" 
+                                            checked={newReqInput.allowLate}
+                                            onChange={e => setNewReqInput({...newReqInput, allowLate: e.target.checked})}
+                                        /> Allow Late Submission
+                                    </label>
+                                    <div className="form-actions space-top">
+                                        <button onClick={handleAddSpecialRequirement} className="btn-save">Assign to Student</button>
+                                        <button onClick={() => setIsAddModalOpen(false)} className="btn-cancel">Cancel</button>
+                                    </div>
                                 </div>
-                            </>
-                        ) : (
-                            <div className="add-special-req-form">
-                                <h4>Add Special Requirement to Student Profile</h4>
-                                <input 
-                                    type="text" 
-                                    placeholder="Requirement Name"
-                                    value={newReqInput.name}
-                                    onChange={e => setNewReqInput({...newReqInput, name: e.target.value})}
-                                />
-                                <input 
-                                    type="date" 
-                                    value={newReqInput.deadline}
-                                    onChange={e => setNewReqInput({...newReqInput, deadline: e.target.value})}
-                                />
-                                <label className="checkbox-label">
-                                    <input 
-                                        type="checkbox" 
-                                        checked={newReqInput.allowLate}
-                                        onChange={e => setNewReqInput({...newReqInput, allowLate: e.target.checked})}
-                                    /> Allow Late Submission
-                                </label>
-                                <div className="form-actions">
-                                    <button onClick={handleAddSpecialRequirement} className="btn-save">Assign to Student</button>
-                                    <button onClick={() => setIsAddModalOpen(false)} className="btn-cancel">Cancel</button>
-                                </div>
-                            </div>
-                        )}
+                            )}
+                        </div>
                     </div>
                 </div>
             )}
@@ -885,88 +1090,93 @@ const RequirementManagement = () => {
                 <div className="modal-overlay nested-overlay">
                     <div className="modal-content small-modal">
                         <div className="modal-header">
-                            <h3>Modify Student Parameters</h3>
-                            <button className="btn-close" onClick={() => setEditingReq(null)}><X size={20}/></button>
+                            <div>
+                                <h3>Modify Student Parameters</h3>
+                                <p className="modal-subtitle">{editingReq.requirement_name}</p>
+                            </div>
+                            <button className="btn-close" onClick={() => setEditingReq(null)} title="Close Modal"><X size={20}/></button>
                         </div>
-                        <p className="subtitle-text" style={{ fontWeight: '600', color: '#4b5563' }}>{editingReq.requirement_name}</p>
                         
-                        <form 
-                            onSubmit={(e) => {
-                                e.preventDefault();
-                                
-                                if (['Completed', 'Rejected'].includes(editingReq.status) && !editingReq.file_url) {
-                                    alert("Cannot mark requirement as Completed or Rejected without an uploaded document file.");
-                                    return;
-                                }
+                        <div className="modal-body">
+                            <form 
+                                onSubmit={(e) => {
+                                    e.preventDefault();
+                                    
+                                    if (['Completed', 'Rejected'].includes(editingReq.status) && !editingReq.file_url) {
+                                        alert("Cannot mark requirement as Completed or Rejected without an uploaded document file.");
+                                        return;
+                                    }
 
-                                handleUpdateRequirement(selectedStudent.student_id, editingReq.requirement_name, {
-                                    status: editingReq.status || 'Pending',
-                                    nurse_remarks: editingReq.nurse_remarks || '',
-                                    submission_deadline: editingReq.submission_deadline || null,
-                                    type: editingReq.type || 'Program',
-                                    config_id: editingReq.config_id || null,
-                                    override_allow_late_submission: editingReq.override_allow_late_submission || false
-                                });
-                            }} 
-                            className="edit-req-form"
-                        >
-                            <div className="form-group">
-                                <label>Review Requirement Action Status</label>
-                                <select 
-                                    value={editingReq.status || 'Pending'} 
-                                    onChange={(e) => setEditingReq({...editingReq, status: e.target.value})}
-                                    className="form-control"
-                                >
-                                    <option value="Pending">Pending</option>
-                                    <option value="Not Submitted">Missing</option>
-                                    <option value="Completed" disabled={!editingReq.file_url}>
-                                        Completed {!editingReq.file_url ? '(File Upload Required)' : ''}
-                                    </option>
-                                    <option value="Rejected" disabled={!editingReq.file_url}>
-                                        Rejected {!editingReq.file_url ? '(File Upload Required)' : ''}
-                                    </option>
-                                </select>
-                            </div>
+                                    handleUpdateRequirement(selectedStudent.student_id, editingReq.requirement_name, {
+                                        status: editingReq.status || 'Pending',
+                                        nurse_remarks: editingReq.nurse_remarks || '',
+                                        submission_deadline: editingReq.submission_deadline || null,
+                                        type: editingReq.type || 'Program',
+                                        config_id: editingReq.config_id || null,
+                                        override_allow_late_submission: editingReq.override_allow_late_submission || false
+                                    });
+                                }} 
+                                className="edit-req-form"
+                            >
+                                <div className="form-grid-2">
+                                    <div className="form-group">
+                                        <label>Requirement Action Status</label>
+                                        <select 
+                                            value={editingReq.status || 'Pending'} 
+                                            onChange={(e) => setEditingReq({...editingReq, status: e.target.value})}
+                                            className="form-control"
+                                        >
+                                            <option value="Pending">Pending</option>
+                                            <option value="Not Submitted">Missed</option>
+                                            <option value="Completed" disabled={!editingReq.file_url}>
+                                                Completed {!editingReq.file_url ? '(File Upload Required)' : ''}
+                                            </option>
+                                            <option value="Rejected" disabled={!editingReq.file_url}>
+                                                Rejected {!editingReq.file_url ? '(File Upload Required)' : ''}
+                                            </option>
+                                        </select>
+                                    </div>
 
-                            <div className="form-group">
-                                <label>Override Deadline:</label>
-                                <input 
-                                    type="date" 
-                                    value={formatDeadlineDate(editingReq.submission_deadline)} 
-                                    onChange={(e) => setEditingReq({...editingReq, submission_deadline: e.target.value})}
-                                />
-                            </div>
+                                    <div className="form-group">
+                                        <label>Override Deadline:</label>
+                                        <input 
+                                            type="date" 
+                                            value={formatDeadlineDate(editingReq.submission_deadline)} 
+                                            onChange={(e) => setEditingReq({...editingReq, submission_deadline: e.target.value})}
+                                        />
+                                    </div>
+                                </div>
 
-                            <div className="form-group" style={{ marginTop: '12px', marginBottom: '12px' }}>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: '500' }}>
-                                    <input 
-                                        type="checkbox" 
-                                        style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                                        checked={!!editingReq.override_allow_late_submission} 
-                                        onChange={(e) => setEditingReq({
-                                            ...editingReq, 
-                                            override_allow_late_submission: e.target.checked
-                                        })} 
+                                <div className="form-group mt-2">
+                                    <label className="checkbox-label">
+                                        <input 
+                                            type="checkbox" 
+                                            checked={!!editingReq.override_allow_late_submission} 
+                                            onChange={(e) => setEditingReq({
+                                                ...editingReq, 
+                                                override_allow_late_submission: e.target.checked
+                                            })} 
+                                        />
+                                        Allow Late Submission
+                                    </label>
+                                </div>
+
+                                <div className="form-group mt-2">
+                                    <label>Nurse Remarks / Feedback:</label>
+                                    <textarea 
+                                        value={editingReq.nurse_remarks || ''}  
+                                        onChange={(e) => setEditingReq({...editingReq, nurse_remarks: e.target.value})}
+                                        placeholder="Add formal remarks profile log text details here..."
+                                        rows="3"
                                     />
-                                    Allow Late Submission
-                                </label>
-                            </div>
+                                </div>
 
-                            <div className="form-group">
-                                <label>Nurse Remarks / Feedback:</label>
-                                <textarea 
-                                    value={editingReq.nurse_remarks || ''}  
-                                    onChange={(e) => setEditingReq({...editingReq, nurse_remarks: e.target.value})}
-                                    placeholder="Add formal remarks profile log text details here..."
-                                    rows="3"
-                                />
-                            </div>
-
-                            <div className="form-actions space-top">
-                                <button type="submit" className="btn-save">Save Adjustments</button>
-                                <button type="button" className="btn-cancel" onClick={() => setEditingReq(null)}>Cancel</button>
-                            </div>
-                        </form>
+                                <div className="form-actions space-top">
+                                    <button type="submit" className="btn-save">Save Adjustments</button>
+                                    <button type="button" className="btn-cancel" onClick={() => setEditingReq(null)}>Cancel</button>
+                                </div>
+                            </form>
+                        </div>
                     </div>
                 </div>
             )}

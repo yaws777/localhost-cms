@@ -1,15 +1,27 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import { useOutletContext, useLocation } from 'react-router-dom';
+import { Eye } from 'lucide-react';
 import '../../styles/student/RequestModule.css';
 
-const API_BASE = 'http://localhost:3001/api';
+const API_BASE = 'https://localhost-cms.onrender.com/api';
+const BASE_URL = 'https://localhost-cms.onrender.com';
 
 export default function RequestModule() {
+  const location = useLocation();
   const { studentId, firstName, lastName } = useOutletContext() || {};
   const student_id = studentId;
 
-  // UI state
-  const [activeModal, setActiveModal] = useState(null); // 'excuse' | 'referral' | 'view' | null
+  // Helper to format file URLs using standard base URL
+  const getFileUrl = (url) => {
+    if (!url) return '#';
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      return url;
+    }
+    return `${BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
+  };
+
+  // UI state - initializes activeModal if triggered via route state
+  const [activeModal, setActiveModal] = useState(location.state?.openModal || null);
   const [requests, setRequests] = useState([]);
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [notes, setNotes] = useState([]);
@@ -34,6 +46,12 @@ export default function RequestModule() {
     selected_services: []
   });
 
+  useEffect(() => {
+    if (location.state?.openModal) {
+      setActiveModal(location.state.openModal);
+    }
+  }, [location.state]);
+
   // Fetch Partner Facilities
   const fetchPartnerFacilities = async () => {
     try {
@@ -41,7 +59,6 @@ export default function RequestModule() {
       const data = await res.json();
       setPartnerFacilities(data);
 
-      // Default select the first facility if available
       if (data.length > 0) {
         setReferralForm((prev) => ({
           ...prev,
@@ -72,7 +89,6 @@ export default function RequestModule() {
     fetchPartnerFacilities();
   }, [fetchRequests]);
 
-  // Handle facility selection change
   const handleFacilityChange = (e) => {
     const facilityId = e.target.value;
     const selectedFac = partnerFacilities.find((f) => f.facility_id === facilityId);
@@ -80,12 +96,11 @@ export default function RequestModule() {
     setReferralForm({
       ...referralForm,
       facility_id: facilityId,
-      selected_services: [] // Reset selected checkboxes when facility changes
+      selected_services: []
     });
     setAvailableServices(selectedFac ? selectedFac.services : []);
   };
 
-  // Handle service checkbox toggles
   const handleServiceCheckbox = (serviceId) => {
     setReferralForm((prev) => {
       const isAlreadySelected = prev.selected_services.includes(serviceId);
@@ -178,14 +193,12 @@ export default function RequestModule() {
     }
   };
 
-  // View Details Modal Trigger
   const handleViewDetails = (reqItem) => {
     setSelectedRequest(reqItem);
     setActiveModal('view');
     fetchNotes(reqItem);
   };
 
-  // Send Note/Message
   const handleSendNote = async (e) => {
     e.preventDefault();
     if (!newMessage.trim() || !selectedRequest) return;
@@ -274,8 +287,13 @@ export default function RequestModule() {
                     </span>
                   </td>
                   <td>
-                    <button className="sti-btn-icon" onClick={() => handleViewDetails(req)} title="View Details">
-                      👁️ View
+                    <button 
+                      className="sti-btn-icon" 
+                      onClick={() => handleViewDetails(req)} 
+                      title="View Details"
+                      aria-label="View Details"
+                    >
+                      <Eye size={18} />
                     </button>
                   </td>
                 </tr>
@@ -312,7 +330,14 @@ export default function RequestModule() {
                     type="date"
                     required
                     value={excuseForm.valid_absence_start}
-                    onChange={(e) => setExcuseForm({ ...excuseForm, valid_absence_start: e.target.value })}
+                    onChange={(e) => {
+                      const newStart = e.target.value;
+                      setExcuseForm((prev) => ({
+                        ...prev,
+                        valid_absence_start: newStart,
+                        valid_absence_end: prev.valid_absence_end && prev.valid_absence_end < newStart ? newStart : prev.valid_absence_end
+                      }));
+                    }}
                   />
                 </div>
                 <div className="sti-form-group">
@@ -320,6 +345,7 @@ export default function RequestModule() {
                   <input
                     type="date"
                     required
+                    min={excuseForm.valid_absence_start}
                     value={excuseForm.valid_absence_end}
                     onChange={(e) => setExcuseForm({ ...excuseForm, valid_absence_end: e.target.value })}
                   />
@@ -437,7 +463,7 @@ export default function RequestModule() {
                     {selectedRequest.student_proof_url && (
                       <p>
                         <strong>Attachment:</strong>{' '}
-                        <a href={`http://localhost:3001${selectedRequest.student_proof_url}`} target="_blank" rel="noreferrer">
+                        <a href={getFileUrl(selectedRequest.student_proof_url)} target="_blank" rel="noreferrer">
                           View Uploaded Proof
                         </a>
                       </p>
@@ -454,7 +480,7 @@ export default function RequestModule() {
                 {selectedRequest.issued_slip_url ? (
                   <p className="sti-issued-link">
                     <strong>Issued Slip Document:</strong>{' '}
-                    <a href={`http://localhost:3001${selectedRequest.issued_slip_url}`} target="_blank" rel="noreferrer">
+                    <a href={getFileUrl(selectedRequest.issued_slip_url)} target="_blank" rel="noreferrer">
                       📄 Download Issued Slip
                     </a>
                   </p>
