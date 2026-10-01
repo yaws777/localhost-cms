@@ -26,7 +26,7 @@ export default function MyRequirements() {
                 }
                 const user = JSON.parse(storedUser);
 
-                const studentRes = await fetch(`http://localhost:3001/api/get-student/${user.id}`);
+                const studentRes = await fetch(`https://localhost-cms.onrender.com/api/get-student/${user.id}`);
                 const studentData = await studentRes.json();
 
                 if (studentData.success) {
