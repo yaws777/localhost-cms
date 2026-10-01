@@ -30,12 +30,16 @@ svg {
 .req-container p { margin: 0 0 24px 0; color: #666; font-size: 14px; }
 
 /* --- Tabs System --- */
+/* --- Tabs System --- */
 .tabs {
     margin-bottom: 24px;
     border-bottom: 2px solid #e2e8f0;
     display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
+    flex-direction: row;
+    flex-wrap: nowrap;          /* Prevents tabs from dropping to a second line */
+    gap: 3px;         /* Allows horizontal scrolling if screen is very narrow */
+    white-space: nowrap;
+    width: 47%;
 }
 
 .tabs button {
@@ -49,6 +53,8 @@ svg {
     transition: all 0.2s ease;
     position: relative;
     bottom: -2px;
+    white-space: nowrap;        /* Keeps button text on one line */
+    flex-shrink: 0;             /* Prevents tabs from shrinking */
 }
 
 .tabs button:hover { color: #0056b3; }
@@ -111,26 +117,28 @@ svg {
 .text-green { color: #16a34a; }
 .text-orange { color: #ea580c; }
 
-/* --- Filter & Search Toolbar --- */
+/* --- Filter & Search Toolbar (Card & Grid Structure) --- */
 .filter-toolbar {
     display: flex;
-    gap: 12px;
-    flex-wrap: wrap;
-    margin-bottom: 20px;
-    align-items: center;
+    flex-direction: column;
+    gap: 16px;
+    margin-bottom: 24px;
+    background: #ffffff;
+    padding: 18px;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
     width: 100%;
 }
 
 .search-wrapper {
     position: relative;
-    flex: 1;
-    min-width: 240px;
-    max-width: 100%;
+    width: 100%;
 }
 
 .search-icon {
     position: absolute;
-    left: 12px;
+    left: 14px;
     top: 50%;
     transform: translateY(-50%);
     color: #94a3b8;
@@ -139,12 +147,12 @@ svg {
 
 .search-bar {
     width: 100%;
-    padding: 9px 14px 9px 38px;
+    padding: 10px 14px 10px 40px;
     border: 1px solid #cbd5e1;
     border-radius: 6px;
     font-size: 14px;
     outline: none;
-    transition: border-color 0.2s ease;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .search-bar:focus {
@@ -152,15 +160,30 @@ svg {
     box-shadow: 0 0 0 3px rgba(0, 86, 179, 0.1);
 }
 
-.filter-group {
+.filter-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    align-items: flex-end;
+    width: 100%;
+}
+
+.filter-item-rqm {
     display: flex;
-    gap: 8px;
-    align-items: center;
-    flex-wrap: wrap;
-    max-width: 100%;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.filter-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
 }
 
 .filter-select {
+    width: 100%;
     padding: 9px 12px;
     border-radius: 6px;
     border: 1px solid #cbd5e1;
@@ -169,15 +192,20 @@ svg {
     color: #334155;
     outline: none;
     cursor: pointer;
-    max-width: 100%;
+    transition: border-color 0.2s ease;
 }
 
 .filter-select:focus {
     border-color: #0056b3;
 }
 
+.filter-reset-action {
+    justify-content: flex-end;
+}
+
 .btn-clear-filters {
-    padding: 9px 14px;
+    height: 38px;
+    padding: 0 16px;
     border-radius: 6px;
     border: 1px solid #e5e7eb;
     background: #f3f4f6;
@@ -185,13 +213,15 @@ svg {
     cursor: pointer;
     font-size: 13px;
     font-weight: 500;
-    transition: background 0.2s ease;
+    transition: all 0.2s ease;
     white-space: nowrap;
+    width: 100%;
 }
 
 .btn-clear-filters:hover {
-    background: #e5e7eb;
-    color: #1f2937;
+    background: #fee2e2;
+    border-color: #fca5a5;
+    color: #dc2626;
 }
 
 /* --- Student Data Table --- */
@@ -568,22 +598,8 @@ svg {
         gap: 12px;
     }
 
-    .filter-toolbar {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .search-wrapper, .filter-group {
-        width: 100%;
-    }
-
-    .filter-group {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .filter-select, .btn-clear-filters {
-        width: 100%;
+    .filter-grid {
+        grid-template-columns: 1fr 1fr;
     }
 
     .course-grid {
@@ -607,6 +623,10 @@ svg {
 @media (max-width: 480px) {
     .req-container {
         padding: 12px;
+    }
+
+    .filter-grid {
+        grid-template-columns: 1fr;
     }
 
     .tabs {

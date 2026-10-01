@@ -80,6 +80,16 @@ const DocumentIssuance = () => {
     const [submitting, setSubmitting] = useState(false);
     const [modalError, setModalError] = useState('');
 
+    // Confirmation Popup State
+    const [confirmState, setConfirmState] = useState({
+        isOpen: false,
+        title: '',
+        message: '',
+        confirmText: 'Confirm',
+        type: 'warning',
+        onConfirm: null
+    });
+
     // Referral Mode Toggle ('autogen' | 'upload')
     const [referralMode, setReferralMode] = useState('autogen');
 
@@ -252,10 +262,7 @@ const DocumentIssuance = () => {
         setModalError('');
     };
 
-    const handleSaveFacility = async (e) => {
-        e.preventDefault();
-        if (!facilityForm.facility_name.trim()) return;
-
+    const executeSaveFacility = async () => {
         const targetId = facilityForm.facility_id || facilityForm.id;
         const url = isEditingFacility 
             ? `http://localhost:3001/api/partner-facilities/${targetId}`
@@ -283,6 +290,20 @@ const DocumentIssuance = () => {
         }
     };
 
+    const handleSaveFacility = (e) => {
+        e.preventDefault();
+        if (!facilityForm.facility_name.trim()) return;
+
+        setConfirmState({
+            isOpen: true,
+            title: isEditingFacility ? 'Confirm Facility Update' : 'Confirm Save Facility',
+            message: `Are you sure you want to ${isEditingFacility ? 'update' : 'add'} "${facilityForm.facility_name}" as a partner facility?`,
+            confirmText: isEditingFacility ? 'Update Facility' : 'Save Facility',
+            type: 'approve',
+            onConfirm: executeSaveFacility
+        });
+    };
+
     const handleOpenAddService = (facility) => {
         setServiceForm({ service_id: '', facility_id: facility.facility_id || facility.id, service_name: '', description: '' });
         setActiveFacilityName(facility.facility_name || '');
@@ -291,10 +312,7 @@ const DocumentIssuance = () => {
         setShowFacilityForm(false);
     };
 
-    const handleSaveService = async (e) => {
-        e.preventDefault();
-        if (!serviceForm.facility_id || !serviceForm.service_name.trim()) return;
-
+    const executeSaveService = async () => {
         const targetServiceId = serviceForm.service_id || serviceForm.id;
         const url = isEditingService 
             ? `http://localhost:3001/api/facility-services/${targetServiceId}`
@@ -320,6 +338,20 @@ const DocumentIssuance = () => {
         } catch (err) {
             console.error('Error saving service:', err);
         }
+    };
+
+    const handleSaveService = (e) => {
+        e.preventDefault();
+        if (!serviceForm.facility_id || !serviceForm.service_name.trim()) return;
+
+        setConfirmState({
+            isOpen: true,
+            title: isEditingService ? 'Confirm Service Update' : 'Confirm Save Service',
+            message: `Are you sure you want to ${isEditingService ? 'update' : 'add'} "${serviceForm.service_name}" service for ${activeFacilityName}?`,
+            confirmText: isEditingService ? 'Update Service' : 'Save Service',
+            type: 'approve',
+            onConfirm: executeSaveService
+        });
     };
 
     const handleSendMessage = async () => {
@@ -597,6 +629,36 @@ const DocumentIssuance = () => {
         }
     };
 
+    // Trigger Popup Confirmation for Sending File to Student
+    const triggerApprove = () => {
+        if (selectedRequest.request_type === 'Referral Slip' && referralMode === 'upload' && !selectedFile) {
+            setModalError('Please upload the issued referral document.');
+            return;
+        }
+        setModalError('');
+        setConfirmState({
+            isOpen: true,
+            title: 'Confirm File Issuance',
+            message: `Are you sure you want to approve and send the ${selectedRequest.request_type} document to ${selectedRequest.first_name} ${selectedRequest.last_name}?`,
+            confirmText: 'Yes, Send File',
+            type: 'approve',
+            onConfirm: () => handleAction('Approve')
+        });
+    };
+
+    // Trigger Popup Confirmation for Denying Request
+    const triggerDeny = () => {
+        setModalError('');
+        setConfirmState({
+            isOpen: true,
+            title: 'Confirm Request Denial',
+            message: `Are you sure you want to deny this request for ${selectedRequest.first_name} ${selectedRequest.last_name}? The student will be notified.`,
+            confirmText: 'Yes, Deny Request',
+            type: 'deny',
+            onConfirm: () => handleAction('Deny')
+        });
+    };
+
     return (
         <div className="doc-issuance-container">
             {/* Header Section */}
@@ -869,7 +931,7 @@ const DocumentIssuance = () => {
                                 <button className="btn-approve" onClick={() => setIsApproving(true)}>
                                     <CheckCircle2 size={16} /> Approve & Issue Slip
                                 </button>
-                                <button className="btn-deny" onClick={() => handleAction('Deny')} disabled={submitting}>
+                                <button className="btn-deny" onClick={triggerDeny} disabled={submitting}>
                                     <XCircle size={16} /> {submitting ? 'Processing...' : 'Deny Request'}
                                 </button>
                             </div>
@@ -1061,7 +1123,7 @@ const DocumentIssuance = () => {
                         </div>
 
                         <div className="modal-footer">
-                            <button className="btn-approve" onClick={() => handleAction('Approve')} disabled={submitting}>
+                            <button className="btn-approve" onClick={triggerApprove} disabled={submitting}>
                                 <Send size={16} /> {submitting ? 'Processing...' : 'Send File to Student'}
                             </button>
                             <button className="btn-secondary" onClick={() => setIsApproving(false)} disabled={submitting}>
@@ -1228,6 +1290,60 @@ const DocumentIssuance = () => {
                                     </div>
                                 </div>
                             )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Confirmation Popup Modal */}
+            {confirmState.isOpen && (
+                <div className="doc-modal-overlay doc-confirm-overlay">
+                    <div className="doc-modal doc-confirm-modal">
+                        <div className="modal-header">
+                            <div>
+                                <h3>{confirmState.title || 'Confirmation'}</h3>
+                            </div>
+                            <button 
+                                className="btn-close" 
+                                onClick={() => setConfirmState({ ...confirmState, isOpen: false })} 
+                                aria-label="Close confirmation"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <div className="modal-body doc-confirm-body">
+                            <div className={`confirm-icon-wrapper confirm-icon-${confirmState.type || 'warning'}`}>
+                                {confirmState.type === 'deny' ? (
+                                    <XCircle size={36} />
+                                ) : confirmState.type === 'approve' ? (
+                                    <CheckCircle2 size={36} />
+                                ) : (
+                                    <AlertCircle size={36} />
+                                )}
+                            </div>
+                            <p className="confirm-message">{confirmState.message}</p>
+                        </div>
+
+                        <div className="modal-footer doc-confirm-footer">
+                            <button 
+                                type="button" 
+                                className="btn-secondary" 
+                                onClick={() => setConfirmState({ ...confirmState, isOpen: false })}
+                            >
+                                Cancel
+                            </button>
+                            <button 
+                                type="button" 
+                                className={confirmState.type === 'deny' ? 'btn-deny' : 'btn-approve'} 
+                                onClick={() => {
+                                    const action = confirmState.onConfirm;
+                                    setConfirmState({ ...confirmState, isOpen: false });
+                                    if (action) action();
+                                }}
+                            >
+                                {confirmState.confirmText || 'Confirm'}
+                            </button>
                         </div>
                     </div>
                 </div>

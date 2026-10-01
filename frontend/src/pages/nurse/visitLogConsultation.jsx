@@ -18,6 +18,27 @@ const CONDITIONAL_COMPLAINT_NAMES = [
     'body pain'
 ];
 
+const formatDosageForm = (dosageForm, count = 1) => {
+    if (!dosageForm) return count === 1 ? 'unit' : 'units';
+    if (count === 1) return dosageForm;
+    const lower = dosageForm.toLowerCase();
+    if (lower.endsWith('s')) return dosageForm;
+    if (lower.endsWith('x') || lower.endsWith('ch')) return `${dosageForm}es`;
+    return `${dosageForm}s`;
+};
+
+const formatDosageFormWithStrength = (batch) => {
+    if (!batch) return '';
+    const dosageForm = batch.dosage_form || 'Unit';
+    const strengthVal = batch.strength_unit_value;
+    const strengthUnit = batch.strength_unit_of_measure || batch.avg_dosage_consumption_unit_of_measure || '';
+    
+    if (strengthVal && strengthUnit) {
+        return `${dosageForm}(${strengthVal} ${strengthUnit} per ${dosageForm.toLowerCase()})`;
+    }
+    return dosageForm;
+};
+
 const formatExpirationDate = (dateString) => {
     if (!dateString) return '';
     const date = new Date(dateString);
@@ -103,7 +124,7 @@ const VisitLogConsultation = () => {
         pulse_rate: '',
         blood_pressure: '',
         nursing_intervention: '',
-        recommendations: '',
+        assessment: '',
         batch_id: '',
         dosage_consumption_unit_value: '',
         dosage_consumption_unit_of_measure: ''
@@ -488,7 +509,7 @@ const VisitLogConsultation = () => {
             pulse_rate: visit.pulse_rate || '',
             blood_pressure: visit.blood_pressure || '',
             nursing_intervention: visit.nursing_intervention || '',
-            recommendations: visit.recommendations || visit.health_advice || '',
+            assessment: visit.assessment || visit.health_advice || '',
             batch_id: visit.batch_id || '',
             dosage_consumption_unit_value: visit.dosage_consumption_unit_value || '',
             dosage_consumption_unit_of_measure: visit.dosage_consumption_unit_of_measure || ''
@@ -568,7 +589,7 @@ const VisitLogConsultation = () => {
             !formData.pulse_rate || 
             !formData.respiratory_rate || 
             !formData.nursing_intervention.trim() || 
-            !formData.recommendations.trim()
+            !formData.assessment.trim()
         ) {
             alert('All required visit documentation fields must be filled out.');
             return;
@@ -591,11 +612,12 @@ const VisitLogConsultation = () => {
                 }
                 
                 if (isVolumeUnit && val > calculatedTotalAvailableVolume) {
-                    alert(`Requested quantity (${val} ${formData.dosage_consumption_unit_of_measure}) exceeds total available units (${calculatedTotalAvailableVolume} ${formData.dosage_consumption_unit_of_measure}).`);
+                    alert(`Requested quantity (${val} ${formData.dosage_consumption_unit_of_measure}) exceeds available stock.`);
                     return;
                 }
                 if (!isVolumeUnit && val > parseInt(activeBatchInfo.current_stock, 10)) {
-                    alert(`Requested quantity (${val}) exceeds available container stock (${activeBatchInfo.current_stock}).`);
+                    const formLabel = formatDosageForm(activeBatchInfo.dosage_form, activeBatchInfo.current_stock).toLowerCase();
+                    alert(`Requested quantity (${val}) exceeds available ${formLabel} stock (${activeBatchInfo.current_stock}).`);
                     return;
                 }
             }
@@ -903,7 +925,7 @@ const VisitLogConsultation = () => {
             )}
 
             {showAllLogsModal && (
-                <div className="modal-viewport-backdrop">
+                <div className="modal-viewport-backdrop logs-fullscreen-backdrop">
                     <div className="modal-body-container logs-modal-responsive">
                         <div className="modal-header-accent">
                             <h3>
@@ -1056,8 +1078,8 @@ const VisitLogConsultation = () => {
                                                                 <button 
                                                                     type="button" 
                                                                     className={`icon-action-btn btn-document ${!documented ? 'needs-doc' : ''}`}
-                                                                    title={documented ? "View / Edit Documentation" : "Needs Documentation"}
-                                                                    aria-label="View or Edit Documentation"
+                                                                    title={documented ? "View or Edit Documentation" : "Needs Documentation"}
+                                                                    aria-label="Document Visit"
                                                                     onClick={() => handleOpenDocumentModal(visit)}
                                                                 >
                                                                     <FileText size={16} />
@@ -1250,13 +1272,13 @@ const VisitLogConsultation = () => {
                                         />
                                     </div>
                                     <div className="form-input-element full-width-field">
-                                        <label>Recommendations <span className="required-star">*</span></label>
+                                        <label>Assessment <span className="required-star">*</span></label>
                                         <textarea 
                                             required 
                                             rows={2} 
-                                            placeholder="Recommendations and counseling provided..." 
-                                            value={formData.recommendations} 
-                                            onChange={e => setFormData({...formData, recommendations: e.target.value})} 
+                                            placeholder="assessment provided..." 
+                                            value={formData.assessment} 
+                                            onChange={e => setFormData({...formData, assessment: e.target.value})} 
                                         />
                                     </div>
 
@@ -1288,13 +1310,16 @@ const VisitLogConsultation = () => {
                                                     const totalAvailable = getTotalAvailableStock(b);
                                                     const isVol = VOLUME_UNITS.includes(unit);
                                                     
+                                                    const dosageFormPlural = formatDosageForm(b.dosage_form, b.current_stock);
+                                                    const dosageWithStrength = formatDosageFormWithStrength(b);
+
                                                     const stockText = isVol 
-                                                        ? `${totalAvailable} ${unit} available (${b.remaining_volume} ${unit} open container, ${b.current_stock} container/s)` 
-                                                        : `${b.current_stock} container/s`;
+                                                        ? `Stock: ${b.current_stock} ${dosageFormPlural.toLowerCase()} (${b.remaining_volume} ${unit} open)` 
+                                                        : `Stock: ${b.current_stock} ${dosageFormPlural.toLowerCase()}`;
 
                                                     return (
                                                         <option key={b.batch_id} value={b.batch_id} disabled={isExpired || totalAvailable <= 0}>
-                                                            {b.medicine_name} — Exp: {formattedExp} {isExpired ? '(EXPIRED)' : `(${stockText})`}
+                                                            {b.medicine_name} ({dosageWithStrength}) — Exp: {formattedExp} {isExpired ? '(EXPIRED)' : `(${stockText})`}
                                                         </option>
                                                     );
                                                 })}
@@ -1304,7 +1329,8 @@ const VisitLogConsultation = () => {
 
                                     {activeBatchInfo && !isAlreadyDispensed && (
                                         <div className="stock-info-banner">
-                                            <strong>Open Container Stock:</strong> {activeBatchInfo.remaining_volume} {activeBatchUnit} remaining in current open box/bottle (Total Available: {calculatedTotalAvailableVolume} {activeBatchUnit}).
+                                            <strong>Current Stock:</strong> {activeBatchInfo.current_stock} {formatDosageForm(activeBatchInfo.dosage_form, activeBatchInfo.current_stock).toLowerCase()}
+                                            {isVolumeUnit ? ` (${activeBatchInfo.remaining_volume} ${activeBatchUnit} remaining in open ${formatDosageFormWithStrength(activeBatchInfo)})` : ''}.
                                         </div>
                                     )}
 
@@ -1433,8 +1459,8 @@ const VisitLogConsultation = () => {
                                                     <button 
                                                         type="button" 
                                                         className={`icon-action-btn btn-document ${!documented ? 'needs-doc' : ''}`}
-                                                        title={documented ? "View / Edit Documentation" : "Needs Documentation"}
-                                                        aria-label="View or Edit Documentation"
+                                                        title={documented ? "View or Edit Documentation" : "Needs Documentation"}
+                                                        aria-label="Document Visit"
                                                         onClick={() => handleOpenDocumentModal(visit)}
                                                     >
                                                         <FileText size={16} />

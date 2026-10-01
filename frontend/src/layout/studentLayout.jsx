@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { 
     LayoutDashboard, 
@@ -7,17 +7,20 @@ import {
     ClipboardPlus,
     LogOut,
     Lightbulb,
-    QrCode,
     MessageSquare,
     Clipboard,
-    Bell
+    Bell,
+    Download
 } from 'lucide-react';
+import { QRCodeCanvas } from 'qrcode.react';
 import '../styles/student/StudentLayout.css'; 
 import StudentMessageModal from '../components/student/StudentMessageModal.jsx';
 import { useWebPush } from '../hooks/useWebPush';
 
 const StudentLayout = () => {
     const navigate = useNavigate();
+    const sidebarQrRef = useRef(null);
+
     const [isOpen, setIsOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [studentData, setStudentData] = useState(null);
@@ -27,6 +30,19 @@ const StudentLayout = () => {
     const [isMessageOpen, setIsMessageOpen] = useState(false);
     const [unreadCount, setUnreadCount] = useState(0);
     const [currentUserId, setCurrentUserId] = useState(null);
+
+    // Refs to store user & student IDs for polling without re-triggering main useEffect
+    const studentIdRef = useRef(null);
+    const currentUserIdRef = useRef(null);
+
+    // Keep refs in sync with state
+    useEffect(() => {
+        studentIdRef.current = studentData?.student_id || null;
+    }, [studentData?.student_id]);
+
+    useEffect(() => {
+        currentUserIdRef.current = currentUserId;
+    }, [currentUserId]);
 
     // Web Push Hook integration
     const { isSubscribed, subscribe } = useWebPush(currentUserId);
@@ -63,7 +79,11 @@ const StudentLayout = () => {
             const res = await fetch(`http://localhost:3001/api/notifications/student/${studentId}`);
             const data = await res.json();
             if (data.success) {
-                setNotifications(data.data || []);
+                // Filter out any notifications already marked as read
+                const unreadNotifs = (data.data || []).filter(
+                    (n) => n.is_read !== 1 && n.is_read !== true && n.status !== 'read'
+                );
+                setNotifications(unreadNotifs);
             }
         } catch (err) {
             console.error('Error fetching student notifications:', err);
@@ -71,14 +91,41 @@ const StudentLayout = () => {
     }, []);
 
     useEffect(() => {
-        const fetchStudentProfile = async (userId) => {
+        const storedUser = localStorage.getItem('user');
+        
+        if (!storedUser) {
+            navigate('/');
+            return;
+        }
+
+        let user;
+        try {
+            user = JSON.parse(storedUser);
+        } catch (e) {
+            console.error("Invalid user object in localStorage:", e);
+            navigate('/');
+            return;
+        }
+
+        const accurateUserId = user.user_id || user.id || user.UserID || user.userId;
+
+        if (!accurateUserId) {
+            console.error("No user ID found in localStorage object.");
+            setIsLoading(false);
+            return;
+        }
+
+        setCurrentUserId(accurateUserId);
+
+        const fetchStudentProfile = async () => {
             try {
-                const response = await fetch(`http://localhost:3001/api/get-student/${userId}`);
+                const response = await fetch(`http://localhost:3001/api/get-student/${accurateUserId}`);
                 const data = await response.json();
 
                 if (data.success && data.student) {
                     setStudentData(data.student);
                     if (data.student.student_id) {
+                        studentIdRef.current = data.student.student_id;
                         fetchNotifications(data.student.student_id);
                     }
                 } else {
@@ -92,34 +139,53 @@ const StudentLayout = () => {
             }
         };
 
-        const storedUser = localStorage.getItem('user');
-        
-        if (storedUser) {
-            const user = JSON.parse(storedUser);
-            const accurateUserId = user.user_id || user.id || user.UserID || user.userId;
+        // Fetch student profile and unread count once on mount
+        fetchStudentProfile();
+        fetchUnreadCount(accurateUserId);
 
-            if (accurateUserId) {
-                setCurrentUserId(accurateUserId);
-                fetchStudentProfile(accurateUserId);
-                fetchUnreadCount(accurateUserId);
-
-                // Poll messages and notifications every 5 seconds
-                const interval = setInterval(() => {
-                    fetchUnreadCount(accurateUserId);
-                    if (studentData?.student_id) {
-                        fetchNotifications(studentData.student_id);
-                    }
-                }, 5000);
-
-                return () => clearInterval(interval);
-            } else {
-                console.error("No user ID found in localStorage object.");
-                setIsLoading(false);
+        // Poll messages and notifications every 5 seconds using refs to avoid re-triggering main effect
+        const interval = setInterval(() => {
+            if (currentUserIdRef.current) {
+                fetchUnreadCount(currentUserIdRef.current);
             }
-        } else {
-            navigate('/');
+            if (studentIdRef.current) {
+                fetchNotifications(studentIdRef.current);
+            }
+        }, 5000);
+
+        return () => clearInterval(interval);
+    }, [navigate, fetchUnreadCount, fetchNotifications]);
+
+    // Handle downloading the sidebar QR code with solid white background
+    const handleDownloadSidebarQr = () => {
+        if (!sidebarQrRef.current || !studentData?.student_id) return;
+
+        const originalCanvas = sidebarQrRef.current.querySelector('canvas');
+        if (originalCanvas) {
+            const padding = 20; // White border padding around the QR code
+            const offscreenCanvas = document.createElement('canvas');
+            offscreenCanvas.width = originalCanvas.width + padding * 2;
+            offscreenCanvas.height = originalCanvas.height + padding * 2;
+
+            const ctx = offscreenCanvas.getContext('2d');
+            if (ctx) {
+                // Fill canvas with solid white background
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
+
+                // Draw QR code onto white canvas centered
+                ctx.drawImage(originalCanvas, padding, padding);
+
+                const url = offscreenCanvas.toDataURL('image/png');
+                const downloadLink = document.createElement('a');
+                downloadLink.href = url;
+                downloadLink.download = `QR_${studentData.student_id}.png`;
+                document.body.appendChild(downloadLink);
+                downloadLink.click();
+                document.body.removeChild(downloadLink);
+            }
         }
-    }, [navigate, fetchUnreadCount, fetchNotifications, studentData?.student_id]);
+    };
 
     // Navigate to sub-routes or trigger modals based on notification content
     const handleNotificationClick = async (notification) => {
@@ -222,6 +288,54 @@ const StudentLayout = () => {
                         <span className="profile-id">
                             ID: {studentData?.student_id || '--------'}
                         </span>
+
+                        {/* Student QR Code in Sidebar with Download Button */}
+                        {studentData?.student_id && (
+                            <div style={{ marginTop: '10px', textAlign: 'center' }}>
+                                <div 
+                                    ref={sidebarQrRef}
+                                    className="sidebar-qr-box" 
+                                    style={{ 
+                                        padding: '8px', 
+                                        backgroundColor: '#ffffff', 
+                                        borderRadius: '8px', 
+                                        display: 'inline-block',
+                                        boxShadow: '0 2px 6px rgba(0,0,0,0.15)'
+                                    }}
+                                >
+                                    <QRCodeCanvas
+                                        value={studentData.student_id}
+                                        size={110}
+                                        level="H"
+                                        bgColor="#ffffff"
+                                        fgColor="#000000"
+                                        includeMargin={false}
+                                    />
+                                </div>
+                                <button
+                                    onClick={handleDownloadSidebarQr}
+                                    style={{
+                                        marginTop: '8px',
+                                        padding: '5px 12px',
+                                        backgroundColor: '#ffd100',
+                                        color: '#004b87',
+                                        border: 'none',
+                                        borderRadius: '4px',
+                                        fontSize: '0.75rem',
+                                        fontWeight: 'bold',
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        position: 'fixed',
+                                        width: 'fit-content',
+                                        gap: '5px'
+                                    }}
+                                >
+                                    <Download size={14} />                               
+                                </button>
+                            </div>
+                        )}
                         
                         {errorMsg && <span className="profile-error" style={{color: '#ff4d4f', fontSize: '0.8em', display: 'block', marginTop: '5px'}}>{errorMsg}</span>}
                     </div>
@@ -238,10 +352,6 @@ const StudentLayout = () => {
                         <span>My Requirements</span>
                     </NavLink>
 
-                    <NavLink to="/MyQr" className="nav-link" onClick={closeSidebar}>
-                        <QrCode className="nav-icon" size={16} />
-                        <span>My QR Code</span>
-                    </NavLink>
                     <NavLink to="/ClinicLogsAndRecords" className="nav-link" onClick={closeSidebar}>
                         <FileText className="nav-icon" size={16} />
                         <span>Clinic Logs & Records</span>
@@ -388,7 +498,11 @@ const StudentLayout = () => {
                         username: studentData?.username || '', 
                         programId: studentData?.program_id || '', 
                         yearLevel: studentData?.year_level || '',
-                        refreshNotifications: () => fetchNotifications(studentData?.student_id)
+                        refreshNotifications: () => {
+                            if (studentIdRef.current) {
+                                fetchNotifications(studentIdRef.current);
+                            }
+                        }
                     }} />
                 </div>
             </div>

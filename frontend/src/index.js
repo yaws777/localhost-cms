@@ -9,7 +9,6 @@ import StudentDashboard from './pages/student/studentDashboard';
 import NurseDashboard from './pages/nurse/nurseDashboard';
 import ParentDashboard from './pages/parent/parentDashboard';
 import HealthHistoryForm from './pages/student/healthHistoryForm';
-import ChooseStudentProfile from './pages/parent/chooseStudentProfile';
 import MyProfile from './pages/student/myProfile';
 import ClinicLogsAndRecords from './pages/student/clinicLogs&Records';
 import RequestModule from './pages/student/requestModule';
@@ -51,7 +50,6 @@ root.render(
       <Route path="/" element={<App />}/>
       <Route path="/Login" element={<Login />} />
       <Route path="/HealthHistoryForm" element={<HealthHistoryForm />} />
-      <Route path="/ChooseStudentProfile" element={<ChooseStudentProfile />} />
       <Route path="/health-records/view/:studentId" element={<HealthRecordProfile />} />
       <Route path="/notification-settings" element={<NotificationSettings />} />
 

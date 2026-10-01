@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { useOutletContext, Link } from 'react-router-dom';
+import { useOutletContext, Link, useNavigate } from 'react-router-dom';
 import { 
   Eye, 
-  Download, 
   ChevronRight, 
   Lightbulb, 
   Activity, 
@@ -11,16 +10,19 @@ import {
   Stethoscope, 
   AlertCircle,
   FileCheck,
-  ArrowRight
+  ArrowRight,
+  PlusCircle,
+  FileSpreadsheet
 } from 'lucide-react';
 import HealthTipsModal from '../../components/student/HealthTips';
 import '../../styles/student/StudentDashboard.css';
 
-// Base URL for API requests (defaults to http://localhost:3001 or Vite env variable)
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
 
 const StudentDashboard = () => {
-  // Extract context values directly from StudentLayout
+  const navigate = useNavigate();
+
+  // Extract context values from StudentLayout
   const context = useOutletContext() || {};
   const { 
     studentId = '', 
@@ -36,21 +38,45 @@ const StudentDashboard = () => {
   const [healthScreenings, setHealthScreenings] = useState([]);
   const [doctorAppointments, setDoctorAppointments] = useState([]);
 
-  // Component UI States
+  // UI States
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isTipsOpen, setIsTipsOpen] = useState(false);
   const [activeDocTab, setActiveDocTab] = useState('all');
 
-  // Daily/Weekly Health Tips list
+  // Daily Health Tips (Mapped from Clinic Complaints)
   const dailyHealthTips = [
-    { id: 1, category: 'Hydration', title: 'Stay Hydrated', text: 'Drink at least 8 glasses of water today, especially during hot afternoon classes.' },
-    { id: 2, category: 'Wellness', title: 'Eye Rest Rule', text: 'Follow the 20-20-20 rule during study sessions: look 20 feet away for 20 seconds every 20 minutes.' },
-    { id: 3, category: 'Prevention', title: 'Hand Hygiene', text: 'Wash your hands regularly with soap for 20 seconds to prevent seasonal illness spread on campus.' }
+    { id: 1, category: 'Respiratory', title: 'Asthma Care', text: 'Always carry your prescribed quick-relief inhaler and stay clear of environmental triggers like dust and smoke.' },
+    { id: 2, category: 'Physical Health', title: 'Relieve Body Pain', text: 'Maintain proper posture during long classes and take short stretching breaks to prevent muscle tension.' },
+    { id: 3, category: 'Respiratory', title: 'Cough Relief', text: 'Sip warm fluids throughout the day and wear a mask in crowded spaces to prevent spreading germs.' },
+    { id: 4, category: 'First Aid', title: 'Breathing Ease', text: 'If breathing feels tight, sit upright in a well-ventilated area, stay calm, and report to the clinic.' },
+    { id: 5, category: 'Wellness', title: 'Prevent Dizziness', text: 'Avoid standing up too quickly and keep hydrated, especially during outdoor or afternoon activities.' },
+    { id: 6, category: 'General Health', title: 'Fever Care', text: 'Rest well, sip water regularly, and visit the clinic if your body temperature rises or chills persist.' },
+    { id: 7, category: 'Digestive', title: 'Gastrointestinal Care', text: 'Drink clean or bottled water, avoid unhygienic foods, and consider oral rehydration solutions if needed.' },
+    { id: 8, category: 'Wellness', title: 'Headache Relief', text: 'Take screen breaks every 20 minutes, reduce eye strain, and drink plenty of water.' },
+    { id: 9, category: 'Digestive', title: 'Heartburn Prevention', text: 'Avoid heavy, greasy, or spicy meals before long class sessions or going straight to bed.' },
+    { id: 10, category: 'Cardiovascular', title: 'Blood Pressure Control', text: 'Limit salty campus snacks, practice deep breathing during stressful exams, and stay active.' },
+    { id: 11, category: 'First Aid', title: 'Injury First Aid', text: 'Apply cold compresses to minor bumps or sprains immediately and visit the clinic for wound dressing.' },
+    { id: 12, category: 'Emergency', title: 'Fainting Awareness', text: 'Ensure good airflow, loosen tight clothing around the neck, and seek immediate clinic assistance if someone faints.' },
+    { id: 13, category: "Women's Health", title: 'Menstrual Cramp Relief', text: 'Use a warm compress on your lower abdomen, rest when needed, and drink warm water.' },
+    { id: 14, category: 'Digestive', title: 'Nausea & Vomiting', text: 'Sip small amounts of water or ginger tea slowly and stay seated upright until your stomach settles.' },
+    { id: 15, category: 'Prevention', title: 'Runny Nose Hygiene', text: 'Cover sneezes with tissues or your elbow and wash hands frequently to maintain campus hygiene.' },
+    { id: 16, category: 'Respiratory', title: 'Sore Throat Relief', text: 'Gargle warm salt water and stay hydrated with warm beverages to soothe throat irritation.' },
+    { id: 17, category: 'Oral Health', title: 'Toothache Prevention', text: 'Brush twice daily, floss regularly, and avoid extremely hot, cold, or sugary snacks.' }
   ];
+
   const [currentTipIndex, setCurrentTipIndex] = useState(0);
 
-  // Fetch all dashboard data concurrently once studentId is available from context
+  // Helper to format uploaded document URLs
+  const getFileUrl = (url) => {
+    if (!url) return '#';
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      return url;
+    }
+    return `${API_BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
+  };
+
+  // Fetch all dashboard endpoints
   useEffect(() => {
     if (!studentId) return;
 
@@ -72,7 +98,6 @@ const StudentDashboard = () => {
           fetch(`${API_BASE_URL}/api/student/dashboard/doctor-appointments/${studentId}`)
         ]);
 
-        // Check if any endpoint returned an HTTP error status (404, 500, etc.)
         const responses = [
           { name: 'Visits & Dispensation', res: visitsRes },
           { name: 'Requirements', res: reqsRes },
@@ -83,10 +108,8 @@ const StudentDashboard = () => {
 
         const failedEndpoints = responses.filter((r) => !r.res.ok);
         if (failedEndpoints.length > 0) {
-          failedEndpoints.forEach((f) => {
-            console.error(`API Error on endpoint [${f.name}]: Status ${f.res.status}`);
-          });
-          throw new Error('One or more dashboard API endpoints failed.');
+          failedEndpoints.forEach((f) => console.error(`API Error on [${f.name}]: Status ${f.res.status}`));
+          throw new Error('Failed to load parts of your health dashboard.');
         }
 
         const [visits, reqs, docs, screenings, appointments] = await Promise.all([
@@ -114,6 +137,10 @@ const StudentDashboard = () => {
     fetchDashboardData();
   }, [studentId, programId, yearLevel, section]);
 
+  const handleQuickRequest = (modalType) => {
+    navigate('/RequestModule', { state: { openModal: modalType } });
+  };
+
   const getStatusBadgeClass = (status) => {
     switch (status?.toLowerCase()) {
       case 'completed':
@@ -124,9 +151,11 @@ const StudentDashboard = () => {
       case 'pending':
       case 'submitted':
         return 'badge badge-warning';
+      case 'incomplete':
       case 'rejected':
       case 'resubmit':
       case 'missed':
+      case 'not submitted':
         return 'badge badge-danger';
       default:
         return 'badge badge-default';
@@ -160,15 +189,14 @@ const StudentDashboard = () => {
     );
   }
 
-  // Shared inline styles for the "View All" link
   const viewAllStyle = {
-    display: 'flex',
+    display: 'inline-flex',
     alignItems: 'center',
     gap: '4px',
     fontSize: '0.875rem',
     color: '#0d6efd',
     textDecoration: 'none',
-    fontWeight: '500',
+    fontWeight: '600',
     marginLeft: 'auto'
   };
 
@@ -213,15 +241,74 @@ const StudentDashboard = () => {
 
       {error && <div className="alert-error"><AlertCircle size={18} /> {error}</div>}
 
+      {/* QUICK ACTION BUTTONS */}
+      <section className="quick-actions-bar" style={{ display: 'flex', gap: '16px', marginBottom: '20px', flexWrap: 'wrap' }}>
+        <button 
+          className="quick-action-card"
+          onClick={() => handleQuickRequest('excuse')}
+          style={{
+            flex: '1',
+            minWidth: '220px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            padding: '14px 18px',
+            backgroundColor: '#ffffff',
+            border: '1px solid #e0e6ed',
+            borderRadius: '10px',
+            boxShadow: '0 2px 6px rgba(0,0,0,0.04)',
+            cursor: 'pointer',
+            textAlign: 'left'
+          }}
+        >
+          <div style={{ backgroundColor: '#eef2ff', padding: '10px', borderRadius: '8px', color: '#4f46e5' }}>
+            <FileSpreadsheet size={22} />
+          </div>
+          <div>
+            <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '600' }}>Request Excuse Slip</h4>
+            <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: '#64748b' }}>Apply for class excuse slip</p>
+          </div>
+          <PlusCircle size={18} style={{ marginLeft: 'auto', color: '#4f46e5' }} />
+        </button>
+
+        <button 
+          className="quick-action-card"
+          onClick={() => handleQuickRequest('referral')}
+          style={{
+            flex: '1',
+            minWidth: '220px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            padding: '14px 18px',
+            backgroundColor: '#ffffff',
+            border: '1px solid #e0e6ed',
+            borderRadius: '10px',
+            boxShadow: '0 2px 6px rgba(0,0,0,0.04)',
+            cursor: 'pointer',
+            textAlign: 'left'
+          }}
+        >
+          <div style={{ backgroundColor: '#ecfdf5', padding: '10px', borderRadius: '8px', color: '#059669' }}>
+            <Stethoscope size={22} />
+          </div>
+          <div>
+            <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '600' }}>Request Referral Slip</h4>
+            <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: '#059669' }}>Request lab / hospital referral</p>
+          </div>
+          <PlusCircle size={18} style={{ marginLeft: 'auto', color: '#059669' }} />
+        </button>
+      </section>
+
       {/* Main Grid Layout */}
       <main className="dashboard-grid">
 
-        {/* SECTION 1: Recent Clinic Visits & Medicine Dispensation */}
+        {/* 1. OVERVIEW: Clinic Visits & Medicine Dispensation */}
         <section className="card-section col-span-2">
           <div className="card-header" style={{ display: 'flex', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <h2><Activity size={20} /> Clinic Visits & Dispensations</h2>
-              <span className="meta-count">{visitsData.clinic_visits.length} Visit(s)</span>
+              <h2><Activity size={20} /> Recent Clinic Visits & Dispensations</h2>
+              <span className="meta-count">{visitsData.clinic_visits.length} Recent</span>
             </div>
             <Link to="/ClinicLogsAndRecords" style={viewAllStyle} className="view-all-link">
               View All <ArrowRight size={16} />
@@ -232,12 +319,11 @@ const StudentDashboard = () => {
             <p className="empty-state">No recent clinic visits or dispensations recorded.</p>
           ) : (
             <div className="card-content-stack">
-              {/* Limited to top 3 clinic visits */}
-              {visitsData.clinic_visits.slice(0, 3).map((visit) => (
+              {visitsData.clinic_visits.slice(0, 2).map((visit) => (
                 <div key={visit.visit_id} className="visit-item">
                   <div className="visit-item-header">
                     <span className="visit-date">
-                      Visit Date: {formatDate(visit.visit_date)} ({visit.time_in || 'N/A'} - {visit.time_out || 'N/A'})
+                      📅 Date: {formatDate(visit.visit_date)} ({visit.time_in || 'N/A'} - {visit.time_out || 'N/A'})
                     </span>
                   </div>
 
@@ -260,24 +346,33 @@ const StudentDashboard = () => {
                     </div>
                   </div>
 
-                  {(visit.nursing_intervention || visit.health_advice) && (
-                    <div className="visit-details">
-                      {visit.nursing_intervention && (
-                        <p><strong>Intervention:</strong> {visit.nursing_intervention}</p>
-                      )}
-                      {visit.health_advice && (
-                        <p><strong>Health Advice:</strong> {visit.health_advice}</p>
-                      )}
-                    </div>
-                  )}
+                  <div className="visit-details">
+                    <p>
+                      <strong>Complaint:</strong>{' '}
+                      {visit.complaint_name
+                        ? `${visit.complaint_name}${visit.specify_complaint_text ? ` - ${visit.specify_complaint_text}` : ''}`
+                        : visit.specify_complaint_text || 'N/A'}
+                    </p>
+                    {visit.nursing_intervention && (
+                      <p>
+                        <strong>Intervention:</strong> {visit.nursing_intervention}
+                      </p>
+                    )}
+                    {visit.assessment && (
+                      <p>
+                        <strong>Assessment:</strong> {visit.assessment}
+                      </p>
+                    )}
+                  </div>
 
+                  {/* Dispensed Medicines with Medicine Name */}
                   {visit.dispensed_medicines?.length > 0 && (
                     <div className="meds-list">
-                      <span className="meds-title">Prescribed / Dispensed Medicine:</span>
+                      <span className="meds-title">Dispensed Medicine:</span>
                       <div className="meds-tags">
                         {visit.dispensed_medicines.map((med) => (
                           <span key={med.dispense_id} className="tag-pill">
-                            {med.dosage_value} {med.dosage_unit}
+                            💊 <strong>{med.medicine_name || med.generic_name || med.brand_name || 'Medicine'}</strong> — {med.dosage_value} {med.dosage_unit || 'pcs'}
                           </span>
                         ))}
                       </div>
@@ -286,15 +381,17 @@ const StudentDashboard = () => {
                 </div>
               ))}
 
-              {/* Limited to top 3 direct dispensations */}
+              {/* Direct Dispensations with Medicine Name */}
               {visitsData.direct_dispensations.length > 0 && (
                 <div className="direct-dispense-section">
                   <h3 className="section-subtitle">Direct Medicine Dispensations</h3>
                   <div className="direct-grid">
-                    {visitsData.direct_dispensations.slice(0, 3).map((direct) => (
+                    {visitsData.direct_dispensations.slice(0, 2).map((direct) => (
                       <div key={direct.direct_dispense_id} className="direct-item">
                         <div className="direct-item-row">
-                          <span>{direct.dosage_consumption_unit_value} {direct.dosage_consumption_unit_of_measure}</span>
+                          <span>
+                            💊 <strong>{direct.medicine_name || direct.generic_name || direct.brand_name || 'Medicine'}</strong>: {direct.dosage_consumption_unit_value} {direct.dosage_consumption_unit_of_measure || 'pcs'}
+                          </span>
                         </div>
                         <p className="direct-timestamp">Dispensed: {formatDateTime(direct.dispensed_at)}</p>
                       </div>
@@ -306,13 +403,13 @@ const StudentDashboard = () => {
           )}
         </section>
 
-        {/* SECTION 2: Requirements */}
+        {/* 2. OVERVIEW: Requirements & Status */}
         <section className="card-section">
           <div className="card-header" style={{ display: 'flex', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <h2><ClipboardList size={20} /> Requirements</h2>
+              <h2><ClipboardList size={20} /> Requirements Overview</h2>
               {requirementsData.total_incomplete > 0 && (
-                <span className="badge badge-warning">{requirementsData.total_incomplete} Action Needed</span>
+                <span className="badge badge-warning">{requirementsData.total_incomplete} Incomplete/Pending</span>
               )}
             </div>
             <Link to="/MyRequirements" style={viewAllStyle} className="view-all-link">
@@ -324,7 +421,6 @@ const StudentDashboard = () => {
             <p className="empty-state">No requirements assigned.</p>
           ) : (
             <div className="card-content-scroll">
-              {/* Limited to top 3 requirements */}
               {requirementsData.all_requirements.slice(0, 3).map((req, idx) => (
                 <div key={idx} className="item-card">
                   <div className="item-card-row">
@@ -342,14 +438,14 @@ const StudentDashboard = () => {
 
                   {req.file_url && (
                     <a 
-                      href={req.file_url} 
+                      href={getFileUrl(req.file_url)} 
                       target="_blank" 
                       rel="noopener noreferrer" 
                       className="row-action-btn"
                       title="View Submitted Document"
                       aria-label="View Submitted Document"
                     >
-                      <Eye size={16} />
+                      <Eye size={16} /> View Submitted File
                     </a>
                   )}
                 </div>
@@ -358,11 +454,11 @@ const StudentDashboard = () => {
           )}
         </section>
 
-        {/* SECTION 3: Document Requests */}
+        {/* 3. OVERVIEW: Document Requests Updates */}
         <section className="card-section">
-          <div className="card-header" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+          <div className="card-header" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <h2><FileText size={20} /> Document Requests</h2>
+              <h2><FileText size={20} /> Document Request Updates</h2>
             </div>
             <div className="tab-group" style={{ margin: 0 }}>
               {['all', 'excuse', 'referral'].map((tab) => (
@@ -381,10 +477,9 @@ const StudentDashboard = () => {
           </div>
 
           {documentRequestsData.recent_updates.length === 0 ? (
-            <p className="empty-state">No document request updates.</p>
+            <p className="empty-state">No document request updates found.</p>
           ) : (
             <div className="card-content-scroll">
-              {/* Filtered & Limited to top 3 document requests */}
               {documentRequestsData.recent_updates
                 .filter((doc) => {
                   if (activeDocTab === 'excuse') return doc.request_type === 'Excuse Slip';
@@ -396,28 +491,45 @@ const StudentDashboard = () => {
                   <div key={doc.request_id} className="item-card">
                     <div className="item-card-row">
                       <span className="item-title">{doc.request_type}</span>
-                      <span className={getStatusBadgeClass(doc.status)}>{doc.status}</span>
+                      <span className={getStatusBadgeClass(doc.status)}>{doc.status || 'Pending'}</span>
                     </div>
 
                     <p className="item-subtext"><strong>Reason:</strong> {doc.reason_for_excuse || doc.reason_for_referral || 'N/A'}</p>
 
                     {doc.valid_absence_start && (
-                      <p className="item-subtext">Absence: {formatDate(doc.valid_absence_start)} - {formatDate(doc.valid_absence_end)}</p>
+                      <p className="item-subtext">Absence: {formatDate(doc.valid_absence_start)} to {formatDate(doc.valid_absence_end)}</p>
                     )}
 
-                    <div className="item-card-footer">
-                      <span>Requested: {formatDate(doc.created_at)}</span>
-                      {doc.issued_slip_url && (
+                    <div className="item-card-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
+                      <span className="item-subtext">Requested: {formatDate(doc.created_at)}</span>
+
+                      {/* View Issued Slip Button */}
+                      {doc.issued_slip_url ? (
                         <a 
-                          href={doc.issued_slip_url} 
+                          href={getFileUrl(doc.issued_slip_url)} 
                           target="_blank" 
                           rel="noopener noreferrer" 
-                          className="row-action-btn success"
-                          title="Download Issued Slip"
-                          aria-label="Download Issued Slip"
+                          className="row-action-btn"
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 8px', borderRadius: '4px', backgroundColor: '#eef2ff', color: '#4f46e5', textDecoration: 'none', fontSize: '0.8rem', fontWeight: '500' }}
+                          title={`View Issued ${doc.request_type}`}
+                          aria-label={`View Issued ${doc.request_type}`}
                         >
-                          <Download size={16} />
+                          <Eye size={14} /> View Issued Slip
                         </a>
+                      ) : (
+                        doc.student_proof_url && (
+                          <a 
+                            href={getFileUrl(doc.student_proof_url)} 
+                            target="_blank" 
+                            rel="noopener noreferrer" 
+                            className="row-action-btn"
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 8px', borderRadius: '4px', backgroundColor: '#f3f4f6', color: '#374151', textDecoration: 'none', fontSize: '0.8rem' }}
+                            title="View Attached Proof"
+                            aria-label="View Attached Proof"
+                          >
+                            <Eye size={14} /> View Proof
+                          </a>
+                        )
                       )}
                     </div>
                   </div>
@@ -426,11 +538,11 @@ const StudentDashboard = () => {
           )}
         </section>
 
-        {/* SECTION 4: Health Screenings */}
+        {/* 4. OVERVIEW: Upcoming Health Screenings */}
         <section className="card-section">
           <div className="card-header" style={{ display: 'flex', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <h2><FileCheck size={20} /> Health Screenings</h2>
+              <h2><FileCheck size={20} /> Upcoming Health Screenings</h2>
             </div>
             <Link to="/ClinicLogsAndRecords" style={viewAllStyle} className="view-all-link">
               View All <ArrowRight size={16} />
@@ -441,7 +553,6 @@ const StudentDashboard = () => {
             <p className="empty-state">No upcoming health screenings scheduled.</p>
           ) : (
             <div className="card-content-scroll">
-              {/* Limited to top 3 health screenings */}
               {healthScreenings.slice(0, 3).map((screening) => (
                 <div key={screening.screening_schedule_id} className="item-card info-card">
                   <div className="item-card-row">
@@ -463,11 +574,11 @@ const StudentDashboard = () => {
           )}
         </section>
 
-        {/* SECTION 5: Doctor Appointments */}
+        {/* 5. OVERVIEW: Doctor Visit Schedule */}
         <section className="card-section">
           <div className="card-header" style={{ display: 'flex', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <h2><Stethoscope size={20} /> Doctor Appointments</h2>
+              <h2><Stethoscope size={20} /> Doctor Visit Schedule</h2>
             </div>
             <Link to="/ClinicLogsAndRecords" style={viewAllStyle} className="view-all-link">
               View All <ArrowRight size={16} />
@@ -478,7 +589,6 @@ const StudentDashboard = () => {
             <p className="empty-state">No upcoming doctor appointments scheduled.</p>
           ) : (
             <div className="card-content-scroll">
-              {/* Limited to top 3 doctor appointments */}
               {doctorAppointments.slice(0, 3).map((appt) => (
                 <div key={appt.appointment_id} className="item-card accent-card">
                   <div className="item-card-row">
@@ -508,7 +618,7 @@ const StudentDashboard = () => {
 
       </main>
 
-      {/* SECTION 6: Health Tips Modal */}
+      {/* Health Tips Modal */}
       <HealthTipsModal 
         isOpen={isTipsOpen} 
         onClose={() => setIsTipsOpen(false)} 

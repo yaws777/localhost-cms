@@ -943,3 +943,74 @@
         font-size: 0.95rem;
     }
 }
+
+/* =========================================================
+   CONFIRMATION POPUP MODAL STYLES
+   ========================================================= */
+
+.doc-confirm-overlay {
+    z-index: 1100; /* Placed above standard modals */
+}
+
+.doc-confirm-modal {
+    max-width: 440px;
+    animation: fadeInScale 0.2s ease-out;
+}
+
+@keyframes fadeInScale {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.doc-confirm-body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 24px 20px 16px 20px;
+    gap: 12px;
+}
+
+.confirm-icon-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    margin-bottom: 4px;
+}
+
+.confirm-icon-approve {
+    background-color: #d1fae5;
+    color: #059669;
+}
+
+.confirm-icon-deny {
+    background-color: #fee2e2;
+    color: #dc2626;
+}
+
+.confirm-icon-warning {
+    background-color: #fef3c7;
+    color: #d97706;
+}
+
+.confirm-message {
+    font-size: 0.95rem;
+    color: #334155;
+    margin: 0;
+    line-height: 1.5;
+}
+
+.doc-confirm-footer {
+    justify-content: center;
+    gap: 12px;
+    padding: 16px 20px;
+}

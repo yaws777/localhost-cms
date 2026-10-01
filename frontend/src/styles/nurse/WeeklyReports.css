@@ -1,41 +1,74 @@
-/* STI Theme Colors */
+/* ==========================================
+   STI Theme Variables & Reset
+   ========================================== */
 :root {
   --sti-navy: #002B49;
   --sti-blue: #005691;
+  --sti-blue-hover: #004373;
   --sti-yellow: #FFC72C;
   --sti-yellow-hover: #E0AB1E;
+  
   --bg-main: #F8FAFC;
   --card-bg: #FFFFFF;
-  --text-dark: #1E293B;
+  --text-dark: #0F172A;
+  --text-body: #334155;
   --text-muted: #64748B;
   --border-color: #E2E8F0;
+  
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.06), 0 2px 4px -1px rgba(0, 0, 0, 0.04);
+  --radius-md: 8px;
+  --radius-lg: 12px;
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
   background-color: var(--bg-main);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   color: var(--text-dark);
+  margin: 0;
+  padding: 0;
 }
+
+/* ==========================================
+   DESKTOP DEFAULT STYLES (> 1200px)
+   ========================================== */
 
 .weekly-reports-container {
-  padding: 24px;
-  max-width: 1280px;
+  width: 100%;
+  max-width: 1400px;
   margin: 0 auto;
+  padding: 28px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
 }
 
-/* Header */
+/* Header Component */
 .reports-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  gap: 16px;
+  width: 100%;
+}
+
+.header-title-group {
+  min-width: 0; /* Prevents overflow truncation issues */
 }
 
 .reports-title {
-  font-size: 26px;
-  font-weight: 700;
+  font-size: 28px;
+  font-weight: 800;
   color: var(--sti-navy);
   margin: 0 0 4px 0;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .reports-subtitle {
@@ -44,61 +77,109 @@ body {
   margin: 0;
 }
 
-.export-btn {
-  display: inline-flex;
+.header-actions {
+  display: flex;
   align-items: center;
-  gap: 8px;
-  background-color: var(--card-bg);
-  border: 1px solid var(--border-color);
-  padding: 8px 16px;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--sti-navy);
-  cursor: pointer;
-  transition: all 0.2s ease;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  gap: 12px;
+  flex-shrink: 0;
 }
 
-.export-btn:hover {
+/* Button Standards (Prevents Overwidth) */
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 16px;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  white-space: nowrap;
+  width: fit-content;
+  max-width: 220px;
+}
+
+.primary-btn {
+  background-color: var(--sti-navy);
+  color: #FFFFFF;
+  border: 1px solid var(--sti-navy);
+  box-shadow: var(--shadow-sm);
+}
+
+.primary-btn:hover {
+  background-color: var(--sti-blue);
+  border-color: var(--sti-blue);
+}
+
+.secondary-btn {
+  background-color: var(--card-bg);
+  color: var(--sti-navy);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-sm);
+}
+
+.secondary-btn:hover {
   background-color: #F1F5F9;
   border-color: #CBD5E1;
 }
 
-/* Week Selector Bar */
+/* Error Banner */
+.error-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background-color: #FEF2F2;
+  border: 1px solid #FCA5A5;
+  border-radius: var(--radius-md);
+  color: #991B1B;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.error-icon {
+  flex-shrink: 0;
+}
+
+/* Week Selector Card */
 .week-selector-card {
   background-color: var(--card-bg);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
-  padding: 12px 20px;
+  border-radius: var(--radius-lg);
+  padding: 12px 24px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 24px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  box-shadow: var(--shadow-sm);
+  width: 100%;
 }
 
 .nav-arrow-btn {
-  background: none;
+  background: var(--card-bg);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
-  width: 36px;
-  height: 36px;
+  border-radius: var(--radius-md);
+  width: 38px;
+  height: 38px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--text-dark);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
 }
 
 .nav-arrow-btn:hover:not(:disabled) {
   background-color: #F1F5F9;
+  border-color: var(--sti-blue);
   color: var(--sti-blue);
 }
 
 .nav-arrow-btn:disabled {
-  opacity: 0.3;
+  opacity: 0.35;
   cursor: not-allowed;
 }
 
@@ -107,45 +188,55 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 2px;
+  text-align: center;
 }
 
 .week-date-range {
   font-weight: 700;
-  font-size: 15px;
+  font-size: 16px;
   color: var(--sti-navy);
 }
 
 .week-offset-tag {
   font-size: 12px;
   color: var(--text-muted);
-  font-weight: 500;
+  font-weight: 600;
+  background-color: #F1F5F9;
+  padding: 2px 10px;
+  border-radius: 12px;
 }
 
-/* Overview Cards */
+/* Metric Overview Grid */
 .overview-cards-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-  margin-bottom: 24px;
+  gap: 20px;
+  width: 100%;
 }
 
 .stat-card {
   background-color: var(--card-bg);
-  border-radius: 12px;
-  padding: 16px 20px;
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
   border: 1px solid var(--border-color);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  box-shadow: var(--shadow-sm);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  min-height: 95px;
+  min-height: 100px;
+  min-width: 0; /* Ensures truncation inside grid cells */
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
-/* Soft theme tints for stat cards */
-.stat-card.visits { background-color: #EEF6FF; border-color: #D2E5FF; }
-.stat-card.complaint { background-color: #FFFDF0; border-color: #FFECA1; }
-.stat-card.incidents { background-color: #FFF5F5; border-color: #FED7D7; }
-.stat-card.medicine { background-color: #F0FDF4; border-color: #DCFCE7; }
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.stat-card.visits { background-color: #F0F7FF; border-color: #BAE6FD; }
+.stat-card.complaint { background-color: #FFFDF0; border-color: #FDE68A; }
+.stat-card.incidents { background-color: #FEF2F2; border-color: #FECACA; }
+.stat-card.medicine { background-color: #F0FDF4; border-color: #BBF7D0; }
 
 .stat-card-header {
   display: flex;
@@ -155,42 +246,49 @@ body {
 
 .stat-icon.visits { color: #0284C7; }
 .stat-icon.complaint { color: #D97706; }
-.stat-icon.incidents { color: #E11D48; }
+.stat-icon.incidents { color: #DC2626; }
 .stat-icon.medicine { color: #16A34A; }
 
 .stat-label {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .stat-value {
-  font-size: 24px;
+  font-size: 26px;
   font-weight: 800;
-  margin-top: 8px;
+  margin-top: 10px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 1.2;
 }
 
 .stat-value.visits { color: #0369A1; }
 .stat-value.complaint { color: #B45309; }
-.stat-value.incidents { color: #BE123C; }
+.stat-value.incidents { color: #B91C1C; }
 .stat-value.medicine { color: #15803D; }
 
-/* Charts Section */
+/* Charts Layout Grid */
 .charts-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, 1fr);
   gap: 20px;
+  width: 100%;
 }
 
 .chart-card {
   background-color: var(--card-bg);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   padding: 20px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .chart-title {
@@ -215,18 +313,268 @@ body {
   text-align: center;
 }
 
-/* Responsive adjustments */
-@media (max-width: 1024px) {
-  .overview-cards-grid {
-    grid-template-columns: repeat(2, 1fr);
+/* Detailed Table Section */
+.table-card {
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  box-shadow: var(--shadow-sm);
+  width: 100%;
+}
+
+.table-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.table-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--sti-navy);
+  margin: 0;
+}
+
+.table-count-badge {
+  font-size: 12px;
+  font-weight: 600;
+  background-color: #E2E8F0;
+  color: var(--text-body);
+  padding: 4px 10px;
+  border-radius: 12px;
+}
+
+.table-responsive-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.reports-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 13px;
+}
+
+.reports-table th {
+  background-color: #F8FAFC;
+  color: var(--text-muted);
+  font-weight: 700;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-color);
+  white-space: nowrap;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.reports-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-body);
+  vertical-align: middle;
+}
+
+.reports-table tr:last-child td {
+  border-bottom: none;
+}
+
+.reports-table tr:hover td {
+  background-color: #F8FAFC;
+}
+
+/* Icon-Only Row Actions (Requirement #2) */
+.row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.icon-only-btn {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  padding: 0;
+}
+
+.icon-only-btn:hover {
+  background-color: #F1F5F9;
+  color: var(--sti-blue);
+  border-color: #CBD5E1;
+}
+
+/* Utility Badges & Formatting */
+.badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.badge-complaint {
+  background-color: #FEF3C7;
+  color: #92400E;
+}
+
+.text-right { text-align: right; }
+.font-medium { font-weight: 600; }
+.text-nowrap { white-space: nowrap; }
+
+.spin-icon {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.empty-table-cell {
+  text-align: center;
+  padding: 32px !important;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+
+/* ==========================================
+   DESKTOP-FIRST RESPONSIVE MEDIA QUERIES
+   ========================================== */
+
+/* 1. Large Laptops & Desktops (< 1200px) */
+@media (max-width: 1200px) {
+  .weekly-reports-container {
+    padding: 24px 20px;
   }
-  .charts-grid {
-    grid-template-columns: 1fr;
+
+  .overview-cards-grid {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+  }
+
+  .stat-card {
+    padding: 14px 16px;
+  }
+
+  .stat-value {
+    font-size: 22px;
   }
 }
 
-@media (max-width: 640px) {
+/* 2. Tablets & Small Laptops (< 992px) */
+@media (max-width: 992px) {
   .overview-cards-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+
+  .charts-grid {
     grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
+  .reports-header {
+    align-items: flex-start;
+  }
+}
+
+/* 3. Mobile Devices & Small Tablets (< 768px) */
+@media (max-width: 768px) {
+  .weekly-reports-container {
+    padding: 16px 12px;
+    gap: 16px;
+  }
+
+  .reports-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .header-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .action-btn {
+    flex: 1; /* Equal proportional sharing, avoiding extreme full-width stretch */
+    max-width: none;
+  }
+
+  .week-selector-card {
+    padding: 10px 14px;
+  }
+
+  .week-date-range {
+    font-size: 14px;
+  }
+
+  .chart-wrapper {
+    min-height: 220px;
+  }
+}
+
+/* 4. Small Mobile Phones (< 480px) */
+@media (max-width: 480px) {
+  .reports-title {
+    font-size: 22px;
+  }
+
+  .reports-subtitle {
+    font-size: 13px;
+  }
+
+  .header-actions {
+    flex-direction: row;
+    gap: 8px;
+  }
+
+  .action-btn {
+    padding: 0 10px;
+    font-size: 13px;
+  }
+
+  .btn-text {
+    display: inline; /* Keep button labels concise and legible */
+  }
+
+  .overview-cards-grid {
+    grid-template-columns: repeat(2, 1fr); /* Compact 2x2 grid on small mobile */
+    gap: 10px;
+  }
+
+  .stat-card {
+    padding: 12px;
+    min-height: 85px;
+  }
+
+  .stat-value {
+    font-size: 18px;
+  }
+
+  .stat-label {
+    font-size: 11px;
+  }
+
+  .nav-arrow-btn {
+    width: 32px;
+    height: 32px;
+  }
+
+  .week-date-range {
+    font-size: 12px;
   }
 }

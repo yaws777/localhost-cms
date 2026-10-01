@@ -68,6 +68,68 @@ const getConsumptionUnitOptions = (strengthUnit) => {
   }
 };
 
+const getStockLabel = (item) => {
+  if (!item) return 'units';
+
+  const stock = Number(item.current_stock) || 0;
+  const isSingular = stock <= 1;
+  
+  const VALID_DOSAGE_FORMS = {
+    'tablet': 'Tablet',
+    'capsule': 'Capsule',
+    'sachet': 'Sachet',
+    'patch': 'Patch',
+    'syrup': 'Syrup',
+    'suspension': 'Suspension',
+    'drops': 'Drops',
+    'bottle': 'Bottle',
+    'vial': 'Vial',
+    'prefilled syringe': 'Prefilled Syringe',
+    'ointment': 'Ointment',
+    'cream': 'Cream',
+    'inhaler': 'Inhaler',
+    'spray': 'Spray',
+    'gel': 'Gel',
+    'box': 'Box'
+  };
+
+  const PLURAL_FORMS = {
+    'tablet': 'Tablets',
+    'capsule': 'Capsules',
+    'sachet': 'Sachets',
+    'patch': 'Patches',
+    'syrup': 'Syrups',
+    'suspension': 'Suspensions',
+    'drops': 'Drops',
+    'bottle': 'Bottles',
+    'vial': 'Vials',
+    'prefilled syringe': 'Prefilled Syringes',
+    'ointment': 'Ointments',
+    'cream': 'Creams',
+    'inhaler': 'Inhalers',
+    'spray': 'Sprays',
+    'gel': 'Gels',
+    'box': 'Boxes'
+  };
+  
+  const form = item.dosage_form || item.form_type;
+  if (!form) return isSingular ? 'unit' : 'units';
+  
+  const formLower = String(form).toLowerCase().trim();
+  
+  if (VALID_DOSAGE_FORMS[formLower]) {
+    return isSingular 
+      ? VALID_DOSAGE_FORMS[formLower] 
+      : (PLURAL_FORMS[formLower] || `${VALID_DOSAGE_FORMS[formLower]}s`);
+  }
+  
+  if (!isSingular && !formLower.endsWith('s')) {
+    return form + 's';
+  }
+  
+  return form;
+};
+
 export default function MedicineInventory() {
   const [inventory, setInventory] = useState([]);
   const [complaints, setComplaints] = useState([]);
@@ -79,6 +141,7 @@ export default function MedicineInventory() {
   const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
   
   const [medicineSearchTerm, setMedicineSearchTerm] = useState('');
+  const [complaintSearchTerm, setComplaintSearchTerm] = useState(''); // Search term for complaint list inside medicine modal
   const [isEditingMedicine, setIsEditingMedicine] = useState(false);
   const [editingMedicineId, setEditingMedicineId] = useState(null);
 
@@ -247,6 +310,7 @@ export default function MedicineInventory() {
         setMedForm(initialMedForm); 
         setIsEditingMedicine(false);
         setEditingMedicineId(null);
+        setComplaintSearchTerm('');
         setIsMedicineModalOpen(false); 
         fetchData();
       }
@@ -331,7 +395,21 @@ export default function MedicineInventory() {
   const batchUnitMeasure = selectedMedForBatch ? selectedMedForBatch.strength_unit_of_measure : '';
   const maxBatchVolume = selectedMedForBatch ? selectedMedForBatch.strength_unit_value : null;
 
+  const batchDosageForm = selectedMedForBatch?.dosage_form || editingBatch?.dosage_form || editingBatch?.form_type;
   const isCurrentMedDiscrete = DISCRETE_UNITS.includes(medForm.strength_unit_of_measure);
+
+  // Filter complaints based on user search term and sort "Others" option to always be last
+  const filteredComplaints = complaints
+    .filter(comp => 
+      (comp.complaint_name || '').toLowerCase().includes(complaintSearchTerm.toLowerCase().trim())
+    )
+    .sort((a, b) => {
+      const nameA = (a.complaint_name || '').toLowerCase().trim();
+      const nameB = (b.complaint_name || '').toLowerCase().trim();
+      if (nameA === 'others') return 1;
+      if (nameB === 'others') return -1;
+      return 0;
+    });
 
   return (
     <div className="inventory-dashboard">
@@ -345,17 +423,18 @@ export default function MedicineInventory() {
           <button className="btn-secondary-action" onClick={() => {
             setMedForm(initialMedForm);
             setIsEditingMedicine(false);
+            setComplaintSearchTerm('');
             setIsMedicineModalOpen(true);
           }}>
-            <PlusCircle size={18} /> Add Medicine Item
+            <PlusCircle size={18} /> <span>Add Medicine Item</span>
           </button>
           
           <button className="btn-secondary-action" onClick={() => setIsManageMedicinesOpen(true)}>
-            <Settings2 size={18} /> Edit Medicine Item
+            <Settings2 size={18} /> <span>Edit Medicine Item</span>
           </button>
 
           <button className="btn-primary-action" onClick={() => setIsBatchModalOpen(true)}>
-            <Layers size={18} /> Add Batches
+            <Layers size={18} /> <span>Add Batches</span>
           </button>
         </div>
       </div>
@@ -389,7 +468,7 @@ export default function MedicineInventory() {
         </div>
       </div>
 
-      {/* Main Inventory Search Bar (Searches medicine names AND chief complaints/indications) */}
+      {/* Main Inventory Search Bar */}
       <div className="search-bar-container">
         <Search size={18} className="search-icon-placement" />
         <input
@@ -424,17 +503,18 @@ export default function MedicineInventory() {
               const statusEval = getStockStatus(item.current_stock, item.low_stock_level, item.critical_stock_level);
               const expiryDetails = getExpirationAlert(item.expiration_date);
               const isDiscreteItem = DISCRETE_UNITS.includes(item.strength_unit_of_measure);
+              const stockUnitLabel = getStockLabel(item);
 
               return (
                 <tr key={item.batch_id}>
                   <td>
                     <span className="med-title-text">{item.generic_name} ({item.brand_name})</span>
-                    <small style={{ color: '#667085' }}>{item.dosage_form} - {item.display_strength}</small>
+                    <small className="med-sub-details">{item.dosage_form} - {item.display_strength}</small>
                   </td>
                   <td><span className="med-indications-subtitle">{item.connected_complaints || 'Unmapped'}</span></td>
                   <td>
                     <div className="stock-visualization-wrapper">
-                      <span className="stock-count-number">{item.current_stock} units</span>
+                      <span className="stock-count-number">{item.current_stock} {stockUnitLabel}</span>
                       <div className="stock-progress-track">
                         <div 
                           className={`stock-progress-bar ${statusEval.class}`}
@@ -449,10 +529,11 @@ export default function MedicineInventory() {
                   <td><span style={expiryDetails.style}>{expiryDetails.msg}</span></td>
                   <td><span className={`pill-badge ${statusEval.class}`}>{statusEval.label}</span></td>
                   <td>
-                    <div className="table-action-row-buttons" style={{ justifyContent: 'center' }}>
+                    <div className="table-action-row-buttons">
                       <button
                         className="action-icon-button edit"
                         title="Adjust Volume / Stock"
+                        aria-label="Adjust Volume or Stock"
                         onClick={() => {
                           setEditingBatch(item);
                           const normalizedDate = new Date(item.expiration_date).toISOString().split('T')[0];
@@ -470,6 +551,7 @@ export default function MedicineInventory() {
                       <button
                         className="action-icon-button delete"
                         title="Delete Batch"
+                        aria-label="Delete Batch"
                         onClick={() => handleDeleteBatch(item.batch_id)}
                       >
                         <Trash2 size={16} />
@@ -486,15 +568,19 @@ export default function MedicineInventory() {
       {/* Manage Medicines Modal */}
       {isManageMedicinesOpen && (
         <div className="modal-overlay-bg">
-          <div className="modal-content-container" style={{ maxWidth: '650px' }}>
+          <div className="modal-content-container modal-md">
             <div className="modal-header-section">
               <h3><Settings2 size={20} /> Edit Medicines</h3>
-              <button className="action-icon-button" onClick={() => setIsManageMedicinesOpen(false)}>
+              <button 
+                className="action-icon-button close-modal" 
+                aria-label="Close modal"
+                onClick={() => setIsManageMedicinesOpen(false)}
+              >
                 <X size={20} />
               </button>
             </div>
             <div className="modal-body-form">
-              <div className="search-bar-container" style={{ margin: '0 0 15px 0' }}>
+              <div className="search-bar-container modal-search">
                 <Search size={18} className="search-icon-placement" />
                 <input
                   type="text"
@@ -504,8 +590,8 @@ export default function MedicineInventory() {
                   onChange={e => setMedicineSearchTerm(e.target.value)}
                 />
               </div>
-              <div style={{ maxHeight: '350px', overflowY: 'auto', border: '1px solid #e4e7ec', borderRadius: '8px' }}>
-                <table className="clean-dashboard-table">
+              <div className="modal-scroll-table-container">
+                <table className="clean-dashboard-table compact">
                   <tbody>
                     {medicinesList
                       .filter(m => {
@@ -520,16 +606,18 @@ export default function MedicineInventory() {
                           <tr key={med.medicine_id}>
                             <td style={{ fontWeight: '500' }}>
                               {med.generic_name} ({med.brand_name})
-                              <div style={{ fontSize: '0.75rem', color: '#667085' }}>
+                              <div className="med-sub-details">
                                 {med.dosage_form} | {med.display_strength_value} {med.display_strength_unit}
                               </div>
-                              <div style={{ fontSize: '0.75rem', color: '#475467' }}>
+                              <div className="med-indications-text">
                                 <em>Indications: {med.connected_complaints || 'None'}</em>
                               </div>
                             </td>
-                            <td style={{ width: '80px', textAlign: 'center' }}>
+                            <td className="action-cell">
                               <button
                                 className="action-icon-button edit"
+                                title="Edit Medicine Item"
+                                aria-label="Edit Medicine Item"
                                 onClick={() => {
                                   setEditingMedicineId(med.medicine_id);
                                   setMedForm({
@@ -546,11 +634,12 @@ export default function MedicineInventory() {
                                     indications: med.indications || []
                                   });
                                   setIsEditingMedicine(true);
+                                  setComplaintSearchTerm('');
                                   setIsManageMedicinesOpen(false);
                                   setIsMedicineModalOpen(true);
                                 }}
                               >
-                                <Edit size={16} /> Edit
+                                <Edit size={16} />
                               </button>
                             </td>
                           </tr>
@@ -568,23 +657,25 @@ export default function MedicineInventory() {
       {/* Register / Edit Medicine Modal */}
       {isMedicineModalOpen && (
         <div className="modal-overlay-bg">
-          <div className="modal-content-container" style={{ maxWidth: '600px' }}>
+          <div className="modal-content-container modal-lg">
             <div className="modal-header-section">
               <h3><FilePlus2 size={20} /> {isEditingMedicine ? 'Edit Medicine' : 'Create Medicine Item'}</h3>
               <button 
-                className="action-icon-button" 
+                className="action-icon-button close-modal" 
+                aria-label="Close modal"
                 onClick={() => {
                   setIsMedicineModalOpen(false);
                   setIsEditingMedicine(false);
+                  setComplaintSearchTerm('');
                 }}
               >
                 <X size={20} />
               </button>
             </div>
-            <form onSubmit={handleSaveMedicine}>
-              <div className="modal-body-form" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
-                <div style={{ display: 'flex', gap: '12px' }}>
-                  <div className="modal-form-group" style={{ flex: 1 }}>
+            <form onSubmit={handleSaveMedicine} className="modal-form-wrapper">
+              <div className="modal-body-form scrollable-modal-body">
+                <div className="modal-form-row">
+                  <div className="modal-form-group">
                     <label>Generic Name</label>
                     <input
                       type="text"
@@ -595,7 +686,7 @@ export default function MedicineInventory() {
                       required
                     />
                   </div>
-                  <div className="modal-form-group" style={{ flex: 1 }}>
+                  <div className="modal-form-group">
                     <label>Brand Name</label>
                     <input
                       type="text"
@@ -608,8 +699,8 @@ export default function MedicineInventory() {
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', gap: '12px' }}>
-                  <div className="modal-form-group" style={{ flex: 1 }}>
+                <div className="modal-form-row">
+                  <div className="modal-form-group">
                     <label>Dosage Form</label>
                     <select
                       className="modal-select-dropdown"
@@ -622,7 +713,7 @@ export default function MedicineInventory() {
                       ))}
                     </select>
                   </div>
-                  <div className="modal-form-group" style={{ flex: 1 }}>
+                  <div className="modal-form-group">
                     <label>Strength Unit Value</label>
                     <input
                       type="number"
@@ -635,7 +726,7 @@ export default function MedicineInventory() {
                       required
                     />
                   </div>
-                  <div className="modal-form-group" style={{ flex: 1 }}>
+                  <div className="modal-form-group">
                     <label>Strength Unit of Measure</label>
                     <select
                       className="modal-select-dropdown"
@@ -651,8 +742,8 @@ export default function MedicineInventory() {
                 </div>
 
                 {!isCurrentMedDiscrete && (
-                  <div style={{ display: 'flex', gap: '12px' }}>
-                    <div className="modal-form-group" style={{ flex: 1 }}>
+                  <div className="modal-form-row">
+                    <div className="modal-form-group">
                       <label>Avg Dosage Value</label>
                       <input
                         type="number"
@@ -662,7 +753,7 @@ export default function MedicineInventory() {
                         onChange={e => setMedForm({ ...medForm, avg_dosage_consumption_value: e.target.value })}
                       />
                     </div>
-                    <div className="modal-form-group" style={{ flex: 1 }}>
+                    <div className="modal-form-group">
                       <label>Avg Dosage Unit of Measure</label>
                       <select
                         className="modal-select-dropdown"
@@ -677,8 +768,8 @@ export default function MedicineInventory() {
                   </div>
                 )}
 
-                <div style={{ display: 'flex', gap: '12px' }}>
-                  <div className="modal-form-group" style={{ flex: 1 }}>
+                <div className="modal-form-row">
+                  <div className="modal-form-group">
                     <label>Critical Alert Threshold</label>
                     <input
                       type="number"
@@ -687,7 +778,7 @@ export default function MedicineInventory() {
                       onChange={e => setMedForm({ ...medForm, critical_stock_level: parseInt(e.target.value) || 0 })}
                     />
                   </div>
-                  <div className="modal-form-group" style={{ flex: 1 }}>
+                  <div className="modal-form-group">
                     <label>Low Alert Threshold</label>
                     <input
                       type="number"
@@ -696,7 +787,7 @@ export default function MedicineInventory() {
                       onChange={e => setMedForm({ ...medForm, low_stock_level: parseInt(e.target.value) || 0 })}
                     />
                   </div>
-                  <div className="modal-form-group" style={{ flex: 1 }}>
+                  <div className="modal-form-group">
                     <label>Adequate Threshold</label>
                     <input
                       type="number"
@@ -707,44 +798,65 @@ export default function MedicineInventory() {
                   </div>
                 </div>
 
-                {/* Indications & Complaint mapping with specify_complaint_text for specific complaints */}
+                {/* Indications & Complaint mapping */}
                 <div className="modal-form-group">
-                  <label>Indications / Chief Complaints</label>
+                  <label className="input-field-label">Indications / Chief Complaints</label>
+                  
+                  {/* Dedicated Search Input for Complaints */}
+                  <div className="search-bar-container modal-search" style={{ marginBottom: '10px' }}>
+                    <Search size={16} className="search-icon-placement" />
+                    <input
+                      type="text"
+                      className="rounded-search-input"
+                      placeholder="Search complaint / indication..."
+                      value={complaintSearchTerm}
+                      onChange={e => setComplaintSearchTerm(e.target.value)}
+                    />
+                  </div>
+
                   <div className="scrollable-checkbox-box">
-                    {complaints.map(comp => {
-                      const currentIndication = medForm.indications.find(ind => String(ind.complaint_id) === String(comp.complaint_id));
-                      const isChecked = !!currentIndication;
-                      const needsSpecify = requiresSpecifyText(comp.complaint_name);
+                    {filteredComplaints.length > 0 ? (
+                      filteredComplaints.map(comp => {
+                        const currentIndication = medForm.indications.find(ind => String(ind.complaint_id) === String(comp.complaint_id));
+                        const isChecked = !!currentIndication;
+                        const needsSpecify = requiresSpecifyText(comp.complaint_name);
 
-                      return (
-                        <div key={comp.complaint_id} style={{ marginBottom: '8px' }}>
-                          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={e => toggleComplaint(comp, e.target.checked)}
-                            />
-                            <span>{comp.complaint_name}</span>
-                          </label>
+                        return (
+                          <div key={comp.complaint_id} className="checkbox-item-wrapper">
+                            <label className="checkbox-label">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={e => toggleComplaint(comp, e.target.checked)}
+                              />
+                              <span>{comp.complaint_name}</span>
+                            </label>
 
-                          {isChecked && needsSpecify && (
-                            <input
-                              type="text"
-                              className="modal-input-field"
-                              placeholder={`Specify details for ${comp.complaint_name}...`}
-                              value={currentIndication?.specify_complaint_text || ''}
-                              onChange={e => handleSpecifyTextChange(comp.complaint_id, e.target.value)}
-                              style={{ marginTop: '4px', marginLeft: '24px', width: 'calc(100% - 24px)' }}
-                            />
-                          )}
-                        </div>
-                      );
-                    })}
+                            {isChecked && needsSpecify && (
+                              <input
+                                type="text"
+                                className="modal-input-field specify-input"
+                                placeholder={`Specify details for ${comp.complaint_name}...`}
+                                value={currentIndication?.specify_complaint_text || ''}
+                                onChange={e => handleSpecifyTextChange(comp.complaint_id, e.target.value)}
+                              />
+                            )}
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <p style={{ gridColumn: '1 / -1', color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '4px 0' }}>
+                        No matching complaints found.
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
               <div className="modal-footer-actions">
-                <button type="button" className="btn-modal-cancel" onClick={() => setIsMedicineModalOpen(false)}>Cancel</button>
+                <button type="button" className="btn-modal-cancel" onClick={() => {
+                  setIsMedicineModalOpen(false);
+                  setComplaintSearchTerm('');
+                }}>Cancel</button>
                 <button type="submit" className="btn-primary-action">{isEditingMedicine ? 'Update Medicine' : 'Save Medicine'}</button>
               </div>
             </form>
@@ -755,15 +867,19 @@ export default function MedicineInventory() {
       {/* Add / Edit Batch Modal */}
       {isBatchModalOpen && (
         <div className="modal-overlay-bg">
-          <div className="modal-content-container">
+          <div className="modal-content-container modal-sm">
             <div className="modal-header-section">
               <h3><Layers size={20} /> {editingBatch ? 'Modify Batch' : 'Add Inventory Batch'}</h3>
-              <button className="action-icon-button" onClick={() => { setIsBatchModalOpen(false); setEditingBatch(null); }}>
+              <button 
+                className="action-icon-button close-modal" 
+                aria-label="Close modal"
+                onClick={() => { setIsBatchModalOpen(false); setEditingBatch(null); }}
+              >
                 <X size={20} />
               </button>
             </div>
-            <form onSubmit={handleAddBatch}>
-              <div className="modal-body-form">
+            <form onSubmit={handleAddBatch} className="modal-form-wrapper">
+              <div className="modal-body-form scrollable-modal-body">
                 <div className="modal-form-group">
                   <label>Select Medicine</label>
                   <select
@@ -790,9 +906,11 @@ export default function MedicineInventory() {
                   </select>
                 </div>
 
-                <div style={{ display: 'flex', gap: '12px' }}>
-                  <div className="modal-form-group" style={{ flex: 1 }}>
-                    <label>Current Stock Units</label>
+                <div className="modal-form-row">
+                  <div className="modal-form-group">
+                    <label>
+                      Current Stock {batchDosageForm ? `(${batchDosageForm})` : 'Units'}
+                    </label>
                     <input
                       type="number"
                       className="modal-input-field"
@@ -804,7 +922,7 @@ export default function MedicineInventory() {
                   </div>
 
                   {selectedMedForBatch && !isBatchDiscreteUnit && (
-                    <div className="modal-form-group" style={{ flex: 1 }}>
+                    <div className="modal-form-group">
                       <label>
                         Remaining Capacity (in {batchUnitMeasure})
                       </label>
@@ -817,7 +935,7 @@ export default function MedicineInventory() {
                         onChange={e => setBatchForm({ ...batchForm, remaining_volume: e.target.value })}
                         required
                       />
-                      <small style={{ color: '#667085', fontSize: '0.75rem', marginTop: '4px', display: 'block' }}>
+                      <small className="field-help-text">
                         Enter value measured in <strong>{batchUnitMeasure}</strong> (Max: {maxBatchVolume} {batchUnitMeasure})
                       </small>
                     </div>
@@ -849,4 +967,4 @@ export default function MedicineInventory() {
       )}
     </div>
   );
-} 
+}
