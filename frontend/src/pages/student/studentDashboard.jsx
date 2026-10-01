@@ -17,7 +17,7 @@ import {
 import HealthTipsModal from '../../components/student/HealthTips';
 import '../../styles/student/StudentDashboard.css';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://localhost-cms.onrender.com';
+const API_BASE_URL = 'https://localhost-cms.onrender.com';
 
 const StudentDashboard = () => {
   const navigate = useNavigate();
