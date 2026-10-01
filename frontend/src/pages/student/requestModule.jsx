@@ -3,12 +3,19 @@ import { useOutletContext, useLocation } from 'react-router-dom';
 import { Eye } from 'lucide-react';
 import '../../styles/student/RequestModule.css';
 
-const API_BASE = 'https://localhost-cms.onrender.com/api';
-
 export default function RequestModule() {
   const location = useLocation();
   const { studentId, firstName, lastName } = useOutletContext() || {};
   const student_id = studentId;
+
+  // Helper to format file URLs without an explicit API host
+  const getFileUrl = (url) => {
+    if (!url) return '#';
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      return url;
+    }
+    return url.startsWith('/') ? url : `/${url}`;
+  };
 
   // UI state - initializes activeModal if triggered via route state (e.g. from Dashboard quick action buttons)
   const [activeModal, setActiveModal] = useState(location.state?.openModal || null); // 'excuse' | 'referral' | 'view' | null
@@ -46,7 +53,7 @@ export default function RequestModule() {
   // Fetch Partner Facilities
   const fetchPartnerFacilities = async () => {
     try {
-      const res = await fetch(`${API_BASE}/partner-facilities`);
+      const res = await fetch('https://localhost-cms.onrender.com/api/partner-facilities');
       const data = await res.json();
       setPartnerFacilities(data);
 
@@ -68,7 +75,7 @@ export default function RequestModule() {
   const fetchRequests = useCallback(async () => {
     if (!student_id) return;
     try {
-      const res = await fetch(`${API_BASE}/requests/student/${student_id}`);
+      const res = await fetch(`https://localhost-cms.onrender.com/api/requests/student/${student_id}`);
       const data = await res.json();
       setRequests(data);
     } catch (err) {
@@ -110,7 +117,7 @@ export default function RequestModule() {
   // Fetch Notes for selected request
   const fetchNotes = async (reqItem) => {
     try {
-      const res = await fetch(`${API_BASE}/requests/${encodeURIComponent(reqItem.request_type)}/${reqItem.request_id}/notes`);
+      const res = await fetch(`https://localhost-cms.onrender.com/api/requests/${encodeURIComponent(reqItem.request_type)}/${reqItem.request_id}/notes`);
       const data = await res.json();
       setNotes(data);
     } catch (err) {
@@ -134,7 +141,7 @@ export default function RequestModule() {
     }
 
     try {
-      const res = await fetch(`${API_BASE}/requests/excuse-slip`, {
+      const res = await fetch('https://localhost-cms.onrender.com/api/requests/excuse-slip', {
         method: 'POST',
         body: formData
       });
@@ -161,7 +168,7 @@ export default function RequestModule() {
     setLoading(true);
 
     try {
-      const res = await fetch(`${API_BASE}/requests/referral-slip`, {
+      const res = await fetch('https://localhost-cms.onrender.com/api/requests/referral-slip', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -200,7 +207,7 @@ export default function RequestModule() {
     if (!newMessage.trim() || !selectedRequest) return;
 
     try {
-      const res = await fetch(`${API_BASE}/requests/${encodeURIComponent(selectedRequest.request_type)}/${selectedRequest.request_id}/notes`, {
+      const res = await fetch(`https://localhost-cms.onrender.com/api/requests/${encodeURIComponent(selectedRequest.request_type)}/${selectedRequest.request_id}/notes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -459,7 +466,7 @@ export default function RequestModule() {
                     {selectedRequest.student_proof_url && (
                       <p>
                         <strong>Attachment:</strong>{' '}
-                        <a href={`https://localhost-cms.onrender.com${selectedRequest.student_proof_url}`} target="_blank" rel="noreferrer">
+                        <a href={getFileUrl(selectedRequest.student_proof_url)} target="_blank" rel="noreferrer">
                           View Uploaded Proof
                         </a>
                       </p>
@@ -476,7 +483,7 @@ export default function RequestModule() {
                 {selectedRequest.issued_slip_url ? (
                   <p className="sti-issued-link">
                     <strong>Issued Slip Document:</strong>{' '}
-                    <a href={`https://localhost-cms.onrender.com${selectedRequest.issued_slip_url}`} target="_blank" rel="noreferrer">
+                    <a href={getFileUrl(selectedRequest.issued_slip_url)} target="_blank" rel="noreferrer">
                       📄 Download Issued Slip
                     </a>
                   </p>

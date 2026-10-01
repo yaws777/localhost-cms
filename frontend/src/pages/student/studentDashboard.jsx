@@ -17,8 +17,6 @@ import {
 import HealthTipsModal from '../../components/student/HealthTips';
 import '../../styles/student/StudentDashboard.css';
 
-const API_BASE_URL = 'https://localhost-cms.onrender.com';
-
 const StudentDashboard = () => {
   const navigate = useNavigate();
 
@@ -73,7 +71,7 @@ const StudentDashboard = () => {
     if (url.startsWith('http://') || url.startsWith('https://')) {
       return url;
     }
-    return `${API_BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
+    return url.startsWith('/') ? url : `/${url}`;
   };
 
   // Fetch all dashboard endpoints
@@ -91,11 +89,11 @@ const StudentDashboard = () => {
         }).toString();
 
         const [visitsRes, reqsRes, docsRes, screeningsRes, appointmentsRes] = await Promise.all([
-          fetch(`${API_BASE_URL}/api/student/dashboard/visits-dispensation/${studentId}`),
-          fetch(`${API_BASE_URL}/api/student/dashboard/requirements/${studentId}`),
-          fetch(`${API_BASE_URL}/api/student/dashboard/document-requests/${studentId}`),
-          fetch(`${API_BASE_URL}/api/student/dashboard/upcoming-health-screenings?${queryParams}`),
-          fetch(`${API_BASE_URL}/api/student/dashboard/doctor-appointments/${studentId}`)
+          fetch(`https://localhost-cms.onrender.com/api/student/dashboard/visits-dispensation/${studentId}`),
+          fetch(`https://localhost-cms.onrender.com/api/student/dashboard/requirements/${studentId}`),
+          fetch(`https://localhost-cms.onrender.com/api/student/dashboard/document-requests/${studentId}`),
+          fetch(`https://localhost-cms.onrender.com/api/student/dashboard/upcoming-health-screenings?${queryParams}`),
+          fetch(`https://localhost-cms.onrender.com/api/student/dashboard/doctor-appointments/${studentId}`)
         ]);
 
         const responses = [
