@@ -44,7 +44,7 @@ export const RequirementManagement = () => {
 
     const fetchStudentFullRequirements = useCallback(async (studentId) => {
         try {
-            const res = await fetch(`https://localhost-cms.onrender.com/api/students/${studentId}/full-requirements`);
+            const res = await fetch(`http://localhost:3001/api/students/${studentId}/full-requirements`);
             const data = await res.json();
             
             if (data && data.error) {
@@ -72,7 +72,7 @@ export const RequirementManagement = () => {
 
         // 1. Try resolving primaryId as a submission_id
         try {
-            const res = await fetch(`https://localhost-cms.onrender.com/api/submissions/${primaryId}`);
+            const res = await fetch(`http://localhost:3001/api/submissions/${primaryId}`);
             if (res.ok) {
                 const data = await res.json();
                 const sub = data.submission || data.data || (data.student_id ? data : null);
@@ -105,7 +105,7 @@ export const RequirementManagement = () => {
         const targetStudentId = fallbackStudentId || foundStudentId || primaryId;
         if (targetStudentId) {
             try {
-                const studentRes = await fetch(`https://localhost-cms.onrender.com/api/students/${targetStudentId}`);
+                const studentRes = await fetch(`http://localhost:3001/api/students/${targetStudentId}`);
                 if (studentRes.ok) {
                     const studentData = await studentRes.json();
                     const studentObj = studentData.student || studentData.data || (studentData.student_id ? studentData : null);
@@ -122,7 +122,7 @@ export const RequirementManagement = () => {
 
             // 3. Fallback: Search in overall student list
             try {
-                const res = await fetch('https://localhost-cms.onrender.com/api/students');
+                const res = await fetch('http://localhost:3001/api/students');
                 if (res.ok) {
                     const studentList = await res.json();
                     if (Array.isArray(studentList)) {
@@ -186,7 +186,7 @@ export const RequirementManagement = () => {
 
     const fetchStudents = async () => {
         try {
-            const res = await fetch('https://localhost-cms.onrender.com/api/students');
+            const res = await fetch('http://localhost:3001/api/students');
             const data = await res.json();
             setStudents(Array.isArray(data) ? data : []);
         } catch (error) {
@@ -196,7 +196,7 @@ export const RequirementManagement = () => {
 
     const fetchPrograms = async () => {
         try {
-            const res = await fetch('https://localhost-cms.onrender.com/api/programs');
+            const res = await fetch('http://localhost:3001/api/programs');
             const data = await res.json();
             setPrograms(Array.isArray(data) ? data : []);
         } catch (error) {
@@ -206,7 +206,7 @@ export const RequirementManagement = () => {
 
     const fetchProgramConfigs = async () => {
         try {
-            const res = await fetch('https://localhost-cms.onrender.com/api/program-requirements-config');
+            const res = await fetch('http://localhost:3001/api/program-requirements-config');
             const data = await res.json();
             setProgramConfigs(Array.isArray(data) ? data : []);
         } catch (error) {
@@ -238,7 +238,7 @@ export const RequirementManagement = () => {
         }
 
         try {
-            const response = await fetch(`https://localhost-cms.onrender.com/api/students/${selectedStudent.student_id}/special-requirements`, {
+            const response = await fetch(`http://localhost:3001/api/students/${selectedStudent.student_id}/special-requirements`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
@@ -276,7 +276,7 @@ export const RequirementManagement = () => {
         }
 
         try {
-            const response = await fetch(`https://localhost-cms.onrender.com/api/students/${studentId}/requirements/${encodeURIComponent(reqName)}`, {
+            const response = await fetch(`http://localhost:3001/api/students/${studentId}/requirements/${encodeURIComponent(reqName)}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -304,7 +304,7 @@ export const RequirementManagement = () => {
         if (!window.confirm(`Delete special requirement: ${reqName}?`)) return;
 
         try {
-            await fetch(`https://localhost-cms.onrender.com/api/students/${selectedStudent.student_id}/special-requirements/${encodeURIComponent(reqName)}`, {
+            await fetch(`http://localhost:3001/api/students/${selectedStudent.student_id}/special-requirements/${encodeURIComponent(reqName)}`, {
                 method: 'DELETE'
             });
             alert("Requirement record removed.");
@@ -338,7 +338,7 @@ export const RequirementManagement = () => {
         }
 
         try {
-            const response = await fetch(`https://localhost-cms.onrender.com/api/programs/${programId}/requirements`, {
+            const response = await fetch(`http://localhost:3001/api/programs/${programId}/requirements`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
@@ -384,7 +384,7 @@ export const RequirementManagement = () => {
         }
 
         try {
-            const response = await fetch(`https://localhost-cms.onrender.com/api/programs/${programId}/requirements/${configId}`, {
+            const response = await fetch(`http://localhost:3001/api/programs/${programId}/requirements/${configId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -411,7 +411,7 @@ export const RequirementManagement = () => {
         if (!window.confirm(`Permanently delete "${reqName}" from this program track?`)) return;
 
         try {
-            await fetch(`https://localhost-cms.onrender.com/api/programs/${programId}/requirements/${configId}`, {
+            await fetch(`http://localhost:3001/api/programs/${programId}/requirements/${configId}`, {
                 method: 'DELETE'
             });
             alert("Requirement deleted.");

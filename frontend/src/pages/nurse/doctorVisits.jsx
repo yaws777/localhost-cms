@@ -123,7 +123,7 @@ const DoctorVisit = () => {
 
     const fetchDoctors = async () => {
         try {
-            const res = await fetch('https://localhost-cms.onrender.com/api/doctors');
+            const res = await fetch('http://localhost:3001/api/doctors');
             const data = await res.json();
             if (data.success) setDoctors(data.doctors);
         } catch (err) {
@@ -133,7 +133,7 @@ const DoctorVisit = () => {
 
     const fetchStudents = async () => {
         try {
-            const res = await fetch('https://localhost-cms.onrender.com/api/students-list');
+            const res = await fetch('http://localhost:3001/api/students-list');
             const data = await res.json();
             if (data.success) setStudents(data.students);
         } catch (err) {
@@ -143,7 +143,7 @@ const DoctorVisit = () => {
 
     const fetchPrograms = async () => {
         try {
-            const res = await fetch('https://localhost-cms.onrender.com/api/academic-programs');
+            const res = await fetch('http://localhost:3001/api/academic-programs');
             const data = await res.json();
             if (data.success) setPrograms(data.programs);
         } catch (err) {
@@ -154,7 +154,7 @@ const DoctorVisit = () => {
     const fetchAppointments = useCallback(async () => {
         setLoading(true);
         try {
-            const res = await fetch('https://localhost-cms.onrender.com/api/doctor-visits');
+            const res = await fetch('http://localhost:3001/api/doctor-visits');
             const data = await res.json();
             if (data.success) setAppointments(data.appointments);
         } catch (err) {
@@ -173,7 +173,7 @@ const DoctorVisit = () => {
 
     const updateAppointmentStatus = useCallback(async (appointmentId, studentId, newStatus) => {
         try {
-            const res = await fetch(`https://localhost-cms.onrender.com/api/doctor-visits/status/${appointmentId}`, {
+            const res = await fetch(`http://localhost:3001/api/doctor-visits/status/${appointmentId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ student_id: studentId, status: newStatus })
@@ -338,8 +338,8 @@ const DoctorVisit = () => {
     const handleSaveDoctor = async (e) => {
         e.preventDefault();
         const url = isEditDoctor 
-            ? `https://localhost-cms.onrender.com/api/doctors/${doctorForm.doctor_id}`
-            : 'https://localhost-cms.onrender.com/api/doctors';
+            ? `http://localhost:3001/api/doctors/${doctorForm.doctor_id}`
+            : 'http://localhost:3001/api/doctors';
         const method = isEditDoctor ? 'PUT' : 'POST';
 
         try {

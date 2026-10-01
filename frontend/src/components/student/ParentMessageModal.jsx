@@ -53,7 +53,7 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
                     return;
                 }
                 try {
-                    const res = await fetch(`https://localhost-cms.onrender.com/api/messages/${String(userId)}/${String(contact.contact_user_id)}`);
+                    const res = await fetch(`http://localhost:3001/api/messages/${String(userId)}/${String(contact.contact_user_id)}`);
                     const data = await res.json();
                     if (data.success && Array.isArray(data.messages)) {
                         const unread = data.messages.filter(
@@ -80,7 +80,7 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
             try {
                 let fetchedNurses = [];
                 try {
-                    const nurseRes = await fetch('https://localhost-cms.onrender.com/api/nurses');
+                    const nurseRes = await fetch('http://localhost:3001/api/nurses');
                     const nurseData = await nurseRes.json();
                     if (nurseData.success && Array.isArray(nurseData.nurses)) {
                         fetchedNurses = nurseData.nurses;
@@ -109,7 +109,7 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
                 let fetchedStudents = [];
                 if (parentId) {
                     try {
-                        const studentRes = await fetch(`https://localhost-cms.onrender.com/api/parent/${String(parentId)}/contacts`);
+                        const studentRes = await fetch(`http://localhost:3001/api/parent/${String(parentId)}/contacts`);
                         const studentData = await studentRes.json();
                         if (studentData.success && Array.isArray(studentData.contacts)) {
                             fetchedStudents = studentData.contacts;
@@ -176,7 +176,7 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
         }
 
         try {
-            const res = await fetch(`https://localhost-cms.onrender.com/api/messages/${String(userId)}/${String(contactUserId)}`);
+            const res = await fetch(`http://localhost:3001/api/messages/${String(userId)}/${String(contactUserId)}`);
             const data = await res.json();
 
             const threadMessages = data.success ? (data.messages || []) : [];
@@ -187,7 +187,7 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
             );
 
             if (hasUnread) {
-                await fetch('https://localhost-cms.onrender.com/api/messages/mark-read', {
+                await fetch('http://localhost:3001/api/messages/mark-read', {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
@@ -295,7 +295,7 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
         if (!window.confirm('Unsend this message?')) return;
 
         try {
-            const res = await fetch(`https://localhost-cms.onrender.com/api/messages/${messageId}`, {
+            const res = await fetch(`http://localhost:3001/api/messages/${messageId}`, {
                 method: 'DELETE'
             });
             const data = await res.json();
@@ -341,7 +341,7 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
         }
 
         try {
-            const response = await fetch('https://localhost-cms.onrender.com/api/messages/send', {
+            const response = await fetch('http://localhost:3001/api/messages/send', {
                 method: 'POST',
                 body: formData
             });
@@ -538,7 +538,7 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
 
                                                                 {msg.message_type === 'image' && msg.media_url && (
                                                                     <img 
-                                                                        src={`https://localhost-cms.onrender.com${msg.media_url}`} 
+                                                                        src={`http://localhost:3001${msg.media_url}`} 
                                                                         alt="attachment" 
                                                                         className="pmm-msg-media" 
                                                                     />
@@ -547,7 +547,7 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
                                                                 {msg.message_type === 'video' && msg.media_url && (
                                                                     <video 
                                                                         controls 
-                                                                        src={`https://localhost-cms.onrender.com${msg.media_url}`} 
+                                                                        src={`http://localhost:3001${msg.media_url}`} 
                                                                         className="pmm-msg-media" 
                                                                     />
                                                                 )}
@@ -555,14 +555,14 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
                                                                 {msg.message_type === 'audio' && msg.media_url && (
                                                                     <audio 
                                                                         controls 
-                                                                        src={`https://localhost-cms.onrender.com${msg.media_url}`} 
+                                                                        src={`http://localhost:3001${msg.media_url}`} 
                                                                         className="pmm-msg-audio" 
                                                                     />
                                                                 )}
 
                                                                 {msg.message_type === 'file' && msg.media_url && (
                                                                     <a 
-                                                                        href={`https://localhost-cms.onrender.com${msg.media_url}`} 
+                                                                        href={`http://localhost:3001${msg.media_url}`} 
                                                                         target="_blank" 
                                                                         rel="noreferrer" 
                                                                         className="pmm-msg-file-link"
