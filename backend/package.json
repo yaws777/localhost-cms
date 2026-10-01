@@ -3,10 +3,11 @@
   "version": "1.0.0",
   "description": "",
   "main": "src/database/connection.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "nodemon src/database/connection.js"
-  },
+ "scripts": {
+  "test": "echo \"Error: no test specified\" && exit 1",
+  "start": "node src/database/connection.js",
+  "dev": "nodemon src/database/connection.js"
+},
   "proxy": "http://localhost:3001",
   "keywords": [],
   "author": "",
