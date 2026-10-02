@@ -75,19 +75,19 @@ export default function ClinicLogsAndRecords() {
   };
 
   return (
-    <div className="sti-clinic-container">
+    <div className="container-clr">
       {/* STI Header Banner */}
-      <header className="sti-header">
-        <div className="sti-header-title">
+      <header className="header-clr">
+        <div className="header-title-clr">
           <h1>Clinic Logs & Health Records</h1>
           <p>STI Campus Health Services Management System</p>
         </div>
       </header>
 
       {/* Control Panel: Filters & Navigation */}
-      <div className="sti-control-panel">
-        <form className="sti-filter-bar" onSubmit={handleFilter}>
-          <div className="sti-input-group">
+      <div className="control-panel-clr">
+        <form className="filter-bar-clr" onSubmit={handleFilter}>
+          <div className="input-group-clr">
             <label><Calendar size={14} /> From:</label>
             <input 
               type="date" 
@@ -95,7 +95,7 @@ export default function ClinicLogsAndRecords() {
               onChange={(e) => setStartDate(e.target.value)} 
             />
           </div>
-          <div className="sti-input-group">
+          <div className="input-group-clr">
             <label><Calendar size={14} /> To:</label>
             <input 
               type="date" 
@@ -103,42 +103,44 @@ export default function ClinicLogsAndRecords() {
               onChange={(e) => setEndDate(e.target.value)} 
             />
           </div>
-          <button type="submit" className="sti-btn sti-btn-primary">
-            <Filter size={16} /> Filter
-          </button>
-          <button type="button" onClick={clearFilter} className="sti-btn sti-btn-secondary">
-            Clear
-          </button>
+          <div className="filter-actions-clr">
+            <button type="submit" className="btn-clr btn-primary-clr">
+              <Filter size={16} /> Filter
+            </button>
+            <button type="button" onClick={clearFilter} className="btn-clr btn-secondary-clr">
+              Clear
+            </button>
+          </div>
         </form>
 
-        {/* Navigation Tabs (Restored to exact original structure) */}
-        <nav className="sti-tabs">
+        {/* Navigation Tabs */}
+        <nav className="tabs-clr">
           <button 
-            className={`sti-tab ${activeTab === 'clinic-visits' ? 'active' : ''}`}
+            className={`tab-clr ${activeTab === 'clinic-visits' ? 'active-clr' : ''}`}
             onClick={() => setActiveTab('clinic-visits')}
           >
             <ClipboardList size={18} /> Clinic Visit Log
           </button>
           <button 
-            className={`sti-tab ${activeTab === 'medicine-dispensed' ? 'active' : ''}`}
+            className={`tab-clr ${activeTab === 'medicine-dispensed' ? 'active-clr' : ''}`}
             onClick={() => setActiveTab('medicine-dispensed')}
           >
             <Pill size={18} /> Medicine Dispensed
           </button>
           <button 
-            className={`sti-tab ${activeTab === 'incident-reports' ? 'active' : ''}`}
+            className={`tab-clr ${activeTab === 'incident-reports' ? 'active-clr' : ''}`}
             onClick={() => setActiveTab('incident-reports')}
           >
             <AlertTriangle size={18} /> Incident Reports
           </button>
           <button 
-            className={`sti-tab ${activeTab === 'health-screenings' ? 'active' : ''}`}
+            className={`tab-clr ${activeTab === 'health-screenings' ? 'active-clr' : ''}`}
             onClick={() => setActiveTab('health-screenings')}
           >
             <Activity size={18} /> Health Screening
           </button>
           <button 
-            className={`sti-tab ${activeTab === 'doctor-visits' ? 'active' : ''}`}
+            className={`tab-clr ${activeTab === 'doctor-visits' ? 'active-clr' : ''}`}
             onClick={() => setActiveTab('doctor-visits')}
           >
             <Stethoscope size={18} /> Doctor Visits
@@ -147,12 +149,12 @@ export default function ClinicLogsAndRecords() {
       </div>
 
       {/* Main Content Table Area */}
-      <main className="sti-content">
+      <main className="content-clr">
         {loading ? (
-          <div className="sti-loading">Loading clinic records...</div>
+          <div className="loading-clr">Loading clinic records...</div>
         ) : (
-          <div className="sti-table-wrapper">
-            <table className="sti-table">
+          <div className="table-wrapper-clr">
+            <table className="table-clr">
               <thead>
                 {renderTableHeader(activeTab)}
               </thead>
@@ -161,7 +163,7 @@ export default function ClinicLogsAndRecords() {
                   records.map((item, index) => renderTableRow(activeTab, item, index, () => setSelectedRecord(item)))
                 ) : (
                   <tr>
-                    <td colSpan="10" className="sti-no-data">
+                    <td colSpan="10" className="no-data-clr">
                       No logs or records found for Student ID: {studentId || 'N/A'}.
                     </td>
                   </tr>
@@ -188,7 +190,7 @@ function renderTableHeader(tab) {
         <tr>
           <th>Visit ID</th>
           <th>Student ID</th>
-          <th>Nurse ID</th>
+          <th>Nurse Name</th>
           <th>Date</th>
           <th>Time In / Out</th>
           <th>Vital Signs</th>
@@ -201,7 +203,8 @@ function renderTableHeader(tab) {
           <th>Dispense ID</th>
           <th>Type</th>
           <th>Student ID</th>
-          <th>Batch ID</th>
+          <th>Brand Name</th>
+          <th>Generic Name</th>
           <th>Qty</th>
           <th>Date & Time</th>
           <th>Action</th>
@@ -212,7 +215,7 @@ function renderTableHeader(tab) {
         <tr>
           <th>Incident ID</th>
           <th>Student ID</th>
-          <th>Nurse ID</th>
+          <th>Nurse Name</th>
           <th>Location</th>
           <th>Date & Time</th>
           <th>Action</th>
@@ -235,7 +238,7 @@ function renderTableHeader(tab) {
         <tr>
           <th>Appointment ID</th>
           <th>Student ID</th>
-          <th>Doctor ID</th>
+          <th>Doctor Name</th>
           <th>Schedule Window</th>
           <th>Status</th>
           <th>Action</th>
@@ -246,7 +249,7 @@ function renderTableHeader(tab) {
   }
 }
 
-// Dynamic Table Row (Action contains ONLY the Lucide icon)
+// Dynamic Table Row
 function renderTableRow(tab, item, index, onViewDetails) {
   switch (tab) {
     case 'clinic-visits':
@@ -254,12 +257,16 @@ function renderTableRow(tab, item, index, onViewDetails) {
         <tr key={item.visit_id || index}>
           <td><strong>{item.visit_id}</strong></td>
           <td>{item.student_id}</td>
-          <td>{item.nurse_id}</td>
+          <td>
+            {item.nurse_first_name && item.nurse_last_name 
+              ? `${item.nurse_first_name} ${item.nurse_last_name}` 
+              : item.nurse_id || 'N/A'}
+          </td>
           <td>{formatDate(item.visit_date)}</td>
           <td>{item.time_in} - {item.time_out || 'N/A'}</td>
           <td>BP: {item.blood_pressure || 'N/A'} | Temp: {item.temperature || 'N/A'}°C</td>
           <td>
-            <button className="sti-btn-icon" onClick={onViewDetails} title="View Details" aria-label="View Details">
+            <button className="btn-icon-clr" onClick={onViewDetails} title="View Details" aria-label="View Details">
               <Eye size={18} />
             </button>
           </td>
@@ -271,16 +278,17 @@ function renderTableRow(tab, item, index, onViewDetails) {
         <tr key={item.id || index}>
           <td><strong>{item.id}</strong></td>
           <td>
-            <span className={`sti-badge ${item.dispensation_type === 'Direct Dispensation' ? 'tag-direct' : 'tag-consult'}`}>
+            <span className={`badge-clr ${item.dispensation_type === 'Direct Dispensation' ? 'tag-direct-clr' : 'tag-consult-clr'}`}>
               {item.dispensation_type}
             </span>
           </td>
           <td>{item.student_id || 'N/A'}</td>
-          <td>{item.batch_id}</td>
+          <td>{item.brand_name || 'N/A'}</td>
+          <td>{item.generic_name || 'N/A'}</td>
           <td>{item.quantity_dispensed}</td>
           <td>{item.dispensed_at ? new Date(item.dispensed_at).toLocaleString() : 'N/A'}</td>
           <td>
-            <button className="sti-btn-icon" onClick={onViewDetails} title="View Details" aria-label="View Details">
+            <button className="btn-icon-clr" onClick={onViewDetails} title="View Details" aria-label="View Details">
               <Eye size={18} />
             </button>
           </td>
@@ -292,11 +300,15 @@ function renderTableRow(tab, item, index, onViewDetails) {
         <tr key={item.incident_id || index}>
           <td><strong>{item.incident_id}</strong></td>
           <td>{item.student_id}</td>
-          <td>{item.nurse_id}</td>
+          <td>
+            {item.nurse_first_name && item.nurse_last_name 
+              ? `${item.nurse_first_name} ${item.nurse_last_name}` 
+              : item.nurse_id || 'N/A'}
+          </td>
           <td>{item.incident_location}</td>
           <td>{item.incident_datetime ? new Date(item.incident_datetime).toLocaleString() : 'N/A'}</td>
           <td>
-            <button className="sti-btn-icon" onClick={onViewDetails} title="View Details" aria-label="View Details">
+            <button className="btn-icon-clr" onClick={onViewDetails} title="View Details" aria-label="View Details">
               <Eye size={18} />
             </button>
           </td>
@@ -308,18 +320,18 @@ function renderTableRow(tab, item, index, onViewDetails) {
         <tr key={item.record_id || index}>
           <td><strong>{item.record_id}</strong></td>
           <td>
-            <span className="sti-badge tag-screening">{item.screening_type}</span>
+            <span className="badge-clr tag-screening-clr">{item.screening_type}</span>
           </td>
           <td>{item.student_id}</td>
           <td>{item.screening_schedule_id || 'N/A'}</td>
           <td>{formatDate(item.record_date)}</td>
           <td>
-            <span className={`sti-badge status-${(item.status || 'pending').toLowerCase()}`}>
+            <span className={`badge-clr status-${(item.status || 'pending').toLowerCase()}-clr`}>
               {item.status}
             </span>
           </td>
           <td>
-            <button className="sti-btn-icon" onClick={onViewDetails} title="View Details" aria-label="View Details">
+            <button className="btn-icon-clr" onClick={onViewDetails} title="View Details" aria-label="View Details">
               <Eye size={18} />
             </button>
           </td>
@@ -331,18 +343,22 @@ function renderTableRow(tab, item, index, onViewDetails) {
         <tr key={item.appointment_id || index}>
           <td><strong>{item.appointment_id}</strong></td>
           <td>{item.student_id}</td>
-          <td>{item.doctor_id}</td>
+          <td>
+            {item.doctor_first_name && item.doctor_last_name 
+              ? `${item.doctor_first_name} ${item.doctor_last_name}` 
+              : item.doctor_id || 'N/A'}
+          </td>
           <td>
             {item.start_time ? new Date(item.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''} - 
             {item.end_time ? new Date(item.end_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''}
           </td>
           <td>
-            <span className={`sti-badge status-${(item.status || 'pending').toLowerCase()}`}>
+            <span className={`badge-clr status-${(item.status || 'pending').toLowerCase()}-clr`}>
               {item.status}
             </span>
           </td>
           <td>
-            <button className="sti-btn-icon" onClick={onViewDetails} title="View Details" aria-label="View Details">
+            <button className="btn-icon-clr" onClick={onViewDetails} title="View Details" aria-label="View Details">
               <Eye size={18} />
             </button>
           </td>
@@ -357,17 +373,17 @@ function renderTableRow(tab, item, index, onViewDetails) {
 // Modal Component
 function Modal({ record, onClose }) {
   return (
-    <div className="sti-modal-overlay">
-      <div className="sti-modal-content">
-        <div className="sti-modal-header">
+    <div className="modal-overlay-clr">
+      <div className="modal-content-clr">
+        <div className="modal-header-clr">
           <h3>Record Details</h3>
-          <button className="sti-modal-close" onClick={onClose}><X size={20} /></button>
+          <button className="modal-close-clr" onClick={onClose}><X size={20} /></button>
         </div>
-        <div className="sti-modal-body">
+        <div className="modal-body-clr">
           {Object.entries(record).map(([key, value]) => (
-            <div className="sti-modal-field" key={key}>
-              <span className="field-key">{key.replace(/_/g, ' ')}:</span>
-              <span className="field-value">
+            <div className="modal-field-clr" key={key}>
+              <span className="field-key-clr">{key.replace(/_/g, ' ')}:</span>
+              <span className="field-value-clr">
                 {value !== null && value !== undefined
                   ? (typeof value === 'string' && value.includes('T00:00') ? formatDate(value) : String(value)) 
                   : 'N/A'}
@@ -375,8 +391,8 @@ function Modal({ record, onClose }) {
             </div>
           ))}
         </div>
-        <div className="sti-modal-footer">
-          <button className="sti-btn sti-btn-secondary" onClick={onClose}>Close</button>
+        <div className="modal-footer-clr">
+          <button className="btn-clr btn-secondary-clr" onClick={onClose}>Close</button>
         </div>
       </div>
     </div>

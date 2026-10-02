@@ -2636,7 +2636,19 @@ app.post('/api/dispensation', async (req, res) => {
       [newStock, newRemaining, batch_id]
     );
 
-    const direct_dispense_id = uuidv4().substring(0, 45); 
+    // --- Generate Custom Sequential Direct Dispense ID (DISP-MMDDYYXXX) ---
+    const now = new Date();
+    const monthStr = String(now.getMonth() + 1).padStart(2, '0');
+    const dayStr = String(now.getDate()).padStart(2, '0');
+    const yearStr = String(now.getFullYear()).slice(-2);
+    const datePrefix = `${monthStr}${dayStr}${yearStr}`;
+
+    const [dispenseCountRows] = await connection.execute(
+      `SELECT COUNT(*) AS totalToday FROM direct_dispensation WHERE DATE(dispensed_at) = CURDATE() FOR UPDATE`
+    );
+    const sequenceNum = String(dispenseCountRows[0].totalToday + 1).padStart(3, '0');
+    const direct_dispense_id = `DISP-${datePrefix}${sequenceNum}`;
+
     await connection.execute(
       `INSERT INTO direct_dispensation 
        (direct_dispense_id, student_id, nurse_id, batch_id, dosage_consumption_unit_value, dosage_consumption_unit_of_measure, dispensed_at) 
@@ -2657,7 +2669,6 @@ app.post('/api/dispensation', async (req, res) => {
     // DISPATCH NOTIFICATIONS (STUDENT & PARENTS)
     // ------------------------------------------------------------------
     try {
-      // 1. Get student user_id, student full name, and nurse sender user_id
       const [studentRows] = await pool.query(
         `SELECT s.user_id AS student_user_id, s.first_name, s.last_name, n.user_id AS nurse_user_id
          FROM students s
@@ -2666,7 +2677,6 @@ app.post('/api/dispensation', async (req, res) => {
         [nurse_id, student_id]
       );
 
-      // 2. Get parent user_ids mapped to the student
       const [parentRows] = await pool.query(
         `SELECT p.user_id 
          FROM parents p
@@ -2710,6 +2720,7 @@ app.post('/api/dispensation', async (req, res) => {
     res.status(201).json({ 
       success: true, 
       message: 'Transaction posted successfully.', 
+      direct_dispense_id: direct_dispense_id,
       updatedStock: newStock,
       updatedVolume: newRemaining 
     });
@@ -2723,16 +2734,7 @@ app.post('/api/dispensation', async (req, res) => {
   }
 });
 
-//Visit Log Consultation API
-// Visit Log Consultation API
-// GET: Search students
-// GET: Search students
-/**
- * Helper function to send SMS notifications via Semaphore API
- * @param {string} phoneNumber - Recipient phone number (e.g., 09171234567 or +639171234567)
- * @param {string} message - Text content of the SMS
- * @returns {Promise<boolean>} - Returns true if dispatched successfully
- */
+// Helper for Semaphore SMS
 const sendSemaphoreSms = async (phoneNumber, message) => {
     const apiKey = process.env.SEMAPHORE_API_KEY;
     const senderName = process.env.SEMAPHORE_SENDER_NAME;
@@ -2776,7 +2778,6 @@ const sendSemaphoreSms = async (phoneNumber, message) => {
     }
 };
 
-// GET: Search students
 // GET: Search students
 app.get('/api/students/search', async (req, res) => {
     const { query } = req.query;
@@ -2907,18 +2908,16 @@ app.post('/api/clinic-visits', async (req, res) => {
         }
 
         // --- Generate Custom Sequential Visit ID (VISIT-MMDDYYXXX) ---
-        // Converts "YYYY-MM-DD" -> "MMDDYY" (e.g., "2026-09-29" -> "092926")
         const [yearStr, monthStr, dayStr] = visit_date.split('-');
         const datePrefix = `${monthStr}${dayStr}${yearStr.slice(-2)}`;
 
-        // Lock existing visits for today to safely increment sequence number
         const [countRows] = await connection.execute(
             `SELECT COUNT(*) AS totalToday FROM clinic_visits WHERE visit_date = ? FOR UPDATE`,
             [visit_date]
         );
 
         const sequenceNum = String(countRows[0].totalToday + 1).padStart(3, '0');
-        const visit_id = `VISIT-${datePrefix}${sequenceNum}`; // Generates format: VISIT-092926001
+        const visit_id = `VISIT-${datePrefix}${sequenceNum}`;
 
         const visitSql = `
             INSERT INTO clinic_visits (
@@ -3007,7 +3006,19 @@ app.post('/api/clinic-visits', async (req, res) => {
                 );
             }
 
-            const dispensation_id = 'DISP-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+            // --- Generate Custom Sequential Consultation Dispensation ID (DISP-MMDDYYXXX) ---
+            const now = new Date();
+            const dispMonthStr = String(now.getMonth() + 1).padStart(2, '0');
+            const dispDayStr = String(now.getDate()).padStart(2, '0');
+            const dispYearStr = String(now.getFullYear()).slice(-2);
+            const dispDatePrefix = `${dispMonthStr}${dispDayStr}${dispYearStr}`;
+
+            const [dispCountRows] = await connection.execute(
+                `SELECT COUNT(*) AS totalToday FROM consultation_dispensation WHERE DATE(dispensed_at) = CURDATE() FOR UPDATE`
+            );
+            const dispSeq = String(dispCountRows[0].totalToday + 1).padStart(3, '0');
+            const dispensation_id = `DISP-${dispDatePrefix}${dispSeq}`;
+
             await connection.execute(
                 `INSERT INTO consultation_dispensation 
                  (consultation_dispense_id, visit_id, batch_id, dosage_consumption_unit_value, dosage_consumption_unit_of_measure, dispensed_at) 
@@ -3047,7 +3058,6 @@ app.post('/api/clinic-visits', async (req, res) => {
 
                 const recipient_ids = [info.parent_user_id, info.student_user_id].filter(Boolean);
 
-                // Send System / Push Notification
                 await notifyUsers({
                     sender_id: info.nurse_user_id || null,
                     recipient_ids: recipient_ids,
@@ -3057,7 +3067,6 @@ app.post('/api/clinic-visits', async (req, res) => {
                     payloadData: { visit_id }
                 });
 
-                // Send SMS Notification via Semaphore
                 if (info.primary_phone) {
                     smsNotificationSent = await sendSemaphoreSms(info.primary_phone, notifMessage);
                 }
@@ -3127,11 +3136,9 @@ app.patch('/api/clinic-visits/:id/timeout', async (req, res) => {
                 const info = notifRows[0];
                 const studentFullName = `${info.student_first_name} ${info.student_last_name}`;
 
-                // Notification Message: {firstname} {lastname} was leave in the time of {time_out}
                 const notifMessage = `${studentFullName} was leave in the time of ${time_out}`;
                 const notifTitle = `Clinic Time Out: ${studentFullName}`;
 
-                // Send System / Push Notification
                 await notifyUsers({
                     sender_id: info.nurse_user_id || null,
                     recipient_ids: [info.parent_user_id, info.student_user_id].filter(Boolean),
@@ -3141,7 +3148,6 @@ app.patch('/api/clinic-visits/:id/timeout', async (req, res) => {
                     payloadData: { visit_id: id, time_out }
                 });
 
-                // Send SMS Notification via Semaphore
                 if (info.primary_phone) {
                     await sendSemaphoreSms(info.primary_phone, notifMessage);
                 }
@@ -3292,7 +3298,19 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
                     );
                 }
 
-                const dispensation_id = 'DISP-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+                // --- Generate Custom Sequential Consultation Dispensation ID (DISP-MMDDYYXXX) ---
+                const now = new Date();
+                const dispMonthStr = String(now.getMonth() + 1).padStart(2, '0');
+                const dispDayStr = String(now.getDate()).padStart(2, '0');
+                const dispYearStr = String(now.getFullYear()).slice(-2);
+                const dispDatePrefix = `${dispMonthStr}${dispDayStr}${dispYearStr}`;
+
+                const [dispCountRows] = await connection.execute(
+                    `SELECT COUNT(*) AS totalToday FROM consultation_dispensation WHERE DATE(dispensed_at) = CURDATE() FOR UPDATE`
+                );
+                const dispSeq = String(dispCountRows[0].totalToday + 1).padStart(3, '0');
+                const dispensation_id = `DISP-${dispDatePrefix}${dispSeq}`;
+
                 await connection.execute(
                     `INSERT INTO consultation_dispensation 
                      (consultation_dispense_id, visit_id, batch_id, dosage_consumption_unit_value, dosage_consumption_unit_of_measure, dispensed_at) 
@@ -3333,13 +3351,11 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
                 const complaintText = info.specify_complaint_text || info.complaint_name || 'General Checkup';
                 const assessmentText = info.assessment || 'N/A';
 
-                // Notification Message: {firstname} {lastname} with the complaint of {complaint or specific_complaint_text}. Assessment: {assessment}.
                 const notifMessage = `${studentFullName} with the complaint of ${complaintText}. Assessment: ${assessmentText}.`;
                 const notifTitle = `Clinic Visit Documented: ${studentFullName}`;
 
                 const recipient_ids = [info.parent_user_id, info.student_user_id].filter(Boolean);
 
-                // Send System / Push Notification
                 await notifyUsers({
                     sender_id: info.nurse_user_id || null,
                     recipient_ids: recipient_ids,
@@ -3349,7 +3365,6 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
                     payloadData: { visit_id: id }
                 });
 
-                // Send SMS Notification via Semaphore
                 if (info.primary_phone) {
                     smsNotificationSent = await sendSemaphoreSms(info.primary_phone, notifMessage);
                 }
@@ -6671,14 +6686,25 @@ app.get('/clinic-visits/clinicLogs&Records', async (req, res) => {
     const { studentId, startDate, endDate } = req.query;
     if (!studentId) return res.status(400).json({ error: 'studentId is required' });
 
-    let query = `SELECT * FROM clinic_visits WHERE student_id = ?`;
+    let query = `
+      SELECT 
+        cv.*,
+        s.first_name AS student_first_name,
+        s.last_name AS student_last_name,
+        n.first_name AS nurse_first_name,
+        n.last_name AS nurse_last_name
+      FROM clinic_visits cv
+      LEFT JOIN students s ON cv.student_id = s.student_id
+      LEFT JOIN nurses n ON cv.nurse_id = n.nurse_id
+      WHERE cv.student_id = ?
+    `;
     const params = [studentId];
 
     if (startDate && endDate) {
-      query += ` AND visit_date BETWEEN ? AND ?`;
+      query += ` AND cv.visit_date BETWEEN ? AND ?`;
       params.push(startDate, endDate);
     }
-    query += ` ORDER BY visit_date DESC, time_in DESC`;
+    query += ` ORDER BY cv.visit_date DESC, cv.time_in DESC`;
 
     const [rows] = await pool.query(query, params);
     res.json(rows);
@@ -6687,7 +6713,7 @@ app.get('/clinic-visits/clinicLogs&Records', async (req, res) => {
   }
 });
 
-// 2. Medicine Dispensed (Updated for dosage_consumption_unit_value & measure)
+// 2. Medicine Dispensed (Updated: Replaced batch_id with brand_name & generic_name, joined students)
 app.get('/medicine-dispensed/clinicLogs&Records', async (req, res) => {
   try {
     const { studentId, startDate, endDate } = req.query;
@@ -6714,14 +6740,20 @@ app.get('/medicine-dispensed/clinicLogs&Records', async (req, res) => {
         d.direct_dispense_id AS id,
         'Direct Dispensation' AS dispensation_type,
         d.student_id,
+        s.first_name,
+        s.last_name,
         d.nurse_id,
         NULL AS visit_id,
-        d.batch_id,
+        m.brand_name,
+        m.generic_name,
         d.dosage_consumption_unit_value,
         d.dosage_consumption_unit_of_measure,
         CONCAT(d.dosage_consumption_unit_value, ' ', d.dosage_consumption_unit_of_measure) AS quantity_dispensed,
         d.dispensed_at
       FROM direct_dispensation d
+      LEFT JOIN students s ON d.student_id = s.student_id
+      LEFT JOIN medicine_inventory_batches b ON d.batch_id = b.batch_id
+      LEFT JOIN medicines m ON b.medicine_id = m.medicine_id
       ${directWhere}
 
       UNION ALL
@@ -6730,15 +6762,21 @@ app.get('/medicine-dispensed/clinicLogs&Records', async (req, res) => {
         c.consultation_dispense_id AS id,
         'Consultation Dispensation' AS dispensation_type,
         cv.student_id,
+        s.first_name,
+        s.last_name,
         cv.nurse_id,
         c.visit_id,
-        c.batch_id,
+        m.brand_name,
+        m.generic_name,
         c.dosage_consumption_unit_value,
         c.dosage_consumption_unit_of_measure,
         CONCAT(c.dosage_consumption_unit_value, ' ', c.dosage_consumption_unit_of_measure) AS quantity_dispensed,
         c.dispensed_at
       FROM consultation_dispensation c
       LEFT JOIN clinic_visits cv ON c.visit_id = cv.visit_id
+      LEFT JOIN students s ON cv.student_id = s.student_id
+      LEFT JOIN medicine_inventory_batches b ON c.batch_id = b.batch_id
+      LEFT JOIN medicines m ON b.medicine_id = m.medicine_id
       ${consultWhere}
 
       ORDER BY dispensed_at DESC
@@ -6757,14 +6795,25 @@ app.get('/incident-reports/clinicLogs&Records', async (req, res) => {
     const { studentId, startDate, endDate } = req.query;
     if (!studentId) return res.status(400).json({ error: 'studentId is required' });
 
-    let query = `SELECT * FROM incident_reports WHERE student_id = ?`;
+    let query = `
+      SELECT 
+        ir.*,
+        s.first_name AS student_first_name,
+        s.last_name AS student_last_name,
+        n.first_name AS nurse_first_name,
+        n.last_name AS nurse_last_name
+      FROM incident_reports ir
+      LEFT JOIN students s ON ir.student_id = s.student_id
+      LEFT JOIN nurses n ON ir.nurse_id = n.nurse_id
+      WHERE ir.student_id = ?
+    `;
     const params = [studentId];
 
     if (startDate && endDate) {
-      query += ` AND DATE(incident_datetime) BETWEEN ? AND ?`;
+      query += ` AND DATE(ir.incident_datetime) BETWEEN ? AND ?`;
       params.push(startDate, endDate);
     }
-    query += ` ORDER BY incident_datetime DESC`;
+    query += ` ORDER BY ir.incident_datetime DESC`;
 
     const [rows] = await pool.query(query, params);
     res.json(rows);
@@ -6818,6 +6867,8 @@ app.get('/health-screenings/clinicLogs&Records', async (req, res) => {
         s.screening_schedule_id AS record_id,
         COALESCE(s.screening_type, 'Health Screening') AS screening_type,
         p.student_id,
+        st.first_name,
+        st.last_name,
         s.screening_schedule_id,
         s.scheduled_date AS record_date,
         s.title,
@@ -6838,6 +6889,7 @@ app.get('/health-screenings/clinicLogs&Records', async (req, res) => {
         END AS status
       FROM screening_schedule_participants p
       JOIN screening_schedules s ON p.screening_schedule_id = s.screening_schedule_id
+      LEFT JOIN students st ON p.student_id = st.student_id
       LEFT JOIN bmi_monitoring_logs b ON b.screening_schedule_id = s.screening_schedule_id AND b.student_id = p.student_id
       LEFT JOIN dental_assessment_records d ON d.screening_schedule_id = s.screening_schedule_id AND d.student_id = p.student_id
       LEFT JOIN vision_screening_records v ON v.screening_schedule_id = s.screening_schedule_id AND v.student_id = p.student_id
@@ -6849,6 +6901,8 @@ app.get('/health-screenings/clinicLogs&Records', async (req, res) => {
         b.bmi_log_id AS record_id,
         'BMI Monitoring' AS screening_type,
         b.student_id,
+        st.first_name,
+        st.last_name,
         b.screening_schedule_id,
         DATE(b.logged_at) AS record_date,
         'BMI Monitoring' AS title,
@@ -6858,6 +6912,7 @@ app.get('/health-screenings/clinicLogs&Records', async (req, res) => {
         CONCAT('BMI: ', b.bmi_value, ' (', b.bmi_category, ') | Height: ', b.height_cm, 'cm | Weight: ', b.weight_kg, 'kg') AS details,
         'Completed' AS status
       FROM bmi_monitoring_logs b
+      LEFT JOIN students st ON b.student_id = st.student_id
       ${where2}
 
       UNION ALL
@@ -6866,6 +6921,8 @@ app.get('/health-screenings/clinicLogs&Records', async (req, res) => {
         d.dental_record_id AS record_id,
         'Dental Assessment' AS screening_type,
         d.student_id,
+        st.first_name,
+        st.last_name,
         d.screening_schedule_id,
         DATE(d.recorded_at) AS record_date,
         'Dental Assessment' AS title,
@@ -6875,6 +6932,7 @@ app.get('/health-screenings/clinicLogs&Records', async (req, res) => {
         CONCAT('Findings: ', d.dental_findings, ' | Remarks: ', COALESCE(d.remarks, 'None')) AS details,
         'Completed' AS status
       FROM dental_assessment_records d
+      LEFT JOIN students st ON d.student_id = st.student_id
       ${where3}
 
       UNION ALL
@@ -6883,6 +6941,8 @@ app.get('/health-screenings/clinicLogs&Records', async (req, res) => {
         v.vision_record_id AS record_id,
         'Vision Screening' AS screening_type,
         v.student_id,
+        st.first_name,
+        st.last_name,
         v.screening_schedule_id,
         DATE(v.recorded_at) AS record_date,
         'Vision Screening' AS title,
@@ -6892,6 +6952,7 @@ app.get('/health-screenings/clinicLogs&Records', async (req, res) => {
         CONCAT('VA Left: ', v.visual_acuity_left, ' | VA Right: ', v.visual_acuity_right, ' | Remarks: ', COALESCE(v.remarks, 'None')) AS details,
         'Completed' AS status
       FROM vision_screening_records v
+      LEFT JOIN students st ON v.student_id = st.student_id
       ${where4}
 
       ORDER BY record_date DESC
@@ -6904,7 +6965,7 @@ app.get('/health-screenings/clinicLogs&Records', async (req, res) => {
   }
 });
 
-// 5. Doctor Visit Records (Updated to join doctor_appointment_students)
+// 5. Doctor Visit Records
 app.get('/doctor-visits/clinicLogs&Records', async (req, res) => {
   try {
     const { studentId, startDate, endDate } = req.query;
@@ -6914,7 +6975,11 @@ app.get('/doctor-visits/clinicLogs&Records', async (req, res) => {
       SELECT 
         da.appointment_id,
         das.student_id,
+        st.first_name AS student_first_name,
+        st.last_name AS student_last_name,
         da.doctor_id,
+        doc.first_name AS doctor_first_name,
+        doc.last_name AS doctor_last_name,
         da.batch_id,
         da.title,
         da.announcement,
@@ -6932,6 +6997,8 @@ app.get('/doctor-visits/clinicLogs&Records', async (req, res) => {
         doc_ast.assessment_date
       FROM doctor_appointments da
       JOIN doctor_appointment_students das ON da.appointment_id = das.appointment_id
+      LEFT JOIN students st ON das.student_id = st.student_id
+      LEFT JOIN doctors doc ON da.doctor_id = doc.doctor_id
       LEFT JOIN doctor_assessments doc_ast 
         ON da.appointment_id = doc_ast.appointment_id 
         AND das.student_id = doc_ast.student_id
@@ -6953,9 +7020,7 @@ app.get('/doctor-visits/clinicLogs&Records', async (req, res) => {
   }
 });
 
-// ==========================================
 // 6. Document Requests (Excuse & Referral Slips)
-// ==========================================
 app.get('/document-requests/childClinicRecords', async (req, res) => {
   try {
     const { studentId, startDate, endDate } = req.query;
@@ -6963,47 +7028,53 @@ app.get('/document-requests/childClinicRecords', async (req, res) => {
 
     const params = [];
 
-    let excuseWhere = `WHERE student_id = ?`;
+    let excuseWhere = `WHERE e.student_id = ?`;
     params.push(studentId);
     if (startDate && endDate) {
-      excuseWhere += ` AND DATE(created_at) BETWEEN ? AND ?`;
+      excuseWhere += ` AND DATE(e.created_at) BETWEEN ? AND ?`;
       params.push(startDate, endDate);
     }
 
-    let referralWhere = `WHERE student_id = ?`;
+    let referralWhere = `WHERE r.student_id = ?`;
     params.push(studentId);
     if (startDate && endDate) {
-      referralWhere += ` AND DATE(created_at) BETWEEN ? AND ?`;
+      referralWhere += ` AND DATE(r.created_at) BETWEEN ? AND ?`;
       params.push(startDate, endDate);
     }
 
     const query = `
       SELECT 
-        request_id,
+        e.request_id,
         'Excuse Slip' AS document_type,
-        student_id,
-        reason_for_excuse AS reason,
-        status,
-        issued_by,
-        issued_at,
-        issued_slip_url,
-        created_at
-      FROM excuse_slip_requests
+        e.student_id,
+        s.first_name,
+        s.last_name,
+        e.reason_for_excuse AS reason,
+        e.status,
+        e.issued_by,
+        e.issued_at,
+        e.issued_slip_url,
+        e.created_at
+      FROM excuse_slip_requests e
+      LEFT JOIN students s ON e.student_id = s.student_id
       ${excuseWhere}
 
       UNION ALL
 
       SELECT 
-        request_id,
+        r.request_id,
         'Referral Slip' AS document_type,
-        student_id,
-        reason_for_referral AS reason,
-        status,
-        issued_by,
-        issued_at,
-        issued_slip_url,
-        created_at
-      FROM referral_slip_requests
+        r.student_id,
+        s.first_name,
+        s.last_name,
+        r.reason_for_referral AS reason,
+        r.status,
+        r.issued_by,
+        r.issued_at,
+        r.issued_slip_url,
+        r.created_at
+      FROM referral_slip_requests r
+      LEFT JOIN students s ON r.student_id = s.student_id
       ${referralWhere}
 
       ORDER BY created_at DESC
@@ -7016,9 +7087,7 @@ app.get('/document-requests/childClinicRecords', async (req, res) => {
   }
 });
 
-// ==========================================
 // 7. Student Health Requirements
-// ==========================================
 app.get('/student-requirements/childClinicRecords', async (req, res) => {
   try {
     const { studentId, startDate, endDate } = req.query;
@@ -7026,26 +7095,29 @@ app.get('/student-requirements/childClinicRecords', async (req, res) => {
 
     let query = `
       SELECT 
-        submission_id,
-        student_id,
-        requirement_name,
-        file_url,
-        COALESCE(status, 'Not Submitted') AS status,
-        is_late,
-        nurse_remarks,
-        submitted_at,
-        reviewed_by
-      FROM student_requirement_submissions
-      WHERE student_id = ?
+        sr.submission_id,
+        sr.student_id,
+        s.first_name,
+        s.last_name,
+        sr.requirement_name,
+        sr.file_url,
+        COALESCE(sr.status, 'Not Submitted') AS status,
+        sr.is_late,
+        sr.nurse_remarks,
+        sr.submitted_at,
+        sr.reviewed_by
+      FROM student_requirement_submissions sr
+      LEFT JOIN students s ON sr.student_id = s.student_id
+      WHERE sr.student_id = ?
     `;
     const params = [studentId];
 
     if (startDate && endDate) {
-      query += ` AND DATE(submitted_at) BETWEEN ? AND ?`;
+      query += ` AND DATE(sr.submitted_at) BETWEEN ? AND ?`;
       params.push(startDate, endDate);
     }
 
-    query += ` ORDER BY submitted_at DESC`;
+    query += ` ORDER BY sr.submitted_at DESC`;
 
     const [rows] = await pool.query(query, params);
     res.json(rows);

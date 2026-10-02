@@ -442,7 +442,7 @@ const DoctorVisit = () => {
         };
 
         try {
-            const res = await fetch('https://localhost-cms.onrender.com/api/mass-schedules', {
+            const res = await fetch('http://localhost:3001/api/mass-schedules', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
@@ -486,7 +486,7 @@ const DoctorVisit = () => {
     const handleSaveAssessment = async (e) => {
         e.preventDefault();
         try {
-            const res = await fetch('https://localhost-cms.onrender.com/api/doctor-assessments', {
+            const res = await fetch('http://localhost:3001/api/doctor-assessments', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -575,7 +575,7 @@ const DoctorVisit = () => {
         });
 
         try {
-            const res = await fetch('https://localhost-cms.onrender.com/api/doctor-visits/batch-reschedule', {
+            const res = await fetch('http://localhost:3001/api/doctor-visits/batch-reschedule', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -602,7 +602,7 @@ const DoctorVisit = () => {
         if (!window.confirm('Are you sure you want to cancel this doctor visit appointment?')) return;
 
         try {
-            const res = await fetch(`https://localhost-cms.onrender.com/api/doctor-visits/cancel/${appt.appointment_id}`, {
+            const res = await fetch(`http://localhost:3001/api/doctor-visits/cancel/${appt.appointment_id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ student_user_id: appt.student_user_id })
@@ -625,7 +625,7 @@ const DoctorVisit = () => {
         try {
             const appointmentIds = group.appointments.map(a => a.appointment_id);
 
-            let res = await fetch(`https://localhost-cms.onrender.com/api/doctor-visits/batch/${group.batchId || 'delete'}`, {
+            let res = await fetch(`http://localhost:3001/api/doctor-visits/batch/${group.batchId || 'delete'}`, {
                 method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
@@ -641,7 +641,7 @@ const DoctorVisit = () => {
                 fetchAppointments();
             } else {
                 // Fallback attempt to mass-schedules endpoint
-                const res2 = await fetch(`https://localhost-cms.onrender.com/api/mass-schedules/${group.batchId}`, {
+                const res2 = await fetch(`http://localhost:3001/api/mass-schedules/${group.batchId}`, {
                     method: 'DELETE',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ appointment_ids: appointmentIds })

@@ -85,7 +85,6 @@ const ParentDashboard = () => {
         let combinedDirectDispenses = [];
         let combinedReqs = [];
         let totalAssigned = 0;
-        let totalIncomplete = 0;
         let combinedDocs = [];
         let combinedScreenings = [];
         let combinedAppts = [];
@@ -104,7 +103,6 @@ const ParentDashboard = () => {
             combinedReqs.push(...res.reqs.all_requirements.map(r => ({ ...r, studentName: name })));
           }
           totalAssigned += (res.reqs?.total_assigned || 0);
-          totalIncomplete += (res.reqs?.total_incomplete || 0);
 
           if (res.docs?.recent_updates) {
             combinedDocs.push(...res.docs.recent_updates.map(d => ({ ...d, studentName: name })));
@@ -119,6 +117,11 @@ const ParentDashboard = () => {
           }
         });
 
+        // Calculate strictly 'Pending' status count (excludes 'Not Submitted', 'Incomplete', etc.)
+        const totalPending = combinedReqs.filter(
+          (req) => req.status && req.status.trim().toLowerCase() === 'pending'
+        ).length;
+
         // Sort combined datasets by date descending/ascending where applicable
         combinedVisits.sort((a, b) => new Date(b.visit_date || 0) - new Date(a.visit_date || 0));
         combinedDirectDispenses.sort((a, b) => new Date(b.dispensed_at || 0) - new Date(a.dispensed_at || 0));
@@ -127,7 +130,7 @@ const ParentDashboard = () => {
         combinedScreenings.sort((a, b) => new Date(a.scheduled_date || 0) - new Date(b.scheduled_date || 0));
 
         setVisitsData({ clinic_visits: combinedVisits, direct_dispensations: combinedDirectDispenses });
-        setRequirementsData({ all_requirements: combinedReqs, total_assigned: totalAssigned, total_incomplete: totalIncomplete });
+        setRequirementsData({ all_requirements: combinedReqs, total_assigned: totalAssigned, total_incomplete: totalPending });
         setDocumentRequestsData({ recent_updates: combinedDocs });
         setScreeningsData(combinedScreenings);
         setAppointmentsData(combinedAppts);
@@ -162,7 +165,6 @@ const ParentDashboard = () => {
     return new Date(dateString).toLocaleString('en-US', {
       month: 'short',
       day: 'numeric',
-      year: 'numeric',
       hour: 'numeric',
       minute: '2-digit',
       hour12: true
@@ -172,22 +174,22 @@ const ParentDashboard = () => {
   // Helper status pill renderer
   const renderStatusBadge = (status) => {
     const s = (status || 'Pending').toLowerCase();
-    let badgeClass = 'badge-pending';
-    let icon = <Clock size={12} />;
+    let badgeClass = 'pd-badge-pending';
+    let icon = <Clock size={11} />;
 
     if (['approved', 'completed', 'submitted', 'verified'].includes(s)) {
-      badgeClass = 'badge-success';
-      icon = <CheckCircle2 size={12} />;
+      badgeClass = 'pd-badge-success';
+      icon = <CheckCircle2 size={11} />;
     } else if (['rejected', 'incomplete', 'overdue'].includes(s)) {
-      badgeClass = 'badge-danger';
-      icon = <XCircle size={12} />;
+      badgeClass = 'pd-badge-danger';
+      icon = <XCircle size={11} />;
     } else if (['resubmit', 'action required'].includes(s)) {
-      badgeClass = 'badge-warning';
-      icon = <AlertCircle size={12} />;
+      badgeClass = 'pd-badge-warning';
+      icon = <AlertCircle size={11} />;
     }
 
     return (
-      <span className={`status-badge ${badgeClass}`}>
+      <span className={`pd-status-badge ${badgeClass}`}>
         {icon}
         <span>{status}</span>
       </span>
@@ -196,77 +198,78 @@ const ParentDashboard = () => {
 
   // Helper badge to explicitly identify student ownership
   const renderStudentBadge = (studentName) => (
-    <span className="student-name-badge">
-      <User size={11} /> {studentName}
+    <span className="pd-student-badge">
+      <User size={10} /> {studentName}
     </span>
   );
 
   if (isLoading) {
     return (
-      <div className="dashboard-loading-container">
-        <div className="spinner"></div>
+      <div className="pd-loading-container">
+        <div className="pd-spinner"></div>
         <p>Loading combined student overview...</p>
       </div>
     );
   }
 
-  const recentVisits = visitsData.clinic_visits ? visitsData.clinic_visits.slice(0, 4) : [];
-  const recentDirectDispenses = visitsData.direct_dispensations ? visitsData.direct_dispensations.slice(0, 4) : [];
+  // Limited slice amounts to optimize viewport fit
+  const recentVisits = visitsData.clinic_visits ? visitsData.clinic_visits.slice(0, 2) : [];
+  const recentDirectDispenses = visitsData.direct_dispensations ? visitsData.direct_dispensations.slice(0, 2) : [];
 
   return (
-    <div className="parent-dashboard-wrapper">
+    <div className="pd-wrapper">
 
-      {error && <div className="dashboard-error-banner">{error}</div>}
+      {error && <div className="pd-error-banner">{error}</div>}
 
-      <div className="dashboard-grid">
+      <div className="pd-grid">
 
         {/* 1. RECENT CLINIC VISITS & MEDICINE DISPENSATION */}
-        <section className="dashboard-card card-large">
-          <div className="card-header">
-            <div className="card-title">
-              <Activity className="header-icon text-blue" size={20} />
+        <section className="pd-card pd-card-large">
+          <div className="pd-card-header">
+            <div className="pd-card-title">
+              <Activity className="pd-header-icon pd-text-blue" size={18} />
               <h2>Recent Clinic Visits & Medicine Dispensation</h2>
             </div>
-            <button className="view-all-btn" onClick={handleNavigateToClinic}>
-              View All <ChevronRight size={16} />
+            <button className="pd-view-all-btn" onClick={handleNavigateToClinic}>
+              View All <ChevronRight size={14} />
             </button>
           </div>
 
-          <div className="card-body">
-            <h3 className="section-subtitle">
-              <UserCheck size={16} /> Latest Clinic Visits
+          <div className="pd-card-body">
+            <h3 className="pd-section-subtitle">
+              <UserCheck size={14} /> Latest Clinic Visits
             </h3>
             {recentVisits.length === 0 ? (
-              <p className="empty-state-text">No recent clinic visits logged.</p>
+              <p className="pd-empty-state">No recent clinic visits logged.</p>
             ) : (
-              <div className="visits-list">
+              <div className="pd-visits-list">
                 {recentVisits.map((visit, idx) => (
-                  <div key={visit.visit_id || idx} className="visit-item-card">
-                    <div className="visit-top-row">
-                      <div className="flex-align-gap">
-                        <span className="visit-complaint">
+                  <div key={visit.visit_id || idx} className="pd-visit-item">
+                    <div className="pd-visit-top-row">
+                      <div className="pd-flex-gap">
+                        <span className="pd-visit-complaint">
                           {visit.complaint_name || visit.specify_complaint_text || 'General Consultation'}
                         </span>
                         {renderStudentBadge(visit.studentName)}
                       </div>
-                      <span className="visit-date">{formatDate(visit.visit_date)} ({visit.time_in || '--'})</span>
+                      <span className="pd-visit-date">{formatDate(visit.visit_date)} ({visit.time_in || '--'})</span>
                     </div>
 
-                    <div className="vitals-row">
+                    <div className="pd-vitals-row">
                       {visit.vitals?.temperature && <span>Temp: <strong>{visit.vitals.temperature}°C</strong></span>}
                       {visit.vitals?.blood_pressure && <span>BP: <strong>{visit.vitals.blood_pressure}</strong></span>}
                       {visit.vitals?.pulse_rate && <span>Pulse: <strong>{visit.vitals.pulse_rate} bpm</strong></span>}
                     </div>
 
                     {visit.assessment && (
-                      <p className="visit-detail"><strong>Assessment:</strong> {visit.assessment}</p>
+                      <p className="pd-visit-detail"><strong>Assessment:</strong> {visit.assessment}</p>
                     )}
 
                     {visit.dispensed_medicines && visit.dispensed_medicines.length > 0 && (
-                      <div className="dispensed-medicines-tag-list">
-                        <span className="tag-label"><Pill size={12} /> Prescribed/Dispensed:</span>
+                      <div className="pd-med-tags">
+                        <span className="pd-tag-label"><Pill size={11} /> Dispensed:</span>
                         {visit.dispensed_medicines.map((med) => (
-                          <span key={med.dispense_id} className="medicine-tag">
+                          <span key={med.dispense_id} className="pd-med-tag">
                             {med.medicine_name} - {med.dosage_value} {med.dosage_unit}
                           </span>
                         ))}
@@ -277,21 +280,21 @@ const ParentDashboard = () => {
               </div>
             )}
 
-            <h3 className="section-subtitle mt-16">
-              <Pill size={16} /> Standalone Medicine Dispensations
+            <h3 className="pd-section-subtitle pd-mt-8">
+              <Pill size={14} /> Direct Medicine Dispensations
             </h3>
             {recentDirectDispenses.length === 0 ? (
-              <p className="empty-state-text">No recent standalone medicine dispensations.</p>
+              <p className="pd-empty-state">No recent direct medicine dispensations.</p>
             ) : (
-              <ul className="direct-dispense-list">
+              <ul className="pd-direct-dispense-list">
                 {recentDirectDispenses.map((dd, idx) => (
-                  <li key={dd.direct_dispense_id || idx} className="direct-dispense-item">
-                    <div className="flex-align-gap">
+                  <li key={dd.direct_dispense_id || idx} className="pd-direct-dispense-item">
+                    <div className="pd-flex-gap">
                       <strong>{dd.medicine_name}</strong>
-                      <span className="sub-detail">({dd.dosage_consumption_unit_value} {dd.dosage_consumption_unit_of_measure})</span>
+                      <span className="pd-sub-detail">({dd.dosage_consumption_unit_value} {dd.dosage_consumption_unit_of_measure})</span>
                       {renderStudentBadge(dd.studentName)}
                     </div>
-                    <span className="dispense-time">{formatDateTime(dd.dispensed_at)}</span>
+                    <span className="pd-dispense-time">{formatDateTime(dd.dispensed_at)}</span>
                   </li>
                 ))}
               </ul>
@@ -300,41 +303,41 @@ const ParentDashboard = () => {
         </section>
 
         {/* 2. OVERVIEW OF REQUIREMENTS STATUS */}
-        <section className="dashboard-card">
-          <div className="card-header">
-            <div className="card-title">
-              <FileCheck className="header-icon text-green" size={20} />
-              <h2>Medical Requirements Status</h2>
+        <section className="pd-card">
+          <div className="pd-card-header">
+            <div className="pd-card-title">
+              <FileCheck className="pd-header-icon pd-text-green" size={18} />
+              <h2>Medical Requirements</h2>
             </div>
-            <button className="view-all-btn" onClick={handleNavigateToProfile}>
-              View All <ChevronRight size={16} />
+            <button className="pd-view-all-btn" onClick={handleNavigateToProfile}>
+              View All <ChevronRight size={14} />
             </button>
           </div>
 
-          <div className="card-body">
-            <div className="summary-pill-container">
-              <div className="metric-box">
-                <span className="metric-val">{requirementsData.total_assigned || 0}</span>
-                <span className="metric-lbl">Total Assigned</span>
+          <div className="pd-card-body">
+            <div className="pd-summary-container">
+              <div className="pd-metric-box">
+                <span className="pd-metric-val">{requirementsData.total_assigned || 0}</span>
+                <span className="pd-metric-lbl">Assigned</span>
               </div>
-              <div className="metric-box warning">
-                <span className="metric-val">{requirementsData.total_incomplete || 0}</span>
-                <span className="metric-lbl">Incomplete / Pending</span>
+              <div className="pd-metric-box pd-warning">
+                <span className="pd-metric-val">{requirementsData.total_incomplete || 0}</span>
+                <span className="pd-metric-lbl">Pending</span>
               </div>
             </div>
 
             {(!requirementsData.all_requirements || requirementsData.all_requirements.length === 0) ? (
-              <p className="empty-state-text">No requirements currently requested.</p>
+              <p className="pd-empty-state">No requirements currently requested.</p>
             ) : (
-              <ul className="overview-list">
-                {requirementsData.all_requirements.slice(0, 5).map((req, idx) => (
-                  <li key={idx} className="overview-item">
-                    <div className="item-main-info">
-                      <div className="flex-align-gap">
-                        <span className="item-title">{req.requirement_name}</span>
+              <ul className="pd-overview-list">
+                {requirementsData.all_requirements.slice(0, 3).map((req, idx) => (
+                  <li key={idx} className="pd-overview-item">
+                    <div className="pd-item-info">
+                      <div className="pd-flex-gap">
+                        <span className="pd-item-title">{req.requirement_name}</span>
                         {renderStudentBadge(req.studentName)}
                       </div>
-                      <span className="item-sub text-muted">
+                      <span className="pd-item-sub">
                         Deadline: {req.submission_deadline ? formatDate(req.submission_deadline) : 'No Deadline'}
                       </span>
                     </div>
@@ -347,33 +350,33 @@ const ParentDashboard = () => {
         </section>
 
         {/* 3. DOCUMENT REQUEST UPDATES */}
-        <section className="dashboard-card">
-          <div className="card-header">
-            <div className="card-title">
-              <FileText className="header-icon text-amber" size={20} />
+        <section className="pd-card">
+          <div className="pd-card-header">
+            <div className="pd-card-title">
+              <FileText className="pd-header-icon pd-text-amber" size={18} />
               <h2>Document Requests</h2>
             </div>
-            <button className="view-all-btn" onClick={handleNavigateToClinic}>
-              View All <ChevronRight size={16} />
+            <button className="pd-view-all-btn" onClick={handleNavigateToClinic}>
+              View All <ChevronRight size={14} />
             </button>
           </div>
 
-          <div className="card-body">
+          <div className="pd-card-body">
             {(!documentRequestsData.recent_updates || documentRequestsData.recent_updates.length === 0) ? (
-              <p className="empty-state-text">No recent document request updates.</p>
+              <p className="pd-empty-state">No recent document request updates.</p>
             ) : (
-              <ul className="overview-list">
-                {documentRequestsData.recent_updates.slice(0, 5).map((doc, idx) => (
-                  <li key={`${doc.request_type}-${doc.request_id || idx}`} className="overview-item">
-                    <div className="item-main-info">
-                      <div className="flex-align-gap">
-                        <span className="type-badge">{doc.request_type}</span>
-                        <span className="item-title-sm">
+              <ul className="pd-overview-list">
+                {documentRequestsData.recent_updates.slice(0, 3).map((doc, idx) => (
+                  <li key={`${doc.request_type}-${doc.request_id || idx}`} className="pd-overview-item">
+                    <div className="pd-item-info">
+                      <div className="pd-flex-gap">
+                        <span className="pd-type-badge">{doc.request_type}</span>
+                        <span className="pd-item-title-sm">
                           {doc.reason_for_excuse || doc.reason_for_referral || 'Request Record'}
                         </span>
                         {renderStudentBadge(doc.studentName)}
                       </div>
-                      <span className="item-sub text-muted">Requested on: {formatDate(doc.created_at)}</span>
+                      <span className="pd-item-sub">Requested: {formatDate(doc.created_at)}</span>
                     </div>
                     <div>{renderStatusBadge(doc.status)}</div>
                   </li>
@@ -384,43 +387,43 @@ const ParentDashboard = () => {
         </section>
 
         {/* 4. UPCOMING HEALTH SCREENING */}
-        <section className="dashboard-card">
-          <div className="card-header">
-            <div className="card-title">
-              <Calendar className="header-icon text-purple" size={20} />
-              <h2>Upcoming Health Screenings</h2>
+        <section className="pd-card">
+          <div className="pd-card-header">
+            <div className="pd-card-title">
+              <Calendar className="pd-header-icon pd-text-purple" size={18} />
+              <h2>Health Screenings</h2>
             </div>
-            <button className="view-all-btn" onClick={handleNavigateToClinic}>
-              View All <ChevronRight size={16} />
+            <button className="pd-view-all-btn" onClick={handleNavigateToClinic}>
+              View All <ChevronRight size={14} />
             </button>
           </div>
 
-          <div className="card-body">
+          <div className="pd-card-body">
             {screeningsData.length === 0 ? (
-              <p className="empty-state-text">No upcoming health screenings scheduled.</p>
+              <p className="pd-empty-state">No upcoming health screenings scheduled.</p>
             ) : (
-              <div className="schedule-cards-list">
-                {screeningsData.slice(0, 4).map((screening, idx) => (
-                  <div key={screening.screening_schedule_id || idx} className="schedule-item-card">
-                    <div className="schedule-date-box">
-                      <span className="date-num">
+              <div className="pd-schedule-list">
+                {screeningsData.slice(0, 2).map((screening, idx) => (
+                  <div key={screening.screening_schedule_id || idx} className="pd-schedule-item">
+                    <div className="pd-schedule-date-box">
+                      <span className="pd-date-num">
                         {new Date(screening.scheduled_date).getDate()}
                       </span>
-                      <span className="date-month">
+                      <span className="pd-date-month">
                         {new Date(screening.scheduled_date).toLocaleString('en-US', { month: 'short' })}
                       </span>
                     </div>
 
-                    <div className="schedule-details">
-                      <div className="flex-align-gap">
-                        <h4 className="schedule-title">{screening.title}</h4>
+                    <div className="pd-schedule-details">
+                      <div className="pd-flex-gap">
+                        <h4 className="pd-schedule-title">{screening.title}</h4>
                         {renderStudentBadge(screening.studentName)}
                       </div>
-                      <p className="schedule-time">
-                        <Clock size={12} /> {screening.start_time} - {screening.end_time}
+                      <p className="pd-schedule-time">
+                        <Clock size={11} /> {screening.start_time} - {screening.end_time}
                       </p>
                       {screening.announcement && (
-                        <p className="schedule-announcement">{screening.announcement}</p>
+                        <p className="pd-schedule-announcement">{screening.announcement}</p>
                       )}
                     </div>
                   </div>
@@ -431,45 +434,45 @@ const ParentDashboard = () => {
         </section>
 
         {/* 5. UPCOMING DOCTOR VISIT SCHEDULE */}
-        <section className="dashboard-card">
-          <div className="card-header">
-            <div className="card-title">
-              <Stethoscope className="header-icon text-teal" size={20} />
-              <h2>Upcoming Doctor Visits</h2>
+        <section className="pd-card">
+          <div className="pd-card-header">
+            <div className="pd-card-title">
+              <Stethoscope className="pd-header-icon pd-text-teal" size={18} />
+              <h2>Doctor Visits</h2>
             </div>
-            <button className="view-all-btn" onClick={handleNavigateToClinic}>
-              View All <ChevronRight size={16} />
+            <button className="pd-view-all-btn" onClick={handleNavigateToClinic}>
+              View All <ChevronRight size={14} />
             </button>
           </div>
 
-          <div className="card-body">
+          <div className="pd-card-body">
             {appointmentsData.length === 0 ? (
-              <p className="empty-state-text">No upcoming doctor appointments scheduled.</p>
+              <p className="pd-empty-state">No upcoming doctor appointments scheduled.</p>
             ) : (
-              <div className="schedule-cards-list">
-                {appointmentsData.slice(0, 4).map((appt, idx) => (
-                  <div key={appt.appointment_id || idx} className="schedule-item-card border-teal">
-                    <div className="schedule-date-box bg-teal">
-                      <span className="date-num">
+              <div className="pd-schedule-list">
+                {appointmentsData.slice(0, 2).map((appt, idx) => (
+                  <div key={appt.appointment_id || idx} className="pd-schedule-item pd-border-teal">
+                    <div className="pd-schedule-date-box pd-bg-teal">
+                      <span className="pd-date-num">
                         {new Date(appt.start_time).getDate()}
                       </span>
-                      <span className="date-month">
+                      <span className="pd-date-month">
                         {new Date(appt.start_time).toLocaleString('en-US', { month: 'short' })}
                       </span>
                     </div>
 
-                    <div className="schedule-details">
-                      <div className="flex-align-gap">
-                        <h4 className="schedule-title">{appt.title || 'Doctor Consultation'}</h4>
+                    <div className="pd-schedule-details">
+                      <div className="pd-flex-gap">
+                        <h4 className="pd-schedule-title">{appt.title || 'Doctor Consultation'}</h4>
                         {renderStudentBadge(appt.studentName)}
                       </div>
-                      <p className="schedule-time">
-                        <Clock size={12} /> {formatDateTime(appt.start_time)}
+                      <p className="pd-schedule-time">
+                        <Clock size={11} /> {formatDateTime(appt.start_time)}
                       </p>
-                      <div className="status-meta">
+                      <div className="pd-status-meta">
                         {renderStatusBadge(appt.appointment_status)}
                         {appt.attendance_status && (
-                          <span className="attendance-pill">Attendance: {appt.attendance_status}</span>
+                          <span className="pd-attendance-pill">{appt.attendance_status}</span>
                         )}
                       </div>
                     </div>
