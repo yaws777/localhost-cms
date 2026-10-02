@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import '../../styles/student/ClinicLogs&Records.css';
 
-const API_BASE = 'http://localhost:3001';
+const API_BASE = 'https://localhost-cms.onrender.com';
 
 // Safe date formatter to avoid UTC offset shifts
 const formatDate = (dateStr) => {

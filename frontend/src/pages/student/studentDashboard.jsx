@@ -17,8 +17,8 @@ import {
 import HealthTipsModal from '../../components/student/HealthTips';
 import '../../styles/student/StudentDashboard.css';
 
-const API_BASE = 'http://localhost:3001/api';
-const BASE_URL = 'http://localhost:3001';
+const API_BASE = 'https://localhost-cms.onrender.com/api';
+const BASE_URL = 'https://localhost-cms.onrender.com';
 
 const StudentDashboard = () => {
   const navigate = useNavigate();

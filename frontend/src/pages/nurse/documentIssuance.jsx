@@ -126,7 +126,7 @@ const DocumentIssuance = () => {
     const fetchRequests = async () => {
         setLoading(true);
         try {
-            const response = await fetch('http://localhost:3001/api/document-requests');
+            const response = await fetch('https://localhost-cms.onrender.com/api/document-requests');
             const data = await response.json();
             if (data.success) {
                 setRequests(data.requests || []);
@@ -146,7 +146,7 @@ const DocumentIssuance = () => {
         setConfigLoading(true);
         setConfigError('');
         try {
-            const res = await fetch('http://localhost:3001/api/partner-facilities');
+            const res = await fetch('https://localhost-cms.onrender.com/api/partner-facilities');
             if (!res.ok) throw new Error(`Server returned status ${res.status}`);
             const data = await res.json();
             
@@ -218,7 +218,7 @@ const DocumentIssuance = () => {
 
     const fetchNotes = async (requestType, requestId) => {
         try {
-            const res = await fetch(`http://localhost:3001/api/document-requests/notes/${requestType}/${requestId}`);
+            const res = await fetch(`https://localhost-cms.onrender.com/api/document-requests/notes/${requestType}/${requestId}`);
             const data = await res.json();
             if (data.success) {
                 setNotes(data.notes || []);
@@ -278,8 +278,8 @@ const DocumentIssuance = () => {
     const executeSaveFacility = async () => {
         const targetId = facilityForm.facility_id || facilityForm.id;
         const url = isEditingFacility 
-            ? `http://localhost:3001/api/partner-facilities/${targetId}`
-            : 'http://localhost:3001/api/partner-facilities';
+            ? `https://localhost-cms.onrender.com/api/partner-facilities/${targetId}`
+            : 'https://localhost-cms.onrender.com/api/partner-facilities';
         const method = isEditingFacility ? 'PUT' : 'POST';
 
         try {
@@ -328,8 +328,8 @@ const DocumentIssuance = () => {
     const executeSaveService = async () => {
         const targetServiceId = serviceForm.service_id || serviceForm.id;
         const url = isEditingService 
-            ? `http://localhost:3001/api/facility-services/${targetServiceId}`
-            : `http://localhost:3001/api/partner-facilities/${serviceForm.facility_id}/services`;
+            ? `https://localhost-cms.onrender.com/api/facility-services/${targetServiceId}`
+            : `https://localhost-cms.onrender.com/api/partner-facilities/${serviceForm.facility_id}/services`;
         const method = isEditingService ? 'PUT' : 'POST';
 
         try {
@@ -378,7 +378,7 @@ const DocumentIssuance = () => {
         setModalError('');
 
         try {
-            const response = await fetch('http://localhost:3001/api/document-requests/notes', {
+            const response = await fetch('https://localhost-cms.onrender.com/api/document-requests/notes', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -643,7 +643,7 @@ const DocumentIssuance = () => {
         }
 
         try {
-            const response = await fetch('http://localhost:3001/api/document-requests/action', {
+            const response = await fetch('https://localhost-cms.onrender.com/api/document-requests/action', {
                 method: 'POST',
                 body: formData,
             });
@@ -881,7 +881,7 @@ const DocumentIssuance = () => {
                                         {selectedRequest.student_proof_url && (
                                             <div className="file-attachment-di">
                                                 <Paperclip size={16} />
-                                                <a href={`http://localhost:3001${selectedRequest.student_proof_url}`} target="_blank" rel="noreferrer">
+                                                <a href={`https://localhost-cms.onrender.com${selectedRequest.student_proof_url}`} target="_blank" rel="noreferrer">
                                                     View Student Attachment Proof
                                                 </a>
                                             </div>
@@ -947,7 +947,7 @@ const DocumentIssuance = () => {
                                     {selectedRequest.issued_slip_url && (
                                         <div className="file-attachment-di mt-2-di">
                                             <FileText size={16} />
-                                            <a href={`http://localhost:3001${selectedRequest.issued_slip_url}`} target="_blank" rel="noreferrer">
+                                            <a href={`https://localhost-cms.onrender.com${selectedRequest.issued_slip_url}`} target="_blank" rel="noreferrer">
                                                 View Official Issued PDF Slip
                                             </a>
                                         </div>

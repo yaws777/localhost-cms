@@ -52,7 +52,7 @@ app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-/*
+
 const pool = mysql.createPool({
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
@@ -61,9 +61,9 @@ const pool = mysql.createPool({
     port: process.env.DB_PORT,
     dateStrings: true
 });
-*/
 
 
+/*
     const pool = mysql.createPool({
         host: "localhost",
         user: "root",
@@ -71,7 +71,7 @@ const pool = mysql.createPool({
         database: "ClinicManagementSystem",
         dateStrings: true
 });
-
+*/
 
 const webpush = require('web-push');
 
@@ -1735,7 +1735,7 @@ app.post('/api/students/:id/requirements/:reqName/submit', upload.single('file')
         return res.status(400).json({ success: false, error: "A local file upload stream is required." });
     }
 
-    const file_url = `http://localhost:3001/uploads/${req.file.filename}`;
+    const file_url = `https://localhost-cms.onrender.com/uploads/${req.file.filename}`;
 
     try {
         const [studentRows] = await pool.query(

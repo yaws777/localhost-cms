@@ -270,7 +270,7 @@ const DispensedMedicine = () => {
     setSearchStudent(cleanText);
 
     try {
-      const res = await fetch(`http://localhost:3001/api/students/direct?search=${encodeURIComponent(cleanText)}`);
+      const res = await fetch(`https://localhost-cms.onrender.com/api/students/direct?search=${encodeURIComponent(cleanText)}`);
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data) && data.length > 0) {
@@ -345,7 +345,7 @@ const DispensedMedicine = () => {
 
   const fetchInventory = useCallback(async () => {
     try {
-      const res = await fetch('http://localhost:3001/api/inventory/batches');
+      const res = await fetch('https://localhost-cms.onrender.com/api/inventory/batches');
       if (!res.ok) throw new Error(`HTTP status ${res.status}`);
       const data = await res.json();
       setInventory(Array.isArray(data) ? data : []);
@@ -368,7 +368,7 @@ const DispensedMedicine = () => {
       if (st) params.append('student', st);
       if (med) params.append('medicine', med);
 
-      const res = await fetch(`http://localhost:3001/api/dispensation/history?${params.toString()}`);
+      const res = await fetch(`https://localhost-cms.onrender.com/api/dispensation/history?${params.toString()}`);
       if (!res.ok) throw new Error(`Server returned status ${res.status}`);
       const data = await res.json();
       setHistory(Array.isArray(data) ? data : []);
@@ -385,7 +385,7 @@ const DispensedMedicine = () => {
 
   useEffect(() => {
     if (searchStudent.trim().length > 1 && !selectedStudent) {
-      fetch(`http://localhost:3001/api/students/direct?search=${encodeURIComponent(searchStudent)}`)
+      fetch(`https://localhost-cms.onrender.com/api/students/direct?search=${encodeURIComponent(searchStudent)}`)
         .then((res) => {
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           return res.json();
@@ -526,7 +526,7 @@ const DispensedMedicine = () => {
     }
 
     try {
-      const response = await fetch('http://localhost:3001/api/dispensation', {
+      const response = await fetch('https://localhost-cms.onrender.com/api/dispensation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

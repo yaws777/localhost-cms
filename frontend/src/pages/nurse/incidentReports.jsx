@@ -120,7 +120,7 @@ const IncidentReport = () => {
             if (searchQuery) params.append('search', searchQuery);
             if (dateFilter) params.append('date', dateFilter);
 
-            const res = await fetch(`http://localhost:3001/api/incident-reports?${params.toString()}`);
+            const res = await fetch(`https://localhost-cms.onrender.com/api/incident-reports?${params.toString()}`);
             const data = await res.json();
             if (data.success) {
                 setReports(data.reports);
@@ -135,7 +135,7 @@ const IncidentReport = () => {
     // Fetch Emergency Hotlines
     const fetchHotlines = useCallback(async () => {
         try {
-            const res = await fetch(`http://localhost:3001/api/emergency-hotlines`);
+            const res = await fetch(`https://localhost-cms.onrender.com/api/emergency-hotlines`);
             const data = await res.json();
             if (data.success) {
                 setHotlines(data.hotlines);
@@ -166,7 +166,7 @@ const IncidentReport = () => {
         isProcessingScan.current = true;
 
         try {
-            const url = `http://localhost:3001/api/incident-reports/students?q=${encodeURIComponent(studentId.trim())}`;
+            const url = `https://localhost-cms.onrender.com/api/incident-reports/students?q=${encodeURIComponent(studentId.trim())}`;
             const res = await fetch(url);
             if (!res.ok) {
                 throw new Error(`HTTP error! status: ${res.status}`);
@@ -248,7 +248,7 @@ const IncidentReport = () => {
 
         if (query.trim().length > 0) {
             try {
-                const url = `http://localhost:3001/api/incident-reports/students?q=${encodeURIComponent(query.trim())}`;
+                const url = `https://localhost-cms.onrender.com/api/incident-reports/students?q=${encodeURIComponent(query.trim())}`;
                 const res = await fetch(url);
                 if (!res.ok) {
                     throw new Error(`HTTP error! status: ${res.status}`);
@@ -292,7 +292,7 @@ const IncidentReport = () => {
                 ...incidentData
             };
 
-            const res = await fetch(`http://localhost:3001/api/incident-reports`, {
+            const res = await fetch(`https://localhost-cms.onrender.com/api/incident-reports`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
@@ -332,8 +332,8 @@ const IncidentReport = () => {
         e.preventDefault();
         const method = editingHotlineId ? 'PUT' : 'POST';
         const endpoint = editingHotlineId 
-            ? `http://localhost:3001/api/emergency-hotlines/${editingHotlineId}`
-            : `http://localhost:3001/api/emergency-hotlines`;
+            ? `https://localhost-cms.onrender.com/api/emergency-hotlines/${editingHotlineId}`
+            : `https://localhost-cms.onrender.com/api/emergency-hotlines`;
 
         try {
             const res = await fetch(endpoint, {
@@ -365,7 +365,7 @@ const IncidentReport = () => {
     const handleDeleteHotline = async (hotline_id) => {
         if (!window.confirm('Are you sure you want to delete this emergency contact?')) return;
         try {
-            const res = await fetch(`http://localhost:3001/api/emergency-hotlines/${hotline_id}`, { method: 'DELETE' });
+            const res = await fetch(`https://localhost-cms.onrender.com/api/emergency-hotlines/${hotline_id}`, { method: 'DELETE' });
             const data = await res.json();
             if (data.success) fetchHotlines();
         } catch (error) {
