@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import jsPDF from 'jspdf';
 import { 
@@ -23,6 +23,19 @@ import {
 
 import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/DocumentIssuance.css';
+
+// Dynamic API Base URL configuration for seamless development/staging/production deployment
+const API_BASE_URL = 
+  (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE_URL) ||
+  (typeof process !== 'undefined' && process.env && process.env.REACT_APP_API_URL) ||
+  'https://localhost-cms.onrender.com';
+
+// Helper function to resolve media/attachment URLs cleanly
+const getMediaUrl = (path) => {
+  if (!path) return '';
+  if (path.startsWith('http://') || path.startsWith('https://')) return path;
+  return `${API_BASE_URL}${path.startsWith('/') ? '' : '/'}${path}`;
+};
 
 // Vector signature data URL generated from Nurse Marilou H. Balarao's photo ("MBalarao")
 const NURSE_SIGNATURE_SVG = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`
@@ -59,7 +72,8 @@ const NURSE_SIGNATURE_SVG = `data:image/svg+xml;charset=utf-8,${encodeURICompone
 `)}`;
 
 const DocumentIssuance = () => {
-    const { nurseId } = useOutletContext();
+    const outletContext = useOutletContext() || {};
+    const nurseId = outletContext.nurseId;
 
     const [requests, setRequests] = useState([]);
     const [filteredRequests, setFilteredRequests] = useState([]);
@@ -123,10 +137,10 @@ const DocumentIssuance = () => {
         validityEnd: ''
     });
 
-    const fetchRequests = async () => {
+    const fetchRequests = useCallback(async () => {
         setLoading(true);
         try {
-            const response = await fetch('https://localhost-cms.onrender.com/api/document-requests');
+            const response = await fetch(`${API_BASE_URL}/api/document-requests`);
             const data = await response.json();
             if (data.success) {
                 setRequests(data.requests || []);
@@ -140,13 +154,13 @@ const DocumentIssuance = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, []);
 
-    const fetchFacilities = async () => {
+    const fetchFacilities = useCallback(async () => {
         setConfigLoading(true);
         setConfigError('');
         try {
-            const res = await fetch('https://localhost-cms.onrender.com/api/partner-facilities');
+            const res = await fetch(`${API_BASE_URL}/api/partner-facilities`);
             if (!res.ok) throw new Error(`Server returned status ${res.status}`);
             const data = await res.json();
             
@@ -166,17 +180,17 @@ const DocumentIssuance = () => {
         } finally {
             setConfigLoading(false);
         }
-    };
+    }, []);
 
     useEffect(() => {
         fetchRequests();
-    }, []);
+    }, [fetchRequests]);
 
     useEffect(() => {
         if (showConfigModal) {
             fetchFacilities();
         }
-    }, [showConfigModal]);
+    }, [showConfigModal, fetchFacilities]);
 
     // Filter Logic
     useEffect(() => {
@@ -216,9 +230,9 @@ const DocumentIssuance = () => {
         denied: requests.filter(r => (r.status || '').toLowerCase() === 'denied').length
     };
 
-    const fetchNotes = async (requestType, requestId) => {
+    const fetchNotes = useCallback(async (requestType, requestId) => {
         try {
-            const res = await fetch(`https://localhost-cms.onrender.com/api/document-requests/notes/${requestType}/${requestId}`);
+            const res = await fetch(`${API_BASE_URL}/api/document-requests/notes/${requestType}/${requestId}`);
             const data = await res.json();
             if (data.success) {
                 setNotes(data.notes || []);
@@ -226,7 +240,7 @@ const DocumentIssuance = () => {
         } catch (err) {
             console.error("Error fetching notes:", err);
         }
-    };
+    }, []);
 
     const formatDateForInput = (dateStr) => {
         if (!dateStr) return '';
@@ -278,8 +292,8 @@ const DocumentIssuance = () => {
     const executeSaveFacility = async () => {
         const targetId = facilityForm.facility_id || facilityForm.id;
         const url = isEditingFacility 
-            ? `https://localhost-cms.onrender.com/api/partner-facilities/${targetId}`
-            : 'https://localhost-cms.onrender.com/api/partner-facilities';
+            ? `${API_BASE_URL}/api/partner-facilities/${targetId}`
+            : `${API_BASE_URL}/api/partner-facilities`;
         const method = isEditingFacility ? 'PUT' : 'POST';
 
         try {
@@ -328,8 +342,8 @@ const DocumentIssuance = () => {
     const executeSaveService = async () => {
         const targetServiceId = serviceForm.service_id || serviceForm.id;
         const url = isEditingService 
-            ? `https://localhost-cms.onrender.com/api/facility-services/${targetServiceId}`
-            : `https://localhost-cms.onrender.com/api/partner-facilities/${serviceForm.facility_id}/services`;
+            ? `${API_BASE_URL}/api/facility-services/${targetServiceId}`
+            : `${API_BASE_URL}/api/partner-facilities/${serviceForm.facility_id}/services`;
         const method = isEditingService ? 'PUT' : 'POST';
 
         try {
@@ -378,7 +392,7 @@ const DocumentIssuance = () => {
         setModalError('');
 
         try {
-            const response = await fetch('https://localhost-cms.onrender.com/api/document-requests/notes', {
+            const response = await fetch(`${API_BASE_URL}/api/document-requests/notes`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -643,7 +657,7 @@ const DocumentIssuance = () => {
         }
 
         try {
-            const response = await fetch('https://localhost-cms.onrender.com/api/document-requests/action', {
+            const response = await fetch(`${API_BASE_URL}/api/document-requests/action`, {
                 method: 'POST',
                 body: formData,
             });
@@ -881,7 +895,7 @@ const DocumentIssuance = () => {
                                         {selectedRequest.student_proof_url && (
                                             <div className="file-attachment-di">
                                                 <Paperclip size={16} />
-                                                <a href={`https://localhost-cms.onrender.com${selectedRequest.student_proof_url}`} target="_blank" rel="noreferrer">
+                                                <a href={getMediaUrl(selectedRequest.student_proof_url)} target="_blank" rel="noreferrer">
                                                     View Student Attachment Proof
                                                 </a>
                                             </div>
@@ -947,7 +961,7 @@ const DocumentIssuance = () => {
                                     {selectedRequest.issued_slip_url && (
                                         <div className="file-attachment-di mt-2-di">
                                             <FileText size={16} />
-                                            <a href={`https://localhost-cms.onrender.com${selectedRequest.issued_slip_url}`} target="_blank" rel="noreferrer">
+                                            <a href={getMediaUrl(selectedRequest.issued_slip_url)} target="_blank" rel="noreferrer">
                                                 View Official Issued PDF Slip
                                             </a>
                                         </div>
