@@ -1,3 +1,4 @@
+// RequirementManagement.jsx
 import React, { useState, useEffect, useCallback } from 'react';
 import { useOutletContext, useLocation } from 'react-router-dom';
 import { 
@@ -28,7 +29,12 @@ export const RequirementManagement = () => {
     // Inline inputs tracking per program configuration updates
     const [programInlineInputs, setProgramInlineInputs] = useState({});
     const [inlineEditingConfigId, setInlineEditingConfigId] = useState(null);
-    const [inlineEditForm, setInlineEditForm] = useState({ requirement_name: '', year_level: '', submission_deadline: '', allow_late_submission: false });
+    const [inlineEditForm, setInlineEditForm] = useState({ 
+        requirement_name: '', 
+        year_level: '', 
+        submission_deadline: '', 
+        allow_late_submission: false 
+    });
 
     // Active Modals Data Anchors
     const [selectedStudent, setSelectedStudent] = useState(null);
@@ -56,7 +62,7 @@ export const RequirementManagement = () => {
             setStudentReqs(Array.isArray(data) ? data : []);
         } catch (error) {
             console.error("Network connectivity issue:", error);
-            alert("Failed to connect to backend api service layer.");
+            alert("Failed to connect to backend API service layer.");
         }
     }, []);
 
@@ -91,7 +97,7 @@ export const RequirementManagement = () => {
                         year_level: sub.year_level || '',
                         section: sub.section || ''
                     };
-                    setSelectedStudent(studentObj); // Auto-opens student modal immediately
+                    setSelectedStudent(studentObj);
                     setHighlightedReqName(reqNameToHighlight);
                     fetchStudentFullRequirements(sub.student_id);
                     return;
@@ -110,7 +116,7 @@ export const RequirementManagement = () => {
                     const studentData = await studentRes.json();
                     const studentObj = studentData.student || studentData.data || (studentData.student_id ? studentData : null);
                     if (studentObj && studentObj.student_id) {
-                        setSelectedStudent(studentObj); // Auto-opens modal immediately
+                        setSelectedStudent(studentObj);
                         setHighlightedReqName(reqNameToHighlight);
                         fetchStudentFullRequirements(studentObj.student_id);
                         return;
@@ -130,7 +136,7 @@ export const RequirementManagement = () => {
                         const matchedStudent = studentList.find(s => String(s.student_id) === String(targetStudentId));
                         
                         if (matchedStudent) {
-                            setSelectedStudent(matchedStudent); // Auto-opens modal immediately
+                            setSelectedStudent(matchedStudent);
                             setHighlightedReqName(reqNameToHighlight);
                             fetchStudentFullRequirements(matchedStudent.student_id);
                         }
@@ -425,7 +431,7 @@ export const RequirementManagement = () => {
         if (!deadline) return null;
         const normalizedStatus = status ? status.toLowerCase() : '';
         
-        if (normalizedStatus === 'submitted' || normalizedStatus === 'waiting for approval' || normalizedStatus === 'completed' || normalizedStatus === 'submitted late' || normalizedStatus === 'late') return null;
+        if (['submitted', 'waiting for approval', 'completed', 'submitted late', 'late'].includes(normalizedStatus)) return null;
         
         const deadlineDate = new Date(deadline);
         const today = new Date();

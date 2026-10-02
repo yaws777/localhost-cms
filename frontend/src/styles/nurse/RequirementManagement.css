@@ -1,4 +1,6 @@
-/* --- Container & Layout (Full Screen Space Utilization) --- */
+/* RequirementManagement.css */
+
+/* --- Container & Layout --- */
 .req-container {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
     padding: 24px;
@@ -19,27 +21,34 @@ button {
     box-sizing: border-box;
 }
 
-/* SVG Icon Helper */
 svg {
     display: inline-block;
     vertical-align: middle;
     flex-shrink: 0;
 }
 
-.req-container h2 { margin: 0 0 4px 0; color: #333; }
-.req-container p { margin: 0 0 24px 0; color: #666; font-size: 14px; }
+.req-container h2 { 
+    margin: 0 0 4px 0; 
+    color: #333; 
+}
 
-/* --- Tabs System --- */
-/* --- Tabs System --- */
+.req-container p { 
+    margin: 0 0 24px 0; 
+    color: #666; 
+    font-size: 14px; 
+}
+
+/* --- Navigation Tabs --- */
 .tabs {
     margin-bottom: 24px;
     border-bottom: 2px solid #e2e8f0;
     display: flex;
     flex-direction: row;
-    flex-wrap: nowrap;          /* Prevents tabs from dropping to a second line */
-    gap: 3px;         /* Allows horizontal scrolling if screen is very narrow */
+    flex-wrap: nowrap;
+    gap: 8px;
     white-space: nowrap;
-    width: 47%;
+    width: 100%;
+    max-width: 600px;
 }
 
 .tabs button {
@@ -53,11 +62,14 @@ svg {
     transition: all 0.2s ease;
     position: relative;
     bottom: -2px;
-    white-space: nowrap;        /* Keeps button text on one line */
-    flex-shrink: 0;             /* Prevents tabs from shrinking */
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
-.tabs button:hover { color: #0056b3; }
+.tabs button:hover { 
+    color: #0056b3; 
+}
+
 .tabs button.active {
     color: #0056b3;
     border-bottom: 2px solid #0056b3;
@@ -117,7 +129,7 @@ svg {
 .text-green { color: #16a34a; }
 .text-orange { color: #ea580c; }
 
-/* --- Filter & Search Toolbar (Card & Grid Structure) --- */
+/* --- Filter & Search Toolbar --- */
 .filter-toolbar {
     display: flex;
     flex-direction: column;
@@ -245,8 +257,32 @@ svg {
     border-bottom: 1px solid #e2e8f0;
 }
 
-.data-table th { background-color: #f1f5f9; color: #475569; font-weight: 600; }
-.data-table td { color: #334155; font-size: 14px; }
+.data-table th { 
+    background-color: #f1f5f9; 
+    color: #475569; 
+    font-weight: 600; 
+}
+
+.data-table td { 
+    color: #334155; 
+    font-size: 14px; 
+}
+
+.student-info-cell {
+    display: flex;
+    flex-direction: column;
+}
+
+.student-name {
+    font-weight: 600;
+    color: #0f172a;
+}
+
+.student-id {
+    font-size: 12px;
+    color: #64748b;
+}
+
 .text-muted { color: #64748b; }
 .text-center { text-align: center; }
 
@@ -276,7 +312,6 @@ svg {
 .chip-resubmit { color: #d97706; background-color: #fef3c7; font-weight: 600; }
 .chip-rejected { color: #dc2626; background-color: #fee2e2; }
 
-/* MISSED TAG REQUIRES GRAY COLOR */
 .chip-missing { 
     color: #374151; 
     background-color: #f3f4f6; 
@@ -293,7 +328,6 @@ svg {
     font-style: italic;
 }
 
-/* Row Action Icon Button (No Text Label) */
 .btn-action-icon {
     display: inline-flex;
     align-items: center;
@@ -480,6 +514,7 @@ svg {
 }
 
 .modal-header h3 { margin: 0; font-size: 18px; color: #0f172a; }
+.modal-subtitle { font-size: 13px; color: #64748b; margin-top: 2px; }
 
 .btn-close {
     background: none; border: none; cursor: pointer;
@@ -537,6 +572,31 @@ svg {
 
 .card-actions { display: flex; gap: 8px; flex-shrink: 0; }
 
+.attachment-section {
+    font-size: 13px;
+    color: #334155;
+    margin-top: 8px;
+}
+
+.attachment-section a {
+    color: #2563eb;
+    text-decoration: underline;
+}
+
+.no-file-text {
+    color: #94a3b8;
+    font-style: italic;
+}
+
+.nurse-comment {
+    margin-top: 8px;
+    padding: 8px 12px;
+    background-color: #f8fafc;
+    border-left: 3px solid #cbd5e1;
+    font-size: 13px;
+    color: #475569;
+}
+
 /* Edit Forms Specifics */
 .edit-req-form, .add-special-req-form { display: flex; flex-direction: column; gap: 12px; }
 .form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -559,6 +619,7 @@ svg {
 
 .form-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .space-top { margin-top: 16px; }
+.mt-2 { margin-top: 8px; }
 
 .btn-add-primary {
     display: inline-flex; align-items: center; justify-content: center; gap: 6px;
@@ -570,11 +631,7 @@ svg {
 .btn-save { background: #16a34a; color: white; border: none; padding: 10px 16px; border-radius: 4px; cursor: pointer; flex: 1; min-width: 120px; }
 .btn-cancel { background: #ef4444; color: white; border: none; padding: 10px 16px; border-radius: 4px; cursor: pointer; flex: 1; min-width: 120px; }
 
-/* ==========================================================================
-   DESKTOP-FIRST RESPONSIVE DESIGN (Media Queries)
-   ========================================================================== */
-
-/* Medium Laptops & Small Desktops */
+/* --- Responsive Media Queries --- */
 @media (max-width: 1024px) {
     .dashboard-summary-cards {
         gap: 12px;
@@ -587,7 +644,6 @@ svg {
     }
 }
 
-/* Tablets & Small Screens */
 @media (max-width: 768px) {
     .req-container {
         padding: 16px;
@@ -619,7 +675,6 @@ svg {
     }
 }
 
-/* Mobile Devices */
 @media (max-width: 480px) {
     .req-container {
         padding: 12px;

@@ -33,6 +33,19 @@ const generateParentId = (lastName, count = 1) => {
   return `PARENT-${cleanLastName}${paddedIndex}`;
 };
 
+// Helper function to auto-generate username prefix in [lastname].[idSuffix] format
+const generateAutoUsername = (lastName, studentId) => {
+  const cleanLastName = (lastName || '').trim().toLowerCase().replace(/\s+/g, '');
+  const suffix = (studentId || '').startsWith('02000') 
+    ? (studentId || '').slice(5) 
+    : (studentId || '');
+  
+  if (cleanLastName && suffix) {
+    return `${cleanLastName}.${suffix}`;
+  }
+  return cleanLastName || suffix;
+};
+
 export default function ManageStudentAccounts() {
   const [students, setStudents] = useState([]);
   const [programs, setPrograms] = useState([]);
@@ -160,14 +173,21 @@ export default function ManageStudentAccounts() {
     }
   };
 
-  // Enforce student_id prefix '02000'
+  // Enforce student_id prefix '02000' & autofill username (e.g. bernardo.345411)
   const handleStudentIdChange = (e) => {
     const value = e.target.value;
+    let newId = value;
     if (!value.startsWith('02000')) {
-      setStudentForm((prev) => ({ ...prev, student_id: '02000' }));
-    } else {
-      setStudentForm((prev) => ({ ...prev, student_id: value }));
+      newId = '02000';
     }
+    setStudentForm((prev) => {
+      const autoUser = generateAutoUsername(prev.last_name, newId);
+      return {
+        ...prev,
+        student_id: newId,
+        username: autoUser
+      };
+    });
   };
 
   const handleProgramChange = (e, isEdit = false) => {
@@ -217,12 +237,19 @@ export default function ManageStudentAccounts() {
     setNewParentForm(prev => ({ ...prev, password: checked ? '123' : '' }));
   };
 
-  // Handlers for dynamic student/parent last name changes with auto parent_id generation
+  // Handlers for dynamic student/parent last name changes with auto username & parent_id generation
   const handleStudentLastNameChange = (e) => {
     const lastName = e.target.value;
-    setStudentForm(prev => ({ ...prev, last_name: lastName }));
 
-    // Auto-fill parent last_name and auto-generate parent_id if parent_id hasn't been manually set differently
+    setStudentForm(prev => {
+      const autoUser = generateAutoUsername(lastName, prev.student_id);
+      return {
+        ...prev,
+        last_name: lastName,
+        username: autoUser
+      };
+    });
+
     setNewParentForm(prev => {
       const effectiveParentLastName = prev.last_name && prev.last_name !== studentForm.last_name 
         ? prev.last_name 
@@ -377,7 +404,8 @@ export default function ManageStudentAccounts() {
           const studentId = rawStudentId.startsWith('02000') ? rawStudentId : `02000${rawStudentId}`;
           const firstName = row.first_name || row.firstname || '';
           const lastName = row.last_name || row.lastname || '';
-          const usernameClean = row.username ? row.username.replace(DOMAIN_EXTENSION, '').trim() : '';
+          const autoUser = generateAutoUsername(lastName, studentId);
+          const usernameClean = row.username ? row.username.replace(DOMAIN_EXTENSION, '').trim() : autoUser;
           const password = row.password || '123';
           const programId = row.program_id || defaultProg;
           const progType = getProgramType(programId);
@@ -434,13 +462,20 @@ export default function ManageStudentAccounts() {
   const handleBatchFieldChange = (index, field, value) => {
     setBatchStudents(prev => {
       const updated = [...prev];
-      const item = { ...updated[index], [field]: value };
+      let item = { ...updated[index], [field]: value };
 
       if (field === 'program_id') {
         const progType = getProgramType(value);
         if (progType === 'strand' && Number(item.year_level) > 2) {
           item.year_level = '1';
         }
+      }
+
+      if (field === 'student_id' || field === 'last_name') {
+        if (field === 'student_id' && !value.startsWith('02000')) {
+          item.student_id = '02000';
+        }
+        item.username = generateAutoUsername(item.last_name, item.student_id);
       }
 
       updated[index] = item;
@@ -729,10 +764,10 @@ export default function ManageStudentAccounts() {
                       <td>{student.username || <span className="text-muted-msa">N/A</span>}</td>
                       <td>
                         <span className="badge-msa badge-blue-msa">
-                          {student.program_name || student.program_id}
+                          {student.program_id}
                         </span>
                       </td>
-                      <td>Yr {student.year_level} - {student.section}</td>
+                      <td>{student.year_level} - {student.section}</td>
                       <td>
                         {student.parent_id ? (
                           <div className="parent-info-cell-msa">
@@ -839,7 +874,7 @@ export default function ManageStudentAccounts() {
                             <input
                               type="text"
                               required
-                              className="input-sm-msa w-100-msa"
+                              className="input-sm-msa w-120-msa"
                               value={item.student_id}
                               onChange={(e) => handleBatchFieldChange(idx, 'student_id', e.target.value)}
                             />
@@ -866,8 +901,8 @@ export default function ManageStudentAccounts() {
                             <input
                               type="text"
                               required
-                              placeholder="username"
-                              className="input-sm-msa w-120-msa"
+                              placeholder="e.g. bernardo.345411"
+                              className="input-sm-msa w-160-msa"
                               value={item.username}
                               onChange={(e) => handleBatchFieldChange(idx, 'username', e.target.value)}
                             />
@@ -1005,7 +1040,7 @@ export default function ManageStudentAccounts() {
                   <div><strong>Full Name:</strong> {selectedStudentView.first_name} {selectedStudentView.last_name}</div>
                   <div><strong>Username:</strong> {selectedStudentView.username}</div>
                   <div><strong>Program:</strong> {selectedStudentView.program_name || selectedStudentView.program_id}</div>
-                  <div><strong>Year & Section:</strong> Yr {selectedStudentView.year_level} - {selectedStudentView.section}</div>
+                  <div><strong>Year & Section:</strong> {selectedStudentView.year_level} - {selectedStudentView.section}</div>
                   <div>
                     <strong>Status: </strong>
                     {Number(selectedStudentView.is_active) === 1 ? 'Active' : 'Inactive'}
@@ -1060,6 +1095,7 @@ export default function ManageStudentAccounts() {
                       required
                       value={studentForm.student_id}
                       onChange={handleStudentIdChange}
+                      placeholder="e.g. 02000345411"
                     />
                   </div>
 
@@ -1070,6 +1106,7 @@ export default function ManageStudentAccounts() {
                       required
                       value={studentForm.first_name}
                       onChange={(e) => setStudentForm({ ...studentForm, first_name: e.target.value })}
+                      placeholder="e.g. Juan"
                     />
                   </div>
 
@@ -1080,16 +1117,17 @@ export default function ManageStudentAccounts() {
                       required
                       value={studentForm.last_name}
                       onChange={handleStudentLastNameChange}
+                      placeholder="e.g. Bernardo"
                     />
                   </div>
 
-                  <div className="form-group-msa">
-                    <label>Username *</label>
+                  <div className="form-group-msa col-span-2-msa">
+                    <label>Username (Autofilled: lastname.IDnumber) *</label>
                     <div className="domain-input-group-msa">
                       <input
                         type="text"
                         required
-                        placeholder="e.g. john.doe"
+                        placeholder="e.g. bernardo.345411"
                         value={studentForm.username}
                         onChange={(e) => setStudentForm({ ...studentForm, username: e.target.value })}
                       />
@@ -1103,7 +1141,6 @@ export default function ManageStudentAccounts() {
                         type="checkbox"
                         checked={useDefaultPassword}
                         onChange={handleDefaultPasswordToggle}
-                        required
                       />
                       Use default password ("123")
                     </label>
@@ -1255,13 +1292,13 @@ export default function ManageStudentAccounts() {
                         onChange={handleParentLastNameChange}
                       />
                     </div>
-                    <div className="form-group-msa">
+                    <div className="form-group-msa col-span-2-msa">
                       <label>Parent Username *</label>
                       <div className="domain-input-group-msa">
                         <input
                           type="text"
                           required
-                          placeholder="e.g. parent.doe"
+                          placeholder="e.g. parent.bernardo"
                           value={newParentForm.username}
                           onChange={(e) => setNewParentForm({ ...newParentForm, username: e.target.value })}
                         />
@@ -1274,7 +1311,6 @@ export default function ManageStudentAccounts() {
                           type="checkbox"
                           checked={useParentDefaultPassword}
                           onChange={handleParentDefaultPasswordToggle}
-                          required
                         />
                         Use default password ("123")
                       </label>
@@ -1532,13 +1568,13 @@ export default function ManageStudentAccounts() {
                         onChange={handleEditParentLastNameChange}
                       />
                     </div>
-                    <div className="form-group-msa">
+                    <div className="form-group-msa col-span-2-msa">
                       <label>Parent Username *</label>
                       <div className="domain-input-group-msa">
                         <input
                           type="text"
                           required
-                          placeholder="e.g. parent.doe"
+                          placeholder="e.g. parent.bernardo"
                           value={editNewParentForm.username}
                           onChange={(e) => setEditNewParentForm({ ...editNewParentForm, username: e.target.value })}
                         />
@@ -1551,7 +1587,6 @@ export default function ManageStudentAccounts() {
                           type="checkbox"
                           checked={editNewParentForm.password === '123'}
                           onChange={(e) => setEditNewParentForm({ ...editNewParentForm, password: e.target.checked ? '123' : '' })}
-                          required
                         />
                         Use default password ("123")
                       </label>

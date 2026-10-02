@@ -222,12 +222,11 @@ function renderTableHeader(tab) {
         </tr>
       );
     case 'health-screenings':
+    case 'student-requirements':
       return (
         <tr>
-          <th>Record ID</th>
           <th>Type</th>
           <th>Student ID</th>
-          <th>Schedule ID</th>
           <th>Date</th>
           <th>Status</th>
           <th>Action</th>
@@ -316,15 +315,14 @@ function renderTableRow(tab, item, index, onViewDetails) {
       );
 
     case 'health-screenings':
+    case 'student-requirements':
       return (
-        <tr key={item.record_id || index}>
-          <td><strong>{item.record_id}</strong></td>
+        <tr key={item.record_id || item.req_id || index}>
           <td>
-            <span className="badge-clr tag-screening-clr">{item.screening_type}</span>
+            <span className="badge-clr tag-screening-clr">{item.screening_type || item.requirement_type}</span>
           </td>
           <td>{item.student_id}</td>
-          <td>{item.screening_schedule_id || 'N/A'}</td>
-          <td>{formatDate(item.record_date)}</td>
+          <td>{formatDate(item.record_date || item.date)}</td>
           <td>
             <span className={`badge-clr status-${(item.status || 'pending').toLowerCase()}-clr`}>
               {item.status}

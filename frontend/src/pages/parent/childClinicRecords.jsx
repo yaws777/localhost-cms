@@ -278,7 +278,6 @@ function renderTableHeader(tab) {
     case 'student-requirements':
       return (
         <tr>
-          <th>Req ID</th>
           <th>Requirement Title</th>
           <th>Student ID</th>
           <th>Submitted Date</th>
@@ -328,7 +327,6 @@ function renderTableHeader(tab) {
           <th>Record ID</th>
           <th>Type</th>
           <th>Student ID</th>
-          <th>Schedule ID</th>
           <th>Date</th>
           <th>Status</th>
           <th>Action</th>
@@ -380,7 +378,6 @@ function renderTableRow(tab, item, index, onViewDetails) {
 
       return (
         <tr key={item.submission_id || index}>
-          <td><strong>{item.submission_id || `SUB-${index + 1}`}</strong></td>
           <td>{item.requirement_name || 'Health Requirement'}</td>
           <td>{item.student_id}</td>
           <td>{formatDate(submittedDate)}</td>
@@ -469,7 +466,6 @@ function renderTableRow(tab, item, index, onViewDetails) {
           <td><strong>{item.record_id}</strong></td>
           <td><span className="badge-ccr tag-screening-ccr">{item.screening_type}</span></td>
           <td>{item.student_id}</td>
-          <td>{item.screening_schedule_id || 'N/A'}</td>
           <td>{formatDate(item.record_date)}</td>
           <td><span className={`badge-ccr status-${statusClass}-ccr`}>{item.status}</span></td>
           <td>

@@ -5155,6 +5155,42 @@ app.delete('/api/facility-services/:serviceId', async (req, res) => {
 // HEALTH SCREENING API ENDPOINTS
 // ==========================================
 
+/**
+ * Generates formatted IDs in the pattern: PREFIX-MMDDYYXXX
+ * @param {string} prefix - e.g., 'HSSCHED', 'BMI', 'VSN', 'DENT'
+ * @param {string} tableName - Database table to check
+ * @param {string} idColumn - Column name holding the custom ID
+ * @returns {Promise<string>} e.g., 'HSSCHED-100226001'
+ */
+async function generateCustomId(prefix, tableName, idColumn) {
+  const now = new Date();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const yy = String(now.getFullYear()).slice(-2);
+  
+  const dateStr = `${mm}${dd}${yy}`;
+  const searchPattern = `${prefix}-${dateStr}%`;
+
+  const [rows] = await pool.query(
+    `SELECT ${idColumn} FROM ${tableName} WHERE ${idColumn} LIKE ? ORDER BY ${idColumn} DESC LIMIT 1`,
+    [searchPattern]
+  );
+
+  let nextSequence = 1;
+
+  if (rows.length > 0) {
+    const lastId = rows[0][idColumn];
+    const lastSeqStr = lastId.slice(-3);
+    const parsedSeq = parseInt(lastSeqStr, 10);
+    if (!isNaN(parsedSeq)) {
+      nextSequence = parsedSeq + 1;
+    }
+  }
+
+  const paddedSeq = String(nextSequence).padStart(3, '0');
+  return `${prefix}-${dateStr}${paddedSeq}`;
+}
+
 // 1. Get Academic Programs
 app.get('/api/programs', async (req, res) => {
   try {
@@ -5234,9 +5270,10 @@ app.post('/api/screenings', async (req, res) => {
     return res.status(400).json({ error: 'At least one participant must be selected.' });
   }
 
-  const scheduleId = uuidv4();
-
   try {
+    // Generate custom ID for Schedule
+    const scheduleId = await generateCustomId('HSSCHED', 'screening_schedules', 'screening_schedule_id');
+
     await pool.query(
       `INSERT INTO screening_schedules 
       (screening_schedule_id, title, screening_type, target_program_id, target_year_level, target_section, scheduled_date, start_time, end_time) 
@@ -5244,6 +5281,7 @@ app.post('/api/screenings', async (req, res) => {
       [scheduleId, title, screening_type, target_program_id || null, target_year_level || null, target_section || null, scheduled_date, start_time, end_time]
     );
 
+    // Generate UUIDs or participant IDs for internal linking
     const participantValues = student_ids.map(sId => [uuidv4(), scheduleId, sId, 'PENDING']);
     await pool.query(
       'INSERT INTO screening_schedule_participants (participant_id, screening_schedule_id, student_id, attendance_status) VALUES ?',
@@ -5253,7 +5291,6 @@ app.post('/api/screenings', async (req, res) => {
     const [users] = await pool.query('SELECT user_id FROM students WHERE student_id IN (?)', [student_ids]);
     const recipientUserIds = users.map(u => u.user_id);
 
-    // Concise notification payload
     await notifyUsers({
       sender_id: sender_id || req.user?.user_id,
       recipient_ids: recipientUserIds,
@@ -5268,6 +5305,7 @@ app.post('/api/screenings', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 
 // 5. Update Scheduled Date/Time
 app.put('/api/screenings/:id', async (req, res) => {
@@ -5551,7 +5589,8 @@ app.post('/api/screenings/:id/document', async (req, res) => {
 
     if (screening_type === 'BMI') {
       const { height_cm, weight_kg, bmi_value, bmi_category } = formData;
-      const logId = uuidv4();
+      const logId = await generateCustomId('BMI', 'bmi_monitoring_logs', 'bmi_log_id');
+      
       await pool.query(`
         INSERT INTO bmi_monitoring_logs (bmi_log_id, student_id, screening_schedule_id, height_cm, weight_kg, bmi_value, bmi_category)
         VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -5560,7 +5599,8 @@ app.post('/api/screenings/:id/document', async (req, res) => {
 
     } else if (screening_type === 'Dental') {
       const { dental_findings, remarks } = formData;
-      const recordId = uuidv4();
+      const recordId = await generateCustomId('DENT', 'dental_assessment_records', 'dental_record_id');
+      
       await pool.query(`
         INSERT INTO dental_assessment_records (dental_record_id, student_id, screening_schedule_id, dental_findings, remarks)
         VALUES (?, ?, ?, ?, ?)
@@ -5568,7 +5608,8 @@ app.post('/api/screenings/:id/document', async (req, res) => {
 
     } else if (screening_type === 'Vision') {
       const { visual_acuity_left, visual_acuity_right, remarks } = formData;
-      const recordId = uuidv4();
+      const recordId = await generateCustomId('VSN', 'vision_screening_records', 'vision_record_id');
+      
       await pool.query(`
         INSERT INTO vision_screening_records (vision_record_id, student_id, screening_schedule_id, visual_acuity_left, visual_acuity_right, remarks)
         VALUES (?, ?, ?, ?, ?, ?)
@@ -5581,10 +5622,46 @@ app.post('/api/screenings/:id/document', async (req, res) => {
   }
 });
 
-
 // ==========================================
 // 1. DOCTOR VISIT API
 // ==========================================
+
+/**
+ * Generates formatted IDs in the pattern: PREFIX-MMDDYYXXX
+ * @param {string} prefix - e.g., 'DVSCHED', 'DVAS'
+ * @param {string} tableName - Target database table
+ * @param {string} idColumn - Primary ID column name
+ * @param {object} [dbExecutor=pool] - Optional database pool or connection (for transactions)
+ * @returns {Promise<string>} e.g., 'DVSCHED-100226001'
+ */
+async function generateCustomId(prefix, tableName, idColumn, dbExecutor = pool) {
+  const now = new Date();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const yy = String(now.getFullYear()).slice(-2);
+  
+  const dateStr = `${mm}${dd}${yy}`;
+  const searchPattern = `${prefix}-${dateStr}%`;
+
+  const [rows] = await dbExecutor.query(
+    `SELECT ${idColumn} FROM ${tableName} WHERE ${idColumn} LIKE ? ORDER BY ${idColumn} DESC LIMIT 1`,
+    [searchPattern]
+  );
+
+  let nextSequence = 1;
+
+  if (rows.length > 0) {
+    const lastId = rows[0][idColumn];
+    const lastSeqStr = lastId.slice(-3);
+    const parsedSeq = parseInt(lastSeqStr, 10);
+    if (!isNaN(parsedSeq)) {
+      nextSequence = parsedSeq + 1;
+    }
+  }
+
+  const paddedSeq = String(nextSequence).padStart(3, '0');
+  return `${prefix}-${dateStr}${paddedSeq}`;
+}
 
 // Get all doctors
 app.get('/api/doctors', async (req, res) => {
@@ -5665,6 +5742,7 @@ app.get('/api/academic-programs', async (req, res) => {
 // 3. MASS SCHEDULING & APPOINTMENT CREATION
 // ==========================================
 
+// POST /api/mass-schedules
 app.post('/api/mass-schedules', async (req, res) => {
     const { 
         assigned_by_nurse_id, 
@@ -5710,7 +5788,8 @@ app.post('/api/mass-schedules', async (req, res) => {
         );
 
         for (const appt of student_appointments) {
-            const appointment_id = `APPT-${uuidv4().substring(0, 8)}`;
+            // Generates appointment ID in DVSCHED-MMDDYYXXX format
+            const appointment_id = await generateCustomId('DVSCHED', 'doctor_appointments', 'appointment_id', connection);
             
             await connection.query(
                 `INSERT INTO doctor_appointments 
@@ -5753,7 +5832,6 @@ app.post('/api/mass-schedules', async (req, res) => {
         connection.release();
     }
 });
-
 // ==========================================
 // 4. FETCH VISITS & ATTENDANCE MANAGEMENT
 // ==========================================
@@ -5992,6 +6070,7 @@ app.post('/api/doctor-visits/send-reminders', async (req, res) => {
 // 6. DOCTOR ASSESSMENT DOCUMENTATION
 // ==========================================
 
+// POST /api/doctor-assessments
 app.post('/api/doctor-assessments', async (req, res) => {
     const { 
         appointment_id, 
@@ -6017,7 +6096,9 @@ app.post('/api/doctor-assessments', async (req, res) => {
                 [clinical_findings, diagnosis, treatment_recommendations, appointment_id, student_id]
             );
         } else {
-            const assessment_id = `ASM-${uuidv4().substring(0, 8)}`;
+            // Generates assessment ID in DVAS-MMDDYYXXX format
+            const assessment_id = await generateCustomId('DVAS', 'doctor_assessments', 'assessment_id');
+
             await pool.query(
                 `INSERT INTO doctor_assessments (assessment_id, appointment_id, student_id, clinical_findings, diagnosis, treatment_recommendations, assessment_date) 
                  VALUES (?, ?, ?, ?, ?, ?, NOW())`,
@@ -6180,15 +6261,41 @@ app.delete('/api/doctor-visits/batch/:batch_id', async (req, res) => {
 });
 
 
-//Incident Reports API
-const generateId = (prefix) => `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-// ----------------================================------------------
-// 1. INCIDENT REPORTS API
-// ----------------================================------------------
+// Incident Reports API
 
-// ----------------================================------------------
+// Helper function to generate daily resetting incremental IDs (e.g., INC-100226001)
+const generateDailyId = async (prefix, tableName, idColumn) => {
+    const now = new Date();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const dd = String(now.getDate()).padStart(2, '0');
+    const yy = String(now.getFullYear()).slice(-2);
+    const dateStr = `${mm}${dd}${yy}`;
+
+    const searchPattern = `${prefix}-${dateStr}%`;
+    const [rows] = await pool.query(
+        `SELECT ${idColumn} FROM ${tableName} WHERE ${idColumn} LIKE ? ORDER BY ${idColumn} DESC LIMIT 1`,
+        [searchPattern]
+    );
+
+    let sequence = 1;
+    if (rows.length > 0) {
+        const lastId = rows[0][idColumn];
+        const lastSeq = parseInt(lastId.slice(-3), 10);
+        if (!isNaN(lastSeq)) {
+            sequence = lastSeq + 1;
+        }
+    }
+
+    const seqStr = String(sequence).padStart(3, '0');
+    return `${prefix}-${dateStr}${seqStr}`;
+};
+
+// Standard fallback helper for non-daily unique IDs
+const generateId = (prefix) => `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+// ----------------================================================--
 // 1. INCIDENT REPORTS API
-// ----------------================================------------------
+// ----------------================================================--
 
 // GET: Fetch Incident Reports with student, program, and nurse details
 app.get('/api/incident-reports', async (req, res) => {
@@ -6259,7 +6366,8 @@ app.post('/api/incident-reports', async (req, res) => {
             return res.status(400).json({ success: false, message: 'Missing required fields' });
         }
 
-        const incident_id = generateId('INC');
+        // Generate daily formatted ID: INC-MMDDYY001
+        const incident_id = await generateDailyId('INC', 'incident_reports', 'incident_id');
 
         const insertQuery = `
             INSERT INTO incident_reports 
@@ -6330,7 +6438,7 @@ app.post('/api/incident-reports', async (req, res) => {
             });
         }
 
-        res.json({ success: true, message: 'Incident report created successfully' });
+        res.json({ success: true, message: 'Incident report created successfully', incident_id });
     } catch (error) {
         console.error('Error creating incident report:', error);
         res.status(500).json({ success: false, message: 'Failed to create report' });
@@ -6339,7 +6447,7 @@ app.post('/api/incident-reports', async (req, res) => {
 
 // ----------------================================================--
 // 2. EMERGENCY HOTLINE DIRECTORY API
-// ----------------================================------------------
+// ----------------================================================--
 
 // GET: All Hotlines
 app.get('/api/emergency-hotlines', async (req, res) => {
@@ -6993,7 +7101,7 @@ app.get('/doctor-visits/clinicLogs&Records', async (req, res) => {
         doc_ast.assessment_id,
         doc_ast.clinical_findings,
         doc_ast.diagnosis,
-        doc_ast.treatment_assessment,
+        doc_ast.treatment_recommendations,
         doc_ast.assessment_date
       FROM doctor_appointments da
       JOIN doctor_appointment_students das ON da.appointment_id = das.appointment_id
