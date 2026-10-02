@@ -17,8 +17,8 @@ import {
 import HealthTipsModal from '../../components/student/HealthTips';
 import '../../styles/student/StudentDashboard.css';
 
-const API_BASE = 'https://localhost-cms.onrender.com/api';
-const BASE_URL = 'https://localhost-cms.onrender.com';
+const API_BASE = 'http://localhost:3001/api';
+const BASE_URL = 'http://localhost:3001';
 
 const StudentDashboard = () => {
   const navigate = useNavigate();
@@ -148,18 +148,18 @@ const StudentDashboard = () => {
       case 'approved':
       case 'issued':
       case 'attended':
-        return 'badge badge-success';
+        return 'badge-sd badge-success-sd';
       case 'pending':
       case 'submitted':
-        return 'badge badge-warning';
+        return 'badge-sd badge-warning-sd';
       case 'incomplete':
       case 'rejected':
       case 'resubmit':
       case 'missed':
       case 'not submitted':
-        return 'badge badge-danger';
+        return 'badge-sd badge-danger-sd';
       default:
-        return 'badge badge-default';
+        return 'badge-sd badge-default-sd';
     }
   };
 
@@ -184,170 +184,131 @@ const StudentDashboard = () => {
 
   if (loading || !studentId) {
     return (
-      <div className="dashboard-loading">
-        <div className="loading-spinner">Loading your student health dashboard...</div>
+      <div className="loading-wrapper-sd">
+        <div className="loading-spinner-sd">Loading your student health dashboard...</div>
       </div>
     );
   }
 
-  const viewAllStyle = {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '4px',
-    fontSize: '0.875rem',
-    color: '#0d6efd',
-    textDecoration: 'none',
-    fontWeight: '600',
-    marginLeft: 'auto'
-  };
-
   return (
-    <div className="dashboard-wrapper">
+    <div className="wrapper-sd">
       
       {/* Header & Health Tips Banner */}
-      <header className="dashboard-header">
-        <div className="header-info">
-          <h1>Student Health Dashboard</h1>
+      <header className="header-sd">
+        <div className="header-info-sd">
+          <h1>Student Dashboard</h1>
           <p>Student ID: <span>{studentId}</span></p>
         </div>
 
-        <div className="health-tips-card">
-          <div className="tip-content">
-            <div className="tip-header">
-              <span className="tip-category">{dailyHealthTips[currentTipIndex].category}</span>
-              <span className="tip-title">{dailyHealthTips[currentTipIndex].title}</span>
+        <div className="tips-card-sd">
+          <div className="tip-content-sd">
+            <div className="tip-header-sd">
+              <span className="tip-category-sd">{dailyHealthTips[currentTipIndex].category}</span>
+              <span className="tip-title-sd">{dailyHealthTips[currentTipIndex].title}</span>
             </div>
-            <p className="tip-text">{dailyHealthTips[currentTipIndex].text}</p>
+            <p className="tip-text-sd">{dailyHealthTips[currentTipIndex].text}</p>
           </div>
-          <div className="tip-actions">
+          <div className="tip-actions-sd">
             <button 
               onClick={() => setCurrentTipIndex((prev) => (prev + 1) % dailyHealthTips.length)}
-              className="btn-icon-secondary"
+              className="btn-icon-sec-sd"
               title="Next Tip"
               aria-label="Next Tip"
             >
-              <ChevronRight size={18} />
+              <ChevronRight size={16} />
             </button>
             <button 
               onClick={() => setIsTipsOpen(true)}
-              className="btn-icon-primary"
+              className="btn-icon-pri-sd"
               title="All Tips"
               aria-label="All Health Tips"
             >
-              <Lightbulb size={18} />
+              <Lightbulb size={16} />
             </button>
           </div>
         </div>
       </header>
 
-      {error && <div className="alert-error"><AlertCircle size={18} /> {error}</div>}
+      {error && <div className="alert-error-sd"><AlertCircle size={16} /> {error}</div>}
 
       {/* QUICK ACTION BUTTONS */}
-      <section className="quick-actions-bar" style={{ display: 'flex', gap: '16px', marginBottom: '20px', flexWrap: 'wrap' }}>
+      <section className="quick-actions-bar-sd">
         <button 
-          className="quick-action-card"
+          className="quick-action-card-sd"
           onClick={() => handleQuickRequest('excuse')}
-          style={{
-            flex: '1',
-            minWidth: '220px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px',
-            padding: '14px 18px',
-            backgroundColor: '#ffffff',
-            border: '1px solid #e0e6ed',
-            borderRadius: '10px',
-            boxShadow: '0 2px 6px rgba(0,0,0,0.04)',
-            cursor: 'pointer',
-            textAlign: 'left'
-          }}
         >
-          <div style={{ backgroundColor: '#eef2ff', padding: '10px', borderRadius: '8px', color: '#4f46e5' }}>
-            <FileSpreadsheet size={22} />
+          <div className="quick-action-icon-sd excuse-icon-sd">
+            <FileSpreadsheet size={18} />
           </div>
-          <div>
-            <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '600' }}>Request Excuse Slip</h4>
-            <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: '#64748b' }}>Apply for class excuse slip</p>
+          <div className="quick-action-text-sd">
+            <h4 className="quick-action-title-sd">Request Excuse Slip</h4>
+            <p className="quick-action-sub-sd">Apply for class excuse slip</p>
           </div>
-          <PlusCircle size={18} style={{ marginLeft: 'auto', color: '#4f46e5' }} />
+          <PlusCircle size={16} className="quick-action-add-sd excuse-add-sd" />
         </button>
 
         <button 
-          className="quick-action-card"
+          className="quick-action-card-sd"
           onClick={() => handleQuickRequest('referral')}
-          style={{
-            flex: '1',
-            minWidth: '220px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px',
-            padding: '14px 18px',
-            backgroundColor: '#ffffff',
-            border: '1px solid #e0e6ed',
-            borderRadius: '10px',
-            boxShadow: '0 2px 6px rgba(0,0,0,0.04)',
-            cursor: 'pointer',
-            textAlign: 'left'
-          }}
         >
-          <div style={{ backgroundColor: '#ecfdf5', padding: '10px', borderRadius: '8px', color: '#059669' }}>
-            <Stethoscope size={22} />
+          <div className="quick-action-icon-sd referral-icon-sd">
+            <Stethoscope size={18} />
           </div>
-          <div>
-            <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '600' }}>Request Referral Slip</h4>
-            <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: '#059669' }}>Request lab / hospital referral</p>
+          <div className="quick-action-text-sd">
+            <h4 className="quick-action-title-sd">Request Referral Slip</h4>
+            <p className="quick-action-sub-sd">Request lab / hospital referral</p>
           </div>
-          <PlusCircle size={18} style={{ marginLeft: 'auto', color: '#059669' }} />
+          <PlusCircle size={16} className="quick-action-add-sd referral-add-sd" />
         </button>
       </section>
 
       {/* Main Grid Layout */}
-      <main className="dashboard-grid">
+      <main className="grid-sd">
 
         {/* 1. OVERVIEW: Clinic Visits & Medicine Dispensation */}
-        <section className="card-section col-span-2">
-          <div className="card-header" style={{ display: 'flex', alignItems: 'center' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <h2><Activity size={20} /> Recent Clinic Visits & Dispensations</h2>
-              <span className="meta-count">{visitsData.clinic_visits.length} Recent</span>
+        <section className="card-section-sd col-span-2-sd">
+          <div className="card-header-sd">
+            <div className="card-title-group-sd">
+              <h2><Activity size={18} /> Recent Clinic Visits & Dispensations</h2>
+              <span className="meta-count-sd">{visitsData.clinic_visits.length} Recent</span>
             </div>
-            <Link to="/ClinicLogsAndRecords" style={viewAllStyle} className="view-all-link">
-              View All <ArrowRight size={16} />
+            <Link to="/ClinicLogsAndRecords" className="view-all-link-sd">
+              View All <ArrowRight size={14} />
             </Link>
           </div>
 
           {visitsData.clinic_visits.length === 0 && visitsData.direct_dispensations.length === 0 ? (
-            <p className="empty-state">No recent clinic visits or dispensations recorded.</p>
+            <p className="empty-state-sd">No recent clinic visits or dispensations recorded.</p>
           ) : (
-            <div className="card-content-stack">
+            <div className="card-content-stack-sd">
               {visitsData.clinic_visits.slice(0, 2).map((visit) => (
-                <div key={visit.visit_id} className="visit-item">
-                  <div className="visit-item-header">
-                    <span className="visit-date">
+                <div key={visit.visit_id} className="visit-item-sd">
+                  <div className="visit-item-header-sd">
+                    <span className="visit-date-sd">
                       📅 Date: {formatDate(visit.visit_date)} ({visit.time_in || 'N/A'} - {visit.time_out || 'N/A'})
                     </span>
                   </div>
 
-                  <div className="vitals-grid">
-                    <div className="vital-box">
-                      <span className="vital-label">Temp</span>
-                      <span className="vital-value">{visit.vitals?.temperature || 'N/A'} °C</span>
+                  <div className="vitals-grid-sd">
+                    <div className="vital-box-sd">
+                      <span className="vital-label-sd">Temp</span>
+                      <span className="vital-value-sd">{visit.vitals?.temperature || 'N/A'} °C</span>
                     </div>
-                    <div className="vital-box">
-                      <span className="vital-label">Blood Pressure</span>
-                      <span className="vital-value">{visit.vitals?.blood_pressure || 'N/A'}</span>
+                    <div className="vital-box-sd">
+                      <span className="vital-label-sd">BP</span>
+                      <span className="vital-value-sd">{visit.vitals?.blood_pressure || 'N/A'}</span>
                     </div>
-                    <div className="vital-box">
-                      <span className="vital-label">Pulse Rate</span>
-                      <span className="vital-value">{visit.vitals?.pulse_rate || 'N/A'} bpm</span>
+                    <div className="vital-box-sd">
+                      <span className="vital-label-sd">Pulse</span>
+                      <span className="vital-value-sd">{visit.vitals?.pulse_rate || 'N/A'} bpm</span>
                     </div>
-                    <div className="vital-box">
-                      <span className="vital-label">Resp. Rate</span>
-                      <span className="vital-value">{visit.vitals?.respiratory_rate || 'N/A'} bpm</span>
+                    <div className="vital-box-sd">
+                      <span className="vital-label-sd">Resp</span>
+                      <span className="vital-value-sd">{visit.vitals?.respiratory_rate || 'N/A'} bpm</span>
                     </div>
                   </div>
 
-                  <div className="visit-details">
+                  <div className="visit-details-sd">
                     <p>
                       <strong>Complaint:</strong>{' '}
                       {visit.complaint_name
@@ -366,13 +327,13 @@ const StudentDashboard = () => {
                     )}
                   </div>
 
-                  {/* Dispensed Medicines with Medicine Name */}
+                  {/* Dispensed Medicines */}
                   {visit.dispensed_medicines?.length > 0 && (
-                    <div className="meds-list">
-                      <span className="meds-title">Dispensed Medicine:</span>
-                      <div className="meds-tags">
+                    <div className="meds-list-sd">
+                      <span className="meds-title-sd">Dispensed Medicine:</span>
+                      <div className="meds-tags-sd">
                         {visit.dispensed_medicines.map((med) => (
-                          <span key={med.dispense_id} className="tag-pill">
+                          <span key={med.dispense_id} className="tag-pill-sd">
                             💊 <strong>{med.medicine_name || med.generic_name || med.brand_name || 'Medicine'}</strong> — {med.dosage_value} {med.dosage_unit || 'pcs'}
                           </span>
                         ))}
@@ -382,19 +343,19 @@ const StudentDashboard = () => {
                 </div>
               ))}
 
-              {/* Direct Dispensations with Medicine Name */}
+              {/* Direct Dispensations */}
               {visitsData.direct_dispensations.length > 0 && (
-                <div className="direct-dispense-section">
-                  <h3 className="section-subtitle">Direct Medicine Dispensations</h3>
-                  <div className="direct-grid">
+                <div className="direct-dispense-sec-sd">
+                  <h3 className="section-subtitle-sd">Direct Medicine Dispensations</h3>
+                  <div className="direct-grid-sd">
                     {visitsData.direct_dispensations.slice(0, 2).map((direct) => (
-                      <div key={direct.direct_dispense_id} className="direct-item">
-                        <div className="direct-item-row">
+                      <div key={direct.direct_dispense_id} className="direct-item-sd">
+                        <div className="direct-item-row-sd">
                           <span>
                             💊 <strong>{direct.medicine_name || direct.generic_name || direct.brand_name || 'Medicine'}</strong>: {direct.dosage_consumption_unit_value} {direct.dosage_consumption_unit_of_measure || 'pcs'}
                           </span>
                         </div>
-                        <p className="direct-timestamp">Dispensed: {formatDateTime(direct.dispensed_at)}</p>
+                        <p className="direct-timestamp-sd">Dispensed: {formatDateTime(direct.dispensed_at)}</p>
                       </div>
                     ))}
                   </div>
@@ -405,35 +366,35 @@ const StudentDashboard = () => {
         </section>
 
         {/* 2. OVERVIEW: Requirements & Status */}
-        <section className="card-section">
-          <div className="card-header" style={{ display: 'flex', alignItems: 'center' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <h2><ClipboardList size={20} /> Requirements Overview</h2>
+        <section className="card-section-sd">
+          <div className="card-header-sd">
+            <div className="card-title-group-sd">
+              <h2><ClipboardList size={18} /> Requirements</h2>
               {requirementsData.total_incomplete > 0 && (
-                <span className="badge badge-warning">{requirementsData.total_incomplete} Incomplete/Pending</span>
+                <span className="badge-sd badge-warning-sd">{requirementsData.total_incomplete} Incomplete</span>
               )}
             </div>
-            <Link to="/MyRequirements" style={viewAllStyle} className="view-all-link">
-              View All <ArrowRight size={16} />
+            <Link to="/MyRequirements" className="view-all-link-sd">
+              View All <ArrowRight size={14} />
             </Link>
           </div>
 
           {requirementsData.all_requirements.length === 0 ? (
-            <p className="empty-state">No requirements assigned.</p>
+            <p className="empty-state-sd">No requirements assigned.</p>
           ) : (
-            <div className="card-content-scroll">
+            <div className="card-content-scroll-sd">
               {requirementsData.all_requirements.slice(0, 3).map((req, idx) => (
-                <div key={idx} className="item-card">
-                  <div className="item-card-row">
-                    <span className="item-title">{req.requirement_name}</span>
+                <div key={idx} className="item-card-sd">
+                  <div className="item-card-row-sd">
+                    <span className="item-title-sd">{req.requirement_name}</span>
                     <span className={getStatusBadgeClass(req.status)}>{req.status}</span>
                   </div>
 
-                  <p className="item-subtext">Deadline: <span>{formatDate(req.submission_deadline)}</span></p>
+                  <p className="item-subtext-sd">Deadline: <span>{formatDate(req.submission_deadline)}</span></p>
 
                   {req.nurse_remarks && (
-                    <div className="item-remarks">
-                      <strong>Nurse Remarks:</strong> {req.nurse_remarks}
+                    <div className="item-remarks-sd">
+                      <strong>Remarks:</strong> {req.nurse_remarks}
                     </div>
                   )}
 
@@ -442,11 +403,11 @@ const StudentDashboard = () => {
                       href={getFileUrl(req.file_url)} 
                       target="_blank" 
                       rel="noopener noreferrer" 
-                      className="row-action-btn"
+                      className="row-action-btn-sd"
                       title="View Submitted Document"
                       aria-label="View Submitted Document"
                     >
-                      <Eye size={16} /> View Submitted File
+                      <Eye size={14} />
                     </a>
                   )}
                 </div>
@@ -456,31 +417,31 @@ const StudentDashboard = () => {
         </section>
 
         {/* 3. OVERVIEW: Document Requests Updates */}
-        <section className="card-section">
-          <div className="card-header" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <h2><FileText size={20} /> Document Request Updates</h2>
+        <section className="card-section-sd">
+          <div className="card-header-sd">
+            <div className="card-title-group-sd">
+              <h2><FileText size={18} /> Request Updates</h2>
             </div>
-            <div className="tab-group" style={{ margin: 0 }}>
+            <div className="tab-group-sd">
               {['all', 'excuse', 'referral'].map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveDocTab(tab)}
-                  className={`tab-btn ${activeDocTab === tab ? 'active' : ''}`}
+                  className={`tab-btn-sd ${activeDocTab === tab ? 'active-sd' : ''}`}
                 >
                   {tab}
                 </button>
               ))}
             </div>
-            <Link to="/RequestModule" style={viewAllStyle} className="view-all-link">
-              View All <ArrowRight size={16} />
+            <Link to="/RequestModule" className="view-all-link-sd">
+              View All <ArrowRight size={14} />
             </Link>
           </div>
 
           {documentRequestsData.recent_updates.length === 0 ? (
-            <p className="empty-state">No document request updates found.</p>
+            <p className="empty-state-sd">No document request updates found.</p>
           ) : (
-            <div className="card-content-scroll">
+            <div className="card-content-scroll-sd">
               {documentRequestsData.recent_updates
                 .filter((doc) => {
                   if (activeDocTab === 'excuse') return doc.request_type === 'Excuse Slip';
@@ -489,33 +450,31 @@ const StudentDashboard = () => {
                 })
                 .slice(0, 3)
                 .map((doc) => (
-                  <div key={doc.request_id} className="item-card">
-                    <div className="item-card-row">
-                      <span className="item-title">{doc.request_type}</span>
+                  <div key={doc.request_id} className="item-card-sd">
+                    <div className="item-card-row-sd">
+                      <span className="item-title-sd">{doc.request_type}</span>
                       <span className={getStatusBadgeClass(doc.status)}>{doc.status || 'Pending'}</span>
                     </div>
 
-                    <p className="item-subtext"><strong>Reason:</strong> {doc.reason_for_excuse || doc.reason_for_referral || 'N/A'}</p>
+                    <p className="item-subtext-sd"><strong>Reason:</strong> {doc.reason_for_excuse || doc.reason_for_referral || 'N/A'}</p>
 
                     {doc.valid_absence_start && (
-                      <p className="item-subtext">Absence: {formatDate(doc.valid_absence_start)} to {formatDate(doc.valid_absence_end)}</p>
+                      <p className="item-subtext-sd">Absence: {formatDate(doc.valid_absence_start)} to {formatDate(doc.valid_absence_end)}</p>
                     )}
 
-                    <div className="item-card-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
-                      <span className="item-subtext">Requested: {formatDate(doc.created_at)}</span>
+                    <div className="item-card-footer-sd">
+                      <span className="item-subtext-sd">Req: {formatDate(doc.created_at)}</span>
 
-                      {/* View Issued Slip Button */}
                       {doc.issued_slip_url ? (
                         <a 
                           href={getFileUrl(doc.issued_slip_url)} 
                           target="_blank" 
                           rel="noopener noreferrer" 
-                          className="row-action-btn"
-                          style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 8px', borderRadius: '4px', backgroundColor: '#eef2ff', color: '#4f46e5', textDecoration: 'none', fontSize: '0.8rem', fontWeight: '500' }}
+                          className="doc-action-btn-sd primary-doc-btn-sd"
                           title={`View Issued ${doc.request_type}`}
                           aria-label={`View Issued ${doc.request_type}`}
                         >
-                          <Eye size={14} /> View Issued Slip
+                          <Eye size={12} /> View Issued
                         </a>
                       ) : (
                         doc.student_proof_url && (
@@ -523,12 +482,11 @@ const StudentDashboard = () => {
                             href={getFileUrl(doc.student_proof_url)} 
                             target="_blank" 
                             rel="noopener noreferrer" 
-                            className="row-action-btn"
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 8px', borderRadius: '4px', backgroundColor: '#f3f4f6', color: '#374151', textDecoration: 'none', fontSize: '0.8rem' }}
+                            className="doc-action-btn-sd secondary-doc-btn-sd"
                             title="View Attached Proof"
                             aria-label="View Attached Proof"
                           >
-                            <Eye size={14} /> View Proof
+                            <Eye size={12} /> View Proof
                           </a>
                         )
                       )}
@@ -540,34 +498,34 @@ const StudentDashboard = () => {
         </section>
 
         {/* 4. OVERVIEW: Upcoming Health Screenings */}
-        <section className="card-section">
-          <div className="card-header" style={{ display: 'flex', alignItems: 'center' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <h2><FileCheck size={20} /> Upcoming Health Screenings</h2>
+        <section className="card-section-sd">
+          <div className="card-header-sd">
+            <div className="card-title-group-sd">
+              <h2><FileCheck size={18} /> Health Screenings</h2>
             </div>
-            <Link to="/ClinicLogsAndRecords" style={viewAllStyle} className="view-all-link">
-              View All <ArrowRight size={16} />
+            <Link to="/ClinicLogsAndRecords" className="view-all-link-sd">
+              View All <ArrowRight size={14} />
             </Link>
           </div>
 
           {healthScreenings.length === 0 ? (
-            <p className="empty-state">No upcoming health screenings scheduled.</p>
+            <p className="empty-state-sd">No upcoming health screenings scheduled.</p>
           ) : (
-            <div className="card-content-scroll">
+            <div className="card-content-scroll-sd">
               {healthScreenings.slice(0, 3).map((screening) => (
-                <div key={screening.screening_schedule_id} className="item-card info-card">
-                  <div className="item-card-row">
-                    <span className="item-title">{screening.title}</span>
-                    <span className="badge badge-info">{screening.screening_type || 'General'}</span>
+                <div key={screening.screening_schedule_id} className="item-card-sd info-card-sd">
+                  <div className="item-card-row-sd">
+                    <span className="item-title-sd">{screening.title}</span>
+                    <span className="badge-sd badge-info-sd">{screening.screening_type || 'General'}</span>
                   </div>
 
-                  <div className="item-subtext">
-                    <p>📅 Date: {formatDate(screening.scheduled_date)}</p>
-                    <p>⏰ Time: {screening.start_time} - {screening.end_time}</p>
+                  <div className="item-subtext-sd">
+                    <p>📅 {formatDate(screening.scheduled_date)}</p>
+                    <p>⏰ {screening.start_time} - {screening.end_time}</p>
                   </div>
 
                   {screening.announcement && (
-                    <p className="item-announcement">"{screening.announcement}"</p>
+                    <p className="item-announcement-sd">"{screening.announcement}"</p>
                   )}
                 </div>
               ))}
@@ -576,41 +534,41 @@ const StudentDashboard = () => {
         </section>
 
         {/* 5. OVERVIEW: Doctor Visit Schedule */}
-        <section className="card-section">
-          <div className="card-header" style={{ display: 'flex', alignItems: 'center' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <h2><Stethoscope size={20} /> Doctor Visit Schedule</h2>
+        <section className="card-section-sd">
+          <div className="card-header-sd">
+            <div className="card-title-group-sd">
+              <h2><Stethoscope size={18} /> Doctor Schedule</h2>
             </div>
-            <Link to="/ClinicLogsAndRecords" style={viewAllStyle} className="view-all-link">
-              View All <ArrowRight size={16} />
+            <Link to="/ClinicLogsAndRecords" className="view-all-link-sd">
+              View All <ArrowRight size={14} />
             </Link>
           </div>
 
           {doctorAppointments.length === 0 ? (
-            <p className="empty-state">No upcoming doctor appointments scheduled.</p>
+            <p className="empty-state-sd">No upcoming doctor appointments scheduled.</p>
           ) : (
-            <div className="card-content-scroll">
+            <div className="card-content-scroll-sd">
               {doctorAppointments.slice(0, 3).map((appt) => (
-                <div key={appt.appointment_id} className="item-card accent-card">
-                  <div className="item-card-row">
-                    <span className="item-title">{appt.title || 'Doctor Consultation'}</span>
+                <div key={appt.appointment_id} className="item-card-sd accent-card-sd">
+                  <div className="item-card-row-sd">
+                    <span className="item-title-sd">{appt.title || 'Doctor Consultation'}</span>
                     <span className={getStatusBadgeClass(appt.attendance_status || appt.appointment_status)}>
                       {appt.attendance_status || appt.appointment_status || 'Scheduled'}
                     </span>
                   </div>
 
-                  <div className="item-subtext">
+                  <div className="item-subtext-sd">
                     <p>🕒 Start: {formatDateTime(appt.start_time)}</p>
                     <p>🕒 End: {formatDateTime(appt.end_time)}</p>
                   </div>
 
                   {appt.announcement && (
-                    <div className="item-announcement">
-                      <strong>Announcement:</strong> {appt.announcement}
+                    <div className="item-announcement-sd">
+                      <strong>Note:</strong> {appt.announcement}
                     </div>
                   )}
 
-                  {appt.notes && <p className="item-notes">Notes: {appt.notes}</p>}
+                  {appt.notes && <p className="item-notes-sd">Notes: {appt.notes}</p>}
                 </div>
               ))}
             </div>

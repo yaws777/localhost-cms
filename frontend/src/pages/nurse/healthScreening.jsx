@@ -6,7 +6,7 @@ import {
 import jsQR from 'jsqr';
 import '../../styles/nurse/HealthScreening.css';
 
-const API_BASE = 'https://localhost-cms.onrender.com/api';
+const API_BASE = 'http://localhost:3001/api';
 
 // Helper to get today's local date in YYYY-MM-DD format
 const getTodayString = () => {

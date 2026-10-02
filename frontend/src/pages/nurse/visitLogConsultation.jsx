@@ -189,7 +189,7 @@ const VisitLogConsultation = () => {
 
     const fetchComplaints = useCallback(async () => {
         try {
-            const res = await fetch('https://localhost-cms.onrender.com/api/chief-complaints');
+            const res = await fetch('http://localhost:3001/api/chief-complaints');
             const data = await res.json();
             setComplaints(Array.isArray(data) ? data : []);
         } catch (err) {
@@ -200,7 +200,7 @@ const VisitLogConsultation = () => {
 
     const fetchBatches = useCallback(async () => {
         try {
-            const res = await fetch('https://localhost-cms.onrender.com/api/medicines/batches');
+            const res = await fetch('http://localhost:3001/api/medicines/batches');
             const data = await res.json();
             setBatches(Array.isArray(data) ? data : []);
         } catch (err) {
@@ -211,7 +211,7 @@ const VisitLogConsultation = () => {
 
     const fetchTodayVisits = useCallback(async () => {
         try {
-            const res = await fetch('https://localhost-cms.onrender.com/api/clinic-visits');
+            const res = await fetch('http://localhost:3001/api/clinic-visits');
             const data = await res.json();
             if (Array.isArray(data)) {
                 const todayOnly = data.filter(v => {
@@ -229,7 +229,7 @@ const VisitLogConsultation = () => {
 
     const fetchAllVisits = useCallback(async () => {
         try {
-            const res = await fetch('https://localhost-cms.onrender.com/api/clinic-visits');
+            const res = await fetch('http://localhost:3001/api/clinic-visits');
             const data = await res.json();
             setAllVisits(Array.isArray(data) ? data : []);
         } catch (err) {
@@ -292,7 +292,7 @@ const VisitLogConsultation = () => {
         isProcessingScan.current = true;
 
         try {
-            const res = await fetch(`https://localhost-cms.onrender.com/api/students/search?query=${encodeURIComponent(studentId.trim())}`);
+            const res = await fetch(`http://localhost:3001/api/students/search?query=${encodeURIComponent(studentId.trim())}`);
             const data = await res.json();
             if (Array.isArray(data) && data.length > 0) {
                 stopCameraScan();
@@ -315,7 +315,7 @@ const VisitLogConsultation = () => {
             return;
         }
         try {
-            const res = await fetch(`https://localhost-cms.onrender.com/api/students/search?query=${val}`);
+            const res = await fetch(`http://localhost:3001/api/students/search?query=${val}`);
             const data = await res.json();
             setStudents(Array.isArray(data) ? data : []);
         } catch (err) {
@@ -357,7 +357,7 @@ const VisitLogConsultation = () => {
         }
 
         try {
-            const res = await fetch(`https://localhost-cms.onrender.com/api/clinic-visits/${visitId}/timeout`, {
+            const res = await fetch(`http://localhost:3001/api/clinic-visits/${visitId}/timeout`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ time_out: selectedTime })
@@ -463,7 +463,7 @@ const VisitLogConsultation = () => {
         };
 
         try {
-            const res = await fetch('https://localhost-cms.onrender.com/api/clinic-visits', {
+            const res = await fetch('http://localhost:3001/api/clinic-visits', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(checkInPayload)
@@ -630,7 +630,7 @@ const VisitLogConsultation = () => {
         };
 
         try {
-            const res = await fetch(`https://localhost-cms.onrender.com/api/clinic-visits/${documentingVisit.visit_id}`, {
+            const res = await fetch(`http://localhost:3001/api/clinic-visits/${documentingVisit.visit_id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(submissionPayload)
@@ -708,16 +708,16 @@ const VisitLogConsultation = () => {
     };
 
     return (
-        <div className="consultation-wrapper">
-            <div className="consultation-header-panel">
-                <div className="header-title-container">
-                    <div className="header-text-block">
+        <div className="consultation-wrapper-vlc">
+            <div className="consultation-header-panel-vlc">
+                <div className="header-title-container-vlc">
+                    <div className="header-text-block-vlc">
                         <h2>Today's Clinic Visit Management</h2>
                         <p>Register check-ins, record vital signs, dispense medicine, and handle time-outs for today's visits.</p>
                     </div>
                     <button 
                         type="button" 
-                        className="view-logs-header-btn" 
+                        className="view-logs-header-btn-vlc" 
                         onClick={handleOpenAllLogs}
                         title="View All Clinic Visit Logs"
                     >
@@ -728,32 +728,32 @@ const VisitLogConsultation = () => {
             </div>
 
             {!searchMode ? (
-                <div className="entry-option-card">
+                <div className="entry-option-card-vlc">
                     <h3>Register New Clinic Visit Entry</h3>
                     <p>Select how you would like to locate the student record:</p>
-                    <div className="entry-buttons-group">
-                        <button className="entry-btn mode-search-btn" onClick={() => setSearchMode('search')}>
+                    <div className="entry-buttons-group-vlc">
+                        <button className="entry-btn-vlc mode-search-btn-vlc" onClick={() => setSearchMode('search')}>
                             <Search size={20} />
                             <span>Search Student</span>
                         </button>
-                        <button className="entry-btn mode-qr-btn" onClick={() => setSearchMode('qr')}>
+                        <button className="entry-btn-vlc mode-qr-btn-vlc" onClick={() => setSearchMode('qr')}>
                             <QrCode size={20} />
                             <span>Scan QR Code</span>
                         </button>
                     </div>
                 </div>
             ) : (
-                <div className="search-card-container">
-                    <div className="search-card-header">
-                        <button className="back-option-btn" onClick={() => { setSearchMode(null); setStudents([]); setSearchQuery(''); stopCameraScan(); }}>
+                <div className="search-card-container-vlc">
+                    <div className="search-card-header-vlc">
+                        <button className="back-option-btn-vlc" onClick={() => { setSearchMode(null); setStudents([]); setSearchQuery(''); stopCameraScan(); }}>
                             ← Change Option
                         </button>
                         <span>Mode: <strong>{searchMode === 'search' ? 'Search Bar' : 'QR Scanner'}</strong></span>
                     </div>
 
                     {searchMode === 'search' ? (
-                        <div className="search-input-inner">
-                            <Search className="search-inside-icon" size={18} />
+                        <div className="search-input-inner-vlc">
+                            <Search className="search-inside-icon-vlc" size={18} />
                             <input
                                 type="text"
                                 autoFocus
@@ -763,9 +763,9 @@ const VisitLogConsultation = () => {
                             />
                         </div>
                     ) : (
-                        <div className="qr-scanner-card-wrapper">
-                            <form onSubmit={handleQrScanSubmit} className="qr-scanner-input-container">
-                                <QrCode size={22} className="qr-icon-accent" />
+                        <div className="qr-scanner-card-wrapper-vlc">
+                            <form onSubmit={handleQrScanSubmit} className="qr-scanner-input-container-vlc">
+                                <QrCode size={22} className="qr-icon-accent-vlc" />
                                 <input
                                     type="text"
                                     autoFocus
@@ -773,15 +773,15 @@ const VisitLogConsultation = () => {
                                     value={qrCodeInput}
                                     onChange={(e) => setQrCodeInput(e.target.value)}
                                 />
-                                <button type="submit" className="qr-submit-btn">
+                                <button type="submit" className="qr-submit-btn-vlc">
                                     <Camera size={16} />
                                     <span>Scan QR</span>
                                 </button>
                             </form>
 
                             {cameraPermissionError && (
-                                <div className="camera-denied-guide">
-                                    <div className="guide-title">
+                                <div className="camera-denied-guide-vlc">
+                                    <div className="guide-title-vlc">
                                         <AlertTriangle size={20} />
                                         <span>{cameraPermissionError}</span>
                                     </div>
@@ -797,13 +797,13 @@ const VisitLogConsultation = () => {
                     )}
 
                     {students.length > 0 && (
-                        <div className="search-results-overlay-panel">
+                        <div className="search-results-overlay-panel-vlc">
                             {students.map((st) => (
-                                <div key={st.student_id} className="search-result-row" onClick={() => handleSelectStudent(st)}>
-                                    <div className="result-avatar"><User size={16} /></div>
-                                    <div className="result-info">
-                                        <span className="result-name">{st.first_name} {st.last_name}</span>
-                                        <span className="result-meta">ID: {st.student_id} | {st.program_id || 'No Program'} - Year {st.year_level}</span>
+                                <div key={st.student_id} className="search-result-row-vlc" onClick={() => handleSelectStudent(st)}>
+                                    <div className="result-avatar-vlc"><User size={16} /></div>
+                                    <div className="result-info-vlc">
+                                        <span className="result-name-vlc">{st.first_name} {st.last_name}</span>
+                                        <span className="result-meta-vlc">ID: {st.student_id} | {st.program_id || 'No Program'} - Year {st.year_level}</span>
                                     </div>
                                 </div>
                             ))}
@@ -813,17 +813,17 @@ const VisitLogConsultation = () => {
             )}
 
             {isCameraScanning && searchMode === 'qr' && (
-                <div className="modal-viewport-backdrop">
-                    <div className="modal-body-container confirm-modal-small">
-                        <div className="modal-header-accent">
+                <div className="modal-viewport-backdrop-vlc">
+                    <div className="modal-body-container-vlc confirm-modal-small-vlc">
+                        <div className="modal-header-accent-vlc">
                             <h3>Scan Student QR Code</h3>
-                            <button className="modal-dismiss-btn" onClick={stopCameraScan}><XCircle size={22} /></button>
+                            <button className="modal-dismiss-btn-vlc" onClick={stopCameraScan}><XCircle size={22} /></button>
                         </div>
-                        <div className="confirm-modal-body">
-                            <video ref={videoRef} className="camera-preview-video" muted playsInline />
-                            <p className="confirm-notice">Point camera directly at student's QR code to scan automatically.</p>
-                            <div className="modal-action-footer">
-                                <button type="button" className="btn-cancel-action" onClick={stopCameraScan}>Cancel Scanner</button>
+                        <div className="confirm-modal-body-vlc">
+                            <video ref={videoRef} className="camera-preview-video-vlc" muted playsInline />
+                            <p className="confirm-notice-vlc">Point camera directly at student's QR code to scan automatically.</p>
+                            <div className="modal-action-footer-vlc">
+                                <button type="button" className="btn-cancel-action-vlc" onClick={stopCameraScan}>Cancel Scanner</button>
                             </div>
                         </div>
                     </div>
@@ -831,27 +831,27 @@ const VisitLogConsultation = () => {
             )}
 
             {showConfirmModal && selectedStudent && (
-                <div className="modal-viewport-backdrop">
-                    <div className="modal-body-container confirm-modal-small">
-                        <div className="modal-header-accent" style={{ backgroundColor: previousVisitsCount > 0 ? '#b45309' : undefined }}>
+                <div className="modal-viewport-backdrop-vlc">
+                    <div className="modal-body-container-vlc confirm-modal-small-vlc">
+                        <div className="modal-header-accent-vlc" style={{ backgroundColor: previousVisitsCount > 0 ? '#b45309' : undefined }}>
                             <h3>{previousVisitsCount > 0 ? 'Multiple Visit Authorization' : 'Confirm Student Check-In'}</h3>
-                            <button className="modal-dismiss-btn" onClick={handleDenyVisitEntry}><XCircle size={22} /></button>
+                            <button className="modal-dismiss-btn-vlc" onClick={handleDenyVisitEntry}><XCircle size={22} /></button>
                         </div>
-                        <div className="confirm-modal-body">
-                            <div className="student-profile-summary">
+                        <div className="confirm-modal-body-vlc">
+                            <div className="student-profile-summary-vlc">
                                 <User size={40} />
                                 <h4>{selectedStudent.first_name} {selectedStudent.last_name}</h4>
                                 <p><strong>Student ID:</strong> {selectedStudent.student_id}</p>
                                 <p><strong>Program & Year:</strong> {selectedStudent.program_id || 'N/A'} - Year {selectedStudent.year_level}</p>
-                                <p className="time-in-indicator">
+                                <p className="time-in-indicator-vlc">
                                     <Clock size={15} />
                                     Time In: {currentTimeFormatted}
                                 </p>
                             </div>
 
                             {previousVisitsCount > 0 ? (
-                                <div className="repeat-alert-box">
-                                    <div className="alert-header">
+                                <div className="repeat-alert-box-vlc">
+                                    <div className="alert-header-vlc">
                                         <AlertTriangle size={18} />
                                         <span>Repeat Visit Alert ({previousVisitsCount} prior visit/s today)</span>
                                     </div>
@@ -860,16 +860,16 @@ const VisitLogConsultation = () => {
                                     </p>
                                 </div>
                             ) : (
-                                <p className="confirm-notice">
+                                <p className="confirm-notice-vlc">
                                     Grant clinic visit check-in for <strong>{selectedStudent.first_name} {selectedStudent.last_name}</strong>?
                                 </p>
                             )}
 
-                            <div className="modal-action-footer">
-                                <button type="button" className="btn-deny-action" onClick={handleDenyVisitEntry}>
+                            <div className="modal-action-footer-vlc">
+                                <button type="button" className="btn-deny-action-vlc" onClick={handleDenyVisitEntry}>
                                     Deny Entry
                                 </button>
-                                <button type="button" className="btn-confirm-action" onClick={handleConfirmVisitEntry}>
+                                <button type="button" className="btn-confirm-action-vlc" onClick={handleConfirmVisitEntry}>
                                     Grant Entry
                                 </button>
                             </div>
@@ -879,26 +879,26 @@ const VisitLogConsultation = () => {
             )}
 
             {qrTimeoutVisit && (
-                <div className="modal-viewport-backdrop">
-                    <div className="modal-body-container confirm-modal-small">
-                        <div className="modal-header-accent">
+                <div className="modal-viewport-backdrop-vlc">
+                    <div className="modal-body-container-vlc confirm-modal-small-vlc">
+                        <div className="modal-header-accent-vlc">
                             <h3><Camera size={18} /> Scan QR to Time Out</h3>
-                            <button className="modal-dismiss-btn" onClick={handleCloseQrTimeoutModal}><XCircle size={22} /></button>
+                            <button className="modal-dismiss-btn-vlc" onClick={handleCloseQrTimeoutModal}><XCircle size={22} /></button>
                         </div>
-                        <form onSubmit={handleScanTimeoutSubmit} className="confirm-modal-body">
-                            <p className="qr-timeout-notice">
+                        <form onSubmit={handleScanTimeoutSubmit} className="confirm-modal-body-vlc">
+                            <p className="qr-timeout-notice-vlc">
                                 Scan QR code for <strong>{qrTimeoutVisit.first_name} {qrTimeoutVisit.last_name}</strong> (ID: <code>{qrTimeoutVisit.student_id}</code>)
                             </p>
 
                             {isCameraScanning ? (
-                                <div className="camera-scan-box">
-                                    <video ref={videoRef} className="camera-preview-video" muted playsInline />
-                                    <p className="confirm-notice">Point camera at student QR code for instant auto time-out.</p>
+                                <div className="camera-scan-box-vlc">
+                                    <video ref={videoRef} className="camera-preview-video-vlc" muted playsInline />
+                                    <p className="confirm-notice-vlc">Point camera at student QR code for instant auto time-out.</p>
                                 </div>
                             ) : (
                                 <button 
                                     type="button" 
-                                    className="qr-submit-btn camera-trigger-btn" 
+                                    className="qr-submit-btn-vlc camera-trigger-btn-vlc" 
                                     onClick={requestCameraAndStartScan}
                                 >
                                     <Camera size={16} />
@@ -909,15 +909,15 @@ const VisitLogConsultation = () => {
                             <input
                                 type="text"
                                 autoFocus
-                                className="qr-timeout-input-field"
+                                className="qr-timeout-input-field-vlc"
                                 placeholder="Or enter/scan barcode manually..."
                                 value={qrTimeoutInput}
                                 onChange={(e) => setQrTimeoutInput(e.target.value)}
                             />
 
-                            <div className="modal-action-footer">
-                                <button type="button" className="btn-cancel-action" onClick={handleCloseQrTimeoutModal}>Cancel</button>
-                                <button type="submit" className="btn-confirm-action">Confirm Time Out</button>
+                            <div className="modal-action-footer-vlc">
+                                <button type="button" className="btn-cancel-action-vlc" onClick={handleCloseQrTimeoutModal}>Cancel</button>
+                                <button type="submit" className="btn-confirm-action-vlc">Confirm Time Out</button>
                             </div>
                         </form>
                     </div>
@@ -925,23 +925,23 @@ const VisitLogConsultation = () => {
             )}
 
             {showAllLogsModal && (
-                <div className="modal-viewport-backdrop logs-fullscreen-backdrop">
-                    <div className="modal-body-container logs-modal-responsive">
-                        <div className="modal-header-accent">
+                <div className="modal-viewport-backdrop-vlc logs-fullscreen-backdrop-vlc">
+                    <div className="modal-body-container-vlc logs-modal-responsive-vlc">
+                        <div className="modal-header-accent-vlc">
                             <h3>
                                 <History size={20} /> All Clinic Visit Logs History
                             </h3>
-                            <button className="modal-dismiss-btn" onClick={() => setShowAllLogsModal(false)}>
+                            <button className="modal-dismiss-btn-vlc" onClick={() => setShowAllLogsModal(false)}>
                                 <XCircle size={22} />
                             </button>
                         </div>
 
-                        <div className="logs-modal-scroll-area">
-                            <div className="logs-filter-toolbar">
-                                <div className="filter-input-group search-flex-grow">
+                        <div className="logs-modal-scroll-area-vlc">
+                            <div className="logs-filter-toolbar-vlc">
+                                <div className="filter-input-group-vlc search-flex-grow-vlc">
                                     <label><Search size={14} /> Search Student</label>
-                                    <div className="filter-search-box">
-                                        <Search size={16} className="search-box-icon" />
+                                    <div className="filter-search-box-vlc">
+                                        <Search size={16} className="search-box-icon-vlc" />
                                         <input 
                                             type="text" 
                                             placeholder="Search name, student ID..." 
@@ -951,7 +951,7 @@ const VisitLogConsultation = () => {
                                     </div>
                                 </div>
 
-                                <div className="filter-input-group">
+                                <div className="filter-input-group-vlc">
                                     <label>From Date</label>
                                     <input 
                                         type="date" 
@@ -960,7 +960,7 @@ const VisitLogConsultation = () => {
                                     />
                                 </div>
 
-                                <div className="filter-input-group">
+                                <div className="filter-input-group-vlc">
                                     <label>To Date</label>
                                     <input 
                                         type="date" 
@@ -969,7 +969,7 @@ const VisitLogConsultation = () => {
                                     />
                                 </div>
 
-                                <div className="filter-input-group">
+                                <div className="filter-input-group-vlc">
                                     <label><Filter size={14} /> Chief Complaint</label>
                                     <select 
                                         value={complaintFilter} 
@@ -983,11 +983,11 @@ const VisitLogConsultation = () => {
                                 </div>
 
                                 {(logsSearch || fromDateFilter || toDateFilter || complaintFilter) && (
-                                    <div className="filter-input-group reset-btn-group">
+                                    <div className="filter-input-group-vlc reset-btn-group-vlc">
                                         <label>&nbsp;</label>
                                         <button 
                                             type="button" 
-                                            className="btn-clear-filters"
+                                            className="btn-clear-filters-vlc"
                                             onClick={handleClearFilters}
                                             title="Clear All Filters"
                                         >
@@ -998,12 +998,12 @@ const VisitLogConsultation = () => {
                                 )}
                             </div>
 
-                            <div className="logs-summary-indicator">
+                            <div className="logs-summary-indicator-vlc">
                                 Showing <strong>{filteredAllVisits.length}</strong> of <strong>{allVisits.length}</strong> total clinic visit records
                             </div>
 
-                            <div className="table-overflow-scroller">
-                                <table className="styled-history-table">
+                            <div className="table-overflow-scroller-vlc">
+                                <table className="styled-history-table-vlc">
                                     <thead>
                                         <tr>
                                             <th>Visit Date</th>
@@ -1012,13 +1012,13 @@ const VisitLogConsultation = () => {
                                             <th>Medicine Dispensed</th>
                                             <th>Time In / Out</th>
                                             <th>Status</th>
-                                            <th className="text-center">Actions</th>
+                                            <th className="text-center-vlc">Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {filteredAllVisits.length === 0 ? (
                                             <tr>
-                                                <td colSpan="7" className="empty-table-state">
+                                                <td colSpan="7" className="empty-table-state-vlc">
                                                     No visit logs match the selected search or filter criteria.
                                                 </td>
                                             </tr>
@@ -1029,68 +1029,68 @@ const VisitLogConsultation = () => {
                                                 const dispensedMed = visit.medicine_name || batches.find(b => b.batch_id === visit.batch_id)?.medicine_name;
 
                                                 return (
-                                                    <tr key={visit.visit_id} className={isTimedOut ? "row-locked" : "row-active"}>
+                                                    <tr key={visit.visit_id} className={isTimedOut ? "row-locked-vlc" : "row-active-vlc"}>
                                                         <td>
-                                                            <div className="table-date-cell">
+                                                            <div className="table-date-cell-vlc">
                                                                 <span>{formatDateDisplay(visit.visit_date)}</span>
                                                             </div>
                                                         </td>
                                                         <td>
-                                                            <div className="table-profile-cell">
+                                                            <div className="table-profile-cell-vlc">
                                                                 <span>{visit.first_name} {visit.last_name}</span>
                                                                 <small>ID: {visit.student_id} | {visit.program_id || 'N/A'}</small>
                                                             </div>
                                                         </td>
                                                         <td>
                                                             {documented ? (
-                                                                <span className="complaint-badge">{renderComplaintBadgeText(visit)}</span>
+                                                                <span className="complaint-badge-vlc">{renderComplaintBadgeText(visit)}</span>
                                                             ) : (
-                                                                <span className="status-pill status-undocumented" title="Visit needs documentation">
+                                                                <span className="status-pill-vlc status-undocumented-vlc" title="Visit needs documentation">
                                                                     <AlertTriangle size={12} /> Not Documented
                                                                 </span>
                                                             )}
                                                         </td>
                                                         <td>
                                                             {dispensedMed ? (
-                                                                <span className="medicine-badge">
+                                                                <span className="medicine-badge-vlc">
                                                                     {dispensedMed}
                                                                     {visit.dosage_consumption_unit_value ? ` (${visit.dosage_consumption_unit_value} ${visit.dosage_consumption_unit_of_measure || ''})` : ''}
                                                                 </span>
                                                             ) : (
-                                                                <span className="no-med-text">None</span>
+                                                                <span className="no-med-text-vlc">None</span>
                                                             )}
                                                         </td>
                                                         <td>
-                                                            <div className="table-time-range">
+                                                            <div className="table-time-range-vlc">
                                                                 <span>In: {formatTimeDisplay(visit.time_in)}</span>
                                                                 <small>Out: {formatTimeDisplay(visit.time_out)}</small>
                                                             </div>
                                                         </td>
                                                         <td>
                                                             {isTimedOut ? (
-                                                                <span className="status-pill status-completed"><CheckCircle size={12} /> Timed Out</span>
+                                                                <span className="status-pill-vlc status-completed-vlc"><CheckCircle size={12} /> Timed Out</span>
                                                             ) : (
-                                                                <span className="status-pill status-in-progress"><Clock size={12} /> In Clinic</span>
+                                                                <span className="status-pill-vlc status-in-progress-vlc"><Clock size={12} /> In Clinic</span>
                                                             )}
                                                         </td>
                                                         <td>
-                                                            <div className="action-button-group">
+                                                            <div className="action-button-group-vlc">
                                                                 <button 
                                                                     type="button" 
-                                                                    className={`icon-action-btn btn-document ${!documented ? 'needs-doc' : ''}`}
+                                                                    className={`icon-action-btn-vlc btn-document-vlc ${!documented ? 'needs-doc-vlc' : ''}`}
                                                                     title={documented ? "View or Edit Documentation" : "Needs Documentation"}
                                                                     aria-label="Document Visit"
                                                                     onClick={() => handleOpenDocumentModal(visit)}
                                                                 >
                                                                     <FileText size={16} />
-                                                                    {!documented && <span className="doc-warning-dot" title="Not documented yet" />}
+                                                                    {!documented && <span className="doc-warning-dot-vlc" title="Not documented yet" />}
                                                                 </button>
 
                                                                 {!isTimedOut && (
                                                                     <>
                                                                         <button 
                                                                             type="button" 
-                                                                            className="icon-action-btn btn-qr-timeout"
+                                                                            className="icon-action-btn-vlc btn-qr-timeout-vlc"
                                                                             title="Scan QR to Time Out"
                                                                             aria-label="Scan QR to Time Out"
                                                                             onClick={() => handleOpenQrTimeoutModal(visit)}
@@ -1099,14 +1099,14 @@ const VisitLogConsultation = () => {
                                                                         </button>
                                                                         <input 
                                                                             type="time" 
-                                                                            className="inline-time-input" 
+                                                                            className="inline-time-input-vlc" 
                                                                             title="Select custom time-out before manual time out"
                                                                             value={inlineTimeouts[visit.visit_id] || ''} 
                                                                             onChange={(e) => handleInlineTimeoutChange(visit.visit_id, e.target.value)} 
                                                                         />
                                                                         <button 
                                                                             type="button" 
-                                                                            className="icon-action-btn btn-manual-timeout"
+                                                                            className="icon-action-btn-vlc btn-manual-timeout-vlc"
                                                                             title="Manual Time Out"
                                                                             aria-label="Manual Time Out"
                                                                             onClick={() => handleManualTimeout(visit.visit_id)}
@@ -1126,8 +1126,8 @@ const VisitLogConsultation = () => {
                             </div>
                         </div>
 
-                        <div className="logs-modal-footer">
-                            <button type="button" className="btn-cancel-action" onClick={() => setShowAllLogsModal(false)}>
+                        <div className="logs-modal-footer-vlc">
+                            <button type="button" className="btn-cancel-action-vlc" onClick={() => setShowAllLogsModal(false)}>
                                 Close Logs
                             </button>
                         </div>
@@ -1136,41 +1136,41 @@ const VisitLogConsultation = () => {
             )}
 
             {documentingVisit && (
-                <div className="modal-viewport-backdrop" style={{ zIndex: 1100 }}>
-                    <div className="modal-body-container">
-                        <div className="modal-header-accent">
+                <div className="modal-viewport-backdrop-vlc" style={{ zIndex: 1100 }}>
+                    <div className="modal-body-container-vlc">
+                        <div className="modal-header-accent-vlc">
                             <h3>Document Visit - {documentingVisit.first_name} {documentingVisit.last_name}</h3>
-                            <button className="modal-dismiss-btn" onClick={() => setDocumentingVisit(null)}><XCircle size={22} /></button>
+                            <button className="modal-dismiss-btn-vlc" onClick={() => setDocumentingVisit(null)}><XCircle size={22} /></button>
                         </div>
-                        <form onSubmit={handleDocumentSubmit} className="modal-form-scrollable">
+                        <form onSubmit={handleDocumentSubmit} className="modal-form-scrollable-vlc">
                             {!isVisitDocumented(documentingVisit) && (
-                                <div className="undocumented-banner">
+                                <div className="undocumented-banner-vlc">
                                     <AlertTriangle size={18} />
                                     <span>This visit is <strong>not yet documented</strong>. Please complete the vital signs and intervention fields below.</span>
                                 </div>
                             )}
 
-                            <div className="form-content-section">
-                                <h4 className="section-subtitle-indicator"><User size={16} /> Student & Time Info</h4>
-                                <div className="form-fields-grid-layout">
-                                    <div className="form-input-element">
+                            <div className="form-content-section-vlc">
+                                <h4 className="section-subtitle-indicator-vlc"><User size={16} /> Student & Time Info</h4>
+                                <div className="form-fields-grid-layout-vlc">
+                                    <div className="form-input-element-vlc">
                                         <label>Full Name</label>
                                         <input type="text" readOnly value={`${documentingVisit.first_name} ${documentingVisit.last_name}`} />
                                     </div>
-                                    <div className="form-input-element">
+                                    <div className="form-input-element-vlc">
                                         <label>Student ID</label>
                                         <input type="text" readOnly value={documentingVisit.student_id} />
                                     </div>
-                                    <div className="form-input-element">
-                                        <label>Time In <span className="required-star">*</span></label>
+                                    <div className="form-input-element-vlc">
+                                        <label>Time In <span className="required-star-vlc">*</span></label>
                                         <input type="time" required value={formData.time_in} onChange={e => setFormData({...formData, time_in: e.target.value})} />
                                     </div>
-                                    <div className="form-input-element">
-                                        <label>Time Out <span className="label-optional">(Optional)</span></label>
+                                    <div className="form-input-element-vlc">
+                                        <label>Time Out <span className="label-optional-vlc">(Optional)</span></label>
                                         <input type="time" value={formData.time_out} onChange={e => setFormData({...formData, time_out: e.target.value})} />
                                     </div>
-                                    <div className="form-input-element full-width-field">
-                                        <label>Chief Complaint <span className="required-star">*</span></label>
+                                    <div className="form-input-element-vlc full-width-field-vlc">
+                                        <label>Chief Complaint <span className="required-star-vlc">*</span></label>
                                         <select 
                                             required 
                                             value={formData.complaint_id} 
@@ -1188,9 +1188,9 @@ const VisitLogConsultation = () => {
                                     </div>
 
                                     {isSpecifyComplaintRequired && (
-                                        <div className="form-input-element full-width-field">
+                                        <div className="form-input-element-vlc full-width-field-vlc">
                                             <label>
-                                                Specify Complaint Details <span className="required-star">*</span>
+                                                Specify Complaint Details <span className="required-star-vlc">*</span>
                                             </label>
                                             <input 
                                                 type="text" 
@@ -1204,11 +1204,11 @@ const VisitLogConsultation = () => {
                                 </div>
                             </div>
 
-                            <div className="form-content-section">
-                                <h4 className="section-subtitle-indicator"><Activity size={16} /> Vital Signs <span className="required-star">*</span></h4>
-                                <div className="form-fields-grid-layout four-col-layout">
-                                    <div className="form-input-element">
-                                        <label>BP (mmHg) <span className="required-star">*</span></label>
+                            <div className="form-content-section-vlc">
+                                <h4 className="section-subtitle-indicator-vlc"><Activity size={16} /> Vital Signs <span className="required-star-vlc">*</span></h4>
+                                <div className="form-fields-grid-layout-vlc four-col-layout-vlc">
+                                    <div className="form-input-element-vlc">
+                                        <label>BP (mmHg) <span className="required-star-vlc">*</span></label>
                                         <input 
                                             type="text" 
                                             required 
@@ -1218,8 +1218,8 @@ const VisitLogConsultation = () => {
                                             onChange={e => setFormData({...formData, blood_pressure: e.target.value})} 
                                         />
                                     </div>
-                                    <div className="form-input-element">
-                                        <label>Temp (°C) <span className="required-star">*</span></label>
+                                    <div className="form-input-element-vlc">
+                                        <label>Temp (°C) <span className="required-star-vlc">*</span></label>
                                         <input 
                                             type="number" 
                                             required 
@@ -1231,8 +1231,8 @@ const VisitLogConsultation = () => {
                                             onChange={e => setFormData({...formData, temperature: e.target.value})} 
                                         />
                                     </div>
-                                    <div className="form-input-element">
-                                        <label>Pulse (bpm) <span className="required-star">*</span></label>
+                                    <div className="form-input-element-vlc">
+                                        <label>Pulse (bpm) <span className="required-star-vlc">*</span></label>
                                         <input 
                                             type="number" 
                                             required 
@@ -1243,8 +1243,8 @@ const VisitLogConsultation = () => {
                                             onChange={e => setFormData({...formData, pulse_rate: e.target.value})} 
                                         />
                                     </div>
-                                    <div className="form-input-element">
-                                        <label>Resp Rate <span className="required-star">*</span></label>
+                                    <div className="form-input-element-vlc">
+                                        <label>Resp Rate <span className="required-star-vlc">*</span></label>
                                         <input 
                                             type="number" 
                                             required 
@@ -1258,11 +1258,11 @@ const VisitLogConsultation = () => {
                                 </div>
                             </div>
 
-                            <div className="form-content-section">
-                                <h4 className="section-subtitle-indicator"><ShieldAlert size={16} /> Intervention & Dispensation</h4>
-                                <div className="form-fields-grid-layout">
-                                    <div className="form-input-element full-width-field">
-                                        <label>Nursing Intervention <span className="required-star">*</span></label>
+                            <div className="form-content-section-vlc">
+                                <h4 className="section-subtitle-indicator-vlc"><ShieldAlert size={16} /> Intervention & Dispensation</h4>
+                                <div className="form-fields-grid-layout-vlc">
+                                    <div className="form-input-element-vlc full-width-field-vlc">
+                                        <label>Nursing Intervention <span className="required-star-vlc">*</span></label>
                                         <textarea 
                                             required 
                                             rows={2} 
@@ -1271,8 +1271,8 @@ const VisitLogConsultation = () => {
                                             onChange={e => setFormData({...formData, nursing_intervention: e.target.value})} 
                                         />
                                     </div>
-                                    <div className="form-input-element full-width-field">
-                                        <label>Assessment <span className="required-star">*</span></label>
+                                    <div className="form-input-element-vlc full-width-field-vlc">
+                                        <label>Assessment <span className="required-star-vlc">*</span></label>
                                         <textarea 
                                             required 
                                             rows={2} 
@@ -1282,17 +1282,17 @@ const VisitLogConsultation = () => {
                                         />
                                     </div>
 
-                                    <div className="form-input-element full-width-field">
+                                    <div className="form-input-element-vlc full-width-field-vlc">
                                         <label>
                                             Dispense Medicine 
-                                            {isAlreadyDispensed && <span className="dispensed-flag">(Dispensed / Read-Only)</span>}
+                                            {isAlreadyDispensed && <span className="dispensed-flag-vlc">(Dispensed / Read-Only)</span>}
                                         </label>
                                         {isAlreadyDispensed ? (
                                             <input 
                                                 type="text" 
                                                 readOnly 
                                                 disabled
-                                                className="read-only-input"
+                                                className="read-only-input-vlc"
                                                 value={
                                                     documentingVisit.medicine_name || 
                                                     batches.find(b => b.batch_id === formData.batch_id)?.medicine_name || 
@@ -1328,7 +1328,7 @@ const VisitLogConsultation = () => {
                                     </div>
 
                                     {activeBatchInfo && !isAlreadyDispensed && (
-                                        <div className="stock-info-banner">
+                                        <div className="stock-info-banner-vlc">
                                             <strong>Current Stock:</strong> {activeBatchInfo.current_stock} {formatDosageForm(activeBatchInfo.dosage_form, activeBatchInfo.current_stock).toLowerCase()}
                                             {isVolumeUnit ? ` (${activeBatchInfo.remaining_volume} ${activeBatchUnit} remaining in open ${formatDosageFormWithStrength(activeBatchInfo)})` : ''}.
                                         </div>
@@ -1336,8 +1336,8 @@ const VisitLogConsultation = () => {
 
                                     {(formData.batch_id || isAlreadyDispensed) && (
                                         <>
-                                            <div className="form-input-element">
-                                                <label>Dosage / Quantity {!isAlreadyDispensed && <span className="required-star">*</span>}</label>
+                                            <div className="form-input-element-vlc">
+                                                <label>Dosage / Quantity {!isAlreadyDispensed && <span className="required-star-vlc">*</span>}</label>
                                                 <input 
                                                     type="number" 
                                                     step={isMeasuredUnit ? "any" : "1"} 
@@ -1345,18 +1345,18 @@ const VisitLogConsultation = () => {
                                                     required={!isAlreadyDispensed} 
                                                     readOnly={isAlreadyDispensed}
                                                     disabled={isAlreadyDispensed}
-                                                    className={isAlreadyDispensed ? "read-only-input" : ""}
+                                                    className={isAlreadyDispensed ? "read-only-input-vlc" : ""}
                                                     value={formData.dosage_consumption_unit_value} 
                                                     onChange={e => setFormData({...formData, dosage_consumption_unit_value: e.target.value})} 
                                                 />
                                             </div>
-                                            <div className="form-input-element">
+                                            <div className="form-input-element-vlc">
                                                 <label>Unit of Measure</label>
                                                 <input 
                                                     type="text" 
                                                     readOnly 
                                                     disabled={isAlreadyDispensed}
-                                                    className={isAlreadyDispensed ? "read-only-input" : ""}
+                                                    className={isAlreadyDispensed ? "read-only-input-vlc" : ""}
                                                     value={formData.dosage_consumption_unit_of_measure} 
                                                 />
                                             </div>
@@ -1365,29 +1365,29 @@ const VisitLogConsultation = () => {
                                 </div>
                             </div>
 
-                            <div className="modal-action-footer">
-                                <button type="button" className="btn-cancel-action" onClick={() => setDocumentingVisit(null)}>Cancel</button>
-                                <button type="submit" className="btn-confirm-action">Save Documentation</button>
+                            <div className="modal-action-footer-vlc">
+                                <button type="button" className="btn-cancel-action-vlc" onClick={() => setDocumentingVisit(null)}>Cancel</button>
+                                <button type="submit" className="btn-confirm-action-vlc">Save Documentation</button>
                             </div>
                         </form>
                     </div>
                 </div>
             )}
 
-            <div className="history-table-section-card">
-                <div className="section-title-wrapper">
-                    <div className="title-left">
-                        <Clock size={18} className="title-icon-accent" />
+            <div className="history-table-section-card-vlc">
+                <div className="section-title-wrapper-vlc">
+                    <div className="title-left-vlc">
+                        <Clock size={18} className="title-icon-accent-vlc" />
                         <h3>Today's Clinic Visits ({todayStr})</h3>
                     </div>
-                    <button className="refresh-table-btn" onClick={fetchTodayVisits}>
+                    <button className="refresh-table-btn-vlc" onClick={fetchTodayVisits}>
                         <RefreshCw size={14} /> 
                         <span>Refresh</span>
                     </button>
                 </div>
 
-                <div className="table-overflow-scroller">
-                    <table className="styled-history-table">
+                <div className="table-overflow-scroller-vlc">
+                    <table className="styled-history-table-vlc">
                         <thead>
                             <tr>
                                 <th>Student Identity</th>
@@ -1396,13 +1396,13 @@ const VisitLogConsultation = () => {
                                 <th>Time In</th>
                                 <th>Time Out</th>
                                 <th>Status</th>
-                                <th className="text-center">Actions</th>
+                                <th className="text-center-vlc">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             {todayVisits.length === 0 ? (
                                 <tr>
-                                    <td colSpan="7" className="empty-table-state">No clinic visits logged today.</td>
+                                    <td colSpan="7" className="empty-table-state-vlc">No clinic visits logged today.</td>
                                 </tr>
                             ) : (
                                 todayVisits.map((visit) => {
@@ -1411,67 +1411,67 @@ const VisitLogConsultation = () => {
                                     const dispensedMed = visit.medicine_name || batches.find(b => b.batch_id === visit.batch_id)?.medicine_name;
 
                                     return (
-                                        <tr key={visit.visit_id} className={isTimedOut ? "row-locked" : "row-active"}>
+                                        <tr key={visit.visit_id} className={isTimedOut ? "row-locked-vlc" : "row-active-vlc"}>
                                             <td>
-                                                <div className="table-profile-cell">
+                                                <div className="table-profile-cell-vlc">
                                                     <span>{visit.first_name} {visit.last_name}</span>
                                                     <small>{visit.student_id}</small>
                                                 </div>
                                             </td>
                                             <td>
                                                 {documented ? (
-                                                    <span className="complaint-badge">{renderComplaintBadgeText(visit)}</span>
+                                                    <span className="complaint-badge-vlc">{renderComplaintBadgeText(visit)}</span>
                                                 ) : (
-                                                    <span className="status-pill status-undocumented" title="Visit needs documentation">
+                                                    <span className="status-pill-vlc status-undocumented-vlc" title="Visit needs documentation">
                                                         <AlertTriangle size={12} /> Not Documented
                                                     </span>
                                                 )}
                                             </td>
                                             <td>
                                                 {dispensedMed ? (
-                                                    <span className="medicine-badge">
+                                                    <span className="medicine-badge-vlc">
                                                         {dispensedMed}
                                                         {visit.dosage_consumption_unit_value ? ` (${visit.dosage_consumption_unit_value} ${visit.dosage_consumption_unit_of_measure || ''})` : ''}
                                                     </span>
                                                 ) : (
-                                                    <span className="no-med-text">None</span>
+                                                    <span className="no-med-text-vlc">None</span>
                                                 )}
                                             </td>
                                             <td>
-                                                <div className="table-time-range">
+                                                <div className="table-time-range-vlc">
                                                     <span>{formatTimeDisplay(visit.time_in)}</span>
                                                 </div>
                                             </td>
                                             <td>
-                                                <div className="table-time-range">
+                                                <div className="table-time-range-vlc">
                                                     <span>{formatTimeDisplay(visit.time_out)}</span>
                                                 </div>
                                             </td>
                                             <td>
                                                 {isTimedOut ? (
-                                                    <span className="status-pill status-completed"><CheckCircle size={12} /> Timed Out</span>
+                                                    <span className="status-pill-vlc status-completed-vlc"><CheckCircle size={12} /> Timed Out</span>
                                                 ) : (
-                                                    <span className="status-pill status-in-progress"><Clock size={12} /> In Clinic</span>
+                                                    <span className="status-pill-vlc status-in-progress-vlc"><Clock size={12} /> In Clinic</span>
                                                 )}
                                             </td>
                                             <td>
-                                                <div className="action-button-group">
+                                                <div className="action-button-group-vlc">
                                                     <button 
                                                         type="button" 
-                                                        className={`icon-action-btn btn-document ${!documented ? 'needs-doc' : ''}`}
+                                                        className={`icon-action-btn-vlc btn-document-vlc ${!documented ? 'needs-doc-vlc' : ''}`}
                                                         title={documented ? "View or Edit Documentation" : "Needs Documentation"}
                                                         aria-label="Document Visit"
                                                         onClick={() => handleOpenDocumentModal(visit)}
                                                     >
                                                         <FileText size={16} />
-                                                        {!documented && <span className="doc-warning-dot" title="Not documented yet" />}
+                                                        {!documented && <span className="doc-warning-dot-vlc" title="Not documented yet" />}
                                                     </button>
 
                                                     {!isTimedOut && (
                                                         <>
                                                             <button 
                                                                 type="button" 
-                                                                className="icon-action-btn btn-qr-timeout"
+                                                                className="icon-action-btn-vlc btn-qr-timeout-vlc"
                                                                 title="Scan QR to Time Out"
                                                                 aria-label="Scan QR to Time Out"
                                                                 onClick={() => handleOpenQrTimeoutModal(visit)}
@@ -1480,14 +1480,14 @@ const VisitLogConsultation = () => {
                                                             </button>
                                                             <input 
                                                                 type="time" 
-                                                                className="inline-time-input" 
+                                                                className="inline-time-input-vlc" 
                                                                 title="Select custom time-out before manual time out"
                                                                 value={inlineTimeouts[visit.visit_id] || ''} 
                                                                 onChange={(e) => handleInlineTimeoutChange(visit.visit_id, e.target.value)} 
                                                             />
                                                             <button 
                                                                 type="button" 
-                                                                className="icon-action-btn btn-manual-timeout"
+                                                                className="icon-action-btn-vlc btn-manual-timeout-vlc"
                                                                 title="Manual Time Out"
                                                                 aria-label="Manual Time Out"
                                                                 onClick={() => handleManualTimeout(visit.visit_id)}

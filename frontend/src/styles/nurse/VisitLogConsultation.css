@@ -14,7 +14,7 @@
 /* ==========================================================================
    1. BASE DESKTOP WRAPPER & LAYOUT
    ========================================================================== */
-.consultation-wrapper {
+.consultation-wrapper-vlc {
     width: 100%;
     max-width: 1400px;
     margin: 0 auto;
@@ -30,7 +30,7 @@
 /* ==========================================================================
    2. HEADER PANEL & BUTTONS
    ========================================================================== */
-.consultation-header-panel {
+.consultation-header-panel-vlc {
     background: #ffffff;
     padding: 20px 24px;
     border-radius: 8px;
@@ -41,7 +41,7 @@
     border-bottom: 1px solid var(--sti-border);
 }
 
-.header-title-container {
+.header-title-container-vlc {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -49,20 +49,20 @@
     width: 100%;
 }
 
-.header-text-block h2 {
+.header-text-block-vlc h2 {
     margin: 0 0 4px 0;
     color: var(--sti-navy);
     font-size: 1.45rem;
     font-weight: 700;
 }
 
-.header-text-block p {
+.header-text-block-vlc p {
     margin: 0;
     color: var(--sti-text-muted);
     font-size: 0.88rem;
 }
 
-.view-logs-header-btn {
+.view-logs-header-btn-vlc {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -76,20 +76,20 @@
     font-size: 0.88rem;
     cursor: pointer;
     white-space: nowrap;
-    width: auto;
-    max-width: 180px;
+    width: fit-content;
+    max-width: fit-content;
     flex-shrink: 0;
     transition: background-color 0.2s ease, transform 0.1s ease;
 }
 
-.view-logs-header-btn:hover {
+.view-logs-header-btn-vlc:hover {
     background-color: var(--sti-blue);
 }
 
 /* ==========================================================================
    3. ENTRY SELECTION CARD & MODE BUTTONS
    ========================================================================== */
-.entry-option-card {
+.entry-option-card-vlc {
     background: #ffffff;
     padding: 24px;
     border-radius: 8px;
@@ -97,26 +97,26 @@
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
 }
 
-.entry-option-card h3 {
+.entry-option-card-vlc h3 {
     margin: 0 0 6px 0;
     color: var(--sti-navy);
     font-size: 1.15rem;
 }
 
-.entry-option-card p {
+.entry-option-card-vlc p {
     margin: 0 0 16px 0;
     color: var(--sti-text-muted);
     font-size: 0.88rem;
 }
 
-.entry-buttons-group {
+.entry-buttons-group-vlc {
     display: flex;
     gap: 14px;
     align-items: center;
     flex-wrap: wrap;
 }
 
-.entry-btn {
+.entry-btn-vlc {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -128,32 +128,32 @@
     cursor: pointer;
     border: none;
     transition: all 0.2s ease;
-    width: auto;
-    max-width: 260px;
+    width: fit-content;
+    max-width: fit-content;
 }
 
-.mode-search-btn {
+.mode-search-btn-vlc {
     background-color: var(--sti-blue);
     color: #ffffff;
 }
 
-.mode-search-btn:hover {
+.mode-search-btn-vlc:hover {
     background-color: var(--sti-navy);
 }
 
-.mode-qr-btn {
+.mode-qr-btn-vlc {
     background-color: #059669;
     color: #ffffff;
 }
 
-.mode-qr-btn:hover {
+.mode-qr-btn-vlc:hover {
     background-color: #047857;
 }
 
 /* ==========================================================================
    4. SEARCH CARD & OVERLAY POPPER
    ========================================================================== */
-.search-card-container {
+.search-card-container-vlc {
     position: relative;
     background: #ffffff;
     padding: 20px;
@@ -162,7 +162,7 @@
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
 }
 
-.search-card-header {
+.search-card-header-vlc {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -171,7 +171,7 @@
     border-bottom: 1px solid var(--sti-border);
 }
 
-.back-option-btn {
+.back-option-btn-vlc {
     background: none;
     border: 1px solid var(--sti-border);
     padding: 6px 14px;
@@ -181,28 +181,29 @@
     color: var(--sti-text-muted);
     cursor: pointer;
     transition: all 0.15s ease;
+    width: fit-content;
 }
 
-.back-option-btn:hover {
+.back-option-btn-vlc:hover {
     background-color: #f1f5f9;
     color: var(--sti-navy);
 }
 
-.search-input-inner {
+.search-input-inner-vlc {
     position: relative;
     display: flex;
     align-items: center;
     width: 100%;
 }
 
-.search-inside-icon {
+.search-inside-icon-vlc {
     position: absolute;
     left: 12px;
     color: var(--sti-text-muted);
     pointer-events: none;
 }
 
-.search-input-inner input {
+.search-input-inner-vlc input {
     width: 100%;
     padding: 10px 12px 10px 38px;
     border: 1px solid var(--sti-border);
@@ -213,11 +214,11 @@
     transition: border-color 0.2s;
 }
 
-.search-input-inner input:focus {
+.search-input-inner-vlc input:focus {
     border-color: var(--sti-blue);
 }
 
-.search-results-overlay-panel {
+.search-results-overlay-panel-vlc {
     position: absolute;
     top: calc(100% + 4px);
     left: 0;
@@ -231,7 +232,7 @@
     box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
 }
 
-.search-result-row {
+.search-result-row-vlc {
     display: flex;
     align-items: center;
     gap: 12px;
@@ -241,15 +242,15 @@
     transition: background-color 0.15s ease;
 }
 
-.search-result-row:last-child {
+.search-result-row-vlc:last-child {
     border-bottom: none;
 }
 
-.search-result-row:hover {
+.search-result-row-vlc:hover {
     background-color: #eef6ff;
 }
 
-.result-avatar {
+.result-avatar-vlc {
     width: 32px;
     height: 32px;
     border-radius: 50%;
@@ -261,41 +262,41 @@
     flex-shrink: 0;
 }
 
-.result-info {
+.result-info-vlc {
     display: flex;
     flex-direction: column;
 }
 
-.result-name {
+.result-name-vlc {
     font-weight: 600;
     font-size: 0.88rem;
     color: var(--sti-navy);
 }
 
-.result-meta {
+.result-meta-vlc {
     font-size: 0.78rem;
     color: var(--sti-text-muted);
 }
 
-.qr-scanner-card-wrapper {
+.qr-scanner-card-wrapper-vlc {
     display: flex;
     flex-direction: column;
     gap: 12px;
 }
 
-.qr-scanner-input-container {
+.qr-scanner-input-container-vlc {
     display: flex;
     align-items: center;
     gap: 10px;
     width: 100%;
 }
 
-.qr-icon-accent {
+.qr-icon-accent-vlc {
     color: var(--sti-blue);
     flex-shrink: 0;
 }
 
-.qr-scanner-input-container input {
+.qr-scanner-input-container-vlc input {
     flex: 1;
     padding: 10px 12px;
     border: 1px solid var(--sti-border);
@@ -305,7 +306,7 @@
     box-sizing: border-box;
 }
 
-.qr-submit-btn {
+.qr-submit-btn-vlc {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -319,16 +320,16 @@
     font-size: 0.88rem;
     cursor: pointer;
     white-space: nowrap;
-    width: auto;
-    max-width: 180px;
+    width: fit-content;
+    max-width: fit-content;
     flex-shrink: 0;
 }
 
-.qr-submit-btn:hover {
+.qr-submit-btn-vlc:hover {
     background-color: var(--sti-navy);
 }
 
-.camera-denied-guide {
+.camera-denied-guide-vlc {
     margin-top: 12px;
     padding: 14px;
     background-color: #fef2f2;
@@ -337,7 +338,7 @@
     color: #991b1b;
 }
 
-.camera-denied-guide .guide-title {
+.camera-denied-guide-vlc .guide-title-vlc {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -346,12 +347,12 @@
     font-size: 0.9rem;
 }
 
-.camera-denied-guide p {
+.camera-denied-guide-vlc p {
     margin: 0 0 8px 0;
     font-size: 0.85rem;
 }
 
-.camera-denied-guide ol {
+.camera-denied-guide-vlc ol {
     margin: 0;
     padding-left: 20px;
     font-size: 0.82rem;
@@ -361,7 +362,7 @@
 /* ==========================================================================
    5. MODALS & OVERLAYS
    ========================================================================== */
-.modal-viewport-backdrop {
+.modal-viewport-backdrop-vlc {
     position: fixed;
     top: 0;
     left: 0;
@@ -376,11 +377,11 @@
     box-sizing: border-box;
 }
 
-.modal-viewport-backdrop.logs-fullscreen-backdrop {
+.modal-viewport-backdrop-vlc.logs-fullscreen-backdrop-vlc {
     padding: 0;
 }
 
-.modal-body-container {
+.modal-body-container-vlc {
     background: #ffffff;
     width: 100%;
     max-width: 720px;
@@ -392,12 +393,12 @@
     overflow: hidden;
 }
 
-.modal-body-container.confirm-modal-small {
+.modal-body-container-vlc.confirm-modal-small-vlc {
     max-width: 480px;
 }
 
 /* Fullscreen customization for view logs modal */
-.modal-body-container.logs-modal-responsive {
+.modal-body-container-vlc.logs-modal-responsive-vlc {
     width: 95%;
     height: 95%;
     max-width: 100vw;
@@ -406,7 +407,7 @@
     box-shadow: none;
 }
 
-.modal-header-accent {
+.modal-header-accent-vlc {
     background-color: var(--sti-navy);
     color: #ffffff;
     padding: 14px 20px;
@@ -416,7 +417,7 @@
     flex-shrink: 0;
 }
 
-.modal-header-accent h3 {
+.modal-header-accent-vlc h3 {
     margin: 0;
     font-size: 1.05rem;
     font-weight: 600;
@@ -425,29 +426,32 @@
     gap: 8px;
 }
 
-.modal-dismiss-btn {
+.modal-dismiss-btn-vlc {
     background: none;
     border: none;
     color: #ffffff;
     cursor: pointer;
     padding: 0;
-    display: flex;
+    display: inline-flex;
     align-items: center;
+    justify-content: center;
     opacity: 0.85;
     transition: opacity 0.15s;
+    width: fit-content;
+    height: fit-content;
 }
 
-.modal-dismiss-btn:hover {
+.modal-dismiss-btn-vlc:hover {
     opacity: 1;
 }
 
-.confirm-modal-body {
+.confirm-modal-body-vlc {
     padding: 20px;
     text-align: center;
     overflow-y: auto;
 }
 
-.camera-preview-video {
+.camera-preview-video-vlc {
     width: 100%;
     max-height: 250px;
     border-radius: 8px;
@@ -455,7 +459,7 @@
     object-fit: cover;
 }
 
-.student-profile-summary {
+.student-profile-summary-vlc {
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -466,19 +470,19 @@
     border: 1px solid var(--sti-border);
 }
 
-.student-profile-summary h4 {
+.student-profile-summary-vlc h4 {
     margin: 8px 0 4px 0;
     font-size: 1.1rem;
     color: var(--sti-navy);
 }
 
-.student-profile-summary p {
+.student-profile-summary-vlc p {
     margin: 2px 0;
     font-size: 0.85rem;
     color: var(--sti-text-dark);
 }
 
-.time-in-indicator {
+.time-in-indicator-vlc {
     margin-top: 6px !important;
     color: #059669 !important;
     font-weight: 600;
@@ -487,7 +491,7 @@
     gap: 4px;
 }
 
-.repeat-alert-box {
+.repeat-alert-box-vlc {
     margin-top: 14px;
     padding: 12px;
     background-color: #fffbeb;
@@ -497,7 +501,7 @@
     text-align: left;
 }
 
-.repeat-alert-box .alert-header {
+.repeat-alert-box-vlc .alert-header-vlc {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -506,19 +510,19 @@
     font-size: 0.88rem;
 }
 
-.repeat-alert-box p {
+.repeat-alert-box-vlc p {
     margin: 0;
     font-size: 0.82rem;
     line-height: 1.4;
 }
 
-.confirm-notice {
+.confirm-notice-vlc {
     font-size: 0.88rem;
     color: var(--sti-text-muted);
     margin: 12px 0 0 0;
 }
 
-.modal-form-scrollable {
+.modal-form-scrollable-vlc {
     padding: 20px;
     overflow-y: auto;
     display: flex;
@@ -527,7 +531,7 @@
     flex: 1;
 }
 
-.undocumented-banner {
+.undocumented-banner-vlc {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -539,14 +543,14 @@
     font-size: 0.86rem;
 }
 
-.form-content-section {
+.form-content-section-vlc {
     border: 1px solid var(--sti-border);
     border-radius: 6px;
     padding: 16px;
     background: #ffffff;
 }
 
-.section-subtitle-indicator {
+.section-subtitle-indicator-vlc {
     margin: 0 0 14px 0;
     font-size: 0.92rem;
     color: var(--sti-navy);
@@ -557,45 +561,45 @@
     padding-bottom: 8px;
 }
 
-.form-fields-grid-layout {
+.form-fields-grid-layout-vlc {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
     gap: 14px;
 }
 
-.form-fields-grid-layout.four-col-layout {
+.form-fields-grid-layout-vlc.four-col-layout-vlc {
     grid-template-columns: repeat(4, 1fr);
 }
 
-.form-input-element {
+.form-input-element-vlc {
     display: flex;
     flex-direction: column;
     gap: 6px;
 }
 
-.form-input-element.full-width-field {
+.form-input-element-vlc.full-width-field-vlc {
     grid-column: 1 / -1;
 }
 
-.form-input-element label {
+.form-input-element-vlc label {
     font-size: 0.82rem;
     font-weight: 600;
     color: var(--sti-navy);
 }
 
-.required-star {
+.required-star-vlc {
     color: var(--sti-danger);
 }
 
-.label-optional {
+.label-optional-vlc {
     color: var(--sti-text-muted);
     font-weight: normal;
     font-size: 0.78rem;
 }
 
-.form-input-element input,
-.form-input-element select,
-.form-input-element textarea {
+.form-input-element-vlc input,
+.form-input-element-vlc select,
+.form-input-element-vlc textarea {
     width: 100%;
     padding: 8px 12px;
     border: 1px solid var(--sti-border);
@@ -606,24 +610,24 @@
     background-color: #ffffff;
 }
 
-.form-input-element input:focus,
-.form-input-element select:focus,
-.form-input-element textarea:focus {
+.form-input-element-vlc input:focus,
+.form-input-element-vlc select:focus,
+.form-input-element-vlc textarea:focus {
     border-color: var(--sti-blue);
 }
 
-.read-only-input {
+.read-only-input-vlc {
     background-color: #f3f4f6 !important;
     cursor: not-allowed;
 }
 
-.dispensed-flag {
+.dispensed-flag-vlc {
     color: #059669;
     margin-left: 6px;
     font-weight: bold;
 }
 
-.stock-info-banner {
+.stock-info-banner-vlc {
     grid-column: 1 / -1;
     padding: 10px 14px;
     background-color: #f0fdf4;
@@ -633,7 +637,7 @@
     color: #166534;
 }
 
-.modal-action-footer {
+.modal-action-footer-vlc {
     display: flex;
     justify-content: flex-end;
     align-items: center;
@@ -644,7 +648,7 @@
     flex-shrink: 0;
 }
 
-.btn-cancel-action {
+.btn-cancel-action-vlc {
     padding: 8px 18px;
     border-radius: 6px;
     border: 1px solid var(--sti-border);
@@ -653,16 +657,16 @@
     font-weight: 600;
     font-size: 0.85rem;
     cursor: pointer;
-    width: auto;
-    max-width: 140px;
+    width: fit-content;
+    max-width: fit-content;
     transition: background-color 0.15s ease;
 }
 
-.btn-cancel-action:hover {
+.btn-cancel-action-vlc:hover {
     background-color: #f1f5f9;
 }
 
-.btn-confirm-action {
+.btn-confirm-action-vlc {
     padding: 8px 20px;
     border-radius: 6px;
     border: none;
@@ -671,16 +675,16 @@
     font-weight: 600;
     font-size: 0.85rem;
     cursor: pointer;
-    width: auto;
-    max-width: 180px;
+    width: fit-content;
+    max-width: fit-content;
     transition: background-color 0.15s ease;
 }
 
-.btn-confirm-action:hover {
+.btn-confirm-action-vlc:hover {
     background-color: var(--sti-navy);
 }
 
-.btn-deny-action {
+.btn-deny-action-vlc {
     padding: 8px 18px;
     border-radius: 6px;
     border: none;
@@ -689,24 +693,24 @@
     font-weight: 600;
     font-size: 0.85rem;
     cursor: pointer;
-    width: auto;
-    max-width: 140px;
+    width: fit-content;
+    max-width: fit-content;
     transition: background-color 0.15s ease;
 }
 
-.btn-deny-action:hover {
+.btn-deny-action-vlc:hover {
     background-color: #dc2626;
 }
 
-.camera-scan-box {
+.camera-scan-box-vlc {
     margin-bottom: 12px;
 }
 
-.camera-trigger-btn {
+.camera-trigger-btn-vlc {
     margin: 0 auto 12px auto;
 }
 
-.qr-timeout-input-field {
+.qr-timeout-input-field-vlc {
     width: 100%;
     padding: 10px 12px;
     border: 1px solid var(--sti-border);
@@ -715,7 +719,7 @@
     box-sizing: border-box;
 }
 
-.qr-timeout-notice {
+.qr-timeout-notice-vlc {
     margin-bottom: 12px;
     font-size: 0.88rem;
 }
@@ -723,7 +727,7 @@
 /* ==========================================================================
    6. ALL VISIT LOGS MODAL & FILTERS
    ========================================================================== */
-.logs-modal-scroll-area {
+.logs-modal-scroll-area-vlc {
     padding: 20px;
     overflow-y: auto;
     display: flex;
@@ -732,7 +736,7 @@
     flex: 1;
 }
 
-.logs-filter-toolbar {
+.logs-filter-toolbar-vlc {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -743,19 +747,19 @@
     border-radius: 8px;
 }
 
-.filter-input-group {
+.filter-input-group-vlc {
     display: flex;
     flex-direction: column;
     gap: 6px;
     min-width: 150px;
 }
 
-.filter-input-group.search-flex-grow {
+.filter-input-group-vlc.search-flex-grow-vlc {
     flex: 2;
     min-width: 220px;
 }
 
-.filter-input-group label {
+.filter-input-group-vlc label {
     font-size: 0.78rem;
     font-weight: 700;
     color: var(--sti-navy);
@@ -766,27 +770,27 @@
     letter-spacing: 0.3px;
 }
 
-.filter-search-box {
+.filter-search-box-vlc {
     position: relative;
     display: flex;
     align-items: center;
     width: 100%;
 }
 
-.search-box-icon {
+.search-box-icon-vlc {
     position: absolute;
     left: 10px;
     color: var(--sti-text-muted);
     pointer-events: none;
 }
 
-.filter-search-box input {
+.filter-search-box-vlc input {
     width: 100%;
     padding: 8px 10px 8px 34px !important;
 }
 
-.filter-input-group input,
-.filter-input-group select {
+.filter-input-group-vlc input,
+.filter-input-group-vlc select {
     width: 100%;
     padding: 8px 10px;
     border: 1px solid var(--sti-border);
@@ -797,12 +801,12 @@
     outline: none;
 }
 
-.filter-input-group input:focus,
-.filter-input-group select:focus {
+.filter-input-group-vlc input:focus,
+.filter-input-group-vlc select:focus {
     border-color: var(--sti-blue);
 }
 
-.btn-clear-filters {
+.btn-clear-filters-vlc {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -817,21 +821,22 @@
     cursor: pointer;
     transition: all 0.15s ease;
     white-space: nowrap;
-    width: auto;
+    width: fit-content;
+    max-width: fit-content;
 }
 
-.btn-clear-filters:hover {
+.btn-clear-filters-vlc:hover {
     background-color: #f1f5f9;
     color: var(--sti-danger);
     border-color: #fca5a5;
 }
 
-.logs-summary-indicator {
+.logs-summary-indicator-vlc {
     font-size: 0.84rem;
     color: var(--sti-text-muted);
 }
 
-.logs-modal-footer {
+.logs-modal-footer-vlc {
     padding: 12px 20px;
     border-top: 1px solid var(--sti-border);
     display: flex;
@@ -843,7 +848,7 @@
 /* ==========================================================================
    7. HISTORY TABLES & ICON-ONLY ROW ACTIONS
    ========================================================================== */
-.history-table-section-card {
+.history-table-section-card-vlc {
     background: #ffffff;
     border-radius: 8px;
     border: 1px solid var(--sti-border);
@@ -851,7 +856,7 @@
     overflow: hidden;
 }
 
-.section-title-wrapper {
+.section-title-wrapper-vlc {
     padding: 16px 20px;
     border-bottom: 1px solid var(--sti-border);
     display: flex;
@@ -860,23 +865,23 @@
     background: #fafafa;
 }
 
-.title-left {
+.title-left-vlc {
     display: flex;
     align-items: center;
     gap: 8px;
 }
 
-.title-icon-accent {
+.title-icon-accent-vlc {
     color: var(--sti-blue);
 }
 
-.section-title-wrapper h3 {
+.section-title-wrapper-vlc h3 {
     margin: 0;
     font-size: 1.05rem;
     color: var(--sti-navy);
 }
 
-.refresh-table-btn {
+.refresh-table-btn-vlc {
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -889,25 +894,26 @@
     color: var(--sti-text-dark);
     cursor: pointer;
     transition: all 0.15s ease;
+    width: fit-content;
 }
 
-.refresh-table-btn:hover {
+.refresh-table-btn-vlc:hover {
     background-color: #f1f5f9;
 }
 
-.table-overflow-scroller {
+.table-overflow-scroller-vlc {
     width: 100%;
     overflow-x: auto;
 }
 
-.styled-history-table {
+.styled-history-table-vlc {
     width: 100%;
     border-collapse: collapse;
     text-align: left;
     min-width: 820px;
 }
 
-.styled-history-table th {
+.styled-history-table-vlc th {
     background: #f8fafc;
     color: var(--sti-navy);
     padding: 12px 14px;
@@ -918,68 +924,68 @@
     white-space: nowrap;
 }
 
-.styled-history-table th.text-center {
+.styled-history-table-vlc th.text-center-vlc {
     text-align: center;
 }
 
-.styled-history-table td {
+.styled-history-table-vlc td {
     padding: 12px 14px;
     border-bottom: 1px solid var(--sti-border);
     font-size: 0.88rem;
     vertical-align: middle;
 }
 
-.styled-history-table tr.row-locked {
+.styled-history-table-vlc tr.row-locked-vlc {
     background-color: #fbfbfb;
 }
 
-.styled-history-table tr.row-active {
+.styled-history-table-vlc tr.row-active-vlc {
     background-color: #ffffff;
 }
 
-.empty-table-state {
+.empty-table-state-vlc {
     text-align: center;
     padding: 36px !important;
     color: var(--sti-text-muted);
 }
 
-.table-date-cell span {
+.table-date-cell-vlc span {
     font-weight: 600;
     color: var(--sti-navy);
     font-size: 0.85rem;
 }
 
-.table-profile-cell {
+.table-profile-cell-vlc {
     display: flex;
     flex-direction: column;
 }
 
-.table-profile-cell span {
+.table-profile-cell-vlc span {
     font-weight: 600;
     color: var(--sti-navy);
 }
 
-.table-profile-cell small {
+.table-profile-cell-vlc small {
     font-size: 0.78rem;
     color: var(--sti-text-muted);
 }
 
-.table-time-range {
+.table-time-range-vlc {
     display: flex;
     flex-direction: column;
     font-size: 0.82rem;
 }
 
-.table-time-range span {
+.table-time-range-vlc span {
     color: #059669;
     font-weight: 600;
 }
 
-.table-time-range small {
+.table-time-range-vlc small {
     color: var(--sti-text-muted);
 }
 
-.complaint-badge {
+.complaint-badge-vlc {
     display: inline-block;
     padding: 4px 10px;
     border-radius: 12px;
@@ -989,7 +995,7 @@
     font-weight: 600;
 }
 
-.medicine-badge {
+.medicine-badge-vlc {
     display: inline-block;
     padding: 4px 10px;
     border-radius: 12px;
@@ -1000,12 +1006,12 @@
     font-weight: 600;
 }
 
-.no-med-text {
+.no-med-text-vlc {
     color: var(--sti-text-muted);
     font-size: 0.82rem;
 }
 
-.inline-time-input {
+.inline-time-input-vlc {
     width: 95px;
     padding: 5px 6px;
     border: 1px solid var(--sti-border);
@@ -1016,12 +1022,12 @@
     color: var(--sti-text-dark);
 }
 
-.inline-time-input:focus {
+.inline-time-input-vlc:focus {
     border-color: var(--sti-blue);
     outline: none;
 }
 
-.status-pill {
+.status-pill-vlc {
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -1033,23 +1039,23 @@
     white-space: nowrap;
 }
 
-.status-completed {
+.status-completed-vlc {
     background-color: #dcfce7;
     color: #15803d;
 }
 
-.status-in-progress {
+.status-in-progress-vlc {
     background-color: #fef3c7;
     color: #b45309;
 }
 
-.status-undocumented {
+.status-undocumented-vlc {
     background-color: #fef2f2;
     color: #991b1b;
     border: 1px solid #fca5a5;
 }
 
-.action-button-group {
+.action-button-group-vlc {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1057,7 +1063,7 @@
     flex-wrap: nowrap;
 }
 
-.icon-action-btn {
+.icon-action-btn-vlc {
     position: relative;
     width: 34px;
     height: 34px;
@@ -1073,23 +1079,23 @@
     flex-shrink: 0;
 }
 
-.icon-action-btn.btn-document {
+.icon-action-btn-vlc.btn-document-vlc {
     color: var(--sti-navy);
 }
 
-.icon-action-btn.btn-document.needs-doc {
+.icon-action-btn-vlc.btn-document-vlc.needs-doc-vlc {
     border-color: #fca5a5;
     background-color: #fff5f5;
     color: var(--sti-danger);
 }
 
-.icon-action-btn.btn-document:hover {
+.icon-action-btn-vlc.btn-document-vlc:hover {
     background-color: var(--sti-navy);
     color: #ffffff;
     border-color: var(--sti-navy);
 }
 
-.doc-warning-dot {
+.doc-warning-dot-vlc {
     position: absolute;
     top: -2px;
     right: -2px;
@@ -1100,25 +1106,25 @@
     border: 2px solid #ffffff;
 }
 
-.icon-action-btn.btn-manual-timeout {
+.icon-action-btn-vlc.btn-manual-timeout-vlc {
     color: #b45309;
 }
 
-.icon-action-btn.btn-manual-timeout:hover:not(:disabled) {
+.icon-action-btn-vlc.btn-manual-timeout-vlc:hover:not(:disabled) {
     background-color: #fef3c7;
     border-color: #fcd34d;
 }
 
-.icon-action-btn.btn-qr-timeout {
+.icon-action-btn-vlc.btn-qr-timeout-vlc {
     color: #059669;
 }
 
-.icon-action-btn.btn-qr-timeout:hover:not(:disabled) {
+.icon-action-btn-vlc.btn-qr-timeout-vlc:hover:not(:disabled) {
     background-color: #d1fae5;
     border-color: #6ee7b7;
 }
 
-.icon-action-btn:disabled {
+.icon-action-btn-vlc:disabled {
     opacity: 0.4;
     cursor: not-allowed;
     background-color: #f1f5f9;
@@ -1131,144 +1137,146 @@
    ========================================================================== */
 
 @media (max-width: 100%) {
-    .consultation-wrapper {
+    .consultation-wrapper-vlc {
         padding: 18px;
     }
 
-    .form-fields-grid-layout.four-col-layout {
+    .form-fields-grid-layout-vlc.four-col-layout-vlc {
         grid-template-columns: repeat(2, 1fr);
     }
 
-    .logs-filter-toolbar {
+    .logs-filter-toolbar-vlc {
         gap: 10px;
     }
 
-    .filter-input-group {
+    .filter-input-group-vlc {
         min-width: 130px;
     }
 }
 
 @media (max-width: 100%) {
-    .consultation-wrapper {
+    .consultation-wrapper-vlc {
         padding: 14px;
         gap: 16px;
     }
 
-    .header-title-container {
+    .header-title-container-vlc {
         flex-direction: column;
         align-items: flex-start;
         gap: 12px;
     }
 
-    .view-logs-header-btn {
-        width: 100%;
-        max-width: 100%;
+    .view-logs-header-btn-vlc {
+        width: fit-content;
+        max-width: fit-content;
     }
 
-    .header-text-block h2 {
+    .header-text-block-vlc h2 {
         font-size: 1.25rem;
     }
 
-    .entry-buttons-group {
+    .entry-buttons-group-vlc {
         flex-direction: column;
-        align-items: stretch;
+        align-items: flex-start;
     }
 
-    .entry-btn {
-        max-width: 100%;
-        width: 100%;
+    .entry-btn-vlc {
+        width: fit-content;
+        max-width: fit-content;
     }
 
-    .qr-scanner-input-container {
+    .qr-scanner-input-container-vlc {
         flex-direction: column;
-        align-items: stretch;
+        align-items: flex-start;
     }
 
-    .qr-submit-btn {
-        max-width: 100%;
-        width: 100%;
+    .qr-submit-btn-vlc {
+        width: fit-content;
+        max-width: fit-content;
     }
 
-    .logs-filter-toolbar {
+    .logs-filter-toolbar-vlc {
         flex-direction: row;
         align-items: stretch;
     }
 
-    .filter-input-group,
-    .filter-input-group.search-flex-grow {
+    .filter-input-group-vlc,
+    .filter-input-group-vlc.search-flex-grow-vlc {
         min-width: 100%;
         width: 100%;
     }
 
-    .btn-clear-filters {
-        width: 100%;
+    .btn-clear-filters-vlc {
+        width: fit-content;
+        max-width: fit-content;
         margin-top: 4px;
     }
 
-    .form-fields-grid-layout,
-    .form-fields-grid-layout.four-col-layout {
+    .form-fields-grid-layout-vlc,
+    .form-fields-grid-layout-vlc.four-col-layout-vlc {
         grid-template-columns: 1fr;
     }
 
-    .modal-action-footer {
-        flex-direction: column-reverse;
-        align-items: stretch;
+    .modal-action-footer-vlc {
+        flex-direction: row;
+        justify-content: flex-end;
+        align-items: center;
     }
 
-    .btn-cancel-action,
-    .btn-confirm-action,
-    .btn-deny-action {
-        max-width: 100%;
-        width: 100%;
+    .btn-cancel-action-vlc,
+    .btn-confirm-action-vlc,
+    .btn-deny-action-vlc {
+        width: fit-content;
+        max-width: fit-content;
     }
 
-    .section-title-wrapper {
+    .section-title-wrapper-vlc {
         flex-direction: column;
         align-items: flex-start;
         gap: 10px;
     }
 
-    .refresh-table-btn {
+    .refresh-table-btn-vlc {
         align-self: flex-end;
     }
 }
 
 @media (max-width: 100%) {
-    .consultation-wrapper {
+    .consultation-wrapper-vlc {
         padding: 10px;
     }
 
-    .consultation-header-panel,
-    .entry-option-card,
-    .search-card-container {
+    .consultation-header-panel-vlc,
+    .entry-option-card-vlc,
+    .search-card-container-vlc {
         padding: 14px;
     }
 
-    .icon-action-btn {
+    .icon-action-btn-vlc {
         width: 32px;
         height: 32px;
     }
 
-    .inline-time-input {
+    .inline-time-input-vlc {
         width: 80px;
         padding: 4px;
         font-size: 0.75rem;
     }
 
-    .styled-history-table td,
-    .styled-history-table th {
+    .styled-history-table-vlc td,
+    .styled-history-table-vlc th {
         padding: 8px 10px;
     }
 
-    .modal-viewport-backdrop {
+    .modal-viewport-backdrop-vlc {
         padding: 8px;
     }
 
-    .modal-viewport-backdrop.logs-fullscreen-backdrop {
+    .modal-viewport-backdrop-vlc.logs-fullscreen-backdrop-vlc {
         padding: 0;
     }
 
-    .modal-body-container {
+    .modal-body-container-vlc {
         max-height: 95vh;
     }
 }

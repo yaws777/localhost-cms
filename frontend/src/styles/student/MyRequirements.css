@@ -1,0 +1,462 @@
+/* ==========================================
+   STI COLLEGE THEME COLORS:
+   Primary Navy:   #002B49
+   Secondary Gold: #FFC20E
+   Accent Blue:    #0072CE
+   Light Grey:     #F4F6F9
+   ========================================== */
+
+/* Base Desktop Layout (90% width / 90% min-height) */
+.wrapper-mr {
+    width: 90%;
+    min-height: 90%;
+    margin: 0 auto;
+    box-sizing: border-box;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    padding: 10px 0;
+}
+
+.loading-state-mr {
+    padding: 20px;
+    color: #002B49;
+    font-weight: 600;
+}
+
+/* Banner / Header Styles (STI Navy Background) */
+.header-banner-mr {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    background-color: #002B49;
+    color: #ffffff;
+    padding: 22px 25px;
+    border-radius: 8px;
+    border-bottom: 5px solid #FFC20E; /* STI Gold Accent Line */
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.avatar-mr {
+    font-size: 2.5rem;
+    background: rgba(255, 255, 255, 0.1);
+    padding: 8px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.header-details-mr h2 {
+    margin: 0 0 4px 0;
+    color: #ffffff;
+    font-size: 1.5rem;
+}
+
+.header-details-mr p {
+    margin: 0 0 8px 0;
+    color: #e2e8f0;
+    font-size: 0.95rem;
+}
+
+.student-id-badge-mr {
+    display: inline-block;
+    background-color: #FFC20E; /* STI Gold */
+    color: #002B49; /* STI Navy Text */
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+/* Alert Notifications */
+.error-message-mr {
+    margin: 15px 0;
+    padding: 12px 16px;
+    background-color: #fef2f2;
+    border-left: 4px solid #dc2626;
+    color: #991b1b;
+    border-radius: 4px;
+    font-weight: 500;
+}
+
+.success-message-mr {
+    margin: 15px 0;
+    padding: 12px 16px;
+    background-color: #f0fdf4;
+    border-left: 4px solid #16a34a;
+    color: #166534;
+    border-radius: 4px;
+    font-weight: 500;
+}
+
+/* Content & Section Blocks */
+.content-area-mr {
+    margin-top: 20px;
+}
+
+.form-section-mr {
+    background-color: #ffffff;
+    border-radius: 8px;
+    padding: 24px;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.header-block-mr {
+    margin-bottom: 20px;
+    border-bottom: 2px solid #f1f5f9;
+    padding-bottom: 12px;
+}
+
+.header-block-mr h3 {
+    margin: 0;
+    color: #002B49;
+    font-size: 1.2rem;
+}
+
+.header-desc-mr {
+    font-size: 0.9rem;
+    color: #64748b;
+    margin-top: 6px;
+}
+
+.loading-placeholder-mr {
+    padding: 30px;
+    text-align: center;
+    color: #002B49;
+    font-weight: 500;
+}
+
+.empty-state-mr {
+    text-align: center;
+    padding: 30px 10px;
+    color: #64748b;
+}
+
+/* Table Wrapper & Table Structure */
+.table-wrapper-mr {
+    overflow-x: auto;
+    border-radius: 6px;
+    border: 1px solid #e2e8f0;
+}
+
+.table-mr {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+}
+
+.table-head-row-mr {
+    background-color: #002B49; /* STI Navy Header */
+    color: #ffffff;
+}
+
+.table-head-row-mr th {
+    padding: 14px 12px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    letter-spacing: 0.3px;
+}
+
+.table-row-mr {
+    border-bottom: 1px solid #e2e8f0;
+    background-color: #ffffff;
+    transition: background-color 0.15s ease;
+}
+
+.table-row-mr:hover {
+    background-color: #f8fafc;
+}
+
+.table-row-mr.locked-row-mr {
+    background-color: #f1f5f9;
+}
+
+/* Cells & Text Colors */
+.cell-name-mr,
+.cell-type-mr,
+.cell-deadline-mr,
+.cell-status-mr,
+.cell-remarks-mr,
+.cell-action-mr {
+    padding: 12px;
+}
+
+.cell-name-mr {
+    font-weight: 600;
+}
+
+.text-dark-mr {
+    color: #0f172a;
+}
+
+.text-muted-mr {
+    color: #64748b;
+}
+
+.file-link-container-mr {
+    margin-top: 5px;
+}
+
+.file-link-mr {
+    font-size: 0.82rem;
+    color: #0072CE; /* STI Accent Blue */
+    font-weight: 600;
+    text-decoration: underline;
+}
+
+.file-link-mr:hover {
+    color: #002B49;
+}
+
+/* Program & Special Badges */
+.badge-special-mr {
+    font-size: 0.78rem;
+    padding: 4px 10px;
+    border-radius: 12px;
+    background-color: #fffbe6;
+    color: #b78103;
+    border: 1px solid #ffe58f;
+    font-weight: 600;
+    display: inline-block;
+}
+
+.badge-program-mr {
+    font-size: 0.78rem;
+    padding: 4px 10px;
+    border-radius: 12px;
+    background-color: #e6f7ff;
+    color: #0050b3;
+    border: 1px solid #91d5ff;
+    font-weight: 600;
+    display: inline-block;
+}
+
+/* Deadline & Remarks */
+.cell-deadline-mr {
+    color: #334155;
+    font-size: 0.9rem;
+}
+
+.cell-deadline-mr.deadline-past-mr {
+    color: #dc2626;
+    font-weight: 600;
+}
+
+.status-badge-mr {
+    font-weight: 700;
+    font-size: 0.85rem;
+}
+
+.cell-remarks-mr {
+    font-size: 0.88rem;
+    color: #475569;
+}
+
+/* Gray Badge Mark for Empty Remarks */
+.no-remarks-mr {
+    display: inline-block;
+    background-color: #f1f5f9;
+    color: #64748b;
+    border: 1px solid #cbd5e1;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.78rem;
+    font-weight: 500;
+    text-transform: lowercase;
+}
+
+/* Status Lock State */
+.status-lock-mr {
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.completed-text-mr {
+    color: #15803d;
+}
+
+.closed-text-mr {
+    color: #dc2626;
+}
+
+/* Upload Form & Buttons */
+.upload-form-mr {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.upload-input-group-mr {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.file-input-mr {
+    font-size: 0.82rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    padding: 5px;
+    background: #ffffff;
+    max-width: 100%;
+}
+
+.submit-btn-mr {
+    padding: 6px 14px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+/* Normal Submit: STI Navy Blue Button */
+.submit-btn-mr.btn-normal-mr {
+    background-color: #002B49;
+    color: #FFC20E;
+}
+
+.submit-btn-mr.btn-normal-mr:hover {
+    background-color: #004070;
+}
+
+/* Late Submit: STI Gold/Amber Button */
+.submit-btn-mr.btn-late-mr {
+    background-color: #d97706;
+    color: #ffffff;
+}
+
+.submit-btn-mr.btn-late-mr:hover {
+    background-color: #b45309;
+}
+
+.late-warning-mr {
+    color: #d97706;
+    font-size: 0.78rem;
+    font-weight: 600;
+}
+
+
+/* ==========================================
+   MOBILE & TABLET RESPONSIVE STYLES
+   ========================================== */
+
+@media (max-width: 768px) {
+    .wrapper-mr {
+        width: 95%;
+        padding: 5px 0;
+    }
+
+    .header-banner-mr {
+        flex-direction: column;
+        text-align: center;
+        padding: 18px 15px;
+        gap: 10px;
+    }
+
+    .form-section-mr {
+        padding: 16px;
+    }
+
+    .table-wrapper-mr {
+        border: none;
+        overflow-x: visible;
+    }
+
+    .table-mr, 
+    .table-mr tbody, 
+    .table-mr tr, 
+    .table-mr td {
+        display: block;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    .table-head-row-mr {
+        display: none;
+    }
+
+    .table-row-mr {
+        margin-bottom: 16px;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        padding: 14px;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+        background-color: #ffffff;
+    }
+
+    .table-row-mr.locked-row-mr {
+        background-color: #f8fafc;
+        border-color: #e2e8f0;
+    }
+
+    .cell-name-mr,
+    .cell-type-mr,
+    .cell-deadline-mr,
+    .cell-status-mr,
+    .cell-remarks-mr,
+    .cell-action-mr {
+        padding: 8px 0;
+        border-bottom: 1px dashed #e2e8f0;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .cell-action-mr {
+        border-bottom: none;
+        padding-bottom: 0;
+        margin-top: 4px;
+    }
+
+    .table-mr td::before {
+        content: attr(data-label);
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        color: #002B49;
+        margin-bottom: 4px;
+        letter-spacing: 0.5px;
+    }
+
+    .upload-input-group-mr {
+        flex-direction: column;
+        align-items: stretch;
+        width: 100%;
+        gap: 10px;
+    }
+
+    .file-input-mr {
+        width: 100%;
+    }
+
+    .submit-btn-mr {
+        width: 100%;
+        padding: 10px;
+        font-size: 0.9rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .wrapper-mr {
+        width: 100%;
+        padding: 0 8px;
+    }
+
+    .header-details-mr h2 {
+        font-size: 1.25rem;
+    }
+
+    .avatar-mr {
+        font-size: 2rem;
+        padding: 6px;
+    }
+
+    .header-desc-mr {
+        font-size: 0.82rem;
+    }
+}

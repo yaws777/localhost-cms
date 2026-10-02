@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Eye, RotateCcw } from 'lucide-react'; 
+import {  Eye, RotateCcw } from 'lucide-react'; 
 import '../../styles/nurse/HealthRecords.css'; 
 
 export default function HealthRecord() {
@@ -43,7 +43,7 @@ export default function HealthRecord() {
                 year_level: selectedYear
             }).toString();
 
-            const response = await fetch(`https://localhost-cms.onrender.com/api/health-records/students?${queryParams}`);
+            const response = await fetch(`http://localhost:3001/api/health-records/students?${queryParams}`);
             const data = await response.json();
 
             if (data.success) {
@@ -105,7 +105,6 @@ export default function HealthRecord() {
             {/* Organized Search & Dropdown Filter Layout */}
             <div className="search-filter-panel">
                 <div className="search-input-container">
-                    <Search className="search-icon-inside" size={18} />
                     <input 
                         type="text" 
                         value={searchTerm}

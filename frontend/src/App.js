@@ -166,7 +166,7 @@ export default function LandingPage() {
         <div className="hero-container">
           <h2 className="hero-heading">
             Student Health Management
-            <br />
+            <br className="hero-br" />
             & Monitoring System
           </h2>
           <p className="hero-description">
@@ -199,7 +199,7 @@ export default function LandingPage() {
         <div className="section-container">
           <div className="section-header">
             <h3 className="section-title">System Objectives</h3>
-            <p className="section-subtitle">
+            <p className="section-title section-subtitle">
               The STI Baliuag Clinic Management System is built to modernize
               school healthcare through the following key modules and features:
             </p>

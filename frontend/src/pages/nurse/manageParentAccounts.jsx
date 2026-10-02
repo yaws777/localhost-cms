@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import '../../styles/nurse/ManageParentAccounts.css';
 
-const API_BASE = 'https://localhost-cms.onrender.com/manageParentAccount';
+const API_BASE = 'http://localhost:3001/manageParentAccount';
 
 export default function ManageParentAccount() {
   const [parents, setParents] = useState([]);

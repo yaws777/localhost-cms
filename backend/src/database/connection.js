@@ -52,6 +52,7 @@ app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
+/*
 const pool = mysql.createPool({
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
@@ -60,9 +61,9 @@ const pool = mysql.createPool({
     port: process.env.DB_PORT,
     dateStrings: true
 });
+*/
 
 
-/*
     const pool = mysql.createPool({
         host: "localhost",
         user: "root",
@@ -70,7 +71,7 @@ const pool = mysql.createPool({
         database: "ClinicManagementSystem",
         dateStrings: true
 });
-*/
+
 
 const webpush = require('web-push');
 
@@ -1734,7 +1735,7 @@ app.post('/api/students/:id/requirements/:reqName/submit', upload.single('file')
         return res.status(400).json({ success: false, error: "A local file upload stream is required." });
     }
 
-    const file_url = `https://localhost-cms.onrender.com/uploads/${req.file.filename}`;
+    const file_url = `http://localhost:3001/uploads/${req.file.filename}`;
 
     try {
         const [studentRows] = await pool.query(
@@ -2635,7 +2636,19 @@ app.post('/api/dispensation', async (req, res) => {
       [newStock, newRemaining, batch_id]
     );
 
-    const direct_dispense_id = uuidv4().substring(0, 45); 
+    // --- Generate Custom Sequential Direct Dispense ID (DISP-MMDDYYXXX) ---
+    const now = new Date();
+    const monthStr = String(now.getMonth() + 1).padStart(2, '0');
+    const dayStr = String(now.getDate()).padStart(2, '0');
+    const yearStr = String(now.getFullYear()).slice(-2);
+    const datePrefix = `${monthStr}${dayStr}${yearStr}`;
+
+    const [dispenseCountRows] = await connection.execute(
+      `SELECT COUNT(*) AS totalToday FROM direct_dispensation WHERE DATE(dispensed_at) = CURDATE() FOR UPDATE`
+    );
+    const sequenceNum = String(dispenseCountRows[0].totalToday + 1).padStart(3, '0');
+    const direct_dispense_id = `DISP-${datePrefix}${sequenceNum}`;
+
     await connection.execute(
       `INSERT INTO direct_dispensation 
        (direct_dispense_id, student_id, nurse_id, batch_id, dosage_consumption_unit_value, dosage_consumption_unit_of_measure, dispensed_at) 
@@ -2656,7 +2669,6 @@ app.post('/api/dispensation', async (req, res) => {
     // DISPATCH NOTIFICATIONS (STUDENT & PARENTS)
     // ------------------------------------------------------------------
     try {
-      // 1. Get student user_id, student full name, and nurse sender user_id
       const [studentRows] = await pool.query(
         `SELECT s.user_id AS student_user_id, s.first_name, s.last_name, n.user_id AS nurse_user_id
          FROM students s
@@ -2665,7 +2677,6 @@ app.post('/api/dispensation', async (req, res) => {
         [nurse_id, student_id]
       );
 
-      // 2. Get parent user_ids mapped to the student
       const [parentRows] = await pool.query(
         `SELECT p.user_id 
          FROM parents p
@@ -2709,6 +2720,7 @@ app.post('/api/dispensation', async (req, res) => {
     res.status(201).json({ 
       success: true, 
       message: 'Transaction posted successfully.', 
+      direct_dispense_id: direct_dispense_id,
       updatedStock: newStock,
       updatedVolume: newRemaining 
     });
@@ -2722,16 +2734,7 @@ app.post('/api/dispensation', async (req, res) => {
   }
 });
 
-//Visit Log Consultation API
-// Visit Log Consultation API
-// GET: Search students
-// GET: Search students
-/**
- * Helper function to send SMS notifications via Semaphore API
- * @param {string} phoneNumber - Recipient phone number (e.g., 09171234567 or +639171234567)
- * @param {string} message - Text content of the SMS
- * @returns {Promise<boolean>} - Returns true if dispatched successfully
- */
+// Helper for Semaphore SMS
 const sendSemaphoreSms = async (phoneNumber, message) => {
     const apiKey = process.env.SEMAPHORE_API_KEY;
     const senderName = process.env.SEMAPHORE_SENDER_NAME;
@@ -2775,7 +2778,6 @@ const sendSemaphoreSms = async (phoneNumber, message) => {
     }
 };
 
-// GET: Search students
 // GET: Search students
 app.get('/api/students/search', async (req, res) => {
     const { query } = req.query;
@@ -2906,18 +2908,16 @@ app.post('/api/clinic-visits', async (req, res) => {
         }
 
         // --- Generate Custom Sequential Visit ID (VISIT-MMDDYYXXX) ---
-        // Converts "YYYY-MM-DD" -> "MMDDYY" (e.g., "2026-09-29" -> "092926")
         const [yearStr, monthStr, dayStr] = visit_date.split('-');
         const datePrefix = `${monthStr}${dayStr}${yearStr.slice(-2)}`;
 
-        // Lock existing visits for today to safely increment sequence number
         const [countRows] = await connection.execute(
             `SELECT COUNT(*) AS totalToday FROM clinic_visits WHERE visit_date = ? FOR UPDATE`,
             [visit_date]
         );
 
         const sequenceNum = String(countRows[0].totalToday + 1).padStart(3, '0');
-        const visit_id = `VISIT-${datePrefix}${sequenceNum}`; // Generates format: VISIT-092926001
+        const visit_id = `VISIT-${datePrefix}${sequenceNum}`;
 
         const visitSql = `
             INSERT INTO clinic_visits (
@@ -3006,7 +3006,19 @@ app.post('/api/clinic-visits', async (req, res) => {
                 );
             }
 
-            const dispensation_id = 'DISP-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+            // --- Generate Custom Sequential Consultation Dispensation ID (DISP-MMDDYYXXX) ---
+            const now = new Date();
+            const dispMonthStr = String(now.getMonth() + 1).padStart(2, '0');
+            const dispDayStr = String(now.getDate()).padStart(2, '0');
+            const dispYearStr = String(now.getFullYear()).slice(-2);
+            const dispDatePrefix = `${dispMonthStr}${dispDayStr}${dispYearStr}`;
+
+            const [dispCountRows] = await connection.execute(
+                `SELECT COUNT(*) AS totalToday FROM consultation_dispensation WHERE DATE(dispensed_at) = CURDATE() FOR UPDATE`
+            );
+            const dispSeq = String(dispCountRows[0].totalToday + 1).padStart(3, '0');
+            const dispensation_id = `DISP-${dispDatePrefix}${dispSeq}`;
+
             await connection.execute(
                 `INSERT INTO consultation_dispensation 
                  (consultation_dispense_id, visit_id, batch_id, dosage_consumption_unit_value, dosage_consumption_unit_of_measure, dispensed_at) 
@@ -3046,7 +3058,6 @@ app.post('/api/clinic-visits', async (req, res) => {
 
                 const recipient_ids = [info.parent_user_id, info.student_user_id].filter(Boolean);
 
-                // Send System / Push Notification
                 await notifyUsers({
                     sender_id: info.nurse_user_id || null,
                     recipient_ids: recipient_ids,
@@ -3056,7 +3067,6 @@ app.post('/api/clinic-visits', async (req, res) => {
                     payloadData: { visit_id }
                 });
 
-                // Send SMS Notification via Semaphore
                 if (info.primary_phone) {
                     smsNotificationSent = await sendSemaphoreSms(info.primary_phone, notifMessage);
                 }
@@ -3126,11 +3136,9 @@ app.patch('/api/clinic-visits/:id/timeout', async (req, res) => {
                 const info = notifRows[0];
                 const studentFullName = `${info.student_first_name} ${info.student_last_name}`;
 
-                // Notification Message: {firstname} {lastname} was leave in the time of {time_out}
                 const notifMessage = `${studentFullName} was leave in the time of ${time_out}`;
                 const notifTitle = `Clinic Time Out: ${studentFullName}`;
 
-                // Send System / Push Notification
                 await notifyUsers({
                     sender_id: info.nurse_user_id || null,
                     recipient_ids: [info.parent_user_id, info.student_user_id].filter(Boolean),
@@ -3140,7 +3148,6 @@ app.patch('/api/clinic-visits/:id/timeout', async (req, res) => {
                     payloadData: { visit_id: id, time_out }
                 });
 
-                // Send SMS Notification via Semaphore
                 if (info.primary_phone) {
                     await sendSemaphoreSms(info.primary_phone, notifMessage);
                 }
@@ -3291,7 +3298,19 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
                     );
                 }
 
-                const dispensation_id = 'DISP-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+                // --- Generate Custom Sequential Consultation Dispensation ID (DISP-MMDDYYXXX) ---
+                const now = new Date();
+                const dispMonthStr = String(now.getMonth() + 1).padStart(2, '0');
+                const dispDayStr = String(now.getDate()).padStart(2, '0');
+                const dispYearStr = String(now.getFullYear()).slice(-2);
+                const dispDatePrefix = `${dispMonthStr}${dispDayStr}${dispYearStr}`;
+
+                const [dispCountRows] = await connection.execute(
+                    `SELECT COUNT(*) AS totalToday FROM consultation_dispensation WHERE DATE(dispensed_at) = CURDATE() FOR UPDATE`
+                );
+                const dispSeq = String(dispCountRows[0].totalToday + 1).padStart(3, '0');
+                const dispensation_id = `DISP-${dispDatePrefix}${dispSeq}`;
+
                 await connection.execute(
                     `INSERT INTO consultation_dispensation 
                      (consultation_dispense_id, visit_id, batch_id, dosage_consumption_unit_value, dosage_consumption_unit_of_measure, dispensed_at) 
@@ -3332,13 +3351,11 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
                 const complaintText = info.specify_complaint_text || info.complaint_name || 'General Checkup';
                 const assessmentText = info.assessment || 'N/A';
 
-                // Notification Message: {firstname} {lastname} with the complaint of {complaint or specific_complaint_text}. Assessment: {assessment}.
                 const notifMessage = `${studentFullName} with the complaint of ${complaintText}. Assessment: ${assessmentText}.`;
                 const notifTitle = `Clinic Visit Documented: ${studentFullName}`;
 
                 const recipient_ids = [info.parent_user_id, info.student_user_id].filter(Boolean);
 
-                // Send System / Push Notification
                 await notifyUsers({
                     sender_id: info.nurse_user_id || null,
                     recipient_ids: recipient_ids,
@@ -3348,7 +3365,6 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
                     payloadData: { visit_id: id }
                 });
 
-                // Send SMS Notification via Semaphore
                 if (info.primary_phone) {
                     smsNotificationSent = await sendSemaphoreSms(info.primary_phone, notifMessage);
                 }
@@ -4196,17 +4212,43 @@ app.get('/api/weekly-reports', async (req, res) => {
   }
 });
 
-//Document Request API
-// =========================================================================
-// 1. POST: Submit Excuse Slip Request (Notifies All Nurses)
-// =========================================================================
+async function generateRequestId(pool, prefix, tableName) {
+    const today = new Date();
+    const day = String(today.getDate()).padStart(2, '0');
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const year = String(today.getFullYear()).slice(-2);
+
+    const dateStr = `${month}${day}${year}`; // e.g., 100126
+    const prefixWithDate = `${prefix}-${dateStr}`;
+
+    // Get the highest existing request ID for today
+    const [rows] = await pool.query(
+        `SELECT request_id FROM ${tableName} WHERE request_id LIKE ? ORDER BY request_id DESC LIMIT 1`,
+        [`${prefixWithDate}%`]
+    );
+
+    let nextNumber = 1;
+    if (rows.length > 0) {
+        const lastId = rows[0].request_id;
+        const lastSeq = parseInt(lastId.slice(-3), 10);
+        if (!isNaN(lastSeq)) {
+            nextNumber = lastSeq + 1;
+        }
+    }
+
+    const paddedIncrement = String(nextNumber).padStart(3, '0');
+    return `${prefixWithDate}${paddedIncrement}`;
+}
+
 // =========================================================================
 // 1. POST: Submit Excuse Slip Request (Notifies All Nurses)
 // =========================================================================
 app.post('/api/requests/excuse-slip', upload.single('proof'), async (req, res) => {
     try {
         const { student_id, reason_for_excuse, valid_absence_start, valid_absence_end } = req.body;
-        const request_id = `EXC-${uuidv4().substring(0, 8)}`;
+        
+        // Generate formatted request ID: EXC-DDMMYY001
+        const request_id = await generateRequestId(pool, 'EXC', 'excuse_slip_requests');
         const student_proof_url = req.file ? `/uploads/${req.file.filename}` : null;
 
         const query = `
@@ -4301,9 +4343,10 @@ app.post('/api/requests/referral-slip', async (req, res) => {
             return res.status(400).json({ error: 'At least one service must be selected.' });
         }
 
-        const request_id = `REF-${uuidv4().substring(0, 8)}`;
-
         await connection.beginTransaction();
+
+        // Generate formatted request ID inside transaction: REF-DDMMYY001
+        const request_id = await generateRequestId(connection, 'REF', 'referral_slip_requests');
 
         const insertRequestQuery = `
             INSERT INTO referral_slip_requests 
@@ -5112,6 +5155,42 @@ app.delete('/api/facility-services/:serviceId', async (req, res) => {
 // HEALTH SCREENING API ENDPOINTS
 // ==========================================
 
+/**
+ * Generates formatted IDs in the pattern: PREFIX-MMDDYYXXX
+ * @param {string} prefix - e.g., 'HSSCHED', 'BMI', 'VSN', 'DENT'
+ * @param {string} tableName - Database table to check
+ * @param {string} idColumn - Column name holding the custom ID
+ * @returns {Promise<string>} e.g., 'HSSCHED-100226001'
+ */
+async function generateCustomId(prefix, tableName, idColumn) {
+  const now = new Date();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const yy = String(now.getFullYear()).slice(-2);
+  
+  const dateStr = `${mm}${dd}${yy}`;
+  const searchPattern = `${prefix}-${dateStr}%`;
+
+  const [rows] = await pool.query(
+    `SELECT ${idColumn} FROM ${tableName} WHERE ${idColumn} LIKE ? ORDER BY ${idColumn} DESC LIMIT 1`,
+    [searchPattern]
+  );
+
+  let nextSequence = 1;
+
+  if (rows.length > 0) {
+    const lastId = rows[0][idColumn];
+    const lastSeqStr = lastId.slice(-3);
+    const parsedSeq = parseInt(lastSeqStr, 10);
+    if (!isNaN(parsedSeq)) {
+      nextSequence = parsedSeq + 1;
+    }
+  }
+
+  const paddedSeq = String(nextSequence).padStart(3, '0');
+  return `${prefix}-${dateStr}${paddedSeq}`;
+}
+
 // 1. Get Academic Programs
 app.get('/api/programs', async (req, res) => {
   try {
@@ -5191,9 +5270,10 @@ app.post('/api/screenings', async (req, res) => {
     return res.status(400).json({ error: 'At least one participant must be selected.' });
   }
 
-  const scheduleId = uuidv4();
-
   try {
+    // Generate custom ID for Schedule
+    const scheduleId = await generateCustomId('HSSCHED', 'screening_schedules', 'screening_schedule_id');
+
     await pool.query(
       `INSERT INTO screening_schedules 
       (screening_schedule_id, title, screening_type, target_program_id, target_year_level, target_section, scheduled_date, start_time, end_time) 
@@ -5201,6 +5281,7 @@ app.post('/api/screenings', async (req, res) => {
       [scheduleId, title, screening_type, target_program_id || null, target_year_level || null, target_section || null, scheduled_date, start_time, end_time]
     );
 
+    // Generate UUIDs or participant IDs for internal linking
     const participantValues = student_ids.map(sId => [uuidv4(), scheduleId, sId, 'PENDING']);
     await pool.query(
       'INSERT INTO screening_schedule_participants (participant_id, screening_schedule_id, student_id, attendance_status) VALUES ?',
@@ -5210,7 +5291,6 @@ app.post('/api/screenings', async (req, res) => {
     const [users] = await pool.query('SELECT user_id FROM students WHERE student_id IN (?)', [student_ids]);
     const recipientUserIds = users.map(u => u.user_id);
 
-    // Concise notification payload
     await notifyUsers({
       sender_id: sender_id || req.user?.user_id,
       recipient_ids: recipientUserIds,
@@ -5225,6 +5305,7 @@ app.post('/api/screenings', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 
 // 5. Update Scheduled Date/Time
 app.put('/api/screenings/:id', async (req, res) => {
@@ -5508,7 +5589,8 @@ app.post('/api/screenings/:id/document', async (req, res) => {
 
     if (screening_type === 'BMI') {
       const { height_cm, weight_kg, bmi_value, bmi_category } = formData;
-      const logId = uuidv4();
+      const logId = await generateCustomId('BMI', 'bmi_monitoring_logs', 'bmi_log_id');
+      
       await pool.query(`
         INSERT INTO bmi_monitoring_logs (bmi_log_id, student_id, screening_schedule_id, height_cm, weight_kg, bmi_value, bmi_category)
         VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -5517,7 +5599,8 @@ app.post('/api/screenings/:id/document', async (req, res) => {
 
     } else if (screening_type === 'Dental') {
       const { dental_findings, remarks } = formData;
-      const recordId = uuidv4();
+      const recordId = await generateCustomId('DENT', 'dental_assessment_records', 'dental_record_id');
+      
       await pool.query(`
         INSERT INTO dental_assessment_records (dental_record_id, student_id, screening_schedule_id, dental_findings, remarks)
         VALUES (?, ?, ?, ?, ?)
@@ -5525,7 +5608,8 @@ app.post('/api/screenings/:id/document', async (req, res) => {
 
     } else if (screening_type === 'Vision') {
       const { visual_acuity_left, visual_acuity_right, remarks } = formData;
-      const recordId = uuidv4();
+      const recordId = await generateCustomId('VSN', 'vision_screening_records', 'vision_record_id');
+      
       await pool.query(`
         INSERT INTO vision_screening_records (vision_record_id, student_id, screening_schedule_id, visual_acuity_left, visual_acuity_right, remarks)
         VALUES (?, ?, ?, ?, ?, ?)
@@ -5538,10 +5622,46 @@ app.post('/api/screenings/:id/document', async (req, res) => {
   }
 });
 
-
 // ==========================================
 // 1. DOCTOR VISIT API
 // ==========================================
+
+/**
+ * Generates formatted IDs in the pattern: PREFIX-MMDDYYXXX
+ * @param {string} prefix - e.g., 'DVSCHED', 'DVAS'
+ * @param {string} tableName - Target database table
+ * @param {string} idColumn - Primary ID column name
+ * @param {object} [dbExecutor=pool] - Optional database pool or connection (for transactions)
+ * @returns {Promise<string>} e.g., 'DVSCHED-100226001'
+ */
+async function generateCustomId(prefix, tableName, idColumn, dbExecutor = pool) {
+  const now = new Date();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const yy = String(now.getFullYear()).slice(-2);
+  
+  const dateStr = `${mm}${dd}${yy}`;
+  const searchPattern = `${prefix}-${dateStr}%`;
+
+  const [rows] = await dbExecutor.query(
+    `SELECT ${idColumn} FROM ${tableName} WHERE ${idColumn} LIKE ? ORDER BY ${idColumn} DESC LIMIT 1`,
+    [searchPattern]
+  );
+
+  let nextSequence = 1;
+
+  if (rows.length > 0) {
+    const lastId = rows[0][idColumn];
+    const lastSeqStr = lastId.slice(-3);
+    const parsedSeq = parseInt(lastSeqStr, 10);
+    if (!isNaN(parsedSeq)) {
+      nextSequence = parsedSeq + 1;
+    }
+  }
+
+  const paddedSeq = String(nextSequence).padStart(3, '0');
+  return `${prefix}-${dateStr}${paddedSeq}`;
+}
 
 // Get all doctors
 app.get('/api/doctors', async (req, res) => {
@@ -5622,6 +5742,7 @@ app.get('/api/academic-programs', async (req, res) => {
 // 3. MASS SCHEDULING & APPOINTMENT CREATION
 // ==========================================
 
+// POST /api/mass-schedules
 app.post('/api/mass-schedules', async (req, res) => {
     const { 
         assigned_by_nurse_id, 
@@ -5667,7 +5788,8 @@ app.post('/api/mass-schedules', async (req, res) => {
         );
 
         for (const appt of student_appointments) {
-            const appointment_id = `APPT-${uuidv4().substring(0, 8)}`;
+            // Generates appointment ID in DVSCHED-MMDDYYXXX format
+            const appointment_id = await generateCustomId('DVSCHED', 'doctor_appointments', 'appointment_id', connection);
             
             await connection.query(
                 `INSERT INTO doctor_appointments 
@@ -5710,7 +5832,6 @@ app.post('/api/mass-schedules', async (req, res) => {
         connection.release();
     }
 });
-
 // ==========================================
 // 4. FETCH VISITS & ATTENDANCE MANAGEMENT
 // ==========================================
@@ -5949,6 +6070,7 @@ app.post('/api/doctor-visits/send-reminders', async (req, res) => {
 // 6. DOCTOR ASSESSMENT DOCUMENTATION
 // ==========================================
 
+// POST /api/doctor-assessments
 app.post('/api/doctor-assessments', async (req, res) => {
     const { 
         appointment_id, 
@@ -5974,7 +6096,9 @@ app.post('/api/doctor-assessments', async (req, res) => {
                 [clinical_findings, diagnosis, treatment_recommendations, appointment_id, student_id]
             );
         } else {
-            const assessment_id = `ASM-${uuidv4().substring(0, 8)}`;
+            // Generates assessment ID in DVAS-MMDDYYXXX format
+            const assessment_id = await generateCustomId('DVAS', 'doctor_assessments', 'assessment_id');
+
             await pool.query(
                 `INSERT INTO doctor_assessments (assessment_id, appointment_id, student_id, clinical_findings, diagnosis, treatment_recommendations, assessment_date) 
                  VALUES (?, ?, ?, ?, ?, ?, NOW())`,
@@ -6137,15 +6261,41 @@ app.delete('/api/doctor-visits/batch/:batch_id', async (req, res) => {
 });
 
 
-//Incident Reports API
-const generateId = (prefix) => `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-// ----------------================================------------------
-// 1. INCIDENT REPORTS API
-// ----------------================================------------------
+// Incident Reports API
 
-// ----------------================================------------------
+// Helper function to generate daily resetting incremental IDs (e.g., INC-100226001)
+const generateDailyId = async (prefix, tableName, idColumn) => {
+    const now = new Date();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const dd = String(now.getDate()).padStart(2, '0');
+    const yy = String(now.getFullYear()).slice(-2);
+    const dateStr = `${mm}${dd}${yy}`;
+
+    const searchPattern = `${prefix}-${dateStr}%`;
+    const [rows] = await pool.query(
+        `SELECT ${idColumn} FROM ${tableName} WHERE ${idColumn} LIKE ? ORDER BY ${idColumn} DESC LIMIT 1`,
+        [searchPattern]
+    );
+
+    let sequence = 1;
+    if (rows.length > 0) {
+        const lastId = rows[0][idColumn];
+        const lastSeq = parseInt(lastId.slice(-3), 10);
+        if (!isNaN(lastSeq)) {
+            sequence = lastSeq + 1;
+        }
+    }
+
+    const seqStr = String(sequence).padStart(3, '0');
+    return `${prefix}-${dateStr}${seqStr}`;
+};
+
+// Standard fallback helper for non-daily unique IDs
+const generateId = (prefix) => `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+// ----------------================================================--
 // 1. INCIDENT REPORTS API
-// ----------------================================------------------
+// ----------------================================================--
 
 // GET: Fetch Incident Reports with student, program, and nurse details
 app.get('/api/incident-reports', async (req, res) => {
@@ -6216,7 +6366,8 @@ app.post('/api/incident-reports', async (req, res) => {
             return res.status(400).json({ success: false, message: 'Missing required fields' });
         }
 
-        const incident_id = generateId('INC');
+        // Generate daily formatted ID: INC-MMDDYY001
+        const incident_id = await generateDailyId('INC', 'incident_reports', 'incident_id');
 
         const insertQuery = `
             INSERT INTO incident_reports 
@@ -6287,7 +6438,7 @@ app.post('/api/incident-reports', async (req, res) => {
             });
         }
 
-        res.json({ success: true, message: 'Incident report created successfully' });
+        res.json({ success: true, message: 'Incident report created successfully', incident_id });
     } catch (error) {
         console.error('Error creating incident report:', error);
         res.status(500).json({ success: false, message: 'Failed to create report' });
@@ -6296,7 +6447,7 @@ app.post('/api/incident-reports', async (req, res) => {
 
 // ----------------================================================--
 // 2. EMERGENCY HOTLINE DIRECTORY API
-// ----------------================================------------------
+// ----------------================================================--
 
 // GET: All Hotlines
 app.get('/api/emergency-hotlines', async (req, res) => {
@@ -6643,14 +6794,25 @@ app.get('/clinic-visits/clinicLogs&Records', async (req, res) => {
     const { studentId, startDate, endDate } = req.query;
     if (!studentId) return res.status(400).json({ error: 'studentId is required' });
 
-    let query = `SELECT * FROM clinic_visits WHERE student_id = ?`;
+    let query = `
+      SELECT 
+        cv.*,
+        s.first_name AS student_first_name,
+        s.last_name AS student_last_name,
+        n.first_name AS nurse_first_name,
+        n.last_name AS nurse_last_name
+      FROM clinic_visits cv
+      LEFT JOIN students s ON cv.student_id = s.student_id
+      LEFT JOIN nurses n ON cv.nurse_id = n.nurse_id
+      WHERE cv.student_id = ?
+    `;
     const params = [studentId];
 
     if (startDate && endDate) {
-      query += ` AND visit_date BETWEEN ? AND ?`;
+      query += ` AND cv.visit_date BETWEEN ? AND ?`;
       params.push(startDate, endDate);
     }
-    query += ` ORDER BY visit_date DESC, time_in DESC`;
+    query += ` ORDER BY cv.visit_date DESC, cv.time_in DESC`;
 
     const [rows] = await pool.query(query, params);
     res.json(rows);
@@ -6659,7 +6821,7 @@ app.get('/clinic-visits/clinicLogs&Records', async (req, res) => {
   }
 });
 
-// 2. Medicine Dispensed (Updated for dosage_consumption_unit_value & measure)
+// 2. Medicine Dispensed (Updated: Replaced batch_id with brand_name & generic_name, joined students)
 app.get('/medicine-dispensed/clinicLogs&Records', async (req, res) => {
   try {
     const { studentId, startDate, endDate } = req.query;
@@ -6686,14 +6848,20 @@ app.get('/medicine-dispensed/clinicLogs&Records', async (req, res) => {
         d.direct_dispense_id AS id,
         'Direct Dispensation' AS dispensation_type,
         d.student_id,
+        s.first_name,
+        s.last_name,
         d.nurse_id,
         NULL AS visit_id,
-        d.batch_id,
+        m.brand_name,
+        m.generic_name,
         d.dosage_consumption_unit_value,
         d.dosage_consumption_unit_of_measure,
         CONCAT(d.dosage_consumption_unit_value, ' ', d.dosage_consumption_unit_of_measure) AS quantity_dispensed,
         d.dispensed_at
       FROM direct_dispensation d
+      LEFT JOIN students s ON d.student_id = s.student_id
+      LEFT JOIN medicine_inventory_batches b ON d.batch_id = b.batch_id
+      LEFT JOIN medicines m ON b.medicine_id = m.medicine_id
       ${directWhere}
 
       UNION ALL
@@ -6702,15 +6870,21 @@ app.get('/medicine-dispensed/clinicLogs&Records', async (req, res) => {
         c.consultation_dispense_id AS id,
         'Consultation Dispensation' AS dispensation_type,
         cv.student_id,
+        s.first_name,
+        s.last_name,
         cv.nurse_id,
         c.visit_id,
-        c.batch_id,
+        m.brand_name,
+        m.generic_name,
         c.dosage_consumption_unit_value,
         c.dosage_consumption_unit_of_measure,
         CONCAT(c.dosage_consumption_unit_value, ' ', c.dosage_consumption_unit_of_measure) AS quantity_dispensed,
         c.dispensed_at
       FROM consultation_dispensation c
       LEFT JOIN clinic_visits cv ON c.visit_id = cv.visit_id
+      LEFT JOIN students s ON cv.student_id = s.student_id
+      LEFT JOIN medicine_inventory_batches b ON c.batch_id = b.batch_id
+      LEFT JOIN medicines m ON b.medicine_id = m.medicine_id
       ${consultWhere}
 
       ORDER BY dispensed_at DESC
@@ -6729,14 +6903,25 @@ app.get('/incident-reports/clinicLogs&Records', async (req, res) => {
     const { studentId, startDate, endDate } = req.query;
     if (!studentId) return res.status(400).json({ error: 'studentId is required' });
 
-    let query = `SELECT * FROM incident_reports WHERE student_id = ?`;
+    let query = `
+      SELECT 
+        ir.*,
+        s.first_name AS student_first_name,
+        s.last_name AS student_last_name,
+        n.first_name AS nurse_first_name,
+        n.last_name AS nurse_last_name
+      FROM incident_reports ir
+      LEFT JOIN students s ON ir.student_id = s.student_id
+      LEFT JOIN nurses n ON ir.nurse_id = n.nurse_id
+      WHERE ir.student_id = ?
+    `;
     const params = [studentId];
 
     if (startDate && endDate) {
-      query += ` AND DATE(incident_datetime) BETWEEN ? AND ?`;
+      query += ` AND DATE(ir.incident_datetime) BETWEEN ? AND ?`;
       params.push(startDate, endDate);
     }
-    query += ` ORDER BY incident_datetime DESC`;
+    query += ` ORDER BY ir.incident_datetime DESC`;
 
     const [rows] = await pool.query(query, params);
     res.json(rows);
@@ -6790,6 +6975,8 @@ app.get('/health-screenings/clinicLogs&Records', async (req, res) => {
         s.screening_schedule_id AS record_id,
         COALESCE(s.screening_type, 'Health Screening') AS screening_type,
         p.student_id,
+        st.first_name,
+        st.last_name,
         s.screening_schedule_id,
         s.scheduled_date AS record_date,
         s.title,
@@ -6810,6 +6997,7 @@ app.get('/health-screenings/clinicLogs&Records', async (req, res) => {
         END AS status
       FROM screening_schedule_participants p
       JOIN screening_schedules s ON p.screening_schedule_id = s.screening_schedule_id
+      LEFT JOIN students st ON p.student_id = st.student_id
       LEFT JOIN bmi_monitoring_logs b ON b.screening_schedule_id = s.screening_schedule_id AND b.student_id = p.student_id
       LEFT JOIN dental_assessment_records d ON d.screening_schedule_id = s.screening_schedule_id AND d.student_id = p.student_id
       LEFT JOIN vision_screening_records v ON v.screening_schedule_id = s.screening_schedule_id AND v.student_id = p.student_id
@@ -6821,6 +7009,8 @@ app.get('/health-screenings/clinicLogs&Records', async (req, res) => {
         b.bmi_log_id AS record_id,
         'BMI Monitoring' AS screening_type,
         b.student_id,
+        st.first_name,
+        st.last_name,
         b.screening_schedule_id,
         DATE(b.logged_at) AS record_date,
         'BMI Monitoring' AS title,
@@ -6830,6 +7020,7 @@ app.get('/health-screenings/clinicLogs&Records', async (req, res) => {
         CONCAT('BMI: ', b.bmi_value, ' (', b.bmi_category, ') | Height: ', b.height_cm, 'cm | Weight: ', b.weight_kg, 'kg') AS details,
         'Completed' AS status
       FROM bmi_monitoring_logs b
+      LEFT JOIN students st ON b.student_id = st.student_id
       ${where2}
 
       UNION ALL
@@ -6838,6 +7029,8 @@ app.get('/health-screenings/clinicLogs&Records', async (req, res) => {
         d.dental_record_id AS record_id,
         'Dental Assessment' AS screening_type,
         d.student_id,
+        st.first_name,
+        st.last_name,
         d.screening_schedule_id,
         DATE(d.recorded_at) AS record_date,
         'Dental Assessment' AS title,
@@ -6847,6 +7040,7 @@ app.get('/health-screenings/clinicLogs&Records', async (req, res) => {
         CONCAT('Findings: ', d.dental_findings, ' | Remarks: ', COALESCE(d.remarks, 'None')) AS details,
         'Completed' AS status
       FROM dental_assessment_records d
+      LEFT JOIN students st ON d.student_id = st.student_id
       ${where3}
 
       UNION ALL
@@ -6855,6 +7049,8 @@ app.get('/health-screenings/clinicLogs&Records', async (req, res) => {
         v.vision_record_id AS record_id,
         'Vision Screening' AS screening_type,
         v.student_id,
+        st.first_name,
+        st.last_name,
         v.screening_schedule_id,
         DATE(v.recorded_at) AS record_date,
         'Vision Screening' AS title,
@@ -6864,6 +7060,7 @@ app.get('/health-screenings/clinicLogs&Records', async (req, res) => {
         CONCAT('VA Left: ', v.visual_acuity_left, ' | VA Right: ', v.visual_acuity_right, ' | Remarks: ', COALESCE(v.remarks, 'None')) AS details,
         'Completed' AS status
       FROM vision_screening_records v
+      LEFT JOIN students st ON v.student_id = st.student_id
       ${where4}
 
       ORDER BY record_date DESC
@@ -6876,7 +7073,7 @@ app.get('/health-screenings/clinicLogs&Records', async (req, res) => {
   }
 });
 
-// 5. Doctor Visit Records (Updated to join doctor_appointment_students)
+// 5. Doctor Visit Records
 app.get('/doctor-visits/clinicLogs&Records', async (req, res) => {
   try {
     const { studentId, startDate, endDate } = req.query;
@@ -6886,7 +7083,11 @@ app.get('/doctor-visits/clinicLogs&Records', async (req, res) => {
       SELECT 
         da.appointment_id,
         das.student_id,
+        st.first_name AS student_first_name,
+        st.last_name AS student_last_name,
         da.doctor_id,
+        doc.first_name AS doctor_first_name,
+        doc.last_name AS doctor_last_name,
         da.batch_id,
         da.title,
         da.announcement,
@@ -6900,10 +7101,12 @@ app.get('/doctor-visits/clinicLogs&Records', async (req, res) => {
         doc_ast.assessment_id,
         doc_ast.clinical_findings,
         doc_ast.diagnosis,
-        doc_ast.treatment_assessment,
+        doc_ast.treatment_recommendations,
         doc_ast.assessment_date
       FROM doctor_appointments da
       JOIN doctor_appointment_students das ON da.appointment_id = das.appointment_id
+      LEFT JOIN students st ON das.student_id = st.student_id
+      LEFT JOIN doctors doc ON da.doctor_id = doc.doctor_id
       LEFT JOIN doctor_assessments doc_ast 
         ON da.appointment_id = doc_ast.appointment_id 
         AND das.student_id = doc_ast.student_id
@@ -6925,9 +7128,7 @@ app.get('/doctor-visits/clinicLogs&Records', async (req, res) => {
   }
 });
 
-// ==========================================
 // 6. Document Requests (Excuse & Referral Slips)
-// ==========================================
 app.get('/document-requests/childClinicRecords', async (req, res) => {
   try {
     const { studentId, startDate, endDate } = req.query;
@@ -6935,47 +7136,53 @@ app.get('/document-requests/childClinicRecords', async (req, res) => {
 
     const params = [];
 
-    let excuseWhere = `WHERE student_id = ?`;
+    let excuseWhere = `WHERE e.student_id = ?`;
     params.push(studentId);
     if (startDate && endDate) {
-      excuseWhere += ` AND DATE(created_at) BETWEEN ? AND ?`;
+      excuseWhere += ` AND DATE(e.created_at) BETWEEN ? AND ?`;
       params.push(startDate, endDate);
     }
 
-    let referralWhere = `WHERE student_id = ?`;
+    let referralWhere = `WHERE r.student_id = ?`;
     params.push(studentId);
     if (startDate && endDate) {
-      referralWhere += ` AND DATE(created_at) BETWEEN ? AND ?`;
+      referralWhere += ` AND DATE(r.created_at) BETWEEN ? AND ?`;
       params.push(startDate, endDate);
     }
 
     const query = `
       SELECT 
-        request_id,
+        e.request_id,
         'Excuse Slip' AS document_type,
-        student_id,
-        reason_for_excuse AS reason,
-        status,
-        issued_by,
-        issued_at,
-        issued_slip_url,
-        created_at
-      FROM excuse_slip_requests
+        e.student_id,
+        s.first_name,
+        s.last_name,
+        e.reason_for_excuse AS reason,
+        e.status,
+        e.issued_by,
+        e.issued_at,
+        e.issued_slip_url,
+        e.created_at
+      FROM excuse_slip_requests e
+      LEFT JOIN students s ON e.student_id = s.student_id
       ${excuseWhere}
 
       UNION ALL
 
       SELECT 
-        request_id,
+        r.request_id,
         'Referral Slip' AS document_type,
-        student_id,
-        reason_for_referral AS reason,
-        status,
-        issued_by,
-        issued_at,
-        issued_slip_url,
-        created_at
-      FROM referral_slip_requests
+        r.student_id,
+        s.first_name,
+        s.last_name,
+        r.reason_for_referral AS reason,
+        r.status,
+        r.issued_by,
+        r.issued_at,
+        r.issued_slip_url,
+        r.created_at
+      FROM referral_slip_requests r
+      LEFT JOIN students s ON r.student_id = s.student_id
       ${referralWhere}
 
       ORDER BY created_at DESC
@@ -6988,9 +7195,7 @@ app.get('/document-requests/childClinicRecords', async (req, res) => {
   }
 });
 
-// ==========================================
 // 7. Student Health Requirements
-// ==========================================
 app.get('/student-requirements/childClinicRecords', async (req, res) => {
   try {
     const { studentId, startDate, endDate } = req.query;
@@ -6998,26 +7203,29 @@ app.get('/student-requirements/childClinicRecords', async (req, res) => {
 
     let query = `
       SELECT 
-        submission_id,
-        student_id,
-        requirement_name,
-        file_url,
-        COALESCE(status, 'Not Submitted') AS status,
-        is_late,
-        nurse_remarks,
-        submitted_at,
-        reviewed_by
-      FROM student_requirement_submissions
-      WHERE student_id = ?
+        sr.submission_id,
+        sr.student_id,
+        s.first_name,
+        s.last_name,
+        sr.requirement_name,
+        sr.file_url,
+        COALESCE(sr.status, 'Not Submitted') AS status,
+        sr.is_late,
+        sr.nurse_remarks,
+        sr.submitted_at,
+        sr.reviewed_by
+      FROM student_requirement_submissions sr
+      LEFT JOIN students s ON sr.student_id = s.student_id
+      WHERE sr.student_id = ?
     `;
     const params = [studentId];
 
     if (startDate && endDate) {
-      query += ` AND DATE(submitted_at) BETWEEN ? AND ?`;
+      query += ` AND DATE(sr.submitted_at) BETWEEN ? AND ?`;
       params.push(startDate, endDate);
     }
 
-    query += ` ORDER BY submitted_at DESC`;
+    query += ` ORDER BY sr.submitted_at DESC`;
 
     const [rows] = await pool.query(query, params);
     res.json(rows);
@@ -7120,9 +7328,7 @@ app.put('/api/parents/:parentId', async (req, res) => {
   }
 });
 
-//ManageStudentAccounts.jsx API
-// Helper function hashPassword removed temporarily
-// Helper function to enforce username domain extension
+// ManageStudentAccounts.jsx API
 const formatUsername = (username) => {
   if (!username) return '';
   const domain = '@baliuag.sti.edu.ph';
@@ -7213,6 +7419,46 @@ app.get('/api/parents/search/manageStudentAccounts', async (req, res) => {
   }
 });
 
+// 3.5 GET: Fetch next auto-incremented parent_id by student/parent last name
+app.get('/api/parents/next-id/manageStudentAccounts', async (req, res) => {
+  const lastName = req.query.lastName || '';
+  if (!lastName.trim()) {
+    return res.json({ nextParentId: '' });
+  }
+
+  const cleanLastName = lastName.trim().toUpperCase().replace(/[^A-Z]/g, '');
+  if (!cleanLastName) {
+    return res.json({ nextParentId: '' });
+  }
+
+  const prefix = `PARENT-${cleanLastName}`;
+
+  try {
+    const [rows] = await pool.query(
+      `SELECT parent_id FROM parents WHERE parent_id LIKE ? ORDER BY parent_id DESC`,
+      [`${prefix}%`]
+    );
+
+    let maxCount = 0;
+    for (const row of rows) {
+      const match = row.parent_id.match(new RegExp(`^${prefix}(\\d+)$`));
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (num > maxCount) maxCount = num;
+      }
+    }
+
+    const nextCount = maxCount + 1;
+    const paddedIndex = String(nextCount).padStart(3, '0');
+    const nextParentId = `${prefix}${paddedIndex}`;
+
+    res.json({ nextParentId, count: nextCount });
+  } catch (err) {
+    console.error('Error fetching next parent ID:', err);
+    res.status(500).json({ error: 'Failed to generate parent ID' });
+  }
+});
+
 // 4. POST: Create a Single Student Account
 app.post('/api/students/manageStudentAccounts', async (req, res) => {
   const {
@@ -7296,9 +7542,8 @@ app.post('/api/students/manageStudentAccounts', async (req, res) => {
 });
 
 // 5. POST: Bulk Import Students via CSV array
-// POST: Bulk Import Students via CSV (Simplified 5-field schema)
 app.post('/api/students/import/manageStudentAccounts', async (req, res) => {
-  const { students, default_program_id } = req.body; // Array of { student_id, first_name, last_name, year_level, section }
+  const { students, default_program_id } = req.body;
 
   if (!Array.isArray(students) || students.length === 0) {
     return res.status(400).json({ error: 'No student data provided for import.' });
@@ -7318,17 +7563,14 @@ app.post('/api/students/import/manageStudentAccounts', async (req, res) => {
 
       const studentUserId = crypto.randomUUID();
       
-      // Auto-generate username from student_id with enforced domain extension
       const generatedUsername = formatUsername(item.student_id);
       const defaultPassword = '123456';
 
-      // 1. Create User Account
       await connection.query(
         `INSERT INTO users (user_id, username, password_hash, role_id, is_active, created_at) VALUES (?, ?, ?, ?, 1, NOW())`,
         [studentUserId, generatedUsername, defaultPassword, studentRoleId]
       );
 
-      // 2. Insert Student Details
       await connection.query(
         `INSERT INTO students (student_id, user_id, first_name, last_name, program_id, year_level, section) VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [
@@ -7444,7 +7686,7 @@ app.put('/api/students/:student_id/manageStudentAccounts', async (req, res) => {
   }
 });
 
-//ManageParentAccounts.jsx API  
+// ManageParentAccounts.jsx API  
 app.get('/manageParentAccount', async (req, res) => {
   const search = req.query.search || '';
   try {
@@ -7470,7 +7712,6 @@ app.get('/manageParentAccount', async (req, res) => {
     const searchPattern = `%${search}%`;
     const [parents] = await pool.query(parentQuery, [searchPattern, searchPattern, searchPattern, searchPattern]);
 
-    // Fetch linked students for each parent
     for (let parent of parents) {
       const studentQuery = `
         SELECT 
@@ -7497,10 +7738,6 @@ app.get('/manageParentAccount', async (req, res) => {
   }
 });
 
-// -------------------------------------------------------------
-// GET: Search students available to link
-// Endpoint: http://localhost:3001/manageParentAccount/students
-// -------------------------------------------------------------
 app.get('/manageParentAccount/students', async (req, res) => {
   const search = req.query.search || '';
   try {
@@ -7528,10 +7765,6 @@ app.get('/manageParentAccount/students', async (req, res) => {
   }
 });
 
-// -------------------------------------------------------------
-// PUT: Update Parent Account details, password, and linked students
-// Endpoint: http://localhost:3001/manageParentAccount
-// -------------------------------------------------------------
 app.put('/manageParentAccount', async (req, res) => {
   const connection = await pool.getConnection();
   try {
@@ -7547,16 +7780,14 @@ app.put('/manageParentAccount', async (req, res) => {
       password,
       resetToDefault,
       is_active,
-      linked_student_ids // Array of student_id strings
+      linked_student_ids
     } = req.body;
 
-    // 1. Update Username & Status in `users` table
     await connection.query(
       `UPDATE users SET username = ?, is_active = ? WHERE user_id = ?`,
       [username, is_active ? 1 : 0, user_id]
     );
 
-    // 2. Handle Password Reset or Manual Password Change
     let targetPassword = resetToDefault ? '123' : password;
     if (targetPassword) {
       const hashedPassword = await bcrypt.hash(targetPassword, 10);
@@ -7566,28 +7797,22 @@ app.put('/manageParentAccount', async (req, res) => {
       );
     }
 
-    // 3. Update Parent Info in `parents` table
     await connection.query(
       `UPDATE parents SET parent_id = ?, first_name = ?, last_name = ? WHERE parent_id = ?`,
       [parent_id, first_name, last_name, original_parent_id]
     );
 
-    // 4. Update Student Mappings
-    // Clear all existing student links for this parent (using both original and new IDs)
     await connection.query(
       `DELETE FROM parent_student_mapping WHERE parent_id = ? OR parent_id = ?`,
       [original_parent_id, parent_id]
     );
 
     if (linked_student_ids && linked_student_ids.length > 0) {
-      // Remove any existing links for these selected students from ANY other parent
-      // (Enforces the rule: 1 student can only be linked to 1 parent)
       await connection.query(
         `DELETE FROM parent_student_mapping WHERE student_id IN (?)`,
         [linked_student_ids]
       );
 
-      // Insert the new mappings for this parent
       const mappingValues = linked_student_ids.map((sId) => [parent_id, sId]);
       await connection.query(
         `INSERT INTO parent_student_mapping (parent_id, student_id) VALUES ?`,

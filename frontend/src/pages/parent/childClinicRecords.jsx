@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import '../../styles/parent/ChildClinicRecords.css';
 
-const API_BASE = 'https://localhost-cms.onrender.com';
+const API_BASE = 'http://localhost:3001';
 
 const formatDate = (dateStr) => {
   if (!dateStr) return 'N/A';
@@ -45,7 +45,6 @@ const getFileUrl = (path) => {
 export default function ChildClinicRecords() {
   const context = useOutletContext();
 
-  // Retrieve linked students list from outlet context or localStorage fallback
   const linkedStudents = useMemo(() => {
     if (context?.linkedStudents && Array.isArray(context.linkedStudents) && context.linkedStudents.length > 0) {
       return context.linkedStudents;
@@ -67,13 +66,11 @@ export default function ChildClinicRecords() {
   const [endDate, setEndDate] = useState('');
   const [selectedRecord, setSelectedRecord] = useState(null);
 
-  // Fetch logs based on selected student(s) and date range
   const fetchLogs = useCallback(async (
     overrideStartDate = startDate, 
     overrideEndDate = endDate, 
     overrideStudentFilter = selectedStudentId
   ) => {
-    // Determine target student ID list
     let idsToFetch = [];
     if (overrideStudentFilter === 'ALL') {
       idsToFetch = linkedStudents.map(st => st.student_id);
@@ -93,7 +90,6 @@ export default function ChildClinicRecords() {
         endpoint = `${activeTab}/childClinicRecords`;
       }
 
-      // Fetch data concurrently for selected student ID(s)
       const fetchPromises = idsToFetch.map(async (sId) => {
         let url = `${API_BASE}/${endpoint}?studentId=${encodeURIComponent(sId)}`;
         if (overrideStartDate && overrideEndDate) {
@@ -135,29 +131,22 @@ export default function ChildClinicRecords() {
   };
 
   return (
-    <div className="ccr-container">
-      <header className="ccr-header">
-        <div className="ccr-header-title">
+    <div className="container-ccr">
+      <header className="header-ccr">
+        <div className="header-title-ccr">
           <h1>Child Clinic Records & Requests</h1>
           <p>STI Campus Health Services Student Portal</p>
         </div>
       </header>
 
-      <div className="ccr-control-panel">
-        <form className="ccr-filter-bar" onSubmit={handleFilter}>
-          {/* Student Filter Selection */}
-          <div className="ccr-input-group">
-            <label><User size={14} /> Student:</label>
+      <div className="control-panel-ccr">
+        <form className="filter-bar-ccr" onSubmit={handleFilter}>
+          <div className="input-group-ccr">
+            <label className="label-ccr"><User size={14} /> Student:</label>
             <select 
               value={selectedStudentId} 
               onChange={(e) => setSelectedStudentId(e.target.value)}
-              className="ccr-select"
-              style={{
-                padding: '6px 10px',
-                borderRadius: '4px',
-                border: '1px solid #ccc',
-                fontSize: '0.85rem'
-              }}
+              className="select-ccr"
             >
               <option value="ALL">All Linked Students</option>
               {linkedStudents.map((st) => (
@@ -168,82 +157,84 @@ export default function ChildClinicRecords() {
             </select>
           </div>
 
-          <div className="ccr-input-group">
-            <label><Calendar size={14} /> From:</label>
+          <div className="input-group-ccr">
+            <label className="label-ccr"><Calendar size={14} /> From:</label>
             <input 
               type="date" 
               value={startDate} 
               onChange={(e) => setStartDate(e.target.value)} 
+              className="input-date-ccr"
             />
           </div>
-          <div className="ccr-input-group">
-            <label><Calendar size={14} /> To:</label>
+          <div className="input-group-ccr">
+            <label className="label-ccr"><Calendar size={14} /> To:</label>
             <input 
               type="date" 
               value={endDate} 
               onChange={(e) => setEndDate(e.target.value)} 
+              className="input-date-ccr"
             />
           </div>
-          <button type="submit" className="ccr-btn ccr-btn-primary">
+          <button type="submit" className="btn-ccr btn-primary-ccr">
             <Filter size={16} /> Filter
           </button>
-          <button type="button" onClick={clearFilter} className="ccr-btn ccr-btn-secondary">
+          <button type="button" onClick={clearFilter} className="btn-ccr btn-secondary-ccr">
             Clear
           </button>
         </form>
 
-        <nav className="ccr-tabs">
+        <nav className="tabs-ccr">
           <button 
-            className={`ccr-tab ${activeTab === 'document-requests' ? 'active' : ''}`}
+            className={`tab-ccr ${activeTab === 'document-requests' ? 'active-ccr' : ''}`}
             onClick={() => setActiveTab('document-requests')}
           >
-            <FileText size={18} /> Document Requests
+            <FileText size={16} /> Document Requests
           </button>
           <button 
-            className={`ccr-tab ${activeTab === 'student-requirements' ? 'active' : ''}`}
+            className={`tab-ccr ${activeTab === 'student-requirements' ? 'active-ccr' : ''}`}
             onClick={() => setActiveTab('student-requirements')}
           >
-            <CheckSquare size={18} /> Student Requirements
+            <CheckSquare size={16} /> Student Requirements
           </button>
           <button 
-            className={`ccr-tab ${activeTab === 'clinic-visits' ? 'active' : ''}`}
+            className={`tab-ccr ${activeTab === 'clinic-visits' ? 'active-ccr' : ''}`}
             onClick={() => setActiveTab('clinic-visits')}
           >
-            <ClipboardList size={18} /> Clinic Visits
+            <ClipboardList size={16} /> Clinic Visits
           </button>
           <button 
-            className={`ccr-tab ${activeTab === 'medicine-dispensed' ? 'active' : ''}`}
+            className={`tab-ccr ${activeTab === 'medicine-dispensed' ? 'active-ccr' : ''}`}
             onClick={() => setActiveTab('medicine-dispensed')}
           >
-            <Pill size={18} /> Medicine Dispensed
+            <Pill size={16} /> Medicine Dispensed
           </button>
           <button 
-            className={`ccr-tab ${activeTab === 'incident-reports' ? 'active' : ''}`}
+            className={`tab-ccr ${activeTab === 'incident-reports' ? 'active-ccr' : ''}`}
             onClick={() => setActiveTab('incident-reports')}
           >
-            <AlertTriangle size={18} /> Incident Reports
+            <AlertTriangle size={16} /> Incident Reports
           </button>
           <button 
-            className={`ccr-tab ${activeTab === 'health-screenings' ? 'active' : ''}`}
+            className={`tab-ccr ${activeTab === 'health-screenings' ? 'active-ccr' : ''}`}
             onClick={() => setActiveTab('health-screenings')}
           >
-            <Activity size={18} /> Health Screening
+            <Activity size={16} /> Health Screening
           </button>
           <button 
-            className={`ccr-tab ${activeTab === 'doctor-visits' ? 'active' : ''}`}
+            className={`tab-ccr ${activeTab === 'doctor-visits' ? 'active-ccr' : ''}`}
             onClick={() => setActiveTab('doctor-visits')}
           >
-            <Stethoscope size={18} /> Doctor Visits
+            <Stethoscope size={16} /> Doctor Visits
           </button>
         </nav>
       </div>
 
-      <main className="ccr-content">
+      <main className="content-ccr">
         {loading ? (
-          <div className="ccr-loading">Loading student records...</div>
+          <div className="loading-ccr">Loading student records...</div>
         ) : (
-          <div className="ccr-table-wrapper">
-            <table className="ccr-table">
+          <div className="table-wrapper-ccr">
+            <table className="table-ccr">
               <thead>
                 {renderTableHeader(activeTab)}
               </thead>
@@ -252,7 +243,7 @@ export default function ChildClinicRecords() {
                   records.map((item, index) => renderTableRow(activeTab, item, index, () => setSelectedRecord(item)))
                 ) : (
                   <tr>
-                    <td colSpan="10" className="ccr-no-data">
+                    <td colSpan="10" className="no-data-ccr">
                       No records found for Student: {selectedStudentId === 'ALL' ? 'All Linked Students' : selectedStudentId}.
                     </td>
                   </tr>
@@ -287,7 +278,6 @@ function renderTableHeader(tab) {
     case 'student-requirements':
       return (
         <tr>
-          <th>Req ID</th>
           <th>Requirement Title</th>
           <th>Student ID</th>
           <th>Submitted Date</th>
@@ -300,7 +290,7 @@ function renderTableHeader(tab) {
         <tr>
           <th>Visit ID</th>
           <th>Student ID</th>
-          <th>Nurse ID</th>
+          <th>Nurse Name</th>
           <th>Date</th>
           <th>Time In / Out</th>
           <th>Vital Signs</th>
@@ -313,7 +303,8 @@ function renderTableHeader(tab) {
           <th>Dispense ID</th>
           <th>Type</th>
           <th>Student ID</th>
-          <th>Batch ID</th>
+          <th>Brand Name</th>
+          <th>Generic Name</th>
           <th>Qty</th>
           <th>Date & Time</th>
           <th>Action</th>
@@ -324,7 +315,7 @@ function renderTableHeader(tab) {
         <tr>
           <th>Incident ID</th>
           <th>Student ID</th>
-          <th>Nurse ID</th>
+          <th>Nurse Name</th>
           <th>Location</th>
           <th>Date & Time</th>
           <th>Action</th>
@@ -336,7 +327,6 @@ function renderTableHeader(tab) {
           <th>Record ID</th>
           <th>Type</th>
           <th>Student ID</th>
-          <th>Schedule ID</th>
           <th>Date</th>
           <th>Status</th>
           <th>Action</th>
@@ -347,7 +337,7 @@ function renderTableHeader(tab) {
         <tr>
           <th>Appointment ID</th>
           <th>Student ID</th>
-          <th>Doctor ID</th>
+          <th>Doctor Name</th>
           <th>Schedule Window</th>
           <th>Status</th>
           <th>Action</th>
@@ -367,14 +357,14 @@ function renderTableRow(tab, item, index, onViewDetails) {
       return (
         <tr key={item.request_id || index}>
           <td><strong>{item.request_id}</strong></td>
-          <td><span className="ccr-badge tag-doc">{item.document_type}</span></td>
+          <td><span className="badge-ccr tag-doc-ccr">{item.document_type}</span></td>
           <td>{item.student_id}</td>
-          <td className="ccr-truncate">{item.reason || 'N/A'}</td>
+          <td className="truncate-ccr">{item.reason || 'N/A'}</td>
           <td>{formatDate(createdDate)}</td>
-          <td><span className={`ccr-badge status-${statusClass}`}>{item.status}</span></td>
+          <td><span className={`badge-ccr status-${statusClass}-ccr`}>{item.status}</span></td>
           <td>
-            <button className="ccr-btn-icon" onClick={onViewDetails}>
-              <Eye size={16} /> View
+            <button className="btn-icon-ccr" onClick={onViewDetails} title="View Details" aria-label="View Details">
+              <Eye size={18} />
             </button>
           </td>
         </tr>
@@ -388,113 +378,127 @@ function renderTableRow(tab, item, index, onViewDetails) {
 
       return (
         <tr key={item.submission_id || index}>
-          <td><strong>{item.submission_id || `SUB-${index + 1}`}</strong></td>
           <td>{item.requirement_name || 'Health Requirement'}</td>
           <td>{item.student_id}</td>
           <td>{formatDate(submittedDate)}</td>
           <td>
-            <span className={`ccr-badge status-${reqStatusClass}`}>
+            <span className={`badge-ccr status-${reqStatusClass}-ccr`}>
               {currentStatus}
             </span>
           </td>
           <td>
-            <button className="ccr-btn-icon" onClick={onViewDetails}>
-              <Eye size={16} /> View
+            <button className="btn-icon-ccr" onClick={onViewDetails} title="View Details" aria-label="View Details">
+              <Eye size={18} />
             </button>
           </td>
         </tr>
       );
     }
 
-    case 'clinic-visits':
+    case 'clinic-visits': {
+      const nurseName = item.nurse_first_name && item.nurse_last_name
+        ? `${item.nurse_first_name} ${item.nurse_last_name}`
+        : item.nurse_id || 'N/A';
+
       return (
         <tr key={item.visit_id || index}>
           <td><strong>{item.visit_id}</strong></td>
           <td>{item.student_id}</td>
-          <td>{item.nurse_id}</td>
+          <td>{nurseName}</td>
           <td>{formatDate(item.visit_date)}</td>
           <td>{item.time_in} - {item.time_out || 'N/A'}</td>
           <td>BP: {item.blood_pressure || 'N/A'} | Temp: {item.temperature || 'N/A'}°C</td>
           <td>
-            <button className="ccr-btn-icon" onClick={onViewDetails}>
-              <Eye size={16} /> View
+            <button className="btn-icon-ccr" onClick={onViewDetails} title="View Details" aria-label="View Details">
+              <Eye size={18} />
             </button>
           </td>
         </tr>
       );
+    }
 
     case 'medicine-dispensed':
       return (
         <tr key={item.id || index}>
           <td><strong>{item.id}</strong></td>
           <td>
-            <span className={`ccr-badge ${item.dispensation_type === 'Direct Dispensation' ? 'tag-direct' : 'tag-consult'}`}>
+            <span className={`badge-ccr ${item.dispensation_type === 'Direct Dispensation' ? 'tag-direct-ccr' : 'tag-consult-ccr'}`}>
               {item.dispensation_type}
             </span>
           </td>
           <td>{item.student_id || 'N/A'}</td>
-          <td>{item.batch_id}</td>
+          <td>{item.brand_name || 'N/A'}</td>
+          <td>{item.generic_name || 'N/A'}</td>
           <td>{item.quantity_dispensed}</td>
           <td>{item.dispensed_at ? new Date(item.dispensed_at).toLocaleString() : 'N/A'}</td>
           <td>
-            <button className="ccr-btn-icon" onClick={onViewDetails}>
-              <Eye size={16} /> View
+            <button className="btn-icon-ccr" onClick={onViewDetails} title="View Details" aria-label="View Details">
+              <Eye size={18} />
             </button>
           </td>
         </tr>
       );
 
-    case 'incident-reports':
+    case 'incident-reports': {
+      const nurseName = item.nurse_first_name && item.nurse_last_name
+        ? `${item.nurse_first_name} ${item.nurse_last_name}`
+        : item.nurse_id || 'N/A';
+
       return (
         <tr key={item.incident_id || index}>
           <td><strong>{item.incident_id}</strong></td>
           <td>{item.student_id}</td>
-          <td>{item.nurse_id}</td>
+          <td>{nurseName}</td>
           <td>{item.incident_location}</td>
           <td>{item.incident_datetime ? new Date(item.incident_datetime).toLocaleString() : 'N/A'}</td>
           <td>
-            <button className="ccr-btn-icon" onClick={onViewDetails}>
-              <Eye size={16} /> View
+            <button className="btn-icon-ccr" onClick={onViewDetails} title="View Details" aria-label="View Details">
+              <Eye size={18} />
             </button>
           </td>
         </tr>
       );
+    }
 
     case 'health-screenings':
       return (
         <tr key={item.record_id || index}>
           <td><strong>{item.record_id}</strong></td>
-          <td><span className="ccr-badge tag-screening">{item.screening_type}</span></td>
+          <td><span className="badge-ccr tag-screening-ccr">{item.screening_type}</span></td>
           <td>{item.student_id}</td>
-          <td>{item.screening_schedule_id || 'N/A'}</td>
           <td>{formatDate(item.record_date)}</td>
-          <td><span className={`ccr-badge status-${statusClass}`}>{item.status}</span></td>
+          <td><span className={`badge-ccr status-${statusClass}-ccr`}>{item.status}</span></td>
           <td>
-            <button className="ccr-btn-icon" onClick={onViewDetails}>
-              <Eye size={16} /> View
+            <button className="btn-icon-ccr" onClick={onViewDetails} title="View Details" aria-label="View Details">
+              <Eye size={18} />
             </button>
           </td>
         </tr>
       );
 
-    case 'doctor-visits':
+    case 'doctor-visits': {
+      const doctorName = item.doctor_first_name && item.doctor_last_name
+        ? `${item.doctor_first_name} ${item.doctor_last_name}`
+        : item.doctor_id || 'N/A';
+
       return (
         <tr key={item.appointment_id || index}>
           <td><strong>{item.appointment_id}</strong></td>
           <td>{item.student_id}</td>
-          <td>{item.doctor_id}</td>
+          <td>{doctorName}</td>
           <td>
             {item.start_time ? new Date(item.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''} - 
             {item.end_time ? new Date(item.end_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''}
           </td>
-          <td><span className={`ccr-badge status-${statusClass}`}>{item.status}</span></td>
+          <td><span className={`badge-ccr status-${statusClass}-ccr`}>{item.status}</span></td>
           <td>
-            <button className="ccr-btn-icon" onClick={onViewDetails}>
-              <Eye size={16} /> View
+            <button className="btn-icon-ccr" onClick={onViewDetails} title="View Details" aria-label="View Details">
+              <Eye size={18} />
             </button>
           </td>
         </tr>
       );
+    }
 
     default:
       return null;
@@ -522,20 +526,22 @@ function Modal({ record, onClose }) {
   const isImageFile = (path) => /\.(jpeg|jpg|png|gif|webp)$/i.test(path);
 
   return (
-    <div className="ccr-modal-overlay">
-      <div className="ccr-modal-content">
-        <div className="ccr-modal-header">
+    <div className="modal-overlay-ccr">
+      <div className="modal-content-ccr">
+        <div className="modal-header-ccr">
           <h3>Record Details</h3>
-          <button className="ccr-modal-close" onClick={onClose}><X size={20} /></button>
+          <button className="modal-close-ccr" onClick={onClose} aria-label="Close modal">
+            <X size={20} />
+          </button>
         </div>
 
-        <div className="ccr-modal-body">
+        <div className="modal-body-ccr">
           {Object.entries(record).map(([key, value]) => {
             if (value === null || value === undefined || value === '') {
               return (
-                <div className="ccr-modal-field" key={key}>
-                  <span className="field-key">{key.replace(/_/g, ' ')}:</span>
-                  <span className="field-value">N/A</span>
+                <div className="modal-field-ccr" key={key}>
+                  <span className="field-key-ccr">{key.replace(/_/g, ' ')}:</span>
+                  <span className="field-value-ccr">N/A</span>
                 </div>
               );
             }
@@ -545,25 +551,24 @@ function Modal({ record, onClose }) {
               const isImg = isImageFile(value);
 
               return (
-                <div className="ccr-modal-field ccr-modal-field-file" key={key}>
-                  <span className="field-key">{key.replace(/_/g, ' ')}:</span>
-                  <div className="field-value ccr-file-container" style={{ marginTop: '4px' }}>
+                <div className="modal-field-ccr modal-field-file-ccr" key={key}>
+                  <span className="field-key-ccr">{key.replace(/_/g, ' ')}:</span>
+                  <div className="field-value-ccr file-container-ccr">
                     <a 
                       href={fullFileUrl} 
                       target="_blank" 
                       rel="noopener noreferrer" 
-                      className="ccr-btn ccr-btn-primary"
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', textDecoration: 'none' }}
+                      className="btn-ccr btn-primary-ccr file-link-ccr"
                     >
                       <ExternalLink size={16} /> View Document / Attachment
                     </a>
 
                     {isImg && (
-                      <div className="ccr-image-preview" style={{ marginTop: '10px' }}>
+                      <div className="image-preview-ccr">
                         <img 
                           src={fullFileUrl} 
                           alt="Attachment Preview" 
-                          style={{ maxWidth: '100%', maxHeight: '250px', borderRadius: '8px', border: '1px solid #e2e8f0' }} 
+                          className="image-preview-img-ccr"
                         />
                       </div>
                     )}
@@ -573,9 +578,9 @@ function Modal({ record, onClose }) {
             }
 
             return (
-              <div className="ccr-modal-field" key={key}>
-                <span className="field-key">{key.replace(/_/g, ' ')}:</span>
-                <span className="field-value">
+              <div className="modal-field-ccr" key={key}>
+                <span className="field-key-ccr">{key.replace(/_/g, ' ')}:</span>
+                <span className="field-value-ccr">
                   {typeof value === 'string' && (value.includes('T00:00') || /^\d{4}-\d{2}-\d{2}/.test(value)) 
                     ? formatDate(value) 
                     : String(value)}
@@ -585,8 +590,8 @@ function Modal({ record, onClose }) {
           })}
         </div>
 
-        <div className="ccr-modal-footer">
-          <button className="ccr-btn ccr-btn-secondary" onClick={onClose}>Close</button>
+        <div className="modal-footer-ccr">
+          <button className="btn-ccr btn-secondary-ccr" onClick={onClose}>Close</button>
         </div>
       </div>
     </div>

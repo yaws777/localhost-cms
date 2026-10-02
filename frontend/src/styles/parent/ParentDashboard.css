@@ -1,382 +1,513 @@
-.parent-dashboard-wrapper {
-  padding: 10px;
+/* ==========================================================================
+   MOBILE FIRST BASE STYLES
+   ========================================================================== */
+
+.pd-wrapper {
+  padding: 8px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 10px;
+  box-sizing: border-box;
+  width: 100%;
 }
 
-.student-selector-bar {
+.pd-error-banner {
+  background-color: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+/* Mobile-first grid: single column layout */
+.pd-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.pd-card-large {
+  grid-column: span 1;
+}
+
+.pd-card {
   background: #ffffff;
-  padding: 12px 20px;
   border-radius: 8px;
   border: 1px solid #e2e8f0;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-weight: 600;
-  color: #1e293b;
-}
-
-.child-select-dropdown {
-  padding: 6px 12px;
-  border-radius: 6px;
-  border: 1px solid #cbd5e1;
-  font-size: 0.9rem;
-  background-color: #f8fafc;
-}
-
-.dashboard-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 20px;
-}
-
-.card-large {
-  grid-column: span 2;
-}
-
-.dashboard-card {
-  background: #ffffff;
-  border-radius: 10px;
-  border: 1px solid #e2e8f0;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
-.card-header {
-  padding: 16px 20px;
+.pd-card-header {
+  padding: 10px 12px;
   border-bottom: 1px solid #f1f5f9;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  background-color: #fafafa;
 }
 
-.card-title {
+.pd-card-title {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
 }
 
-.card-title h2 {
-  font-size: 1.05rem;
+.pd-card-title h2 {
+  font-size: 0.875rem;
   font-weight: 700;
   color: #0f172a;
   margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.header-icon.text-blue { color: #2563eb; }
-.header-icon.text-green { color: #16a34a; }
-.header-icon.text-amber { color: #d97706; }
-.header-icon.text-purple { color: #9333ea; }
-.header-icon.text-teal { color: #0d9488; }
+.pd-header-icon.pd-text-blue { color: #2563eb; }
+.pd-header-icon.pd-text-green { color: #16a34a; }
+.pd-header-icon.pd-text-amber { color: #d97706; }
+.pd-header-icon.pd-text-purple { color: #9333ea; }
+.pd-header-icon.pd-text-teal { color: #0d9488; }
 
-.view-all-btn {
+.pd-view-all-btn {
   background: transparent;
   border: none;
   color: #0284c7;
-  font-size: 0.825rem;
+  font-size: 0.75rem;
   font-weight: 600;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   cursor: pointer;
+  padding: 2px 4px;
   transition: color 0.2s;
+  white-space: nowrap;
 }
 
-.view-all-btn:hover {
+.pd-view-all-btn:hover {
   color: #0369a1;
 }
 
-.card-body {
-  padding: 18px 20px;
+.pd-card-body {
+  padding: 10px 12px;
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
 }
 
-.section-subtitle {
-  font-size: 0.875rem;
+.pd-section-subtitle {
+  font-size: 0.78rem;
   font-weight: 600;
   color: #475569;
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 10px;
+  gap: 4px;
+  margin: 0 0 6px 0;
 }
 
-.mt-16 { margin-top: 16px; }
+.pd-mt-8 { 
+  margin-top: 8px; 
+}
 
-.visit-item-card {
+.pd-flex-gap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* Visit items styling */
+.pd-visits-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pd-visit-item {
   background: #f8fafc;
   border: 1px solid #e2e8f0;
   border-radius: 6px;
-  padding: 12px;
-  margin-bottom: 10px;
+  padding: 8px;
 }
 
-.visit-top-row {
+.pd-visit-top-row {
   display: flex;
   justify-content: space-between;
-  margin-bottom: 6px;
+  align-items: flex-start;
+  margin-bottom: 4px;
 }
 
-.visit-complaint {
+.pd-visit-complaint {
   font-weight: 600;
+  font-size: 0.8rem;
   color: #1e293b;
 }
 
-.visit-date {
-  font-size: 0.78rem;
+.pd-visit-date {
+  font-size: 0.7rem;
   color: #64748b;
+  white-space: nowrap;
 }
 
-.vitals-row {
+.pd-vitals-row {
   display: flex;
-  gap: 15px;
-  font-size: 0.8rem;
+  gap: 10px;
+  font-size: 0.73rem;
   color: #334155;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
-.visit-detail {
-  font-size: 0.825rem;
+.pd-visit-detail {
+  font-size: 0.75rem;
   color: #475569;
-  margin: 4px 0;
+  margin: 2px 0;
 }
 
-.dispensed-medicines-tag-list {
+.pd-med-tags {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
+  gap: 4px;
+  margin-top: 4px;
 }
 
-.tag-label {
-  font-size: 0.75rem;
+.pd-tag-label {
+  font-size: 0.7rem;
   color: #64748b;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
 }
 
-.medicine-tag {
+.pd-med-tag {
   background: #e0f2fe;
   color: #0369a1;
-  font-size: 0.725rem;
+  font-size: 0.68rem;
   font-weight: 600;
-  padding: 2px 8px;
+  padding: 1px 6px;
   border-radius: 4px;
 }
 
-.summary-pill-container {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.metric-box {
-  flex: 1;
-  background: #f1f5f9;
-  border-radius: 6px;
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.metric-box.warning {
-  background: #fff7ed;
-  color: #c2410c;
-}
-
-.metric-val {
-  font-size: 1.25rem;
-  font-weight: 700;
-}
-
-.metric-lbl {
-  font-size: 0.725rem;
-  color: #64748b;
-}
-
-.overview-list {
+/* Standalone dispense list */
+.pd-direct-dispense-list {
   list-style: none;
   padding: 0;
   margin: 0;
 }
 
-.overview-item {
+.pd-direct-dispense-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 0;
+  padding: 4px 0;
   border-bottom: 1px solid #f1f5f9;
+  font-size: 0.75rem;
 }
 
-.overview-item:last-child {
+.pd-direct-dispense-item:last-child {
   border-bottom: none;
 }
 
-.item-main-info {
+.pd-sub-detail {
+  font-size: 0.7rem;
+  color: #64748b;
+}
+
+.pd-dispense-time {
+  font-size: 0.68rem;
+  color: #64748b;
+}
+
+/* Medical Requirements Metrics */
+.pd-summary-container {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.pd-metric-box {
+  flex: 1;
+  background: #f1f5f9;
+  border-radius: 6px;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.pd-metric-box.pd-warning {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.pd-metric-val {
+  font-size: 1.1rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.pd-metric-lbl {
+  font-size: 0.68rem;
+  color: #64748b;
+}
+
+/* List Items Overview */
+.pd-overview-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.pd-overview-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.pd-overview-item:last-child {
+  border-bottom: none;
+}
+
+.pd-item-info {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
-.item-title {
+.pd-item-title {
   font-weight: 600;
-  font-size: 0.875rem;
+  font-size: 0.78rem;
   color: #1e293b;
 }
 
-.item-sub {
+.pd-item-title-sm {
+  font-weight: 600;
   font-size: 0.75rem;
+  color: #1e293b;
+}
+
+.pd-type-badge {
+  background-color: #f1f5f9;
+  color: #475569;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 3px;
+  text-transform: uppercase;
+}
+
+.pd-item-sub {
+  font-size: 0.68rem;
   color: #64748b;
 }
 
-.status-badge {
+/* Status Badges */
+.pd-status-badge {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 0.725rem;
+  gap: 3px;
+  font-size: 0.68rem;
   font-weight: 600;
-  padding: 3px 8px;
-  border-radius: 12px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  white-space: nowrap;
 }
 
-.badge-success { background: #dcfce7; color: #15803d; }
-.badge-warning { background: #fef3c7; color: #b45309; }
-.badge-danger { background: #fee2e2; color: #b91c1c; }
-.badge-pending { background: #f1f5f9; color: #475569; }
+.pd-badge-success { background: #dcfce7; color: #15803d; }
+.pd-badge-warning { background: #fef3c7; color: #b45309; }
+.pd-badge-danger { background: #fee2e2; color: #b91c1c; }
+.pd-badge-pending { background: #f1f5f9; color: #475569; }
 
-.schedule-cards-list {
+/* Schedules & Screenings List */
+.pd-schedule-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
 }
 
-.schedule-item-card {
+.pd-schedule-item {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
   border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 10px;
+  border-radius: 6px;
+  padding: 6px 8px;
 }
 
-.schedule-date-box {
+.pd-schedule-item.pd-border-teal {
+  border-color: #ccfbf1;
+}
+
+.pd-schedule-date-box {
   background: #f3e8ff;
   color: #6b21a8;
-  border-radius: 6px;
-  min-width: 50px;
-  height: 50px;
+  border-radius: 5px;
+  min-width: 40px;
+  height: 40px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
-.schedule-date-box.bg-teal {
+.pd-schedule-date-box.pd-bg-teal {
   background: #ccfbf1;
   color: #0f766e;
 }
 
-.date-num {
-  font-size: 1.1rem;
+.pd-date-num {
+  font-size: 0.95rem;
   font-weight: 700;
   line-height: 1;
 }
 
-.date-month {
-  font-size: 0.65rem;
+.pd-date-month {
+  font-size: 0.6rem;
   text-transform: uppercase;
   font-weight: 600;
 }
 
-.schedule-title {
-  margin: 0 0 2px 0;
-  font-size: 0.875rem;
-  color: #0f172a;
+.pd-schedule-details {
+  flex: 1;
+  min-width: 0;
 }
 
-.schedule-time {
+.pd-schedule-title {
   margin: 0;
-  font-size: 0.75rem;
+  font-size: 0.78rem;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pd-schedule-time {
+  margin: 1px 0 0 0;
+  font-size: 0.68rem;
   color: #64748b;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
 }
 
-.schedule-announcement {
-  margin: 4px 0 0 0;
-  font-size: 0.725rem;
+.pd-schedule-announcement {
+  margin: 2px 0 0 0;
+  font-size: 0.68rem;
   color: #475569;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.empty-state-text {
-  font-size: 0.825rem;
+.pd-status-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.pd-attendance-pill {
+  font-size: 0.65rem;
+  color: #0d9488;
+  background-color: #f0fdfa;
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid #99f6e4;
+}
+
+.pd-student-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background-color: #f1f5f9;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.pd-empty-state {
+  font-size: 0.75rem;
   color: #94a3b8;
   font-style: italic;
-  margin: 8px 0;
+  margin: 4px 0;
 }
 
-.dashboard-loading-container {
+.pd-loading-container {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 80px 0;
+  padding: 40px 0;
   color: #64748b;
+  font-size: 0.85rem;
 }
 
-.spinner {
-  width: 32px;
-  height: 32px;
-  border: 3px solid #e2e8f0;
+.pd-spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid #e2e8f0;
   border-top-color: #0284c7;
   border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-  margin-bottom: 12px;
+  animation: pd-spin 0.8s linear infinite;
+  margin-bottom: 8px;
 }
 
-@keyframes spin {
+@keyframes pd-spin {
   to { transform: rotate(360deg); }
 }
 
-@media (max-width: 900px) {
-  .dashboard-grid {
-    grid-template-columns: 1fr;
+/* ==========================================================================
+   RESPONSIVE MEDIA QUERIES (PROGRESSIVE ENHANCEMENT)
+   ========================================================================== */
+
+/* Tablet view */
+@media (min-width: 640px) {
+  .pd-wrapper {
+    padding: 12px;
   }
-  .card-large {
-    grid-column: span 1;
+
+  .pd-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+
+  .pd-card-large {
+    grid-column: span 2;
   }
 }
 
-.student-name-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  background-color: #f1f5f9;
-  color: #334155;
-  border: 1px solid #cbd5e1;
-  font-size: 0.7rem;
-  font-weight: 600;
-  padding: 2px 7px;
-  border-radius: 4px;
-}
+/* Desktop view: Layout optimized to fit all cards on a single page view */
+@media (min-width: 1024px) {
+  .pd-wrapper {
+    padding: 14px;
+    height: 100vh;
+    max-height: 100vh;
+    overflow: hidden;
+  }
 
-.flex-align-gap {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
+  .pd-grid {
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: auto auto;
+    gap: 12px;
+    height: 100%;
+  }
 
-.direct-dispense-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 0;
-  border-bottom: 1px solid #f1f5f9;
+  .pd-card-large {
+    grid-column: span 2;
+  }
+
+  .pd-card-body {
+    padding: 10px 14px;
+  }
 }

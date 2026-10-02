@@ -23,13 +23,13 @@ export default function HealthRecordsProfile() {
         const loadStudentData = async () => {
             try {
                 setLoading(true);
-                const headerRes = await fetch(`https://localhost-cms.onrender.com/api/health-records/student-header/${studentId}`);
+                const headerRes = await fetch(`http://localhost:3001/api/health-records/student-header/${studentId}`);
                 const headerData = await headerRes.json();
 
                 if (headerData.success) {
                     setStudentHeader(headerData.student);
 
-                    const profileRes = await fetch(`https://localhost-cms.onrender.com/api/profile/${studentId}`);
+                    const profileRes = await fetch(`http://localhost:3001/api/profile/${studentId}`);
                     const profileData = await profileRes.json();
 
                     if (profileData.success) {
@@ -71,7 +71,7 @@ export default function HealthRecordsProfile() {
             if (activeTab !== 'requirements' || !studentId) return;
             setReqLoading(true);
             try {
-                const response = await fetch(`https://localhost-cms.onrender.com/api/students/${studentId}/full-requirements`);
+                const response = await fetch(`http://localhost:3001/api/students/${studentId}/full-requirements`);
                 const data = await response.json();
                 if (Array.isArray(data)) {
                     setRequirementsList(data);

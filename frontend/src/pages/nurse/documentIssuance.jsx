@@ -118,13 +118,15 @@ const DocumentIssuance = () => {
         reason: '',
         partnerFacility: '',
         requestedServices: '',
-        nurseName: 'MARILOU H. BALARAO, RN, LPT'
+        nurseName: 'MARILOU H. BALARAO, RN, LPT',
+        validityStart: '',
+        validityEnd: ''
     });
 
     const fetchRequests = async () => {
         setLoading(true);
         try {
-            const response = await fetch('https://localhost-cms.onrender.com/api/document-requests');
+            const response = await fetch('http://localhost:3001/api/document-requests');
             const data = await response.json();
             if (data.success) {
                 setRequests(data.requests || []);
@@ -144,7 +146,7 @@ const DocumentIssuance = () => {
         setConfigLoading(true);
         setConfigError('');
         try {
-            const res = await fetch('https://localhost-cms.onrender.com/api/partner-facilities');
+            const res = await fetch('http://localhost:3001/api/partner-facilities');
             if (!res.ok) throw new Error(`Server returned status ${res.status}`);
             const data = await res.json();
             
@@ -216,7 +218,7 @@ const DocumentIssuance = () => {
 
     const fetchNotes = async (requestType, requestId) => {
         try {
-            const res = await fetch(`https://localhost-cms.onrender.com/api/document-requests/notes/${requestType}/${requestId}`);
+            const res = await fetch(`http://localhost:3001/api/document-requests/notes/${requestType}/${requestId}`);
             const data = await res.json();
             if (data.success) {
                 setNotes(data.notes || []);
@@ -224,6 +226,12 @@ const DocumentIssuance = () => {
         } catch (err) {
             console.error("Error fetching notes:", err);
         }
+    };
+
+    const formatDateForInput = (dateStr) => {
+        if (!dateStr) return '';
+        const d = new Date(dateStr);
+        return isNaN(d.getTime()) ? '' : d.toISOString().split('T')[0];
     };
 
     const handleViewDetails = async (reqItem) => {
@@ -240,6 +248,9 @@ const DocumentIssuance = () => {
             day: 'numeric' 
         });
 
+        const initialStart = formatDateForInput(reqItem.valid_absence_start || reqItem.validity_start);
+        const initialEnd = formatDateForInput(reqItem.valid_absence_end || reqItem.validity_end);
+
         setSlipDetails({
             date: todayFormatted,
             studentName: `${reqItem.first_name || ''} ${reqItem.last_name || ''}`.trim(),
@@ -247,7 +258,9 @@ const DocumentIssuance = () => {
             reason: reqItem.reason || reqItem.reason_for_excuse || '',
             partnerFacility: reqItem.partner_facility_name || 'N/A',
             requestedServices: reqItem.requested_services || 'N/A',
-            nurseName: 'MARILOU H. BALARAO, RN, LPT'
+            nurseName: 'MARILOU H. BALARAO, RN, LPT',
+            validityStart: initialStart,
+            validityEnd: initialEnd
         });
 
         await fetchNotes(reqItem.request_type, reqItem.request_id);
@@ -265,8 +278,8 @@ const DocumentIssuance = () => {
     const executeSaveFacility = async () => {
         const targetId = facilityForm.facility_id || facilityForm.id;
         const url = isEditingFacility 
-            ? `https://localhost-cms.onrender.com/api/partner-facilities/${targetId}`
-            : 'https://localhost-cms.onrender.com/api/partner-facilities';
+            ? `http://localhost:3001/api/partner-facilities/${targetId}`
+            : 'http://localhost:3001/api/partner-facilities';
         const method = isEditingFacility ? 'PUT' : 'POST';
 
         try {
@@ -315,8 +328,8 @@ const DocumentIssuance = () => {
     const executeSaveService = async () => {
         const targetServiceId = serviceForm.service_id || serviceForm.id;
         const url = isEditingService 
-            ? `https://localhost-cms.onrender.com/api/facility-services/${targetServiceId}`
-            : `https://localhost-cms.onrender.com/api/partner-facilities/${serviceForm.facility_id}/services`;
+            ? `http://localhost:3001/api/facility-services/${targetServiceId}`
+            : `http://localhost:3001/api/partner-facilities/${serviceForm.facility_id}/services`;
         const method = isEditingService ? 'PUT' : 'POST';
 
         try {
@@ -365,7 +378,7 @@ const DocumentIssuance = () => {
         setModalError('');
 
         try {
-            const response = await fetch('https://localhost-cms.onrender.com/api/document-requests/notes', {
+            const response = await fetch('http://localhost:3001/api/document-requests/notes', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -458,13 +471,32 @@ const DocumentIssuance = () => {
                 ctx.fillText(slipDetails.courseYearSection, 320, 318);
 
                 if (isExcuse) {
+                    let currentY = 370;
+
+                    if (slipDetails.validityStart || slipDetails.validityEnd) {
+                        const startFmt = slipDetails.validityStart ? new Date(slipDetails.validityStart).toLocaleDateString() : '';
+                        const endFmt = slipDetails.validityEnd ? new Date(slipDetails.validityEnd).toLocaleDateString() : '';
+                        const validityStr = `${startFmt} to ${endFmt}`.trim();
+
+                        ctx.font = '18px "Times New Roman", Serif';
+                        ctx.fillText('VALIDITY PERIOD:', 60, currentY);
+                        ctx.beginPath();
+                        ctx.moveTo(250, currentY + 3);
+                        ctx.lineTo(740, currentY + 3);
+                        ctx.stroke();
+                        ctx.font = 'bold 18px "Times New Roman", Serif';
+                        ctx.fillText(validityStr, 260, currentY - 2);
+                        currentY += 45;
+                    }
+
                     ctx.font = '20px "Times New Roman", Serif';
-                    ctx.fillText('Please excuse the said student in your class.', 120, 395);
+                    ctx.fillText('Please excuse the said student in your class.', 120, currentY);
+                    currentY += 45;
 
                     ctx.font = 'italic 20px "Times New Roman", Serif';
-                    ctx.fillText('Reason:', 60, 460);
+                    ctx.fillText('Reason:', 60, currentY);
 
-                    let lineY = 463;
+                    let lineY = currentY + 3;
                     ctx.beginPath();
                     ctx.moveTo(140, lineY);
                     ctx.lineTo(740, lineY);
@@ -604,12 +636,14 @@ const DocumentIssuance = () => {
         formData.append('action', actionType);
         formData.append('nurse_id', nurseId);
         formData.append('message', newNote);
+        if (slipDetails.validityStart) formData.append('validity_start', slipDetails.validityStart);
+        if (slipDetails.validityEnd) formData.append('validity_end', slipDetails.validityEnd);
         if (fileToUpload) {
             formData.append('issued_slip', fileToUpload);
         }
 
         try {
-            const response = await fetch('https://localhost-cms.onrender.com/api/document-requests/action', {
+            const response = await fetch('http://localhost:3001/api/document-requests/action', {
                 method: 'POST',
                 body: formData,
             });
@@ -660,15 +694,15 @@ const DocumentIssuance = () => {
     };
 
     return (
-        <div className="doc-issuance-container">
+        <div className="container-di">
             {/* Header Section */}
-            <header className="doc-header">
-                <div className="doc-header-text">
+            <header className="header-di">
+                <div className="header-text-di">
                     <h2>Document Issuance</h2>
                     <p>Review, approve, and issue Excuse Slips and Referral Slips for students.</p>
                 </div>
                 <button 
-                    className="btn-secondary btn-config" 
+                    className="btn-secondary-di btn-config-di" 
                     onClick={() => { 
                         setShowConfigModal(true); 
                         setShowFacilityForm(false);
@@ -680,26 +714,26 @@ const DocumentIssuance = () => {
             </header>
 
             {/* Summary Grid Cards */}
-            <section className="doc-summary-cards">
-                <div className="summary-card pending-card">
-                    <div className="card-icon"><Clock size={26} /></div>
-                    <div className="card-info">
+            <section className="summary-cards-di">
+                <div className="summary-card-di pending-card-di">
+                    <div className="card-icon-di"><Clock size={26} /></div>
+                    <div className="card-info-di">
                         <span>Waiting for Approval</span>
                         <h3>{summary.pending}</h3>
                     </div>
                 </div>
 
-                <div className="summary-card approved-card">
-                    <div className="card-icon"><CheckCircle2 size={26} /></div>
-                    <div className="card-info">
+                <div className="summary-card-di approved-card-di">
+                    <div className="card-icon-di"><CheckCircle2 size={26} /></div>
+                    <div className="card-info-di">
                         <span>Completed / Approved</span>
                         <h3>{summary.completed}</h3>
                     </div>
                 </div>
 
-                <div className="summary-card denied-card">
-                    <div className="card-icon"><XCircle size={26} /></div>
-                    <div className="card-info">
+                <div className="summary-card-di denied-card-di">
+                    <div className="card-icon-di"><XCircle size={26} /></div>
+                    <div className="card-info-di">
                         <span>Denied Requests</span>
                         <h3>{summary.denied}</h3>
                     </div>
@@ -707,9 +741,9 @@ const DocumentIssuance = () => {
             </section>
 
             {/* Controls Bar */}
-            <section className="doc-controls">
-                <div className="search-box">
-                    <Search size={18} className="search-icon" />
+            <section className="controls-di">
+                <div className="search-box-di">
+                    <Search size={18} className="search-icon-di" />
                     <input 
                         type="text" 
                         placeholder="Search by student name, Student ID, or Request ID..." 
@@ -718,7 +752,7 @@ const DocumentIssuance = () => {
                     />
                 </div>
 
-                <div className="filter-group">
+                <div className="filter-group-di">
                     <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
                         <option value="All">All Request Types</option>
                         <option value="Excuse Slip">Excuse Slip</option>
@@ -735,15 +769,15 @@ const DocumentIssuance = () => {
             </section>
 
             {/* Table Area */}
-            <main className="table-responsive">
+            <main className="table-responsive-di">
                 {loading ? (
-                    <div className="doc-loading">Loading requests...</div>
+                    <div className="loading-di">Loading requests...</div>
                 ) : error ? (
-                    <div className="doc-error">{error}</div>
+                    <div className="error-di">{error}</div>
                 ) : filteredRequests.length === 0 ? (
-                    <div className="doc-empty">No document requests found.</div>
+                    <div className="empty-di">No document requests found.</div>
                 ) : (
-                    <table className="doc-table">
+                    <table className="table-di">
                         <thead>
                             <tr>
                                 <th>Request ID</th>
@@ -752,37 +786,37 @@ const DocumentIssuance = () => {
                                 <th>Reason / Facility</th>
                                 <th>Date Requested</th>
                                 <th>Status</th>
-                                <th className="text-center">Action</th>
+                                <th className="text-center-di">Action</th>
                             </tr>
                         </thead>
                         <tbody>
                             {filteredRequests.map((req) => (
                                 <tr key={`${req.request_type}-${req.request_id}`}>
-                                    <td className="font-bold">{req.request_id}</td>
+                                    <td className="font-bold-di">{req.request_id}</td>
                                     <td>
-                                        <div className="student-info-cell">
-                                            <span className="student-name">{req.first_name} {req.last_name}</span>
-                                            <span className="student-id">{req.student_id}</span>
+                                        <div className="student-info-cell-di">
+                                            <span className="student-name-di">{req.first_name} {req.last_name}</span>
+                                            <span className="student-id-di">{req.student_id}</span>
                                         </div>
                                     </td>
                                     <td>
-                                        <span className={`badge-type ${req.request_type === 'Excuse Slip' ? 'badge-excuse' : 'badge-referral'}`}>
+                                        <span className={`badge-type-di ${req.request_type === 'Excuse Slip' ? 'badge-excuse-di' : 'badge-referral-di'}`}>
                                             {req.request_type}
                                         </span>
                                     </td>
-                                    <td className="truncate-cell">
+                                    <td className="truncate-cell-di">
                                         {req.request_type === 'Excuse Slip' ? (req.reason || req.reason_for_excuse) : req.partner_facility_name || req.reason}
                                     </td>
                                     <td>{new Date(req.created_at).toLocaleDateString()}</td>
                                     <td>
-                                        <span className={`badge-status status-${(req.status || '').toLowerCase() === 'pending' ? 'pending' : (req.status || '').toLowerCase()}`}>
+                                        <span className={`badge-status-di status-${(req.status || '').toLowerCase() === 'pending' ? 'pending-di' : (req.status || '').toLowerCase() + '-di'}`}>
                                             {(req.status || '').toLowerCase() === 'pending' ? 'Waiting for Approval' : req.status}
                                         </span>
                                     </td>
-                                    <td className="text-center">
+                                    <td className="text-center-di">
                                         <button 
                                             type="button"
-                                            className="btn-action-icon btn-view" 
+                                            className="btn-action-icon-di btn-view-di" 
                                             onClick={() => handleViewDetails(req)}
                                             title="View Details"
                                             aria-label="View Details"
@@ -799,53 +833,55 @@ const DocumentIssuance = () => {
 
             {/* Detail Modal */}
             {selectedRequest && !isApproving && (
-                <div className="doc-modal-overlay">
-                    <div className="doc-modal">
-                        <div className="modal-header">
+                <div className="modal-overlay-di">
+                    <div className="modal-di">
+                        <div className="modal-header-di">
                             <div>
                                 <h3>Document Request Details</h3>
-                                <span className="modal-subtitle">Request ID: {selectedRequest.request_id}</span>
+                                <span className="modal-subtitle-di">Request ID: {selectedRequest.request_id}</span>
                             </div>
-                            <button className="btn-close" onClick={closeModal} aria-label="Close modal"><X size={20} /></button>
+                            <button className="btn-close-di" onClick={closeModal} aria-label="Close modal"><X size={20} /></button>
                         </div>
 
-                        <div className="modal-body">
-                            <div className="details-grid">
-                                <div className="detail-item">
+                        <div className="modal-body-di">
+                            <div className="details-grid-di">
+                                <div className="detail-item-di">
                                     <label>Student Name</label>
                                     <p>{selectedRequest.first_name} {selectedRequest.last_name}</p>
                                 </div>
-                                <div className="detail-item">
+                                <div className="detail-item-di">
                                     <label>Student ID</label>
                                     <p>{selectedRequest.student_id}</p>
                                 </div>
-                                <div className="detail-item">
+                                <div className="detail-item-di">
                                     <label>Program & Year</label>
                                     <p>{selectedRequest.program_id} - Year {selectedRequest.year_level}</p>
                                 </div>
-                                <div className="detail-item">
+                                <div className="detail-item-di">
                                     <label>Request Type</label>
-                                    <p className="font-bold text-sti-blue">{selectedRequest.request_type}</p>
+                                    <p className="font-bold-di text-sti-blue-di">{selectedRequest.request_type}</p>
                                 </div>
                             </div>
 
-                            <hr className="modal-divider" />
+                            <hr className="modal-divider-di" />
 
-                            <div className="request-specific-details">
+                            <div className="request-specific-details-di">
                                 <h4>Request Details</h4>
                                 {selectedRequest.request_type === 'Excuse Slip' ? (
                                     <>
                                         <p><strong>Reason for Excuse:</strong> {selectedRequest.reason || selectedRequest.reason_for_excuse}</p>
                                         <p>
-                                            <strong>Valid Absence Period:</strong> {' '}
-                                            {selectedRequest.valid_absence_start ? new Date(selectedRequest.valid_absence_start).toLocaleDateString() : 'N/A'} 
+                                            <strong>Validity Period:</strong> {' '}
+                                            {selectedRequest.valid_absence_start || slipDetails.validityStart ? 
+                                                new Date(slipDetails.validityStart || selectedRequest.valid_absence_start).toLocaleDateString() : 'N/A'} 
                                             {' to '} 
-                                            {selectedRequest.valid_absence_end ? new Date(selectedRequest.valid_absence_end).toLocaleDateString() : 'N/A'}
+                                            {selectedRequest.valid_absence_end || slipDetails.validityEnd ? 
+                                                new Date(slipDetails.validityEnd || selectedRequest.valid_absence_end).toLocaleDateString() : 'N/A'}
                                         </p>
                                         {selectedRequest.student_proof_url && (
-                                            <div className="file-attachment">
+                                            <div className="file-attachment-di">
                                                 <Paperclip size={16} />
-                                                <a href={`https://localhost-cms.onrender.com${selectedRequest.student_proof_url}`} target="_blank" rel="noreferrer">
+                                                <a href={`http://localhost:3001${selectedRequest.student_proof_url}`} target="_blank" rel="noreferrer">
                                                     View Student Attachment Proof
                                                 </a>
                                             </div>
@@ -860,15 +896,15 @@ const DocumentIssuance = () => {
                                 )}
                             </div>
 
-                            <div className="modal-notes-section">
+                            <div className="modal-notes-section-di">
                                 <h4>Message & Notes History</h4>
-                                <div className="notes-list">
+                                <div className="notes-list-di">
                                     {notes.length === 0 ? (
-                                        <p className="no-notes">No previous messages or notes attached.</p>
+                                        <p className="no-notes-di">No previous messages or notes attached.</p>
                                     ) : (
                                         notes.map((note) => (
-                                            <div key={note.note_id} className={`note-bubble ${note.sender_type === 'Nurse' ? 'note-nurse' : 'note-student'}`}>
-                                                <div className="note-header">
+                                            <div key={note.note_id} className={`note-bubble-di ${note.sender_type === 'Nurse' ? 'note-nurse-di' : 'note-student-di'}`}>
+                                                <div className="note-header-di">
                                                     <strong>{note.sender_type} ({note.sender_id})</strong>
                                                     <span>{new Date(note.created_at).toLocaleString()}</span>
                                                 </div>
@@ -878,7 +914,7 @@ const DocumentIssuance = () => {
                                     )}
                                 </div>
 
-                                <div className="message-input-container">
+                                <div className="message-input-container-di">
                                     <input 
                                         type="text" 
                                         placeholder="Type a message or instruction..." 
@@ -894,7 +930,7 @@ const DocumentIssuance = () => {
                                     />
                                     <button 
                                         type="button" 
-                                        className="btn-send-message" 
+                                        className="btn-send-message-di" 
                                         onClick={handleSendMessage}
                                         disabled={submitting || !newNote.trim()}
                                         aria-label="Send Message"
@@ -905,13 +941,13 @@ const DocumentIssuance = () => {
                             </div>
 
                             {!['pending', 'waiting for approval'].includes((selectedRequest.status || '').toLowerCase()) && (
-                                <div className="issued-info-box">
+                                <div className="issued-info-box-di">
                                     <p><strong>Processed By Nurse ID:</strong> {selectedRequest.issued_by || 'N/A'}</p>
                                     <p><strong>Processed At:</strong> {selectedRequest.issued_at ? new Date(selectedRequest.issued_at).toLocaleString() : 'N/A'}</p>
                                     {selectedRequest.issued_slip_url && (
-                                        <div className="file-attachment mt-2">
+                                        <div className="file-attachment-di mt-2-di">
                                             <FileText size={16} />
-                                            <a href={`https://localhost-cms.onrender.com${selectedRequest.issued_slip_url}`} target="_blank" rel="noreferrer">
+                                            <a href={`http://localhost:3001${selectedRequest.issued_slip_url}`} target="_blank" rel="noreferrer">
                                                 View Official Issued PDF Slip
                                             </a>
                                         </div>
@@ -920,18 +956,18 @@ const DocumentIssuance = () => {
                             )}
 
                             {modalError && (
-                                <div className="modal-error">
+                                <div className="modal-error-di">
                                     <AlertCircle size={16} /> {modalError}
                                 </div>
                             )}
                         </div>
 
                         {['pending', 'waiting for approval'].includes((selectedRequest.status || '').toLowerCase()) && (
-                            <div className="modal-footer">
-                                <button className="btn-approve" onClick={() => setIsApproving(true)}>
+                            <div className="modal-footer-di">
+                                <button className="btn-approve-di" onClick={() => setIsApproving(true)}>
                                     <CheckCircle2 size={16} /> Approve & Issue Slip
                                 </button>
-                                <button className="btn-deny" onClick={triggerDeny} disabled={submitting}>
+                                <button className="btn-deny-di" onClick={triggerDeny} disabled={submitting}>
                                     <XCircle size={16} /> {submitting ? 'Processing...' : 'Deny Request'}
                                 </button>
                             </div>
@@ -942,29 +978,29 @@ const DocumentIssuance = () => {
 
             {/* Approval Modal */}
             {selectedRequest && isApproving && (
-                <div className="doc-modal-overlay">
-                    <div className="doc-modal modal-wide">
-                        <div className="modal-header">
+                <div className="modal-overlay-di">
+                    <div className="modal-di modal-wide-di">
+                        <div className="modal-header-di">
                             <div>
                                 <h3>Approve & Issue {selectedRequest.request_type}</h3>
-                                <span className="modal-subtitle">Request ID: {selectedRequest.request_id}</span>
+                                <span className="modal-subtitle-di">Request ID: {selectedRequest.request_id}</span>
                             </div>
-                            <button className="btn-close" onClick={() => setIsApproving(false)} aria-label="Close modal"><X size={20} /></button>
+                            <button className="btn-close-di" onClick={() => setIsApproving(false)} aria-label="Close modal"><X size={20} /></button>
                         </div>
 
-                        <div className="modal-body">
+                        <div className="modal-body-di">
                             {selectedRequest.request_type === 'Referral Slip' && (
-                                <div className="referral-mode-selector">
+                                <div className="referral-mode-selector-di">
                                     <button 
                                         type="button" 
-                                        className={`mode-tab-btn ${referralMode === 'autogen' ? 'active' : ''}`}
+                                        className={`mode-tab-btn-di ${referralMode === 'autogen' ? 'active-di' : ''}`}
                                         onClick={() => setReferralMode('autogen')}
                                     >
                                         <FileCode size={16} /> Auto-Generate Referral Slip
                                     </button>
                                     <button 
                                         type="button" 
-                                        className={`mode-tab-btn ${referralMode === 'upload' ? 'active' : ''}`}
+                                        className={`mode-tab-btn-di ${referralMode === 'upload' ? 'active-di' : ''}`}
                                         onClick={() => setReferralMode('upload')}
                                     >
                                         <Upload size={16} /> Upload Custom File
@@ -973,10 +1009,10 @@ const DocumentIssuance = () => {
                             )}
 
                             {(selectedRequest.request_type === 'Excuse Slip' || (selectedRequest.request_type === 'Referral Slip' && referralMode === 'autogen')) && (
-                                <div className="slip-auto-container">
-                                    <div className="slip-controls-card">
+                                <div className="slip-auto-container-di">
+                                    <div className="slip-controls-card-di">
                                         <h5><Edit3 size={16} /> Edit Slip Details</h5>
-                                        <div className="form-group">
+                                        <div className="form-group-di">
                                             <label>Date:</label>
                                             <input 
                                                 type="text" 
@@ -984,7 +1020,7 @@ const DocumentIssuance = () => {
                                                 onChange={(e) => setSlipDetails({...slipDetails, date: e.target.value})} 
                                             />
                                         </div>
-                                        <div className="form-group">
+                                        <div className="form-group-di">
                                             <label>Student Name:</label>
                                             <input 
                                                 type="text" 
@@ -992,7 +1028,7 @@ const DocumentIssuance = () => {
                                                 onChange={(e) => setSlipDetails({...slipDetails, studentName: e.target.value})} 
                                             />
                                         </div>
-                                        <div className="form-group">
+                                        <div className="form-group-di">
                                             <label>Course / Year & Section:</label>
                                             <input 
                                                 type="text" 
@@ -1001,9 +1037,50 @@ const DocumentIssuance = () => {
                                             />
                                         </div>
 
+                                        {selectedRequest.request_type === 'Excuse Slip' && (
+                                            <div className="form-group-di">
+                                                <label>Validity Period:</label>
+                                                <div className="validity-date-inputs-di">
+                                                    <div className="validity-input-subgroup-di">
+                                                        <span className="validity-sublabel-di">Start Date</span>
+                                                        <input 
+                                                            type="date" 
+                                                            value={slipDetails.validityStart} 
+                                                            onChange={(e) => {
+                                                                const newStart = e.target.value;
+                                                                setSlipDetails(prev => ({
+                                                                    ...prev,
+                                                                    validityStart: newStart,
+                                                                    validityEnd: prev.validityEnd && prev.validityEnd < newStart ? newStart : prev.validityEnd
+                                                                }));
+                                                            }} 
+                                                        />
+                                                    </div>
+                                                    <span className="validity-separator-di">to</span>
+                                                    <div className="validity-input-subgroup-di">
+                                                        <span className="validity-sublabel-di">End Date</span>
+                                                        <input 
+                                                            type="date" 
+                                                            value={slipDetails.validityEnd} 
+                                                            min={slipDetails.validityStart}
+                                                            disabled={!slipDetails.validityStart}
+                                                            onChange={(e) => {
+                                                                const newEnd = e.target.value;
+                                                                if (slipDetails.validityStart && newEnd < slipDetails.validityStart) return;
+                                                                setSlipDetails(prev => ({
+                                                                    ...prev,
+                                                                    validityEnd: newEnd
+                                                                }));
+                                                            }} 
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+
                                         {selectedRequest.request_type === 'Referral Slip' && (
                                             <>
-                                                <div className="form-group">
+                                                <div className="form-group-di">
                                                     <label>Referred To (Partner Facility):</label>
                                                     <input 
                                                         type="text" 
@@ -1011,7 +1088,7 @@ const DocumentIssuance = () => {
                                                         onChange={(e) => setSlipDetails({...slipDetails, partnerFacility: e.target.value})} 
                                                     />
                                                 </div>
-                                                <div className="form-group">
+                                                <div className="form-group-di">
                                                     <label>Requested Services:</label>
                                                     <input 
                                                         type="text" 
@@ -1022,7 +1099,7 @@ const DocumentIssuance = () => {
                                             </>
                                         )}
 
-                                        <div className="form-group">
+                                        <div className="form-group-di">
                                             <label>Reason:</label>
                                             <textarea 
                                                 rows={3}
@@ -1030,7 +1107,7 @@ const DocumentIssuance = () => {
                                                 onChange={(e) => setSlipDetails({...slipDetails, reason: e.target.value})} 
                                             />
                                         </div>
-                                        <div className="form-group">
+                                        <div className="form-group-di">
                                             <label>School Nurse Name:</label>
                                             <input 
                                                 type="text" 
@@ -1040,55 +1117,63 @@ const DocumentIssuance = () => {
                                         </div>
                                     </div>
 
-                                    <div className="slip-preview-card">
-                                        <div className="clinic-slip-paper">
-                                            <img src={stiLogo} alt="STI Logo" className="slip-logo" />
-                                            <div className="slip-header-center">
+                                    <div className="slip-preview-card-di">
+                                        <div className="clinic-slip-paper-di">
+                                            <img src={stiLogo} alt="STI Logo" className="slip-logo-di" />
+                                            <div className="slip-header-center-di">
                                                 <h3>STI COLLEGE BALIUAG</h3>
                                                 <p>A&C Bldg. Gil Carlos Poblacion Baliuag, Bulacan</p>
                                             </div>
 
-                                            <div className="slip-title">
+                                            <div className="slip-title-di">
                                                 {selectedRequest.request_type === 'Excuse Slip' ? 'CLINIC EXCUSE SLIP' : 'CLINIC REFERRAL SLIP'}
                                             </div>
 
-                                            <div className="slip-date-row"><span>DATE:</span><span className="slip-underlined">{slipDetails.date}</span></div>
-                                            <div className="slip-row"><span>NAME:</span><span className="slip-underlined full">{slipDetails.studentName}</span></div>
-                                            <div className="slip-row"><span>COURSE/YEAR&SECTION:</span><span className="slip-underlined full">{slipDetails.courseYearSection}</span></div>
+                                            <div className="slip-date-row-di"><span>DATE:</span><span className="slip-underlined-di">{slipDetails.date}</span></div>
+                                            <div className="slip-row-di"><span>NAME:</span><span className="slip-underlined-di full-di">{slipDetails.studentName}</span></div>
+                                            <div className="slip-row-di"><span>COURSE/YEAR&SECTION:</span><span className="slip-underlined-di full-di">{slipDetails.courseYearSection}</span></div>
 
                                             {selectedRequest.request_type === 'Excuse Slip' ? (
                                                 <>
-                                                    <p className="slip-statement">Please excuse the said student in your class.</p>
-                                                    <div className="slip-reason-section">
-                                                        <span className="reason-label">Reason:</span>
-                                                        <div className="reason-line-wrap">
-                                                            <span className="slip-underlined full">{slipDetails.reason}</span>
-                                                            <div className="empty-underline"></div>
-                                                            <div className="empty-underline"></div>
+                                                    {(slipDetails.validityStart || slipDetails.validityEnd) && (
+                                                        <div className="slip-row-di">
+                                                            <span>VALIDITY PERIOD:</span>
+                                                            <span className="slip-underlined-di full-di">
+                                                                {slipDetails.validityStart ? new Date(slipDetails.validityStart).toLocaleDateString() : ''} to {slipDetails.validityEnd ? new Date(slipDetails.validityEnd).toLocaleDateString() : ''}
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                    <p className="slip-statement-di">Please excuse the said student in your class.</p>
+                                                    <div className="slip-reason-section-di">
+                                                        <span className="reason-label-di">Reason:</span>
+                                                        <div className="reason-line-wrap-di">
+                                                            <span className="slip-underlined-di full-di">{slipDetails.reason}</span>
+                                                            <div className="empty-underline-di"></div>
+                                                            <div className="empty-underline-di"></div>
                                                         </div>
                                                     </div>
                                                 </>
                                             ) : (
                                                 <>
-                                                    <div className="slip-row"><span>REFERRED TO:</span><span className="slip-underlined full">{slipDetails.partnerFacility}</span></div>
-                                                    <div className="slip-row"><span>REQUESTED SERVICES:</span><span className="slip-underlined full">{slipDetails.requestedServices}</span></div>
-                                                    <p className="slip-statement">Please provide medical evaluation / services for the above student.</p>
-                                                    <div className="slip-reason-section">
-                                                        <span className="reason-label">Reason:</span>
-                                                        <div className="reason-line-wrap">
-                                                            <span className="slip-underlined full">{slipDetails.reason}</span>
-                                                            <div className="empty-underline"></div>
+                                                    <div className="slip-row-di"><span>REFERRED TO:</span><span className="slip-underlined-di full-di">{slipDetails.partnerFacility}</span></div>
+                                                    <div className="slip-row-di"><span>REQUESTED SERVICES:</span><span className="slip-underlined-di full-di">{slipDetails.requestedServices}</span></div>
+                                                    <p className="slip-statement-di">Please provide medical evaluation / services for the above student.</p>
+                                                    <div className="slip-reason-section-di">
+                                                        <span className="reason-label-di">Reason:</span>
+                                                        <div className="reason-line-wrap-di">
+                                                            <span className="slip-underlined-di full-di">{slipDetails.reason}</span>
+                                                            <div className="empty-underline-di"></div>
                                                         </div>
                                                     </div>
                                                 </>
                                             )}
 
-                                            <p className="slip-thanks">Thank you.</p>
-                                            <div className="slip-signature-block">
+                                            <p className="slip-thanks-di">Thank you.</p>
+                                            <div className="slip-signature-block-di">
                                                 {/* Auto-generated SVG vector signature preview */}
-                                                <img src={NURSE_SIGNATURE_SVG} alt="Nurse Signature" className="slip-signature-img" />
-                                                <div className="signature-line-text">{slipDetails.nurseName}</div>
-                                                <div className="nurse-title">SCHOOL NURSE</div>
+                                                <img src={NURSE_SIGNATURE_SVG} alt="Nurse Signature" className="slip-signature-img-di" />
+                                                <div className="signature-line-text-di">{slipDetails.nurseName}</div>
+                                                <div className="nurse-title-di">SCHOOL NURSE</div>
                                             </div>
                                         </div>
                                     </div>
@@ -1096,16 +1181,16 @@ const DocumentIssuance = () => {
                             )}
 
                             {selectedRequest.request_type === 'Referral Slip' && referralMode === 'upload' && (
-                                <div className="upload-step-box">
-                                    <div className="upload-step-header">
-                                        <Upload size={20} className="upload-icon-heading" />
+                                <div className="upload-step-box-di">
+                                    <div className="upload-step-header-di">
+                                        <Upload size={20} className="upload-icon-heading-di" />
                                         <div>
                                             <h4>Upload Issued Referral Document</h4>
                                             <p>Attach the signed referral document to complete the request.</p>
                                         </div>
                                     </div>
-                                    <div className="form-group mt-3">
-                                        <label>Upload Document Slip File (PDF, PNG, JPG): <span className="text-danger">*</span></label>
+                                    <div className="form-group-di mt-3-di">
+                                        <label>Upload Document Slip File (PDF, PNG, JPG): <span className="text-danger-di">*</span></label>
                                         <input 
                                             type="file" 
                                             accept=".pdf,.png,.jpg,.jpeg"
@@ -1116,17 +1201,17 @@ const DocumentIssuance = () => {
                             )}
 
                             {modalError && (
-                                <div className="modal-error mt-2">
+                                <div className="modal-error-di mt-2-di">
                                     <AlertCircle size={16} /> {modalError}
                                 </div>
                             )}
                         </div>
 
-                        <div className="modal-footer">
-                            <button className="btn-approve" onClick={triggerApprove} disabled={submitting}>
+                        <div className="modal-footer-di">
+                            <button className="btn-approve-di" onClick={triggerApprove} disabled={submitting}>
                                 <Send size={16} /> {submitting ? 'Processing...' : 'Send File to Student'}
                             </button>
-                            <button className="btn-secondary" onClick={() => setIsApproving(false)} disabled={submitting}>
+                            <button className="btn-secondary-di" onClick={() => setIsApproving(false)} disabled={submitting}>
                                 <ArrowLeft size={16} /> Back
                             </button>
                         </div>
@@ -1136,17 +1221,17 @@ const DocumentIssuance = () => {
 
             {/* Config Modal */}
             {showConfigModal && (
-                <div className="doc-modal-overlay">
-                    <div className="doc-modal modal-wide config-modal">
-                        <div className="modal-header">
+                <div className="modal-overlay-di">
+                    <div className="modal-di modal-wide-di config-modal-di">
+                        <div className="modal-header-di">
                             <div>
                                 <h3>Configure Referral Services & Partner Facilities</h3>
-                                <span className="modal-subtitle">Manage healthcare facilities and available services</span>
+                                <span className="modal-subtitle-di">Manage healthcare facilities and available services</span>
                             </div>
-                            <div className="modal-header-actions">
+                            <div className="modal-header-actions-di">
                                 <button 
                                     type="button" 
-                                    className="btn-secondary btn-sm"
+                                    className="btn-secondary-di btn-sm-di"
                                     onClick={fetchFacilities}
                                     title="Reload Facilities"
                                 >
@@ -1155,7 +1240,7 @@ const DocumentIssuance = () => {
                                 {!showFacilityForm && !showServiceForm && (
                                     <button 
                                         type="button" 
-                                        className="btn-save-sm"
+                                        className="btn-save-sm-di"
                                         onClick={() => {
                                             setIsEditingFacility(false);
                                             setFacilityForm({ facility_id: '', facility_name: '', address: '', contact_number: '' });
@@ -1165,24 +1250,24 @@ const DocumentIssuance = () => {
                                         <Plus size={14} /> Add Facility
                                     </button>
                                 )}
-                                <button className="btn-close" onClick={() => setShowConfigModal(false)} aria-label="Close modal"><X size={20} /></button>
+                                <button className="btn-close-di" onClick={() => setShowConfigModal(false)} aria-label="Close modal"><X size={20} /></button>
                             </div>
                         </div>
 
-                        <div className="modal-body config-modal-body">
+                        <div className="modal-body-di config-modal-body-di">
                             {configLoading ? (
-                                <div className="doc-loading">Loading configuration from server...</div>
+                                <div className="loading-di">Loading configuration from server...</div>
                             ) : configError ? (
-                                <div className="doc-error my-3">
+                                <div className="error-di my-3-di">
                                     <AlertCircle size={18} /> {configError}
-                                    <button className="btn-secondary mt-2" onClick={fetchFacilities}>Try Again</button>
+                                    <button className="btn-secondary-di mt-2-di" onClick={fetchFacilities}>Try Again</button>
                                 </div>
                             ) : (
-                                <div className="config-container">
+                                <div className="config-container-di">
                                     {showFacilityForm && (
-                                        <form onSubmit={handleSaveFacility} className="config-form mb-3">
+                                        <form onSubmit={handleSaveFacility} className="config-form-di mb-3-di">
                                             <h5>{isEditingFacility ? 'Edit Partner Facility' : 'Add New Partner Facility'}</h5>
-                                            <div className="form-grid-3">
+                                            <div className="form-grid-3-di">
                                                 <input 
                                                     type="text" 
                                                     placeholder="Facility Name" 
@@ -1203,13 +1288,13 @@ const DocumentIssuance = () => {
                                                     onChange={(e) => setFacilityForm({ ...facilityForm, contact_number: e.target.value })}
                                                 />
                                             </div>
-                                            <div className="form-button-row">
-                                                <button type="submit" className="btn-save-sm">
+                                            <div className="form-button-row-di">
+                                                <button type="submit" className="btn-save-sm-di">
                                                     <Plus size={14} /> {isEditingFacility ? 'Update Facility' : 'Save Facility'}
                                                 </button>
                                                 <button 
                                                     type="button" 
-                                                    className="btn-cancel-sm"
+                                                    className="btn-cancel-sm-di"
                                                     onClick={() => {
                                                         setShowFacilityForm(false);
                                                         setIsEditingFacility(false);
@@ -1223,9 +1308,9 @@ const DocumentIssuance = () => {
                                     )}
 
                                     {showServiceForm && (
-                                        <form onSubmit={handleSaveService} className="config-form mb-3">
+                                        <form onSubmit={handleSaveService} className="config-form-di mb-3-di">
                                             <h5>{isEditingService ? `Edit Service for ${activeFacilityName}` : `Add Service to ${activeFacilityName}`}</h5>
-                                            <div className="form-grid-2">
+                                            <div className="form-grid-2-di">
                                                 <input 
                                                     type="text" 
                                                     placeholder="Service Name" 
@@ -1240,13 +1325,13 @@ const DocumentIssuance = () => {
                                                     onChange={(e) => setServiceForm({ ...serviceForm, description: e.target.value })}
                                                 />
                                             </div>
-                                            <div className="form-button-row">
-                                                <button type="submit" className="btn-save-sm">
+                                            <div className="form-button-row-di">
+                                                <button type="submit" className="btn-save-sm-di">
                                                     <Plus size={14} /> {isEditingService ? 'Update Service' : 'Save Service'}
                                                 </button>
                                                 <button 
                                                     type="button" 
-                                                    className="btn-cancel-sm"
+                                                    className="btn-cancel-sm-di"
                                                     onClick={() => {
                                                         setShowServiceForm(false);
                                                         setIsEditingService(false);
@@ -1260,25 +1345,25 @@ const DocumentIssuance = () => {
                                         </form>
                                     )}
 
-                                    <div className="facility-full-list">
+                                    <div className="facility-full-list-di">
                                         {facilities.length === 0 ? (
-                                            <p className="no-notes">No partner facilities found.</p>
+                                            <p className="no-notes-di">No partner facilities found.</p>
                                         ) : (
                                             facilities.map((fac) => (
-                                                <div key={fac.facility_id || fac.id} className="facility-block">
-                                                    <div className="facility-block-header">
-                                                        <div className="facility-info">
-                                                            <div className="facility-title-row">
+                                                <div key={fac.facility_id || fac.id} className="facility-block-di">
+                                                    <div className="facility-block-header-di">
+                                                        <div className="facility-info-di">
+                                                            <div className="facility-title-row-di">
                                                                 <h4>{fac.facility_name}</h4>
                                                             </div>
-                                                            <div className="facility-meta">
+                                                            <div className="facility-meta-di">
                                                                 <span><strong>Address:</strong> {fac.address || 'N/A'}</span>
                                                                 <span><strong>Contact:</strong> {fac.contact_number || 'N/A'}</span>
                                                             </div>
                                                         </div>
                                                         <button 
                                                             type="button"
-                                                            className="btn-save-sm mt-2"
+                                                            className="btn-save-sm-di mt-2-di"
                                                             onClick={() => handleOpenAddService(fac)}
                                                         >
                                                             <Plus size={14} /> Add Service
@@ -1297,14 +1382,14 @@ const DocumentIssuance = () => {
 
             {/* Confirmation Popup Modal */}
             {confirmState.isOpen && (
-                <div className="doc-modal-overlay doc-confirm-overlay">
-                    <div className="doc-modal doc-confirm-modal">
-                        <div className="modal-header">
+                <div className="modal-overlay-di confirm-overlay-di">
+                    <div className="modal-di confirm-modal-di">
+                        <div className="modal-header-di">
                             <div>
                                 <h3>{confirmState.title || 'Confirmation'}</h3>
                             </div>
                             <button 
-                                className="btn-close" 
+                                className="btn-close-di" 
                                 onClick={() => setConfirmState({ ...confirmState, isOpen: false })} 
                                 aria-label="Close confirmation"
                             >
@@ -1312,8 +1397,8 @@ const DocumentIssuance = () => {
                             </button>
                         </div>
 
-                        <div className="modal-body doc-confirm-body">
-                            <div className={`confirm-icon-wrapper confirm-icon-${confirmState.type || 'warning'}`}>
+                        <div className="modal-body-di confirm-body-di">
+                            <div className={`confirm-icon-wrapper-di confirm-icon-${confirmState.type || 'warning'}-di`}>
                                 {confirmState.type === 'deny' ? (
                                     <XCircle size={36} />
                                 ) : confirmState.type === 'approve' ? (
@@ -1322,20 +1407,20 @@ const DocumentIssuance = () => {
                                     <AlertCircle size={36} />
                                 )}
                             </div>
-                            <p className="confirm-message">{confirmState.message}</p>
+                            <p className="confirm-message-di">{confirmState.message}</p>
                         </div>
 
-                        <div className="modal-footer doc-confirm-footer">
+                        <div className="modal-footer-di confirm-footer-di">
                             <button 
                                 type="button" 
-                                className="btn-secondary" 
+                                className="btn-secondary-di" 
                                 onClick={() => setConfirmState({ ...confirmState, isOpen: false })}
                             >
                                 Cancel
                             </button>
                             <button 
                                 type="button" 
-                                className={confirmState.type === 'deny' ? 'btn-deny' : 'btn-approve'} 
+                                className={confirmState.type === 'deny' ? 'btn-deny-di' : 'btn-approve-di'} 
                                 onClick={() => {
                                     const action = confirmState.onConfirm;
                                     setConfirmState({ ...confirmState, isOpen: false });

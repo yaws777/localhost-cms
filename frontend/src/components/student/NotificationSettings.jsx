@@ -50,7 +50,7 @@ const NotificationSettings = () => {
         setStatusMessage('');
 
         try {
-            const res = await fetch('https://localhost-cms.onrender.com/api/push/send-test', {
+            const res = await fetch('http://localhost:3001/api/push/send-test', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
