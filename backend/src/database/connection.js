@@ -5038,22 +5038,6 @@ app.post('/api/document-requests/notes', async (req, res) => {
 // PARTNER FACILITIES & SERVICES CRUD API
 // ==========================================
 
-app.get('/api/partner-facilities', async (req, res) => {
-    try {
-        const [facilities] = await pool.query('SELECT * FROM partner_facilities ORDER BY facility_name ASC');
-        const [services] = await pool.query('SELECT * FROM facility_services ORDER BY service_name ASC');
-
-        const combined = facilities.map(facility => ({
-            ...facility,
-            services: services.filter(service => service.facility_id === facility.facility_id)
-        }));
-
-        res.status(200).json({ success: true, facilities: combined });
-    } catch (error) {
-        console.error('Error fetching partner facilities:', error);
-        res.status(500).json({ success: false, message: 'Server Error fetching facilities' });
-    }
-});
 
 app.post('/api/partner-facilities', async (req, res) => {
     const { facility_name, address, contact_number } = req.body;
@@ -5191,15 +5175,6 @@ async function generateCustomId(prefix, tableName, idColumn) {
   return `${prefix}-${dateStr}${paddedSeq}`;
 }
 
-// 1. Get Academic Programs
-app.get('/api/programs', async (req, res) => {
-  try {
-    const [rows] = await pool.query('SELECT * FROM academic_programs ORDER BY program_name ASC');
-    res.json(rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // 2. Get Filtered Students
 app.get('/api/filtered-students', async (req, res) => {
