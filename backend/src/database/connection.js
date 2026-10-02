@@ -4197,17 +4197,43 @@ app.get('/api/weekly-reports', async (req, res) => {
   }
 });
 
-//Document Request API
-// =========================================================================
-// 1. POST: Submit Excuse Slip Request (Notifies All Nurses)
-// =========================================================================
+async function generateRequestId(pool, prefix, tableName) {
+    const today = new Date();
+    const day = String(today.getDate()).padStart(2, '0');
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const year = String(today.getFullYear()).slice(-2);
+
+    const dateStr = `${month}${day}${year}`; // e.g., 100126
+    const prefixWithDate = `${prefix}-${dateStr}`;
+
+    // Get the highest existing request ID for today
+    const [rows] = await pool.query(
+        `SELECT request_id FROM ${tableName} WHERE request_id LIKE ? ORDER BY request_id DESC LIMIT 1`,
+        [`${prefixWithDate}%`]
+    );
+
+    let nextNumber = 1;
+    if (rows.length > 0) {
+        const lastId = rows[0].request_id;
+        const lastSeq = parseInt(lastId.slice(-3), 10);
+        if (!isNaN(lastSeq)) {
+            nextNumber = lastSeq + 1;
+        }
+    }
+
+    const paddedIncrement = String(nextNumber).padStart(3, '0');
+    return `${prefixWithDate}${paddedIncrement}`;
+}
+
 // =========================================================================
 // 1. POST: Submit Excuse Slip Request (Notifies All Nurses)
 // =========================================================================
 app.post('/api/requests/excuse-slip', upload.single('proof'), async (req, res) => {
     try {
         const { student_id, reason_for_excuse, valid_absence_start, valid_absence_end } = req.body;
-        const request_id = `EXC-${uuidv4().substring(0, 8)}`;
+        
+        // Generate formatted request ID: EXC-DDMMYY001
+        const request_id = await generateRequestId(pool, 'EXC', 'excuse_slip_requests');
         const student_proof_url = req.file ? `/uploads/${req.file.filename}` : null;
 
         const query = `
@@ -4302,9 +4328,10 @@ app.post('/api/requests/referral-slip', async (req, res) => {
             return res.status(400).json({ error: 'At least one service must be selected.' });
         }
 
-        const request_id = `REF-${uuidv4().substring(0, 8)}`;
-
         await connection.beginTransaction();
+
+        // Generate formatted request ID inside transaction: REF-DDMMYY001
+        const request_id = await generateRequestId(connection, 'REF', 'referral_slip_requests');
 
         const insertRequestQuery = `
             INSERT INTO referral_slip_requests 
@@ -7121,9 +7148,7 @@ app.put('/api/parents/:parentId', async (req, res) => {
   }
 });
 
-//ManageStudentAccounts.jsx API
-// Helper function hashPassword removed temporarily
-// Helper function to enforce username domain extension
+// ManageStudentAccounts.jsx API
 const formatUsername = (username) => {
   if (!username) return '';
   const domain = '@baliuag.sti.edu.ph';
@@ -7214,6 +7239,46 @@ app.get('/api/parents/search/manageStudentAccounts', async (req, res) => {
   }
 });
 
+// 3.5 GET: Fetch next auto-incremented parent_id by student/parent last name
+app.get('/api/parents/next-id/manageStudentAccounts', async (req, res) => {
+  const lastName = req.query.lastName || '';
+  if (!lastName.trim()) {
+    return res.json({ nextParentId: '' });
+  }
+
+  const cleanLastName = lastName.trim().toUpperCase().replace(/[^A-Z]/g, '');
+  if (!cleanLastName) {
+    return res.json({ nextParentId: '' });
+  }
+
+  const prefix = `PARENT-${cleanLastName}`;
+
+  try {
+    const [rows] = await pool.query(
+      `SELECT parent_id FROM parents WHERE parent_id LIKE ? ORDER BY parent_id DESC`,
+      [`${prefix}%`]
+    );
+
+    let maxCount = 0;
+    for (const row of rows) {
+      const match = row.parent_id.match(new RegExp(`^${prefix}(\\d+)$`));
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (num > maxCount) maxCount = num;
+      }
+    }
+
+    const nextCount = maxCount + 1;
+    const paddedIndex = String(nextCount).padStart(3, '0');
+    const nextParentId = `${prefix}${paddedIndex}`;
+
+    res.json({ nextParentId, count: nextCount });
+  } catch (err) {
+    console.error('Error fetching next parent ID:', err);
+    res.status(500).json({ error: 'Failed to generate parent ID' });
+  }
+});
+
 // 4. POST: Create a Single Student Account
 app.post('/api/students/manageStudentAccounts', async (req, res) => {
   const {
@@ -7297,9 +7362,8 @@ app.post('/api/students/manageStudentAccounts', async (req, res) => {
 });
 
 // 5. POST: Bulk Import Students via CSV array
-// POST: Bulk Import Students via CSV (Simplified 5-field schema)
 app.post('/api/students/import/manageStudentAccounts', async (req, res) => {
-  const { students, default_program_id } = req.body; // Array of { student_id, first_name, last_name, year_level, section }
+  const { students, default_program_id } = req.body;
 
   if (!Array.isArray(students) || students.length === 0) {
     return res.status(400).json({ error: 'No student data provided for import.' });
@@ -7319,17 +7383,14 @@ app.post('/api/students/import/manageStudentAccounts', async (req, res) => {
 
       const studentUserId = crypto.randomUUID();
       
-      // Auto-generate username from student_id with enforced domain extension
       const generatedUsername = formatUsername(item.student_id);
       const defaultPassword = '123456';
 
-      // 1. Create User Account
       await connection.query(
         `INSERT INTO users (user_id, username, password_hash, role_id, is_active, created_at) VALUES (?, ?, ?, ?, 1, NOW())`,
         [studentUserId, generatedUsername, defaultPassword, studentRoleId]
       );
 
-      // 2. Insert Student Details
       await connection.query(
         `INSERT INTO students (student_id, user_id, first_name, last_name, program_id, year_level, section) VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [
@@ -7445,7 +7506,7 @@ app.put('/api/students/:student_id/manageStudentAccounts', async (req, res) => {
   }
 });
 
-//ManageParentAccounts.jsx API  
+// ManageParentAccounts.jsx API  
 app.get('/manageParentAccount', async (req, res) => {
   const search = req.query.search || '';
   try {
@@ -7471,7 +7532,6 @@ app.get('/manageParentAccount', async (req, res) => {
     const searchPattern = `%${search}%`;
     const [parents] = await pool.query(parentQuery, [searchPattern, searchPattern, searchPattern, searchPattern]);
 
-    // Fetch linked students for each parent
     for (let parent of parents) {
       const studentQuery = `
         SELECT 
@@ -7498,10 +7558,6 @@ app.get('/manageParentAccount', async (req, res) => {
   }
 });
 
-// -------------------------------------------------------------
-// GET: Search students available to link
-// Endpoint: http://localhost:3001/manageParentAccount/students
-// -------------------------------------------------------------
 app.get('/manageParentAccount/students', async (req, res) => {
   const search = req.query.search || '';
   try {
@@ -7529,10 +7585,6 @@ app.get('/manageParentAccount/students', async (req, res) => {
   }
 });
 
-// -------------------------------------------------------------
-// PUT: Update Parent Account details, password, and linked students
-// Endpoint: http://localhost:3001/manageParentAccount
-// -------------------------------------------------------------
 app.put('/manageParentAccount', async (req, res) => {
   const connection = await pool.getConnection();
   try {
@@ -7548,16 +7600,14 @@ app.put('/manageParentAccount', async (req, res) => {
       password,
       resetToDefault,
       is_active,
-      linked_student_ids // Array of student_id strings
+      linked_student_ids
     } = req.body;
 
-    // 1. Update Username & Status in `users` table
     await connection.query(
       `UPDATE users SET username = ?, is_active = ? WHERE user_id = ?`,
       [username, is_active ? 1 : 0, user_id]
     );
 
-    // 2. Handle Password Reset or Manual Password Change
     let targetPassword = resetToDefault ? '123' : password;
     if (targetPassword) {
       const hashedPassword = await bcrypt.hash(targetPassword, 10);
@@ -7567,28 +7617,22 @@ app.put('/manageParentAccount', async (req, res) => {
       );
     }
 
-    // 3. Update Parent Info in `parents` table
     await connection.query(
       `UPDATE parents SET parent_id = ?, first_name = ?, last_name = ? WHERE parent_id = ?`,
       [parent_id, first_name, last_name, original_parent_id]
     );
 
-    // 4. Update Student Mappings
-    // Clear all existing student links for this parent (using both original and new IDs)
     await connection.query(
       `DELETE FROM parent_student_mapping WHERE parent_id = ? OR parent_id = ?`,
       [original_parent_id, parent_id]
     );
 
     if (linked_student_ids && linked_student_ids.length > 0) {
-      // Remove any existing links for these selected students from ANY other parent
-      // (Enforces the rule: 1 student can only be linked to 1 parent)
       await connection.query(
         `DELETE FROM parent_student_mapping WHERE student_id IN (?)`,
         [linked_student_ids]
       );
 
-      // Insert the new mappings for this parent
       const mappingValues = linked_student_ids.map((sId) => [parent_id, sId]);
       await connection.query(
         `INSERT INTO parent_student_mapping (parent_id, student_id) VALUES ?`,
