@@ -1558,6 +1558,7 @@ app.get('/api/program-requirements-config', async (req, res) => {
 });
 
 // 8. ADD REQUIREMENT RULE ARCHITECTURE
+// 8. ADD REQUIREMENT RULE ARCHITECTURE (Updated to allow same requirement across different year levels)
 app.post('/api/programs/:programId/requirements', async (req, res) => {
     const { programId } = req.params;
     const { requirement_name, year_level, submission_deadline, allow_late_submission } = req.body;
@@ -1573,6 +1574,7 @@ app.post('/api/programs/:programId/requirements', async (req, res) => {
     try {
         await connection.beginTransaction();
 
+        // 1. Ensure the requirement exists in the masterlist
         const checkBaseQuery = `SELECT requirement_name FROM medical_requirements WHERE requirement_name = ?`;
         const [baseExists] = await connection.query(checkBaseQuery, [trimmedReqName]);
 
@@ -1581,14 +1583,33 @@ app.post('/api/programs/:programId/requirements', async (req, res) => {
             await connection.query(insertBaseQuery, [trimmedReqName]);
         }
 
-        const checkMappingQuery = `SELECT config_id FROM program_requirements_config WHERE program_id = ? AND requirement_name = ?`;
-        const [mappingExists] = await connection.query(checkMappingQuery, [programId, trimmedReqName]);
+        // 2. UPDATED DUPLICATE CHECK: Allow same requirement name in same program ONLY if year levels differ
+        const checkMappingQuery = `
+            SELECT config_id 
+            FROM program_requirements_config 
+            WHERE program_id = ? 
+              AND requirement_name = ?
+              AND (
+                  year_level IS NULL 
+                  OR ? IS NULL 
+                  OR year_level = ?
+              )
+        `;
+        const [mappingExists] = await connection.query(checkMappingQuery, [
+            programId, 
+            trimmedReqName, 
+            targetYearLevel, 
+            targetYearLevel
+        ]);
 
         if (mappingExists.length > 0) {
             await connection.rollback();
-            return res.status(400).json({ error: "This medical requirement already exists inside the targeted program rules." });
+            return res.status(400).json({ 
+                error: `Requirement "${trimmedReqName}" is already configured for ${targetYearLevel ? `Year Level ${targetYearLevel}` : 'all year levels'} in this program.` 
+            });
         }
 
+        // 3. Insert new program requirement configuration
         const newConfigId = `CFG-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
         const insertConfigQuery = `
             INSERT INTO program_requirements_config 
@@ -1605,6 +1626,7 @@ app.post('/api/programs/:programId/requirements', async (req, res) => {
             allow_late_submission ? 1 : 0
         ]);
 
+        // 4. Seed submission rows for all matching students in the target program & year level
         const seedSubmissionsQuery = `
             INSERT INTO student_requirement_submissions (submission_id, student_id, requirement_name, status, nurse_remarks, file_url, submitted_at)
             SELECT UUID(), s.student_id, ?, 'Pending', '', NULL, NULL

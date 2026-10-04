@@ -80,11 +80,26 @@ export const RequirementManagement = () => {
         setConfirmModal(prev => ({ ...prev, isOpen: false, onConfirm: null }));
     };
 
+    // Helper to safely parse JSON responses without throwing syntax errors on HTML 404 pages
+    const parseJsonResponse = async (res) => {
+        try {
+            const contentType = res.headers.get("content-type");
+            if (contentType && contentType.includes("application/json")) {
+                return await res.json();
+            }
+        } catch (e) {
+            console.error("JSON Parsing Error:", e);
+        }
+        return null;
+    };
+
     const fetchStudents = useCallback(async () => {
         try {
             const res = await fetch('http://localhost:3001/api/students');
-            const data = await res.json();
-            setStudents(Array.isArray(data) ? data : []);
+            if (res.ok) {
+                const data = await parseJsonResponse(res);
+                setStudents(Array.isArray(data) ? data : []);
+            }
         } catch (error) {
             console.error("Error fetching students:", error);
         }
@@ -93,8 +108,10 @@ export const RequirementManagement = () => {
     const fetchPrograms = useCallback(async () => {
         try {
             const res = await fetch('http://localhost:3001/api/programs');
-            const data = await res.json();
-            setPrograms(Array.isArray(data) ? data : []);
+            if (res.ok) {
+                const data = await parseJsonResponse(res);
+                setPrograms(Array.isArray(data) ? data : []);
+            }
         } catch (error) {
             console.error("Error fetching programs:", error);
         }
@@ -103,8 +120,10 @@ export const RequirementManagement = () => {
     const fetchProgramConfigs = useCallback(async () => {
         try {
             const res = await fetch('http://localhost:3001/api/program-requirements-config');
-            const data = await res.json();
-            setProgramConfigs(Array.isArray(data) ? data : []);
+            if (res.ok) {
+                const data = await parseJsonResponse(res);
+                setProgramConfigs(Array.isArray(data) ? data : []);
+            }
         } catch (error) {
             console.error("Error fetching program configs:", error);
         }
@@ -114,7 +133,7 @@ export const RequirementManagement = () => {
         try {
             const res = await fetch('http://localhost:3001/api/medical-requirements');
             if (res.ok) {
-                const data = await res.json();
+                const data = await parseJsonResponse(res);
                 setMedicalRequirements(Array.isArray(data) ? data : []);
             }
         } catch (error) {
@@ -124,10 +143,17 @@ export const RequirementManagement = () => {
 
     const fetchStudentFullRequirements = useCallback(async (studentId) => {
         try {
-            const res = await fetch(`http://localhost:3001/api/students/${studentId}/full-requirements`);
-            const data = await res.json();
+            const encodedStudentId = encodeURIComponent(studentId);
+            const res = await fetch(`http://localhost:3001/api/students/${encodedStudentId}/full-requirements`);
+            const data = await parseJsonResponse(res);
             
-            if (data && data.error) {
+            if (!res.ok || !data) {
+                alert(`Server error (${res.status}): Failed to retrieve student requirements.`);
+                setStudentReqs([]);
+                return;
+            }
+
+            if (data.error) {
                 alert("Backend Database Error: " + data.error);
                 setStudentReqs([]);
                 return;
@@ -150,29 +176,32 @@ export const RequirementManagement = () => {
         let reqNameToHighlight = fallbackReqName || null;
 
         try {
-            const res = await fetch(`http://localhost:3001/api/submissions/${primaryId}`);
+            const encodedPrimaryId = encodeURIComponent(primaryId);
+            const res = await fetch(`http://localhost:3001/api/submissions/${encodedPrimaryId}`);
             if (res.ok) {
-                const data = await res.json();
-                const sub = data.submission || data.data || (data.student_id ? data : null);
-                
-                if (sub && sub.student_id) {
-                    foundStudentId = sub.student_id;
-                    if (sub.requirement_name) {
-                        reqNameToHighlight = sub.requirement_name;
-                    }
+                const data = await parseJsonResponse(res);
+                if (data) {
+                    const sub = data.submission || data.data || (data.student_id ? data : null);
                     
-                    const studentObj = {
-                        student_id: sub.student_id,
-                        first_name: sub.first_name || '',
-                        last_name: sub.last_name || '',
-                        program_id: sub.program_id || '',
-                        year_level: sub.year_level || '',
-                        section: sub.section || ''
-                    };
-                    setSelectedStudent(studentObj);
-                    setHighlightedReqName(reqNameToHighlight);
-                    fetchStudentFullRequirements(sub.student_id);
-                    return;
+                    if (sub && sub.student_id) {
+                        foundStudentId = sub.student_id;
+                        if (sub.requirement_name) {
+                            reqNameToHighlight = sub.requirement_name;
+                        }
+                        
+                        const studentObj = {
+                            student_id: sub.student_id,
+                            first_name: sub.first_name || '',
+                            last_name: sub.last_name || '',
+                            program_id: sub.program_id || '',
+                            year_level: sub.year_level || '',
+                            section: sub.section || ''
+                        };
+                        setSelectedStudent(studentObj);
+                        setHighlightedReqName(reqNameToHighlight);
+                        fetchStudentFullRequirements(sub.student_id);
+                        return;
+                    }
                 }
             }
         } catch (err) {
@@ -182,15 +211,18 @@ export const RequirementManagement = () => {
         const targetStudentId = fallbackStudentId || foundStudentId || primaryId;
         if (targetStudentId) {
             try {
-                const studentRes = await fetch(`http://localhost:3001/api/students/${targetStudentId}`);
+                const encodedTargetStudentId = encodeURIComponent(targetStudentId);
+                const studentRes = await fetch(`http://localhost:3001/api/students/${encodedTargetStudentId}`);
                 if (studentRes.ok) {
-                    const studentData = await studentRes.json();
-                    const studentObj = studentData.student || studentData.data || (studentData.student_id ? studentData : null);
-                    if (studentObj && studentObj.student_id) {
-                        setSelectedStudent(studentObj);
-                        setHighlightedReqName(reqNameToHighlight);
-                        fetchStudentFullRequirements(studentObj.student_id);
-                        return;
+                    const studentData = await parseJsonResponse(studentRes);
+                    if (studentData) {
+                        const studentObj = studentData.student || studentData.data || (studentData.student_id ? studentData : null);
+                        if (studentObj && studentObj.student_id) {
+                            setSelectedStudent(studentObj);
+                            setHighlightedReqName(reqNameToHighlight);
+                            fetchStudentFullRequirements(studentObj.student_id);
+                            return;
+                        }
                     }
                 }
             } catch (err) {
@@ -200,7 +232,7 @@ export const RequirementManagement = () => {
             try {
                 const res = await fetch('http://localhost:3001/api/students');
                 if (res.ok) {
-                    const studentList = await res.json();
+                    const studentList = await parseJsonResponse(res);
                     if (Array.isArray(studentList)) {
                         setStudents(studentList);
                         const matchedStudent = studentList.find(s => String(s.student_id) === String(targetStudentId));
@@ -263,7 +295,7 @@ export const RequirementManagement = () => {
         ).sort();
     }, [medicalRequirements, programConfigs, students]);
 
-    // --- CRUD Handlers for Medical Requirements Masterlist ---
+    // CRUD Handlers for Medical Requirements Masterlist
     const handleAddMedicalRequirement = async () => {
         setMedReqError('');
         const trimmed = newMedReqName.trim();
@@ -292,10 +324,10 @@ export const RequirementManagement = () => {
                         body: JSON.stringify({ requirement_name: trimmed })
                     });
 
-                    const data = await response.json();
+                    const data = await parseJsonResponse(response);
 
-                    if (!response.ok || !data.success) {
-                        setMedReqError(data.error || "Failed to add medical requirement.");
+                    if (!response.ok || !data || !data.success) {
+                        setMedReqError(data?.error || `Server Error (${response.status}): Failed to add medical requirement.`);
                         return;
                     }
 
@@ -340,9 +372,9 @@ export const RequirementManagement = () => {
                         body: JSON.stringify({ requirement_name: trimmed })
                     });
 
-                    const data = await response.json();
-                    if (!response.ok || !data.success) {
-                        alert(data.error || "Failed to update requirement.");
+                    const data = await parseJsonResponse(response);
+                    if (!response.ok || !data || !data.success) {
+                        alert(data?.error || `Server Error (${response.status}): Failed to update requirement.`);
                         return;
                     }
 
@@ -369,9 +401,9 @@ export const RequirementManagement = () => {
                         method: 'DELETE'
                     });
 
-                    const data = await response.json();
-                    if (!response.ok || !data.success) {
-                        alert(data.error || "Failed to delete requirement.");
+                    const data = await parseJsonResponse(response);
+                    if (!response.ok || !data || !data.success) {
+                        alert(data?.error || `Server Error (${response.status}): Failed to delete requirement.`);
                         return;
                     }
 
@@ -414,7 +446,8 @@ export const RequirementManagement = () => {
             `Assign special requirement "${newReqInput.name.trim()}" to ${selectedStudent.first_name} ${selectedStudent.last_name}?`,
             async () => {
                 try {
-                    const response = await fetch(`http://localhost:3001/api/students/${selectedStudent.student_id}/special-requirements`, {
+                    const encodedStudentId = encodeURIComponent(selectedStudent.student_id);
+                    const response = await fetch(`http://localhost:3001/api/students/${encodedStudentId}/special-requirements`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ 
@@ -425,10 +458,10 @@ export const RequirementManagement = () => {
                         })
                     });
                     
-                    const data = await response.json();
+                    const data = await parseJsonResponse(response);
                     
-                    if (!response.ok || !data.success) {
-                        alert(`Database Failure: ${data.error || 'The server rejected this special context entry payload.'}`);
+                    if (!response.ok || !data || !data.success) {
+                        alert(`Database Failure: ${data?.error || `Server returned HTTP status ${response.status}`}`);
                         return;
                     }
                     
@@ -459,7 +492,9 @@ export const RequirementManagement = () => {
             `Apply changes to requirement "${reqName}" for this student profile?`,
             async () => {
                 try {
-                    const response = await fetch(`http://localhost:3001/api/students/${studentId}/requirements/${encodeURIComponent(reqName)}`, {
+                    const encodedStudentId = encodeURIComponent(studentId);
+                    const encodedReqName = encodeURIComponent(reqName);
+                    const response = await fetch(`http://localhost:3001/api/students/${encodedStudentId}/requirements/${encodedReqName}`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -468,9 +503,9 @@ export const RequirementManagement = () => {
                         }),
                     });
 
-                    const data = await response.json();
-                    if (!response.ok || !data.success) {
-                        alert(`Failed to update: ${data.error || 'Server error encountered.'}`);
+                    const data = await parseJsonResponse(response);
+                    if (!response.ok || !data || !data.success) {
+                        alert(`Failed to update: ${data?.error || `Server error ${response.status}`}`);
                     } else {
                         setEditingReq(null);
                         fetchStudentFullRequirements(studentId);
@@ -492,7 +527,9 @@ export const RequirementManagement = () => {
             `Remove special requirement "${reqName}" for ${selectedStudent.first_name} ${selectedStudent.last_name}?`,
             async () => {
                 try {
-                    await fetch(`http://localhost:3001/api/students/${selectedStudent.student_id}/special-requirements/${encodeURIComponent(reqName)}`, {
+                    const encodedStudentId = encodeURIComponent(selectedStudent.student_id);
+                    const encodedReqName = encodeURIComponent(reqName);
+                    await fetch(`http://localhost:3001/api/students/${encodedStudentId}/special-requirements/${encodedReqName}`, {
                         method: 'DELETE'
                     });
                     fetchStudentFullRequirements(selectedStudent.student_id);
@@ -517,6 +554,11 @@ export const RequirementManagement = () => {
     };
 
     const addProgramRequirement = async (programId) => {
+        if (!programId || programId === 'undefined') {
+            alert("Error: Invalid or missing Program ID.");
+            return;
+        }
+
         const targetInput = programInlineInputs[programId] || {};
         const reqName = targetInput.name;
         const yearLevel = targetInput.year_level;
@@ -530,27 +572,30 @@ export const RequirementManagement = () => {
 
         const trimmedReqName = reqName.trim();
 
-        const isDuplicateInProgram = programConfigs.some(
-            c => String(c.program_id) === String(programId) && 
-                 c.requirement_name.toLowerCase() === trimmedReqName.toLowerCase() &&
-                 (
-                     !c.year_level || 
-                     !yearLevel || 
-                     String(c.year_level) === String(yearLevel)
-                 )
-        );
+        // UPDATED DUPLICATE CHECK: Allow same requirement name in same program ONLY if year levels differ
+        const isDuplicateInProgram = programConfigs.some(c => {
+            if (String(c.program_id) !== String(programId)) return false;
+            if (c.requirement_name.toLowerCase() !== trimmedReqName.toLowerCase()) return false;
+
+            const existingYear = c.year_level ? String(c.year_level) : null;
+            const targetYear = yearLevel ? String(yearLevel) : null;
+
+            return existingYear === null || targetYear === null || existingYear === targetYear;
+        });
 
         if (isDuplicateInProgram) {
-            alert(`Duplicate Error: Requirement "${trimmedReqName}" is already assigned to this program.`);
+            alert(`Duplicate Error: Requirement "${trimmedReqName}" is already assigned to this program for ${yearLevel ? `Year Level ${yearLevel}` : 'all year levels'}.`);
             return;
         }
 
         openConfirmModal(
             "Add Program Requirement",
-            `Add requirement "${trimmedReqName}" to this program configuration?`,
+            `Add requirement "${trimmedReqName}"${yearLevel ? ` (Year ${yearLevel})` : ''} to this program configuration?`,
             async () => {
                 try {
-                    const response = await fetch(`http://localhost:3001/api/programs/${programId}/requirements`, {
+                    // Encoded programId ensures routes like BS/CS or SHS-STEM do not cause 404s
+                    const encodedProgramId = encodeURIComponent(programId);
+                    const response = await fetch(`http://localhost:3001/api/programs/${encodedProgramId}/requirements`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ 
@@ -561,9 +606,11 @@ export const RequirementManagement = () => {
                         })
                     });
 
-                    if (!response.ok) {
-                        const errData = await response.json();
-                        alert(errData.error || "An error occurred adding the program requirement.");
+                    const data = await parseJsonResponse(response);
+
+                    if (!response.ok || !data) {
+                        const errorMsg = data?.error || `Server error (${response.status}): ${response.statusText || 'Unable to process program requirement'}`;
+                        alert(errorMsg);
                         return;
                     }
 
@@ -576,7 +623,7 @@ export const RequirementManagement = () => {
                     fetchMedicalRequirements();
                 } catch (error) {
                     console.error("Error adding program requirement:", error);
-                    alert("Network error processing request.");
+                    alert(`Network error processing request: ${error.message}`);
                 }
             },
             "Add Config",
@@ -605,7 +652,9 @@ export const RequirementManagement = () => {
             `Update settings for "${inlineEditForm.requirement_name.trim()}" in this program track?`,
             async () => {
                 try {
-                    const response = await fetch(`http://localhost:3001/api/programs/${programId}/requirements/${configId}`, {
+                    const encodedProgramId = encodeURIComponent(programId);
+                    const encodedConfigId = encodeURIComponent(configId);
+                    const response = await fetch(`http://localhost:3001/api/programs/${encodedProgramId}/requirements/${encodedConfigId}`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -616,14 +665,17 @@ export const RequirementManagement = () => {
                         })
                     });
 
+                    const data = await parseJsonResponse(response);
+
                     if (response.ok) {
                         setInlineEditingConfigId(null);
                         await fetchProgramConfigs();
                     } else {
-                        alert("Failed to save changes.");
+                        alert(data?.error || `Failed to save changes (Server Status: ${response.status}).`);
                     }
                 } catch (err) {
                     console.error("Failed saving adjustment changes:", err);
+                    alert("Network error processing request.");
                 }
             },
             "Save",
@@ -637,12 +689,20 @@ export const RequirementManagement = () => {
             `Permanently delete "${reqName}" from this program track?`,
             async () => {
                 try {
-                    await fetch(`http://localhost:3001/api/programs/${programId}/requirements/${configId}`, {
+                    const encodedProgramId = encodeURIComponent(programId);
+                    const encodedConfigId = encodeURIComponent(configId);
+                    const response = await fetch(`http://localhost:3001/api/programs/${encodedProgramId}/requirements/${encodedConfigId}`, {
                         method: 'DELETE'
                     });
+                    const data = await parseJsonResponse(response);
+                    if (!response.ok) {
+                        alert(data?.error || `Failed to delete requirement (Server Status: ${response.status}).`);
+                        return;
+                    }
                     await fetchProgramConfigs();
                 } catch (error) {
                     console.error("Error deleting program requirement:", error);
+                    alert("Network error deleting requirement.");
                 }
             },
             "Delete",
@@ -789,7 +849,7 @@ export const RequirementManagement = () => {
 
     return (
         <div className="req-container-rm">
-            {/* HEADER SECTION WITH TOP RIGHT BUTTON FOR MEDICAL REQUIREMENTS CRUD */}
+            {/* HEADER SECTION */}
             <div className="req-header-section-rm">
                 <div>
                     <h2>Requirement Management</h2>
