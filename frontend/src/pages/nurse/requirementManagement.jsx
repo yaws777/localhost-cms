@@ -1,5 +1,5 @@
-// RequirementManagement.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+// requirementManagement.jsx
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useOutletContext, useLocation } from 'react-router-dom';
 import { 
     Search, Calendar, Edit, Trash2, X, Plus, 
@@ -20,6 +20,23 @@ export const RequirementManagement = () => {
     const [sectionFilter, setSectionFilter] = useState('all');
     const [yearFilter, setYearFilter] = useState('all');
     const [requirementFilter, setRequirementFilter] = useState('all');
+
+    // Masterlist Medical Requirements (medical_requirements Table)
+    const [medicalRequirements, setMedicalRequirements] = useState([]);
+    const [isMedReqModalOpen, setIsMedReqModalOpen] = useState(false);
+    const [newMedReqName, setNewMedReqName] = useState('');
+    const [medReqError, setMedReqError] = useState('');
+    const [editingMedReq, setEditingMedReq] = useState(null);
+
+    // Confirmation Modal State for CRUD
+    const [confirmModal, setConfirmModal] = useState({
+        isOpen: false,
+        title: '',
+        message: '',
+        onConfirm: null,
+        confirmText: 'Confirm',
+        type: 'primary' // 'primary' | 'danger'
+    });
 
     // Program Configuration States
     const [programs, setPrograms] = useState([]);
@@ -48,6 +65,63 @@ export const RequirementManagement = () => {
     // Nested Requirement Editor Configuration State
     const [editingReq, setEditingReq] = useState(null);
 
+    const openConfirmModal = (title, message, onConfirm, confirmText = 'Confirm', type = 'primary') => {
+        setConfirmModal({
+            isOpen: true,
+            title,
+            message,
+            onConfirm,
+            confirmText,
+            type
+        });
+    };
+
+    const closeConfirmModal = () => {
+        setConfirmModal(prev => ({ ...prev, isOpen: false, onConfirm: null }));
+    };
+
+    const fetchStudents = useCallback(async () => {
+        try {
+            const res = await fetch('http://localhost:3001/api/students');
+            const data = await res.json();
+            setStudents(Array.isArray(data) ? data : []);
+        } catch (error) {
+            console.error("Error fetching students:", error);
+        }
+    }, []);
+
+    const fetchPrograms = useCallback(async () => {
+        try {
+            const res = await fetch('http://localhost:3001/api/programs');
+            const data = await res.json();
+            setPrograms(Array.isArray(data) ? data : []);
+        } catch (error) {
+            console.error("Error fetching programs:", error);
+        }
+    }, []);
+
+    const fetchProgramConfigs = useCallback(async () => {
+        try {
+            const res = await fetch('http://localhost:3001/api/program-requirements-config');
+            const data = await res.json();
+            setProgramConfigs(Array.isArray(data) ? data : []);
+        } catch (error) {
+            console.error("Error fetching program configs:", error);
+        }
+    }, []);
+
+    const fetchMedicalRequirements = useCallback(async () => {
+        try {
+            const res = await fetch('http://localhost:3001/api/medical-requirements');
+            if (res.ok) {
+                const data = await res.json();
+                setMedicalRequirements(Array.isArray(data) ? data : []);
+            }
+        } catch (error) {
+            console.error("Error fetching medical requirements:", error);
+        }
+    }, []);
+
     const fetchStudentFullRequirements = useCallback(async (studentId) => {
         try {
             const res = await fetch(`http://localhost:3001/api/students/${studentId}/full-requirements`);
@@ -66,7 +140,6 @@ export const RequirementManagement = () => {
         }
     }, []);
 
-    // Deep linking resolver supporting submission_id or student_id to auto-open modal immediately
     const handleDeepLink = useCallback(async (targetId, fallbackStudentId, fallbackReqName) => {
         const primaryId = targetId || fallbackStudentId;
         if (!primaryId) return;
@@ -76,7 +149,6 @@ export const RequirementManagement = () => {
         let foundStudentId = null;
         let reqNameToHighlight = fallbackReqName || null;
 
-        // 1. Try resolving primaryId as a submission_id
         try {
             const res = await fetch(`http://localhost:3001/api/submissions/${primaryId}`);
             if (res.ok) {
@@ -107,7 +179,6 @@ export const RequirementManagement = () => {
             console.warn("Identifier resolution as submission_id failed:", err);
         }
 
-        // 2. Fallback: Direct student lookup using target student identifier
         const targetStudentId = fallbackStudentId || foundStudentId || primaryId;
         if (targetStudentId) {
             try {
@@ -126,7 +197,6 @@ export const RequirementManagement = () => {
                 console.warn("Direct student fetch failed, searching full student list...", err);
             }
 
-            // 3. Fallback: Search in overall student list
             try {
                 const res = await fetch('http://localhost:3001/api/students');
                 if (res.ok) {
@@ -152,9 +222,9 @@ export const RequirementManagement = () => {
         fetchStudents();
         fetchPrograms();
         fetchProgramConfigs();
-    }, []);
+        fetchMedicalRequirements();
+    }, [fetchStudents, fetchPrograms, fetchProgramConfigs, fetchMedicalRequirements]);
 
-    // Handles navigation state and triggers deep-link auto-lookup
     useEffect(() => {
         const state = location.state || {};
         const targetId = state.submissionId || state.submission_id || state.navigateId || state.navigate_id;
@@ -183,41 +253,137 @@ export const RequirementManagement = () => {
 
     const availableSections = ['A', 'B', 'C'];
 
-    const availableRequirements = Array.from(
-        new Set([
-            ...programConfigs.map(c => c.requirement_name),
-            ...students.flatMap(s => (s.requirements || s.requirements_list || []).map(r => r.requirement_name || r.name))
-        ].filter(Boolean))
-    ).sort();
+    const availableRequirements = useMemo(() => {
+        return Array.from(
+            new Set([
+                ...medicalRequirements.map(m => m.requirement_name),
+                ...programConfigs.map(c => c.requirement_name),
+                ...students.flatMap(s => (s.requirements || s.requirements_list || []).map(r => r.requirement_name || r.name))
+            ].filter(Boolean))
+        ).sort();
+    }, [medicalRequirements, programConfigs, students]);
 
-    const fetchStudents = async () => {
-        try {
-            const res = await fetch('http://localhost:3001/api/students');
-            const data = await res.json();
-            setStudents(Array.isArray(data) ? data : []);
-        } catch (error) {
-            console.error("Error fetching students:", error);
+    // --- CRUD Handlers for Medical Requirements Masterlist ---
+    const handleAddMedicalRequirement = async () => {
+        setMedReqError('');
+        const trimmed = newMedReqName.trim();
+        if (!trimmed) {
+            setMedReqError("Requirement name cannot be empty.");
+            return;
         }
+
+        const exists = medicalRequirements.some(
+            req => req.requirement_name.toLowerCase() === trimmed.toLowerCase()
+        );
+
+        if (exists) {
+            setMedReqError(`Duplicate Error: Medical requirement "${trimmed}" already exists.`);
+            return;
+        }
+
+        openConfirmModal(
+            "Add Medical Requirement",
+            `Add "${trimmed}" to the medical requirements masterlist?`,
+            async () => {
+                try {
+                    const response = await fetch('http://localhost:3001/api/medical-requirements', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ requirement_name: trimmed })
+                    });
+
+                    const data = await response.json();
+
+                    if (!response.ok || !data.success) {
+                        setMedReqError(data.error || "Failed to add medical requirement.");
+                        return;
+                    }
+
+                    setNewMedReqName('');
+                    setMedReqError('');
+                    fetchMedicalRequirements();
+                } catch (error) {
+                    console.error("Error adding medical requirement:", error);
+                    setMedReqError("Network error adding medical requirement.");
+                }
+            },
+            "Add Requirement",
+            "primary"
+        );
     };
 
-    const fetchPrograms = async () => {
-        try {
-            const res = await fetch('http://localhost:3001/api/programs');
-            const data = await res.json();
-            setPrograms(Array.isArray(data) ? data : []);
-        } catch (error) {
-            console.error("Error fetching programs:", error);
+    const handleUpdateMedicalRequirement = async (oldName, newName) => {
+        const trimmed = newName.trim();
+        if (!trimmed) {
+            alert("Requirement name cannot be empty.");
+            return;
         }
+
+        if (trimmed.toLowerCase() !== oldName.toLowerCase()) {
+            const exists = medicalRequirements.some(
+                req => req.requirement_name.toLowerCase() === trimmed.toLowerCase()
+            );
+            if (exists) {
+                alert(`Duplicate Error: Requirement "${trimmed}" already exists.`);
+                return;
+            }
+        }
+
+        openConfirmModal(
+            "Update Medical Requirement",
+            `Rename medical requirement "${oldName}" to "${trimmed}" across all system configurations?`,
+            async () => {
+                try {
+                    const response = await fetch(`http://localhost:3001/api/medical-requirements/${encodeURIComponent(oldName)}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ requirement_name: trimmed })
+                    });
+
+                    const data = await response.json();
+                    if (!response.ok || !data.success) {
+                        alert(data.error || "Failed to update requirement.");
+                        return;
+                    }
+
+                    setEditingMedReq(null);
+                    fetchMedicalRequirements();
+                    fetchProgramConfigs();
+                } catch (error) {
+                    console.error("Error updating medical requirement:", error);
+                    alert("Network error updating requirement.");
+                }
+            },
+            "Save Changes",
+            "primary"
+        );
     };
 
-    const fetchProgramConfigs = async () => {
-        try {
-            const res = await fetch('http://localhost:3001/api/program-requirements-config');
-            const data = await res.json();
-            setProgramConfigs(Array.isArray(data) ? data : []);
-        } catch (error) {
-            console.error("Error fetching program configs:", error);
-        }
+    const handleDeleteMedicalRequirement = (reqName) => {
+        openConfirmModal(
+            "Delete Medical Requirement",
+            `Are you sure you want to delete "${reqName}" from the medical requirements masterlist?`,
+            async () => {
+                try {
+                    const response = await fetch(`http://localhost:3001/api/medical-requirements/${encodeURIComponent(reqName)}`, {
+                        method: 'DELETE'
+                    });
+
+                    const data = await response.json();
+                    if (!response.ok || !data.success) {
+                        alert(data.error || "Failed to delete requirement.");
+                        return;
+                    }
+
+                    fetchMedicalRequirements();
+                } catch (error) {
+                    console.error("Error deleting medical requirement:", error);
+                    alert("Network error deleting requirement.");
+                }
+            },
+            "Delete",
+            "danger"
+        );
     };
 
     const formatDeadlineDate = (dateVal) => {
@@ -243,82 +409,101 @@ export const RequirementManagement = () => {
             return;
         }
 
-        try {
-            const response = await fetch(`http://localhost:3001/api/students/${selectedStudent.student_id}/special-requirements`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    requirement_name: newReqInput.name.trim(),
-                    submission_deadline: newReqInput.deadline,
-                    allow_late_submission: newReqInput.allowLate,
-                    nurse_id: nurseId || 'UNKNOWN_NURSE'
-                })
-            });
-            
-            const data = await response.json();
-            
-            if (!response.ok || !data.success) {
-                alert(`Database Failure: ${data.error || 'The server rejected this special context entry payload.'}`);
-                return;
-            }
-            
-            alert("Special requirement successfully saved and tracker synchronized!");
-            setNewReqInput({ name: '', deadline: '', allowLate: false });
-            setIsAddModalOpen(false);
-            
-            fetchStudentFullRequirements(selectedStudent.student_id);
-            fetchStudents();
-        } catch (error) {
-            console.error("Error adding special requirement:", error);
-            alert("Network failure: Could not reach target API server gateway.");
-        }
+        openConfirmModal(
+            "Assign Special Requirement",
+            `Assign special requirement "${newReqInput.name.trim()}" to ${selectedStudent.first_name} ${selectedStudent.last_name}?`,
+            async () => {
+                try {
+                    const response = await fetch(`http://localhost:3001/api/students/${selectedStudent.student_id}/special-requirements`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            requirement_name: newReqInput.name.trim(),
+                            submission_deadline: newReqInput.deadline,
+                            allow_late_submission: newReqInput.allowLate,
+                            nurse_id: nurseId || 'UNKNOWN_NURSE'
+                        })
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (!response.ok || !data.success) {
+                        alert(`Database Failure: ${data.error || 'The server rejected this special context entry payload.'}`);
+                        return;
+                    }
+                    
+                    setNewReqInput({ name: '', deadline: '', allowLate: false });
+                    setIsAddModalOpen(false);
+                    
+                    fetchStudentFullRequirements(selectedStudent.student_id);
+                    fetchStudents();
+                    fetchMedicalRequirements();
+                } catch (error) {
+                    console.error("Error adding special requirement:", error);
+                    alert("Network failure: Could not reach target API server gateway.");
+                }
+            },
+            "Assign Requirement",
+            "primary"
+        );
     };
 
     const handleUpdateRequirement = async (studentId, reqName, updatePayload) => {
         if (!studentId || studentId === 'undefined' || studentId === '') {
-            console.error("Aborted Fetch: Missing valid student identifier string.", { studentId });
             alert("Error: Cannot update. The app lost track of this student's reference ID.");
             return;
         }
 
-        try {
-            const response = await fetch(`http://localhost:3001/api/students/${studentId}/requirements/${encodeURIComponent(reqName)}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    ...updatePayload,
-                    nurse_id: nurseId || 'UNKNOWN_NURSE'
-                }),
-            });
+        openConfirmModal(
+            "Save Requirement Parameter Updates",
+            `Apply changes to requirement "${reqName}" for this student profile?`,
+            async () => {
+                try {
+                    const response = await fetch(`http://localhost:3001/api/students/${studentId}/requirements/${encodeURIComponent(reqName)}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            ...updatePayload,
+                            nurse_id: nurseId || 'UNKNOWN_NURSE'
+                        }),
+                    });
 
-            const data = await response.json();
-            if (!response.ok || !data.success) {
-                alert(`Failed to update: ${data.error || 'Server error encountered.'}`);
-            } else {
-                alert("Requirement successfully saved!");
-                setEditingReq(null);
-                fetchStudentFullRequirements(studentId);
-                fetchStudents();
-            }
-        } catch (error) {
-            console.error("Networking payload exception:", error);
-            alert("Network error processing update request.");
-        }
+                    const data = await response.json();
+                    if (!response.ok || !data.success) {
+                        alert(`Failed to update: ${data.error || 'Server error encountered.'}`);
+                    } else {
+                        setEditingReq(null);
+                        fetchStudentFullRequirements(studentId);
+                        fetchStudents();
+                    }
+                } catch (error) {
+                    console.error("Networking payload exception:", error);
+                    alert("Network error processing update request.");
+                }
+            },
+            "Save",
+            "primary"
+        );
     };
 
-    const handleDeleteSpecialRequirement = async (reqName) => {
-        if (!window.confirm(`Delete special requirement: ${reqName}?`)) return;
-
-        try {
-            await fetch(`http://localhost:3001/api/students/${selectedStudent.student_id}/special-requirements/${encodeURIComponent(reqName)}`, {
-                method: 'DELETE'
-            });
-            alert("Requirement record removed.");
-            fetchStudentFullRequirements(selectedStudent.student_id);
-            fetchStudents();
-        } catch (error) {
-            console.error("Error deleting special requirement:", error);
-        }
+    const handleDeleteSpecialRequirement = (reqName) => {
+        openConfirmModal(
+            "Delete Special Requirement",
+            `Remove special requirement "${reqName}" for ${selectedStudent.first_name} ${selectedStudent.last_name}?`,
+            async () => {
+                try {
+                    await fetch(`http://localhost:3001/api/students/${selectedStudent.student_id}/special-requirements/${encodeURIComponent(reqName)}`, {
+                        method: 'DELETE'
+                    });
+                    fetchStudentFullRequirements(selectedStudent.student_id);
+                    fetchStudents();
+                } catch (error) {
+                    console.error("Error deleting special requirement:", error);
+                }
+            },
+            "Delete",
+            "danger"
+        );
     };
 
     const handleInitializeInlineState = (programId, field, value) => {
@@ -339,38 +524,64 @@ export const RequirementManagement = () => {
         const allowLate = targetInput.allowLate || false;
 
         if (!reqName || !reqName.trim() || !deadline) {
-            alert("Please provide a Requirement Name and Target Deadline.");
+            alert("Please select a Requirement Name and Target Deadline.");
             return;
         }
 
-        try {
-            const response = await fetch(`http://localhost:3001/api/programs/${programId}/requirements`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    requirement_name: reqName.trim(),
-                    year_level: yearLevel,
-                    submission_deadline: deadline,
-                    allow_late_submission: allowLate
-                })
-            });
+        const trimmedReqName = reqName.trim();
 
-            if (!response.ok) {
-                const errData = await response.json();
-                alert(errData.error || "An error occurred.");
-                return;
-            }
+        const isDuplicateInProgram = programConfigs.some(
+            c => String(c.program_id) === String(programId) && 
+                 c.requirement_name.toLowerCase() === trimmedReqName.toLowerCase() &&
+                 (
+                     !c.year_level || 
+                     !yearLevel || 
+                     String(c.year_level) === String(yearLevel)
+                 )
+        );
 
-            setProgramInlineInputs(prev => ({
-                ...prev,
-                [programId]: { name: '', year_level: '', deadline: '', allowLate: false }
-            }));
-            
-            alert("Program requirement added successfully.");
-            await fetchProgramConfigs();
-        } catch (error) {
-            console.error("Error adding program requirement:", error);
+        if (isDuplicateInProgram) {
+            alert(`Duplicate Error: Requirement "${trimmedReqName}" is already assigned to this program.`);
+            return;
         }
+
+        openConfirmModal(
+            "Add Program Requirement",
+            `Add requirement "${trimmedReqName}" to this program configuration?`,
+            async () => {
+                try {
+                    const response = await fetch(`http://localhost:3001/api/programs/${programId}/requirements`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            requirement_name: trimmedReqName,
+                            year_level: yearLevel,
+                            submission_deadline: deadline,
+                            allow_late_submission: allowLate
+                        })
+                    });
+
+                    if (!response.ok) {
+                        const errData = await response.json();
+                        alert(errData.error || "An error occurred adding the program requirement.");
+                        return;
+                    }
+
+                    setProgramInlineInputs(prev => ({
+                        ...prev,
+                        [programId]: { name: '', year_level: '', deadline: '', allowLate: false }
+                    }));
+                    
+                    await fetchProgramConfigs();
+                    fetchMedicalRequirements();
+                } catch (error) {
+                    console.error("Error adding program requirement:", error);
+                    alert("Network error processing request.");
+                }
+            },
+            "Add Config",
+            "primary"
+        );
     };
 
     const startInlineEditingConfig = (configRow) => {
@@ -389,42 +600,54 @@ export const RequirementManagement = () => {
             return;
         }
 
-        try {
-            const response = await fetch(`http://localhost:3001/api/programs/${programId}/requirements/${configId}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    requirement_name: inlineEditForm.requirement_name,
-                    year_level: inlineEditForm.year_level,
-                    submission_deadline: inlineEditForm.submission_deadline,
-                    allow_late_submission: inlineEditForm.allow_late_submission
-                })
-            });
+        openConfirmModal(
+            "Save Configuration Changes",
+            `Update settings for "${inlineEditForm.requirement_name.trim()}" in this program track?`,
+            async () => {
+                try {
+                    const response = await fetch(`http://localhost:3001/api/programs/${programId}/requirements/${configId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            requirement_name: inlineEditForm.requirement_name,
+                            year_level: inlineEditForm.year_level,
+                            submission_deadline: inlineEditForm.submission_deadline,
+                            allow_late_submission: inlineEditForm.allow_late_submission
+                        })
+                    });
 
-            if (response.ok) {
-                alert("Program configuration altered successfully.");
-                setInlineEditingConfigId(null);
-                await fetchProgramConfigs();
-            } else {
-                alert("Failed to save changes.");
-            }
-        } catch (err) {
-            console.error("Failed saving adjustment changes:", err);
-        }
+                    if (response.ok) {
+                        setInlineEditingConfigId(null);
+                        await fetchProgramConfigs();
+                    } else {
+                        alert("Failed to save changes.");
+                    }
+                } catch (err) {
+                    console.error("Failed saving adjustment changes:", err);
+                }
+            },
+            "Save",
+            "primary"
+        );
     };
 
-    const deleteProgramRequirement = async (programId, configId, reqName) => {
-        if (!window.confirm(`Permanently delete "${reqName}" from this program track?`)) return;
-
-        try {
-            await fetch(`http://localhost:3001/api/programs/${programId}/requirements/${configId}`, {
-                method: 'DELETE'
-            });
-            alert("Requirement deleted.");
-            await fetchProgramConfigs();
-        } catch (error) {
-            console.error("Error deleting program requirement:", error);
-        }
+    const deleteProgramRequirement = (programId, configId, reqName) => {
+        openConfirmModal(
+            "Delete Program Requirement",
+            `Permanently delete "${reqName}" from this program track?`,
+            async () => {
+                try {
+                    await fetch(`http://localhost:3001/api/programs/${programId}/requirements/${configId}`, {
+                        method: 'DELETE'
+                    });
+                    await fetchProgramConfigs();
+                } catch (error) {
+                    console.error("Error deleting program requirement:", error);
+                }
+            },
+            "Delete",
+            "danger"
+        );
     };
 
     const calculateOverdueDays = (deadline, submittedAt, status) => {
@@ -464,155 +687,183 @@ export const RequirementManagement = () => {
         }
     };
 
-    const filteredStudents = students
-        .filter(student => {
-            const term = searchTerm.toLowerCase();
-            const fullName = `${student.first_name || ''} ${student.last_name || ''}`.toLowerCase();
-            const matchesSearch = 
-                fullName.includes(term) || 
-                student.student_id?.toLowerCase().includes(term) ||
-                student.program_id?.toLowerCase().includes(term) ||
-                (student.section && student.section.toLowerCase().includes(term));
+    const filteredStudents = useMemo(() => {
+        return students
+            .filter(student => {
+                const term = searchTerm.toLowerCase();
+                const fullName = `${student.first_name || ''} ${student.last_name || ''}`.toLowerCase();
+                const matchesSearch = 
+                    fullName.includes(term) || 
+                    student.student_id?.toLowerCase().includes(term) ||
+                    student.program_id?.toLowerCase().includes(term) ||
+                    (student.section && student.section.toLowerCase().includes(term));
 
-            if (!matchesSearch) return false;
+                if (!matchesSearch) return false;
 
-            if (courseFilter !== 'all' && String(student.program_id) !== String(courseFilter)) return false;
-            if (sectionFilter !== 'all' && String(student.section) !== String(sectionFilter)) return false;
-            if (yearFilter !== 'all' && String(student.year_level) !== String(yearFilter)) return false;
+                if (courseFilter !== 'all' && String(student.program_id) !== String(courseFilter)) return false;
+                if (sectionFilter !== 'all' && String(student.section) !== String(sectionFilter)) return false;
+                if (yearFilter !== 'all' && String(student.year_level) !== String(yearFilter)) return false;
 
-            if (requirementFilter !== 'all') {
-                const hasInStudentReqs = Array.isArray(student.requirements) && 
-                    student.requirements.some(r => (r.requirement_name || r.name) === requirementFilter);
-                
-                const hasInProgramConfigs = programConfigs.some(
-                    c => String(c.program_id) === String(student.program_id) && 
-                         c.requirement_name === requirementFilter &&
-                         (!c.year_level || String(c.year_level) === String(student.year_level))
-                );
+                if (requirementFilter !== 'all') {
+                    const hasInStudentReqs = Array.isArray(student.requirements) && 
+                        student.requirements.some(r => (r.requirement_name || r.name) === requirementFilter);
+                    
+                    const hasInProgramConfigs = programConfigs.some(
+                        c => String(c.program_id) === String(student.program_id) && 
+                             c.requirement_name === requirementFilter &&
+                             (!c.year_level || String(c.year_level) === String(student.year_level))
+                    );
 
-                if (!hasInStudentReqs && !hasInProgramConfigs) return false;
-            }
+                    if (!hasInStudentReqs && !hasInProgramConfigs) return false;
+                }
 
-            const stats = student.stats || {};
+                const stats = student.stats || {};
+                const total = Number(stats.total || 0);
+                const completed = Number(stats.completed || 0);
+
+                const isComplete = total > 0 && completed === total;
+                const isIncomplete = total > 0 && completed < total;
+                const hasWaiting = Number(stats.submitted || 0) > 0 || Number(stats.late || 0) > 0 || Number(stats.waiting || 0) > 0;
+
+                if (statusFilter === 'default') {
+                    if (!hasWaiting && !isIncomplete) return false;
+                } else if (statusFilter === 'waiting') {
+                    if (!hasWaiting) return false;
+                } else if (statusFilter === 'incomplete') {
+                    if (!isIncomplete) return false;
+                } else if (statusFilter === 'complete') {
+                    if (!isComplete) return false;
+                } else if (statusFilter === 'rejected') {
+                    if (!(Number(stats.rejected) > 0)) return false;
+                } else if (statusFilter === 'missed') {
+                    if (!(Number(stats.noSubmission) > 0 || Number(stats.notSubmitted) > 0)) return false;
+                } else if (statusFilter === 'resubmit') {
+                    if (!(Number(stats.resubmit) > 0)) return false;
+                }
+
+                return true;
+            })
+            .sort((a, b) => {
+                const aStats = a.stats || {};
+                const bStats = b.stats || {};
+
+                const aWaiting = (Number(aStats.submitted || 0) > 0 || Number(aStats.late || 0) > 0 || Number(aStats.waiting || 0) > 0) ? 1 : 0;
+                const bWaiting = (Number(bStats.submitted || 0) > 0 || Number(bStats.late || 0) > 0 || Number(bStats.waiting || 0) > 0) ? 1 : 0;
+
+                if (aWaiting !== bWaiting) return bWaiting - aWaiting;
+
+                const aComplete = (Number(aStats.total || 0) > 0 && Number(aStats.completed) === Number(aStats.total)) ? 1 : 0;
+                const bComplete = (Number(bStats.total || 0) > 0 && Number(bStats.completed) === Number(bStats.total)) ? 1 : 0;
+
+                return aComplete - bComplete;
+            });
+    }, [students, searchTerm, courseFilter, sectionFilter, yearFilter, requirementFilter, statusFilter, programConfigs]);
+
+    const { submittedRequirementsCount, completeStudentsCount, incompleteStudentsCount } = useMemo(() => {
+        let submitted = 0;
+        let complete = 0;
+        let incomplete = 0;
+
+        students.forEach(s => {
+            const stats = s.stats || {};
             const total = Number(stats.total || 0);
             const completed = Number(stats.completed || 0);
 
-            const isComplete = total > 0 && completed === total;
-            const isIncomplete = total > 0 && completed < total;
-            const hasWaiting = Number(stats.submitted || 0) > 0 || Number(stats.late || 0) > 0 || Number(stats.waiting || 0) > 0;
-
-            if (statusFilter === 'default') {
-                if (!hasWaiting && !isIncomplete) return false;
-            } else if (statusFilter === 'waiting') {
-                if (!hasWaiting) return false;
-            } else if (statusFilter === 'incomplete') {
-                if (!isIncomplete) return false;
-            } else if (statusFilter === 'complete') {
-                if (!isComplete) return false;
-            } else if (statusFilter === 'rejected') {
-                if (!(Number(stats.rejected) > 0)) return false;
-            } else if (statusFilter === 'missed') {
-                if (!(Number(stats.noSubmission) > 0 || Number(stats.notSubmitted) > 0)) return false;
-            } else if (statusFilter === 'resubmit') {
-                if (!(Number(stats.resubmit) > 0)) return false;
+            if (Number(stats.submitted || 0) > 0 || Number(stats.late || 0) > 0 || Number(stats.waiting || 0) > 0) {
+                submitted++;
             }
-
-            return true;
-        })
-        .sort((a, b) => {
-            const aStats = a.stats || {};
-            const bStats = b.stats || {};
-
-            const aWaiting = (Number(aStats.submitted || 0) > 0 || Number(aStats.late || 0) > 0 || Number(aStats.waiting || 0) > 0) ? 1 : 0;
-            const bWaiting = (Number(bStats.submitted || 0) > 0 || Number(bStats.late || 0) > 0 || Number(bStats.waiting || 0) > 0) ? 1 : 0;
-
-            if (aWaiting !== bWaiting) return bWaiting - aWaiting;
-
-            const aComplete = (Number(aStats.total || 0) > 0 && Number(aStats.completed) === Number(aStats.total)) ? 1 : 0;
-            const bComplete = (Number(bStats.total || 0) > 0 && Number(bStats.completed) === Number(bStats.total)) ? 1 : 0;
-
-            return aComplete - bComplete;
+            if (total > 0 && completed === total) {
+                complete++;
+            }
+            if (total > 0 && completed < total) {
+                incomplete++;
+            }
         });
 
-    const submittedRequirementsCount = students.filter(s => 
-        s.stats && (Number(s.stats.submitted || 0) > 0 || Number(s.stats.late || 0) > 0 || Number(s.stats.waiting || 0) > 0)
-    ).length;
-
-    const completeStudentsCount = students.filter(s => 
-        s.stats && Number(s.stats.total || 0) > 0 && Number(s.stats.completed) === Number(s.stats.total)
-    ).length;
-
-    const incompleteStudentsCount = students.filter(s => {
-        const total = Number(s.stats?.total || 0);
-        const completed = Number(s.stats?.completed || 0);
-        return total > 0 && completed < total;
-    }).length;
+        return {
+            submittedRequirementsCount: submitted,
+            completeStudentsCount: complete,
+            incompleteStudentsCount: incomplete
+        };
+    }, [students]);
 
     return (
-        <div className="req-container">
-            <div className="req-header-section">
-                <h2>Requirement Management</h2>
-                <p>Configure structural compliance pipelines and monitor student submissions</p>
+        <div className="req-container-rm">
+            {/* HEADER SECTION WITH TOP RIGHT BUTTON FOR MEDICAL REQUIREMENTS CRUD */}
+            <div className="req-header-section-rm">
+                <div>
+                    <h2>Requirement Management</h2>
+                    <p>Configure structural compliance pipelines and monitor student submissions</p>
+                </div>
+                <button 
+                    className="btn-manage-med-reqs-rm"
+                    onClick={() => {
+                        setIsMedReqModalOpen(true);
+                        setMedReqError('');
+                    }}
+                >
+                    <FileText size={16} /> Manage Medical Requirements
+                </button>
             </div>
 
-            <div className="tabs">
-                <button className={`tab-btn ${activeTab === 'student' ? 'active' : ''}`} onClick={() => setActiveTab('student')}>
+            <div className="tabs-rm">
+                <button className={`tab-btn-rm ${activeTab === 'student' ? 'active' : ''}`} onClick={() => setActiveTab('student')}>
                     Student Requirements
                 </button>
-                <button className={`tab-btn ${activeTab === 'course' ? 'active' : ''}`} onClick={() => setActiveTab('course')}>
+                <button className={`tab-btn-rm ${activeTab === 'course' ? 'active' : ''}`} onClick={() => setActiveTab('course')}>
                     Course / Strand Requirements
                 </button>
             </div>
 
             {/* VIEW: MAIN STUDENT MATRIX */}
             {activeTab === 'student' && (
-                <div className="tab-content">
-                    <div className="dashboard-summary-cards">
+                <div className="tab-content-rm">
+                    <div className="dashboard-summary-cards-rm">
                         <div 
-                            className={`summary-card card-blue ${statusFilter === 'waiting' ? 'active-card-filter' : ''}`}
+                            className={`summary-card-rm card-blue-rm ${statusFilter === 'waiting' ? 'active-card-filter-rm' : ''}`}
                             onClick={() => setStatusFilter(statusFilter === 'waiting' ? 'default' : 'waiting')}
                             title="Click to filter students waiting for approval"
                         >
-                            <div className="summary-card-number text-blue">{submittedRequirementsCount}</div>
-                            <div className="summary-card-label">Waiting for Approval</div>
+                            <div className="summary-card-number-rm text-blue-rm">{submittedRequirementsCount}</div>
+                            <div className="summary-card-label-rm">Waiting for Approval</div>
                         </div>
                         <div 
-                            className={`summary-card card-orange ${statusFilter === 'incomplete' ? 'active-card-filter' : ''}`}
+                            className={`summary-card-rm card-orange-rm ${statusFilter === 'incomplete' ? 'active-card-filter-rm' : ''}`}
                             onClick={() => setStatusFilter(statusFilter === 'incomplete' ? 'default' : 'incomplete')}
                             title="Click to filter incomplete students"
                         >
-                            <div className="summary-card-number text-orange">{incompleteStudentsCount}</div>
-                            <div className="summary-card-label">Incomplete</div>
+                            <div className="summary-card-number-rm text-orange-rm">{incompleteStudentsCount}</div>
+                            <div className="summary-card-label-rm">Incomplete</div>
                         </div>
                         <div 
-                            className={`summary-card card-green ${statusFilter === 'complete' ? 'active-card-filter' : ''}`}
+                            className={`summary-card-rm card-green-rm ${statusFilter === 'complete' ? 'active-card-filter-rm' : ''}`}
                             onClick={() => setStatusFilter(statusFilter === 'complete' ? 'default' : 'complete')}
                             title="Click to filter complete students"
                         >
-                            <div className="summary-card-number text-green">{completeStudentsCount}</div>
-                            <div className="summary-card-label">Complete</div>
+                            <div className="summary-card-number-rm text-green-rm">{completeStudentsCount}</div>
+                            <div className="summary-card-label-rm">Complete</div>
                         </div>
                     </div>
 
-                    <div className="filter-toolbar">
-                        <div className="search-wrapper">
-                            <Search className="search-icon" size={18} />
+                    <div className="filter-toolbar-rm">
+                        <div className="search-wrapper-rm">
+                            <Search className="search-icon-rm" size={18} />
                             <input 
                                 type="text" 
                                 placeholder="Search by student name, ID, section..." 
-                                className="search-bar" 
+                                className="search-bar-rm" 
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
                             />
                         </div>
 
-                        <div className="filter-grid">
-                            <div className="filter-item-rqm">
-                                <label className="filter-label">Course / Strand</label>
+                        <div className="filter-grid-rm">
+                            <div className="filter-item-rm">
+                                <label className="filter-label-rm">Course / Strand</label>
                                 <select 
                                     value={courseFilter} 
                                     onChange={(e) => setCourseFilter(e.target.value)}
-                                    className="filter-select"
+                                    className="filter-select-rm"
                                 >
                                     <option value="all">All Courses / Strands</option>
                                     {programs.map(p => (
@@ -623,12 +874,12 @@ export const RequirementManagement = () => {
                                 </select>
                             </div>
 
-                            <div className="filter-item-rqm">
-                                <label className="filter-label">Year Level</label>
+                            <div className="filter-item-rm">
+                                <label className="filter-label-rm">Year Level</label>
                                 <select 
                                     value={yearFilter} 
                                     onChange={(e) => setYearFilter(e.target.value)}
-                                    className="filter-select"
+                                    className="filter-select-rm"
                                 >
                                     <option value="all">All Year Levels</option>
                                     {yearLevelOptions.map(y => (
@@ -639,12 +890,12 @@ export const RequirementManagement = () => {
                                 </select>
                             </div>
 
-                            <div className="filter-item-rqm">
-                                <label className="filter-label">Section</label>
+                            <div className="filter-item-rm">
+                                <label className="filter-label-rm">Section</label>
                                 <select 
                                     value={sectionFilter} 
                                     onChange={(e) => setSectionFilter(e.target.value)}
-                                    className="filter-select"
+                                    className="filter-select-rm"
                                 >
                                     <option value="all">All Sections</option>
                                     {availableSections.map(sec => (
@@ -655,12 +906,12 @@ export const RequirementManagement = () => {
                                 </select>
                             </div>
 
-                            <div className="filter-item-rqm">
-                                <label className="filter-label">Requirement</label>
+                            <div className="filter-item-rm">
+                                <label className="filter-label-rm">Requirement</label>
                                 <select 
                                     value={requirementFilter} 
                                     onChange={(e) => setRequirementFilter(e.target.value)}
-                                    className="filter-select"
+                                    className="filter-select-rm"
                                 >
                                     <option value="all">All Requirements</option>
                                     {availableRequirements.map(req => (
@@ -671,12 +922,12 @@ export const RequirementManagement = () => {
                                 </select>
                             </div>
 
-                            <div className="filter-item-rqm">
-                                <label className="filter-label">Compliance Status</label>
+                            <div className="filter-item-rm">
+                                <label className="filter-label-rm">Compliance Status</label>
                                 <select 
                                     value={statusFilter} 
                                     onChange={(e) => setStatusFilter(e.target.value)}
-                                    className="filter-select"
+                                    className="filter-select-rm"
                                 >
                                     <option value="default">Default (Waiting & Incomplete)</option>
                                     <option value="all">All Statuses (Including Complete)</option>
@@ -690,7 +941,7 @@ export const RequirementManagement = () => {
                             </div>
 
                             {(courseFilter !== 'all' || sectionFilter !== 'all' || yearFilter !== 'all' || requirementFilter !== 'all' || statusFilter !== 'default' || searchTerm !== '') && (
-                                <div className="filter-item-rqm filter-reset-action">
+                                <div className="filter-item-rm filter-reset-action-rm">
                                     <button 
                                         onClick={() => {
                                             setCourseFilter('all');
@@ -700,7 +951,7 @@ export const RequirementManagement = () => {
                                             setStatusFilter('default');
                                             setSearchTerm('');
                                         }}
-                                        className="btn-clear-filters"
+                                        className="btn-clear-filters-rm"
                                     >
                                         Reset Filters
                                     </button>
@@ -709,14 +960,14 @@ export const RequirementManagement = () => {
                         </div>
                     </div>
                     
-                    <div className="table-responsive">
-                        <table className="data-table">
+                    <div className="table-responsive-rm">
+                        <table className="data-table-rm">
                             <thead>
                                 <tr>
                                     <th>Student</th>
                                     <th>Course/Section/Year</th>
                                     <th>Requirements Overview</th>
-                                    <th className="text-center">Action</th>
+                                    <th className="text-center-rm">Action</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -724,66 +975,66 @@ export const RequirementManagement = () => {
                                     filteredStudents.map(student => (
                                         <tr key={student.student_id}>
                                             <td>
-                                                <div className="student-info-cell">
-                                                    <span className="student-name">{student.first_name} {student.last_name}</span>
-                                                    <span className="student-id">{student.student_id}</span>
+                                                <div className="student-info-cell-rm">
+                                                    <span className="student-name-rm">{student.first_name} {student.last_name}</span>
+                                                    <span className="student-id-rm">{student.student_id}</span>
                                                 </div>
                                             </td>
                                             <td>
                                                 <b>{student.program_id}</b>
-                                                {student.section && <span className="text-muted"> - {student.section}</span>}<br/> 
-                                                <small className="text-muted">
+                                                {student.section && <span className="text-muted-rm"> - {student.section}</span>}<br/> 
+                                                <small className="text-muted-rm">
                                                     {student.year_level}{Number(student.year_level) === 1 ? 'st' : Number(student.year_level) === 2 ? 'nd' : Number(student.year_level) === 3 ? 'rd' : 'th'} Year
                                                 </small>
                                             </td>
                                             <td>
                                                 {student.stats && (
-                                                    <div className="stats-overview">
+                                                    <div className="stats-overview-rm">
                                                         <div>
                                                             {Number(student.stats.total) === 0 ? (
-                                                                <span className="text-muted">No Requirements (0/0)</span>
+                                                                <span className="text-muted-rm">No Requirements (0/0)</span>
                                                             ) : Number(student.stats.completed) === Number(student.stats.total) ? (
-                                                                <span className="stat-complete">
+                                                                <span className="stat-complete-rm">
                                                                     <CheckCircle size={14} style={{ display: 'inline', marginRight: '4px' }}/> 
                                                                     {student.stats.completed}/{student.stats.total} Complete
                                                                 </span>
                                                             ) : (
-                                                                <span className="stat-incomplete">
+                                                                <span className="stat-incomplete-rm">
                                                                     <Clock size={14} style={{ display: 'inline', marginRight: '4px' }}/> 
                                                                     {student.stats.completed}/{student.stats.total} Incomplete
                                                                 </span>
                                                             )}
                                                         </div>
-                                                        <div className="status-tags-container">
+                                                        <div className="status-tags-container-rm">
                                                             {(Number(student.stats.waiting || 0) > 0 || (Number(student.stats.submitted || 0) + Number(student.stats.late || 0)) > 0) && (
-                                                                <span className="status-tag-chip chip-waiting">
+                                                                <span className="status-tag-chip-rm chip-waiting-rm">
                                                                     <Clock size={12}/>
                                                                     {student.stats.waiting ?? (Number(student.stats.submitted || 0) + Number(student.stats.late || 0))} Waiting
                                                                 </span>
                                                             )}
                                                             {student.stats.resubmit > 0 && (
-                                                                <span className="status-tag-chip chip-resubmit">{student.stats.resubmit} Resubmit</span>
+                                                                <span className="status-tag-chip-rm chip-resubmit-rm">{student.stats.resubmit} Resubmit</span>
                                                             )}
                                                             {student.stats.rejected > 0 && (
-                                                                <span className="status-tag-chip chip-rejected">{student.stats.rejected} Rejected</span>
+                                                                <span className="status-tag-chip-rm chip-rejected-rm">{student.stats.rejected} Rejected</span>
                                                             )}
                                                             {(Number(student.stats.noSubmission) > 0 || Number(student.stats.notSubmitted) > 0) && (
-                                                                <span className="status-tag-chip chip-missing">
+                                                                <span className="status-tag-chip-rm chip-missing-rm">
                                                                     <AlertCircle size={12}/>
                                                                     {student.stats.noSubmission || student.stats.notSubmitted} Missed
                                                                 </span>
                                                             )}
                                                             {Number(student.stats.pending) > 0 && (
-                                                                <span className="status-tag-chip chip-pending">{student.stats.pending} Pending</span>
+                                                                <span className="status-tag-chip-rm chip-pending-rm">{student.stats.pending} Pending</span>
                                                             )}
                                                         </div>
                                                     </div>
                                                 )}
                                             </td>
-                                            <td className="text-center">
+                                            <td className="text-center-rm">
                                                 <button 
                                                     onClick={() => handleManageStudent(student)} 
-                                                    className="btn-action-icon" 
+                                                    className="btn-action-icon-rm" 
                                                     title="Manage Student Requirements"
                                                     aria-label="Manage Student Requirements"
                                                 >
@@ -794,7 +1045,7 @@ export const RequirementManagement = () => {
                                     ))
                                 ) : (
                                     <tr>
-                                        <td colSpan="4" className="empty-table-cell">
+                                        <td colSpan="4" className="empty-table-cell-rm">
                                             No student records matched the active search and filter criteria.
                                         </td>
                                     </tr>
@@ -807,67 +1058,72 @@ export const RequirementManagement = () => {
 
             {/* VIEW: COURSE CONFIGURATION PANEL */}
             {activeTab === 'course' && (
-                <div className="tab-content course-grid">
+                <div className="tab-content-rm course-grid-rm">
                     {programs.map(prog => {
                         const assignedConfigs = programConfigs.filter(config => config.program_id === prog.program_id);
                         const currentInline = programInlineInputs[prog.program_id] || { name: '', year_level: '', deadline: '', allowLate: false };
                         const progYearLevelOptions = getYearLevelOptions(prog);
 
                         return (
-                            <div className="program-card" key={prog.program_id}>
-                                <div className="program-header">
+                            <div className="program-card-rm" key={prog.program_id}>
+                                <div className="program-header-rm">
                                     <h3>{prog.program_name}</h3>
                                     <button 
-                                        className="btn-edit-toggle" 
+                                        className="btn-edit-toggle-rm" 
                                         onClick={() => setIsNewMode({...isNewMode, [prog.program_id]: !isNewMode[prog.program_id]})}
                                     >
                                         {isNewMode[prog.program_id] ? <><X size={14} /> Close</> : <><Edit size={14} /> Edit</>}
                                     </button>
                                 </div>
                                 
-                                <ul className="req-list">
+                                <ul className="req-list-rm">
                                     {assignedConfigs.map((req, index) => {
                                         const isThisRowBeingEdited = inlineEditingConfigId === req.config_id;
                                         const formattedDeadline = req.submission_deadline ? formatDeadlineDate(req.submission_deadline) : 'No Target Set';
                                         
                                         return (
-                                            <li key={req.config_id || index} className="req-item">
+                                            <li key={req.config_id || index} className="req-item-rm">
                                                 {!isThisRowBeingEdited ? (
-                                                    <div className="req-item-content">
-                                                        <div className="req-item-details">
-                                                            <span className="req-text">
-                                                                <FileCheck size={16} className="check-icon"/>  
+                                                    <div className="req-item-content-rm">
+                                                        <div className="req-item-details-rm">
+                                                            <span className="req-text-rm">
+                                                                <FileCheck size={16} className="check-icon-rm"/>  
                                                                 <b>{req.requirement_name}</b>  
-                                                                {req.year_level && <span className="year-badge">Year {req.year_level}</span>}
+                                                                {req.year_level && <span className="year-badge-rm">Year {req.year_level}</span>}
                                                             </span>
-                                                            <div className="req-meta">
+                                                            <div className="req-meta-rm">
                                                                 <span><Calendar size={12}/> Target: {formattedDeadline}</span>
-                                                                <span className={`late-badge ${req.allow_late_submission ? 'allowed' : 'blocked'}`}>
+                                                                <span className={`late-badge-rm ${req.allow_late_submission ? 'allowed' : 'blocked'}`}>
                                                                     {req.allow_late_submission ? 'Late Allowed' : 'Late Blocked'}
                                                                 </span>
                                                             </div>
                                                         </div>
                                                         {isNewMode[prog.program_id] && (
-                                                            <div className="req-actions">
-                                                                <button onClick={() => startInlineEditingConfig(req)} className="btn-icon btn-edit" title="Edit Requirement"><Edit size={14}/></button>
-                                                                <button onClick={() => deleteProgramRequirement(prog.program_id, req.config_id, req.requirement_name)} className="btn-icon btn-delete-x" title="Delete Requirement"><Trash2 size={14}/></button>
+                                                            <div className="req-actions-rm">
+                                                                <button onClick={() => startInlineEditingConfig(req)} className="btn-icon-rm btn-edit-rm" title="Edit Requirement"><Edit size={14}/></button>
+                                                                <button onClick={() => deleteProgramRequirement(prog.program_id, req.config_id, req.requirement_name)} className="btn-icon-rm btn-delete-x-rm" title="Delete Requirement"><Trash2 size={14}/></button>
                                                             </div>
                                                         )}
                                                     </div>
                                                 ) : (
-                                                    <div className="inline-edit-box">
-                                                        <div className="inline-edit-inputs">
-                                                            <input 
-                                                                type="text" 
+                                                    <div className="inline-edit-box-rm">
+                                                        <div className="inline-edit-inputs-rm">
+                                                            <select 
                                                                 value={inlineEditForm.requirement_name}
                                                                 onChange={(e) => setInlineEditForm({...inlineEditForm, requirement_name: e.target.value})}
-                                                                className="flex-2"
-                                                                placeholder="Requirement Name"
-                                                            />
+                                                                className="flex-2-rm filter-select-rm"
+                                                            >
+                                                                <option value="">Select Requirement</option>
+                                                                {medicalRequirements.map((medReq, idx) => (
+                                                                    <option key={medReq.requirement_name || idx} value={medReq.requirement_name}>
+                                                                        {medReq.requirement_name}
+                                                                    </option>
+                                                                ))}
+                                                            </select>
                                                             <select 
                                                                 value={inlineEditForm.year_level}
                                                                 onChange={(e) => setInlineEditForm({...inlineEditForm, year_level: e.target.value})}
-                                                                className="flex-1 filter-select"
+                                                                className="flex-1-rm filter-select-rm"
                                                             >
                                                                 <option value="">Year Level</option>
                                                                 {progYearLevelOptions.map(y => (
@@ -878,20 +1134,20 @@ export const RequirementManagement = () => {
                                                                 type="date" 
                                                                 value={inlineEditForm.submission_deadline}
                                                                 onChange={(e) => setInlineEditForm({...inlineEditForm, submission_deadline: e.target.value})}
-                                                                className="flex-1"
+                                                                className="flex-1-rm"
                                                             />
                                                         </div>
-                                                        <div className="inline-edit-footer">
-                                                            <label className="checkbox-label">
+                                                        <div className="inline-edit-footer-rm">
+                                                            <label className="checkbox-label-rm">
                                                                 <input 
                                                                     type="checkbox"
                                                                     checked={inlineEditForm.allow_late_submission}
                                                                     onChange={(e) => setInlineEditForm({...inlineEditForm, allow_late_submission: e.target.checked})}
                                                                 /> Allow late submission
                                                             </label>
-                                                            <div className="inline-edit-actions">
-                                                                <button onClick={() => saveInlineRequirementUpdate(prog.program_id, req.config_id)} className="btn-save-sm">Save</button>
-                                                                <button onClick={() => setInlineEditingConfigId(null)} className="btn-cancel-sm">Cancel</button>
+                                                            <div className="inline-edit-actions-rm">
+                                                                <button onClick={() => saveInlineRequirementUpdate(prog.program_id, req.config_id)} className="btn-save-sm-rm">Save</button>
+                                                                <button onClick={() => setInlineEditingConfigId(null)} className="btn-cancel-sm-rm">Cancel</button>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -902,20 +1158,25 @@ export const RequirementManagement = () => {
                                 </ul>
 
                                 {isNewMode[prog.program_id] && (
-                                    <div className="add-req-inline">
+                                    <div className="add-req-inline-rm">
                                         <h4><Plus size={14}/> Construct New Requirement</h4>
-                                        <div className="inline-add-inputs">
-                                            <input 
-                                                type="text" 
-                                                placeholder="Label Title..." 
+                                        <div className="inline-add-inputs-rm">
+                                            <select 
                                                 value={currentInline.name || ''}
                                                 onChange={(e) => handleInitializeInlineState(prog.program_id, 'name', e.target.value)}
-                                                className="flex-2"
-                                            />
+                                                className="flex-2-rm filter-select-rm"
+                                            >
+                                                <option value="">-- Select Medical Requirement --</option>
+                                                {medicalRequirements.map((medReq, idx) => (
+                                                    <option key={medReq.requirement_name || idx} value={medReq.requirement_name}>
+                                                        {medReq.requirement_name}
+                                                    </option>
+                                                ))}
+                                            </select>
                                             <select 
                                                 value={currentInline.year_level || ''}
                                                 onChange={(e) => handleInitializeInlineState(prog.program_id, 'year_level', e.target.value)}
-                                                className="flex-1 filter-select"
+                                                className="flex-1-rm filter-select-rm"
                                             >
                                                 <option value="">Year Level</option>
                                                 {progYearLevelOptions.map(y => (
@@ -926,18 +1187,18 @@ export const RequirementManagement = () => {
                                                 type="date"
                                                 value={currentInline.deadline || ''}
                                                 onChange={(e) => handleInitializeInlineState(prog.program_id, 'deadline', e.target.value)}
-                                                className="flex-1"
+                                                className="flex-1-rm"
                                             />
                                         </div>
-                                        <div className="inline-add-footer">
-                                            <label className="checkbox-label">
+                                        <div className="inline-add-footer-rm">
+                                            <label className="checkbox-label-rm">
                                                 <input 
                                                     type="checkbox"
                                                     checked={currentInline.allowLate || false}
                                                     onChange={(e) => handleInitializeInlineState(prog.program_id, 'allowLate', e.target.checked)}
                                                 /> Allow post-deadline submissions
                                             </label>
-                                            <button onClick={() => addProgramRequirement(prog.program_id)} className="btn-add">Add Config</button>
+                                            <button onClick={() => addProgramRequirement(prog.program_id)} className="btn-add-rm">Add Config</button>
                                         </div>
                                     </div>
                                 )}
@@ -947,28 +1208,138 @@ export const RequirementManagement = () => {
                 </div>
             )}
 
+            {/* MODAL: MEDICAL REQUIREMENTS MASTERLIST (CRUD) */}
+            {isMedReqModalOpen && (
+                <div className="modal-overlay-rm">
+                    <div className="modal-content-rm medium-modal-rm">
+                        <div className="modal-header-rm">
+                            <div>
+                                <h3>Manage Medical Requirements</h3>
+                                <p className="modal-subtitle-rm">Masterlist defined in `medical_requirements` table</p>
+                            </div>
+                            <button 
+                                onClick={() => { setIsMedReqModalOpen(false); setMedReqError(''); setEditingMedReq(null); }} 
+                                className="btn-close-rm" 
+                                title="Close Modal"
+                            >
+                                <X size={20}/>
+                            </button>
+                        </div>
+
+                        <div className="modal-body-rm">
+                            <div className="add-med-req-form-rm">
+                                <h4>Add New Medical Requirement</h4>
+                                <div className="inline-add-group-rm">
+                                    <input 
+                                        type="text" 
+                                        placeholder="Requirement Name (e.g. CBC, Chest X-Ray)"
+                                        value={newMedReqName}
+                                        onChange={(e) => {
+                                            setNewMedReqName(e.target.value);
+                                            setMedReqError('');
+                                        }}
+                                        className="form-control-rm"
+                                    />
+                                    <button onClick={handleAddMedicalRequirement} className="btn-add-primary-sm-rm">
+                                        <Plus size={16}/> Add
+                                    </button>
+                                </div>
+                                {medReqError && (
+                                    <div className="error-banner-rm">
+                                        <AlertCircle size={16} />
+                                        <span>{medReqError}</span>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="med-req-list-section-rm">
+                                <h4>Existing Medical Requirements ({medicalRequirements.length})</h4>
+                                {medicalRequirements.length === 0 ? (
+                                    <p className="empty-text-rm">No medical requirements found in database.</p>
+                                ) : (
+                                    <ul className="med-req-list-rm">
+                                        {medicalRequirements.map((item, idx) => {
+                                            const isEditing = editingMedReq && editingMedReq.original_name === item.requirement_name;
+                                            return (
+                                                <li key={item.requirement_name || idx} className="med-req-item-rm">
+                                                    {!isEditing ? (
+                                                        <>
+                                                            <span className="med-req-name-rm">
+                                                                <FileText size={16} className="text-muted-rm" />
+                                                                <b>{item.requirement_name}</b>
+                                                            </span>
+                                                            <div className="med-req-actions-rm">
+                                                                <button 
+                                                                    onClick={() => setEditingMedReq({ original_name: item.requirement_name, new_name: item.requirement_name })}
+                                                                    className="btn-icon-rm btn-edit-rm"
+                                                                    title="Edit Requirement Name"
+                                                                >
+                                                                    <Edit size={14}/>
+                                                                </button>
+                                                                <button 
+                                                                    onClick={() => handleDeleteMedicalRequirement(item.requirement_name)}
+                                                                    className="btn-icon-rm btn-delete-x-rm"
+                                                                    title="Delete Requirement"
+                                                                >
+                                                                    <Trash2 size={14}/>
+                                                                </button>
+                                                            </div>
+                                                        </>
+                                                    ) : (
+                                                        <div className="inline-edit-med-req-rm">
+                                                            <input 
+                                                                type="text" 
+                                                                value={editingMedReq.new_name}
+                                                                onChange={(e) => setEditingMedReq({ ...editingMedReq, new_name: e.target.value })}
+                                                                className="form-control-rm"
+                                                            />
+                                                            <button 
+                                                                onClick={() => handleUpdateMedicalRequirement(editingMedReq.original_name, editingMedReq.new_name)}
+                                                                className="btn-save-sm-rm"
+                                                            >
+                                                                Save
+                                                            </button>
+                                                            <button 
+                                                                onClick={() => setEditingMedReq(null)}
+                                                                className="btn-cancel-sm-rm"
+                                                            >
+                                                                Cancel
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </li>
+                                            );
+                                        })}
+                                    </ul>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* MODAL: SELECTED STUDENT CONTROL BOARD */}
             {selectedStudent && (
-                <div className="modal-overlay">
-                    <div className="modal-content large-modal">
-                        <div className="modal-header">
+                <div className="modal-overlay-rm">
+                    <div className="modal-content-rm large-modal-rm">
+                        <div className="modal-header-rm">
                             <div>
                                 <h3>Manage Submissions</h3>
-                                <p className="modal-subtitle">{selectedStudent.first_name} {selectedStudent.last_name} ({selectedStudent.student_id})</p>
+                                <p className="modal-subtitle-rm">{selectedStudent.first_name} {selectedStudent.last_name} ({selectedStudent.student_id})</p>
                             </div>
-                            <button onClick={() => { setSelectedStudent(null); setHighlightedReqName(null); }} className="btn-close" title="Close Modal"><X size={20}/></button>
+                            <button onClick={() => { setSelectedStudent(null); setHighlightedReqName(null); }} className="btn-close-rm" title="Close Modal"><X size={20}/></button>
                         </div>
                         
-                        <div className="modal-body">
+                        <div className="modal-body-rm">
                             {!isAddModalOpen ? (
                                 <>
-                                    <div className="modal-toolbar">
-                                        <button className="btn-add-primary" onClick={() => setIsAddModalOpen(true)}>
+                                    <div className="modal-toolbar-rm">
+                                        <button className="btn-add-primary-rm" onClick={() => setIsAddModalOpen(true)}>
                                             <Plus size={16}/> Assign Special Requirement
                                         </button>
                                     </div>
                                     
-                                    <div className="student-req-grid">
+                                    <div className="student-req-grid-rm">
                                         {studentReqs.map((req, i) => {
                                             const overdueDays = calculateOverdueDays(req.submission_deadline, req.submitted_at, req.status);
                                             const isSpecial = req.type === 'Special';
@@ -987,61 +1358,61 @@ export const RequirementManagement = () => {
 
                                             return (
                                                 <div 
-                                                    className={`req-card ${isHighlighted ? 'highlighted-req-card' : ''}`} 
+                                                    className={`req-card-rm ${isHighlighted ? 'highlighted-req-card-rm' : ''}`} 
                                                     key={req.requirement_name || i}
                                                     style={isHighlighted ? { border: '2px solid #2563eb', boxShadow: '0 0 10px rgba(37,99,235,0.3)' } : {}}
                                                 >
-                                                    <div className="req-card-header">
-                                                        <div className="req-card-title-group">
+                                                    <div className="req-card-header-rm">
+                                                        <div className="req-card-title-group-rm">
                                                             <h4>
-                                                                <FileText size={16} className="req-icon"/> 
+                                                                <FileText size={16} className="req-icon-rm"/> 
                                                                 {req.requirement_name || "Unnamed Requirement"} 
-                                                                <span className="tag">{req.type || 'Standard'} Field</span>
+                                                                <span className="tag-rm">{req.type || 'Standard'} Field</span>
                                                             </h4>
                                                             
-                                                            <div className="badge-row">
+                                                            <div className="badge-row-rm">
                                                                 <span 
-                                                                    className={`status-badge ${sanitizedStatusClass}`}
+                                                                    className={`status-badge-rm ${sanitizedStatusClass}`}
                                                                     style={getStatusStyle(req.status)}
                                                                 >
                                                                     {(displayStatus === 'Missed' || normalizedStatus === 'not submitted') && <AlertCircle size={12}/>}
                                                                     {displayStatus}
                                                                 </span>
                                                                 
-                                                                <span className={`late-badge ${isLateAllowed ? 'allowed' : 'blocked'}`}>
+                                                                <span className={`late-badge-rm ${isLateAllowed ? 'allowed' : 'blocked'}`}>
                                                                     {isLateAllowed ? 'Late Allowed' : 'Late Blocked'}
                                                                 </span>
                                                             </div>
                                                             
                                                             {req.submission_deadline && (
-                                                                <div className="deadline-info">
+                                                                <div className="deadline-info-rm">
                                                                     <Calendar size={13}/> Target: {formatDeadlineDate(req.submission_deadline)} 
-                                                                    {overdueDays && <span className="overdue-text"> ({overdueDays}d overdue)</span>}
+                                                                    {overdueDays && <span className="overdue-text-rm"> ({overdueDays}d overdue)</span>}
                                                                 </div>
                                                             )}
                                                         </div>
-                                                        <div className="card-actions">
-                                                            <button className="btn-icon btn-edit" title="Edit Parameters" onClick={() => setEditingReq({
+                                                        <div className="card-actions-rm">
+                                                            <button className="btn-icon-rm btn-edit-rm" title="Edit Parameters" onClick={() => setEditingReq({
                                                                 ...req,
                                                                 status: req.status || 'Pending',
                                                                 override_allow_late_submission: isLateAllowed
                                                             })}><Edit size={14}/></button>
                                                             {isSpecial && (
-                                                                <button className="btn-icon btn-delete-x" title="Delete Special Requirement" onClick={() => handleDeleteSpecialRequirement(req.requirement_name)}><Trash2 size={14}/></button>
+                                                                <button className="btn-icon-rm btn-delete-x-rm" title="Delete Special Requirement" onClick={() => handleDeleteSpecialRequirement(req.requirement_name)}><Trash2 size={14}/></button>
                                                             )}
                                                         </div>
                                                     </div>
                                                     
-                                                    <div className="req-card-body">
-                                                        <div className="attachment-section">
+                                                    <div className="req-card-body-rm">
+                                                        <div className="attachment-section-rm">
                                                             <b>Attachment:</b> {req.file_url ? (
                                                                 <a href={req.file_url} target="_blank" rel="noreferrer">Open Document</a>
                                                             ) : (
-                                                                <span className="no-file-text">No document attached</span>
+                                                                <span className="no-file-text-rm">No document attached</span>
                                                             )}
                                                         </div>
                                                         {req.nurse_remarks && (
-                                                            <div className="nurse-comment">
+                                                            <div className="nurse-comment-rm">
                                                                 Remarks: {req.nurse_remarks}
                                                             </div>
                                                         )}
@@ -1052,19 +1423,25 @@ export const RequirementManagement = () => {
                                     </div>
                                 </>
                             ) : (
-                                <div className="add-special-req-form">
+                                <div className="add-special-req-form-rm">
                                     <h4>Add Special Requirement to Student Profile</h4>
-                                    <div className="form-grid-2">
-                                        <div className="form-group">
+                                    <div className="form-grid-2-rm">
+                                        <div className="form-group-rm">
                                             <label>Requirement Name</label>
-                                            <input 
-                                                type="text" 
-                                                placeholder="Enter requirement name..."
+                                            <select 
                                                 value={newReqInput.name}
                                                 onChange={e => setNewReqInput({...newReqInput, name: e.target.value})}
-                                            />
+                                                className="form-control-rm"
+                                            >
+                                                <option value="">-- Select Medical Requirement --</option>
+                                                {medicalRequirements.map((medReq, idx) => (
+                                                    <option key={medReq.requirement_name || idx} value={medReq.requirement_name}>
+                                                        {medReq.requirement_name}
+                                                    </option>
+                                                ))}
+                                            </select>
                                         </div>
-                                        <div className="form-group">
+                                        <div className="form-group-rm">
                                             <label>Submission Deadline</label>
                                             <input 
                                                 type="date" 
@@ -1073,16 +1450,16 @@ export const RequirementManagement = () => {
                                             />
                                         </div>
                                     </div>
-                                    <label className="checkbox-label mt-2">
+                                    <label className="checkbox-label-rm mt-2-rm">
                                         <input 
                                             type="checkbox" 
                                             checked={newReqInput.allowLate}
                                             onChange={e => setNewReqInput({...newReqInput, allowLate: e.target.checked})}
                                         /> Allow Late Submission
                                     </label>
-                                    <div className="form-actions space-top">
-                                        <button onClick={handleAddSpecialRequirement} className="btn-save">Assign to Student</button>
-                                        <button onClick={() => setIsAddModalOpen(false)} className="btn-cancel">Cancel</button>
+                                    <div className="form-actions-rm space-top-rm">
+                                        <button onClick={handleAddSpecialRequirement} className="btn-save-rm">Assign to Student</button>
+                                        <button onClick={() => setIsAddModalOpen(false)} className="btn-cancel-rm">Cancel</button>
                                     </div>
                                 </div>
                             )}
@@ -1093,17 +1470,17 @@ export const RequirementManagement = () => {
 
             {/* NESTED MODAL: EDIT PARAMETERS */}
             {editingReq && (
-                <div className="modal-overlay nested-overlay">
-                    <div className="modal-content small-modal">
-                        <div className="modal-header">
+                <div className="modal-overlay-rm nested-overlay-rm">
+                    <div className="modal-content-rm small-modal-rm">
+                        <div className="modal-header-rm">
                             <div>
                                 <h3>Modify Student Parameters</h3>
-                                <p className="modal-subtitle">{editingReq.requirement_name}</p>
+                                <p className="modal-subtitle-rm">{editingReq.requirement_name}</p>
                             </div>
-                            <button className="btn-close" onClick={() => setEditingReq(null)} title="Close Modal"><X size={20}/></button>
+                            <button className="btn-close-rm" onClick={() => setEditingReq(null)} title="Close Modal"><X size={20}/></button>
                         </div>
                         
-                        <div className="modal-body">
+                        <div className="modal-body-rm">
                             <form 
                                 onSubmit={(e) => {
                                     e.preventDefault();
@@ -1122,15 +1499,15 @@ export const RequirementManagement = () => {
                                         override_allow_late_submission: editingReq.override_allow_late_submission || false
                                     });
                                 }} 
-                                className="edit-req-form"
+                                className="edit-req-form-rm"
                             >
-                                <div className="form-grid-2">
-                                    <div className="form-group">
+                                <div className="form-grid-2-rm">
+                                    <div className="form-group-rm">
                                         <label>Requirement Action Status</label>
                                         <select 
                                             value={editingReq.status || 'Pending'} 
                                             onChange={(e) => setEditingReq({...editingReq, status: e.target.value})}
-                                            className="form-control"
+                                            className="form-control-rm"
                                         >
                                             <option value="Pending">Pending</option>
                                             <option value="Not Submitted">Missed</option>
@@ -1143,7 +1520,7 @@ export const RequirementManagement = () => {
                                         </select>
                                     </div>
 
-                                    <div className="form-group">
+                                    <div className="form-group-rm">
                                         <label>Override Deadline:</label>
                                         <input 
                                             type="date" 
@@ -1153,8 +1530,8 @@ export const RequirementManagement = () => {
                                     </div>
                                 </div>
 
-                                <div className="form-group mt-2">
-                                    <label className="checkbox-label">
+                                <div className="form-group-rm mt-2-rm">
+                                    <label className="checkbox-label-rm">
                                         <input 
                                             type="checkbox" 
                                             checked={!!editingReq.override_allow_late_submission} 
@@ -1167,7 +1544,7 @@ export const RequirementManagement = () => {
                                     </label>
                                 </div>
 
-                                <div className="form-group mt-2">
+                                <div className="form-group-rm mt-2-rm">
                                     <label>Nurse Remarks / Feedback:</label>
                                     <textarea 
                                         value={editingReq.nurse_remarks || ''}  
@@ -1177,11 +1554,46 @@ export const RequirementManagement = () => {
                                     />
                                 </div>
 
-                                <div className="form-actions space-top">
-                                    <button type="submit" className="btn-save">Save Adjustments</button>
-                                    <button type="button" className="btn-cancel" onClick={() => setEditingReq(null)}>Cancel</button>
+                                <div className="form-actions-rm space-top-rm">
+                                    <button type="submit" className="btn-save-rm">Save Adjustments</button>
+                                    <button type="button" className="btn-cancel-rm" onClick={() => setEditingReq(null)}>Cancel</button>
                                 </div>
                             </form>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* CONFIRMATION MODAL FOR ALL CRUD OPERATIONS */}
+            {confirmModal.isOpen && (
+                <div className="modal-overlay-rm confirm-overlay-rm">
+                    <div className="modal-content-rm confirm-modal-rm">
+                        <div className="modal-header-rm">
+                            <div>
+                                <h3>{confirmModal.title || "Confirm Action"}</h3>
+                            </div>
+                            <button onClick={closeConfirmModal} className="btn-close-rm" title="Close">
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <div className="modal-body-rm">
+                            <p className="confirm-message-rm">{confirmModal.message}</p>
+                            <div className="confirm-actions-rm">
+                                <button 
+                                    onClick={async () => {
+                                        if (confirmModal.onConfirm) {
+                                            await confirmModal.onConfirm();
+                                        }
+                                        closeConfirmModal();
+                                    }} 
+                                    className={confirmModal.type === 'danger' ? "btn-confirm-danger-rm" : "btn-confirm-rm"}
+                                >
+                                    {confirmModal.confirmText || "Confirm"}
+                                </button>
+                                <button onClick={closeConfirmModal} className="btn-cancel-rm">
+                                    Cancel
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>

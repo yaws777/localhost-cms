@@ -20,7 +20,7 @@ export default function RequestModule() {
     return `${BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
   };
 
-  // UI state - initializes activeModal if triggered via route state
+  // UI state
   const [activeModal, setActiveModal] = useState(location.state?.openModal || null);
   const [requests, setRequests] = useState([]);
   const [selectedRequest, setSelectedRequest] = useState(null);
@@ -28,8 +28,9 @@ export default function RequestModule() {
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Partner Facilities & Services State
+  // Partner Facilities, Medical Requirements, & Services State
   const [partnerFacilities, setPartnerFacilities] = useState([]);
+  const [medicalRequirements, setMedicalRequirements] = useState([]);
   const [availableServices, setAvailableServices] = useState([]);
 
   // Form States
@@ -52,25 +53,42 @@ export default function RequestModule() {
     }
   }, [location.state]);
 
+  // Fetch Medical Requirements
+  const fetchMedicalRequirements = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/medical-requirements`);
+      const data = await res.json();
+      if (data.success && Array.isArray(data.requirements)) {
+        setMedicalRequirements(data.requirements);
+      } else if (Array.isArray(data)) {
+        setMedicalRequirements(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch medical requirements:', err);
+    }
+  }, []);
+
   // Fetch Partner Facilities
-  const fetchPartnerFacilities = async () => {
+  const fetchPartnerFacilities = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE}/partner-facilities`);
       const data = await res.json();
       setPartnerFacilities(data);
 
       if (data.length > 0) {
+        const initialFac = data[0];
         setReferralForm((prev) => ({
           ...prev,
-          facility_id: data[0].facility_id,
+          facility_id: initialFac.facility_id,
           selected_services: []
         }));
-        setAvailableServices(data[0].services || []);
+
+        setAvailableServices(initialFac.services || []);
       }
     } catch (err) {
       console.error('Failed to fetch partner facilities:', err);
     }
-  };
+  }, []);
 
   // Fetch Requests for logged-in student
   const fetchRequests = useCallback(async () => {
@@ -86,8 +104,9 @@ export default function RequestModule() {
 
   useEffect(() => {
     fetchRequests();
+    fetchMedicalRequirements();
     fetchPartnerFacilities();
-  }, [fetchRequests]);
+  }, [fetchRequests, fetchMedicalRequirements, fetchPartnerFacilities]);
 
   const handleFacilityChange = (e) => {
     const facilityId = e.target.value;
@@ -98,7 +117,22 @@ export default function RequestModule() {
       facility_id: facilityId,
       selected_services: []
     });
-    setAvailableServices(selectedFac ? selectedFac.services : []);
+
+    if (selectedFac) {
+      const isOthers = selectedFac.facility_name.trim().toLowerCase() === 'others';
+      
+      if (isOthers && (!selectedFac.services || selectedFac.services.length === 0)) {
+        const reqServices = medicalRequirements.map((reqName) => ({
+          service_id: `REQ-${reqName}`,
+          service_name: reqName
+        }));
+        setAvailableServices(reqServices);
+      } else {
+        setAvailableServices(selectedFac.services || []);
+      }
+    } else {
+      setAvailableServices([]);
+    }
   };
 
   const handleServiceCheckbox = (serviceId) => {

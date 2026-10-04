@@ -198,6 +198,9 @@ async function sendPushNotification(recipientUserId, notificationPayload) {
     }
 }
 
+
+
+
 // ==========================================
 // 1. HELPER FUNCTION (Place above routes)
 // ==========================================
@@ -1877,6 +1880,83 @@ app.get('/api/submissions/:submissionId', async (req, res) => {
     }
 });
 
+// GET all medical requirements masterlist
+app.get('/api/medical-requirements', async (req, res) => {
+    try {
+        const [rows] = await pool.query('SELECT requirement_name FROM medical_requirements ORDER BY requirement_name ASC');
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST create medical requirement (checks for duplicates)
+app.post('/api/medical-requirements', async (req, res) => {
+    const { requirement_name } = req.body;
+    if (!requirement_name || !requirement_name.trim()) {
+        return res.status(400).json({ success: false, error: 'Requirement name cannot be blank.' });
+    }
+    const trimmed = requirement_name.trim();
+
+    try {
+        const [exists] = await pool.query('SELECT requirement_name FROM medical_requirements WHERE requirement_name = ?', [trimmed]);
+        if (exists.length > 0) {
+            return res.status(400).json({ success: false, error: `Duplicate Error: Medical requirement "${trimmed}" already exists.` });
+        }
+
+        await pool.query('INSERT INTO medical_requirements (requirement_name) VALUES (?)', [trimmed]);
+        res.status(201).json({ success: true, message: 'Medical requirement created.' });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// PUT update medical requirement name across dependent tables
+app.put('/api/medical-requirements/:reqName', async (req, res) => {
+    const oldName = req.params.reqName;
+    const { requirement_name } = req.body;
+    if (!requirement_name || !requirement_name.trim()) {
+        return res.status(400).json({ success: false, error: 'Requirement name cannot be blank.' });
+    }
+    const newName = requirement_name.trim();
+    const connection = await pool.getConnection();
+
+    try {
+        await connection.beginTransaction();
+
+        const [exists] = await connection.query('SELECT requirement_name FROM medical_requirements WHERE requirement_name = ? AND requirement_name != ?', [newName, oldName]);
+        if (exists.length > 0) {
+            await connection.rollback();
+            return res.status(400).json({ success: false, error: `Duplicate Error: Medical requirement "${newName}" already exists.` });
+        }
+
+        await connection.query('INSERT IGNORE INTO medical_requirements (requirement_name) VALUES (?)', [newName]);
+        await connection.query('UPDATE program_requirements_config SET requirement_name = ? WHERE requirement_name = ?', [newName, oldName]);
+        await connection.query('UPDATE student_special_requirements SET requirement_name = ? WHERE requirement_name = ?', [newName, oldName]);
+        await connection.query('UPDATE student_requirement_submissions SET requirement_name = ? WHERE requirement_name = ?', [newName, oldName]);
+        await connection.query('DELETE FROM medical_requirements WHERE requirement_name = ?', [oldName]);
+
+        await connection.commit();
+        res.json({ success: true, message: 'Medical requirement updated successfully.' });
+    } catch (err) {
+        await connection.rollback();
+        res.status(500).json({ success: false, error: err.message });
+    } finally {
+        connection.release();
+    }
+});
+
+// DELETE medical requirement from masterlist
+app.delete('/api/medical-requirements/:reqName', async (req, res) => {
+    const reqName = req.params.reqName;
+    try {
+        await pool.query('DELETE FROM medical_requirements WHERE requirement_name = ?', [reqName]);
+        res.json({ success: true, message: 'Medical requirement deleted.' });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 //Health Record Api
 // 1. GET ALL STUDENTS WITH SEARCH FILTERS
 // GET ALL STUDENTS WITH A SINGLE GLOBAL SEARCH TERM
@@ -1941,6 +2021,19 @@ app.get('/api/health-records/student-header/:studentId', async (req, res) => {
         res.json({ success: true, student: rows[0] });
     } catch (error) {
         console.error("Error fetching single student record context header:", error);
+        res.status(500).json({ success: false, message: "Database read failure." });
+    }
+});
+
+// GET ALL ACADEMIC PROGRAMS
+app.get('/api/academic-programs', async (req, res) => {
+    try {
+        const [rows] = await pool.execute(
+            `SELECT program_id, program_name, type FROM academic_programs ORDER BY program_name ASC`
+        );
+        res.json({ success: true, programs: rows });
+    } catch (error) {
+        console.error("Error fetching academic programs:", error);
         res.status(500).json({ success: false, message: "Database read failure." });
     }
 });
@@ -4240,6 +4333,8 @@ async function generateRequestId(pool, prefix, tableName) {
     return `${prefixWithDate}${paddedIncrement}`;
 }
 
+
+//document request api
 // =========================================================================
 // 1. POST: Submit Excuse Slip Request (Notifies All Nurses)
 // =========================================================================
@@ -4633,7 +4728,72 @@ app.post('/api/requests/:type/:request_id/notes', async (req, res) => {
 });
 
 
+
+// =========================================================================
+// GET: Fetch Partner Facilities & Services (Updated with Auto-Sync)
+// =========================================================================
+app.get('/api/partner-facilities', async (req, res) => {
+    try {
+        // Automatically ensure "Others" facility has all requirement_name entries
+        await syncOthersFacilityServices();
+
+        const [facilities] = await pool.query(`SELECT * FROM partner_facilities ORDER BY facility_name ASC`);
+        const [services] = await pool.query(`SELECT * FROM facility_services ORDER BY service_name ASC`);
+
+        const facilitiesWithServices = facilities.map((facility) => ({
+            ...facility,
+            services: services.filter((s) => s.facility_id === facility.facility_id)
+        }));
+
+        res.json(facilitiesWithServices);
+    } catch (error) {
+        console.error('Error fetching partner facilities:', error);
+        res.status(500).json({ error: 'Failed to fetch partner facilities' });
+    }
+});
+
 //Document Issuance api
+
+// =========================================================================
+// HELPER: Auto-Sync "Others" Partner Facility with Medical Requirements
+// =========================================================================
+const syncOthersFacilityServices = async () => {
+    try {
+        // 1. Find facility named "Others" (case-insensitive)
+        const [othersRows] = await pool.query(
+            `SELECT facility_id FROM partner_facilities WHERE LOWER(TRIM(facility_name)) = 'others' LIMIT 1`
+        );
+
+        if (othersRows.length === 0) return;
+        const othersFacilityId = othersRows[0].facility_id;
+
+        // 2. Fetch all medical requirement names
+        const [reqRows] = await pool.query(
+            `SELECT DISTINCT requirement_name FROM medical_requirements WHERE requirement_name IS NOT NULL AND TRIM(requirement_name) != ''`
+        );
+
+        // 3. Fetch existing services under "Others" facility
+        const [existingServices] = await pool.query(
+            `SELECT LOWER(TRIM(service_name)) as service_name FROM facility_services WHERE facility_id = ?`,
+            [othersFacilityId]
+        );
+        const existingMap = new Set(existingServices.map(s => s.service_name));
+
+        // 4. Insert any missing requirement names into facility_services for "Others"
+        for (const req of reqRows) {
+            const reqName = req.requirement_name.trim();
+            if (!existingMap.has(reqName.toLowerCase())) {
+                const service_id = `SRV-OTH-${uuidv4().substring(0, 8)}`;
+                await pool.query(
+                    `INSERT INTO facility_services (service_id, facility_id, service_name, description) VALUES (?, ?, ?, ?)`,
+                    [service_id, othersFacilityId, reqName, 'Medical Requirement Service']
+                );
+            }
+        }
+    } catch (err) {
+        console.error('Error syncing Others facility services:', err);
+    }
+};
 
 // ==========================================
 // 1. GET ALL DOCUMENT REQUEST (Updated for New Schema)
@@ -5038,6 +5198,25 @@ app.post('/api/document-requests/notes', async (req, res) => {
 // PARTNER FACILITIES & SERVICES CRUD API
 // ==========================================
 
+// ==========================================
+// 1. GET MEDICAL REQUIREMENTS (For Dropdown)
+// ==========================================
+app.get('/api/medical-requirements', async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            'SELECT DISTINCT requirement_name FROM medical_requirements WHERE requirement_name IS NOT NULL AND requirement_name != "" ORDER BY requirement_name ASC'
+        );
+        const requirements = rows.map(row => row.requirement_name);
+        res.status(200).json({ success: true, requirements });
+    } catch (error) {
+        console.error('Error fetching medical requirements:', error);
+        res.status(500).json({ success: false, message: 'Server Error fetching medical requirements' });
+    }
+});
+
+// ==========================================
+// 2. GET PARTNER FACILITIES & SERVICES
+// ==========================================
 app.get('/api/partner-facilities', async (req, res) => {
     try {
         const [facilities] = await pool.query('SELECT * FROM partner_facilities ORDER BY facility_name ASC');
@@ -5055,6 +5234,9 @@ app.get('/api/partner-facilities', async (req, res) => {
     }
 });
 
+// ==========================================
+// 3. CREATE PARTNER FACILITY
+// ==========================================
 app.post('/api/partner-facilities', async (req, res) => {
     const { facility_name, address, contact_number } = req.body;
     if (!facility_name || !facility_name.trim()) {
@@ -5074,6 +5256,9 @@ app.post('/api/partner-facilities', async (req, res) => {
     }
 });
 
+// ==========================================
+// 4. UPDATE PARTNER FACILITY
+// ==========================================
 app.put('/api/partner-facilities/:id', async (req, res) => {
     const { id } = req.params;
     const { facility_name, address, contact_number } = req.body;
@@ -5089,17 +5274,27 @@ app.put('/api/partner-facilities/:id', async (req, res) => {
     }
 });
 
+// ==========================================
+// 5. DELETE PARTNER FACILITY (AND CONNECTED SERVICES)
+// ==========================================
 app.delete('/api/partner-facilities/:id', async (req, res) => {
     const { id } = req.params;
     try {
+        // Delete connected services first
+        await pool.query('DELETE FROM facility_services WHERE facility_id = ?', [id]);
+        // Delete the facility
         await pool.query('DELETE FROM partner_facilities WHERE facility_id = ?', [id]);
-        res.status(200).json({ success: true, message: 'Facility deleted successfully.' });
+        
+        res.status(200).json({ success: true, message: 'Facility and associated services deleted successfully.' });
     } catch (error) {
         console.error('Error deleting facility:', error);
         res.status(500).json({ success: false, message: 'Failed to delete facility' });
     }
 });
 
+// ==========================================
+// 6. CREATE FACILITY SERVICE (WITH DUPLICATE CHECK)
+// ==========================================
 app.post('/api/partner-facilities/:facilityId/services', async (req, res) => {
     const { facilityId } = req.params;
     const { service_name, description } = req.body;
@@ -5108,8 +5303,21 @@ app.post('/api/partner-facilities/:facilityId/services', async (req, res) => {
         return res.status(400).json({ success: false, message: 'Service name is required.' });
     }
 
-    const service_id = `SRV-${uuidv4().substring(0, 8)}`;
     try {
+        // Prevent duplicate service_name for the same facility
+        const [existing] = await pool.query(
+            'SELECT * FROM facility_services WHERE facility_id = ? AND LOWER(service_name) = LOWER(?)',
+            [facilityId, service_name.trim()]
+        );
+
+        if (existing.length > 0) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'This service already exists for the selected partner facility.' 
+            });
+        }
+
+        const service_id = `SRV-${uuidv4().substring(0, 8)}`;
         await pool.query(
             'INSERT INTO facility_services (service_id, facility_id, service_name, description) VALUES (?, ?, ?, ?)',
             [service_id, facilityId, service_name.trim(), description || null]
@@ -5121,10 +5329,43 @@ app.post('/api/partner-facilities/:facilityId/services', async (req, res) => {
     }
 });
 
+// ==========================================
+// 7. UPDATE FACILITY SERVICE (WITH DUPLICATE CHECK)
+// ==========================================
 app.put('/api/facility-services/:serviceId', async (req, res) => {
     const { serviceId } = req.params;
     const { service_name, description } = req.body;
+
+    if (!service_name || !service_name.trim()) {
+        return res.status(400).json({ success: false, message: 'Service name is required.' });
+    }
+
     try {
+        // Fetch current service details to get facility_id
+        const [currentService] = await pool.query(
+            'SELECT facility_id FROM facility_services WHERE service_id = ?',
+            [serviceId]
+        );
+
+        if (currentService.length === 0) {
+            return res.status(404).json({ success: false, message: 'Service not found.' });
+        }
+
+        const facilityId = currentService[0].facility_id;
+
+        // Check for duplicate service_name in the same facility
+        const [existing] = await pool.query(
+            'SELECT * FROM facility_services WHERE facility_id = ? AND LOWER(service_name) = LOWER(?) AND service_id != ?',
+            [facilityId, service_name.trim(), serviceId]
+        );
+
+        if (existing.length > 0) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Another service with this name already exists for this facility.' 
+            });
+        }
+
         await pool.query(
             'UPDATE facility_services SET service_name = ?, description = ? WHERE service_id = ?',
             [service_name.trim(), description || null, serviceId]
@@ -5136,6 +5377,9 @@ app.put('/api/facility-services/:serviceId', async (req, res) => {
     }
 });
 
+// ==========================================
+// 8. DELETE FACILITY SERVICE
+// ==========================================
 app.delete('/api/facility-services/:serviceId', async (req, res) => {
     const { serviceId } = req.params;
     try {
@@ -9630,5 +9874,8 @@ app.get('/api/nurses', async (req, res) => {
         return res.status(500).json({ success: false, message: 'Server error fetching nurses' });
     }
 });
+
+
+
 
 app.listen(3001, () => console.log('Server running on port 3001'));

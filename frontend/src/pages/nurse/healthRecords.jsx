@@ -1,20 +1,45 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {  Eye, RotateCcw } from 'lucide-react'; 
+import { Eye, RotateCcw } from 'lucide-react'; 
 import '../../styles/nurse/HealthRecords.css'; 
 
 export default function HealthRecord() {
     const navigate = useNavigate();
     const [students, setStudents] = useState([]);
+    const [academicPrograms, setAcademicPrograms] = useState([]); // Dynamic program options from DB
     const [loading, setLoading] = useState(false);
     const [errorMsg, setErrorMsg] = useState('');
 
     // Search and Dropdown Filter States
     const [searchTerm, setSearchTerm] = useState('');
     const [programType, setProgramType] = useState('all'); // 'all' | 'course' | 'strand'
-    const [selectedProgram, setSelectedProgram] = useState('all'); // e.g. BSIT, BSHM, STEM, TVL
-    const [selectedSection, setSelectedSection] = useState('all'); // 'all' | 'A' | 'B' | 'C'
+    const [selectedProgram, setSelectedProgram] = useState('all');
+    const [selectedSection, setSelectedSection] = useState('all');
     const [selectedYear, setSelectedYear] = useState('all');
+
+    // Fetch Academic Programs from API endpoint on initial mount
+    useEffect(() => {
+        const fetchPrograms = async () => {
+            try {
+                const response = await fetch('http://localhost:3001/api/academic-programs');
+                const data = await response.json();
+                if (data.success) {
+                    setAcademicPrograms(data.programs || []);
+                }
+            } catch (err) {
+                console.error("Error fetching academic programs catalog:", err);
+            }
+        };
+        fetchPrograms();
+    }, []);
+
+    // Filter dynamic programs based on selected Academic Type (course vs strand)
+    const filteredProgramOptions = useMemo(() => {
+        if (programType === 'all') return academicPrograms;
+        return academicPrograms.filter(
+            (program) => program.type?.toLowerCase() === programType.toLowerCase()
+        );
+    }, [academicPrograms, programType]);
 
     // Automatically normalize selected year if switching to Strand (max 2 years)
     useEffect(() => {
@@ -120,7 +145,10 @@ export default function HealthRecord() {
                         <select 
                             id="program-type-select"
                             value={programType} 
-                            onChange={(e) => setProgramType(e.target.value)}
+                            onChange={(e) => {
+                                setProgramType(e.target.value);
+                                setSelectedProgram('all'); // Reset selected program when changing academic type
+                            }}
                             className="filter-select"
                         >
                             <option value="all">All Types</option>
@@ -138,23 +166,11 @@ export default function HealthRecord() {
                             className="filter-select"
                         >
                             <option value="all">All Programs</option>
-                            {programType !== 'strand' && (
-                                <>
-                                    <option value="BSIT">BSIT</option>
-                                    <option value="BSCS">BSCS</option>
-                                    <option value="BSHM">BSHM</option>
-                                    <option value="BSTM">BSTM</option>
-                                    <option value="BSBA">BSBA</option>
-                                </>
-                            )}
-                            {programType !== 'course' && (
-                                <>
-                                    <option value="STEM">STEM</option>
-                                    <option value="ABM">ABM</option>
-                                    <option value="HUMSS">HUMSS</option>
-                                    <option value="TVL">TVL</option>
-                                </>
-                            )}
+                            {filteredProgramOptions.map((program) => (
+                                <option key={program.program_id} value={program.program_id}>
+                                    {program.program_id} - {program.program_name}
+                                </option>
+                            ))}
                         </select>
                     </div>
 
