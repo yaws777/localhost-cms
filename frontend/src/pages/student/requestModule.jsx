@@ -68,23 +68,31 @@ export default function RequestModule() {
     }
   }, []);
 
-  // Fetch Partner Facilities
+  // Fetch Partner Facilities & Sort 'Others' to the end
   const fetchPartnerFacilities = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE}/partner-facilities`);
       const data = await res.json();
-      setPartnerFacilities(data);
+      const rawFacilities = Array.isArray(data) ? data : (data.facilities || []);
 
-      if (data.length > 0) {
-        const initialFac = data[0];
-        setReferralForm((prev) => ({
-          ...prev,
-          facility_id: initialFac.facility_id,
-          selected_services: []
-        }));
+      // Sort so 'Others' facility is always at the last option in dropdown
+      const sortedFacilities = [...rawFacilities].sort((a, b) => {
+        const nameA = (a.facility_name || '').trim().toLowerCase();
+        const nameB = (b.facility_name || '').trim().toLowerCase();
+        if (nameA === 'others') return 1;
+        if (nameB === 'others') return -1;
+        return 0;
+      });
 
-        setAvailableServices(initialFac.services || []);
-      }
+      setPartnerFacilities(sortedFacilities);
+
+      // Default selected option is empty ("Select facility")
+      setReferralForm((prev) => ({
+        ...prev,
+        facility_id: '',
+        selected_services: []
+      }));
+      setAvailableServices([]);
     } catch (err) {
       console.error('Failed to fetch partner facilities:', err);
     }
@@ -110,22 +118,32 @@ export default function RequestModule() {
 
   const handleFacilityChange = (e) => {
     const facilityId = e.target.value;
-    const selectedFac = partnerFacilities.find((f) => f.facility_id === facilityId);
+    const selectedFac = partnerFacilities.find((f) => String(f.facility_id) === String(facilityId));
 
-    setReferralForm({
-      ...referralForm,
+    setReferralForm((prev) => ({
+      ...prev,
       facility_id: facilityId,
       selected_services: []
-    });
+    }));
 
     if (selectedFac) {
-      const isOthers = selectedFac.facility_name.trim().toLowerCase() === 'others';
+      const isOthers = (selectedFac.facility_name || '').trim().toLowerCase() === 'others';
       
       if (isOthers && (!selectedFac.services || selectedFac.services.length === 0)) {
-        const reqServices = medicalRequirements.map((reqName) => ({
-          service_id: `REQ-${reqName}`,
-          service_name: reqName
-        }));
+        // Fix: Safely extract string name from medicalRequirements objects
+        const reqServices = medicalRequirements.map((reqItem, index) => {
+          const reqName = typeof reqItem === 'object' && reqItem !== null 
+            ? (reqItem.requirement_name || reqItem.name || `Requirement ${index + 1}`) 
+            : reqItem;
+          const reqId = typeof reqItem === 'object' && reqItem !== null 
+            ? (reqItem.requirement_id || reqItem.id || reqName) 
+            : reqName;
+
+          return {
+            service_id: `REQ-${reqId}`,
+            service_name: String(reqName)
+          };
+        });
         setAvailableServices(reqServices);
       } else {
         setAvailableServices(selectedFac.services || []);
@@ -194,6 +212,10 @@ export default function RequestModule() {
   const handleReferralSubmit = async (e) => {
     e.preventDefault();
     if (!student_id) return alert('Student ID not found. Please log in again.');
+    if (!referralForm.facility_id) {
+      alert('Please select a facility.');
+      return;
+    }
     if (referralForm.selected_services.length === 0) {
       alert('Please select at least one service requested from the facility.');
       return;
@@ -214,9 +236,10 @@ export default function RequestModule() {
       if (res.ok) {
         setReferralForm({
           reason_for_referral: '',
-          facility_id: partnerFacilities[0]?.facility_id || '',
+          facility_id: '',
           selected_services: []
         });
+        setAvailableServices([]);
         setActiveModal(null);
         fetchRequests();
       }
@@ -270,14 +293,14 @@ export default function RequestModule() {
           <div className="sti-card-icon">📄</div>
           <h3>Request Excuse Slip</h3>
           <p>Submit an excuse slip for missed classes or school activities.</p>
-          <button className="sti-btn-primary">New Request</button>
+          <button className="sti-btn-primary" style={{ maxWidth: '100%', boxSizing: 'border-box' }}>New Request</button>
         </div>
 
         <div className="sti-action-card" onClick={() => setActiveModal('referral')}>
           <div className="sti-card-icon">🏥</div>
           <h3>Request Referral Slip</h3>
           <p>Request medical or laboratory referral for partner facilities.</p>
-          <button className="sti-btn-primary">New Request</button>
+          <button className="sti-btn-primary" style={{ maxWidth: '100%', boxSizing: 'border-box' }}>New Request</button>
         </div>
       </div>
 
@@ -354,6 +377,7 @@ export default function RequestModule() {
                   value={excuseForm.reason_for_excuse}
                   onChange={(e) => setExcuseForm({ ...excuseForm, reason_for_excuse: e.target.value })}
                   placeholder="State the reason for your absence..."
+                  style={{ width: '100%', boxSizing: 'border-box' }}
                 />
               </div>
 
@@ -372,6 +396,7 @@ export default function RequestModule() {
                         valid_absence_end: prev.valid_absence_end && prev.valid_absence_end < newStart ? newStart : prev.valid_absence_end
                       }));
                     }}
+                    style={{ width: '100%', boxSizing: 'border-box' }}
                   />
                 </div>
                 <div className="sti-form-group">
@@ -382,6 +407,7 @@ export default function RequestModule() {
                     min={excuseForm.valid_absence_start}
                     value={excuseForm.valid_absence_end}
                     onChange={(e) => setExcuseForm({ ...excuseForm, valid_absence_end: e.target.value })}
+                    style={{ width: '100%', boxSizing: 'border-box' }}
                   />
                 </div>
               </div>
@@ -391,12 +417,13 @@ export default function RequestModule() {
                 <input
                   type="file"
                   onChange={(e) => setExcuseForm({ ...excuseForm, proof: e.target.files[0] })}
+                  style={{ width: '100%', boxSizing: 'border-box' }}
                 />
               </div>
 
               <div className="sti-modal-actions">
-                <button type="button" className="sti-btn-secondary" onClick={() => setActiveModal(null)}>Cancel</button>
-                <button type="submit" className="sti-btn-primary" disabled={loading}>
+                <button type="button" className="sti-btn-secondary" onClick={() => setActiveModal(null)} style={{ boxSizing: 'border-box' }}>Cancel</button>
+                <button type="submit" className="sti-btn-primary" disabled={loading} style={{ boxSizing: 'border-box' }}>
                   {loading ? 'Submitting...' : 'Submit Request'}
                 </button>
               </div>
@@ -422,6 +449,7 @@ export default function RequestModule() {
                   value={referralForm.reason_for_referral}
                   onChange={(e) => setReferralForm({ ...referralForm, reason_for_referral: e.target.value })}
                   placeholder="State the reason for medical/lab referral..."
+                  style={{ width: '100%', boxSizing: 'border-box' }}
                 />
               </div>
 
@@ -432,8 +460,9 @@ export default function RequestModule() {
                   value={referralForm.facility_id}
                   onChange={handleFacilityChange}
                   required
+                  style={{ width: '100%', boxSizing: 'border-box' }}
                 >
-                  <option value="" disabled>Select Partner Facility</option>
+                  <option value="" disabled>Select facility</option>
                   {partnerFacilities.map((facility) => (
                     <option key={facility.facility_id} value={facility.facility_id}>
                       {facility.facility_name}
@@ -457,7 +486,11 @@ export default function RequestModule() {
                           checked={referralForm.selected_services.includes(service.service_id)}
                           onChange={() => handleServiceCheckbox(service.service_id)}
                         />
-                        <span>{service.service_name}</span>
+                        <span>
+                          {typeof service.service_name === 'object' && service.service_name !== null
+                            ? (service.service_name.requirement_name || service.service_name.name || String(service.service_name))
+                            : String(service.service_name || '')}
+                        </span>
                       </label>
                     ))
                   )}
@@ -465,8 +498,8 @@ export default function RequestModule() {
               </div>
 
               <div className="sti-modal-actions">
-                <button type="button" className="sti-btn-secondary" onClick={() => setActiveModal(null)}>Cancel</button>
-                <button type="submit" className="sti-btn-primary" disabled={loading}>
+                <button type="button" className="sti-btn-secondary" onClick={() => setActiveModal(null)} style={{ boxSizing: 'border-box' }}>Cancel</button>
+                <button type="submit" className="sti-btn-primary" disabled={loading} style={{ boxSizing: 'border-box' }}>
                   {loading ? 'Submitting...' : 'Submit Request'}
                 </button>
               </div>
@@ -551,8 +584,9 @@ export default function RequestModule() {
                   placeholder="Type a message or note..."
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
+                  style={{ boxSizing: 'border-box' }}
                 />
-                <button type="submit" className="sti-btn-primary">Send</button>
+                <button type="submit" className="sti-btn-primary" style={{ boxSizing: 'border-box' }}>Send</button>
               </form>
             </div>
           </div>
