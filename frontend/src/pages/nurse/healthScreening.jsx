@@ -8,7 +8,7 @@ import jsQR from 'jsqr';
 import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/HealthScreening.css';
 
-const API_BASE = 'http://localhost:3001/api';
+const API_BASE = 'https://localhost-cms.onrender.com/api';
 
 // Helper to get today's local date in YYYY-MM-DD format
 const getTodayString = () => {

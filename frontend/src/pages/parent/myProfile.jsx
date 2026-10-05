@@ -30,7 +30,7 @@ const MyProfile = () => {
 
     const fetchProfile = async () => {
       try {
-        const response = await fetch(`http://localhost:3001/api/parents/${parentId}`);
+        const response = await fetch(`https://localhost-cms.onrender.com/api/parents/${parentId}`);
         const data = await response.json();
 
         if (response.ok && data.success) {

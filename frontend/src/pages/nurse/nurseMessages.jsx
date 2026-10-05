@@ -41,7 +41,7 @@ const NurseMessages = () => {
     const fetchConversations = useCallback(async () => {
         if (!userId) return;
         try {
-            const res = await fetch(`http://localhost:3001/api/messages/conversations/${userId}`);
+            const res = await fetch(`https://localhost-cms.onrender.com/api/messages/conversations/${userId}`);
             const data = await res.json();
             if (data.success) {
                 setConversations(data.conversations);
@@ -64,7 +64,7 @@ const NurseMessages = () => {
             return;
         }
         try {
-            const res = await fetch(`http://localhost:3001/api/messages/contacts?search=${encodeURIComponent(query)}`);
+            const res = await fetch(`https://localhost-cms.onrender.com/api/messages/contacts?search=${encodeURIComponent(query)}`);
             const data = await res.json();
             if (data.success) {
                 setSearchResults(data.contacts);
@@ -87,7 +87,7 @@ const NurseMessages = () => {
         fetchChatHistory(contactUserId);
 
         try {
-            await fetch(`http://localhost:3001/api/messages/read/${userId}/${contactUserId}`, { method: 'PUT' });
+            await fetch(`https://localhost-cms.onrender.com/api/messages/read/${userId}/${contactUserId}`, { method: 'PUT' });
             fetchConversations();
             if (refreshUnreadCount) refreshUnreadCount();
         } catch (err) {
@@ -97,7 +97,7 @@ const NurseMessages = () => {
 
     const fetchChatHistory = async (contactUserId) => {
         try {
-            const res = await fetch(`http://localhost:3001/api/messages/history/${userId}/${contactUserId}`);
+            const res = await fetch(`https://localhost-cms.onrender.com/api/messages/history/${userId}/${contactUserId}`);
             const data = await res.json();
             if (data.success) {
                 setMessages(data.messages);
@@ -112,7 +112,7 @@ const NurseMessages = () => {
         if (!window.confirm('Unsend this message?')) return;
 
         try {
-            const res = await fetch(`http://localhost:3001/api/messages/${messageId}`, {
+            const res = await fetch(`https://localhost-cms.onrender.com/api/messages/${messageId}`, {
                 method: 'DELETE'
             });
             const data = await res.json();
@@ -136,7 +136,7 @@ const NurseMessages = () => {
         if (!window.confirm('Delete this conversation? This cannot be undone.')) return;
 
         try {
-            const res = await fetch(`http://localhost:3001/api/messages/conversations/${userId}/${contactUserId}`, {
+            const res = await fetch(`https://localhost-cms.onrender.com/api/messages/conversations/${userId}/${contactUserId}`, {
                 method: 'DELETE'
             });
             const data = await res.json();
@@ -396,15 +396,15 @@ const NurseMessages = () => {
                                                     )}
                                                     
                                                     {msg.message_type === 'video' && msg.media_url && (
-                                                        <video controls src={`http://localhost:3001${msg.media_url}`} className="chat-video-preview" />
+                                                        <video controls src={`https://localhost-cms.onrender.com${msg.media_url}`} className="chat-video-preview" />
                                                     )}
 
                                                     {msg.message_type === 'audio' && msg.media_url && (
-                                                        <audio controls src={`http://localhost:3001${msg.media_url}`} />
+                                                        <audio controls src={`https://localhost-cms.onrender.com${msg.media_url}`} />
                                                     )}
 
                                                     {msg.message_type === 'file' && msg.media_url && (
-                                                        <a href={`http://localhost:3001${msg.media_url}`} target="_blank" rel="noreferrer" className="file-attachment-link">
+                                                        <a href={`https://localhost-cms.onrender.com${msg.media_url}`} target="_blank" rel="noreferrer" className="file-attachment-link">
                                                             <FileText size={16} /> Download File
                                                         </a>
                                                     )}

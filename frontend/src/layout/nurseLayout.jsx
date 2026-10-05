@@ -37,7 +37,7 @@ export const NurseLayout = () => {
     // Fetch unread messages count
     const fetchUnreadCount = async (userId) => {
         try {
-            const res = await fetch(`http://localhost:3001/api/messages/unread-count/${userId}`);
+            const res = await fetch(`https://localhost-cms.onrender.com/api/messages/unread-count/${userId}`);
             const data = await res.json();
             if (data.success) {
                 setUnreadContactsCount(data.unreadCount);
@@ -51,7 +51,7 @@ export const NurseLayout = () => {
     const fetchNotifications = async (nurseId) => {
         if (!nurseId) return;
         try {
-            const res = await fetch(`http://localhost:3001/api/notifications/nurse/${nurseId}`);
+            const res = await fetch(`https://localhost-cms.onrender.com/api/notifications/nurse/${nurseId}`);
             const data = await res.json();
             if (data.success) {
                 setNotifications(data.data || []);
@@ -64,7 +64,7 @@ export const NurseLayout = () => {
     useEffect(() => {
         const fetchNurseProfile = async (userId) => {
             try {
-                const response = await fetch(`http://localhost:3001/api/get-nurse/${userId}`);
+                const response = await fetch(`https://localhost-cms.onrender.com/api/get-nurse/${userId}`);
                 const data = await response.json();
 
                 if (data.success && data.nurse) {
@@ -166,7 +166,7 @@ export const NurseLayout = () => {
 
     const handleNotificationClick = async (notification) => {
         try {
-            await fetch(`http://localhost:3001/api/notifications/${notification.notification_id}/read`, {
+            await fetch(`https://localhost-cms.onrender.com/api/notifications/${notification.notification_id}/read`, {
                 method: 'PATCH'
             });
             setNotifications(prev => prev.filter(n => n.notification_id !== notification.notification_id));

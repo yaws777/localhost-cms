@@ -56,7 +56,7 @@ const InsuranceVault = () => {
     const fetchVaultFolders = async () => {
         try {
             setLoading(true);
-            const res = await fetch('http://localhost:3001/api/insurance-vault');
+            const res = await fetch('https://localhost-cms.onrender.com/api/insurance-vault');
             const data = await res.json();
             if (Array.isArray(data)) {
                 setVaultFolders(data);
