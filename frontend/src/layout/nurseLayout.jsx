@@ -109,6 +109,7 @@ export const NurseLayout = () => {
         }
     }, [navigate, nurseData?.nurse_id]);
 
+    // Comprehensive route matching for all nurse notifications
     const getNotificationRoute = (notification) => {
         const type = (notification.type || '').toLowerCase();
         const title = (notification.title || '').toLowerCase();
@@ -117,6 +118,49 @@ export const NurseLayout = () => {
         if (type.includes('requirement') || msg.includes('requirement') || title.includes('submission')) {
             return '/RequirementManagement';
         }
+        if (type.includes('visit') || type.includes('consultation') || msg.includes('clinic visit') || title.includes('visit')) {
+            return '/VisitLogConsultation';
+        }
+        if (type.includes('health_record') || type.includes('record') || msg.includes('health record')) {
+            return '/HealthRecords';
+        }
+        if (type.includes('dispense') || type.includes('dispensed_medicine') || msg.includes('dispensed')) {
+            return '/DispensedMedicine';
+        }
+        if (type.includes('inventory') || type.includes('stock') || msg.includes('medicine stock')) {
+            return '/MedicineInventory';
+        }
+        if (type.includes('request') || type.includes('request') || msg.includes('request')){
+            return '/DocumentIssuance';
+        }
+        if (type.includes('screening') || msg.includes('health screening')) {
+            return '/HealthScreening';
+        }
+        if (type.includes('doctor') || msg.includes('doctor visit')) {
+            return '/DoctorVisit';
+        }
+        if (type.includes('incident') || msg.includes('incident report')) {
+            return '/IncidentReport';
+        }
+        if (type.includes('insurance') || type.includes('vault') || msg.includes('insurance')) {
+            return '/InsuranceVault';
+        }
+        if (type.includes('student_account') || (type.includes('student') && msg.includes('account'))) {
+            return '/ManageStudentAccounts';
+        }
+        if (type.includes('parent_account') || (type.includes('parent') && msg.includes('account'))) {
+            return '/ManageParentAccounts';
+        }
+        if (type.includes('message') || type.includes('chat') || msg.includes('message')) {
+            return '/NurseMessages';
+        }
+        if (type.includes('report') || msg.includes('weekly report')) {
+            return '/WeeklyReports';
+        }
+        if (type.includes('setting') || msg.includes('notification settings')) {
+            return '/NurseNotificationSettings';
+        }
+
         return '/NurseDashboard';
     };
 
@@ -133,13 +177,17 @@ export const NurseLayout = () => {
         setShowNotifDropdown(false);
         const targetRoute = getNotificationRoute(notification);
 
-        // Combined notification navigation payload
+        // Navigation state payload passed to child page inside Outlet
         navigate(targetRoute, { 
             state: { 
+                notificationId: notification.notification_id,
                 navigateId: notification.navigate_id || null,
                 submissionId: notification.submission_id || notification.navigate_id || null,
                 studentId: notification.student_id || notification.navigate_id || null,
-                reqName: notification.requirement_name || null
+                reqName: notification.requirement_name || null,
+                type: notification.type || null,
+                title: notification.title || null,
+                message: notification.message || null
             } 
         });
     };

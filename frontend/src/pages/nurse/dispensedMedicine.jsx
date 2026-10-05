@@ -13,8 +13,11 @@ import {
   QrCode, 
   Eye, 
   RotateCcw,
-  Clock
+  Clock,
+  Download
 } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import jsQR from 'jsqr';
 import '../../styles/nurse/DispensedMedicine.css';
 
@@ -200,6 +203,25 @@ const getStockStatus = (stock, lowThreshold = 10, criticalThreshold = 5) => {
   if (stock <= criticalThreshold) return { label: 'Critical', class: 'critical-dm' };
   if (stock <= lowThreshold) return { label: 'Low Stock', class: 'status-low-dm' };
   return { label: 'Adequate', class: 'adequate-dm' };
+};
+
+// Helper to convert Image element/src to Base64 for PDF generation
+const getBase64ImageFromURL = (url) => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'Anonymous';
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      const dataURL = canvas.toDataURL('image/png');
+      resolve(dataURL);
+    };
+    img.onerror = (error) => reject(error);
+    img.src = url;
+  });
 };
 
 const DispensedMedicine = () => {
@@ -560,6 +582,100 @@ const DispensedMedicine = () => {
     }
   };
 
+  // PDF Export Functionality with preview, logo, exact address, and designated nurse
+  const handleExportPDF = async () => {
+    try {
+      const doc = new jsPDF();
+      
+      let logoDataUrl = null;
+      try {
+        logoDataUrl = await getBase64ImageFromURL('/sti_logo.png');
+      } catch (e) {
+        console.warn('Logo image could not be loaded for PDF generation, proceeding with standard layout:', e);
+      }
+
+      if (logoDataUrl) {
+        doc.addImage(logoDataUrl, 'PNG', 14, 10, 22, 22);
+      }
+
+      const textStartX = logoDataUrl ? 40 : 14;
+
+      // Header Branding & Address
+      doc.setFontSize(16);
+      doc.setFont('helvetica', 'bold');
+      doc.text('STI COLLEGE BALIUAG', textStartX, 16);
+      
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      doc.text('Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan.', textStartX, 22);
+      doc.text('School Clinic - Medicine Dispensation Report Log', textStartX, 27);
+
+      doc.setLineWidth(0.5);
+      doc.line(14, 34, 196, 34);
+
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.text('DISPENSED MEDICINE REPORT LOG', 14, 42);
+      
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Generated Date: ${new Date().toLocaleString()}`, 14, 48);
+
+      // Necessary Columns Only
+      const tableColumns = [
+        'Date & Time',
+        'Student ID',
+        'Student Name',
+        'Medicine Dispensed',
+        'Qty / Volume',
+        'Dispensation Type'
+      ];
+
+      const logsToExport = Array.isArray(history) && history.length > 0 ? history : [];
+
+      const tableRows = logsToExport.map(log => [
+        new Date(log.dispensed_at).toLocaleString(),
+        log.student_id || 'N/A',
+        `${log.first_name || ''} ${log.last_name || ''}`.trim() || 'N/A',
+        log.medicine_name || 'N/A',
+        `${log.dosage_consumption_unit_value} ${log.dosage_consumption_unit_of_measure}`,
+        log.dispensation_type || 'Direct Dispensation'
+      ]);
+
+      autoTable(doc, {
+        startY: 53,
+        head: [tableColumns],
+        body: tableRows,
+        theme: 'striped',
+        headStyles: { fillColor: [0, 86, 179], textColor: [255, 255, 255], fontStyle: 'bold' },
+        styles: { fontSize: 8, cellPadding: 3 },
+        alternateRowStyles: { fillColor: [245, 247, 250] },
+      });
+
+      // Prepared By Signature Block (Strictly Nurse Marilou H. Balarao)
+      const finalY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 18 : 70;
+      
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.text('Prepared by:', 14, finalY);
+      
+      doc.setFont('helvetica', 'bold');
+      doc.text('Marilou H. Balarao', 14, finalY + 12);
+      
+      doc.setFont('helvetica', 'normal');
+      doc.text('School Nurse', 14, finalY + 17);
+
+      // Generate preview without immediate auto-download
+      const pdfBlob = doc.output('blob');
+      const previewUrl = URL.createObjectURL(pdfBlob);
+      window.open(previewUrl, '_blank');
+
+    } catch (error) {
+      console.error('Error generating PDF report:', error);
+      setMessage({ text: 'Failed to generate PDF report preview.', type: 'error' });
+    }
+  };
+
   const todaysDispensedLogs = useMemo(() => {
     if (!Array.isArray(history)) return [];
     const today = new Date().toLocaleDateString();
@@ -574,17 +690,32 @@ const DispensedMedicine = () => {
 
   return (
     <div className="dispense-container-dm">
+      {/* Hidden STI Logo element in JSX imported by src="" */}
+      <img id="sti-logo-preview" src="/sti_logo.png" alt="STI Logo" style={{ display: 'none' }} />
+
       <header className="dispense-header-dm">
         <div className="header-title-block-dm">
           <h1>Medicine Dispensation Management Panel</h1>
           <p className="header-subtitle-dm">Process student medication dispensing and monitor inventory real-time.</p>
         </div>
-        <div className="header-actions-dm">
+        <div className="header-actions-dm" style={{ display: 'flex', gap: '8px', flexWrap: 'nowrap' }}>
+          <button 
+            type="button" 
+            className="btn-dispense-log-dm"
+            onClick={handleExportPDF}
+            title="Export Dispense Log PDF Preview"
+            style={{ width: 'auto', padding: '0 14px' }}
+          >
+            <Download size={18} />
+            <span>Export</span>
+          </button>
+
           <button 
             type="button" 
             className="btn-dispense-log-dm"
             onClick={() => setIsLogModalOpen(true)}
             title="Open Full Dispensed Records Log History"
+            style={{ width: 'auto', padding: '0 14px' }}
           >
             <History size={18} />
             <span>Dispense Log</span>
@@ -1011,6 +1142,15 @@ const DispensedMedicine = () => {
                       <RotateCcw size={14} /> <span>Reset</span>
                     </button>
                   )}
+
+                  <button 
+                    type="button" 
+                    onClick={handleExportPDF} 
+                    className="btn-filter-apply-dm" 
+                    style={{ backgroundColor: '#28a745', borderColor: '#28a745' }}
+                  >
+                    <Download size={14} /> <span>Export</span>
+                  </button>
                 </div>
               </div>
 

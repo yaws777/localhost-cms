@@ -18,26 +18,14 @@ import {
     Settings,
     Plus,
     RefreshCw,
-    FileCode
+    FileCode,
+    Trash2,
+    Printer
 } from 'lucide-react';
 
 import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/DocumentIssuance.css';
 
-// Dynamic API Base URL configuration for seamless development/staging/production deployment
-const API_BASE_URL = 
-  (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE_URL) ||
-  (typeof process !== 'undefined' && process.env && process.env.REACT_APP_API_URL) ||
-  'https://localhost-cms.onrender.com';
-
-// Helper function to resolve media/attachment URLs cleanly
-const getMediaUrl = (path) => {
-  if (!path) return '';
-  if (path.startsWith('http://') || path.startsWith('https://')) return path;
-  return `${API_BASE_URL}${path.startsWith('/') ? '' : '/'}${path}`;
-};
-
-// Vector signature data URL generated from Nurse Marilou H. Balarao's photo ("MBalarao")
 const NURSE_SIGNATURE_SVG = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 100" width="260" height="100">
   <path d="
@@ -110,6 +98,7 @@ const DocumentIssuance = () => {
     // Referral Services Configuration Modal States
     const [showConfigModal, setShowConfigModal] = useState(false);
     const [facilities, setFacilities] = useState([]);
+    const [medicalRequirements, setMedicalRequirements] = useState([]);
     const [configLoading, setConfigLoading] = useState(false);
     const [configError, setConfigError] = useState('');
 
@@ -118,10 +107,11 @@ const DocumentIssuance = () => {
     const [isEditingFacility, setIsEditingFacility] = useState(false);
     const [showFacilityForm, setShowFacilityForm] = useState(false);
 
-    // Form states and toggles for Service CRUD
-    const [serviceForm, setServiceForm] = useState({ service_id: '', facility_id: '', service_name: '', description: '' });
+    // Form states and toggles for Service CRUD (Mapped with requirement_name)
+    const [serviceForm, setServiceForm] = useState({ service_id: '', facility_id: '', requirement_name: '', description: '' });
     const [isEditingService, setIsEditingService] = useState(false);
     const [showServiceForm, setShowServiceForm] = useState(false);
+    const [activeServiceFacilityId, setActiveServiceFacilityId] = useState(null);
     const [activeFacilityName, setActiveFacilityName] = useState('');
 
     // Auto-Generated Slip Editable State
@@ -165,12 +155,12 @@ const DocumentIssuance = () => {
             const data = await res.json();
             
             let loadedFacilities = [];
-            if (Array.isArray(data)) {
+            if (data.success && Array.isArray(data.facilities)) {
+                loadedFacilities = data.facilities;
+            } else if (Array.isArray(data)) {
                 loadedFacilities = data;
             } else if (Array.isArray(data.facilities)) {
                 loadedFacilities = data.facilities;
-            } else if (Array.isArray(data.data)) {
-                loadedFacilities = data.data;
             }
 
             setFacilities(loadedFacilities);
@@ -182,17 +172,48 @@ const DocumentIssuance = () => {
         }
     }, []);
 
+    const fetchMedicalRequirements = async () => {
+        try {
+            const res = await fetch('http://localhost:3001/api/medical-requirements');
+            const data = await res.json();
+            
+            let list = [];
+            if (Array.isArray(data)) {
+                list = data;
+            } else if (Array.isArray(data.requirements)) {
+                list = data.requirements;
+            } else if (Array.isArray(data.data)) {
+                list = data.data;
+            }
+
+            const parsedList = list.map(item => {
+                if (typeof item === 'string') return item.trim();
+                if (item && typeof item === 'object') return (item.requirement_name || item.name || '').trim();
+                return '';
+            }).filter(Boolean);
+
+            setMedicalRequirements(Array.from(new Set(parsedList)));
+        } catch (err) {
+            console.error('Error fetching medical requirements:', err);
+        }
+    };
+
+    // Initial Load
     useEffect(() => {
         fetchRequests();
-    }, [fetchRequests]);
+        fetchFacilities();
+        fetchMedicalRequirements();
+    }, []);
 
+    // Re-fetch when opening config modal
     useEffect(() => {
         if (showConfigModal) {
             fetchFacilities();
+            fetchMedicalRequirements();
         }
     }, [showConfigModal, fetchFacilities]);
 
-    // Filter Logic
+    // Filter Requests Logic
     useEffect(() => {
         let result = requests;
 
@@ -289,8 +310,194 @@ const DocumentIssuance = () => {
         setModalError('');
     };
 
+    // --- PRINT PREVIEW REPORT GENERATOR ---
+    const handleExportReport = () => {
+        const rowsToExport = filteredRequests.length > 0 ? filteredRequests : requests;
+
+        const printWindow = window.open('', '_blank', 'width=950,height=750');
+        if (!printWindow) {
+            alert('Please allow popups to preview and print the report.');
+            return;
+        }
+
+        const reportDate = new Date().toLocaleDateString('en-US', { 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
+        });
+
+        const tableRowsHtml = rowsToExport.map(req => {
+            const studentName = `${req.first_name || ''} ${req.last_name || ''}`.trim();
+            const reasonFacility = req.request_type === 'Excuse Slip' 
+                ? (req.reason || req.reason_for_excuse || 'N/A') 
+                : (req.partner_facility_name || req.reason || 'N/A');
+            const reqDate = req.created_at ? new Date(req.created_at).toLocaleDateString() : 'N/A';
+            const statusStr = (req.status || '').toLowerCase() === 'pending' ? 'Waiting for Approval' : req.status;
+
+            return `
+                <tr>
+                    <td>${req.request_id || ''}</td>
+                    <td><strong>${studentName}</strong></td>
+                    <td>${req.student_id || ''}</td>
+                    <td>${req.request_type || ''}</td>
+                    <td>${reasonFacility}</td>
+                    <td>${reqDate}</td>
+                    <td>${statusStr}</td>
+                </tr>
+            `;
+        }).join('');
+
+        const htmlContent = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Document Issuance Report</title>
+                <style>
+                    body {
+                        font-family: Arial, Helvetica, sans-serif;
+                        margin: 25px;
+                        color: #0f172a;
+                    }
+                    .report-header {
+                        display: flex;
+                        align-items: center;
+                        border-bottom: 2px solid #0056b3;
+                        padding-bottom: 12px;
+                        margin-bottom: 16px;
+                    }
+                    .report-header img {
+                        height: 60px;
+                        margin-right: 20px;
+                    }
+                    .report-title h2 {
+                        margin: 0;
+                        font-size: 20px;
+                        color: #1e3a8a;
+                    }
+                    .report-title p {
+                        margin: 4px 0 0;
+                        font-size: 13px;
+                        color: #475569;
+                    }
+                    .meta-info {
+                        display: flex;
+                        justify-content: space-between;
+                        font-size: 13px;
+                        color: #475569;
+                        margin-bottom: 16px;
+                        font-weight: 500;
+                    }
+                    table {
+                        width: 100%;
+                        border-collapse: collapse;
+                        font-size: 12px;
+                        margin-bottom: 35px;
+                    }
+                    th {
+                        background-color: #f1f5f9;
+                        color: #0f172a;
+                        text-align: left;
+                        padding: 9px 10px;
+                        border: 1px solid #cbd5e1;
+                        font-weight: bold;
+                    }
+                    td {
+                        padding: 8px 10px;
+                        border: 1px solid #e2e8f0;
+                    }
+                    tr:nth-child(even) {
+                        background-color: #f8fafc;
+                    }
+                    .signature-section {
+                        margin-top: 40px;
+                        font-size: 13px;
+                    }
+                    .signature-title {
+                        color: #475569;
+                        margin-bottom: 35px;
+                    }
+                    .signature-name {
+                        font-weight: bold;
+                        font-size: 14px;
+                        color: #0f172a;
+                    }
+                    .signature-role {
+                        font-style: italic;
+                        color: #64748b;
+                    }
+                    @media print {
+                        body { margin: 0; }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="report-header">
+                    <img src="${stiLogo}" alt="STI Logo" />
+                    <div class="report-title">
+                        <h2>STI COLLEGE BALIUAG</h2>
+                        <p>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan</p>
+                    </div>
+                </div>
+
+                <div class="meta-info">
+                    <span><strong>DOCUMENT ISSUANCE REPORT</strong></span>
+                    <span>Date Generated: ${reportDate}</span>
+                </div>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Request ID</th>
+                            <th>Student Name</th>
+                            <th>Student ID</th>
+                            <th>Type</th>
+                            <th>Reason / Facility</th>
+                            <th>Date Requested</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tableRowsHtml}
+                    </tbody>
+                </table>
+
+                <div class="signature-section">
+                    <div class="signature-title">Prepared by:</div>
+                    <div class="signature-name">Marilou H. Balarao</div>
+                    <div class="signature-role">School Nurse</div>
+                </div>
+
+                <script>
+                    window.onload = function() {
+                        window.print();
+                    };
+                </script>
+            </body>
+            </html>
+        `;
+
+        printWindow.document.open();
+        printWindow.document.write(htmlContent);
+        printWindow.document.close();
+    };
+
+    // --- PARTNER FACILITY CRUD ---
+    const handleOpenEditFacility = (facility) => {
+        const facId = facility.facility_id || facility.id;
+        setFacilityForm({
+            facility_id: facId,
+            facility_name: facility.facility_name || '',
+            address: facility.address || '',
+            contact_number: facility.contact_number || ''
+        });
+        setIsEditingFacility(true);
+        setShowFacilityForm(true);
+        setShowServiceForm(false);
+        setActiveServiceFacilityId(null);
+    };
+
     const executeSaveFacility = async () => {
-        const targetId = facilityForm.facility_id || facilityForm.id;
+        const targetId = facilityForm.facility_id;
         const url = isEditingFacility 
             ? `${API_BASE_URL}/api/partner-facilities/${targetId}`
             : `${API_BASE_URL}/api/partner-facilities`;
@@ -331,16 +538,66 @@ const DocumentIssuance = () => {
         });
     };
 
+    const executeDeleteFacility = async (facId) => {
+        try {
+            const res = await fetch(`http://localhost:3001/api/partner-facilities/${facId}`, {
+                method: 'DELETE'
+            });
+            const data = await res.json();
+            if (data.success || res.ok) {
+                fetchFacilities();
+            } else {
+                alert(data.message || 'Failed to delete facility.');
+            }
+        } catch (err) {
+            console.error('Error deleting facility:', err);
+            alert('Error connecting to server.');
+        }
+    };
+
+    const handleDeleteFacility = (facility) => {
+        const facId = facility.facility_id || facility.id;
+        setConfirmState({
+            isOpen: true,
+            title: 'Delete Partner Facility',
+            message: `Are you sure you want to delete "${facility.facility_name}"? All associated services will also be removed.`,
+            confirmText: 'Yes, Delete Facility',
+            type: 'deny',
+            onConfirm: () => executeDeleteFacility(facId)
+        });
+    };
+
+    // --- FACILITY SERVICES CRUD ---
     const handleOpenAddService = (facility) => {
-        setServiceForm({ service_id: '', facility_id: facility.facility_id || facility.id, service_name: '', description: '' });
+        fetchMedicalRequirements();
+        const facId = facility.facility_id || facility.id;
+        setServiceForm({ service_id: '', facility_id: facId, requirement_name: '', description: '' });
         setActiveFacilityName(facility.facility_name || '');
+        setActiveServiceFacilityId(facId);
         setIsEditingService(false);
         setShowServiceForm(true);
         setShowFacilityForm(false);
     };
 
+    const handleOpenEditService = (facility, service) => {
+        fetchMedicalRequirements();
+        const facId = facility.facility_id || facility.id;
+        const srvId = service.service_id || service.id;
+        setServiceForm({
+            service_id: srvId,
+            facility_id: facId,
+            requirement_name: service.requirement_name || service.service_name || '',
+            description: service.description || ''
+        });
+        setActiveFacilityName(facility.facility_name || '');
+        setActiveServiceFacilityId(facId);
+        setIsEditingService(true);
+        setShowServiceForm(true);
+        setShowFacilityForm(false);
+    };
+
     const executeSaveService = async () => {
-        const targetServiceId = serviceForm.service_id || serviceForm.id;
+        const targetServiceId = serviceForm.service_id;
         const url = isEditingService 
             ? `${API_BASE_URL}/api/facility-services/${targetServiceId}`
             : `${API_BASE_URL}/api/partner-facilities/${serviceForm.facility_id}/services`;
@@ -354,9 +611,10 @@ const DocumentIssuance = () => {
             });
             const data = await res.json();
             if (data.success || res.ok) {
-                setServiceForm({ service_id: '', facility_id: '', service_name: '', description: '' });
+                setServiceForm({ service_id: '', facility_id: '', requirement_name: '', description: '' });
                 setIsEditingService(false);
                 setShowServiceForm(false);
+                setActiveServiceFacilityId(null);
                 setActiveFacilityName('');
                 fetchFacilities();
             } else {
@@ -364,20 +622,66 @@ const DocumentIssuance = () => {
             }
         } catch (err) {
             console.error('Error saving service:', err);
+            alert('Error connecting to server.');
         }
     };
 
     const handleSaveService = (e) => {
         e.preventDefault();
-        if (!serviceForm.facility_id || !serviceForm.service_name.trim()) return;
+        if (!serviceForm.facility_id || !serviceForm.requirement_name.trim()) {
+            alert('Please select a valid medical requirement.');
+            return;
+        }
+
+        const targetFacility = facilities.find(f => (f.facility_id || f.id) === serviceForm.facility_id);
+        const existingServices = targetFacility?.services || [];
+        const isDuplicate = existingServices.some(s => 
+            ((s.requirement_name || s.service_name) || '').toLowerCase() === serviceForm.requirement_name.trim().toLowerCase() && 
+            (s.service_id || s.id) !== serviceForm.service_id
+        );
+
+        if (isDuplicate) {
+            alert(`The requirement/service "${serviceForm.requirement_name}" is already connected to ${activeFacilityName}. Please select a different medical requirement.`);
+            return;
+        }
 
         setConfirmState({
             isOpen: true,
-            title: isEditingService ? 'Confirm Service Update' : 'Confirm Save Service',
-            message: `Are you sure you want to ${isEditingService ? 'update' : 'add'} "${serviceForm.service_name}" service for ${activeFacilityName}?`,
-            confirmText: isEditingService ? 'Update Service' : 'Save Service',
+            title: isEditingService ? 'Confirm Service Update' : 'Confirm Service Addition',
+            message: `Are you sure you want to ${isEditingService ? 'update' : 'connect'} "${serviceForm.requirement_name}" service for ${activeFacilityName}?`,
+            confirmText: isEditingService ? 'Update Service' : 'Connect Service',
             type: 'approve',
             onConfirm: executeSaveService
+        });
+    };
+
+    const executeDeleteService = async (serviceId) => {
+        try {
+            const res = await fetch(`http://localhost:3001/api/facility-services/${serviceId}`, {
+                method: 'DELETE'
+            });
+            const data = await res.json();
+            if (data.success || res.ok) {
+                fetchFacilities();
+            } else {
+                alert(data.message || 'Failed to delete service.');
+            }
+        } catch (err) {
+            console.error('Error deleting service:', err);
+            alert('Error connecting to server.');
+        }
+    };
+
+    const handleDeleteService = (service) => {
+        const srvId = service.service_id || service.id;
+        const reqName = service.requirement_name || service.service_name || 'Service';
+        setConfirmState({
+            isOpen: true,
+            title: 'Delete Service Connection',
+            message: `Are you sure you want to remove the "${reqName}" service connection?`,
+            confirmText: 'Yes, Delete Service',
+            type: 'deny',
+            onConfirm: () => executeDeleteService(srvId)
         });
     };
 
@@ -526,31 +830,39 @@ const DocumentIssuance = () => {
                         ctx.stroke();
                     }
                 } else {
-                    ctx.font = '18px "Times New Roman", Serif';
-                    ctx.fillText('REFERRED TO:', 60, 370);
-                    ctx.beginPath();
-                    ctx.moveTo(210, 373);
-                    ctx.lineTo(740, 373);
-                    ctx.stroke();
-                    ctx.font = 'bold 18px "Times New Roman", Serif';
-                    ctx.fillText(slipDetails.partnerFacility || '', 220, 368);
+                    const isOthers = (slipDetails.partnerFacility || '').trim().toLowerCase() === 'others';
+                    let currentY = 370;
+
+                    if (!isOthers) {
+                        ctx.font = '18px "Times New Roman", Serif';
+                        ctx.fillText('REFERRED TO:', 60, currentY);
+                        ctx.beginPath();
+                        ctx.moveTo(210, currentY + 3);
+                        ctx.lineTo(740, currentY + 3);
+                        ctx.stroke();
+                        ctx.font = 'bold 18px "Times New Roman", Serif';
+                        ctx.fillText(slipDetails.partnerFacility || '', 220, currentY - 2);
+                        currentY += 50;
+                    }
 
                     ctx.font = '18px "Times New Roman", Serif';
-                    ctx.fillText('REQUESTED SERVICES:', 60, 420);
+                    ctx.fillText('REQUESTED SERVICES:', 60, currentY);
                     ctx.beginPath();
-                    ctx.moveTo(290, 423);
-                    ctx.lineTo(740, 423);
+                    ctx.moveTo(290, currentY + 3);
+                    ctx.lineTo(740, currentY + 3);
                     ctx.stroke();
                     ctx.font = 'bold 18px "Times New Roman", Serif';
-                    ctx.fillText(slipDetails.requestedServices || '', 300, 418);
+                    ctx.fillText(slipDetails.requestedServices || '', 300, currentY - 2);
+                    currentY += 60;
 
                     ctx.font = '20px "Times New Roman", Serif';
-                    ctx.fillText('Please provide medical evaluation / services for the above student.', 120, 480);
+                    ctx.fillText('Please provide medical evaluation / services for the above student.', 120, currentY);
+                    currentY += 60;
 
                     ctx.font = 'italic 20px "Times New Roman", Serif';
-                    ctx.fillText('Reason:', 60, 540);
+                    ctx.fillText('Reason:', 60, currentY);
 
-                    let lineY = 543;
+                    let lineY = currentY + 3;
                     ctx.beginPath();
                     ctx.moveTo(140, lineY);
                     ctx.lineTo(740, lineY);
@@ -558,7 +870,8 @@ const DocumentIssuance = () => {
                     ctx.font = '18px "Times New Roman", Serif';
                     ctx.fillText(slipDetails.reason || '', 150, lineY - 5);
 
-                    for (let i = 1; i <= 2; i++) {
+                    const extraLines = isOthers ? 3 : 2;
+                    for (let i = 1; i <= extraLines; i++) {
                         lineY += 45;
                         ctx.beginPath();
                         ctx.moveTo(140, lineY);
@@ -570,7 +883,6 @@ const DocumentIssuance = () => {
                 ctx.font = '20px "Times New Roman", Serif';
                 ctx.fillText('Thank you.', 120, 670);
 
-                // Draw generated Nurse Signature above line
                 if (sig.complete && sig.naturalWidth !== 0) {
                     ctx.drawImage(sig, 470, 720, 160, 75);
                 }
@@ -677,7 +989,6 @@ const DocumentIssuance = () => {
         }
     };
 
-    // Trigger Popup Confirmation for Sending File to Student
     const triggerApprove = () => {
         if (selectedRequest.request_type === 'Referral Slip' && referralMode === 'upload' && !selectedFile) {
             setModalError('Please upload the issued referral document.');
@@ -694,7 +1005,6 @@ const DocumentIssuance = () => {
         });
     };
 
-    // Trigger Popup Confirmation for Denying Request
     const triggerDeny = () => {
         setModalError('');
         setConfirmState({
@@ -707,6 +1017,10 @@ const DocumentIssuance = () => {
         });
     };
 
+    const displayedFacilities = facilities.filter(fac => 
+        (fac.facility_name || '').trim().toLowerCase() !== 'others'
+    );
+
     return (
         <div className="container-di">
             {/* Header Section */}
@@ -715,16 +1029,29 @@ const DocumentIssuance = () => {
                     <h2>Document Issuance</h2>
                     <p>Review, approve, and issue Excuse Slips and Referral Slips for students.</p>
                 </div>
-                <button 
-                    className="btn-secondary-di btn-config-di" 
-                    onClick={() => { 
-                        setShowConfigModal(true); 
-                        setShowFacilityForm(false);
-                        setShowServiceForm(false);
-                    }}
-                >
-                    <Settings size={18} /> Configure Referral Services
-                </button>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    <button 
+                        type="button"
+                        className="btn-secondary-di" 
+                        onClick={handleExportReport}
+                        style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    >
+                        <Printer size={18} /> Export
+                    </button>
+                    <button 
+                        type="button"
+                        className="btn-secondary-di btn-config-di" 
+                        onClick={() => { 
+                            setShowConfigModal(true); 
+                            setShowFacilityForm(false);
+                            setShowServiceForm(false);
+                            setActiveServiceFacilityId(null);
+                        }}
+                        style={{ width: 'auto' }}
+                    >
+                        <Settings size={18} /> Configure Referral Services
+                    </button>
+                </div>
             </header>
 
             {/* Summary Grid Cards */}
@@ -1169,7 +1496,9 @@ const DocumentIssuance = () => {
                                                 </>
                                             ) : (
                                                 <>
-                                                    <div className="slip-row-di"><span>REFERRED TO:</span><span className="slip-underlined-di full-di">{slipDetails.partnerFacility}</span></div>
+                                                    {(slipDetails.partnerFacility || '').trim().toLowerCase() !== 'others' && (
+                                                        <div className="slip-row-di"><span>REFERRED TO:</span><span className="slip-underlined-di full-di">{slipDetails.partnerFacility}</span></div>
+                                                    )}
                                                     <div className="slip-row-di"><span>REQUESTED SERVICES:</span><span className="slip-underlined-di full-di">{slipDetails.requestedServices}</span></div>
                                                     <p className="slip-statement-di">Please provide medical evaluation / services for the above student.</p>
                                                     <div className="slip-reason-section-di">
@@ -1177,6 +1506,9 @@ const DocumentIssuance = () => {
                                                         <div className="reason-line-wrap-di">
                                                             <span className="slip-underlined-di full-di">{slipDetails.reason}</span>
                                                             <div className="empty-underline-di"></div>
+                                                            {(slipDetails.partnerFacility || '').trim().toLowerCase() === 'others' && (
+                                                                <div className="empty-underline-di"></div>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 </>
@@ -1184,7 +1516,6 @@ const DocumentIssuance = () => {
 
                                             <p className="slip-thanks-di">Thank you.</p>
                                             <div className="slip-signature-block-di">
-                                                {/* Auto-generated SVG vector signature preview */}
                                                 <img src={NURSE_SIGNATURE_SVG} alt="Nurse Signature" className="slip-signature-img-di" />
                                                 <div className="signature-line-text-di">{slipDetails.nurseName}</div>
                                                 <div className="nurse-title-di">SCHOOL NURSE</div>
@@ -1246,8 +1577,11 @@ const DocumentIssuance = () => {
                                 <button 
                                     type="button" 
                                     className="btn-secondary-di btn-sm-di"
-                                    onClick={fetchFacilities}
-                                    title="Reload Facilities"
+                                    onClick={() => {
+                                        fetchFacilities();
+                                        fetchMedicalRequirements();
+                                    }}
+                                    title="Reload Facilities & Medical Requirements"
                                 >
                                     <RefreshCw size={14} /> Refresh
                                 </button>
@@ -1259,6 +1593,8 @@ const DocumentIssuance = () => {
                                             setIsEditingFacility(false);
                                             setFacilityForm({ facility_id: '', facility_name: '', address: '', contact_number: '' });
                                             setShowFacilityForm(true);
+                                            setShowServiceForm(false);
+                                            setActiveServiceFacilityId(null);
                                         }}
                                     >
                                         <Plus size={14} /> Add Facility
@@ -1278,6 +1614,7 @@ const DocumentIssuance = () => {
                                 </div>
                             ) : (
                                 <div className="config-container-di">
+                                    {/* Partner Facility Add/Edit Form */}
                                     {showFacilityForm && (
                                         <form onSubmit={handleSaveFacility} className="config-form-di mb-3-di">
                                             <h5>{isEditingFacility ? 'Edit Partner Facility' : 'Add New Partner Facility'}</h5>
@@ -1321,70 +1658,155 @@ const DocumentIssuance = () => {
                                         </form>
                                     )}
 
-                                    {showServiceForm && (
-                                        <form onSubmit={handleSaveService} className="config-form-di mb-3-di">
-                                            <h5>{isEditingService ? `Edit Service for ${activeFacilityName}` : `Add Service to ${activeFacilityName}`}</h5>
-                                            <div className="form-grid-2-di">
-                                                <input 
-                                                    type="text" 
-                                                    placeholder="Service Name" 
-                                                    value={serviceForm.service_name}
-                                                    onChange={(e) => setServiceForm({ ...serviceForm, service_name: e.target.value })}
-                                                    required
-                                                />
-                                                <input 
-                                                    type="text" 
-                                                    placeholder="Description / Instructions" 
-                                                    value={serviceForm.description}
-                                                    onChange={(e) => setServiceForm({ ...serviceForm, description: e.target.value })}
-                                                />
-                                            </div>
-                                            <div className="form-button-row-di">
-                                                <button type="submit" className="btn-save-sm-di">
-                                                    <Plus size={14} /> {isEditingService ? 'Update Service' : 'Save Service'}
-                                                </button>
-                                                <button 
-                                                    type="button" 
-                                                    className="btn-cancel-sm-di"
-                                                    onClick={() => {
-                                                        setShowServiceForm(false);
-                                                        setIsEditingService(false);
-                                                        setActiveFacilityName('');
-                                                        setServiceForm({ service_id: '', facility_id: '', service_name: '', description: '' });
-                                                    }}
-                                                >
-                                                    Cancel
-                                                </button>
-                                            </div>
-                                        </form>
-                                    )}
-
+                                    {/* Facility List View */}
                                     <div className="facility-full-list-di">
-                                        {facilities.length === 0 ? (
+                                        {displayedFacilities.length === 0 ? (
                                             <p className="no-notes-di">No partner facilities found.</p>
                                         ) : (
-                                            facilities.map((fac) => (
-                                                <div key={fac.facility_id || fac.id} className="facility-block-di">
-                                                    <div className="facility-block-header-di">
-                                                        <div className="facility-info-di">
-                                                            <div className="facility-title-row-di">
-                                                                <h4>{fac.facility_name}</h4>
+                                            displayedFacilities.map((fac) => {
+                                                const facId = fac.facility_id || fac.id;
+                                                const isServiceFormOpenHere = showServiceForm && activeServiceFacilityId === facId;
+
+                                                return (
+                                                    <div key={facId} className="facility-block-di">
+                                                        <div className="facility-block-header-di">
+                                                            <div className="facility-info-di">
+                                                                <div className="facility-title-row-di">
+                                                                    <h4>{fac.facility_name}</h4>
+                                                                </div>
+                                                                <div className="facility-meta-di">
+                                                                    <span><strong>Address:</strong> {fac.address || 'N/A'}</span>
+                                                                    <span><strong>Contact:</strong> {fac.contact_number || 'N/A'}</span>
+                                                                </div>
                                                             </div>
-                                                            <div className="facility-meta-di">
-                                                                <span><strong>Address:</strong> {fac.address || 'N/A'}</span>
-                                                                <span><strong>Contact:</strong> {fac.contact_number || 'N/A'}</span>
+                                                            <div className="facility-card-actions-di">
+                                                                <button 
+                                                                    type="button"
+                                                                    className="btn-save-sm-di"
+                                                                    onClick={() => handleOpenAddService(fac)}
+                                                                >
+                                                                    <Plus size={14} /> Add Service
+                                                                </button>
+                                                                <button 
+                                                                    type="button"
+                                                                    className="btn-action-icon-di btn-view-di"
+                                                                    onClick={() => handleOpenEditFacility(fac)}
+                                                                    title="Edit Facility"
+                                                                >
+                                                                    <Edit3 size={15} />
+                                                                </button>
+                                                                <button 
+                                                                    type="button"
+                                                                    className="btn-action-icon-di btn-deny-di"
+                                                                    onClick={() => handleDeleteFacility(fac)}
+                                                                    title="Delete Facility"
+                                                                >
+                                                                    <Trash2 size={15} />
+                                                                </button>
                                                             </div>
                                                         </div>
-                                                        <button 
-                                                            type="button"
-                                                            className="btn-save-sm-di mt-2-di"
-                                                            onClick={() => handleOpenAddService(fac)}
-                                                        >
-                                                            <Plus size={14} /> Add Service
-                                                        </button>
+
+                                                        {/* Inline Add/Edit Service Form with Medical Requirements Dropdown */}
+                                                        {isServiceFormOpenHere && (
+                                                            <form onSubmit={handleSaveService} className="config-form-di inline-service-form-di my-3-di">
+                                                                <h5>{isEditingService ? `Edit Service for ${activeFacilityName}` : `Add Service to ${activeFacilityName}`}</h5>
+                                                                <div className="form-grid-2-di">
+                                                                    <div className="form-group-di">
+                                                                        <label>Requirement Name (from Medical Requirements):</label>
+                                                                        <select
+                                                                            value={serviceForm.requirement_name}
+                                                                            onChange={(e) => setServiceForm({ ...serviceForm, requirement_name: e.target.value })}
+                                                                            required
+                                                                        >
+                                                                            <option value="">-- Select Requirement Name --</option>
+                                                                            {medicalRequirements.length === 0 ? (
+                                                                                <option value="" disabled>No medical requirements found in database</option>
+                                                                            ) : (
+                                                                                medicalRequirements.map((reqName, idx) => (
+                                                                                    <option key={idx} value={reqName}>
+                                                                                        {reqName}
+                                                                                    </option>
+                                                                                ))
+                                                                            )}
+                                                                        </select>
+                                                                    </div>
+
+                                                                    <div className="form-group-di">
+                                                                        <label>Description / Instructions:</label>
+                                                                        <input 
+                                                                            type="text" 
+                                                                            placeholder="Description / Instructions" 
+                                                                            value={serviceForm.description}
+                                                                            onChange={(e) => setServiceForm({ ...serviceForm, description: e.target.value })}
+                                                                        />
+                                                                    </div>
+                                                                </div>
+                                                                <div className="form-button-row-di">
+                                                                    <button type="submit" className="btn-save-sm-di">
+                                                                        <Plus size={14} /> {isEditingService ? 'Update Service' : 'Connect Service'}
+                                                                    </button>
+                                                                    <button 
+                                                                        type="button" 
+                                                                        className="btn-cancel-sm-di"
+                                                                        onClick={() => {
+                                                                            setShowServiceForm(false);
+                                                                            setIsEditingService(false);
+                                                                            setActiveServiceFacilityId(null);
+                                                                            setActiveFacilityName('');
+                                                                            setServiceForm({ service_id: '', facility_id: '', requirement_name: '', description: '' });
+                                                                        }}
+                                                                    >
+                                                                        Cancel
+                                                                    </button>
+                                                                </div>
+                                                            </form>
+                                                        )}
+
+                                                        {/* Nested Existing Services List View for target Facility */}
+                                                        <div className="facility-services-container-di">
+                                                            <h5 className="services-section-title-di">Connected Facility Services</h5>
+                                                            {fac.services && fac.services.length > 0 ? (
+                                                                <ul className="services-list-di">
+                                                                    {fac.services.map((srv) => {
+                                                                        const srvId = srv.service_id || srv.id;
+                                                                        const displayReqName = srv.requirement_name || srv.service_name;
+                                                                        return (
+                                                                            <li key={srvId} className="service-item-di">
+                                                                                <div className="service-item-details-di">
+                                                                                    <span className="service-name-text-di">{displayReqName}</span>
+                                                                                    {srv.description && (
+                                                                                        <span className="service-desc-text-di"> — {srv.description}</span>
+                                                                                    )}
+                                                                                </div>
+                                                                                <div className="service-item-actions-di">
+                                                                                    <button 
+                                                                                        type="button"
+                                                                                        className="btn-icon-sm-di btn-edit-sm-di"
+                                                                                        onClick={() => handleOpenEditService(fac, srv)}
+                                                                                        title="Edit Service Connection"
+                                                                                    >
+                                                                                        <Edit3 size={13} />
+                                                                                    </button>
+                                                                                    <button 
+                                                                                        type="button"
+                                                                                        className="btn-icon-sm-di btn-delete-sm-di"
+                                                                                        onClick={() => handleDeleteService(srv)}
+                                                                                        title="Delete Service Connection"
+                                                                                    >
+                                                                                        <Trash2 size={13} />
+                                                                                    </button>
+                                                                                </div>
+                                                                            </li>
+                                                                        );
+                                                                    })}
+                                                                </ul>
+                                                            ) : (
+                                                                <p className="no-services-text-di">No services connected to this facility yet.</p>
+                                                            )}
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            ))
+                                                );
+                                            })
                                         )}
                                     </div>
                                 </div>

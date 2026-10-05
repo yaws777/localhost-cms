@@ -1,3 +1,4 @@
+// insuranceVault.jsx
 import React, { useState, useEffect } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { 
@@ -11,8 +12,11 @@ import {
     Folder, 
     FileText, 
     UserCheck,
-    Download
+    Download,
+    Printer
 } from 'lucide-react';
+
+import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/InsuranceVault.css';
 
 const InsuranceVault = () => {
@@ -73,6 +77,354 @@ const InsuranceVault = () => {
     useEffect(() => {
         fetchVaultFolders();
     }, []);
+
+    // EXPORT REPORT FOR ALL INSURANCE VAULT FOLDERS
+    const handleExportAllReport = () => {
+        const rowsToExport = filteredFolders.length > 0 ? filteredFolders : vaultFolders;
+
+        const printWindow = window.open('', '_blank', 'width=950,height=750');
+        if (!printWindow) {
+            alert('Please allow popups to preview and print the report.');
+            return;
+        }
+
+        const reportDate = new Date().toLocaleDateString('en-US', { 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
+        });
+
+        const tableRowsHtml = rowsToExport.map(folder => {
+            const studentName = `${folder.student_first_name || ''} ${folder.student_last_name || ''}`.trim();
+            const progYrSec = `${folder.program_name || 'N/A'} ${folder.year_level ? `- Yr ${folder.year_level}` : ''} (${folder.section || 'N/A'})`.trim();
+            const lastUpdated = folder.last_updated ? new Date(folder.last_updated).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : 'N/A';
+
+            return `
+                <tr>
+                    <td>${folder.student_id || ''}</td>
+                    <td><strong>${studentName}</strong></td>
+                    <td>${progYrSec}</td>
+                    <td>${folder.total_files || 0} File(s)</td>
+                    <td>${lastUpdated}</td>
+                    <td>${folder.nurse_name || folder.managed_by_nurse_id || 'N/A'}</td>
+                </tr>
+            `;
+        }).join('');
+
+        const htmlContent = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Insurance Vault Summary Report</title>
+                <style>
+                    body {
+                        font-family: Arial, Helvetica, sans-serif;
+                        margin: 25px;
+                        color: #0f172a;
+                    }
+                    .report-header {
+                        display: flex;
+                        align-items: center;
+                        border-bottom: 2px solid #0056b3;
+                        padding-bottom: 12px;
+                        margin-bottom: 16px;
+                    }
+                    .report-header img {
+                        height: 60px;
+                        margin-right: 20px;
+                    }
+                    .report-title h2 {
+                        margin: 0;
+                        font-size: 20px;
+                        color: #1e3a8a;
+                    }
+                    .report-title p {
+                        margin: 4px 0 0;
+                        font-size: 13px;
+                        color: #475569;
+                    }
+                    .meta-info {
+                        display: flex;
+                        justify-content: space-between;
+                        font-size: 13px;
+                        color: #475569;
+                        margin-bottom: 16px;
+                        font-weight: 500;
+                    }
+                    table {
+                        width: 100%;
+                        border-collapse: collapse;
+                        font-size: 12px;
+                        margin-bottom: 35px;
+                    }
+                    th {
+                        background-color: #f1f5f9;
+                        color: #0f172a;
+                        text-align: left;
+                        padding: 9px 10px;
+                        border: 1px solid #cbd5e1;
+                        font-weight: bold;
+                    }
+                    td {
+                        padding: 8px 10px;
+                        border: 1px solid #e2e8f0;
+                    }
+                    tr:nth-child(even) {
+                        background-color: #f8fafc;
+                    }
+                    .signature-section {
+                        margin-top: 40px;
+                        font-size: 13px;
+                    }
+                    .signature-title {
+                        color: #475569;
+                        margin-bottom: 35px;
+                    }
+                    .signature-name {
+                        font-weight: bold;
+                        font-size: 14px;
+                        color: #0f172a;
+                    }
+                    .signature-role {
+                        font-style: italic;
+                        color: #64748b;
+                    }
+                    @media print {
+                        body { margin: 0; }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="report-header">
+                    <img src="${stiLogo}" alt="STI Logo" />
+                    <div class="report-title">
+                        <h2>STI COLLEGE BALIUAG</h2>
+                        <p>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan</p>
+                    </div>
+                </div>
+
+                <div class="meta-info">
+                    <span><strong>INSURANCE VAULT REPOSITORY SUMMARY REPORT</strong></span>
+                    <span>Date Generated: ${reportDate}</span>
+                </div>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Student ID</th>
+                            <th>Student Name</th>
+                            <th>Program & Section</th>
+                            <th>Total Files</th>
+                            <th>Last Updated</th>
+                            <th>Managed By</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tableRowsHtml || '<tr><td colspan="6">No insurance vault folders found.</td></tr>'}
+                    </tbody>
+                </table>
+
+                <div class="signature-section">
+                    <div class="signature-title">Prepared by:</div>
+                    <div class="signature-name">Marilou H. Balarao</div>
+                    <div class="signature-role">School Nurse</div>
+                </div>
+
+                <script>
+                    window.onload = function() {
+                        window.print();
+                    };
+                </script>
+            </body>
+            </html>
+        `;
+
+        printWindow.document.open();
+        printWindow.document.write(htmlContent);
+        printWindow.document.close();
+    };
+
+    // EXPORT REPORT FOR SPECIFIC STUDENT INSURANCE VAULT
+    const handleExportSingleReport = () => {
+        if (!selectedFolder) return;
+
+        const printWindow = window.open('', '_blank', 'width=950,height=750');
+        if (!printWindow) {
+            alert('Please allow popups to preview and print the report.');
+            return;
+        }
+
+        const reportDate = new Date().toLocaleDateString('en-US', { 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
+        });
+
+        const studentName = `${selectedFolder.student_first_name || ''} ${selectedFolder.student_last_name || ''}`.trim();
+        const progYrSec = `${selectedFolder.program_name || 'N/A'} (${selectedFolder.section || 'N/A'})`.trim();
+
+        const tableRowsHtml = vaultFiles.map(file => {
+            const uploadedDate = file.uploaded_at ? new Date(file.uploaded_at).toLocaleDateString() : 'N/A';
+            const manager = file.nurse_name || file.managed_by_nurse_id || 'N/A';
+
+            return `
+                <tr>
+                    <td><strong>${file.document_name || 'Unnamed Document'}</strong></td>
+                    <td>${file.description_notes || 'None'}</td>
+                    <td>${uploadedDate}</td>
+                    <td>${manager}</td>
+                </tr>
+            `;
+        }).join('');
+
+        const htmlContent = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Individual Student Insurance Vault Report - ${selectedFolder.student_id || 'Student'}</title>
+                <style>
+                    body {
+                        font-family: Arial, Helvetica, sans-serif;
+                        margin: 25px;
+                        color: #0f172a;
+                    }
+                    .report-header {
+                        display: flex;
+                        align-items: center;
+                        border-bottom: 2px solid #0056b3;
+                        padding-bottom: 12px;
+                        margin-bottom: 16px;
+                    }
+                    .report-header img {
+                        height: 60px;
+                        margin-right: 20px;
+                    }
+                    .report-title h2 {
+                        margin: 0;
+                        font-size: 20px;
+                        color: #1e3a8a;
+                    }
+                    .report-title p {
+                        margin: 4px 0 0;
+                        font-size: 13px;
+                        color: #475569;
+                    }
+                    .meta-info {
+                        display: flex;
+                        justify-content: space-between;
+                        font-size: 13px;
+                        color: #475569;
+                        margin-bottom: 16px;
+                        font-weight: 500;
+                    }
+                    .details-card {
+                        background-color: #f8fafc;
+                        border: 1px solid #cbd5e1;
+                        padding: 12px 16px;
+                        border-radius: 6px;
+                        margin-bottom: 20px;
+                        display: grid;
+                        grid-template-columns: 1fr 1fr;
+                        gap: 10px;
+                        font-size: 13px;
+                    }
+                    table {
+                        width: 100%;
+                        border-collapse: collapse;
+                        font-size: 12px;
+                        margin-bottom: 35px;
+                    }
+                    th {
+                        background-color: #f1f5f9;
+                        color: #0f172a;
+                        text-align: left;
+                        padding: 9px 10px;
+                        border: 1px solid #cbd5e1;
+                        font-weight: bold;
+                    }
+                    td {
+                        padding: 8px 10px;
+                        border: 1px solid #e2e8f0;
+                    }
+                    tr:nth-child(even) {
+                        background-color: #f8fafc;
+                    }
+                    .signature-section {
+                        margin-top: 40px;
+                        font-size: 13px;
+                    }
+                    .signature-title {
+                        color: #475569;
+                        margin-bottom: 35px;
+                    }
+                    .signature-name {
+                        font-weight: bold;
+                        font-size: 14px;
+                        color: #0f172a;
+                    }
+                    .signature-role {
+                        font-style: italic;
+                        color: #64748b;
+                    }
+                    @media print {
+                        body { margin: 0; }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="report-header">
+                    <img src="${stiLogo}" alt="STI Logo" />
+                    <div class="report-title">
+                        <h2>STI COLLEGE BALIUAG</h2>
+                        <p>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan</p>
+                    </div>
+                </div>
+
+                <div class="meta-info">
+                    <span><strong>INDIVIDUAL INSURANCE VAULT REPORT</strong></span>
+                    <span>Date Generated: ${reportDate}</span>
+                </div>
+
+                <div class="details-card">
+                    <div><strong>Student Name:</strong> ${studentName}</div>
+                    <div><strong>Student ID:</strong> ${selectedFolder.student_id || 'N/A'}</div>
+                    <div><strong>Program & Section:</strong> ${progYrSec}</div>
+                    <div><strong>Total Stored Files:</strong> ${vaultFiles.length}</div>
+                </div>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Document Name / Title</th>
+                            <th>Description / Notes</th>
+                            <th>Date Uploaded</th>
+                            <th>Managed By</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tableRowsHtml || '<tr><td colspan="4">No documents found in this student vault.</td></tr>'}
+                    </tbody>
+                </table>
+
+                <div class="signature-section">
+                    <div class="signature-title">Prepared by:</div>
+                    <div class="signature-name">Marilou H. Balarao</div>
+                    <div class="signature-role">School Nurse</div>
+                </div>
+
+                <script>
+                    window.onload = function() {
+                        window.print();
+                    };
+                </script>
+            </body>
+            </html>
+        `;
+
+        printWindow.document.open();
+        printWindow.document.write(htmlContent);
+        printWindow.document.close();
+    };
 
     // Search Students for Auto-complete (Trigger on 1 or more characters)
     useEffect(() => {
@@ -277,9 +629,19 @@ const InsuranceVault = () => {
                     <h2>Insurance Vault Repository</h2>
                     <p className="subtitle-iv">Manage student insurance folders and document repositories.</p>
                 </div>
-                <button className="btn-add-vault-iv" onClick={handleOpenCreateVaultModal}>
-                    <FolderPlus size={18} /> Add Insurance Vault/Folder
-                </button>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    <button 
+                        type="button"
+                        className="btn-add-vault-iv"
+                        onClick={handleExportAllReport}
+                        style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    >
+                        <Printer size={18} /> export
+                    </button>
+                    <button className="btn-add-vault-iv" onClick={handleOpenCreateVaultModal}>
+                        <FolderPlus size={18} /> Add Insurance Vault/Folder
+                    </button>
+                </div>
             </div>
 
             {/* Filter Bar */}
@@ -483,7 +845,17 @@ const InsuranceVault = () => {
                     <div className="modal-card-iv modal-large-iv">
                         <div className="modal-header-iv">
                             <h3>Vault Contents - {selectedFolder.student_first_name} {selectedFolder.student_last_name}</h3>
-                            <button className="close-btn-iv" onClick={() => setIsViewModalOpen(false)}><X size={20} /></button>
+                            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                <button 
+                                    type="button" 
+                                    className="btn-add-vault-iv" 
+                                    onClick={handleExportSingleReport}
+                                    style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 12px', fontSize: '0.85rem' }}
+                                >
+                                    <Printer size={16} /> export
+                                </button>
+                                <button className="close-btn-iv" onClick={() => setIsViewModalOpen(false)}><X size={20} /></button>
+                            </div>
                         </div>
                         <div className="modal-body-iv">
                             <div className="vault-info-banner-iv">

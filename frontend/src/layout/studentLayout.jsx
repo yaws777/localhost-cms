@@ -211,7 +211,7 @@ const StudentLayout = () => {
         if (type.includes('message') || msg.includes('message') || title.includes('message')) {
             setIsMessageOpen(true);
         } else if (type.includes('requirement') || msg.includes('requirement') || title.includes('requirement')) {
-            navigate('/MyRequirements');
+            navigate('/MyRequirements'); 
         } else if (type.includes('log') || type.includes('record') || msg.includes('clinic') || msg.includes('consultation') || msg.includes('visit')) {
             navigate('/ClinicLogsAndRecords');
         } else if (type.includes('request') || msg.includes('request')) {

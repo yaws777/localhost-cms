@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Folder, Lock, FileText } from 'lucide-react';
+import { ArrowLeft, Folder, Lock, FileText, Download } from 'lucide-react';
+import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/HealthRecordProfile.css';
-
 
 export default function HealthRecordsProfile() {
     const { studentId } = useParams(); 
@@ -86,17 +86,72 @@ export default function HealthRecordsProfile() {
         fetchStudentRequirements();
     }, [activeTab, studentId]);
 
+    const handleExport = () => {
+        window.print();
+    };
+
     if (loading) return <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>Loading student medical file index...</div>;
 
     return (
         <div className="profile-viewer-wrapper">
-            <div className="navigation-action-bar">
+            <style>{`
+                @media print {
+                    body * {
+                        visibility: hidden;
+                    }
+                    .printable-health-report, .printable-health-report * {
+                        visibility: visible;
+                    }
+                    .printable-health-report {
+                        position: absolute;
+                        left: 0;
+                        top: 0;
+                        width: 100%;
+                        padding: 20px;
+                        color: #000;
+                        background: #fff;
+                    }
+                    .no-print {
+                        display: none !important;
+                    }
+                }
+                .printable-health-report {
+                    display: none;
+                }
+                @media print {
+                    .printable-health-report {
+                        display: block;
+                    }
+                }
+            `}</style>
+
+            <div className="navigation-action-bar no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <button onClick={() => navigate('/HealthRecords')} className="btn-back-link">
                     <ArrowLeft size={16} /> Back to Records Directory
                 </button>
+                <button 
+                    onClick={handleExport} 
+                    className="btn-export-pdf"
+                    style={{
+                        width: 'auto',
+                        minWidth: 'fit-content',
+                        padding: '8px 16px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        backgroundColor: '#0284c7',
+                        color: '#ffffff',
+                        border: 'none',
+                        borderRadius: '6px',
+                        fontWeight: '600',
+                        cursor: 'pointer'
+                    }}
+                >
+                    <Download size={16} /> Export
+                </button>
             </div>
 
-            <div className="profile-identity-banner">
+            <div className="profile-identity-banner no-print">
                 <div className="avatar-icon-housing">
                     <Folder size={26} />
                 </div>
@@ -110,16 +165,16 @@ export default function HealthRecordsProfile() {
                 </div>
             </div>
 
-            <div className="profile-segment-tabs">
+            <div className="profile-segment-tabs no-print">
                 <button className={activeTab === 'personal' ? 'active' : ''} onClick={() => setActiveTab('personal')}>Personal Info</button>
                 <button className={activeTab === 'health' ? 'active' : ''} onClick={() => setActiveTab('health')}>Health Information</button>
                 <button className={activeTab === 'emergency' ? 'active' : ''} onClick={() => setActiveTab('emergency')}>Emergency Contact</button>
                 <button className={activeTab === 'requirements' ? 'active' : ''} onClick={() => setActiveTab('requirements')}>Requirements Checklist</button>
             </div>
 
-            {errorMsg && <div className="error-message">{errorMsg}</div>}
+            {errorMsg && <div className="error-message no-print">{errorMsg}</div>}
 
-            <div className="profile-content-area">
+            <div className="profile-content-area no-print">
                 
                 {/* 1. PERSONAL INFO TAB */}
                 {activeTab === 'personal' && (
@@ -397,6 +452,59 @@ export default function HealthRecordsProfile() {
                         )}
                     </div>
                 )}
+            </div>
+
+            {/* PRINTABLE PDF REPORT CONTAINER */}
+            <div className="printable-health-report">
+                <div style={{ textAlign: 'center', marginBottom: '20px', borderBottom: '2px solid #0f172a', paddingBottom: '12px' }}>
+                    <img src={stiLogo} alt="STI Logo" style={{ height: '60px', marginBottom: '8px' }} />
+                    <h2 style={{ margin: '0', fontSize: '18px', fontWeight: 'bold' }}>STI College Baliuag</h2>
+                    <p style={{ margin: '4px 0', fontSize: '12px', color: '#334155' }}>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan.</p>
+                    <h3 style={{ margin: '12px 0 0 0', fontSize: '16px', letterSpacing: '0.5px' }}>HEALTH PROFILE REPORT</h3>
+                </div>
+
+                <div style={{ marginBottom: '20px' }}>
+                    <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px' }}>Student Information</h4>
+                    <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Student ID:</strong> {studentId}</p>
+                    <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Name:</strong> {studentHeader?.first_name} {studentHeader?.last_name}</p>
+                    <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Program & Year:</strong> {studentHeader?.program_id} - {studentHeader?.year_level} Year</p>
+                    <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Gender:</strong> {personalInfo.gender || 'N/A'} | <strong>Age:</strong> {personalInfo.age || 'N/A'} | <strong>Date of Birth:</strong> {personalInfo.birth_date || 'N/A'}</p>
+                    <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Contact No.:</strong> {personalInfo.contact_number || 'N/A'}</p>
+                    <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Address:</strong> {personalInfo.address || 'N/A'}</p>
+                </div>
+
+                <div style={{ marginBottom: '20px' }}>
+                    <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px' }}>Emergency Contact Details</h4>
+                    <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Contact Name:</strong> {emergencyContact.contact_name || 'N/A'}</p>
+                    <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Relationship:</strong> {emergencyContact.relationship || 'N/A'}</p>
+                    <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Contact No.:</strong> {emergencyContact.contact_number || 'N/A'}</p>
+                    <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Address:</strong> {emergencyContact.address || 'N/A'}</p>
+                </div>
+
+                <div style={{ marginBottom: '30px' }}>
+                    <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px' }}>Health Profile Summary</h4>
+                    <ul style={{ margin: '4px 0', paddingLeft: '18px', fontSize: '12px' }}>
+                        {healthInfo.has_allergies && <li>Allergies (Food: {healthInfo.allergy_food || 'None'}, Meds: {healthInfo.allergy_medicine || 'None'})</li>}
+                        {healthInfo.has_asthma && <li>Asthma (Triggers: {healthInfo.asthma_triggers || 'N/A'})</li>}
+                        {healthInfo.has_other_respiratory && <li>Respiratory Conditions ({healthInfo.other_respiratory_specify || 'Specified'})</li>}
+                        {healthInfo.has_blood_disorders && <li>Blood Disorders noted</li>}
+                        {healthInfo.has_digestive_disorders && <li>Digestive Conditions noted</li>}
+                        {healthInfo.has_heart_problems && <li>Heart Problems ({healthInfo.heart_problems_specify || 'Specified'})</li>}
+                        {healthInfo.has_kidney_bladder_problems && <li>Kidney/Bladder Issues ({healthInfo.kidney_bladder_specify || 'Specified'})</li>}
+                        {healthInfo.has_seizure_episode && <li>Seizure Episodes (Last: {healthInfo.seizure_last_episode_date || 'N/A'})</li>}
+                        {healthInfo.has_surgery && <li>History of Surgery ({healthInfo.surgery_specify || 'Specified'})</li>}
+                        {healthInfo.has_vision_problem && <li>Vision Problem ({healthInfo.vision_specify || 'Specified'})</li>}
+                        {!healthInfo.has_allergies && !healthInfo.has_asthma && !healthInfo.has_other_respiratory && !healthInfo.has_blood_disorders && !healthInfo.has_digestive_disorders && !healthInfo.has_heart_problems && !healthInfo.has_kidney_bladder_problems && !healthInfo.has_seizure_episode && !healthInfo.has_surgery && !healthInfo.has_vision_problem && (
+                            <li>No critical medical conditions or allergies recorded.</li>
+                        )}
+                    </ul>
+                </div>
+
+                <div style={{ marginTop: '50px', textAlign: 'left' }}>
+                    <p style={{ margin: '0 0 35px 0', fontSize: '12px' }}><strong>Prepared by:</strong></p>
+                    <p style={{ margin: '0', fontSize: '13px', fontWeight: 'bold', textDecoration: 'underline' }}>Marilou H. Balarao</p>
+                    <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: '#475569' }}>School Nurse</p>
+                </div>
             </div>
         </div>
     );

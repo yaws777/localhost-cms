@@ -20,7 +20,7 @@ export default function RequestModule() {
     return `${BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
   };
 
-  // UI state - initializes activeModal if triggered via route state
+  // UI state
   const [activeModal, setActiveModal] = useState(location.state?.openModal || null);
   const [requests, setRequests] = useState([]);
   const [selectedRequest, setSelectedRequest] = useState(null);
@@ -28,8 +28,9 @@ export default function RequestModule() {
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Partner Facilities & Services State
+  // Partner Facilities, Medical Requirements, & Services State
   const [partnerFacilities, setPartnerFacilities] = useState([]);
+  const [medicalRequirements, setMedicalRequirements] = useState([]);
   const [availableServices, setAvailableServices] = useState([]);
 
   // Form States
@@ -52,53 +53,117 @@ export default function RequestModule() {
     }
   }, [location.state]);
 
-  // Fetch Partner Facilities
-  const fetchPartnerFacilities = async () => {
+  // Fetch Medical Requirements
+  const fetchMedicalRequirements = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/medical-requirements`);
+      const data = await res.json();
+      if (data.success && Array.isArray(data.requirements)) {
+        setMedicalRequirements(data.requirements);
+      } else if (Array.isArray(data)) {
+        setMedicalRequirements(data);
+      } else if (data.data && Array.isArray(data.data)) {
+        setMedicalRequirements(data.data);
+      } else {
+        setMedicalRequirements([]);
+      }
+    } catch (err) {
+      console.error('Failed to fetch medical requirements:', err);
+      setMedicalRequirements([]);
+    }
+  }, []);
+
+  // Fetch Partner Facilities & Sort 'Others' to the end
+  const fetchPartnerFacilities = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE}/partner-facilities`);
       const data = await res.json();
-      setPartnerFacilities(data);
+      const rawFacilities = Array.isArray(data) 
+        ? data 
+        : (Array.isArray(data.facilities) ? data.facilities : []);
 
-      if (data.length > 0) {
-        setReferralForm((prev) => ({
-          ...prev,
-          facility_id: data[0].facility_id,
-          selected_services: []
-        }));
-        setAvailableServices(data[0].services || []);
-      }
+      // Sort so 'Others' facility is always the last option in dropdown
+      const sortedFacilities = [...rawFacilities].sort((a, b) => {
+        const nameA = (a.facility_name || '').trim().toLowerCase();
+        const nameB = (b.facility_name || '').trim().toLowerCase();
+        if (nameA === 'others') return 1;
+        if (nameB === 'others') return -1;
+        return 0;
+      });
+
+      setPartnerFacilities(sortedFacilities);
+
+      // Default selected option is empty ("Select facility")
+      setReferralForm((prev) => ({
+        ...prev,
+        facility_id: '',
+        selected_services: []
+      }));
+      setAvailableServices([]);
     } catch (err) {
       console.error('Failed to fetch partner facilities:', err);
+      setPartnerFacilities([]);
     }
-  };
+  }, []);
 
-  // Fetch Requests for logged-in student
+  // Fetch Requests for logged-in student with array verification
   const fetchRequests = useCallback(async () => {
     if (!student_id) return;
     try {
       const res = await fetch(`${API_BASE}/requests/student/${student_id}`);
       const data = await res.json();
-      setRequests(data);
+      if (Array.isArray(data)) {
+        setRequests(data);
+      } else {
+        console.error('Expected array of requests, got:', data);
+        setRequests([]);
+      }
     } catch (err) {
       console.error('Failed to fetch requests:', err);
+      setRequests([]);
     }
   }, [student_id]);
 
   useEffect(() => {
     fetchRequests();
+    fetchMedicalRequirements();
     fetchPartnerFacilities();
-  }, [fetchRequests]);
+  }, [fetchRequests, fetchMedicalRequirements, fetchPartnerFacilities]);
 
   const handleFacilityChange = (e) => {
     const facilityId = e.target.value;
-    const selectedFac = partnerFacilities.find((f) => f.facility_id === facilityId);
+    const selectedFac = partnerFacilities.find((f) => String(f.facility_id) === String(facilityId));
 
-    setReferralForm({
-      ...referralForm,
+    setReferralForm((prev) => ({
+      ...prev,
       facility_id: facilityId,
       selected_services: []
-    });
-    setAvailableServices(selectedFac ? selectedFac.services : []);
+    }));
+
+    if (selectedFac) {
+      const isOthers = (selectedFac.facility_name || '').trim().toLowerCase() === 'others';
+      
+      if (isOthers && (!selectedFac.services || selectedFac.services.length === 0)) {
+        const reqServices = medicalRequirements.map((reqItem, index) => {
+          const reqName = typeof reqItem === 'object' && reqItem !== null 
+            ? (reqItem.requirement_name || reqItem.name || `Requirement ${index + 1}`) 
+            : reqItem;
+          const reqId = typeof reqItem === 'object' && reqItem !== null 
+            ? (reqItem.requirement_id || reqItem.id || reqName) 
+            : reqName;
+
+          return {
+            service_id: `REQ-${reqId}`,
+            requirement_name: String(reqName)
+          };
+        });
+        setAvailableServices(reqServices);
+      } else {
+        setAvailableServices(selectedFac.services || []);
+      }
+    } else {
+      setAvailableServices([]);
+    }
   };
 
   const handleServiceCheckbox = (serviceId) => {
@@ -118,9 +183,10 @@ export default function RequestModule() {
     try {
       const res = await fetch(`${API_BASE}/requests/${encodeURIComponent(reqItem.request_type)}/${reqItem.request_id}/notes`);
       const data = await res.json();
-      setNotes(data);
+      setNotes(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Failed to fetch notes:', err);
+      setNotes([]);
     }
   };
 
@@ -160,6 +226,10 @@ export default function RequestModule() {
   const handleReferralSubmit = async (e) => {
     e.preventDefault();
     if (!student_id) return alert('Student ID not found. Please log in again.');
+    if (!referralForm.facility_id) {
+      alert('Please select a facility.');
+      return;
+    }
     if (referralForm.selected_services.length === 0) {
       alert('Please select at least one service requested from the facility.');
       return;
@@ -180,9 +250,10 @@ export default function RequestModule() {
       if (res.ok) {
         setReferralForm({
           reason_for_referral: '',
-          facility_id: partnerFacilities[0]?.facility_id || '',
+          facility_id: '',
           selected_services: []
         });
+        setAvailableServices([]);
         setActiveModal(null);
         fetchRequests();
       }
@@ -233,17 +304,17 @@ export default function RequestModule() {
       {/* Action Cards */}
       <div className="sti-cards-grid">
         <div className="sti-action-card" onClick={() => setActiveModal('excuse')}>
-          <div className="sti-card-icon">📄</div>
+          <div className="sti-card-icon">📋</div>
           <h3>Request Excuse Slip</h3>
           <p>Submit an excuse slip for missed classes or school activities.</p>
-          <button className="sti-btn-primary">New Request</button>
+          <button className="sti-btn-primary" style={{ maxWidth: '100%', boxSizing: 'border-box' }}>New Request</button>
         </div>
 
         <div className="sti-action-card" onClick={() => setActiveModal('referral')}>
-          <div className="sti-card-icon">🏥</div>
+          <div className="sti-card-icon">🩺</div>
           <h3>Request Referral Slip</h3>
           <p>Request medical or laboratory referral for partner facilities.</p>
-          <button className="sti-btn-primary">New Request</button>
+          <button className="sti-btn-primary" style={{ maxWidth: '100%', boxSizing: 'border-box' }}>New Request</button>
         </div>
       </div>
 
@@ -262,7 +333,7 @@ export default function RequestModule() {
             </tr>
           </thead>
           <tbody>
-            {requests.length === 0 ? (
+            {!Array.isArray(requests) || requests.length === 0 ? (
               <tr>
                 <td colSpan="6" style={{ textAlign: 'center' }}>No request history found.</td>
               </tr>
@@ -320,6 +391,7 @@ export default function RequestModule() {
                   value={excuseForm.reason_for_excuse}
                   onChange={(e) => setExcuseForm({ ...excuseForm, reason_for_excuse: e.target.value })}
                   placeholder="State the reason for your absence..."
+                  style={{ width: '100%', boxSizing: 'border-box' }}
                 />
               </div>
 
@@ -338,6 +410,7 @@ export default function RequestModule() {
                         valid_absence_end: prev.valid_absence_end && prev.valid_absence_end < newStart ? newStart : prev.valid_absence_end
                       }));
                     }}
+                    style={{ width: '100%', boxSizing: 'border-box' }}
                   />
                 </div>
                 <div className="sti-form-group">
@@ -348,6 +421,7 @@ export default function RequestModule() {
                     min={excuseForm.valid_absence_start}
                     value={excuseForm.valid_absence_end}
                     onChange={(e) => setExcuseForm({ ...excuseForm, valid_absence_end: e.target.value })}
+                    style={{ width: '100%', boxSizing: 'border-box' }}
                   />
                 </div>
               </div>
@@ -357,12 +431,13 @@ export default function RequestModule() {
                 <input
                   type="file"
                   onChange={(e) => setExcuseForm({ ...excuseForm, proof: e.target.files[0] })}
+                  style={{ width: '100%', boxSizing: 'border-box' }}
                 />
               </div>
 
               <div className="sti-modal-actions">
-                <button type="button" className="sti-btn-secondary" onClick={() => setActiveModal(null)}>Cancel</button>
-                <button type="submit" className="sti-btn-primary" disabled={loading}>
+                <button type="button" className="sti-btn-secondary" onClick={() => setActiveModal(null)} style={{ boxSizing: 'border-box' }}>Cancel</button>
+                <button type="submit" className="sti-btn-primary" disabled={loading} style={{ boxSizing: 'border-box' }}>
                   {loading ? 'Submitting...' : 'Submit Request'}
                 </button>
               </div>
@@ -388,6 +463,7 @@ export default function RequestModule() {
                   value={referralForm.reason_for_referral}
                   onChange={(e) => setReferralForm({ ...referralForm, reason_for_referral: e.target.value })}
                   placeholder="State the reason for medical/lab referral..."
+                  style={{ width: '100%', boxSizing: 'border-box' }}
                 />
               </div>
 
@@ -398,8 +474,9 @@ export default function RequestModule() {
                   value={referralForm.facility_id}
                   onChange={handleFacilityChange}
                   required
+                  style={{ width: '100%', boxSizing: 'border-box' }}
                 >
-                  <option value="" disabled>Select Partner Facility</option>
+                  <option value="" disabled>Select facility</option>
                   {partnerFacilities.map((facility) => (
                     <option key={facility.facility_id} value={facility.facility_id}>
                       {facility.facility_name}
@@ -423,7 +500,9 @@ export default function RequestModule() {
                           checked={referralForm.selected_services.includes(service.service_id)}
                           onChange={() => handleServiceCheckbox(service.service_id)}
                         />
-                        <span>{service.service_name}</span>
+                        <span>
+                          {service.requirement_name || service.service_name || service.name || 'Unnamed Service'}
+                        </span>
                       </label>
                     ))
                   )}
@@ -431,8 +510,8 @@ export default function RequestModule() {
               </div>
 
               <div className="sti-modal-actions">
-                <button type="button" className="sti-btn-secondary" onClick={() => setActiveModal(null)}>Cancel</button>
-                <button type="submit" className="sti-btn-primary" disabled={loading}>
+                <button type="button" className="sti-btn-secondary" onClick={() => setActiveModal(null)} style={{ boxSizing: 'border-box' }}>Cancel</button>
+                <button type="submit" className="sti-btn-primary" disabled={loading} style={{ boxSizing: 'border-box' }}>
                   {loading ? 'Submitting...' : 'Submit Request'}
                 </button>
               </div>
@@ -494,7 +573,7 @@ export default function RequestModule() {
               {/* Notes / Chat Thread */}
               <h4>Messages & Notes</h4>
               <div className="sti-chat-box">
-                {notes.length === 0 ? (
+                {!Array.isArray(notes) || notes.length === 0 ? (
                   <p className="sti-text-muted">No notes or messages yet.</p>
                 ) : (
                   notes.map((n) => (
@@ -517,8 +596,9 @@ export default function RequestModule() {
                   placeholder="Type a message or note..."
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
+                  style={{ boxSizing: 'border-box' }}
                 />
-                <button type="submit" className="sti-btn-primary">Send</button>
+                <button type="submit" className="sti-btn-primary" style={{ boxSizing: 'border-box' }}>Send</button>
               </form>
             </div>
           </div>

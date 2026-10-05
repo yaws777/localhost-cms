@@ -32,17 +32,23 @@ import {
   FileCheck,
   UserCheck,
   ShieldAlert,
-  Trash2
+  Download
 } from 'lucide-react';
+import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/NurseDashboard.css';
 
 const COLORS = ['#0250A3', '#F59E0B', '#EF4444', '#10B981', '#8B5CF6', '#EC4899', '#3B82F6', '#14B8A6', '#6366F1'];
-const STANDARD_UNITS = ['mg', 'g', 'mcg', 'mL', 'L'];
+const STANDARD_UNITS = ['mg', 'g', 'mcg', 'ml', 'l'];
+
+const isStandardUnit = (unit) => {
+  if (!unit) return false;
+  return STANDARD_UNITS.includes(String(unit).trim().toLowerCase());
+};
 
 /* --- HELPER FUNCTIONS --- */
 const pluralize = (word, count) => {
   if (!word) return '';
-  if (count <= 1) return word; // Uses singular form for 0 or 1
+  if (count <= 1) return word;
   return /(x|s|ch|sh|z)$/i.test(word) ? `${word}es` : `${word}s`;
 };
 
@@ -125,10 +131,6 @@ const formatTime = (timeString) => {
   return timeString;
 };
 
-/**
- * Checks whether a schedule's start date and time is still in the future.
- * Returns false if the schedule date & start time has already passed.
- */
 const isScheduleUpcoming = (dateStr, timeStr) => {
   if (!dateStr && !timeStr) return false;
   const now = new Date();
@@ -151,6 +153,198 @@ const isScheduleUpcoming = (dateStr, timeStr) => {
   return scheduleDate > now;
 };
 
+/* --- PDF REPORT GENERATOR HELPER --- */
+const generatePDFReport = (title, periodText, tableHeaders, tableRows) => {
+  const printWindow = window.open('', '_blank', 'width=900,height=750');
+  if (!printWindow) {
+    alert('Please allow popups to export the PDF report.');
+    return;
+  }
+
+  const currentDateStr = new Date().toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>${title}</title>
+        <style>
+          @page {
+            size: A4;
+            margin: 15mm;
+          }
+          body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            color: #1f2937;
+            margin: 0;
+            padding: 20px;
+            background: #ffffff;
+          }
+          .report-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 2px solid #0250a3;
+            padding-bottom: 12px;
+            margin-bottom: 20px;
+          }
+          .header-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+          }
+          .sti-logo {
+            height: 60px;
+            width: auto;
+            object-fit: contain;
+          }
+          .header-info h1 {
+            font-size: 18px;
+            font-weight: 800;
+            color: #0250a3;
+            margin: 0 0 4px 0;
+            text-transform: uppercase;
+          }
+          .header-info p {
+            font-size: 11px;
+            color: #4b5563;
+            margin: 0;
+            line-height: 1.35;
+          }
+          .header-meta {
+            text-align: right;
+            font-size: 11px;
+            color: #6b7280;
+          }
+          .report-title-container {
+            text-align: center;
+            margin-bottom: 20px;
+          }
+          .report-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: #111827;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin: 0 0 4px 0;
+          }
+          .report-subtitle {
+            font-size: 12px;
+            color: #4b5563;
+            margin: 0;
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 30px;
+            font-size: 12px;
+          }
+          th {
+            background-color: #0250a3;
+            color: #ffffff;
+            font-weight: 600;
+            text-align: left;
+            padding: 9px 12px;
+            border: 1px solid #0250a3;
+          }
+          td {
+            padding: 9px 12px;
+            border: 1px solid #e5e7eb;
+            color: #374151;
+          }
+          tr:nth-child(even) {
+            background-color: #f9fafb;
+          }
+          .signature-section {
+            margin-top: 50px;
+            display: flex;
+            justify-content: flex-start;
+            page-break-inside: avoid;
+          }
+          .signature-box {
+            width: 240px;
+          }
+          .prepared-by-label {
+            font-size: 12px;
+            color: #374151;
+            margin-bottom: 45px;
+          }
+          .nurse-name {
+            font-size: 13px;
+            font-weight: 700;
+            color: #111827;
+            border-bottom: 1px solid #111827;
+            padding-bottom: 3px;
+            margin-bottom: 4px;
+          }
+          .nurse-title {
+            font-size: 11px;
+            color: #4b5563;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="report-header">
+          <div class="header-left">
+            <img src="${stiLogo}" alt="STI Logo" class="sti-logo" />
+            <div class="header-info">
+              <h1>STI College</h1>
+              <p>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan.</p>
+              <p>Clinic & Health Services Department</p>
+            </div>
+          </div>
+          <div class="header-meta">
+            <p><strong>Date Generated:</strong> ${currentDateStr}</p>
+          </div>
+        </div>
+
+        <div class="report-title-container">
+          <h2 class="report-title">${title}</h2>
+          ${periodText ? `<p class="report-subtitle">${periodText}</p>` : ''}
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              ${tableHeaders.map(h => `<th>${h}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRows.length > 0 ? tableRows.map(row => `
+              <tr>
+                ${row.map(cell => `<td>${cell}</td>`).join('')}
+              </tr>
+            `).join('') : `<tr><td colspan="${tableHeaders.length}" style="text-align:center; padding: 18px;">No records available for this report.</td></tr>`}
+          </tbody>
+        </table>
+
+        <div class="signature-section">
+          <div class="signature-box">
+            <p class="prepared-by-label">Prepared by:</p>
+            <div class="nurse-name">Marilou H. Balarao</div>
+            <div class="nurse-title">School Nurse</div>
+          </div>
+        </div>
+
+        <script>
+          window.onload = function() {
+            setTimeout(function() {
+              window.print();
+            }, 300);
+          };
+        </script>
+      </body>
+    </html>
+  `;
+
+  printWindow.document.write(htmlContent);
+  printWindow.document.close();
+};
+
 /* --- CUSTOM CHART TOOLTIPS --- */
 const PredictiveTooltip = ({ active, payload, label }) => {
   if (active && payload && payload.length) {
@@ -158,9 +352,9 @@ const PredictiveTooltip = ({ active, payload, label }) => {
     const dosageUnit = itemData?.dosageForm || 'Unit';
 
     return (
-      <div className="custom-chart-tooltip predictive-tooltip-width">
-        <h4 className="tooltip-header">{label}</h4>
-        <ul className="tooltip-items-list-standard">
+      <div className="custom-chart-tooltip-nd predictive-tooltip-width-nd">
+        <h4 className="tooltip-header-nd">{label}</h4>
+        <ul className="tooltip-items-list-standard-nd">
           {payload.map((entry, index) => {
             const isStock = entry.dataKey === 'currentStock';
             const displayUnit = isStock 
@@ -168,12 +362,12 @@ const PredictiveTooltip = ({ active, payload, label }) => {
               : 'package(s)/bottle(s)';
 
             return (
-              <li key={index} className="tooltip-item">
-                <div className="tooltip-item-left">
-                  <span className="tooltip-marker" style={{ backgroundColor: entry.color }} />
-                  <span className="tooltip-item-name">{entry.name}</span>
+              <li key={index} className="tooltip-item-nd">
+                <div className="tooltip-item-left-nd">
+                  <span className="tooltip-marker-nd" style={{ backgroundColor: entry.color }} />
+                  <span className="tooltip-item-name-nd">{entry.name}</span>
                 </div>
-                <span className="tooltip-item-value" style={{ color: entry.color }}>
+                <span className="tooltip-item-value-nd" style={{ color: entry.color }}>
                   {formatCeilAvg(entry.value)} {displayUnit}
                 </span>
               </li>
@@ -192,23 +386,23 @@ const CustomTooltip = ({ active, payload, label, unitLabel = "cases", medicinesU
     const activePayload = payload.filter((entry) => (Number(entry.value) || 0) > 0);
 
     return (
-      <div className="custom-chart-tooltip trend-tooltip-widen">
-        <h4 className="tooltip-header">{label}</h4>
+      <div className="custom-chart-tooltip-nd trend-tooltip-widen-nd">
+        <h4 className="tooltip-header-nd">{label}</h4>
         {activePayload.length === 0 ? (
-          <div className="tooltip-no-records">No records found</div>
+          <div className="tooltip-no-records-nd">No records found</div>
         ) : (
-          <ul className="tooltip-items-grid">
+          <ul className="tooltip-items-grid-nd">
             {activePayload.map((entry, index) => {
               const specificUnit = medicinesUnitsMap[entry.name] || unitLabel;
               const displayName = showBrandOnly ? getBrandNameOnly(entry.name) : entry.name;
 
               return (
-                <li key={index} className="tooltip-item">
-                  <div className="tooltip-item-left">
-                    <span className="tooltip-marker" style={{ backgroundColor: entry.color }} />
-                    <span className="tooltip-item-name">{displayName}</span>
+                <li key={index} className="tooltip-item-nd">
+                  <div className="tooltip-item-left-nd">
+                    <span className="tooltip-marker-nd" style={{ backgroundColor: entry.color }} />
+                    <span className="tooltip-item-name-nd">{displayName}</span>
                   </div>
-                  <span className="tooltip-item-value" style={{ color: entry.color }}>
+                  <span className="tooltip-item-value-nd" style={{ color: entry.color }}>
                     {entry.value} {specificUnit}
                   </span>
                 </li>
@@ -216,10 +410,10 @@ const CustomTooltip = ({ active, payload, label, unitLabel = "cases", medicinesU
             })}
           </ul>
         )}
-        <div className="tooltip-divider" />
-        <div className="tooltip-footer">
-          <span className="tooltip-total-label">Total</span>
-          <span className="tooltip-total-value">{totalCases.toFixed(1)} {unitLabel}</span>
+        <div className="tooltip-divider-nd" />
+        <div className="tooltip-footer-nd">
+          <span className="tooltip-total-label-nd">Total</span>
+          <span className="tooltip-total-value-nd">{totalCases.toFixed(1)} {unitLabel}</span>
         </div>
       </div>
     );
@@ -344,7 +538,7 @@ const NurseDashboard = () => {
     ...medicinesUnitsMap
   };
 
-  // Dynamically Filtered Upcoming Schedules (hides any schedule whose date & start time has passed)
+  // Dynamically Filtered Upcoming Schedules
   const upcomingHealthScreenings = (nurseDashboardData.upcomingHealthScreenings || []).filter((screen) =>
     isScheduleUpcoming(screen.scheduled_date, screen.start_time)
   );
@@ -352,6 +546,155 @@ const NurseDashboard = () => {
   const upcomingDoctorVisits = (nurseDashboardData.upcomingDoctorVisits || []).filter((visit) =>
     isScheduleUpcoming(visit.scheduled_date || visit.start_time, visit.start_time)
   );
+
+  // EXPORT HANDLERS FOR REPORTS
+  const handleExportHealthTrends = () => {
+    const headers = ['No.', 'Health Complaint / Symptom', 'Total Cases Recorded', 'Average Cases / Month'];
+    const rows = complaintsList.map((complaint, index) => {
+      const totalCases = trendData.reduce((sum, item) => sum + (Number(item[complaint]) || 0), 0);
+      const avgVal = averages && averages[complaint] !== undefined ? averages[complaint] : 0;
+      const ceilAvg = Math.ceil(Number(avgVal) || 0);
+
+      return [
+        index + 1,
+        complaint,
+        totalCases,
+        `${ceilAvg} avg/mo`
+      ];
+    });
+
+    generatePDFReport(
+      'Health Trends Summary Report',
+      `${periodLabel || ''} ${timelineLabel ? `(${timelineLabel})` : ''}`,
+      headers,
+      rows
+    );
+  };
+
+  const handleExportMedicineDispensed = () => {
+    const headers = ['No.', 'Medicine / Item Name', 'Unit of Measure', 'Total Dispensed', 'Monthly Average Dispensed'];
+    const rows = medicinesList.map((medicine, index) => {
+      const unit = combinedUnitsMap[medicine] || 'units';
+      const totalDispensed = dispensedData.reduce((sum, item) => sum + (Number(item[medicine]) || 0), 0);
+
+      let avgValue = dispensedAverages?.[medicine];
+      if (avgValue === undefined || avgValue === null) {
+        if (dispensedData.length > 0) {
+          avgValue = totalDispensed / dispensedData.length;
+        } else {
+          avgValue = 0;
+        }
+      }
+      const ceilAvg = Math.ceil(Number(avgValue) || 0);
+
+      return [
+        index + 1,
+        medicine,
+        unit,
+        totalDispensed,
+        `${ceilAvg} ${unit}/mo`
+      ];
+    });
+
+    generatePDFReport(
+      'Medicine Dispensed Summary Report',
+      `${dispensedPeriodLabel || ''} ${dispensedTimelineLabel ? `(${dispensedTimelineLabel})` : ''}`,
+      headers,
+      rows
+    );
+  };
+
+  const handleExportPredictiveDemand = () => {
+    const headers = [
+      'No.', 
+      'Medicine Name', 
+      'Package Strength / Form', 
+      'Current Stock', 
+      'Monthly Avg Dispensed', 
+      'Predicted Demand (Packages/Bottles)'
+    ];
+
+    const rows = predictiveData.map((med, index) => {
+      const ceilAvgBase = Math.ceil(Number(med.avgMonthlyDispensedBase) || 0);
+      const ceilPredicted = Math.ceil(Number(med.predictedNeed) || 0);
+
+      return [
+        index + 1,
+        med.name,
+        `${med.packageStrength || 'N/A'} (${med.dosageForm || 'Unit'})`,
+        `${med.currentStock} ${pluralize(med.dosageForm, med.currentStock)}`,
+        `${ceilAvgBase} ${med.unitOfMeasure}`,
+        `${ceilPredicted} package(s)/bottle(s)`
+      ];
+    });
+
+    generatePDFReport(
+      'Predictive Medicine Demand Forecast Report',
+      `Forecast Target Month: ${predictiveMonth}`,
+      headers,
+      rows
+    );
+  };
+
+  // EXPORT HANDLER FOR ALL REPEATED COMPLAINT LOGS
+  const handleExportFrequentComplaints = () => {
+    const headers = ['No.', 'Student Name', 'Student ID', 'Repeated Complaint', 'Monthly Visits', 'Clinical Advice'];
+    const rows = alerts.map((alert, index) => [
+      index + 1,
+      alert.studentName || 'N/A',
+      alert.studentId || 'N/A',
+      alert.complaint || 'N/A',
+      `${alert.visitCount || 0} visits`,
+      alert.advice || 'N/A'
+    ]);
+
+    generatePDFReport(
+      'Frequent Visit & Repeated Complaint Summary Report',
+      'Summary of Students with Recurring Clinic Visit Logs & Frequent Health Concerns',
+      headers,
+      rows
+    );
+  };
+
+  // EXPORT HANDLER FOR INDIVIDUAL STUDENT REPEATED COMPLAINT VISIT HISTORY
+  const handleExportStudentVisitHistory = () => {
+    if (!selectedAlertHeader) return;
+
+    const headers = [
+      'No.', 
+      'Visit Date & Time', 
+      'Chief Complaint', 
+      'Vitals (BP / Temp / Resp / Pulse)', 
+      'Nursing Intervention', 
+      'Clinical Assessment'
+    ];
+
+    const rows = detailVisits.map((visit, index) => {
+      const bp = visit.bloodPressure || visit.blood_pressure || 'N/A';
+      const temp = visit.temperature ? `${visit.temperature} °C` : 'N/A';
+      const resp = visit.respiratoryRate || visit.respiratory_rate ? `${visit.respiratoryRate || visit.respiratory_rate} cpm` : 'N/A';
+      const pulse = visit.pulseRate || visit.pulse_rate ? `${visit.pulseRate || visit.pulse_rate} bpm` : 'N/A';
+      const vitalsStr = `BP: ${bp} | Temp: ${temp} | RR: ${resp} | PR: ${pulse}`;
+
+      const formattedDateTime = `${formatDate(visit.visitDate || visit.visit_date)} ${formatTime(visit.timeIn || visit.time_in)}`;
+
+      return [
+        index + 1,
+        formattedDateTime,
+        visit.complaint || visit.chief_complaint || selectedAlertHeader.complaint,
+        vitalsStr,
+        visit.nursingIntervention || visit.nursing_intervention || visit.treatment_provided || visit.treatment || 'No intervention logged.',
+        visit.assessment || visit.remarks || visit.notes || 'No assessment logged.'
+      ];
+    });
+
+    generatePDFReport(
+      `Recurring Complaint Logs - ${selectedAlertHeader.studentName}`,
+      `Student ID: ${selectedAlertHeader.studentId} | Program/Yr: ${selectedAlertHeader.gradeSection || 'N/A'} | Complaint: ${selectedAlertHeader.complaint} (${detailVisits.length} Visits Recorded)`,
+      headers,
+      rows
+    );
+  };
 
   // Fetch Unified Nurse Operational Dashboard Overview
   const fetchNurseDashboard = useCallback(async () => {
@@ -386,14 +729,14 @@ const NurseDashboard = () => {
         const invResponse = await fetch('https://localhost-cms.onrender.com/api/inventory');
         if (invResponse.ok) {
           const inventoryBatches = await invResponse.json();
-          
+
           medicineStockAlerts = inventoryBatches
             .filter(batch => Number(batch.current_stock) <= Number(batch.low_stock_level))
             .map(batch => {
               const stock = Number(batch.current_stock);
               const crit = Number(batch.critical_stock_level);
               const low = Number(batch.low_stock_level);
-              
+
               let stock_status = 'ADEQUATE';
               if (stock <= crit) {
                 stock_status = 'CRITICAL';
@@ -411,7 +754,6 @@ const NurseDashboard = () => {
         console.error("Error fetching batch inventory stock alerts:", invErr);
       }
 
-      // Filter upcoming schedules to ensure start date/time hasn't passed
       const rawScreenings = dashData.upcomingHealthScreenings || [];
       const rawDoctorVisits = dashData.upcomingDoctorVisits || [];
 
@@ -422,7 +764,7 @@ const NurseDashboard = () => {
       const filteredDoctorVisits = rawDoctorVisits.filter((visit) =>
         isScheduleUpcoming(visit.scheduled_date || visit.start_time, visit.start_time)
       );
-      
+
       setNurseDashboardData({
         requirementsOverview: {
           waitingForApprovalCount,
@@ -455,7 +797,7 @@ const NurseDashboard = () => {
       const params = new URLSearchParams({ filterType, date: apiDate });
       const response = await fetch(`https://localhost-cms.onrender.com/api/health-trends?${params.toString()}`);
       const result = await response.json();
-      
+
       setTrendData(result.data || []);
       setComplaintsList(result.complaintsList || []);
       setAverages(result.averages || null);
@@ -482,11 +824,11 @@ const NurseDashboard = () => {
       const params = new URLSearchParams({ filterType: dispensedFilterType, date: apiDate });
       const response = await fetch(`https://localhost-cms.onrender.com/api/medicine-dispensed-overview?${params.toString()}`);
       const result = await response.json();
-      
+
       setDispensedData(result.data || []);
       setMedicinesList(result.medicinesList || []);
       setMedicinesUnitsMap(result.medicinesUnitsMap || result.medicineUnits || result.unitsMap || {});
-      
+
       setDispensedAverages(result.averages || result.dispensedAverages || null);
       setDispensedAveragesLabel(result.averagesLabel || "Average Medicine Dispensed per Month");
       setDispensedTimelineLabel(result.timelineLabel || "");
@@ -529,7 +871,6 @@ const NurseDashboard = () => {
     }
   }, []);
 
-  // Dismiss / Delete Alert
   const handleDismissAlert = async (studentId, complaint) => {
     if (!window.confirm(`Are you sure you want to dismiss the alert for ${complaint}?`)) {
       return;
@@ -552,7 +893,6 @@ const NurseDashboard = () => {
     }
   };
 
-  // View Detailed Visit Records for Alert
   const handleViewDetails = async (alertData) => {
     setSelectedAlertHeader(alertData);
     setIsDetailModalOpen(true);
@@ -595,12 +935,12 @@ const NurseDashboard = () => {
 
   const standardMedicinesInGraph = activeMedicinesInGraph.filter(medicine => {
     const unit = combinedUnitsMap[medicine];
-    return STANDARD_UNITS.includes(unit);
+    return isStandardUnit(unit);
   });
 
   const otherMedicinesInGraph = activeMedicinesInGraph.filter(medicine => {
     const unit = combinedUnitsMap[medicine];
-    return !STANDARD_UNITS.includes(unit);
+    return !isStandardUnit(unit);
   });
 
   const activePredictiveData = predictiveData.filter(med => 
@@ -609,15 +949,6 @@ const NurseDashboard = () => {
 
   const predictiveChartMinWidth = Math.max(activePredictiveData.length * 140, 800);
   const yearOptions = Array.from({ length: 6 }, (_, i) => (new Date().getFullYear() - i).toString());
-
-  const filteredAlerts = alerts.filter(alert => {
-    const matchesSearch = 
-      alert.studentName?.toLowerCase().includes(modalSearch.toLowerCase()) ||
-      alert.studentId?.toLowerCase().includes(modalSearch.toLowerCase()) ||
-      alert.complaint?.toLowerCase().includes(modalSearch.toLowerCase());
-    const matchesDate = !modalDate || (alert.date && alert.date.startsWith(modalDate));
-    return matchesSearch && matchesDate;
-  });
 
   const viewAllBtnStyle = {
     background: 'transparent',
@@ -642,192 +973,190 @@ const NurseDashboard = () => {
   };
 
   return (
-    <div className="dashboard-container">
+    <div className="dashboard-container-nd">
       
       {/* TOP SUMMARY STAT CARDS */}
-      <div className="dashboard-section-header">
-        <h2 className="dashboard-title">Nurse Operational Overview</h2>
-        <span className="last-updated-tag">Live System Data</span>
+      <div className="dashboard-section-header-nd">
+        <h2 className="dashboard-title-nd">Nurse Operational Overview</h2>
+        <span className="last-updated-tag-nd">Live System Data</span>
       </div>
 
       {isNurseDashboardLoading ? (
-        <div className="loading-container">
-          <div className="spinner"></div>
-          <p className="loading-text">Loading operational dashboard overview...</p>
+        <div className="loading-container-nd">
+          <div className="spinner-nd"></div>
+          <p className="loading-text-nd">Loading operational dashboard overview...</p>
         </div>
       ) : (
-        <div className="overview-cards-grid">
+        <div className="overview-cards-grid-nd">
           
           {/* Card 1: Requirements Overview */}
           <div
-            className="overview-card stat-card-blue"
+            className="overview-card-nd stat-card-blue-nd"
             role="button"
             tabIndex={0}
             onClick={() => navigate('/RequirementManagement')}
             onKeyDown={(event) => handleOverviewCardKeyDown(event, '/RequirementManagement')}
           >
-            <div className="stat-card-header">
+            <div className="stat-card-header-nd">
               <div>
-                <span className="stat-card-label">Requirements Overview</span>
-                <h3 className="stat-card-number">{nurseDashboardData.requirementsOverview.totalAttentionCount || 0}</h3>
-                <p className="stat-card-subtext">Students Needing Requirement Attention</p>
+                <span className="stat-card-label-nd">Requirements Overview</span>
+                <h3 className="stat-card-number-nd">{nurseDashboardData.requirementsOverview.totalAttentionCount || 0}</h3>
+                <p className="stat-card-subtext-nd">Students Needing Requirement Attention</p>
               </div>
-              <div className="stat-icon-wrapper bg-blue-light">
+              <div className="stat-icon-wrapper-nd bg-blue-light-nd">
                 <FileCheck size={24} color="#0250A3" />
               </div>
             </div>
-            <div className="stat-card-footer">
-              <div className="stat-pill warning-pill">
+            <div className="stat-card-footer-nd">
+              <div className="stat-pill-nd warning-pill-nd">
                 <Clock size={12} />
                 <span><strong>{nurseDashboardData.requirementsOverview.waitingForApprovalCount || 0}</strong> Waiting for Approval</span>
               </div>
-              <div className="stat-pill danger-pill">
+              <div className="stat-pill-nd danger-pill-nd">
                 <AlertCircle size={12} />
                 <span><strong>{nurseDashboardData.requirementsOverview.incompleteCount || 0}</strong> Incomplete Requirements</span>
               </div>
             </div>
-            <span className="overview-card-view-all">View All <ChevronRight size={14} /></span>
+            <span className="overview-card-view-all-nd">View All <ChevronRight size={14} /></span>
           </div>
 
           {/* Card 2: Document Requests Pending Approval */}
           <div
-            className="overview-card stat-card-orange"
+            className="overview-card-nd stat-card-orange-nd"
             role="button"
             tabIndex={0}
             onClick={() => navigate('/DocumentIssuance')}
             onKeyDown={(event) => handleOverviewCardKeyDown(event, '/DocumentIssuance')}
           >
-            <div className="stat-card-header">
+            <div className="stat-card-header-nd">
               <div>
-                <span className="stat-card-label">Pending Document Requests</span>
-                <h3 className="stat-card-number">{nurseDashboardData.pendingDocumentRequests.total_pending_requests || 0}</h3>
-                <p className="stat-card-subtext">Awaiting Nurse Review</p>
+                <span className="stat-card-label-nd">Pending Document Requests</span>
+                <h3 className="stat-card-number-nd">{nurseDashboardData.pendingDocumentRequests.total_pending_requests || 0}</h3>
+                <p className="stat-card-subtext-nd">Awaiting Nurse Review</p>
               </div>
-              <div className="stat-icon-wrapper bg-orange-light">
+              <div className="stat-icon-wrapper-nd bg-orange-light-nd">
                 <FileText size={24} color="#F59E0B" />
               </div>
             </div>
-            <div className="stat-card-footer">
-              <div className="stat-pill neutral-pill">
+            <div className="stat-card-footer-nd">
+              <div className="stat-pill-nd neutral-pill-nd">
                 <span>Excuse Slips: <strong>{nurseDashboardData.pendingDocumentRequests.pending_excuse_slips || 0}</strong></span>
               </div>
-              <div className="stat-pill neutral-pill">
+              <div className="stat-pill-nd neutral-pill-nd">
                 <span>Referral Slips: <strong>{nurseDashboardData.pendingDocumentRequests.pending_referral_slips || 0}</strong></span>
               </div>
             </div>
-            <span className="overview-card-view-all">View All <ChevronRight size={14} /></span>
+            <span className="overview-card-view-all-nd">View All <ChevronRight size={14} /></span>
           </div>
 
           {/* Card 3: Medicine Low & Critical Batch Stock */}
           <div
-            className="overview-card stat-card-red"
+            className="overview-card-nd stat-card-red-nd"
             role="button"
             tabIndex={0}
             onClick={() => navigate('/MedicineInventory')}
             onKeyDown={(event) => handleOverviewCardKeyDown(event, '/MedicineInventory')}
           >
-            <div className="stat-card-header">
+            <div className="stat-card-header-nd">
               <div>
-                <span className="stat-card-label">Medicine Stock Alerts</span>
-                <h3 className="stat-card-number">{nurseDashboardData.medicineStockAlerts.length}</h3>
-                <p className="stat-card-subtext">Batches Requiring Action</p>
+                <span className="stat-card-label-nd">Medicine Stock Alerts</span>
+                <h3 className="stat-card-number-nd">{nurseDashboardData.medicineStockAlerts.length}</h3>
+                <p className="stat-card-subtext-nd">Batches Requiring Action</p>
               </div>
-              <div className="stat-icon-wrapper bg-red-light">
+              <div className="stat-icon-wrapper-nd bg-red-light-nd">
                 <ShieldAlert size={24} color="#EF4444" />
               </div>
             </div>
-            <div className="stat-card-footer">
-              <div className="stat-pill danger-pill">
+            <div className="stat-card-footer-nd">
+              <div className="stat-pill-nd danger-pill-nd">
                 <span>Critical: <strong>{nurseDashboardData.medicineStockAlerts.filter(m => m.stock_status === 'CRITICAL').length}</strong></span>
               </div>
-              <div className="stat-pill warning-pill">
+              <div className="stat-pill-nd warning-pill-nd">
                 <span>Low Stock: <strong>{nurseDashboardData.medicineStockAlerts.filter(m => m.stock_status === 'LOW').length}</strong></span>
               </div>
             </div>
-            <span className="overview-card-view-all">View All <ChevronRight size={14} /></span>
+            <span className="overview-card-view-all-nd">View All <ChevronRight size={14} /></span>
           </div>
 
           {/* Card 4: Upcoming Screenings & Doctor Visits */}
           <div
-            className="overview-card stat-card-green"
+            className="overview-card-nd stat-card-green-nd"
             role="button"
             tabIndex={0}
             onClick={() => navigate('/HealthScreening')}
             onKeyDown={(event) => handleOverviewCardKeyDown(event, '/HealthScreening')}
           >
-            <div className="stat-card-header">
+            <div className="stat-card-header-nd">
               <div>
-                <span className="stat-card-label">Upcoming Schedules</span>
-                <h3 className="stat-card-number">
+                <span className="stat-card-label-nd">Upcoming Schedules</span>
+                <h3 className="stat-card-number-nd">
                   {upcomingHealthScreenings.length + upcomingDoctorVisits.length}
                 </h3>
-                <p className="stat-card-subtext">Screenings & Doctor Visits</p>
+                <p className="stat-card-subtext-nd">Screenings & Doctor Visits</p>
               </div>
-              <div className="stat-icon-wrapper bg-green-light">
+              <div className="stat-icon-wrapper-nd bg-green-light-nd">
                 <Calendar size={24} color="#10B981" />
               </div>
             </div>
-            <div className="stat-card-footer">
-              <div className="stat-pill success-pill">
+            <div className="stat-card-footer-nd">
+              <div className="stat-pill-nd success-pill-nd">
                 <span>Screenings: <strong>{upcomingHealthScreenings.length}</strong></span>
               </div>
-              <div className="stat-pill info-pill">
+              <div className="stat-pill-nd info-pill-nd">
                 <span>Doctor Visits: <strong>{upcomingDoctorVisits.length}</strong></span>
               </div>
             </div>
-            <span className="overview-card-view-all">View All <ChevronRight size={14} /></span>
+            <span className="overview-card-view-all-nd">View All <ChevronRight size={14} /></span>
           </div>
 
         </div>
       )}
 
       {/* QUICK ACTIONS SECTION */}
-      <div className="quick-actions-section">
-        <div className="quick-actions-header">
-          <h2 className="dashboard-title">Quick Actions</h2>
+      <div className="quick-actions-section-nd">
+        <div className="quick-actions-header-nd">
+          <h2 className="dashboard-title-nd">Quick Actions</h2>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
-          {/* Quick Action 1: Clinic Visit with QR */}
+        <div className="quick-actions-grid-nd">
           <button
             type="button"
-            className="quick-action-card"
+            className="quick-action-card-nd"
             onClick={() => navigate('/VisitLogConsultation', { state: { openQrScanner: true } })}
           >
-            <span className="quick-action-icon">
+            <span className="quick-action-icon-nd icon-blue-nd">
               <QrCode size={22} />
             </span>
-            <span className="quick-action-content">
+            <span className="quick-action-content-nd">
               <strong>Clinic Visit with QR</strong>
               <span>Scan a student QR code to start a clinic visit</span>
             </span>
-            <ChevronRight size={18} className="quick-action-arrow" />
+            <ChevronRight size={18} className="quick-action-arrow-nd" />
           </button>
 
-          {/* Quick Action 2: Dispense Medicine with QR */}
           <button
             type="button"
-            className="quick-action-card"
+            className="quick-action-card-nd"
             onClick={() => navigate('/DispensedMedicine', { state: { openQrScanner: true } })}
           >
-            <span className="quick-action-icon" style={{ backgroundColor: '#EEF2FF', color: '#4F46E5' }}>
+            <span className="quick-action-icon-nd icon-indigo-nd">
               <Pill size={22} />
             </span>
-            <span className="quick-action-content">
+            <span className="quick-action-content-nd">
               <strong>Dispense Medicine with QR</strong>
               <span>Scan a student QR code to dispense medicine</span>
             </span>
-            <ChevronRight size={18} className="quick-action-arrow" />
+            <ChevronRight size={18} className="quick-action-arrow-nd" />
           </button>
         </div>
       </div>
 
-      <div className="dashboard-divider-line" />
+      <div className="dashboard-divider-line-nd" />
 
       {/* SECTION 1: HEALTH TREND OVERVIEW */}
-      <div className="dashboard-header">
-        <h2 className="dashboard-title">Health Trend Overview</h2>
-        <div className="filter-group">
-          <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="filter-input filter-select">
+      <div className="dashboard-header-nd">
+        <h2 className="dashboard-title-nd">Health Trend Overview</h2>
+        <div className="filter-group-nd">
+          <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="filter-input-nd filter-select-nd">
             <option value="current">Current Health Trends (Default)</option>
             <option value="weekly">Weekly Overview (By Month)</option>
             <option value="yearly">Yearly Overview</option>
@@ -841,32 +1170,35 @@ const NurseDashboard = () => {
                 const val = e.target.value;
                 if (!val || val <= maxCurrentMonth) setSelectedMonth(val);
               }} 
-              className="filter-input date-picker" 
+              className="filter-input-nd date-picker-nd" 
             />
           )}
           {filterType === 'yearly' && (
-            <select value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)} className="filter-input filter-select-year">
+            <select value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)} className="filter-input-nd filter-select-year-nd">
               {yearOptions.map(year => <option key={year} value={year}>{year}</option>)}
             </select>
           )}
+          <button type="button" className="export-btn-nd" onClick={handleExportHealthTrends}>
+            <Download size={16} /> Export
+          </button>
         </div>
       </div>
 
-      <div className="timeline-info">
-        <p className="period-label">{periodLabel || "Loading timeline..."}</p>
-        <p className="timeline-subtext">{timelineLabel}</p>
+      <div className="timeline-info-nd">
+        <p className="period-label-nd">{periodLabel || "Loading timeline..."}</p>
+        <p className="timeline-subtext-nd">{timelineLabel}</p>
       </div>
 
-      <div className="graph-container">
+      <div className="graph-container-nd">
         {isLoading ? (
-          <div className="loading-container">
-            <div className="spinner"></div>
-            <p className="loading-text">Analyzing database records...</p>
+          <div className="loading-container-nd">
+            <div className="spinner-nd"></div>
+            <p className="loading-text-nd">Analyzing database records...</p>
           </div>
         ) : trendData.length === 0 ? (
-          <div className="no-data-container"><h3 className="no-data-title">No Clinic Records Found</h3></div>
+          <div className="no-data-container-nd"><h3 className="no-data-title-nd">No Clinic Records Found</h3></div>
         ) : (
-          <div className="chart-wrapper">
+          <div className="chart-wrapper-nd">
             <ResponsiveContainer width="100%" height={380}>
               <BarChart data={trendData} margin={{ top: 20, right: 30, left: 10, bottom: 20 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
@@ -888,15 +1220,15 @@ const NurseDashboard = () => {
       </div>
 
       {!isLoading && averages && (
-        <div className="averages-container">
-          <h4 className="averages-title">{averagesLabel}</h4>
-          <div className={`collapsible-container badge-collapsible ${isAveragesExpanded ? 'expanded' : ''}`}>
-            <div className="averages-badges-wrapper">
+        <div className="averages-container-nd">
+          <h4 className="averages-title-nd">{averagesLabel}</h4>
+          <div className={`collapsible-container-nd badge-collapsible-nd ${isAveragesExpanded ? 'expanded-nd' : ''}`}>
+            <div className="averages-badges-wrapper-nd">
               {complaintsList.map((complaint) => (
-                <div key={complaint} className="average-badge-card">
-                  <span className="badge-dot" style={{ backgroundColor: getComplaintColor(complaint) }} />
-                  <span className="badge-name">{complaint}</span>
-                  <span className="badge-value">
+                <div key={complaint} className="average-badge-card-nd">
+                  <span className="badge-dot-nd" style={{ backgroundColor: getComplaintColor(complaint) }} />
+                  <span className="badge-name-nd">{complaint}</span>
+                  <span className="badge-value-nd">
                     {averages[complaint] !== undefined ? (
                       <>{formatCeilAvg(averages[complaint])} avg/mo</>
                     ) : (
@@ -908,7 +1240,7 @@ const NurseDashboard = () => {
             </div>
           </div>
           {complaintsList.length > 3 && (
-            <button className="view-more-toggle-btn" onClick={() => setIsAveragesExpanded(!isAveragesExpanded)}>
+            <button className="view-more-toggle-btn-nd" onClick={() => setIsAveragesExpanded(!isAveragesExpanded)}>
               {isAveragesExpanded ? <>View Less <ChevronUp size={14} /></> : <>View More <ChevronDown size={14} /></>}
             </button>
           )}
@@ -916,12 +1248,12 @@ const NurseDashboard = () => {
       )}
 
       {/* SECTION 2: MEDICINE DISPENSED OVERVIEW */}
-      <div className="dashboard-divider-line" />
+      <div className="dashboard-divider-line-nd" />
 
-      <div className="dashboard-header">
-        <h2 className="dashboard-title">Medicine Dispensed Overview</h2>
-        <div className="filter-group">
-          <select value={dispensedFilterType} onChange={(e) => setDispensedFilterType(e.target.value)} className="filter-input filter-select">
+      <div className="dashboard-header-nd">
+        <h2 className="dashboard-title-nd">Medicine Dispensed Overview</h2>
+        <div className="filter-group-nd">
+          <select value={dispensedFilterType} onChange={(e) => setDispensedFilterType(e.target.value)} className="filter-input-nd filter-select-nd">
             <option value="current">Current Medicine Dispensed (Default)</option>
             <option value="weekly">Weekly Overview (By Month)</option>
             <option value="yearly">Yearly Overview</option>
@@ -935,40 +1267,43 @@ const NurseDashboard = () => {
                 const val = e.target.value;
                 if (!val || val <= maxCurrentMonth) setDispensedSelectedMonth(val);
               }} 
-              className="filter-input date-picker" 
+              className="filter-input-nd date-picker-nd" 
             />
           )}
           {dispensedFilterType === 'yearly' && (
-            <select value={dispensedSelectedYear} onChange={(e) => setDispensedSelectedYear(e.target.value)} className="filter-input filter-select-year">
+            <select value={dispensedSelectedYear} onChange={(e) => setDispensedSelectedYear(e.target.value)} className="filter-input-nd filter-select-year-nd">
               {yearOptions.map(year => <option key={year} value={year}>{year}</option>)}
             </select>
           )}
+          <button type="button" className="export-btn-nd" onClick={handleExportMedicineDispensed}>
+            <Download size={16} /> Export
+          </button>
         </div>
       </div>
 
-      <div className="timeline-info">
-        <p className="period-label">{dispensedPeriodLabel || "Loading dispensation timeline..."}</p>
-        <p className="timeline-subtext">{dispensedTimelineLabel}</p>
+      <div className="timeline-info-nd">
+        <p className="period-label-nd">{dispensedPeriodLabel || "Loading dispensation timeline..."}</p>
+        <p className="timeline-subtext-nd">{dispensedTimelineLabel}</p>
       </div>
 
       {isDispensedLoading ? (
-        <div className="loading-container">
-          <div className="spinner"></div>
-          <p className="loading-text">Analyzing medicine dispensation logs...</p>
+        <div className="loading-container-nd">
+          <div className="spinner-nd"></div>
+          <p className="loading-text-nd">Analyzing medicine dispensation logs...</p>
         </div>
       ) : dispensedData.length === 0 ? (
-        <div className="no-data-container"><h3 className="no-data-title">No Dispensation Records Found</h3></div>
+        <div className="no-data-container-nd"><h3 className="no-data-title-nd">No Dispensation Records Found</h3></div>
       ) : (
         <>
           {/* GRAPH 1: STANDARD DOSAGE UNITS */}
-          <div className="graph-container">
-            <h3 className="chart-subtitle">Standard Dosage Units (mg, g, mcg, mL, L)</h3>
+          <div className="graph-container-nd">
+            <h3 className="chart-subtitle-nd">Standard Dosage Units (mg, g, mcg, mL, L)</h3>
             {standardMedicinesInGraph.length === 0 ? (
-              <div className="no-data-container" style={{ padding: '20px' }}>
-                <p className="no-data-title" style={{ fontSize: '14px' }}>No records found for standard dosage units.</p>
+              <div className="no-data-container-nd" style={{ padding: '20px' }}>
+                <p className="no-data-title-nd" style={{ fontSize: '14px' }}>No records found for standard dosage units.</p>
               </div>
             ) : (
-              <div className="chart-wrapper">
+              <div className="chart-wrapper-nd">
                 <ResponsiveContainer width="100%" height={380}>
                   <BarChart data={dispensedData} margin={{ top: 20, right: 30, left: 10, bottom: 20 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
@@ -990,14 +1325,14 @@ const NurseDashboard = () => {
           </div>
 
           {/* GRAPH 2: OTHER UNITS OF MEASURE */}
-          <div className="graph-container">
-            <h3 className="chart-subtitle">Other Units of Measure</h3>
+          <div className="graph-container-nd">
+            <h3 className="chart-subtitle-nd">Other Units of Measure</h3>
             {otherMedicinesInGraph.length === 0 ? (
-              <div className="no-data-container" style={{ padding: '20px' }}>
-                <p className="no-data-title" style={{ fontSize: '14px' }}>No records found for other units of measure.</p>
+              <div className="no-data-container-nd" style={{ padding: '20px' }}>
+                <p className="no-data-title-nd" style={{ fontSize: '14px' }}>No records found for other units of measure.</p>
               </div>
             ) : (
-              <div className="chart-wrapper">
+              <div className="chart-wrapper-nd">
                 <ResponsiveContainer width="100%" height={380}>
                   <BarChart data={dispensedData} margin={{ top: 20, right: 30, left: 10, bottom: 20 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
@@ -1021,10 +1356,10 @@ const NurseDashboard = () => {
       )}
 
       {!isDispensedLoading && (dispensedAverages || dispensedData.length > 0) && (
-        <div className="averages-container">
-          <h4 className="averages-title">{dispensedAveragesLabel || "Average Medicine Dispensed per Month"}</h4>
-          <div className={`collapsible-container badge-collapsible ${isDispensedAveragesExpanded ? 'expanded' : ''}`}>
-            <div className="averages-badges-wrapper">
+        <div className="averages-container-nd">
+          <h4 className="averages-title-nd">{dispensedAveragesLabel || "Average Medicine Dispensed per Month"}</h4>
+          <div className={`collapsible-container-nd badge-collapsible-nd ${isDispensedAveragesExpanded ? 'expanded-nd' : ''}`}>
+            <div className="averages-badges-wrapper-nd">
               {medicinesList.map((medicine) => {
                 const unit = combinedUnitsMap[medicine] || 'dispensed';
                 let avgValue = dispensedAverages?.[medicine];
@@ -1039,10 +1374,10 @@ const NurseDashboard = () => {
                 }
 
                 return (
-                  <div key={medicine} className="average-badge-card">
-                    <span className="badge-dot" style={{ backgroundColor: getMedicineColor(medicine) }} />
-                    <span className="badge-name">{medicine}</span>
-                    <span className="badge-value">
+                  <div key={medicine} className="average-badge-card-nd">
+                    <span className="badge-dot-nd" style={{ backgroundColor: getMedicineColor(medicine) }} />
+                    <span className="badge-name-nd">{medicine}</span>
+                    <span className="badge-value-nd">
                       {formatCeilAvg(avgValue)} {unit}/mo
                     </span>
                   </div>
@@ -1051,7 +1386,7 @@ const NurseDashboard = () => {
             </div>
           </div>
           {medicinesList.length > 3 && (
-            <button className="view-more-toggle-btn" onClick={() => setIsDispensedAveragesExpanded(!isDispensedAveragesExpanded)}>
+            <button className="view-more-toggle-btn-nd" onClick={() => setIsDispensedAveragesExpanded(!isDispensedAveragesExpanded)}>
               {isDispensedAveragesExpanded ? <>View Less <ChevronUp size={14} /></> : <>View More <ChevronDown size={14} /></>}
             </button>
           )}
@@ -1059,12 +1394,12 @@ const NurseDashboard = () => {
       )}
 
       {/* SECTION 3: PREDICTIVE MEDICINE DEMAND */}
-      <div className="dashboard-divider-line" />
+      <div className="dashboard-divider-line-nd" />
 
-      <div className="dashboard-header">
-        <h2 className="dashboard-title">{predictiveTitle}</h2>
-        <div className="filter-group">
-          <label className="filter-label">Select Month: </label>
+      <div className="dashboard-header-nd">
+        <h2 className="dashboard-title-nd">{predictiveTitle}</h2>
+        <div className="filter-group-nd">
+          <label className="filter-label-nd">Select Month: </label>
           <input 
             type="month" 
             value={predictiveMonth} 
@@ -1075,21 +1410,24 @@ const NurseDashboard = () => {
                 setPredictiveMonth(selectedValue);
               }
             }} 
-            className="filter-input date-picker" 
+            className="filter-input-nd date-picker-nd" 
           />
+          <button type="button" className="export-btn-nd" onClick={handleExportPredictiveDemand}>
+            <Download size={16} /> Export
+          </button>
         </div>
       </div>
 
-      <div className="graph-container">
+      <div className="graph-container-nd">
         {isPredictiveLoading ? (
-          <div className="loading-container">
-            <div className="spinner"></div>
-            <p className="loading-text">Calculating container package stock requirements...</p>
+          <div className="loading-container-nd">
+            <div className="spinner-nd"></div>
+            <p className="loading-text-nd">Calculating container package stock requirements...</p>
           </div>
         ) : activePredictiveData.length === 0 ? (
-          <div className="no-data-container"><h3 className="no-data-title">No Predictive Demand Records Found</h3></div>
+          <div className="no-data-container-nd"><h3 className="no-data-title-nd">No Predictive Demand Records Found</h3></div>
         ) : (
-          <div className="chart-wrapper scrollable-chart">
+          <div className="chart-wrapper-nd scrollable-chart-nd">
             <div style={{ width: predictiveChartMinWidth, height: 420 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={activePredictiveData} margin={{ top: 20, right: 30, left: 10, bottom: 60 }}>
@@ -1108,14 +1446,14 @@ const NurseDashboard = () => {
       </div>
 
       {!isPredictiveLoading && predictiveData.length > 0 && (
-        <div className="averages-container">
-          <h4 className="averages-title">Predictive Calculation Breakdown (Dispense Avg / Container Strength)</h4>
-          <div className={`collapsible-container card-collapsible ${isPredictiveExpanded ? 'expanded' : ''}`}>
-            <div className="predictive-mapping-grid">
+        <div className="averages-container-nd">
+          <h4 className="averages-title-nd">Predictive Calculation Breakdown (Dispense Avg / Container Strength)</h4>
+          <div className={`collapsible-container-nd card-collapsible-nd ${isPredictiveExpanded ? 'expanded-nd' : ''}`}>
+            <div className="predictive-mapping-grid-nd">
               {predictiveData.map((med, index) => (
-                <div key={index} className="predictive-mapping-card">
-                  <div className="predictive-card-title">{med.name}</div>
-                  <div className="predictive-card-text">
+                <div key={index} className="predictive-mapping-card-nd">
+                  <div className="predictive-card-title-nd">{med.name}</div>
+                  <div className="predictive-card-text-nd">
                     <strong>Package Strength: </strong>{med.packageStrength} ({med.dosageForm})<br />
                     <strong>Stock at Date: </strong>{med.currentStock} {pluralize(med.dosageForm, med.currentStock)}<br />
                     <strong>Monthly Avg Dispense: </strong>{formatCeilAvg(med.avgMonthlyDispensedBase)} {med.unitOfMeasure}<br />
@@ -1126,7 +1464,7 @@ const NurseDashboard = () => {
             </div>
           </div>
           {predictiveData.length > 2 && (
-            <button className="view-more-toggle-btn" onClick={() => setIsPredictiveExpanded(!isPredictiveExpanded)}>
+            <button className="view-more-toggle-btn-nd" onClick={() => setIsPredictiveExpanded(!isPredictiveExpanded)}>
               {isPredictiveExpanded ? <>View Less <ChevronUp size={14} /></> : <>View More <ChevronDown size={14} /></>}
             </button>
           )}
@@ -1134,24 +1472,24 @@ const NurseDashboard = () => {
       )}
 
       {/* SECTION 4: DETAILED PANELS GRID */}
-      <div className="dashboard-divider-line" />
+      <div className="dashboard-divider-line-nd" />
 
-      <div className="dashboard-section-header">
-        <h2 className="dashboard-title">Detailed Clinic Records & Deadlines</h2>
+      <div className="dashboard-section-header-nd">
+        <h2 className="dashboard-title-nd">Detailed Clinic Records & Deadlines</h2>
       </div>
 
       {!isNurseDashboardLoading && (
-        <div className="dashboard-details-grid">
+        <div className="dashboard-details-grid-nd">
           
           {/* 1. Upcoming Requirement Deadlines Details */}
-          <div className="detail-panel">
-            <div className="panel-header">
-              <div className="panel-title-wrapper">
-                <Clock size={18} className="panel-icon text-blue" />
-                <h3 className="panel-title">Upcoming Requirement Deadlines</h3>
+          <div className="detail-panel-nd">
+            <div className="panel-header-nd">
+              <div className="panel-title-wrapper-nd">
+                <Clock size={18} className="panel-icon-nd text-blue-nd" />
+                <h3 className="panel-title-nd">Upcoming Requirement Deadlines</h3>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <span className="count-badge">{nurseDashboardData.upcomingRequirementDeadlines.length}</span>
+                <span className="count-badge-nd">{nurseDashboardData.upcomingRequirementDeadlines.length}</span>
                 <button 
                   style={viewAllBtnStyle} 
                   onClick={() => navigate('/RequirementManagement')}
@@ -1162,12 +1500,12 @@ const NurseDashboard = () => {
                 </button>
               </div>
             </div>
-            <div className="panel-content">
+            <div className="panel-content-nd">
               {nurseDashboardData.upcomingRequirementDeadlines.length === 0 ? (
-                <div className="panel-empty">No upcoming requirement deadlines recorded.</div>
+                <div className="panel-empty-nd">No upcoming requirement deadlines recorded.</div>
               ) : (
-                <div className="table-responsive">
-                  <table className="overview-table">
+                <div className="table-responsive-nd">
+                  <table className="overview-table-nd">
                     <thead>
                       <tr>
                         <th>Requirement Name</th>
@@ -1180,21 +1518,21 @@ const NurseDashboard = () => {
                     <tbody>
                       {nurseDashboardData.upcomingRequirementDeadlines.map((req, idx) => (
                         <tr key={req.id || idx}>
-                          <td className="font-semibold">{req.requirement_name}</td>
+                          <td className="font-semibold-nd">{req.requirement_name}</td>
                           <td>
-                            <span className={`badge-pill ${req.requirement_type === 'Program' ? 'badge-program' : 'badge-special'}`}>
+                            <span className={`badge-pill-nd ${req.requirement_type === 'Program' ? 'badge-program-nd' : 'badge-special-nd'}`}>
                               {req.requirement_type}
                             </span>
                           </td>
-                          <td className="text-muted">
+                          <td className="text-muted-nd">
                             {req.requirement_type === 'Program' 
                               ? `Program: ${req.program_name || req.program_code || 'All Programs'} (Yr ${req.year_level || 'All'})`
                               : `Student: ${req.student_name || 'Specific Student'}`
                             }
                           </td>
-                          <td className="text-highlight">{formatDate(req.submission_deadline)}</td>
+                          <td className="text-highlight-nd">{formatDate(req.submission_deadline)}</td>
                           <td>
-                            <span className={`status-tag ${req.allow_late_submission ? 'tag-allowed' : 'tag-strict'}`}>
+                            <span className={`status-tag-nd ${req.allow_late_submission ? 'tag-allowed-nd' : 'tag-strict-nd'}`}>
                               {req.allow_late_submission ? 'Allowed' : 'Not Allowed'}
                             </span>
                           </td>
@@ -1208,14 +1546,14 @@ const NurseDashboard = () => {
           </div>
 
           {/* 2. Medicine Inventory Low & Critical Batch Stock Details */}
-          <div className="detail-panel">
-            <div className="panel-header">
-              <div className="panel-title-wrapper">
-                <Pill size={18} className="panel-icon text-red" />
-                <h3 className="panel-title">Medicine Stock Level Alerts</h3>
+          <div className="detail-panel-nd">
+            <div className="panel-header-nd">
+              <div className="panel-title-wrapper-nd">
+                <Pill size={18} className="panel-icon-nd text-red-nd" />
+                <h3 className="panel-title-nd">Medicine Stock Level Alerts</h3>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <span className="count-badge count-badge-red">{nurseDashboardData.medicineStockAlerts.length}</span>
+                <span className="count-badge-nd count-badge-red-nd">{nurseDashboardData.medicineStockAlerts.length}</span>
                 <button 
                   style={viewAllBtnStyle} 
                   onClick={() => navigate('/MedicineInventory')}
@@ -1226,15 +1564,15 @@ const NurseDashboard = () => {
                 </button>
               </div>
             </div>
-            <div className="panel-content">
+            <div className="panel-content-nd">
               {nurseDashboardData.medicineStockAlerts.length === 0 ? (
-                <div className="panel-empty panel-empty-success">
+                <div className="panel-empty-nd panel-empty-success-nd">
                   <CheckCircle2 size={18} color="#10B981" />
                   <span>All medicine batch stock levels are currently adequate.</span>
                 </div>
               ) : (
-                <div className="table-responsive">
-                  <table className="overview-table">
+                <div className="table-responsive-nd">
+                  <table className="overview-table-nd">
                     <thead>
                       <tr>
                         <th>Medicine</th>
@@ -1248,20 +1586,20 @@ const NurseDashboard = () => {
                       {nurseDashboardData.medicineStockAlerts.map((med) => (
                         <tr key={med.batch_id || med.medicine_id}>
                           <td>
-                            <div className="font-semibold">{med.generic_name}</div>
-                            {med.brand_name && <div className="text-xs text-muted">({med.brand_name})</div>}
+                            <div className="font-semibold-nd">{med.generic_name}</div>
+                            {med.brand_name && <div className="text-xs-nd text-muted-nd">({med.brand_name})</div>}
                           </td>
                           <td>{med.dosage_form || 'N/A'}</td>
                           <td>
-                            <strong className={med.stock_status === 'CRITICAL' ? 'text-red' : 'text-orange'}>
+                            <strong className={med.stock_status === 'CRITICAL' ? 'text-red-nd' : 'text-orange-nd'}>
                               {med.current_stock}
                             </strong>
                           </td>
-                          <td className="text-xs text-muted">
+                          <td className="text-xs-nd text-muted-nd">
                             Low: {med.low_stock_level} | Crit: {med.critical_stock_level}
                           </td>
                           <td>
-                            <span className={`status-badge ${med.stock_status === 'CRITICAL' ? 'badge-critical' : 'badge-low'}`}>
+                            <span className={`status-badge-nd ${med.stock_status === 'CRITICAL' ? 'badge-critical-nd' : 'badge-low-nd'}`}>
                               {med.stock_status}
                             </span>
                           </td>
@@ -1275,14 +1613,14 @@ const NurseDashboard = () => {
           </div>
 
           {/* 3. Upcoming Health Screenings Details */}
-          <div className="detail-panel">
-            <div className="panel-header">
-              <div className="panel-title-wrapper">
-                <Activity size={18} className="panel-icon text-green" />
-                <h3 className="panel-title">Upcoming Health Screenings</h3>
+          <div className="detail-panel-nd">
+            <div className="panel-header-nd">
+              <div className="panel-title-wrapper-nd">
+                <Activity size={18} className="panel-icon-nd text-green-nd" />
+                <h3 className="panel-title-nd">Upcoming Health Screenings</h3>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <span className="count-badge">{upcomingHealthScreenings.length}</span>
+                <span className="count-badge-nd">{upcomingHealthScreenings.length}</span>
                 <button 
                   style={viewAllBtnStyle} 
                   onClick={() => navigate('/HealthScreening')}
@@ -1293,33 +1631,33 @@ const NurseDashboard = () => {
                 </button>
               </div>
             </div>
-            <div className="panel-content">
+            <div className="panel-content-nd">
               {upcomingHealthScreenings.length === 0 ? (
-                <div className="panel-empty">No upcoming health screenings scheduled.</div>
+                <div className="panel-empty-nd">No upcoming health screenings scheduled.</div>
               ) : (
-                <div className="cards-list">
+                <div className="cards-list-nd">
                   {upcomingHealthScreenings.map((screen) => (
-                    <div key={screen.screening_schedule_id} className="detail-card border-left-green">
-                      <div className="card-top-row">
-                        <h4 className="card-item-title">{screen.title}</h4>
-                        <span className="badge-pill badge-green">{screen.screening_type || 'Screening'}</span>
+                    <div key={screen.screening_schedule_id} className="detail-card-nd border-left-green-nd">
+                      <div className="card-top-row-nd">
+                        <h4 className="card-item-title-nd">{screen.title}</h4>
+                        <span className="badge-pill-nd badge-green-nd">{screen.screening_type || 'Screening'}</span>
                       </div>
-                      <div className="card-meta-grid">
+                      <div className="card-meta-grid-nd">
                         <div>
-                          <Calendar size={13} className="inline-icon" />
+                          <Calendar size={13} className="inline-icon-nd" />
                           <strong>Date:</strong> {formatDate(screen.scheduled_date)}
                         </div>
                         <div>
-                          <Clock size={13} className="inline-icon" />
+                          <Clock size={13} className="inline-icon-nd" />
                           <strong>Time:</strong> {formatTime(screen.start_time)} - {formatTime(screen.end_time)}
                         </div>
                         <div>
-                          <GraduationCap size={13} className="inline-icon" />
+                          <GraduationCap size={13} className="inline-icon-nd" />
                           <strong>Target:</strong> Program: {screen.target_program_name || screen.target_program || 'All Programs'}, Yr {screen.target_year_level || 'All'} ({screen.target_section || 'All Sections'})
                         </div>
                       </div>
                       {screen.announcement && (
-                        <div className="card-announcement">
+                        <div className="card-announcement-nd">
                           <strong>Announcement:</strong> {screen.announcement}
                         </div>
                       )}
@@ -1331,14 +1669,14 @@ const NurseDashboard = () => {
           </div>
 
           {/* 4. Upcoming Doctor Visits Details */}
-          <div className="detail-panel">
-            <div className="panel-header">
-              <div className="panel-title-wrapper">
-                <Stethoscope size={18} className="panel-icon text-purple" />
-                <h3 className="panel-title">Upcoming Doctor Visits</h3>
+          <div className="detail-panel-nd">
+            <div className="panel-header-nd">
+              <div className="panel-title-wrapper-nd">
+                <Stethoscope size={18} className="panel-icon-nd text-purple-nd" />
+                <h3 className="panel-title-nd">Upcoming Doctor Visits</h3>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <span className="count-badge">{upcomingDoctorVisits.length}</span>
+                <span className="count-badge-nd">{upcomingDoctorVisits.length}</span>
                 <button 
                   style={viewAllBtnStyle} 
                   onClick={() => navigate('/DoctorVisit')}
@@ -1349,24 +1687,24 @@ const NurseDashboard = () => {
                 </button>
               </div>
             </div>
-            <div className="panel-content">
+            <div className="panel-content-nd">
               {upcomingDoctorVisits.length === 0 ? (
-                <div className="panel-empty">No upcoming doctor visits scheduled.</div>
+                <div className="panel-empty-nd">No upcoming doctor visits scheduled.</div>
               ) : (
-                <div className="cards-list">
+                <div className="cards-list-nd">
                   {upcomingDoctorVisits.map((visit) => (
-                    <div key={visit.appointment_id} className="detail-card border-left-purple">
-                      <div className="card-top-row">
-                        <h4 className="card-item-title">{visit.title || `Doctor Visit`}</h4>
-                        <span className="badge-pill badge-purple">{visit.status || 'Scheduled'}</span>
+                    <div key={visit.appointment_id} className="detail-card-nd border-left-purple-nd">
+                      <div className="card-top-row-nd">
+                        <h4 className="card-item-title-nd">{visit.title || `Doctor Visit`}</h4>
+                        <span className="badge-pill-nd badge-purple-nd">{visit.status || 'Scheduled'}</span>
                       </div>
-                      <div className="card-meta-grid">
+                      <div className="card-meta-grid-nd">
                         <div>
-                          <Clock size={13} className="inline-icon" />
+                          <Clock size={13} className="inline-icon-nd" />
                           <strong>Schedule:</strong> {formatDateTime(visit.start_time)}
                         </div>
                         <div>
-                          <UserCheck size={13} className="inline-icon" />
+                          <UserCheck size={13} className="inline-icon-nd" />
                           <strong>Doctor:</strong> {visit.doctor_name || visit.doctor || 'Assigned Doctor'}
                         </div>
                         {visit.assigned_by_nurse_name && (
@@ -1376,7 +1714,7 @@ const NurseDashboard = () => {
                         )}
                       </div>
                       {visit.announcement && (
-                        <div className="card-announcement">
+                        <div className="card-announcement-nd">
                           <strong>Notes:</strong> {visit.announcement}
                         </div>
                       )}
@@ -1391,149 +1729,161 @@ const NurseDashboard = () => {
       )}
 
       {/* SECTION 5: FREQUENT COMPLAINT ALERTS */}
-      <div className="dashboard-divider-line" />
+      <div className="dashboard-divider-line-nd" />
 
-      <div className="dashboard-header">
-        <div className="title-with-badge">
-          <h2 className="dashboard-title">Frequent Complaint Alerts</h2>
-          {alerts.length > 0 && <span className="alert-count-badge">{alerts.length}</span>}
+      <div className="dashboard-header-nd">
+        <div className="title-with-badge-nd">
+          <h2 className="dashboard-title-nd">Frequent Complaint Alerts</h2>
+          {alerts.length > 0 && <span className="alert-count-badge-nd">{alerts.length}</span>}
         </div>
-        <button className="view-all-btn" onClick={() => setIsModalOpen(true)}>
-          <Eye size={16} /> View All Alerts
-        </button>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <button type="button" className="export-btn-nd" onClick={handleExportFrequentComplaints}>
+            <Download size={16} /> Export
+          </button>
+          <button className="view-all-btn-nd" onClick={() => setIsModalOpen(true)}>
+            <Eye size={16} /> View All Alerts
+          </button>
+        </div>
       </div>
-      <p className="section-subtitle">Students with recurring clinic visits for similar health concerns</p>
+      <p className="section-subtitle-nd">Students with recurring clinic visits for similar health concerns</p>
 
       {isAlertsLoading ? (
-        <div className="loading-container">
-          <div className="spinner"></div>
-          <p className="loading-text">Checking frequent visit patterns...</p>
+        <div className="loading-container-nd">
+          <div className="spinner-nd"></div>
+          <p className="loading-text-nd">Checking frequent visit patterns...</p>
         </div>
       ) : alerts.length === 0 ? (
-        <div className="empty-alert-card">
-          <div className="empty-icon"><CheckCircle2 size={28} /></div>
-          <h3 className="empty-title">No Frequent Complaint Alerts</h3>
-          <p className="empty-subtext">There are currently no students exceeding visit thresholds for recurring complaints.</p>
+        <div className="empty-alert-card-nd">
+          <div className="empty-icon-nd"><CheckCircle2 size={32} /></div>
+          <h3 className="empty-title-nd">No Frequent Complaint Alerts</h3>
+          <p className="empty-subtext-nd">All student clinic visit patterns are currently within standard ranges.</p>
         </div>
       ) : (
-        <div className="frequent-alerts-grid">
-          {alerts.slice(0, 6).map((alert, index) => (
-            <div key={index} className="alert-card">
-              <div className="alert-card-header">
-                <div>
-                  <h3 className="alert-student-name">{alert.studentName}</h3>
-                  {alert.gradeSection && <span style={{ fontSize: '12px', color: '#6B7280' }}>{alert.gradeSection}</span>}
-                </div>
-                <span className="visit-badge">{alert.visitCount} Visits</span>
-              </div>
-              <div className="complaint-chip" style={{ marginTop: '8px' }}>
-                <strong>Complaint:</strong> {alert.complaint}
-              </div>
-              {alert.advice && (
-                <div className="advice-box" style={{ marginTop: '10px' }}>
-                  <div className="advice-header">
-                    <Lightbulb size={15} /> <strong>Recommended Advice</strong>
+        <div className="frequent-alerts-grid-nd">
+          {alerts.slice(0, 3).map((alert, idx) => (
+            <div key={idx} className="alert-card-nd">
+              <div>
+                <div className="alert-card-header-nd">
+                  <div>
+                    <h4 className="alert-student-name-nd">{alert.studentName}</h4>
+                    <span className="alert-student-id-nd">ID: {alert.studentId}</span>
                   </div>
-                  <p className="advice-text">{alert.advice}</p>
+                  <span className="visit-badge-nd">{alert.visitCount} Visits / Mo</span>
                 </div>
-              )}
+                <div className="complaint-chip-nd">
+                  <strong>Complaint:</strong> {alert.complaint}
+                </div>
+                <div className="advice-box-nd">
+                  <div className="advice-header-nd">
+                    <Lightbulb size={14} />
+                    <strong>Clinical Advice:</strong>
+                  </div>
+                  <p className="advice-text-nd">{alert.advice}</p>
+                </div>
+              </div>
+              <div style={{ marginTop: '14px', display: 'flex', gap: '8px' }}>
+                <button 
+                  className="retry-btn-nd" 
+                  style={{ height: '34px', fontSize: '12.5px', padding: '0 12px', flex: 1 }}
+                  onClick={() => handleViewDetails(alert)}
+                >
+                  View Visit Log
+                </button>
+                <button 
+                  className="retry-btn-nd" 
+                  style={{ height: '34px', fontSize: '12.5px', padding: '0 12px', backgroundColor: '#EF4444' }}
+                  onClick={() => handleDismissAlert(alert.studentId, alert.complaint)}
+                >
+                  Dismiss
+                </button>
+              </div>
             </div>
           ))}
         </div>
       )}
 
-      {/* ALL ALERTS OVERVIEW MODAL */}
+      {/* ALL ALERTS MODAL */}
       {isModalOpen && (
-        <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>
-          <div className="modal-container" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
+        <div className="modal-overlay-nd" onClick={() => setIsModalOpen(false)}>
+          <div className="modal-container-nd" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header-nd">
               <div>
-                <h3 className="modal-title">Frequent Complaint Alerts Overview</h3>
-                <p className="modal-subtitle">Detailed record of recurring student visits</p>
+                <h3 className="modal-title-nd">Frequent Complaint Alerts</h3>
+                <p className="modal-subtitle-nd">Complete list of students requiring recurring care attention</p>
               </div>
-              <button className="modal-close-btn" onClick={() => setIsModalOpen(false)} aria-label="Close modal">
-                <X size={18} />
+              <button className="modal-close-btn-nd" onClick={() => setIsModalOpen(false)}>
+                <X size={20} />
               </button>
             </div>
 
-            <div className="modal-filter-bar">
-              <div className="search-input-wrapper">
-                <Search size={16} className="search-icon" />
-                <input 
-                  type="text" 
-                  placeholder="Search student name, complaint..." 
-                  value={modalSearch} 
-                  onChange={(e) => setModalSearch(e.target.value)} 
-                  className="filter-input modal-search-input" 
+            <div className="modal-filter-bar-nd">
+              <div className="search-input-wrapper-nd">
+                <Search size={16} className="search-icon-nd" />
+                <input
+                  type="text"
+                  placeholder="Search by student name, ID, or complaint..."
+                  value={modalSearch}
+                  onChange={(e) => setModalSearch(e.target.value)}
+                  className="filter-input-nd modal-search-input-nd"
                 />
               </div>
-              <div className="date-input-wrapper">
-                <Calendar size={16} className="date-icon" />
-                <input 
-                  type="date" 
-                  value={modalDate} 
-                  onChange={(e) => setModalDate(e.target.value)} 
-                  className="filter-input date-picker" 
+              <div className="date-input-wrapper-nd">
+                <Calendar size={16} className="date-icon-nd" />
+                <input
+                  type="month"
+                  value={modalDate}
+                  onChange={(e) => setModalDate(e.target.value)}
+                  className="filter-input-nd date-picker-nd"
                 />
               </div>
               {modalDate && (
-                <button className="clear-date-btn" onClick={() => setModalDate('')}>
+                <button className="clear-date-btn-nd" onClick={() => setModalDate('')}>
                   Clear Date
                 </button>
               )}
             </div>
 
-            <div className="modal-body-scroll">
-              <div className="modal-alerts-table-wrapper">
-                <table className="modal-alerts-table">
+            <div className="modal-body-scroll-nd">
+              <div className="modal-alerts-table-wrapper-nd">
+                <table className="modal-alerts-table-nd">
                   <thead>
                     <tr>
                       <th>Student</th>
                       <th>Complaint</th>
-                      <th>Visits</th>
-                      <th>Date Recorded</th>
-                      <th>Advice / Recommendation</th>
-                      <th className="action-col-header" style={{ textAlign: 'right' }}>Actions</th>
+                      <th>Monthly Visits</th>
+                      <th>Clinical Advice</th>
+                      <th className="action-col-header-nd">Action</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredAlerts.length === 0 ? (
+                    {alerts.length === 0 ? (
                       <tr>
-                        <td colSpan="6" className="empty-table-cell">
-                          No matching records found.
-                        </td>
+                        <td colSpan="5" className="empty-table-cell-nd">No alerts found.</td>
                       </tr>
                     ) : (
-                      filteredAlerts.map((alert, idx) => (
+                      alerts.map((alert, idx) => (
                         <tr key={idx}>
                           <td>
-                            <div className="table-student-name">{alert.studentName}</div>
-                            {alert.gradeSection && <div className="text-xs text-muted">{alert.gradeSection}</div>}
+                            <div className="table-student-name-nd">{alert.studentName}</div>
+                            <div className="table-student-id-nd">{alert.studentId}</div>
                           </td>
-                          <td><span className="complaint-tag">{alert.complaint}</span></td>
-                          <td><span className="visit-badge-table">{alert.visitCount} visits</span></td>
-                          <td>{alert.date || 'N/A'}</td>
-                          <td><div className="table-advice-cell">{alert.advice || 'No specific advice provided'}</div></td>
-                          <td className="action-col-cell">
-                            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                              <button 
-                                className="row-action-icon-btn" 
-                                title="View visit details" 
-                                aria-label="View record details"
-                                onClick={() => handleViewDetails(alert)}
-                              >
-                                <Eye size={16} />
-                              </button>
-                              <button 
-                                className="row-action-icon-btn" 
-                                title="Dismiss Alert" 
-                                aria-label="Dismiss Alert"
-                                onClick={() => handleDismissAlert(alert.studentId, alert.complaint)}
-                                style={{ color: '#EF4444' }}
-                              >
-                                <Trash2 size={16} />
-                              </button>
-                            </div>
+                          <td>
+                            <span className="complaint-tag-nd">{alert.complaint}</span>
+                          </td>
+                          <td>
+                            <span className="visit-badge-table-nd">{alert.visitCount} visits</span>
+                          </td>
+                          <td>
+                            <div className="table-advice-cell-nd">{alert.advice}</div>
+                          </td>
+                          <td className="action-col-cell-nd">
+                            <button 
+                              className="row-action-icon-btn-nd" 
+                              title="View Visit Log"
+                              onClick={() => handleViewDetails(alert)}
+                            >
+                              <Eye size={16} />
+                            </button>
                           </td>
                         </tr>
                       ))
@@ -1543,8 +1893,11 @@ const NurseDashboard = () => {
               </div>
             </div>
 
-            <div className="modal-footer">
-              <button className="modal-close-secondary-btn" onClick={() => setIsModalOpen(false)}>
+            <div className="modal-footer-nd" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <button type="button" className="export-btn-nd" onClick={handleExportFrequentComplaints}>
+                <Download size={16} /> Export PDF Report
+              </button>
+              <button className="modal-close-secondary-btn-nd" onClick={() => setIsModalOpen(false)}>
                 Close
               </button>
             </div>
@@ -1552,73 +1905,77 @@ const NurseDashboard = () => {
         </div>
       )}
 
-      {/* DETAILED VISIT LIST MODAL */}
-      {isDetailModalOpen && (
-        <div className="modal-overlay" onClick={() => setIsDetailModalOpen(false)}>
-          <div className="modal-container" style={{ maxWidth: '850px' }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
+      {/* DETAIL VISIT LOGS MODAL */}
+      {isDetailModalOpen && selectedAlertHeader && (
+        <div className="modal-overlay-nd" onClick={() => setIsDetailModalOpen(false)}>
+          <div className="modal-container-nd modal-container-narrow-nd" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header-nd">
               <div>
-                <h3 className="modal-title">Frequent Visit Details</h3>
-                <p className="modal-subtitle">
-                  <strong>{selectedAlertHeader?.studentName}</strong> — <span style={{ color: '#0250A3', fontWeight: 600 }}>{selectedAlertHeader?.complaint}</span> ({detailVisits.length} Visits within 1 Month)
+                <h3 className="modal-title-nd">Recurring Visit History</h3>
+                <p className="modal-subtitle-nd">
+                  <strong>{selectedAlertHeader.studentName}</strong> ({selectedAlertHeader.studentId})
+                  {selectedAlertHeader.gradeSection ? ` \u2014 ${selectedAlertHeader.gradeSection}` : ''} |{' '}
+                  <span className="modal-complaint-label-nd">{selectedAlertHeader.complaint}</span>
                 </p>
               </div>
-              <button className="modal-close-btn" onClick={() => setIsDetailModalOpen(false)} aria-label="Close modal">
-                <X size={18} />
+              <button className="modal-close-btn-nd" onClick={() => setIsDetailModalOpen(false)}>
+                <X size={20} />
               </button>
             </div>
 
-            <div className="modal-body-scroll" style={{ padding: '20px' }}>
+            <div className="modal-body-scroll-nd">
               {isDetailLoading ? (
-                <div className="loading-container">
-                  <div className="spinner"></div>
-                  <p className="loading-text">Loading visit records for this complaint...</p>
+                <div className="loading-container-nd" style={{ height: '220px' }}>
+                  <div className="spinner-nd"></div>
+                  <p className="loading-text-nd">Fetching student visit logs...</p>
                 </div>
               ) : detailVisits.length === 0 ? (
-                <div className="panel-empty">No detailed visit records found for this period.</div>
+                <div className="panel-empty-nd">No individual visit records found for this timeframe.</div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  {detailVisits.map((visit, vIdx) => (
-                    <div key={visit.visitId || vIdx} style={{ border: '1px solid #E5E7EB', borderRadius: '8px', padding: '16px', backgroundColor: '#FAFAFA' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', paddingBottom: '8px', borderBottom: '1px solid #F3F4F6' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <span style={{ fontWeight: 700, fontSize: '15px', color: '#1F2937' }}>Visit #{detailVisits.length - vIdx}</span>
-                          <span className="badge-pill badge-program">{formatDate(visit.visitDate)}</span>
+                <div className="visit-list-nd">
+                  {detailVisits.map((visit, idx) => (
+                    <div key={visit.visitId || idx} className="visit-card-nd">
+                      <div className="visit-card-header-nd">
+                        <div className="visit-title-group-nd">
+                          <span className="visit-number-nd">Visit #{detailVisits.length - idx}</span>
+                          <span className="complaint-tag-nd">{visit.complaint || visit.chief_complaint || selectedAlertHeader.complaint}</span>
                         </div>
-                        <div style={{ fontSize: '13px', color: '#6B7280', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <Clock size={14} /> Time In: {formatTime(visit.timeIn)} | Time Out: {formatTime(visit.timeOut)}
-                        </div>
-                      </div>
-
-                      {/* Vital Signs Grid */}
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginBottom: '12px', background: '#FFFFFF', padding: '10px', borderRadius: '6px', border: '1px solid #E5E7EB' }}>
-                        <div>
-                          <strong style={{ fontSize: '11px', color: '#6B7280', display: 'block', textTransform: 'uppercase' }}>Blood Pressure</strong> 
-                          <span style={{ fontSize: '13px', fontWeight: 600 }}>{visit.bloodPressure || 'N/A'}</span>
-                        </div>
-                        <div>
-                          <strong style={{ fontSize: '11px', color: '#6B7280', display: 'block', textTransform: 'uppercase' }}>Temperature</strong> 
-                          <span style={{ fontSize: '13px', fontWeight: 600 }}>{visit.temperature ? `${visit.temperature} °C` : 'N/A'}</span>
-                        </div>
-                        <div>
-                          <strong style={{ fontSize: '11px', color: '#6B7280', display: 'block', textTransform: 'uppercase' }}>Pulse Rate</strong> 
-                          <span style={{ fontSize: '13px', fontWeight: 600 }}>{visit.pulseRate || 'N/A'}</span>
-                        </div>
-                        <div>
-                          <strong style={{ fontSize: '11px', color: '#6B7280', display: 'block', textTransform: 'uppercase' }}>Respiratory Rate</strong> 
-                          <span style={{ fontSize: '13px', fontWeight: 600 }}>{visit.respiratoryRate || 'N/A'}</span>
+                        <div className="visit-time-meta-nd">
+                          <Calendar size={13} />
+                          <span>
+                            {formatDate(visit.visitDate || visit.visit_date || visit.created_at)} &bull; {formatTime(visit.timeIn || visit.time_in)}
+                            {visit.timeOut || visit.time_out ? ` - ${formatTime(visit.timeOut || visit.time_out)}` : ''}
+                          </span>
                         </div>
                       </div>
 
-                      {/* Nursing Intervention & Health Advice */}
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '13px' }}>
-                        <div style={{ background: '#F0F9FF', padding: '10px 12px', borderRadius: '6px', borderLeft: '3px solid #0250A3' }}>
-                          <strong style={{ color: '#0250A3', display: 'block', marginBottom: '4px' }}>Nursing Intervention:</strong>
-                          <p style={{ margin: 0, color: '#374151' }}>{visit.nursingIntervention || 'None recorded'}</p>
+                      <div className="vitals-grid-nd">
+                        <div className="vital-sign-nd">
+                          <strong>Blood Pressure</strong>
+                          <span>{visit.bloodPressure || visit.blood_pressure || 'N/A'}</span>
                         </div>
-                        <div style={{ background: '#FEFCE8', padding: '10px 12px', borderRadius: '6px', borderLeft: '3px solid #EAB308' }}>
-                          <strong style={{ color: '#854D0E', display: 'block', marginBottom: '4px' }}>Health Advice:</strong>
-                          <p style={{ margin: 0, color: '#374151' }}>{visit.healthAdvice || 'None recorded'}</p>
+                        <div className="vital-sign-nd">
+                          <strong>Temperature</strong>
+                          <span>{visit.temperature ? `${visit.temperature} °C` : 'N/A'}</span>
+                        </div>
+                        <div className="vital-sign-nd">
+                          <strong>Resp. Rate</strong>
+                          <span>{visit.respiratoryRate || visit.respiratory_rate ? `${visit.respiratoryRate || visit.respiratory_rate} cpm` : 'N/A'}</span>
+                        </div>
+                        <div className="vital-sign-nd">
+                          <strong>Pulse Rate</strong>
+                          <span>{visit.pulseRate || visit.pulse_rate ? `${visit.pulseRate || visit.pulse_rate} bpm` : 'N/A'}</span>
+                        </div>
+                      </div>
+
+                      <div className="visit-note-grid-nd">
+                        <div className="visit-note-nd intervention-note-nd">
+                          <strong>Nursing Intervention:</strong>
+                          <p>{visit.nursingIntervention || visit.nursing_intervention || visit.treatment_provided || visit.treatment || 'No specific intervention logged.'}</p>
+                        </div>
+                        <div className="visit-note-nd advice-note-nd">
+                          <strong>Assessment & Remarks:</strong>
+                          <p>{visit.assessment || visit.remarks || visit.notes || 'No assessment added.'}</p>
                         </div>
                       </div>
                     </div>
@@ -1627,9 +1984,17 @@ const NurseDashboard = () => {
               )}
             </div>
 
-            <div className="modal-footer">
-              <button className="modal-close-secondary-btn" onClick={() => setIsDetailModalOpen(false)}>
-                Close
+            <div className="modal-footer-nd" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <button 
+                type="button" 
+                className="export-btn-nd" 
+                onClick={handleExportStudentVisitHistory}
+                disabled={isDetailLoading || detailVisits.length === 0}
+              >
+                <Download size={16} /> Export Student Log PDF
+              </button>
+              <button className="modal-close-secondary-btn-nd" onClick={() => setIsDetailModalOpen(false)}>
+                Close History
               </button>
             </div>
           </div>

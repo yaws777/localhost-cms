@@ -3,10 +3,46 @@ import { useLocation, useOutletContext } from 'react-router-dom';
 import { 
     Search, QrCode, User, Activity, ShieldAlert, Clock, 
     XCircle, CheckCircle, FileText, LogOut, RefreshCw, Camera, 
-    AlertTriangle, History, Filter, RotateCcw
+    AlertTriangle, History, Filter, RotateCcw, Download
 } from 'lucide-react';
 import jsQR from 'jsqr';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/VisitLogConsultation.css';
+
+const NURSE_SIGNATURE_SVG = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 100" width="260" height="100">
+  <path d="
+    M 22 72 
+    C 18 45, 25 18, 38 24 
+    C 48 29, 44 58, 48 74 
+    C 53 48, 64 22, 75 26 
+    C 84 30, 80 58, 83 72 
+    C 87 45, 98 28, 114 31 
+    C 126 33, 122 50, 112 53 
+    C 128 55, 126 74, 108 74 
+    C 96 74, 92 70, 90 66 
+    C 95 62, 105 60, 115 60 
+    C 122 53, 130 52, 134 56 
+    C 138 60, 134 71, 128 71 
+    C 123 71, 125 61, 136 61 
+    C 141 44, 147 28, 149 32 
+    C 151 36, 144 70, 151 70 
+    C 155 61, 161 57, 165 60 
+    C 169 63, 165 71, 160 71 
+    C 156 71, 158 61, 168 61 
+    C 173 57, 178 55, 180 58 
+    C 180 62, 176 68, 184 68 
+    C 188 59, 194 56, 198 59 
+    C 202 62, 198 71, 193 71 
+    C 189 71, 191 61, 201 61 
+    C 206 57, 213 57, 213 63 
+    C 213 70, 204 71, 202 63 
+    C 202 58, 211 56, 225 56
+  " fill="none" stroke="#0f172a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+`)}`;
 
 const MEASURED_UNITS = ['mg', 'g', 'mcg', 'mL', 'L'];
 const VOLUME_UNITS = ['mg', 'g', 'mcg', 'mL', 'L', 'pcs.'];
@@ -707,6 +743,136 @@ const VisitLogConsultation = () => {
             : visit.complaint_name;
     };
 
+    const handleExportPDF = () => {
+        const doc = new jsPDF('p', 'mm', 'a4');
+        const pageWidth = doc.internal.pageSize.getWidth();
+
+        // Add STI Logo image
+        try {
+            if (stiLogo) {
+                doc.addImage(stiLogo, 'PNG', 14, 10, 20, 20);
+            }
+        } catch (err) {
+            console.warn("STI Logo render notice:", err);
+        }
+
+        // STI Header Details
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(14);
+        doc.setTextColor(15, 23, 42);
+        doc.text("STI COLLEGE BALIUAG", 38, 15);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8.5);
+        doc.setTextColor(71, 85, 105);
+        doc.text("Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan.", 38, 20);
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.setTextColor(30, 58, 138);
+        doc.text("CLINIC VISIT LOGS REPORT", 38, 26);
+
+        const currentDateStr = new Date().toLocaleDateString('en-US', { 
+            year: 'numeric', month: 'long', day: 'numeric' 
+        });
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8.5);
+        doc.setTextColor(100, 116, 139);
+        doc.text(`Date Generated: ${currentDateStr} | Total Records: ${filteredAllVisits.length}`, 14, 35);
+
+        doc.setLineWidth(0.4);
+        doc.setDrawColor(203, 213, 225);
+        doc.line(14, 38, pageWidth - 14, 38);
+
+        // Tabular Columns
+        const tableHeaders = [
+            ["Date", "Student ID", "Student Name", "Chief Complaint", "Time In", "Time Out", "Medicine Dispensed"]
+        ];
+
+        const tableData = filteredAllVisits.map(visit => {
+            const vDate = formatDateDisplay(visit.visit_date);
+            const stId = visit.student_id || 'N/A';
+            const stName = `${visit.first_name || ''} ${visit.last_name || ''}`.trim() || 'N/A';
+            const complaint = renderComplaintBadgeText(visit);
+            const timeIn = formatTimeDisplay(visit.time_in);
+            const timeOut = formatTimeDisplay(visit.time_out);
+            
+            const dispensedMed = visit.medicine_name || batches.find(b => b.batch_id === visit.batch_id)?.medicine_name;
+            const medText = dispensedMed 
+                ? `${dispensedMed}${visit.dosage_consumption_unit_value ? ` (${visit.dosage_consumption_unit_value}${visit.dosage_consumption_unit_of_measure || ''})` : ''}`
+                : 'None';
+
+            return [vDate, stId, stName, complaint, timeIn, timeOut, medText];
+        });
+
+        autoTable(doc, {
+            startY: 42,
+            head: tableHeaders,
+            body: tableData,
+            theme: 'striped',
+            headStyles: {
+                fillColor: [30, 58, 138],
+                textColor: [255, 255, 255],
+                fontStyle: 'bold',
+                fontSize: 8.5,
+                halign: 'left'
+            },
+            bodyStyles: {
+                fontSize: 8,
+                textColor: [51, 65, 85],
+                cellPadding: 2.5
+            },
+            alternateRowStyles: {
+                fillColor: [248, 250, 252]
+            },
+            columnStyles: {
+                0: { cellWidth: 22 },
+                1: { cellWidth: 24 },
+                2: { cellWidth: 32 },
+                3: { cellWidth: 38 },
+                4: { cellWidth: 18 },
+                5: { cellWidth: 18 },
+                6: { cellWidth: 'auto' }
+            },
+            margin: { left: 14, right: 14 }
+        });
+
+        const finalY = (doc.lastAutoTable ? doc.lastAutoTable.finalY : 50) + 15;
+        const pageHeight = doc.internal.pageSize.getHeight();
+        
+        let signatureY = finalY;
+        if (signatureY + 35 > pageHeight) {
+            doc.addPage();
+            signatureY = 25;
+        }
+
+        // SVG Nurse Signature Data URL
+        try {
+            doc.addImage(NURSE_SIGNATURE_SVG, 'SVG', 14, signatureY, 45, 15);
+        } catch (e) {
+            console.warn("Signature rendering notice:", e);
+        }
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8.5);
+        doc.setTextColor(71, 85, 105);
+        doc.text("Prepared by:", 14, signatureY - 2);
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.setTextColor(15, 23, 42);
+        doc.text("Marilou H. Balarao", 14, signatureY + 18);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8.5);
+        doc.setTextColor(100, 116, 139);
+        doc.text("School Nurse", 14, signatureY + 23);
+
+        // Preview in a new browser tab instead of direct download
+        const blobUrl = doc.output('bloburl');
+        window.open(blobUrl, '_blank');
+    };
+
     return (
         <div className="consultation-wrapper-vlc">
             <div className="consultation-header-panel-vlc">
@@ -867,10 +1033,10 @@ const VisitLogConsultation = () => {
 
                             <div className="modal-action-footer-vlc">
                                 <button type="button" className="btn-deny-action-vlc" onClick={handleDenyVisitEntry}>
-                                    Deny Entry
+                                    Deny
                                 </button>
                                 <button type="button" className="btn-confirm-action-vlc" onClick={handleConfirmVisitEntry}>
-                                    Grant Entry
+                                    Confirm
                                 </button>
                             </div>
                         </div>
@@ -928,9 +1094,12 @@ const VisitLogConsultation = () => {
                 <div className="modal-viewport-backdrop-vlc logs-fullscreen-backdrop-vlc">
                     <div className="modal-body-container-vlc logs-modal-responsive-vlc">
                         <div className="modal-header-accent-vlc">
-                            <h3>
-                                <History size={20} /> All Clinic Visit Logs History
-                            </h3>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <img src={stiLogo} alt="STI Logo" style={{ height: '28px', width: 'auto', objectFit: 'contain' }} />
+                                <h3>
+                                    <History size={20} /> All Clinic Visit Logs History
+                                </h3>
+                            </div>
                             <button className="modal-dismiss-btn-vlc" onClick={() => setShowAllLogsModal(false)}>
                                 <XCircle size={22} />
                             </button>
@@ -982,9 +1151,8 @@ const VisitLogConsultation = () => {
                                     </select>
                                 </div>
 
-                                {(logsSearch || fromDateFilter || toDateFilter || complaintFilter) && (
-                                    <div className="filter-input-group-vlc reset-btn-group-vlc">
-                                        <label>&nbsp;</label>
+                                <div className="filter-input-group-vlc reset-btn-group-vlc" style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
+                                    {(logsSearch || fromDateFilter || toDateFilter || complaintFilter) && (
                                         <button 
                                             type="button" 
                                             className="btn-clear-filters-vlc"
@@ -994,8 +1162,33 @@ const VisitLogConsultation = () => {
                                             <RotateCcw size={14} />
                                             <span>Reset</span>
                                         </button>
-                                    </div>
-                                )}
+                                    )}
+                                    <button 
+                                        type="button" 
+                                        className="btn-export-pdf-vlc"
+                                        onClick={handleExportPDF}
+                                        title="Export Visit Logs to PDF"
+                                        style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                            padding: '8px 14px',
+                                            backgroundColor: '#1e3a8a',
+                                            color: '#ffffff',
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            fontWeight: '600',
+                                            fontSize: '0.85rem',
+                                            cursor: 'pointer',
+                                            whiteSpace: 'nowrap',
+                                            width: 'auto',
+                                            flexShrink: 0
+                                        }}
+                                    >
+                                        <Download size={14} />
+                                        <span>Export</span>
+                                    </button>
+                                </div>
                             </div>
 
                             <div className="logs-summary-indicator-vlc">

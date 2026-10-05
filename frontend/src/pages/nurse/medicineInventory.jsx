@@ -11,8 +11,13 @@ import {
   Layers,
   FilePlus2,
   X,
-  Settings2
+  Settings2,
+  Download,
+  Eye
 } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/MedicineInventory.css'; 
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://localhost-cms.onrender.com/api';
@@ -140,8 +145,12 @@ export default function MedicineInventory() {
   const [isManageMedicinesOpen, setIsManageMedicinesOpen] = useState(false);
   const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
   
+  // PDF Preview State
+  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState(null);
+
   const [medicineSearchTerm, setMedicineSearchTerm] = useState('');
-  const [complaintSearchTerm, setComplaintSearchTerm] = useState(''); // Search term for complaint list inside medicine modal
+  const [complaintSearchTerm, setComplaintSearchTerm] = useState('');
   const [isEditingMedicine, setIsEditingMedicine] = useState(false);
   const [editingMedicineId, setEditingMedicineId] = useState(null);
 
@@ -390,6 +399,120 @@ export default function MedicineInventory() {
     }
   };
 
+  // Function to Preview Medicine Inventory Report PDF in Modal
+  const handleExportPDF = () => {
+    const doc = new jsPDF();
+
+    const img = new Image();
+    img.src = stiLogo;
+
+    const renderPDFContent = (pdfDoc) => {
+      // Header Section
+      pdfDoc.setFontSize(14);
+      pdfDoc.setFont('helvetica', 'bold');
+      pdfDoc.text('STI College Baliuag', 45, 16);
+
+      pdfDoc.setFontSize(11);
+      pdfDoc.setFont('helvetica', 'bold');
+      pdfDoc.text('School Clinic Medicine Inventory Report', 45, 22);
+
+      pdfDoc.setFontSize(9);
+      pdfDoc.setFont('helvetica', 'normal');
+      pdfDoc.text('Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan.', 45, 28);
+      pdfDoc.text(`Date Generated: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`, 45, 34);
+
+      // Necessary Columns Only
+      const tableColumn = ["Medicine Name", "Form & Strength", "Indications", "Stock", "Expiration Date", "Status"];
+      
+      const filteredInventory = inventory.filter(item => {
+        const query = searchTerm.toLowerCase();
+        const medName = `${item.generic_name} ${item.brand_name}`.toLowerCase();
+        const complaintsText = (item.connected_complaints || '').toLowerCase();
+        return medName.includes(query) || complaintsText.includes(query);
+      });
+
+      const tableRows = filteredInventory.map(item => {
+        const statusEval = getStockStatus(item.current_stock, item.low_stock_level, item.critical_stock_level);
+        const stockUnitLabel = getStockLabel(item);
+        const formattedDate = item.expiration_date 
+          ? new Date(item.expiration_date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) 
+          : 'N/A';
+
+        return [
+          `${item.generic_name}\n(${item.brand_name})`,
+          `${item.dosage_form || ''} - ${item.display_strength || `${item.strength_unit_value || ''} ${item.strength_unit_of_measure || ''}`.trim()}`,
+          item.connected_complaints || 'Unmapped',
+          `${item.current_stock} ${stockUnitLabel}`,
+          formattedDate,
+          statusEval.label
+        ];
+      });
+
+      autoTable(pdfDoc, {
+        head: [tableColumn],
+        body: tableRows,
+        startY: 42,
+        theme: 'grid',
+        headStyles: {
+          fillColor: [0, 114, 206],
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          fontSize: 9,
+          halign: 'left'
+        },
+        styles: {
+          fontSize: 8,
+          cellPadding: 3,
+          valign: 'middle'
+        },
+        columnStyles: {
+          0: { cellWidth: 42 },
+          1: { cellWidth: 32 },
+          2: { cellWidth: 42 },
+          3: { cellWidth: 25 },
+          4: { cellWidth: 25 },
+          5: { cellWidth: 20 }
+        }
+      });
+
+      const finalY = pdfDoc.lastAutoTable ? pdfDoc.lastAutoTable.finalY + 18 : 180;
+
+      // Signatory Section - Nurse only
+      pdfDoc.setFontSize(9);
+      pdfDoc.setFont('helvetica', 'normal');
+      pdfDoc.text('Prepared by:', 14, finalY);
+
+      pdfDoc.setFont('helvetica', 'bold');
+      pdfDoc.text('Marilou H. Balarao', 14, finalY + 8);
+
+      pdfDoc.setFont('helvetica', 'normal');
+      pdfDoc.text('School Nurse', 14, finalY + 13);
+
+      // Generate Blob URL for preview rather than downloading immediately
+      const blob = pdfDoc.output('blob');
+      const blobUrl = URL.createObjectURL(blob);
+      setPdfPreviewUrl(blobUrl);
+      setIsPreviewModalOpen(true);
+    };
+
+    img.onload = () => {
+      doc.addImage(img, 'PNG', 14, 10, 26, 26);
+      renderPDFContent(doc);
+    };
+
+    img.onerror = () => {
+      renderPDFContent(doc);
+    };
+  };
+
+  const closePreviewModal = () => {
+    setIsPreviewModalOpen(false);
+    if (pdfPreviewUrl) {
+      URL.revokeObjectURL(pdfPreviewUrl);
+      setPdfPreviewUrl(null);
+    }
+  };
+
   const selectedMedForBatch = medicinesList.find(m => m.medicine_id === batchForm.medicine_id);
   const isBatchDiscreteUnit = selectedMedForBatch && DISCRETE_UNITS.includes(selectedMedForBatch.strength_unit_of_measure);
   const batchUnitMeasure = selectedMedForBatch ? selectedMedForBatch.strength_unit_of_measure : '';
@@ -398,7 +521,6 @@ export default function MedicineInventory() {
   const batchDosageForm = selectedMedForBatch?.dosage_form || editingBatch?.dosage_form || editingBatch?.form_type;
   const isCurrentMedDiscrete = DISCRETE_UNITS.includes(medForm.strength_unit_of_measure);
 
-  // Filter complaints based on user search term and sort "Others" option to always be last
   const filteredComplaints = complaints
     .filter(comp => 
       (comp.complaint_name || '').toLowerCase().includes(complaintSearchTerm.toLowerCase().trim())
@@ -414,12 +536,18 @@ export default function MedicineInventory() {
   return (
     <div className="inventory-dashboard">
       <div className="dashboard-header-container">
-        <div className="dashboard-title-area">
-          <h1>Medicine Inventory</h1>
-          <p className="dashboard-subtitle">Manage clinic medicine stock and monitor shortage alerts</p>
+        <div className="dashboard-title-area" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div>
+            <h1>Medicine Inventory</h1>
+            <p className="dashboard-subtitle">Manage clinic medicine stock and monitor shortage alerts</p>
+          </div>
         </div>
         
         <div className="header-actions-group">
+          <button className="btn-secondary-action" onClick={handleExportPDF}>
+            <Download size={18} /> <span>Export</span>
+          </button>
+
           <button className="btn-secondary-action" onClick={() => {
             setMedForm(initialMedForm);
             setIsEditingMedicine(false);
@@ -564,6 +692,59 @@ export default function MedicineInventory() {
           </tbody>
         </table>
       </div>
+
+      {/* PDF Report Preview Modal */}
+      {isPreviewModalOpen && (
+        <div className="modal-overlay-bg">
+          <div 
+            className="modal-content-container" 
+            style={{ 
+              maxWidth: '880px', 
+              width: '90%', 
+              height: '85vh', 
+              display: 'flex', 
+              flexDirection: 'column' 
+            }}
+          >
+            <div className="modal-header-section">
+              <h3><Eye size={20} /> Preview Medicine Inventory Report</h3>
+              <button 
+                className="action-icon-button close-modal" 
+                aria-label="Close preview modal"
+                onClick={closePreviewModal}
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="modal-body-form" style={{ flex: 1, padding: '12px', overflow: 'hidden' }}>
+              {pdfPreviewUrl ? (
+                <iframe 
+                  src={pdfPreviewUrl} 
+                  title="PDF Preview" 
+                  style={{ width: '100%', height: '100%', border: 'none', borderRadius: '6px' }} 
+                />
+              ) : (
+                <p>Generating preview...</p>
+              )}
+            </div>
+
+            <div className="modal-footer-actions">
+              <button type="button" className="btn-modal-cancel" onClick={closePreviewModal}>
+                Close
+              </button>
+              <a 
+                href={pdfPreviewUrl} 
+                download={`Medicine_Inventory_Report_${new Date().toISOString().split('T')[0]}.pdf`}
+                className="btn-primary-action"
+                style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              >
+                <Download size={16} /> Download PDF
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Manage Medicines Modal */}
       {isManageMedicinesOpen && (
@@ -802,7 +983,6 @@ export default function MedicineInventory() {
                 <div className="modal-form-group">
                   <label className="input-field-label">Indications / Chief Complaints</label>
                   
-                  {/* Dedicated Search Input for Complaints */}
                   <div className="search-bar-container modal-search" style={{ marginBottom: '10px' }}>
                     <Search size={16} className="search-icon-placement" />
                     <input

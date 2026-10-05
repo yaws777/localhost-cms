@@ -1,3 +1,4 @@
+// incidentReports.jsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { 
@@ -16,9 +17,12 @@ import {
     Activity, 
     Check, 
     RefreshCw,
-    Camera
+    Camera,
+    Printer
 } from 'lucide-react';
 import jsQR from 'jsqr';
+
+import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/IncidentReports.css';
 
 const IncidentReport = () => {
@@ -149,6 +153,348 @@ const IncidentReport = () => {
         fetchIncidentReports();
         fetchHotlines();
     }, [fetchIncidentReports, fetchHotlines]);
+
+    // EXPORT REPORT FOR ALL INCIDENT REPORTS
+    const handleExportAllReport = () => {
+        const rowsToExport = reports.length > 0 ? reports : [];
+
+        const printWindow = window.open('', '_blank', 'width=950,height=750');
+        if (!printWindow) {
+            alert('Please allow popups to preview and print the report.');
+            return;
+        }
+
+        const reportDate = new Date().toLocaleDateString('en-US', { 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
+        });
+
+        const tableRowsHtml = rowsToExport.map(r => {
+            const studentName = `${r.student_first_name || ''} ${r.student_last_name || ''}`.trim();
+            const progYrSec = `${r.program_name || 'N/A'} - ${r.year_level || ''}${r.section || ''}`.trim();
+            const incidentDate = r.incident_datetime ? new Date(r.incident_datetime).toLocaleString() : 'N/A';
+
+            return `
+                <tr>
+                    <td>${r.student_id || ''}</td>
+                    <td><strong>${studentName}</strong></td>
+                    <td>${progYrSec}</td>
+                    <td>${incidentDate}</td>
+                    <td>${r.incident_location || 'N/A'}</td>
+                    <td>${r.incident_description || 'N/A'}</td>
+                    <td>${r.first_aid_administered || 'N/A'}</td>
+                </tr>
+            `;
+        }).join('');
+
+        const htmlContent = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Incident Summary Report</title>
+                <style>
+                    body {
+                        font-family: Arial, Helvetica, sans-serif;
+                        margin: 25px;
+                        color: #0f172a;
+                    }
+                    .report-header {
+                        display: flex;
+                        align-items: center;
+                        border-bottom: 2px solid #0056b3;
+                        padding-bottom: 12px;
+                        margin-bottom: 16px;
+                    }
+                    .report-header img {
+                        height: 60px;
+                        margin-right: 20px;
+                    }
+                    .report-title h2 {
+                        margin: 0;
+                        font-size: 20px;
+                        color: #1e3a8a;
+                    }
+                    .report-title p {
+                        margin: 4px 0 0;
+                        font-size: 13px;
+                        color: #475569;
+                    }
+                    .meta-info {
+                        display: flex;
+                        justify-content: space-between;
+                        font-size: 13px;
+                        color: #475569;
+                        margin-bottom: 16px;
+                        font-weight: 500;
+                    }
+                    table {
+                        width: 100%;
+                        border-collapse: collapse;
+                        font-size: 12px;
+                        margin-bottom: 35px;
+                    }
+                    th {
+                        background-color: #f1f5f9;
+                        color: #0f172a;
+                        text-align: left;
+                        padding: 9px 10px;
+                        border: 1px solid #cbd5e1;
+                        font-weight: bold;
+                    }
+                    td {
+                        padding: 8px 10px;
+                        border: 1px solid #e2e8f0;
+                    }
+                    tr:nth-child(even) {
+                        background-color: #f8fafc;
+                    }
+                    .signature-section {
+                        margin-top: 40px;
+                        font-size: 13px;
+                    }
+                    .signature-title {
+                        color: #475569;
+                        margin-bottom: 35px;
+                    }
+                    .signature-name {
+                        font-weight: bold;
+                        font-size: 14px;
+                        color: #0f172a;
+                    }
+                    .signature-role {
+                        font-style: italic;
+                        color: #64748b;
+                    }
+                    @media print {
+                        body { margin: 0; }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="report-header">
+                    <img src="${stiLogo}" alt="STI Logo" />
+                    <div class="report-title">
+                        <h2>STI COLLEGE BALIUAG</h2>
+                        <p>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan</p>
+                    </div>
+                </div>
+
+                <div class="meta-info">
+                    <span><strong>CAMPUS INCIDENT REPORTS SUMMARY</strong></span>
+                    <span>Date Generated: ${reportDate}</span>
+                </div>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Student ID</th>
+                            <th>Student Name</th>
+                            <th>Program/Yr/Sec</th>
+                            <th>Date & Time</th>
+                            <th>Location</th>
+                            <th>Description</th>
+                            <th>First Aid Administered</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tableRowsHtml || '<tr><td colspan="7">No incident reports found.</td></tr>'}
+                    </tbody>
+                </table>
+
+                <div class="signature-section">
+                    <div class="signature-title">Prepared by:</div>
+                    <div class="signature-name">Marilou H. Balarao</div>
+                    <div class="signature-role">School Nurse</div>
+                </div>
+
+                <script>
+                    window.onload = function() {
+                        window.print();
+                    };
+                </script>
+            </body>
+            </html>
+        `;
+
+        printWindow.document.open();
+        printWindow.document.write(htmlContent);
+        printWindow.document.close();
+    };
+
+    // EXPORT REPORT FOR SPECIFIC INCIDENT REPORT
+    const handleExportSingleReport = () => {
+        if (!selectedReport) return;
+
+        const printWindow = window.open('', '_blank', 'width=950,height=750');
+        if (!printWindow) {
+            alert('Please allow popups to preview and print the report.');
+            return;
+        }
+
+        const reportDate = new Date().toLocaleDateString('en-US', { 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
+        });
+
+        const studentName = `${selectedReport.student_first_name || ''} ${selectedReport.student_last_name || ''}`.trim();
+        const progYrSec = `${selectedReport.program_name || 'N/A'} - ${selectedReport.year_level || ''}${selectedReport.section || ''}`.trim();
+        const incidentDate = selectedReport.incident_datetime ? new Date(selectedReport.incident_datetime).toLocaleString() : 'N/A';
+
+        const htmlContent = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Individual Incident Report - ${selectedReport.student_id || 'Student'}</title>
+                <style>
+                    body {
+                        font-family: Arial, Helvetica, sans-serif;
+                        margin: 25px;
+                        color: #0f172a;
+                    }
+                    .report-header {
+                        display: flex;
+                        align-items: center;
+                        border-bottom: 2px solid #0056b3;
+                        padding-bottom: 12px;
+                        margin-bottom: 16px;
+                    }
+                    .report-header img {
+                        height: 60px;
+                        margin-right: 20px;
+                    }
+                    .report-title h2 {
+                        margin: 0;
+                        font-size: 20px;
+                        color: #1e3a8a;
+                    }
+                    .report-title p {
+                        margin: 4px 0 0;
+                        font-size: 13px;
+                        color: #475569;
+                    }
+                    .meta-info {
+                        display: flex;
+                        justify-content: space-between;
+                        font-size: 13px;
+                        color: #475569;
+                        margin-bottom: 16px;
+                        font-weight: 500;
+                    }
+                    .details-card {
+                        background-color: #f8fafc;
+                        border: 1px solid #cbd5e1;
+                        padding: 12px 16px;
+                        border-radius: 6px;
+                        margin-bottom: 20px;
+                        display: grid;
+                        grid-template-columns: 1fr 1fr;
+                        gap: 10px;
+                        font-size: 13px;
+                    }
+                    table {
+                        width: 100%;
+                        border-collapse: collapse;
+                        font-size: 12px;
+                        margin-bottom: 35px;
+                    }
+                    th {
+                        background-color: #f1f5f9;
+                        color: #0f172a;
+                        text-align: left;
+                        padding: 9px 10px;
+                        border: 1px solid #cbd5e1;
+                        font-weight: bold;
+                    }
+                    td {
+                        padding: 8px 10px;
+                        border: 1px solid #e2e8f0;
+                    }
+                    tr:nth-child(even) {
+                        background-color: #f8fafc;
+                    }
+                    .signature-section {
+                        margin-top: 40px;
+                        font-size: 13px;
+                    }
+                    .signature-title {
+                        color: #475569;
+                        margin-bottom: 35px;
+                    }
+                    .signature-name {
+                        font-weight: bold;
+                        font-size: 14px;
+                        color: #0f172a;
+                    }
+                    .signature-role {
+                        font-style: italic;
+                        color: #64748b;
+                    }
+                    @media print {
+                        body { margin: 0; }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="report-header">
+                    <img src="${stiLogo}" alt="STI Logo" />
+                    <div class="report-title">
+                        <h2>STI COLLEGE BALIUAG</h2>
+                        <p>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan</p>
+                    </div>
+                </div>
+
+                <div class="meta-info">
+                    <span><strong>INDIVIDUAL INCIDENT REPORT</strong></span>
+                    <span>Date Generated: ${reportDate}</span>
+                </div>
+
+                <div class="details-card">
+                    <div><strong>Student Name:</strong> ${studentName}</div>
+                    <div><strong>Student ID:</strong> ${selectedReport.student_id || 'N/A'}</div>
+                    <div><strong>Program / Year / Section:</strong> ${progYrSec}</div>
+                    <div><strong>Incident Date & Time:</strong> ${incidentDate}</div>
+                </div>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Location</th>
+                            <th>Incident Description</th>
+                            <th>First Aid Administered</th>
+                            <th>Current Situation / Disposition</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>${selectedReport.incident_location || 'N/A'}</td>
+                            <td>${selectedReport.incident_description || 'N/A'}</td>
+                            <td>${selectedReport.first_aid_administered || 'N/A'}</td>
+                            <td>${selectedReport.current_physical_situation || 'N/A'}</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div class="signature-section">
+                    <div class="signature-title">Prepared by:</div>
+                    <div class="signature-name">Marilou H. Balarao</div>
+                    <div class="signature-role">School Nurse</div>
+                </div>
+
+                <script>
+                    window.onload = function() {
+                        window.print();
+                    };
+                </script>
+            </body>
+            </html>
+        `;
+
+        printWindow.document.open();
+        printWindow.document.write(htmlContent);
+        printWindow.document.close();
+    };
 
     const handleSelectStudent = useCallback((student) => {
         const sId = student.student_id || student.id || '';
@@ -387,6 +733,14 @@ const IncidentReport = () => {
                     <p>Document, review, and manage campus health and safety incidents.</p>
                 </div>
                 <div className="header-actions">
+                    <button 
+                        type="button" 
+                        className="btn btn-secondary" 
+                        onClick={handleExportAllReport}
+                        style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    >
+                        <Printer size={18} /> export
+                    </button>
                     <button className="btn btn-secondary" onClick={() => setShowHotlineDirectoryModal(true)}>
                         <PhoneCall size={18} /> Emergency Hotlines
                     </button>
@@ -655,7 +1009,17 @@ const IncidentReport = () => {
                     <div className="modal-container medium-modal">
                         <div className="modal-header">
                             <h3><FileText size={20} /> Incident Details</h3>
-                            <button className="close-btn" onClick={() => setShowViewModal(false)}><X size={20} /></button>
+                            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                <button 
+                                    type="button" 
+                                    className="btn btn-secondary" 
+                                    onClick={handleExportSingleReport}
+                                    style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                                >
+                                    <Printer size={16} /> export
+                                </button>
+                                <button className="close-btn" onClick={() => setShowViewModal(false)}><X size={20} /></button>
+                            </div>
                         </div>
                         <div className="modal-body view-details-body">
                             <div className="detail-card highlight-box">
