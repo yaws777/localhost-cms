@@ -700,7 +700,7 @@ const NurseDashboard = () => {
   const fetchNurseDashboard = useCallback(async () => {
     setIsNurseDashboardLoading(true);
     try {
-      const studentsResponse = await fetch('https://localhost-cms.onrender.com/api/students');
+      const studentsResponse = await fetch('http://localhost:3001/api/students');
       const studentsData = await studentsResponse.json();
 
       let waitingForApprovalCount = 0;
@@ -719,14 +719,14 @@ const NurseDashboard = () => {
 
       const totalAttentionCount = waitingForApprovalCount + incompleteCount;
 
-      const response = await fetch('https://localhost-cms.onrender.com/api/nurse/dashboard');
+      const response = await fetch('http://localhost:3001/api/nurse/dashboard');
       if (!response.ok) throw new Error("Failed to fetch nurse dashboard data");
       const result = await response.json();
       const dashData = result.success && result.data ? result.data : {};
 
       let medicineStockAlerts = [];
       try {
-        const invResponse = await fetch('https://localhost-cms.onrender.com/api/inventory');
+        const invResponse = await fetch('http://localhost:3001/api/inventory');
         if (invResponse.ok) {
           const inventoryBatches = await invResponse.json();
 
@@ -795,7 +795,7 @@ const NurseDashboard = () => {
         : new Date().toISOString().split('T')[0];
 
       const params = new URLSearchParams({ filterType, date: apiDate });
-      const response = await fetch(`https://localhost-cms.onrender.com/api/health-trends?${params.toString()}`);
+      const response = await fetch(`http://localhost:3001/api/health-trends?${params.toString()}`);
       const result = await response.json();
 
       setTrendData(result.data || []);
@@ -822,7 +822,7 @@ const NurseDashboard = () => {
         : new Date().toISOString().split('T')[0];
 
       const params = new URLSearchParams({ filterType: dispensedFilterType, date: apiDate });
-      const response = await fetch(`https://localhost-cms.onrender.com/api/medicine-dispensed-overview?${params.toString()}`);
+      const response = await fetch(`http://localhost:3001/api/medicine-dispensed-overview?${params.toString()}`);
       const result = await response.json();
 
       setDispensedData(result.data || []);
@@ -844,7 +844,7 @@ const NurseDashboard = () => {
   const fetchPredictiveDemand = useCallback(async () => {
     setIsPredictiveLoading(true);
     try {
-      const response = await fetch(`https://localhost-cms.onrender.com/api/predictive-medicine?month=${predictiveMonth}`);
+      const response = await fetch(`http://localhost:3001/api/predictive-medicine?month=${predictiveMonth}`);
       if (!response.ok) throw new Error("Network issue fetching predictive calculation");
       const result = await response.json();
       setPredictiveData(result.data || []);
@@ -860,7 +860,7 @@ const NurseDashboard = () => {
   const fetchFrequentAlerts = useCallback(async () => {
     setIsAlertsLoading(true);
     try {
-      const response = await fetch('https://localhost-cms.onrender.com/api/frequent-complaints');
+      const response = await fetch('http://localhost:3001/api/frequent-complaints');
       if (!response.ok) throw new Error("Network issue fetching alerts");
       const result = await response.json();
       setAlerts(result.data || []); 
@@ -876,7 +876,7 @@ const NurseDashboard = () => {
       return;
     }
     try {
-      const response = await fetch('https://localhost-cms.onrender.com/api/frequent-complaints/dismiss', {
+      const response = await fetch('http://localhost:3001/api/frequent-complaints/dismiss', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ studentId, complaint })
@@ -901,7 +901,7 @@ const NurseDashboard = () => {
     try {
       const targetMonth = alertData.date ? alertData.date.slice(0, 7) : new Date().toISOString().slice(0, 7);
       const response = await fetch(
-        `https://localhost-cms.onrender.com/api/frequent-complaints/details?studentId=${alertData.studentId}&complaint=${encodeURIComponent(alertData.complaint)}&month=${targetMonth}`
+        `http://localhost:3001/api/frequent-complaints/details?studentId=${alertData.studentId}&complaint=${encodeURIComponent(alertData.complaint)}&month=${targetMonth}`
       );
       const result = await response.json();
       if (result.success) {
