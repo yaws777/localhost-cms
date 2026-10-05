@@ -52,11 +52,11 @@ const ParentDashboard = () => {
           }).toString();
 
           const [visitsRes, reqsRes, docsRes, screeningsRes, apptsRes] = await Promise.all([
-            fetch(`https://localhost-cms.onrender.com/api/student/dashboard/visits-dispensation/${student.student_id}`),
-            fetch(`https://localhost-cms.onrender.com/api/student/dashboard/requirements/${student.student_id}`),
-            fetch(`https://localhost-cms.onrender.com/api/student/dashboard/document-requests/${student.student_id}`),
-            fetch(`https://localhost-cms.onrender.com/api/student/dashboard/upcoming-health-screenings?${queryParams}`),
-            fetch(`https://localhost-cms.onrender.com/api/student/dashboard/doctor-appointments/${student.student_id}`)
+            fetch(`http://localhost:3001/api/student/dashboard/visits-dispensation/${student.student_id}`),
+            fetch(`http://localhost:3001/api/student/dashboard/requirements/${student.student_id}`),
+            fetch(`http://localhost:3001/api/student/dashboard/document-requests/${student.student_id}`),
+            fetch(`http://localhost:3001/api/student/dashboard/upcoming-health-screenings?${queryParams}`),
+            fetch(`http://localhost:3001/api/student/dashboard/doctor-appointments/${student.student_id}`)
           ]);
 
           const [visitsJson, reqsJson, docsJson, screeningsJson, apptsJson] = await Promise.all([

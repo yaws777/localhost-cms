@@ -234,7 +234,7 @@ export const RequirementManagement = () => {
             }
 
             try {
-                const res = await fetch('https://localhost-cms.onrender.com/api/students');
+                const res = await fetch('http://localhost:3001/api/students');
                 if (res.ok) {
                     const studentList = await parseJsonResponse(res);
                     if (Array.isArray(studentList)) {
