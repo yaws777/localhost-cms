@@ -3,8 +3,10 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useOutletContext, useLocation } from 'react-router-dom';
 import { 
     Search, Calendar, Edit, Trash2, X, Plus, 
-    FileText, CheckCircle, Clock, Eye, AlertCircle, FileCheck 
+    FileText, CheckCircle, Clock, Eye, AlertCircle, FileCheck, Printer 
 } from 'lucide-react';
+
+import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/RequirementManagement.css';
 
 export const RequirementManagement = () => {
@@ -296,6 +298,363 @@ export const RequirementManagement = () => {
             ].filter(Boolean))
         ).sort();
     }, [medicalRequirements, programConfigs, students]);
+
+    // EXPORT REPORT FOR ALL STUDENTS
+    const handleExportAllReport = () => {
+        const rowsToExport = filteredStudents.length > 0 ? filteredStudents : students;
+
+        const printWindow = window.open('', '_blank', 'width=950,height=750');
+        if (!printWindow) {
+            alert('Please allow popups to preview and print the report.');
+            return;
+        }
+
+        const reportDate = new Date().toLocaleDateString('en-US', { 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
+        });
+
+        const tableRowsHtml = rowsToExport.map(s => {
+            const fullName = `${s.first_name || ''} ${s.last_name || ''}`.trim();
+            const programSec = `${s.program_id || ''} ${s.section ? `- ${s.section}` : ''}`.trim();
+            const yearStr = s.year_level ? `${s.year_level}${Number(s.year_level) === 1 ? 'st' : Number(s.year_level) === 2 ? 'nd' : Number(s.year_level) === 3 ? 'rd' : 'th'} Year` : 'N/A';
+            const stats = s.stats || {};
+            const summaryStr = `${stats.completed || 0}/${stats.total || 0} Complete`;
+            const statusDetail = Number(stats.total) > 0 && Number(stats.completed) === Number(stats.total) ? 'Complete' : 'Incomplete';
+
+            return `
+                <tr>
+                    <td>${s.student_id || ''}</td>
+                    <td><strong>${fullName}</strong></td>
+                    <td>${programSec}</td>
+                    <td>${yearStr}</td>
+                    <td>${summaryStr}</td>
+                    <td>${statusDetail}</td>
+                </tr>
+            `;
+        }).join('');
+
+        const htmlContent = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>All Students Requirement Summary Report</title>
+                <style>
+                    body {
+                        font-family: Arial, Helvetica, sans-serif;
+                        margin: 25px;
+                        color: #0f172a;
+                    }
+                    .report-header {
+                        display: flex;
+                        align-items: center;
+                        border-bottom: 2px solid #0056b3;
+                        padding-bottom: 12px;
+                        margin-bottom: 16px;
+                    }
+                    .report-header img {
+                        height: 60px;
+                        margin-right: 20px;
+                    }
+                    .report-title h2 {
+                        margin: 0;
+                        font-size: 20px;
+                        color: #1e3a8a;
+                    }
+                    .report-title p {
+                        margin: 4px 0 0;
+                        font-size: 13px;
+                        color: #475569;
+                    }
+                    .meta-info {
+                        display: flex;
+                        justify-content: space-between;
+                        font-size: 13px;
+                        color: #475569;
+                        margin-bottom: 16px;
+                        font-weight: 500;
+                    }
+                    table {
+                        width: 100%;
+                        border-collapse: collapse;
+                        font-size: 12px;
+                        margin-bottom: 35px;
+                    }
+                    th {
+                        background-color: #f1f5f9;
+                        color: #0f172a;
+                        text-align: left;
+                        padding: 9px 10px;
+                        border: 1px solid #cbd5e1;
+                        font-weight: bold;
+                    }
+                    td {
+                        padding: 8px 10px;
+                        border: 1px solid #e2e8f0;
+                    }
+                    tr:nth-child(even) {
+                        background-color: #f8fafc;
+                    }
+                    .signature-section {
+                        margin-top: 40px;
+                        font-size: 13px;
+                    }
+                    .signature-title {
+                        color: #475569;
+                        margin-bottom: 35px;
+                    }
+                    .signature-name {
+                        font-weight: bold;
+                        font-size: 14px;
+                        color: #0f172a;
+                    }
+                    .signature-role {
+                        font-style: italic;
+                        color: #64748b;
+                    }
+                    @media print {
+                        body { margin: 0; }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="report-header">
+                    <img src="${stiLogo}" alt="STI Logo" />
+                    <div class="report-title">
+                        <h2>STI COLLEGE BALIUAG</h2>
+                        <p>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan</p>
+                    </div>
+                </div>
+
+                <div class="meta-info">
+                    <span><strong>STUDENT REQUIREMENTS SUMMARY REPORT</strong></span>
+                    <span>Date Generated: ${reportDate}</span>
+                </div>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Student ID</th>
+                            <th>Student Name</th>
+                            <th>Course / Section</th>
+                            <th>Year Level</th>
+                            <th>Progress</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tableRowsHtml || '<tr><td colspan="6">No student records found.</td></tr>'}
+                    </tbody>
+                </table>
+
+                <div class="signature-section">
+                    <div class="signature-title">Prepared by:</div>
+                    <div class="signature-name">Marilou H. Balarao</div>
+                    <div class="signature-role">School Nurse</div>
+                </div>
+
+                <script>
+                    window.onload = function() {
+                        window.print();
+                    };
+                </script>
+            </body>
+            </html>
+        `;
+
+        printWindow.document.open();
+        printWindow.document.write(htmlContent);
+        printWindow.document.close();
+    };
+
+    // EXPORT REPORT FOR SINGLE STUDENT
+    const handleExportStudentReport = () => {
+        if (!selectedStudent) return;
+
+        const printWindow = window.open('', '_blank', 'width=950,height=750');
+        if (!printWindow) {
+            alert('Please allow popups to preview and print the report.');
+            return;
+        }
+
+        const reportDate = new Date().toLocaleDateString('en-US', { 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
+        });
+
+        const studentName = `${selectedStudent.first_name || ''} ${selectedStudent.last_name || ''}`.trim();
+        const yearLevelStr = selectedStudent.year_level ? `${selectedStudent.year_level}${Number(selectedStudent.year_level) === 1 ? 'st' : Number(selectedStudent.year_level) === 2 ? 'nd' : Number(selectedStudent.year_level) === 3 ? 'rd' : 'th'} Year` : 'N/A';
+
+        const tableRowsHtml = studentReqs.map(req => {
+            const normalizedStatus = req.status?.toLowerCase();
+            const displayStatus = (normalizedStatus === 'submitted' || normalizedStatus === 'submitted late' || normalizedStatus === 'late')
+                ? 'Waiting for approval' 
+                : (normalizedStatus === 'not submitted' ? 'Missed' : (req.status || 'Pending'));
+            const deadline = req.submission_deadline ? formatDeadlineDate(req.submission_deadline) : 'N/A';
+            const remarks = req.nurse_remarks || 'None';
+
+            return `
+                <tr>
+                    <td><strong>${req.requirement_name || 'Unnamed Requirement'}</strong></td>
+                    <td>${req.type || 'Standard'}</td>
+                    <td>${deadline}</td>
+                    <td>${displayStatus}</td>
+                    <td>${remarks}</td>
+                </tr>
+            `;
+        }).join('');
+
+        const htmlContent = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Individual Student Requirement Report - ${selectedStudent.student_id}</title>
+                <style>
+                    body {
+                        font-family: Arial, Helvetica, sans-serif;
+                        margin: 25px;
+                        color: #0f172a;
+                    }
+                    .report-header {
+                        display: flex;
+                        align-items: center;
+                        border-bottom: 2px solid #0056b3;
+                        padding-bottom: 12px;
+                        margin-bottom: 16px;
+                    }
+                    .report-header img {
+                        height: 60px;
+                        margin-right: 20px;
+                    }
+                    .report-title h2 {
+                        margin: 0;
+                        font-size: 20px;
+                        color: #1e3a8a;
+                    }
+                    .report-title p {
+                        margin: 4px 0 0;
+                        font-size: 13px;
+                        color: #475569;
+                    }
+                    .meta-info {
+                        display: flex;
+                        justify-content: space-between;
+                        font-size: 13px;
+                        color: #475569;
+                        margin-bottom: 16px;
+                        font-weight: 500;
+                    }
+                    .student-card {
+                        background-color: #f8fafc;
+                        border: 1px solid #cbd5e1;
+                        padding: 12px 16px;
+                        border-radius: 6px;
+                        margin-bottom: 20px;
+                        display: grid;
+                        grid-template-columns: 1fr 1fr;
+                        gap: 10px;
+                        font-size: 13px;
+                    }
+                    table {
+                        width: 100%;
+                        border-collapse: collapse;
+                        font-size: 12px;
+                        margin-bottom: 35px;
+                    }
+                    th {
+                        background-color: #f1f5f9;
+                        color: #0f172a;
+                        text-align: left;
+                        padding: 9px 10px;
+                        border: 1px solid #cbd5e1;
+                        font-weight: bold;
+                    }
+                    td {
+                        padding: 8px 10px;
+                        border: 1px solid #e2e8f0;
+                    }
+                    tr:nth-child(even) {
+                        background-color: #f8fafc;
+                    }
+                    .signature-section {
+                        margin-top: 40px;
+                        font-size: 13px;
+                    }
+                    .signature-title {
+                        color: #475569;
+                        margin-bottom: 35px;
+                    }
+                    .signature-name {
+                        font-weight: bold;
+                        font-size: 14px;
+                        color: #0f172a;
+                    }
+                    .signature-role {
+                        font-style: italic;
+                        color: #64748b;
+                    }
+                    @media print {
+                        body { margin: 0; }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="report-header">
+                    <img src="${stiLogo}" alt="STI Logo" />
+                    <div class="report-title">
+                        <h2>STI COLLEGE BALIUAG</h2>
+                        <p>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan</p>
+                    </div>
+                </div>
+
+                <div class="meta-info">
+                    <span><strong>INDIVIDUAL STUDENT REQUIREMENT REPORT</strong></span>
+                    <span>Date Generated: ${reportDate}</span>
+                </div>
+
+                <div class="student-card">
+                    <div><strong>Student Name:</strong> ${studentName}</div>
+                    <div><strong>Student ID:</strong> ${selectedStudent.student_id || 'N/A'}</div>
+                    <div><strong>Course / Section:</strong> ${selectedStudent.program_id || 'N/A'} ${selectedStudent.section ? `- ${selectedStudent.section}` : ''}</div>
+                    <div><strong>Year Level:</strong> ${yearLevelStr}</div>
+                </div>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Requirement Name</th>
+                            <th>Type</th>
+                            <th>Deadline</th>
+                            <th>Status</th>
+                            <th>Nurse Remarks</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tableRowsHtml || '<tr><td colspan="5">No requirements assigned to this student.</td></tr>'}
+                    </tbody>
+                </table>
+
+                <div class="signature-section">
+                    <div class="signature-title">Prepared by:</div>
+                    <div class="signature-name">Marilou H. Balarao</div>
+                    <div class="signature-role">School Nurse</div>
+                </div>
+
+                <script>
+                    window.onload = function() {
+                        window.print();
+                    };
+                </script>
+            </body>
+            </html>
+        `;
+
+        printWindow.document.open();
+        printWindow.document.write(htmlContent);
+        printWindow.document.close();
+    };
 
     // CRUD Handlers for Medical Requirements Masterlist
     const handleAddMedicalRequirement = async () => {
@@ -873,15 +1232,26 @@ export const RequirementManagement = () => {
                     <h2>Requirement Management</h2>
                     <p>Configure structural compliance pipelines and monitor student submissions</p>
                 </div>
-                <button 
-                    className="btn-manage-med-reqs-rm"
-                    onClick={() => {
-                        setIsMedReqModalOpen(true);
-                        setMedReqError('');
-                    }}
-                >
-                    <FileText size={16} /> Manage Medical Requirements
-                </button>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    <button 
+                        type="button"
+                        className="btn-manage-med-reqs-rm"
+                        onClick={handleExportAllReport}
+                        style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    >
+                        <Printer size={16} /> export
+                    </button>
+                    <button 
+                        className="btn-manage-med-reqs-rm"
+                        onClick={() => {
+                            setIsMedReqModalOpen(true);
+                            setMedReqError('');
+                        }}
+                        style={{ width: 'auto' }}
+                    >
+                        <FileText size={16} /> Manage Medical Requirements
+                    </button>
+                </div>
             </div>
 
             <div className="tabs-rm">
@@ -1411,9 +1781,17 @@ export const RequirementManagement = () => {
                         <div className="modal-body-rm">
                             {!isAddModalOpen ? (
                                 <>
-                                    <div className="modal-toolbar-rm">
+                                    <div className="modal-toolbar-rm" style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                                         <button className="btn-add-primary-rm" onClick={() => setIsAddModalOpen(true)}>
                                             <Plus size={16}/> Assign Special Requirement
+                                        </button>
+                                        <button 
+                                            type="button"
+                                            className="btn-add-primary-rm" 
+                                            onClick={handleExportStudentReport}
+                                            style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                                        >
+                                            <Printer size={16} /> export
                                         </button>
                                     </div>
                                     

@@ -19,7 +19,8 @@ import {
     Plus,
     RefreshCw,
     FileCode,
-    Trash2
+    Trash2,
+    Printer
 } from 'lucide-react';
 
 import stiLogo from '../../assets/sti-logof.png';
@@ -306,6 +307,177 @@ const DocumentIssuance = () => {
         setNewNote('');
         setSelectedFile(null);
         setModalError('');
+    };
+
+    // --- PRINT PREVIEW REPORT GENERATOR ---
+    const handleExportReport = () => {
+        const rowsToExport = filteredRequests.length > 0 ? filteredRequests : requests;
+
+        const printWindow = window.open('', '_blank', 'width=950,height=750');
+        if (!printWindow) {
+            alert('Please allow popups to preview and print the report.');
+            return;
+        }
+
+        const reportDate = new Date().toLocaleDateString('en-US', { 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
+        });
+
+        const tableRowsHtml = rowsToExport.map(req => {
+            const studentName = `${req.first_name || ''} ${req.last_name || ''}`.trim();
+            const reasonFacility = req.request_type === 'Excuse Slip' 
+                ? (req.reason || req.reason_for_excuse || 'N/A') 
+                : (req.partner_facility_name || req.reason || 'N/A');
+            const reqDate = req.created_at ? new Date(req.created_at).toLocaleDateString() : 'N/A';
+            const statusStr = (req.status || '').toLowerCase() === 'pending' ? 'Waiting for Approval' : req.status;
+
+            return `
+                <tr>
+                    <td>${req.request_id || ''}</td>
+                    <td><strong>${studentName}</strong></td>
+                    <td>${req.student_id || ''}</td>
+                    <td>${req.request_type || ''}</td>
+                    <td>${reasonFacility}</td>
+                    <td>${reqDate}</td>
+                    <td>${statusStr}</td>
+                </tr>
+            `;
+        }).join('');
+
+        const htmlContent = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Document Issuance Report</title>
+                <style>
+                    body {
+                        font-family: Arial, Helvetica, sans-serif;
+                        margin: 25px;
+                        color: #0f172a;
+                    }
+                    .report-header {
+                        display: flex;
+                        align-items: center;
+                        border-bottom: 2px solid #0056b3;
+                        padding-bottom: 12px;
+                        margin-bottom: 16px;
+                    }
+                    .report-header img {
+                        height: 60px;
+                        margin-right: 20px;
+                    }
+                    .report-title h2 {
+                        margin: 0;
+                        font-size: 20px;
+                        color: #1e3a8a;
+                    }
+                    .report-title p {
+                        margin: 4px 0 0;
+                        font-size: 13px;
+                        color: #475569;
+                    }
+                    .meta-info {
+                        display: flex;
+                        justify-content: space-between;
+                        font-size: 13px;
+                        color: #475569;
+                        margin-bottom: 16px;
+                        font-weight: 500;
+                    }
+                    table {
+                        width: 100%;
+                        border-collapse: collapse;
+                        font-size: 12px;
+                        margin-bottom: 35px;
+                    }
+                    th {
+                        background-color: #f1f5f9;
+                        color: #0f172a;
+                        text-align: left;
+                        padding: 9px 10px;
+                        border: 1px solid #cbd5e1;
+                        font-weight: bold;
+                    }
+                    td {
+                        padding: 8px 10px;
+                        border: 1px solid #e2e8f0;
+                    }
+                    tr:nth-child(even) {
+                        background-color: #f8fafc;
+                    }
+                    .signature-section {
+                        margin-top: 40px;
+                        font-size: 13px;
+                    }
+                    .signature-title {
+                        color: #475569;
+                        margin-bottom: 35px;
+                    }
+                    .signature-name {
+                        font-weight: bold;
+                        font-size: 14px;
+                        color: #0f172a;
+                    }
+                    .signature-role {
+                        font-style: italic;
+                        color: #64748b;
+                    }
+                    @media print {
+                        body { margin: 0; }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="report-header">
+                    <img src="${stiLogo}" alt="STI Logo" />
+                    <div class="report-title">
+                        <h2>STI COLLEGE BALIUAG</h2>
+                        <p>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan</p>
+                    </div>
+                </div>
+
+                <div class="meta-info">
+                    <span><strong>DOCUMENT ISSUANCE REPORT</strong></span>
+                    <span>Date Generated: ${reportDate}</span>
+                </div>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Request ID</th>
+                            <th>Student Name</th>
+                            <th>Student ID</th>
+                            <th>Type</th>
+                            <th>Reason / Facility</th>
+                            <th>Date Requested</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tableRowsHtml}
+                    </tbody>
+                </table>
+
+                <div class="signature-section">
+                    <div class="signature-title">Prepared by:</div>
+                    <div class="signature-name">Marilou H. Balarao</div>
+                    <div class="signature-role">School Nurse</div>
+                </div>
+
+                <script>
+                    window.onload = function() {
+                        window.print();
+                    };
+                </script>
+            </body>
+            </html>
+        `;
+
+        printWindow.document.open();
+        printWindow.document.write(htmlContent);
+        printWindow.document.close();
     };
 
     // --- PARTNER FACILITY CRUD ---
@@ -856,17 +1028,29 @@ const DocumentIssuance = () => {
                     <h2>Document Issuance</h2>
                     <p>Review, approve, and issue Excuse Slips and Referral Slips for students.</p>
                 </div>
-                <button 
-                    className="btn-secondary-di btn-config-di" 
-                    onClick={() => { 
-                        setShowConfigModal(true); 
-                        setShowFacilityForm(false);
-                        setShowServiceForm(false);
-                        setActiveServiceFacilityId(null);
-                    }}
-                >
-                    <Settings size={18} /> Configure Referral Services
-                </button>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    <button 
+                        type="button"
+                        className="btn-secondary-di" 
+                        onClick={handleExportReport}
+                        style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    >
+                        <Printer size={18} /> Export
+                    </button>
+                    <button 
+                        type="button"
+                        className="btn-secondary-di btn-config-di" 
+                        onClick={() => { 
+                            setShowConfigModal(true); 
+                            setShowFacilityForm(false);
+                            setShowServiceForm(false);
+                            setActiveServiceFacilityId(null);
+                        }}
+                        style={{ width: 'auto' }}
+                    >
+                        <Settings size={18} /> Configure Referral Services
+                    </button>
+                </div>
             </header>
 
             {/* Summary Grid Cards */}

@@ -2147,6 +2147,240 @@ app.get('/api/academic-programs', async (req, res) => {
     }
 });
 
+
+// GET /api/health-records/students
+app.get('/students', async (req, res) => {
+    try {
+        const { search, program, section, year_level } = req.query;
+
+        let query = `
+            SELECT 
+                s.student_id,
+                s.user_id,
+                s.first_name,
+                s.last_name,
+                s.program_id,
+                s.year_level,
+                s.section,
+                -- All Health Information Fields from student_health_information
+                h.health_info_id,
+                h.has_allergies,
+                h.allergy_food,
+                h.allergy_medicine,
+                h.allergy_insect_sting,
+                h.allergy_environmental,
+                h.allergy_others,
+                h.reaction_diarrhea,
+                h.reaction_hives,
+                h.reaction_local,
+                h.reaction_rash,
+                h.reaction_swelling,
+                h.reaction_trouble_breathing,
+                h.reaction_others,
+                h.allergy_medication_taken,
+                h.has_asthma,
+                h.asthma_triggers,
+                h.asthma_medication_taken,
+                h.has_other_respiratory,
+                h.other_respiratory_specify,
+                h.other_respiratory_medication,
+                h.has_blood_disorders,
+                h.blood_disorder_anemia,
+                h.blood_disorder_leukopenia,
+                h.blood_disorder_thrombocytopenia,
+                h.has_chicken_pox,
+                h.chicken_pox_age,
+                h.has_digestive_disorders,
+                h.digestive_ulcer,
+                h.digestive_appendicitis,
+                h.digestive_gastritis,
+                h.digestive_hemorrhoids,
+                h.digestive_medication_taken,
+                h.has_heart_problems,
+                h.heart_problems_specify,
+                h.heart_problems_medication,
+                h.has_kidney_bladder_problems,
+                h.kidney_bladder_specify,
+                h.kidney_bladder_medication,
+                h.has_measles,
+                h.measles_age,
+                h.has_metabolic_diseases,
+                h.metabolic_hyperglycemia,
+                h.metabolic_hypoglycemia,
+                h.has_muscle_bone_disorder,
+                h.muscle_bone_specify,
+                h.has_seizure_episode,
+                h.seizure_last_episode_date,
+                h.seizure_medication_taken,
+                h.has_surgery,
+                h.surgery_specify,
+                h.surgery_date,
+                h.has_vision_problem,
+                h.vision_specify,
+                h.vision_with_eyeglasses,
+                h.vision_with_contact_lens,
+                h.has_hearing_problem,
+                h.hearing_specify,
+                h.has_other_condition,
+                h.other_condition_specify,
+                h.updated_at
+            FROM students s
+            LEFT JOIN student_health_information h 
+                   ON (s.student_id = h.student_id OR (s.user_id IS NOT NULL AND s.user_id = h.user_id))
+            WHERE 1=1
+        `;
+
+        const queryParams = [];
+
+        if (search && search.trim() !== '') {
+            query += ` AND (s.student_id LIKE ? OR s.first_name LIKE ? OR s.last_name LIKE ?)`;
+            const term = `%${search.trim()}%`;
+            queryParams.push(term, term, term);
+        }
+
+        if (program && program !== 'all') {
+            query += ` AND s.program_id = ?`;
+            queryParams.push(program);
+        }
+
+        if (section && section !== 'all') {
+            query += ` AND s.section = ?`;
+            queryParams.push(section);
+        }
+
+        if (year_level && year_level !== 'all') {
+            query += ` AND s.year_level = ?`;
+            queryParams.push(year_level);
+        }
+
+        query += ` ORDER BY s.last_name ASC, s.first_name ASC`;
+
+        const [rows] = await db.query(query, queryParams);
+
+        // Helper to evaluate MySQL 1/0, true/false, '1', or Buffer <01>
+        const parseBool = (val) => {
+            if (val === null || val === undefined) return false;
+            if (typeof val === 'boolean') return val;
+            if (typeof val === 'number') return val === 1;
+            if (typeof val === 'string') return val === '1' || val.toLowerCase() === 'true';
+            if (Buffer.isBuffer(val)) return val[0] === 1;
+            return Boolean(val);
+        };
+
+        const studentsWithHealthHistory = rows.map((student) => {
+            // Check if health record exists for student
+            if (!student.health_info_id) {
+                return {
+                    ...student,
+                    health_history: 'No Record Submitted'
+                };
+            }
+
+            const conditions = [];
+
+            if (parseBool(student.has_allergies)) {
+                const allergyTypes = [
+                    student.allergy_food && `Food (${student.allergy_food})`,
+                    student.allergy_medicine && `Meds (${student.allergy_medicine})`,
+                    student.allergy_insect_sting && `Sting (${student.allergy_insect_sting})`,
+                    student.allergy_environmental && `Env (${student.allergy_environmental})`,
+                    student.allergy_others
+                ].filter(Boolean);
+                conditions.push(allergyTypes.length > 0 ? `Allergies: ${allergyTypes.join(', ')}` : 'Allergies');
+            }
+
+            if (parseBool(student.has_asthma)) {
+                conditions.push(student.asthma_triggers ? `Asthma (${student.asthma_triggers})` : 'Asthma');
+            }
+
+            if (parseBool(student.has_other_respiratory)) {
+                conditions.push(student.other_respiratory_specify ? `Respiratory: ${student.other_respiratory_specify}` : 'Respiratory Issue');
+            }
+
+            if (parseBool(student.has_blood_disorders)) {
+                const bloodTypes = [
+                    parseBool(student.blood_disorder_anemia) && 'Anemia',
+                    parseBool(student.blood_disorder_leukopenia) && 'Leukopenia',
+                    parseBool(student.blood_disorder_thrombocytopenia) && 'Thrombocytopenia'
+                ].filter(Boolean);
+                conditions.push(bloodTypes.length > 0 ? `Blood Disorder: ${bloodTypes.join(', ')}` : 'Blood Disorder');
+            }
+
+            if (parseBool(student.has_chicken_pox)) conditions.push('Chicken Pox');
+            if (parseBool(student.has_measles)) conditions.push('Measles');
+
+            if (parseBool(student.has_digestive_disorders)) {
+                const digestiveTypes = [
+                    parseBool(student.digestive_ulcer) && 'Ulcer',
+                    parseBool(student.digestive_appendicitis) && 'Appendicitis',
+                    parseBool(student.digestive_gastritis) && 'Gastritis',
+                    parseBool(student.digestive_hemorrhoids) && 'Hemorrhoids'
+                ].filter(Boolean);
+                conditions.push(digestiveTypes.length > 0 ? `Digestive: ${digestiveTypes.join(', ')}` : 'Digestive Disorder');
+            }
+
+            if (parseBool(student.has_heart_problems)) {
+                conditions.push(student.heart_problems_specify ? `Heart: ${student.heart_problems_specify}` : 'Heart Problem');
+            }
+
+            if (parseBool(student.has_kidney_bladder_problems)) {
+                conditions.push(student.kidney_bladder_specify ? `Kidney/Bladder: ${student.kidney_bladder_specify}` : 'Kidney/Bladder Problem');
+            }
+
+            if (parseBool(student.has_metabolic_diseases)) {
+                const metabolic = [
+                    parseBool(student.metabolic_hyperglycemia) && 'Hyperglycemia',
+                    parseBool(student.metabolic_hypoglycemia) && 'Hypoglycemia'
+                ].filter(Boolean);
+                conditions.push(metabolic.length > 0 ? `Metabolic: ${metabolic.join(', ')}` : 'Metabolic Disease');
+            }
+
+            if (parseBool(student.has_muscle_bone_disorder)) {
+                conditions.push(student.muscle_bone_specify ? `Muscle/Bone: ${student.muscle_bone_specify}` : 'Muscle/Bone Disorder');
+            }
+
+            if (parseBool(student.has_seizure_episode)) conditions.push('Seizures');
+
+            if (parseBool(student.has_surgery)) {
+                conditions.push(student.surgery_specify ? `Surgery (${student.surgery_specify})` : 'Surgery History');
+            }
+
+            if (parseBool(student.has_vision_problem)) {
+                conditions.push(student.vision_specify ? `Vision: ${student.vision_specify}` : 'Vision Problem');
+            }
+
+            if (parseBool(student.has_hearing_problem)) {
+                conditions.push(student.hearing_specify ? `Hearing: ${student.hearing_specify}` : 'Hearing Problem');
+            }
+
+            if (parseBool(student.has_other_condition)) {
+                conditions.push(student.other_condition_specify || 'Other Condition');
+            }
+
+            return {
+                ...student,
+                health_history: conditions.length > 0 ? conditions.join('; ') : 'No Known Conditions'
+            };
+        });
+
+        console.log(`[API Debug] Retrieved ${studentsWithHealthHistory.length} student records.`);
+
+        return res.status(200).json({
+            success: true,
+            count: studentsWithHealthHistory.length,
+            students: studentsWithHealthHistory
+        });
+
+    } catch (error) {
+        console.error("Error retrieving student health records:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error querying health records index.",
+            error: error.message
+        });
+    }
+});
+
 //Medicine Inventory Api
 const DISCRETE_UNITS = [
   'Tablet/s', 'Capsule/s', 'Patch/es', 'Sachet', 

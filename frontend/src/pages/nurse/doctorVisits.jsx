@@ -1,3 +1,4 @@
+// doctorVisits.jsx
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import jsQR from 'jsqr';
@@ -16,8 +17,11 @@ import {
     AlertCircle,
     QrCode,
     Users,
-    Trash2
+    Trash2,
+    Printer
 } from 'lucide-react';
+
+import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/DoctorVisits.css';
 
 const formatLocalToSQL = (date) => {
@@ -170,6 +174,376 @@ const DoctorVisit = () => {
         fetchPrograms();
         fetchAppointments();
     }, [fetchAppointments]);
+
+    // EXPORT REPORT FOR ALL DOCTOR APPOINTMENTS
+    const handleExportAllReport = () => {
+        const rowsToExport = groupedVisits.length > 0 ? groupedVisits : [];
+
+        const printWindow = window.open('', '_blank', 'width=950,height=750');
+        if (!printWindow) {
+            alert('Please allow popups to preview and print the report.');
+            return;
+        }
+
+        const reportDate = new Date().toLocaleDateString('en-US', { 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
+        });
+
+        const tableRowsHtml = rowsToExport.map(group => {
+            const dateFormatted = group.apptStart ? formatLocalDateOnly(group.apptStart) : 'N/A';
+            const startTimeFormatted = group.apptStart ? group.apptStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }) : '';
+            const endTimeFormatted = group.apptEnd ? group.apptEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }) : '';
+            const timeStr = `${startTimeFormatted} - ${endTimeFormatted}`;
+            const docStr = `${group.doctorName || 'N/A'} (${group.specialization || 'General'})`;
+
+            return `
+                <tr>
+                    <td><strong>${group.title || 'N/A'}</strong></td>
+                    <td>${docStr}</td>
+                    <td>${dateFormatted}</td>
+                    <td>${timeStr}</td>
+                    <td>${group.appointments ? group.appointments.length : 0}</td>
+                </tr>
+            `;
+        }).join('');
+
+        const htmlContent = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Doctor Visit Summary Report</title>
+                <style>
+                    body {
+                        font-family: Arial, Helvetica, sans-serif;
+                        margin: 25px;
+                        color: #0f172a;
+                    }
+                    .report-header {
+                        display: flex;
+                        align-items: center;
+                        border-bottom: 2px solid #0056b3;
+                        padding-bottom: 12px;
+                        margin-bottom: 16px;
+                    }
+                    .report-header img {
+                        height: 60px;
+                        margin-right: 20px;
+                    }
+                    .report-title h2 {
+                        margin: 0;
+                        font-size: 20px;
+                        color: #1e3a8a;
+                    }
+                    .report-title p {
+                        margin: 4px 0 0;
+                        font-size: 13px;
+                        color: #475569;
+                    }
+                    .meta-info {
+                        display: flex;
+                        justify-content: space-between;
+                        font-size: 13px;
+                        color: #475569;
+                        margin-bottom: 16px;
+                        font-weight: 500;
+                    }
+                    table {
+                        width: 100%;
+                        border-collapse: collapse;
+                        font-size: 12px;
+                        margin-bottom: 35px;
+                    }
+                    th {
+                        background-color: #f1f5f9;
+                        color: #0f172a;
+                        text-align: left;
+                        padding: 9px 10px;
+                        border: 1px solid #cbd5e1;
+                        font-weight: bold;
+                    }
+                    td {
+                        padding: 8px 10px;
+                        border: 1px solid #e2e8f0;
+                    }
+                    tr:nth-child(even) {
+                        background-color: #f8fafc;
+                    }
+                    .signature-section {
+                        margin-top: 40px;
+                        font-size: 13px;
+                    }
+                    .signature-title {
+                        color: #475569;
+                        margin-bottom: 35px;
+                    }
+                    .signature-name {
+                        font-weight: bold;
+                        font-size: 14px;
+                        color: #0f172a;
+                    }
+                    .signature-role {
+                        font-style: italic;
+                        color: #64748b;
+                    }
+                    @media print {
+                        body { margin: 0; }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="report-header">
+                    <img src="${stiLogo}" alt="STI Logo" />
+                    <div class="report-title">
+                        <h2>STI COLLEGE BALIUAG</h2>
+                        <p>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan</p>
+                    </div>
+                </div>
+
+                <div class="meta-info">
+                    <span><strong>DOCTOR VISIT SUMMARY REPORT</strong></span>
+                    <span>Date Generated: ${reportDate}</span>
+                </div>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Visit Title</th>
+                            <th>Doctor & Specialization</th>
+                            <th>Date</th>
+                            <th>Time Window</th>
+                            <th>Participants</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tableRowsHtml || '<tr><td colspan="5">No doctor visit records found.</td></tr>'}
+                    </tbody>
+                </table>
+
+                <div class="signature-section">
+                    <div class="signature-title">Prepared by:</div>
+                    <div class="signature-name">Marilou H. Balarao</div>
+                    <div class="signature-role">School Nurse</div>
+                </div>
+
+                <script>
+                    window.onload = function() {
+                        window.print();
+                    };
+                </script>
+            </body>
+            </html>
+        `;
+
+        printWindow.document.open();
+        printWindow.document.write(htmlContent);
+        printWindow.document.close();
+    };
+
+    // EXPORT REPORT FOR SINGLE DOCTOR APPOINTMENT BATCH
+    const handleExportSingleReport = () => {
+        if (!selectedGroup) return;
+
+        const printWindow = window.open('', '_blank', 'width=950,height=750');
+        if (!printWindow) {
+            alert('Please allow popups to preview and print the report.');
+            return;
+        }
+
+        const reportDate = new Date().toLocaleDateString('en-US', { 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
+        });
+
+        const dateFormatted = selectedGroup.apptStart ? formatLocalDateOnly(selectedGroup.apptStart) : 'N/A';
+        const startTimeFormatted = selectedGroup.apptStart ? selectedGroup.apptStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }) : '';
+        const endTimeFormatted = selectedGroup.apptEnd ? selectedGroup.apptEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }) : '';
+        const timeStr = `${startTimeFormatted} - ${endTimeFormatted}`;
+
+        const now = new Date();
+
+        const tableRowsHtml = selectedGroup.appointments.map(appt => {
+            const studentName = `${appt.student_first_name || ''} ${appt.student_last_name || ''}`.trim();
+            const progSec = appt.program_id ? `${appt.program_id} - ${appt.year_level || ''}${appt.section || ''}` : 'N/A';
+
+            const rawStart = appt.start_time || appt.scheduled_date;
+            const rawEnd = appt.end_time;
+            const studentStart = parseSQLDate(rawStart) || selectedGroup.apptStart;
+            const studentEnd = parseSQLDate(rawEnd) || selectedGroup.apptEnd;
+
+            const slotStr = `${studentStart ? studentStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }) : ''} - ${studentEnd ? studentEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }) : ''}`;
+
+            let currentAttendance = appt.attendance_status || 'Pending';
+            if (studentEnd < now && currentAttendance.toLowerCase() === 'pending') {
+                currentAttendance = 'Absent';
+            }
+
+            const assessmentStr = appt.assessment_id ? 'Documented' : 'Pending';
+
+            return `
+                <tr>
+                    <td>${appt.student_id || ''}</td>
+                    <td><strong>${studentName}</strong></td>
+                    <td>${progSec}</td>
+                    <td>${slotStr}</td>
+                    <td>${currentAttendance}</td>
+                    <td>${assessmentStr}</td>
+                </tr>
+            `;
+        }).join('');
+
+        const htmlContent = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Individual Doctor Visit Participant Report</title>
+                <style>
+                    body {
+                        font-family: Arial, Helvetica, sans-serif;
+                        margin: 25px;
+                        color: #0f172a;
+                    }
+                    .report-header {
+                        display: flex;
+                        align-items: center;
+                        border-bottom: 2px solid #0056b3;
+                        padding-bottom: 12px;
+                        margin-bottom: 16px;
+                    }
+                    .report-header img {
+                        height: 60px;
+                        margin-right: 20px;
+                    }
+                    .report-title h2 {
+                        margin: 0;
+                        font-size: 20px;
+                        color: #1e3a8a;
+                    }
+                    .report-title p {
+                        margin: 4px 0 0;
+                        font-size: 13px;
+                        color: #475569;
+                    }
+                    .meta-info {
+                        display: flex;
+                        justify-content: space-between;
+                        font-size: 13px;
+                        color: #475569;
+                        margin-bottom: 16px;
+                        font-weight: 500;
+                    }
+                    .details-card {
+                        background-color: #f8fafc;
+                        border: 1px solid #cbd5e1;
+                        padding: 12px 16px;
+                        border-radius: 6px;
+                        margin-bottom: 20px;
+                        display: grid;
+                        grid-template-columns: 1fr 1fr;
+                        gap: 10px;
+                        font-size: 13px;
+                    }
+                    table {
+                        width: 100%;
+                        border-collapse: collapse;
+                        font-size: 12px;
+                        margin-bottom: 35px;
+                    }
+                    th {
+                        background-color: #f1f5f9;
+                        color: #0f172a;
+                        text-align: left;
+                        padding: 9px 10px;
+                        border: 1px solid #cbd5e1;
+                        font-weight: bold;
+                    }
+                    td {
+                        padding: 8px 10px;
+                        border: 1px solid #e2e8f0;
+                    }
+                    tr:nth-child(even) {
+                        background-color: #f8fafc;
+                    }
+                    .signature-section {
+                        margin-top: 40px;
+                        font-size: 13px;
+                    }
+                    .signature-title {
+                        color: #475569;
+                        margin-bottom: 35px;
+                    }
+                    .signature-name {
+                        font-weight: bold;
+                        font-size: 14px;
+                        color: #0f172a;
+                    }
+                    .signature-role {
+                        font-style: italic;
+                        color: #64748b;
+                    }
+                    @media print {
+                        body { margin: 0; }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="report-header">
+                    <img src="${stiLogo}" alt="STI Logo" />
+                    <div class="report-title">
+                        <h2>STI COLLEGE BALIUAG</h2>
+                        <p>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan</p>
+                    </div>
+                </div>
+
+                <div class="meta-info">
+                    <span><strong>INDIVIDUAL DOCTOR VISIT PARTICIPANT REPORT</strong></span>
+                    <span>Date Generated: ${reportDate}</span>
+                </div>
+
+                <div class="details-card">
+                    <div><strong>Visit Title:</strong> ${selectedGroup.title || 'N/A'}</div>
+                    <div><strong>Assigned Doctor:</strong> ${selectedGroup.doctorName || 'N/A'} (${selectedGroup.specialization || 'General'})</div>
+                    <div><strong>Scheduled Date:</strong> ${dateFormatted}</div>
+                    <div><strong>Time Window:</strong> ${timeStr}</div>
+                </div>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Student ID</th>
+                            <th>Student Name</th>
+                            <th>Program & Section</th>
+                            <th>Time Slot</th>
+                            <th>Attendance</th>
+                            <th>Assessment Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tableRowsHtml || '<tr><td colspan="6">No participating students found.</td></tr>'}
+                    </tbody>
+                </table>
+
+                <div class="signature-section">
+                    <div class="signature-title">Prepared by:</div>
+                    <div class="signature-name">Marilou H. Balarao</div>
+                    <div class="signature-role">School Nurse</div>
+                </div>
+
+                <script>
+                    window.onload = function() {
+                        window.print();
+                    };
+                </script>
+            </body>
+            </html>
+        `;
+
+        printWindow.document.open();
+        printWindow.document.write(htmlContent);
+        printWindow.document.close();
+    };
 
     const updateAppointmentStatus = useCallback(async (appointmentId, studentId, newStatus) => {
         try {
@@ -764,6 +1138,14 @@ const DoctorVisit = () => {
                     <p className="subtitle-dv">Schedule, track, and document student doctor visits.</p>
                 </div>
                 <div className="header-actions-dv">
+                    <button 
+                        type="button"
+                        className="sti-btn-dv sti-btn-secondary-dv" 
+                        onClick={handleExportAllReport}
+                        style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    >
+                        <Printer size={18} /> export
+                    </button>
                     <button className="sti-btn-dv sti-btn-secondary-dv" onClick={() => { setIsEditDoctor(false); setShowDoctorModal(true); }}>
                         <UserPlus size={18} /> Manage Doctor Profile
                     </button>
@@ -923,7 +1305,17 @@ const DoctorVisit = () => {
                                     {selectedGroup.doctorName} ({selectedGroup.specialization}) • {selectedGroup.appointments.length} Total Student Participants
                                 </p>
                             </div>
-                            <button className="close-btn-dv" onClick={() => setSelectedGroup(null)}><X size={20} /></button>
+                            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                <button 
+                                    type="button" 
+                                    className="sti-btn-dv sti-btn-secondary-dv" 
+                                    onClick={handleExportSingleReport}
+                                    style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                                >
+                                    <Printer size={16} /> export
+                                </button>
+                                <button className="close-btn-dv" onClick={() => setSelectedGroup(null)}><X size={20} /></button>
+                            </div>
                         </div>
 
                         {selectedGroup.announcement && (

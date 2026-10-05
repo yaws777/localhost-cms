@@ -1033,10 +1033,10 @@ const VisitLogConsultation = () => {
 
                             <div className="modal-action-footer-vlc">
                                 <button type="button" className="btn-deny-action-vlc" onClick={handleDenyVisitEntry}>
-                                    Deny Entry
+                                    Deny
                                 </button>
                                 <button type="button" className="btn-confirm-action-vlc" onClick={handleConfirmVisitEntry}>
-                                    Grant Entry
+                                    Confirm
                                 </button>
                             </div>
                         </div>

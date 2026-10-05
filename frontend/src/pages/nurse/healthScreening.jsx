@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Calendar, Clock, Plus, Users, Eye, Activity, Smile, 
-  X, CheckCircle, Edit3, Trash2, FileText, ArrowLeft, ArrowRight, QrCode, AlertCircle, Megaphone
+  X, CheckCircle, Edit3, Trash2, FileText, ArrowLeft, ArrowRight, QrCode, AlertCircle, Megaphone, Printer
 } from 'lucide-react';
 import jsQR from 'jsqr';
+
+import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/HealthScreening.css';
 
 const API_BASE = 'http://localhost:3001/api';
@@ -93,6 +95,364 @@ export default function HealthScreening() {
     fetchSchedules();
     fetchPrograms();
   }, []);
+
+  // EXPORT REPORT FOR ALL HEALTH SCREENINGS
+  const handleExportAllReport = () => {
+    const rowsToExport = filteredSchedules.length > 0 ? filteredSchedules : schedules;
+
+    const printWindow = window.open('', '_blank', 'width=950,height=750');
+    if (!printWindow) {
+      alert('Please allow popups to preview and print the report.');
+      return;
+    }
+
+    const reportDate = new Date().toLocaleDateString('en-US', { 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+
+    const tableRowsHtml = rowsToExport.map(sch => {
+      const dateStr = sch.scheduled_date ? sch.scheduled_date.split('T')[0] : 'N/A';
+      const timeStr = `${sch.start_time || ''} - ${sch.end_time || ''}`;
+
+      return `
+        <tr>
+          <td><strong>${sch.title || 'N/A'}</strong></td>
+          <td>${sch.screening_type || 'N/A'}</td>
+          <td>${dateStr}</td>
+          <td>${timeStr}</td>
+          <td>${sch.total_students || 0}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Health Screening Report</title>
+        <style>
+          body {
+            font-family: Arial, Helvetica, sans-serif;
+            margin: 25px;
+            color: #0f172a;
+          }
+          .report-header {
+            display: flex;
+            align-items: center;
+            border-bottom: 2px solid #0056b3;
+            padding-bottom: 12px;
+            margin-bottom: 16px;
+          }
+          .report-header img {
+            height: 60px;
+            margin-right: 20px;
+          }
+          .report-title h2 {
+            margin: 0;
+            font-size: 20px;
+            color: #1e3a8a;
+          }
+          .report-title p {
+            margin: 4px 0 0;
+            font-size: 13px;
+            color: #475569;
+          }
+          .meta-info {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            color: #475569;
+            margin-bottom: 16px;
+            font-weight: 500;
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+            margin-bottom: 35px;
+          }
+          th {
+            background-color: #f1f5f9;
+            color: #0f172a;
+            text-align: left;
+            padding: 9px 10px;
+            border: 1px solid #cbd5e1;
+            font-weight: bold;
+          }
+          td {
+            padding: 8px 10px;
+            border: 1px solid #e2e8f0;
+          }
+          tr:nth-child(even) {
+            background-color: #f8fafc;
+          }
+          .signature-section {
+            margin-top: 40px;
+            font-size: 13px;
+          }
+          .signature-title {
+            color: #475569;
+            margin-bottom: 35px;
+          }
+          .signature-name {
+            font-weight: bold;
+            font-size: 14px;
+            color: #0f172a;
+          }
+          .signature-role {
+            font-style: italic;
+            color: #64748b;
+          }
+          @media print {
+            body { margin: 0; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="report-header">
+          <img src="${stiLogo}" alt="STI Logo" />
+          <div class="report-title">
+            <h2>STI COLLEGE BALIUAG</h2>
+            <p>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan</p>
+          </div>
+        </div>
+
+        <div class="meta-info">
+          <span><strong>HEALTH SCREENING SUMMARY REPORT</strong></span>
+          <span>Date Generated: ${reportDate}</span>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Screening Title</th>
+              <th>Type</th>
+              <th>Date</th>
+              <th>Time</th>
+              <th>Assigned Students</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRowsHtml || '<tr><td colspan="5">No health screenings found.</td></tr>'}
+          </tbody>
+        </table>
+
+        <div class="signature-section">
+          <div class="signature-title">Prepared by:</div>
+          <div class="signature-name">Marilou H. Balarao</div>
+          <div class="signature-role">School Nurse</div>
+        </div>
+
+        <script>
+          window.onload = function() {
+            window.print();
+          };
+        </script>
+      </body>
+      </html>
+    `;
+
+    printWindow.document.open();
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+  };
+
+  // EXPORT REPORT FOR SINGLE HEALTH SCREENING
+  const handleExportSingleReport = () => {
+    if (!activeSchedule) return;
+
+    const printWindow = window.open('', '_blank', 'width=950,height=750');
+    if (!printWindow) {
+      alert('Please allow popups to preview and print the report.');
+      return;
+    }
+
+    const reportDate = new Date().toLocaleDateString('en-US', { 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+
+    const dateStr = activeSchedule.scheduled_date ? activeSchedule.scheduled_date.split('T')[0] : 'N/A';
+    const timeStr = `${activeSchedule.start_time || ''} - ${activeSchedule.end_time || ''}`;
+
+    const tableRowsHtml = scheduleStudents.map(st => {
+      const studentName = `${st.first_name || ''} ${st.last_name || ''}`.trim();
+      const progYrSec = `${st.program_name || ''} (Yr ${st.year_level || ''} - ${st.section || ''})`;
+      
+      const activeEndDt = getScheduleDateTime(activeSchedule.scheduled_date, activeSchedule.end_time);
+      const isScheduleEnded = activeEndDt ? now > activeEndDt : false;
+
+      let effectiveAttendanceStatus = st.attendance_status || 'PENDING';
+      if (isScheduleEnded && effectiveAttendanceStatus === 'PENDING') {
+        effectiveAttendanceStatus = 'ABSENT';
+      }
+
+      const isDocumented = st.bmi_log_id || st.dental_record_id || st.vision_record_id;
+      const recordStatusStr = isDocumented ? 'Documented' : 'Pending';
+
+      return `
+        <tr>
+          <td>${st.student_id || ''}</td>
+          <td><strong>${studentName}</strong></td>
+          <td>${progYrSec}</td>
+          <td>${effectiveAttendanceStatus}</td>
+          <td>${recordStatusStr}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Health Screening Participant Report</title>
+        <style>
+          body {
+            font-family: Arial, Helvetica, sans-serif;
+            margin: 25px;
+            color: #0f172a;
+          }
+          .report-header {
+            display: flex;
+            align-items: center;
+            border-bottom: 2px solid #0056b3;
+            padding-bottom: 12px;
+            margin-bottom: 16px;
+          }
+          .report-header img {
+            height: 60px;
+            margin-right: 20px;
+          }
+          .report-title h2 {
+            margin: 0;
+            font-size: 20px;
+            color: #1e3a8a;
+          }
+          .report-title p {
+            margin: 4px 0 0;
+            font-size: 13px;
+            color: #475569;
+          }
+          .meta-info {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            color: #475569;
+            margin-bottom: 16px;
+            font-weight: 500;
+          }
+          .details-card {
+            background-color: #f8fafc;
+            border: 1px solid #cbd5e1;
+            padding: 12px 16px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            font-size: 13px;
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+            margin-bottom: 35px;
+          }
+          th {
+            background-color: #f1f5f9;
+            color: #0f172a;
+            text-align: left;
+            padding: 9px 10px;
+            border: 1px solid #cbd5e1;
+            font-weight: bold;
+          }
+          td {
+            padding: 8px 10px;
+            border: 1px solid #e2e8f0;
+          }
+          tr:nth-child(even) {
+            background-color: #f8fafc;
+          }
+          .signature-section {
+            margin-top: 40px;
+            font-size: 13px;
+          }
+          .signature-title {
+            color: #475569;
+            margin-bottom: 35px;
+          }
+          .signature-name {
+            font-weight: bold;
+            font-size: 14px;
+            color: #0f172a;
+          }
+          .signature-role {
+            font-style: italic;
+            color: #64748b;
+          }
+          @media print {
+            body { margin: 0; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="report-header">
+          <img src="${stiLogo}" alt="STI Logo" />
+          <div class="report-title">
+            <h2>STI COLLEGE BALIUAG</h2>
+            <p>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan</p>
+          </div>
+        </div>
+
+        <div class="meta-info">
+          <span><strong>INDIVIDUAL SCREENING PARTICIPANT REPORT</strong></span>
+          <span>Date Generated: ${reportDate}</span>
+        </div>
+
+        <div class="details-card">
+          <div><strong>Screening Title:</strong> ${activeSchedule.title || 'N/A'}</div>
+          <div><strong>Screening Type:</strong> ${activeSchedule.screening_type || 'N/A'}</div>
+          <div><strong>Scheduled Date:</strong> ${dateStr}</div>
+          <div><strong>Time:</strong> ${timeStr}</div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Student ID</th>
+              <th>Student Name</th>
+              <th>Program & Year/Section</th>
+              <th>Attendance Status</th>
+              <th>Record Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRowsHtml || '<tr><td colspan="5">No participants found.</td></tr>'}
+          </tbody>
+        </table>
+
+        <div class="signature-section">
+          <div class="signature-title">Prepared by:</div>
+          <div class="signature-name">Marilou H. Balarao</div>
+          <div class="signature-role">School Nurse</div>
+        </div>
+
+        <script>
+          window.onload = function() {
+            window.print();
+          };
+        </script>
+      </body>
+      </html>
+    `;
+
+    printWindow.document.open();
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+  };
 
   // Centralized scan handler for both JSQR and manual entry
   const processScannedStudentId = useCallback(async (studentId) => {
@@ -452,9 +812,19 @@ export default function HealthScreening() {
           <h1>Health Screening Management</h1>
           <p>Schedule, manage, and document student health assessments</p>
         </div>
-        <button type="button" className="btn btn-primary" onClick={() => setShowScheduleModal(true)}>
-          <Plus size={18} /> Schedule Screening
-        </button>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <button 
+            type="button" 
+            className="btn btn-secondary" 
+            onClick={handleExportAllReport}
+            style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+          >
+            <Printer size={18} /> export
+          </button>
+          <button type="button" className="btn btn-primary" onClick={() => setShowScheduleModal(true)}>
+            <Plus size={18} /> Schedule Screening
+          </button>
+        </div>
       </header>
 
       {/* Tabs */}
@@ -859,9 +1229,19 @@ export default function HealthScreening() {
           <div className="modal-content modal-lg">
             <div className="modal-header">
               <h2>{activeSchedule.title} - Participant List ({activeSchedule.screening_type})</h2>
-              <button type="button" className="close-btn" onClick={() => setShowViewModal(false)}>
-                <X size={20} />
-              </button>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <button 
+                  type="button" 
+                  className="btn btn-secondary" 
+                  onClick={handleExportSingleReport}
+                  style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <Printer size={16} /> export
+                </button>
+                <button type="button" className="close-btn" onClick={() => setShowViewModal(false)}>
+                  <X size={20} />
+                </button>
+              </div>
             </div>
             <div className="modal-body">
               {activeTab === 'ongoing' && (

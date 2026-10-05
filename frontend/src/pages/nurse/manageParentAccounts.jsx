@@ -1,3 +1,4 @@
+// manageParentAccounts.jsx
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import {
@@ -12,8 +13,11 @@ import {
   Key,
   Users,
   GraduationCap,
-  Save
+  Save,
+  Printer
 } from 'lucide-react';
+
+import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/ManageParentAccounts.css';
 
 const API_BASE = 'http://localhost:3001/manageParentAccount';
@@ -64,6 +68,358 @@ export default function ManageParentAccount() {
   useEffect(() => {
     fetchParents();
   }, [fetchParents]);
+
+  // EXPORT REPORT FOR ALL PARENT ACCOUNTS
+  const handleExportAllReport = () => {
+    const rowsToExport = Array.isArray(parents) ? parents : [];
+
+    const printWindow = window.open('', '_blank', 'width=950,height=750');
+    if (!printWindow) {
+      alert('Please allow popups to preview and print the report.');
+      return;
+    }
+
+    const reportDate = new Date().toLocaleDateString('en-US', { 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+
+    const tableRowsHtml = rowsToExport.map(p => {
+      const fullName = `${p.first_name || ''} ${p.last_name || ''}`.trim();
+      const linkedCount = p.linked_students ? p.linked_students.length : 0;
+      const statusStr = p.is_active ? 'Active' : 'Inactive';
+
+      return `
+        <tr>
+          <td>${p.parent_id || ''}</td>
+          <td><strong>${fullName}</strong></td>
+          <td>${p.username || 'N/A'}</td>
+          <td>${p.primary_phone || 'N/A'}</td>
+          <td>${linkedCount} Student(s)</td>
+          <td>${statusStr}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+          <title>Parent Accounts Summary Report</title>
+          <style>
+              body {
+                  font-family: Arial, Helvetica, sans-serif;
+                  margin: 25px;
+                  color: #0f172a;
+              }
+              .report-header {
+                  display: flex;
+                  align-items: center;
+                  border-bottom: 2px solid #0056b3;
+                  padding-bottom: 12px;
+                  margin-bottom: 16px;
+              }
+              .report-header img {
+                  height: 60px;
+                  margin-right: 20px;
+              }
+              .report-title h2 {
+                  margin: 0;
+                  font-size: 20px;
+                  color: #1e3a8a;
+              }
+              .report-title p {
+                  margin: 4px 0 0;
+                  font-size: 13px;
+                  color: #475569;
+              }
+              .meta-info {
+                  display: flex;
+                  justify-content: space-between;
+                  font-size: 13px;
+                  color: #475569;
+                  margin-bottom: 16px;
+                  font-weight: 500;
+              }
+              table {
+                  width: 100%;
+                  border-collapse: collapse;
+                  font-size: 12px;
+                  margin-bottom: 35px;
+              }
+              th {
+                  background-color: #f1f5f9;
+                  color: #0f172a;
+                  text-align: left;
+                  padding: 9px 10px;
+                  border: 1px solid #cbd5e1;
+                  font-weight: bold;
+              }
+              td {
+                  padding: 8px 10px;
+                  border: 1px solid #e2e8f0;
+              }
+              tr:nth-child(even) {
+                  background-color: #f8fafc;
+              }
+              .signature-section {
+                  margin-top: 40px;
+                  font-size: 13px;
+              }
+              .signature-title {
+                  color: #475569;
+                  margin-bottom: 35px;
+              }
+              .signature-name {
+                  font-weight: bold;
+                  font-size: 14px;
+                  color: #0f172a;
+              }
+              .signature-role {
+                  font-style: italic;
+                  color: #64748b;
+              }
+              @media print {
+                  body { margin: 0; }
+              }
+          </style>
+      </head>
+      <body>
+          <div class="report-header">
+              <img src="${stiLogo}" alt="STI Logo" />
+              <div class="report-title">
+                  <h2>STI COLLEGE BALIUAG</h2>
+                  <p>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan</p>
+              </div>
+          </div>
+
+          <div class="meta-info">
+              <span><strong>PARENT ACCOUNTS SUMMARY REPORT</strong></span>
+              <span>Date Generated: ${reportDate}</span>
+          </div>
+
+          <table>
+              <thead>
+                  <tr>
+                      <th>Parent ID</th>
+                      <th>Parent Name</th>
+                      <th>Username</th>
+                      <th>Primary Phone</th>
+                      <th>Linked Students</th>
+                      <th>Status</th>
+                  </tr>
+              </thead>
+              <tbody>
+                  ${tableRowsHtml || '<tr><td colspan="6">No parent accounts found.</td></tr>'}
+              </tbody>
+          </table>
+
+          <div class="signature-section">
+              <div class="signature-title">Prepared by:</div>
+              <div class="signature-name">Marilou H. Balarao</div>
+              <div class="signature-role">School Nurse</div>
+          </div>
+
+          <script>
+              window.onload = function() {
+                  window.print();
+              };
+          </script>
+      </body>
+      </html>
+    `;
+
+    printWindow.document.open();
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+  };
+
+  // EXPORT REPORT FOR SPECIFIC PARENT ACCOUNT
+  const handleExportSingleReport = () => {
+    if (!viewModalData) return;
+
+    const printWindow = window.open('', '_blank', 'width=950,height=750');
+    if (!printWindow) {
+      alert('Please allow popups to preview and print the report.');
+      return;
+    }
+
+    const reportDate = new Date().toLocaleDateString('en-US', { 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+
+    const parentName = `${viewModalData.first_name || ''} ${viewModalData.last_name || ''}`.trim();
+    const parentStatus = viewModalData.is_active ? 'Active' : 'Inactive';
+
+    const linkedStudentsList = viewModalData.linked_students || [];
+    const tableRowsHtml = linkedStudentsList.map(s => {
+      const studentName = `${s.first_name || ''} ${s.last_name || ''}`.trim();
+      const progName = s.program_name || 'N/A';
+      const yrSec = `Year ${s.year_level || ''} - ${s.section || ''}`;
+
+      return `
+        <tr>
+          <td>${s.student_id || ''}</td>
+          <td><strong>${studentName}</strong></td>
+          <td>${progName}</td>
+          <td>${yrSec}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+          <title>Individual Parent Account Report - ${viewModalData.parent_id || 'Parent'}</title>
+          <style>
+              body {
+                  font-family: Arial, Helvetica, sans-serif;
+                  margin: 25px;
+                  color: #0f172a;
+              }
+              .report-header {
+                  display: flex;
+                  align-items: center;
+                  border-bottom: 2px solid #0056b3;
+                  padding-bottom: 12px;
+                  margin-bottom: 16px;
+              }
+              .report-header img {
+                  height: 60px;
+                  margin-right: 20px;
+              }
+              .report-title h2 {
+                  margin: 0;
+                  font-size: 20px;
+                  color: #1e3a8a;
+              }
+              .report-title p {
+                  margin: 4px 0 0;
+                  font-size: 13px;
+                  color: #475569;
+              }
+              .meta-info {
+                  display: flex;
+                  justify-content: space-between;
+                  font-size: 13px;
+                  color: #475569;
+                  margin-bottom: 16px;
+                  font-weight: 500;
+              }
+              .details-card {
+                  background-color: #f8fafc;
+                  border: 1px solid #cbd5e1;
+                  padding: 12px 16px;
+                  border-radius: 6px;
+                  margin-bottom: 20px;
+                  display: grid;
+                  grid-template-columns: 1fr 1fr;
+                  gap: 10px;
+                  font-size: 13px;
+              }
+              table {
+                  width: 100%;
+                  border-collapse: collapse;
+                  font-size: 12px;
+                  margin-bottom: 35px;
+              }
+              th {
+                  background-color: #f1f5f9;
+                  color: #0f172a;
+                  text-align: left;
+                  padding: 9px 10px;
+                  border: 1px solid #cbd5e1;
+                  font-weight: bold;
+              }
+              td {
+                  padding: 8px 10px;
+                  border: 1px solid #e2e8f0;
+              }
+              tr:nth-child(even) {
+                  background-color: #f8fafc;
+              }
+              .signature-section {
+                  margin-top: 40px;
+                  font-size: 13px;
+              }
+              .signature-title {
+                  color: #475569;
+                  margin-bottom: 35px;
+              }
+              .signature-name {
+                  font-weight: bold;
+                  font-size: 14px;
+                  color: #0f172a;
+              }
+              .signature-role {
+                  font-style: italic;
+                  color: #64748b;
+              }
+              @media print {
+                  body { margin: 0; }
+              }
+          </style>
+      </head>
+      <body>
+          <div class="report-header">
+              <img src="${stiLogo}" alt="STI Logo" />
+              <div class="report-title">
+                  <h2>STI COLLEGE BALIUAG</h2>
+                  <p>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan</p>
+              </div>
+          </div>
+
+          <div class="meta-info">
+              <span><strong>INDIVIDUAL PARENT ACCOUNT REPORT</strong></span>
+              <span>Date Generated: ${reportDate}</span>
+          </div>
+
+          <div class="details-card">
+              <div><strong>Parent Name:</strong> ${parentName}</div>
+              <div><strong>Parent ID:</strong> ${viewModalData.parent_id || 'N/A'}</div>
+              <div><strong>Username:</strong> ${viewModalData.username || 'N/A'}</div>
+              <div><strong>Primary Phone:</strong> ${viewModalData.primary_phone || 'N/A'}</div>
+              <div><strong>Account Status:</strong> ${parentStatus}</div>
+          </div>
+
+          <h3 style="font-size: 14px; color: #1e3a8a; margin-bottom: 10px;">Linked Student Accounts</h3>
+          <table>
+              <thead>
+                  <tr>
+                      <th>Student ID</th>
+                      <th>Student Name</th>
+                      <th>Program</th>
+                      <th>Year Level & Section</th>
+                  </tr>
+              </thead>
+              <tbody>
+                  ${tableRowsHtml || '<tr><td colspan="4">No students currently linked to this parent account.</td></tr>'}
+              </tbody>
+          </table>
+
+          <div class="signature-section">
+              <div class="signature-title">Prepared by:</div>
+              <div class="signature-name">Marilou H. Balarao</div>
+              <div class="signature-role">School Nurse</div>
+          </div>
+
+          <script>
+              window.onload = function() {
+                  window.print();
+              };
+          </script>
+      </body>
+      </html>
+    `;
+
+    printWindow.document.open();
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+  };
 
   // Open Edit Modal
   const handleOpenEdit = (parent) => {
@@ -167,7 +523,7 @@ export default function ManageParentAccount() {
       </header>
 
       {/* Search Bar & Controls */}
-      <div className="controls-mpa">
+      <div className="controls-mpa" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div className="search-box-mpa">
           <Search size={18} className="search-icon-mpa" />
           <input
@@ -177,6 +533,14 @@ export default function ManageParentAccount() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
+        <button 
+          type="button"
+          className="btn-secondary-mpa"
+          onClick={handleExportAllReport}
+          style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px', height: '38px', padding: '0 16px' }}
+        >
+          <Printer size={18} /> export
+        </button>
       </div>
 
       {/* Parent Accounts Table Card */}
@@ -271,14 +635,24 @@ export default function ManageParentAccount() {
           >
             <div className="modal-header-mpa">
               <h2 id="view-modal-title">Parent & Linked Students</h2>
-              <button
-                type="button"
-                className="btn-close-mpa"
-                aria-label="Close parent details"
-                onClick={() => setViewModalData(null)}
-              >
-                <X size={20} />
-              </button>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <button 
+                  type="button" 
+                  className="btn-secondary-mpa" 
+                  onClick={handleExportSingleReport}
+                  style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px', height: '32px', padding: '0 12px', fontSize: '13px' }}
+                >
+                  <Printer size={16} /> export
+                </button>
+                <button
+                  type="button"
+                  className="btn-close-mpa"
+                  aria-label="Close parent details"
+                  onClick={() => setViewModalData(null)}
+                >
+                  <X size={20} />
+                </button>
+              </div>
             </div>
             <div className="modal-body-mpa">
               <div className="details-section-mpa">
