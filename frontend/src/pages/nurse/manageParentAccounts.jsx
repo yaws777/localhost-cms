@@ -20,7 +20,7 @@ import {
 import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/ManageParentAccounts.css';
 
-const API_BASE = 'http://localhost:3001/manageParentAccount';
+const API_BASE = 'https://localhost-cms.onrender.com/manageParentAccount';
 
 export default function ManageParentAccount() {
   const [parents, setParents] = useState([]);

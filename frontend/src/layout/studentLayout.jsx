@@ -62,7 +62,7 @@ const StudentLayout = () => {
     const fetchUnreadCount = useCallback(async (userId) => {
         if (!userId) return;
         try {
-            const res = await fetch(`http://localhost:3001/api/messages/unread-count/${userId}`);
+            const res = await fetch(`https://localhost-cms.onrender.com/api/messages/unread-count/${userId}`);
             const data = await res.json();
             if (data.success) {
                 setUnreadCount(data.unreadCount || 0);
@@ -76,7 +76,7 @@ const StudentLayout = () => {
     const fetchNotifications = useCallback(async (studentId) => {
         if (!studentId) return;
         try {
-            const res = await fetch(`http://localhost:3001/api/notifications/student/${studentId}`);
+            const res = await fetch(`https://localhost-cms.onrender.com/api/notifications/student/${studentId}`);
             const data = await res.json();
             if (data.success) {
                 // Filter out any notifications already marked as read
@@ -119,7 +119,7 @@ const StudentLayout = () => {
 
         const fetchStudentProfile = async () => {
             try {
-                const response = await fetch(`http://localhost:3001/api/get-student/${accurateUserId}`);
+                const response = await fetch(`https://localhost-cms.onrender.com/api/get-student/${accurateUserId}`);
                 const data = await response.json();
 
                 if (data.success && data.student) {
@@ -191,7 +191,7 @@ const StudentLayout = () => {
     const handleNotificationClick = async (notification) => {
         try {
             // 1. Mark notification as read
-            await fetch(`http://localhost:3001/api/notifications/${notification.notification_id}/read`, {
+            await fetch(`https://localhost-cms.onrender.com/api/notifications/${notification.notification_id}/read`, {
                 method: 'PATCH'
             });
 

@@ -62,7 +62,7 @@ const ParentLayout = () => {
     const fetchUnreadCount = useCallback(async (userId) => {
         if (!userId) return;
         try {
-            const res = await fetch(`http://localhost:3001/api/messages/unread-count/${String(userId)}`);
+            const res = await fetch(`https://localhost-cms.onrender.com/api/messages/unread-count/${String(userId)}`);
             const data = await res.json();
             if (data.success) {
                 setUnreadCount(data.unreadCount || 0);
@@ -85,14 +85,14 @@ const ParentLayout = () => {
 
         try {
             const fetchPromises = [
-                fetch(`http://localhost:3001/api/notifications/parent/${String(parentId)}`).then(res => res.json())
+                fetch(`https://localhost-cms.onrender.com/api/notifications/parent/${String(parentId)}`).then(res => res.json())
             ];
 
             if (studentList && studentList.length > 0) {
                 studentList.forEach(st => {
                     if (st.student_id) {
                         fetchPromises.push(
-                            fetch(`http://localhost:3001/api/notifications/student/${String(st.student_id)}`).then(res => res.json())
+                            fetch(`https://localhost-cms.onrender.com/api/notifications/student/${String(st.student_id)}`).then(res => res.json())
                         );
                     }
                 });
@@ -146,7 +146,7 @@ const ParentLayout = () => {
 
         const fetchProfiles = async (userId) => {
             try {
-                const parentRes = await fetch(`http://localhost:3001/api/get-parent/${String(userId)}`);
+                const parentRes = await fetch(`https://localhost-cms.onrender.com/api/get-parent/${String(userId)}`);
                 const parentJson = await parentRes.json();
 
                 if (parentJson.success && parentJson.parent) {
@@ -246,7 +246,7 @@ const ParentLayout = () => {
 
         // 2. Persist read status on server
         try {
-            await fetch(`http://localhost:3001/api/notifications/${notif.notification_id}/read`, {
+            await fetch(`https://localhost-cms.onrender.com/api/notifications/${notif.notification_id}/read`, {
                 method: 'PATCH'
             });
         } catch (err) {

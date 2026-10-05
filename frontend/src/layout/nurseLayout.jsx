@@ -166,7 +166,7 @@ export const NurseLayout = () => {
 
     const handleNotificationClick = async (notification) => {
         try {
-            await fetch(`http://localhost:3001/api/notifications/${notification.notification_id}/read`, {
+            await fetch(`https://localhost-cms.onrender.com/api/notifications/${notification.notification_id}/read`, {
                 method: 'PATCH'
             });
             setNotifications(prev => prev.filter(n => n.notification_id !== notification.notification_id));

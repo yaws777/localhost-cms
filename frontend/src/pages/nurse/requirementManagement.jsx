@@ -99,7 +99,7 @@ export const RequirementManagement = () => {
 
     const fetchStudents = useCallback(async () => {
         try {
-            const res = await fetch('http://localhost:3001/api/students');
+            const res = await fetch('https://localhost-cms.onrender.com/api/students');
             if (res.ok) {
                 const data = await parseJsonResponse(res);
                 setStudents(Array.isArray(data) ? data : []);
@@ -111,7 +111,7 @@ export const RequirementManagement = () => {
 
     const fetchPrograms = useCallback(async () => {
         try {
-            const res = await fetch('http://localhost:3001/api/programs');
+            const res = await fetch('https://localhost-cms.onrender.com/api/programs');
             if (res.ok) {
                 const data = await parseJsonResponse(res);
                 setPrograms(Array.isArray(data) ? data : []);
@@ -123,7 +123,7 @@ export const RequirementManagement = () => {
 
     const fetchProgramConfigs = useCallback(async () => {
         try {
-            const res = await fetch('http://localhost:3001/api/program-requirements-config');
+            const res = await fetch('https://localhost-cms.onrender.com/api/program-requirements-config');
             if (res.ok) {
                 const data = await parseJsonResponse(res);
                 setProgramConfigs(Array.isArray(data) ? data : []);
@@ -135,7 +135,7 @@ export const RequirementManagement = () => {
 
     const fetchMedicalRequirements = useCallback(async () => {
         try {
-            const res = await fetch('http://localhost:3001/api/medical-requirements');
+            const res = await fetch('https://localhost-cms.onrender.com/api/medical-requirements');
             if (res.ok) {
                 const data = await parseJsonResponse(res);
                 setMedicalRequirements(Array.isArray(data) ? data : []);
@@ -148,7 +148,7 @@ export const RequirementManagement = () => {
     const fetchStudentFullRequirements = useCallback(async (studentId) => {
         try {
             const encodedStudentId = encodeURIComponent(studentId);
-            const res = await fetch(`http://localhost:3001/api/students/${encodedStudentId}/full-requirements`);
+            const res = await fetch(`https://localhost-cms.onrender.com/api/students/${encodedStudentId}/full-requirements`);
             const data = await parseJsonResponse(res);
             
             if (!res.ok || !data) {
@@ -181,7 +181,7 @@ export const RequirementManagement = () => {
 
         try {
             const encodedPrimaryId = encodeURIComponent(primaryId);
-            const res = await fetch(`http://localhost:3001/api/submissions/${encodedPrimaryId}`);
+            const res = await fetch(`https://localhost-cms.onrender.com/api/submissions/${encodedPrimaryId}`);
             if (res.ok) {
                 const data = await parseJsonResponse(res);
                 if (data) {
@@ -216,7 +216,7 @@ export const RequirementManagement = () => {
         if (targetStudentId) {
             try {
                 const encodedTargetStudentId = encodeURIComponent(targetStudentId);
-                const studentRes = await fetch(`http://localhost:3001/api/students/${encodedTargetStudentId}`);
+                const studentRes = await fetch(`https://localhost-cms.onrender.com/api/students/${encodedTargetStudentId}`);
                 if (studentRes.ok) {
                     const studentData = await parseJsonResponse(studentRes);
                     if (studentData) {
@@ -234,7 +234,7 @@ export const RequirementManagement = () => {
             }
 
             try {
-                const res = await fetch('http://localhost:3001/api/students');
+                const res = await fetch('https://localhost-cms.onrender.com/api/students');
                 if (res.ok) {
                     const studentList = await parseJsonResponse(res);
                     if (Array.isArray(studentList)) {
@@ -679,7 +679,7 @@ export const RequirementManagement = () => {
             `Add "${trimmed}" to the medical requirements masterlist? This will automatically add it as a service under "Others" in partner facility services.`,
             async () => {
                 try {
-                    const response = await fetch('http://localhost:3001/api/medical-requirements', {
+                    const response = await fetch('https://localhost-cms.onrender.com/api/medical-requirements', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ requirement_name: trimmed })
@@ -727,7 +727,7 @@ export const RequirementManagement = () => {
             `Rename medical requirement "${oldName}" to "${trimmed}" across all system configurations (including Program Requirements Config, Student Submissions, and Partner Facility Services)?`,
             async () => {
                 try {
-                    const response = await fetch(`http://localhost:3001/api/medical-requirements/${encodeURIComponent(oldName)}`, {
+                    const response = await fetch(`https://localhost-cms.onrender.com/api/medical-requirements/${encodeURIComponent(oldName)}`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ requirement_name: trimmed })
@@ -755,7 +755,7 @@ export const RequirementManagement = () => {
 
     const executeDeleteMedicalRequirement = async (reqName, confirmCascade = false) => {
         try {
-            const url = `http://localhost:3001/api/medical-requirements/${encodeURIComponent(reqName)}${confirmCascade ? '?confirmCascade=true' : ''}`;
+            const url = `https://localhost-cms.onrender.com/api/medical-requirements/${encodeURIComponent(reqName)}${confirmCascade ? '?confirmCascade=true' : ''}`;
             const response = await fetch(url, { method: 'DELETE' });
             const data = await parseJsonResponse(response);
 
@@ -826,7 +826,7 @@ export const RequirementManagement = () => {
             async () => {
                 try {
                     const encodedStudentId = encodeURIComponent(selectedStudent.student_id);
-                    const response = await fetch(`http://localhost:3001/api/students/${encodedStudentId}/special-requirements`, {
+                    const response = await fetch(`https://localhost-cms.onrender.com/api/students/${encodedStudentId}/special-requirements`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ 
@@ -873,7 +873,7 @@ export const RequirementManagement = () => {
                 try {
                     const encodedStudentId = encodeURIComponent(studentId);
                     const encodedReqName = encodeURIComponent(reqName);
-                    const response = await fetch(`http://localhost:3001/api/students/${encodedStudentId}/requirements/${encodedReqName}`, {
+                    const response = await fetch(`https://localhost-cms.onrender.com/api/students/${encodedStudentId}/requirements/${encodedReqName}`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -908,7 +908,7 @@ export const RequirementManagement = () => {
                 try {
                     const encodedStudentId = encodeURIComponent(selectedStudent.student_id);
                     const encodedReqName = encodeURIComponent(reqName);
-                    await fetch(`http://localhost:3001/api/students/${encodedStudentId}/special-requirements/${encodedReqName}`, {
+                    await fetch(`https://localhost-cms.onrender.com/api/students/${encodedStudentId}/special-requirements/${encodedReqName}`, {
                         method: 'DELETE'
                     });
                     fetchStudentFullRequirements(selectedStudent.student_id);
@@ -972,7 +972,7 @@ export const RequirementManagement = () => {
             async () => {
                 try {
                     const encodedProgramId = encodeURIComponent(programId);
-                    const response = await fetch(`http://localhost:3001/api/programs/${encodedProgramId}/requirements`, {
+                    const response = await fetch(`https://localhost-cms.onrender.com/api/programs/${encodedProgramId}/requirements`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ 
@@ -1031,7 +1031,7 @@ export const RequirementManagement = () => {
                 try {
                     const encodedProgramId = encodeURIComponent(programId);
                     const encodedConfigId = encodeURIComponent(configId);
-                    const response = await fetch(`http://localhost:3001/api/programs/${encodedProgramId}/requirements/${encodedConfigId}`, {
+                    const response = await fetch(`https://localhost-cms.onrender.com/api/programs/${encodedProgramId}/requirements/${encodedConfigId}`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -1068,7 +1068,7 @@ export const RequirementManagement = () => {
                 try {
                     const encodedProgramId = encodeURIComponent(programId);
                     const encodedConfigId = encodeURIComponent(configId);
-                    const response = await fetch(`http://localhost:3001/api/programs/${encodedProgramId}/requirements/${encodedConfigId}`, {
+                    const response = await fetch(`https://localhost-cms.onrender.com/api/programs/${encodedProgramId}/requirements/${encodedConfigId}`, {
                         method: 'DELETE'
                     });
                     const data = await parseJsonResponse(response);

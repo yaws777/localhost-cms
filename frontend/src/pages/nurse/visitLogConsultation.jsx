@@ -225,7 +225,7 @@ const VisitLogConsultation = () => {
 
     const fetchComplaints = useCallback(async () => {
         try {
-            const res = await fetch('http://localhost:3001/api/chief-complaints');
+            const res = await fetch('https://localhost-cms.onrender.com/api/chief-complaints');
             const data = await res.json();
             setComplaints(Array.isArray(data) ? data : []);
         } catch (err) {
@@ -236,7 +236,7 @@ const VisitLogConsultation = () => {
 
     const fetchBatches = useCallback(async () => {
         try {
-            const res = await fetch('http://localhost:3001/api/medicines/batches');
+            const res = await fetch('https://localhost-cms.onrender.com/api/medicines/batches');
             const data = await res.json();
             setBatches(Array.isArray(data) ? data : []);
         } catch (err) {
@@ -247,7 +247,7 @@ const VisitLogConsultation = () => {
 
     const fetchTodayVisits = useCallback(async () => {
         try {
-            const res = await fetch('http://localhost:3001/api/clinic-visits');
+            const res = await fetch('https://localhost-cms.onrender.com/api/clinic-visits');
             const data = await res.json();
             if (Array.isArray(data)) {
                 const todayOnly = data.filter(v => {
@@ -265,7 +265,7 @@ const VisitLogConsultation = () => {
 
     const fetchAllVisits = useCallback(async () => {
         try {
-            const res = await fetch('http://localhost:3001/api/clinic-visits');
+            const res = await fetch('https://localhost-cms.onrender.com/api/clinic-visits');
             const data = await res.json();
             setAllVisits(Array.isArray(data) ? data : []);
         } catch (err) {
@@ -328,7 +328,7 @@ const VisitLogConsultation = () => {
         isProcessingScan.current = true;
 
         try {
-            const res = await fetch(`http://localhost:3001/api/students/search?query=${encodeURIComponent(studentId.trim())}`);
+            const res = await fetch(`https://localhost-cms.onrender.com/api/students/search?query=${encodeURIComponent(studentId.trim())}`);
             const data = await res.json();
             if (Array.isArray(data) && data.length > 0) {
                 stopCameraScan();
@@ -351,7 +351,7 @@ const VisitLogConsultation = () => {
             return;
         }
         try {
-            const res = await fetch(`http://localhost:3001/api/students/search?query=${val}`);
+            const res = await fetch(`https://localhost-cms.onrender.com/api/students/search?query=${val}`);
             const data = await res.json();
             setStudents(Array.isArray(data) ? data : []);
         } catch (err) {
@@ -393,7 +393,7 @@ const VisitLogConsultation = () => {
         }
 
         try {
-            const res = await fetch(`http://localhost:3001/api/clinic-visits/${visitId}/timeout`, {
+            const res = await fetch(`https://localhost-cms.onrender.com/api/clinic-visits/${visitId}/timeout`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ time_out: selectedTime })
@@ -499,7 +499,7 @@ const VisitLogConsultation = () => {
         };
 
         try {
-            const res = await fetch('http://localhost:3001/api/clinic-visits', {
+            const res = await fetch('https://localhost-cms.onrender.com/api/clinic-visits', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(checkInPayload)
@@ -666,7 +666,7 @@ const VisitLogConsultation = () => {
         };
 
         try {
-            const res = await fetch(`http://localhost:3001/api/clinic-visits/${documentingVisit.visit_id}`, {
+            const res = await fetch(`https://localhost-cms.onrender.com/api/clinic-visits/${documentingVisit.visit_id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(submissionPayload)

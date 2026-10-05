@@ -24,7 +24,7 @@ export default function HealthRecord() {
     useEffect(() => {
         const fetchPrograms = async () => {
             try {
-                const response = await fetch('http://localhost:3001/api/academic-programs');
+                const response = await fetch('https://localhost-cms.onrender.com/api/academic-programs');
                 const data = await response.json();
                 if (data.success) {
                     setAcademicPrograms(data.programs || []);
@@ -72,7 +72,7 @@ export default function HealthRecord() {
                 year_level: selectedYear
             }).toString();
 
-            const response = await fetch(`http://localhost:3001/api/health-records/students?${queryParams}`);
+            const response = await fetch(`https://localhost-cms.onrender.com/api/health-records/students?${queryParams}`);
             const data = await response.json();
 
             if (data.success) {
@@ -82,7 +82,7 @@ export default function HealthRecord() {
                 const enrichedStudents = await Promise.all(
                     rawStudents.map(async (student) => {
                         try {
-                            const profileRes = await fetch(`http://localhost:3001/api/profile/${student.student_id}`);
+                            const profileRes = await fetch(`https://localhost-cms.onrender.com/api/profile/${student.student_id}`);
                             const profileData = await profileRes.json();
 
                             let parsedHealth = {};

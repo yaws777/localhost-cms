@@ -25,7 +25,7 @@ import {
 import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/ManageStudentAccounts.css';
 
-const API_BASE = 'http://localhost:3001/api';
+const API_BASE = 'https://localhost-cms.onrender.com/api';
 const DOMAIN_EXTENSION = '@baliuag.sti.edu.ph';
 
 // Helper function to auto-generate parent_id in PARENT-[LASTNAME]001 format

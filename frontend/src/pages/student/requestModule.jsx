@@ -3,8 +3,8 @@ import { useOutletContext, useLocation } from 'react-router-dom';
 import { Eye } from 'lucide-react';
 import '../../styles/student/RequestModule.css';
 
-const API_BASE = 'http://localhost:3001/api';
-const BASE_URL = 'http://localhost:3001';
+const API_BASE = 'https://localhost-cms.onrender.com/api';
+const BASE_URL = 'https://localhost-cms.onrender.com';
 
 export default function RequestModule() {
   const location = useLocation();
