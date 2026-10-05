@@ -130,7 +130,7 @@ export const NurseLayout = () => {
         if (type.includes('inventory') || type.includes('stock') || msg.includes('medicine stock')) {
             return '/MedicineInventory';
         }
-        if (type.includes('document') || type.includes('issuance') || msg.includes('document')) {
+        if (type.includes('request') || type.includes('request') || msg.includes('request')){
             return '/DocumentIssuance';
         }
         if (type.includes('screening') || msg.includes('health screening')) {
