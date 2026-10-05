@@ -33,6 +33,7 @@ export const RequirementManagement = () => {
         isOpen: false,
         title: '',
         message: '',
+        details: null,
         onConfirm: null,
         confirmText: 'Confirm',
         type: 'primary' // 'primary' | 'danger'
@@ -65,11 +66,12 @@ export const RequirementManagement = () => {
     // Nested Requirement Editor Configuration State
     const [editingReq, setEditingReq] = useState(null);
 
-    const openConfirmModal = (title, message, onConfirm, confirmText = 'Confirm', type = 'primary') => {
+    const openConfirmModal = (title, message, onConfirm, confirmText = 'Confirm', type = 'primary', details = null) => {
         setConfirmModal({
             isOpen: true,
             title,
             message,
+            details,
             onConfirm,
             confirmText,
             type
@@ -77,7 +79,7 @@ export const RequirementManagement = () => {
     };
 
     const closeConfirmModal = () => {
-        setConfirmModal(prev => ({ ...prev, isOpen: false, onConfirm: null }));
+        setConfirmModal(prev => ({ ...prev, isOpen: false, onConfirm: null, details: null }));
     };
 
     // Helper to safely parse JSON responses without throwing syntax errors on HTML 404 pages
@@ -315,7 +317,7 @@ export const RequirementManagement = () => {
 
         openConfirmModal(
             "Add Medical Requirement",
-            `Add "${trimmed}" to the medical requirements masterlist?`,
+            `Add "${trimmed}" to the medical requirements masterlist? This will automatically add it as a service under "Others" in partner facility services.`,
             async () => {
                 try {
                     const response = await fetch('http://localhost:3001/api/medical-requirements', {
@@ -363,7 +365,7 @@ export const RequirementManagement = () => {
 
         openConfirmModal(
             "Update Medical Requirement",
-            `Rename medical requirement "${oldName}" to "${trimmed}" across all system configurations?`,
+            `Rename medical requirement "${oldName}" to "${trimmed}" across all system configurations (including Program Requirements Config, Student Submissions, and Partner Facility Services)?`,
             async () => {
                 try {
                     const response = await fetch(`http://localhost:3001/api/medical-requirements/${encodeURIComponent(oldName)}`, {
@@ -381,6 +383,7 @@ export const RequirementManagement = () => {
                     setEditingMedReq(null);
                     fetchMedicalRequirements();
                     fetchProgramConfigs();
+                    fetchStudents();
                 } catch (error) {
                     console.error("Error updating medical requirement:", error);
                     alert("Network error updating requirement.");
@@ -391,31 +394,48 @@ export const RequirementManagement = () => {
         );
     };
 
+    const executeDeleteMedicalRequirement = async (reqName, confirmCascade = false) => {
+        try {
+            const url = `http://localhost:3001/api/medical-requirements/${encodeURIComponent(reqName)}${confirmCascade ? '?confirmCascade=true' : ''}`;
+            const response = await fetch(url, { method: 'DELETE' });
+            const data = await parseJsonResponse(response);
+
+            if (!response.ok) {
+                alert(data?.error || `Server Error (${response.status}): Failed to delete requirement.`);
+                return;
+            }
+
+            // If backend detects existing connections and requests user confirmation
+            if (data.requiresConfirmation) {
+                const { connections } = data;
+                const details = {
+                    program_ids: connections.program_ids || [],
+                    submission_ids: connections.submission_ids || [],
+                    service_ids: connections.service_ids || []
+                };
+
+                openConfirmModal(
+                    "Warning: Connected Records Found",
+                    `Requirement "${reqName}" is currently connected to existing records in other tables. Deleting it will permanently remove all connected entries from program configurations, student submissions, and facility services. Do you wish to confirm deleting all connected records?`,
+                    () => executeDeleteMedicalRequirement(reqName, true),
+                    "Confirm Delete All Connected",
+                    "danger",
+                    details
+                );
+                return;
+            }
+
+            fetchMedicalRequirements();
+            fetchProgramConfigs();
+            fetchStudents();
+        } catch (error) {
+            console.error("Error deleting medical requirement:", error);
+            alert("Network error deleting requirement.");
+        }
+    };
+
     const handleDeleteMedicalRequirement = (reqName) => {
-        openConfirmModal(
-            "Delete Medical Requirement",
-            `Are you sure you want to delete "${reqName}" from the medical requirements masterlist?`,
-            async () => {
-                try {
-                    const response = await fetch(`http://localhost:3001/api/medical-requirements/${encodeURIComponent(reqName)}`, {
-                        method: 'DELETE'
-                    });
-
-                    const data = await parseJsonResponse(response);
-                    if (!response.ok || !data || !data.success) {
-                        alert(data?.error || `Server Error (${response.status}): Failed to delete requirement.`);
-                        return;
-                    }
-
-                    fetchMedicalRequirements();
-                } catch (error) {
-                    console.error("Error deleting medical requirement:", error);
-                    alert("Network error deleting requirement.");
-                }
-            },
-            "Delete",
-            "danger"
-        );
+        executeDeleteMedicalRequirement(reqName, false);
     };
 
     const formatDeadlineDate = (dateVal) => {
@@ -572,7 +592,6 @@ export const RequirementManagement = () => {
 
         const trimmedReqName = reqName.trim();
 
-        // UPDATED DUPLICATE CHECK: Allow same requirement name in same program ONLY if year levels differ
         const isDuplicateInProgram = programConfigs.some(c => {
             if (String(c.program_id) !== String(programId)) return false;
             if (c.requirement_name.toLowerCase() !== trimmedReqName.toLowerCase()) return false;
@@ -593,7 +612,6 @@ export const RequirementManagement = () => {
             `Add requirement "${trimmedReqName}"${yearLevel ? ` (Year ${yearLevel})` : ''} to this program configuration?`,
             async () => {
                 try {
-                    // Encoded programId ensures routes like BS/CS or SHS-STEM do not cause 404s
                     const encodedProgramId = encodeURIComponent(programId);
                     const response = await fetch(`http://localhost:3001/api/programs/${encodedProgramId}/requirements`, {
                         method: 'POST',
@@ -1624,7 +1642,7 @@ export const RequirementManagement = () => {
                 </div>
             )}
 
-            {/* CONFIRMATION MODAL FOR ALL CRUD OPERATIONS */}
+            {/* CONFIRMATION MODAL FOR ALL CRUD OPERATIONS & CASCADE DELETE WARNINGS */}
             {confirmModal.isOpen && (
                 <div className="modal-overlay-rm confirm-overlay-rm">
                     <div className="modal-content-rm confirm-modal-rm">
@@ -1638,6 +1656,25 @@ export const RequirementManagement = () => {
                         </div>
                         <div className="modal-body-rm">
                             <p className="confirm-message-rm">{confirmModal.message}</p>
+
+                            {/* Render active connection warnings if present */}
+                            {confirmModal.details && (
+                                <div className="connection-details-box-rm" style={{ margin: '12px 0', padding: '10px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '6px' }}>
+                                    <h5 style={{ margin: '0 0 6px 0', color: '#991b1b' }}>Connected Dependencies Found:</h5>
+                                    <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '13px', color: '#7f1d1d' }}>
+                                        {confirmModal.details.program_ids.length > 0 && (
+                                            <li><b>Program IDs ({confirmModal.details.program_ids.length}):</b> {confirmModal.details.program_ids.join(', ')}</li>
+                                        )}
+                                        {confirmModal.details.submission_ids.length > 0 && (
+                                            <li><b>Submission IDs ({confirmModal.details.submission_ids.length}):</b> {confirmModal.details.submission_ids.slice(0, 5).join(', ')}{confirmModal.details.submission_ids.length > 5 ? '...' : ''}</li>
+                                        )}
+                                        {confirmModal.details.service_ids.length > 0 && (
+                                            <li><b>Facility Service IDs ({confirmModal.details.service_ids.length}):</b> {confirmModal.details.service_ids.join(', ')}</li>
+                                        )}
+                                    </ul>
+                                </div>
+                            )}
+
                             <div className="confirm-actions-rm">
                                 <button 
                                     onClick={async () => {

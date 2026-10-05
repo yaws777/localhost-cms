@@ -1043,6 +1043,10 @@ app.put('/api/update-profile', async (req, res) => {
 // REQUIREMENT MANAGEMENT API
 // =========================================================================
 
+// =========================================================================
+// REQUIREMENT MANAGEMENT API
+// =========================================================================
+
 // 1. Get all students with dynamic metric auto-evaluation pipeline
 app.get('/api/students', async (req, res) => {
     try {
@@ -1558,7 +1562,6 @@ app.get('/api/program-requirements-config', async (req, res) => {
 });
 
 // 8. ADD REQUIREMENT RULE ARCHITECTURE
-// 8. ADD REQUIREMENT RULE ARCHITECTURE (Updated to allow same requirement across different year levels)
 app.post('/api/programs/:programId/requirements', async (req, res) => {
     const { programId } = req.params;
     const { requirement_name, year_level, submission_deadline, allow_late_submission } = req.body;
@@ -1574,7 +1577,7 @@ app.post('/api/programs/:programId/requirements', async (req, res) => {
     try {
         await connection.beginTransaction();
 
-        // 1. Ensure the requirement exists in the masterlist
+        // 1. Ensure requirement exists in masterlist
         const checkBaseQuery = `SELECT requirement_name FROM medical_requirements WHERE requirement_name = ?`;
         const [baseExists] = await connection.query(checkBaseQuery, [trimmedReqName]);
 
@@ -1583,7 +1586,7 @@ app.post('/api/programs/:programId/requirements', async (req, res) => {
             await connection.query(insertBaseQuery, [trimmedReqName]);
         }
 
-        // 2. UPDATED DUPLICATE CHECK: Allow same requirement name in same program ONLY if year levels differ
+        // 2. Duplicate Check
         const checkMappingQuery = `
             SELECT config_id 
             FROM program_requirements_config 
@@ -1626,7 +1629,7 @@ app.post('/api/programs/:programId/requirements', async (req, res) => {
             allow_late_submission ? 1 : 0
         ]);
 
-        // 4. Seed submission rows for all matching students in the target program & year level
+        // 4. Seed submission rows for matching students
         const seedSubmissionsQuery = `
             INSERT INTO student_requirement_submissions (submission_id, student_id, requirement_name, status, nurse_remarks, file_url, submitted_at)
             SELECT UUID(), s.student_id, ?, 'Pending', '', NULL, NULL
@@ -1852,7 +1855,6 @@ app.post('/api/students/:id/requirements/:reqName/submit', upload.single('file')
         const [nurses] = await pool.query(`SELECT user_id FROM nurses WHERE user_id IS NOT NULL`);
         const nurseUserIds = nurses.map(nurse => nurse.user_id);
 
-        // TRIGGER NOTIFICATIONS WITH navigate_id = activeSubmissionId
         if (nurseUserIds.length > 0) {
             await notifyUsers({
                 sender_id: studentUserId,
@@ -1860,7 +1862,7 @@ app.post('/api/students/:id/requirements/:reqName/submit', upload.single('file')
                 title: 'New Student Submission',
                 message: `${student.first_name} ${student.last_name} (${student.course}) submitted "${reqName}".`,
                 type: 'requirement_submission',
-                navigate_id: activeSubmissionId, // <--- Passes submission_id
+                navigate_id: activeSubmissionId,
                 payloadData: { url: `/RequirementManagement`, submission_id: activeSubmissionId }
             });
         }
@@ -1912,28 +1914,49 @@ app.get('/api/medical-requirements', async (req, res) => {
     }
 });
 
-// POST create medical requirement (checks for duplicates)
+// POST create medical requirement (checks for duplicates & auto-adds to facility_services for facility "Others")
 app.post('/api/medical-requirements', async (req, res) => {
     const { requirement_name } = req.body;
     if (!requirement_name || !requirement_name.trim()) {
         return res.status(400).json({ success: false, error: 'Requirement name cannot be blank.' });
     }
     const trimmed = requirement_name.trim();
+    const connection = await pool.getConnection();
 
     try {
-        const [exists] = await pool.query('SELECT requirement_name FROM medical_requirements WHERE requirement_name = ?', [trimmed]);
+        await connection.beginTransaction();
+
+        const [exists] = await connection.query('SELECT requirement_name FROM medical_requirements WHERE requirement_name = ?', [trimmed]);
         if (exists.length > 0) {
+            await connection.rollback();
             return res.status(400).json({ success: false, error: `Duplicate Error: Medical requirement "${trimmed}" already exists.` });
         }
 
-        await pool.query('INSERT INTO medical_requirements (requirement_name) VALUES (?)', [trimmed]);
-        res.status(201).json({ success: true, message: 'Medical requirement created.' });
+        // 1. Insert into medical_requirements
+        await connection.query('INSERT INTO medical_requirements (requirement_name) VALUES (?)', [trimmed]);
+
+        // 2. Automatically insert into facility_services under facility_name = "Others"
+        const [othersFacility] = await connection.query('SELECT facility_id FROM partner_facilities WHERE facility_name = "Others"');
+        if (othersFacility.length > 0) {
+            const facilityId = othersFacility[0].facility_id;
+            const newServiceId = `FS-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+            await connection.query(
+                `INSERT INTO facility_services (service_id, facility_id, requirement_name, description, created_at) VALUES (?, ?, ?, ?, NOW())`,
+                [newServiceId, facilityId, trimmed, 'Auto-generated service for new medical requirement']
+            );
+        }
+
+        await connection.commit();
+        res.status(201).json({ success: true, message: 'Medical requirement created and synced to facility services.' });
     } catch (err) {
+        await connection.rollback();
         res.status(500).json({ success: false, error: err.message });
+    } finally {
+        connection.release();
     }
 });
 
-// PUT update medical requirement name across dependent tables
+// PUT update medical requirement name across all dependent tables (program_requirements_config, student_requirement_submissions, facility_services)
 app.put('/api/medical-requirements/:reqName', async (req, res) => {
     const oldName = req.params.reqName;
     const { requirement_name } = req.body;
@@ -1953,13 +1976,24 @@ app.put('/api/medical-requirements/:reqName', async (req, res) => {
         }
 
         await connection.query('INSERT IGNORE INTO medical_requirements (requirement_name) VALUES (?)', [newName]);
+        
+        // Update in program_requirements_config table
         await connection.query('UPDATE program_requirements_config SET requirement_name = ? WHERE requirement_name = ?', [newName, oldName]);
+        
+        // Update in student_special_requirements table
         await connection.query('UPDATE student_special_requirements SET requirement_name = ? WHERE requirement_name = ?', [newName, oldName]);
+        
+        // Update in student_requirement_submissions table
         await connection.query('UPDATE student_requirement_submissions SET requirement_name = ? WHERE requirement_name = ?', [newName, oldName]);
+        
+        // Update in facility_services table
+        await connection.query('UPDATE facility_services SET requirement_name = ? WHERE requirement_name = ?', [newName, oldName]);
+        
+        // Remove old master requirement entry
         await connection.query('DELETE FROM medical_requirements WHERE requirement_name = ?', [oldName]);
 
         await connection.commit();
-        res.json({ success: true, message: 'Medical requirement updated successfully.' });
+        res.json({ success: true, message: 'Medical requirement updated successfully across all connected tables.' });
     } catch (err) {
         await connection.rollback();
         res.status(500).json({ success: false, error: err.message });
@@ -1968,14 +2002,67 @@ app.put('/api/medical-requirements/:reqName', async (req, res) => {
     }
 });
 
-// DELETE medical requirement from masterlist
+// DELETE medical requirement with cascade check & confirmation support for program_id, submission_id, service_id
 app.delete('/api/medical-requirements/:reqName', async (req, res) => {
     const reqName = req.params.reqName;
+    const confirmCascade = req.query.confirmCascade === 'true' || req.body?.confirmCascade === true;
+    const connection = await pool.getConnection();
+
     try {
-        await pool.query('DELETE FROM medical_requirements WHERE requirement_name = ?', [reqName]);
-        res.json({ success: true, message: 'Medical requirement deleted.' });
+        await connection.beginTransaction();
+
+        // Query active connections across dependent tables
+        const [progRows] = await connection.query('SELECT DISTINCT program_id FROM program_requirements_config WHERE requirement_name = ?', [reqName]);
+        const [subRows] = await connection.query('SELECT submission_id FROM student_requirement_submissions WHERE requirement_name = ?', [reqName]);
+        const [facRows] = await connection.query('SELECT service_id FROM facility_services WHERE requirement_name = ?', [reqName]);
+
+        const programIds = progRows.map(r => r.program_id);
+        const submissionIds = subRows.map(r => r.submission_id);
+        const serviceIds = facRows.map(r => r.service_id);
+
+        const hasConnections = programIds.length > 0 || submissionIds.length > 0 || serviceIds.length > 0;
+
+        // Return warning with connected IDs if confirmation flag was not supplied
+        if (hasConnections && !confirmCascade) {
+            await connection.rollback();
+            return res.status(200).json({
+                requiresConfirmation: true,
+                message: `Warning: "${reqName}" is connected to existing records in the system.`,
+                connections: {
+                    program_ids: programIds,
+                    submission_ids: submissionIds,
+                    service_ids: serviceIds,
+                    program_count: programIds.length,
+                    submission_count: submissionIds.length,
+                    service_count: serviceIds.length
+                }
+            });
+        }
+
+        // Complete cascading deletions across connected tables upon confirmation
+        if (programIds.length > 0) {
+            await connection.query('DELETE FROM program_requirements_config WHERE requirement_name = ?', [reqName]);
+        }
+        if (submissionIds.length > 0) {
+            await connection.query('DELETE FROM student_requirement_submissions WHERE requirement_name = ?', [reqName]);
+        }
+        if (serviceIds.length > 0) {
+            // Remove foreign keys in referral_request_services if applicable
+            await connection.query('DELETE FROM referral_request_services WHERE service_id IN (?)', [serviceIds]);
+            await connection.query('DELETE FROM facility_services WHERE requirement_name = ?', [reqName]);
+        }
+        
+        await connection.query('DELETE FROM student_special_requirements WHERE requirement_name = ?', [reqName]);
+        await connection.query('DELETE FROM medical_requirements WHERE requirement_name = ?', [reqName]);
+
+        await connection.commit();
+        res.json({ success: true, message: `Medical requirement "${reqName}" and all connected records were successfully deleted.` });
     } catch (err) {
+        await connection.rollback();
+        console.error("Error deleting medical requirement:", err);
         res.status(500).json({ success: false, error: err.message });
+    } finally {
+        connection.release();
     }
 });
 
@@ -4356,7 +4443,7 @@ async function generateRequestId(pool, prefix, tableName) {
 }
 
 
-//document request api
+// document request api
 // =========================================================================
 // 1. POST: Submit Excuse Slip Request (Notifies All Nurses)
 // =========================================================================
@@ -4425,23 +4512,152 @@ app.post('/api/requests/excuse-slip', upload.single('proof'), async (req, res) =
     }
 });
 
-// =========================================================================
-// 2. GET: Fetch Partner Facilities & Associated Services
-// =========================================================================
+// ==========================================
+// 2. GET PARTNER FACILITIES & SERVICES (Unified & Robust)
+// ==========================================
 app.get('/api/partner-facilities', async (req, res) => {
     try {
-        const [facilities] = await pool.query(`SELECT * FROM partner_facilities ORDER BY facility_name ASC`);
-        const [services] = await pool.query(`SELECT * FROM facility_services ORDER BY service_name ASC`);
+        if (typeof syncOthersFacilityServices === 'function') {
+            await syncOthersFacilityServices();
+        }
 
-        const facilitiesWithServices = facilities.map((facility) => ({
+        const [facilities] = await pool.query('SELECT * FROM partner_facilities ORDER BY facility_name ASC');
+        const [services] = await pool.query('SELECT * FROM facility_services ORDER BY requirement_name ASC');
+
+        const combined = facilities.map(facility => ({
             ...facility,
-            services: services.filter((s) => s.facility_id === facility.facility_id)
+            services: services.filter(service => 
+                service.facility_id && 
+                facility.facility_id && 
+                String(service.facility_id).trim() === String(facility.facility_id).trim()
+            )
         }));
 
-        res.json(facilitiesWithServices);
+        res.status(200).json({ success: true, facilities: combined });
     } catch (error) {
         console.error('Error fetching partner facilities:', error);
-        res.status(500).json({ error: 'Failed to fetch partner facilities' });
+        res.status(500).json({ success: false, message: 'Server Error fetching facilities' });
+    }
+});
+
+// ==========================================
+// GET MEDICAL REQUIREMENTS (For Dropdown)
+// ==========================================
+app.get('/api/medical-requirements', async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            'SELECT DISTINCT requirement_name FROM medical_requirements WHERE requirement_name IS NOT NULL AND TRIM(requirement_name) != "" ORDER BY requirement_name ASC'
+        );
+        
+        const requirements = rows.map(row => row.requirement_name).filter(Boolean);
+        
+        res.status(200).json({ 
+            success: true, 
+            requirements, 
+            data: rows 
+        });
+    } catch (error) {
+        console.error('Error fetching medical requirements:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Server Error fetching medical requirements' 
+        });
+    }
+});
+
+// ==========================================
+// CREATE FACILITY SERVICE
+// ==========================================
+app.post('/api/partner-facilities/:facilityId/services', async (req, res) => {
+    const { facilityId } = req.params;
+    const { requirement_name, description } = req.body;
+
+    if (!requirement_name || !requirement_name.trim()) {
+        return res.status(400).json({ success: false, message: 'Requirement name is required.' });
+    }
+
+    try {
+        const [existing] = await pool.query(
+            'SELECT * FROM facility_services WHERE facility_id = ? AND LOWER(TRIM(requirement_name)) = LOWER(?)',
+            [facilityId, requirement_name.trim()]
+        );
+
+        if (existing.length > 0) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'This requirement/service is already added for the selected partner facility.' 
+            });
+        }
+
+        const service_id = `SRV-${uuidv4().substring(0, 8)}`;
+        await pool.query(
+            'INSERT INTO facility_services (service_id, facility_id, requirement_name, description) VALUES (?, ?, ?, ?)',
+            [service_id, facilityId, requirement_name.trim(), description || null]
+        );
+        res.status(201).json({ success: true, message: 'Service created successfully.', service_id });
+    } catch (error) {
+        console.error('Error creating facility service:', error);
+        res.status(500).json({ success: false, message: 'Failed to create service' });
+    }
+});
+
+// ==========================================
+// UPDATE FACILITY SERVICE
+// ==========================================
+app.put('/api/facility-services/:serviceId', async (req, res) => {
+    const { serviceId } = req.params;
+    const { requirement_name, description } = req.body;
+
+    if (!requirement_name || !requirement_name.trim()) {
+        return res.status(400).json({ success: false, message: 'Requirement name is required.' });
+    }
+
+    try {
+        const [currentService] = await pool.query(
+            'SELECT facility_id FROM facility_services WHERE service_id = ?',
+            [serviceId]
+        );
+
+        if (currentService.length === 0) {
+            return res.status(404).json({ success: false, message: 'Service not found.' });
+        }
+
+        const facilityId = currentService[0].facility_id;
+
+        const [existing] = await pool.query(
+            'SELECT * FROM facility_services WHERE facility_id = ? AND LOWER(TRIM(requirement_name)) = LOWER(?) AND service_id != ?',
+            [facilityId, requirement_name.trim(), serviceId]
+        );
+
+        if (existing.length > 0) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Another service with this requirement name already exists for this facility.' 
+            });
+        }
+
+        await pool.query(
+            'UPDATE facility_services SET requirement_name = ?, description = ? WHERE service_id = ?',
+            [requirement_name.trim(), description || null, serviceId]
+        );
+        res.status(200).json({ success: true, message: 'Service updated successfully.' });
+    } catch (error) {
+        console.error('Error updating service:', error);
+        res.status(500).json({ success: false, message: 'Failed to update service' });
+    }
+});
+
+// ==========================================
+// DELETE FACILITY SERVICE
+// ==========================================
+app.delete('/api/facility-services/:serviceId', async (req, res) => {
+    const { serviceId } = req.params;
+    try {
+        await pool.query('DELETE FROM facility_services WHERE service_id = ?', [serviceId]);
+        res.status(200).json({ success: true, message: 'Service deleted successfully.' });
+    } catch (error) {
+        console.error('Error deleting service:', error);
+        res.status(500).json({ success: false, message: 'Failed to delete service' });
     }
 });
 
@@ -4616,7 +4832,7 @@ app.post('/api/requests/issue', upload.single('issued_slip'), async (req, res) =
 });
 
 // =========================================================================
-// 5. GET: Fetch All Requests for a Student
+// 5. GET: Fetch All Requests for a Student (Fixed Column Name)
 // =========================================================================
 app.get('/api/requests/student/:student_id', async (req, res) => {
     try {
@@ -4631,7 +4847,7 @@ app.get('/api/requests/student/:student_id', async (req, res) => {
             `SELECT 
                 r.*, 
                 pf.facility_name AS partner_facility_name,
-                GROUP_CONCAT(fs.service_name SEPARATOR ', ') AS requested_services,
+                GROUP_CONCAT(fs.requirement_name SEPARATOR ', ') AS requested_services,
                 'Referral Slip' AS request_type 
             FROM referral_slip_requests r
             LEFT JOIN partner_facilities pf ON r.facility_id = pf.facility_id
@@ -4749,36 +4965,7 @@ app.post('/api/requests/:type/:request_id/notes', async (req, res) => {
     }
 });
 
-
-
-// =========================================================================
-// GET: Fetch Partner Facilities & Services (Updated with Auto-Sync)
-// =========================================================================
-app.get('/api/partner-facilities', async (req, res) => {
-    try {
-        // Automatically ensure "Others" facility has all requirement_name entries
-        await syncOthersFacilityServices();
-
-        const [facilities] = await pool.query(`SELECT * FROM partner_facilities ORDER BY facility_name ASC`);
-        const [services] = await pool.query(`SELECT * FROM facility_services ORDER BY service_name ASC`);
-
-        const facilitiesWithServices = facilities.map((facility) => ({
-            ...facility,
-            services: services.filter((s) => s.facility_id === facility.facility_id)
-        }));
-
-        res.json(facilitiesWithServices);
-    } catch (error) {
-        console.error('Error fetching partner facilities:', error);
-        res.status(500).json({ error: 'Failed to fetch partner facilities' });
-    }
-});
-
-//Document Issuance api
-
-// =========================================================================
-// HELPER: Auto-Sync "Others" Partner Facility with Medical Requirements
-// =========================================================================
+//Document Issuance
 const syncOthersFacilityServices = async () => {
     try {
         // 1. Find facility named "Others" (case-insensitive)
@@ -4789,17 +4976,17 @@ const syncOthersFacilityServices = async () => {
         if (othersRows.length === 0) return;
         const othersFacilityId = othersRows[0].facility_id;
 
-        // 2. Fetch all medical requirement names
+        // 2. Fetch all medical requirement names from medical_requirements
         const [reqRows] = await pool.query(
             `SELECT DISTINCT requirement_name FROM medical_requirements WHERE requirement_name IS NOT NULL AND TRIM(requirement_name) != ''`
         );
 
-        // 3. Fetch existing services under "Others" facility
+        // 3. Fetch existing services under "Others" facility using requirement_name
         const [existingServices] = await pool.query(
-            `SELECT LOWER(TRIM(service_name)) as service_name FROM facility_services WHERE facility_id = ?`,
+            `SELECT LOWER(TRIM(requirement_name)) as requirement_name FROM facility_services WHERE facility_id = ?`,
             [othersFacilityId]
         );
-        const existingMap = new Set(existingServices.map(s => s.service_name));
+        const existingMap = new Set(existingServices.map(s => s.requirement_name));
 
         // 4. Insert any missing requirement names into facility_services for "Others"
         for (const req of reqRows) {
@@ -4807,7 +4994,7 @@ const syncOthersFacilityServices = async () => {
             if (!existingMap.has(reqName.toLowerCase())) {
                 const service_id = `SRV-OTH-${uuidv4().substring(0, 8)}`;
                 await pool.query(
-                    `INSERT INTO facility_services (service_id, facility_id, service_name, description) VALUES (?, ?, ?, ?)`,
+                    `INSERT INTO facility_services (service_id, facility_id, requirement_name, description) VALUES (?, ?, ?, ?)`,
                     [service_id, othersFacilityId, reqName, 'Medical Requirement Service']
                 );
             }
@@ -4818,7 +5005,7 @@ const syncOthersFacilityServices = async () => {
 };
 
 // ==========================================
-// 1. GET ALL DOCUMENT REQUEST (Updated for New Schema)
+// 1. GET ALL DOCUMENT REQUESTS (Updated for fs.requirement_name)
 // ==========================================
 app.get('/api/document-requests', async (req, res) => {
     try {
@@ -4857,7 +5044,7 @@ app.get('/api/document-requests', async (req, res) => {
                 NULL AS valid_absence_end,
                 pf.facility_name AS partner_facility_name,
                 rs.facility_id,
-                GROUP_CONCAT(fs.service_name SEPARATOR ', ') AS requested_services,
+                GROUP_CONCAT(fs.requirement_name SEPARATOR ', ') AS requested_services,
                 NULL AS student_proof_url,
                 rs.status,
                 rs.issued_by,
@@ -4901,7 +5088,7 @@ app.get('/api/document-requests', async (req, res) => {
 });
 
 // ==========================================
-// 2. CREATE EXCUSE SLIP REQUEST (Notifies All Nurses)
+// 2. CREATE EXCUSE SLIP REQUEST
 // ==========================================
 app.post('/api/document-requests/excuse-slip', upload.single('student_proof'), async (req, res) => {
     const { student_id, reason_for_excuse, valid_absence_start, valid_absence_end } = req.body;
@@ -4921,7 +5108,6 @@ app.post('/api/document-requests/excuse-slip', upload.single('student_proof'), a
             [request_id, student_id, reason_for_excuse, valid_absence_start || null, valid_absence_end || null, student_proof_url]
         );
 
-        // Fetch Student Name and user_id for Notification
         const [studentRows] = await pool.query(
             `SELECT user_id, CONCAT(first_name, ' ', last_name) AS full_name FROM students WHERE student_id = ?`,
             [student_id]
@@ -4929,7 +5115,6 @@ app.post('/api/document-requests/excuse-slip', upload.single('student_proof'), a
         const studentUserId = studentRows[0]?.user_id || null;
         const studentName = studentRows[0]?.full_name || 'A student';
 
-        // Fetch all Nurses to receive the System + Web Push Notification
         const [nurses] = await pool.query(`SELECT user_id FROM nurses WHERE user_id IS NOT NULL`);
         const nurseUserIds = nurses.map(n => n.user_id).filter(Boolean);
 
@@ -4952,7 +5137,7 @@ app.post('/api/document-requests/excuse-slip', upload.single('student_proof'), a
 });
 
 // ==========================================
-// 3. CREATE REFERRAL SLIP REQUEST (Notifies All Nurses)
+// 3. CREATE REFERRAL SLIP REQUEST
 // ==========================================
 app.post('/api/document-requests/referral-slip', async (req, res) => {
     const { student_id, facility_id, reason_for_referral, service_ids } = req.body;
@@ -4971,7 +5156,6 @@ app.post('/api/document-requests/referral-slip', async (req, res) => {
             [request_id, student_id, facility_id || null, reason_for_referral]
         );
 
-        // Attach Requested Services if provided
         if (service_ids && Array.isArray(service_ids) && service_ids.length > 0) {
             const serviceValues = service_ids.map(sId => [request_id, sId]);
             await pool.query(
@@ -4980,7 +5164,6 @@ app.post('/api/document-requests/referral-slip', async (req, res) => {
             );
         }
 
-        // Fetch Student Name and user_id for Notification
         const [studentRows] = await pool.query(
             `SELECT user_id, CONCAT(first_name, ' ', last_name) AS full_name FROM students WHERE student_id = ?`,
             [student_id]
@@ -4988,7 +5171,6 @@ app.post('/api/document-requests/referral-slip', async (req, res) => {
         const studentUserId = studentRows[0]?.user_id || null;
         const studentName = studentRows[0]?.full_name || 'A student';
 
-        // Fetch all Nurses to receive System + Web Push Notification
         const [nurses] = await pool.query(`SELECT user_id FROM nurses WHERE user_id IS NOT NULL`);
         const nurseUserIds = nurses.map(n => n.user_id).filter(Boolean);
 
@@ -5033,7 +5215,7 @@ app.get('/api/document-requests/notes/:requestType/:requestId', async (req, res)
 });
 
 // ==========================================
-// 5. ACTION ENDPOINT: APPROVE / DENY & NOTE (Notifies Student & Parent)
+// 5. ACTION ENDPOINT: APPROVE / DENY & NOTE
 // ==========================================
 app.post('/api/document-requests/action', upload.single('issued_slip'), async (req, res) => {
     const { request_id, request_type, action, nurse_id, message } = req.body;
@@ -5075,7 +5257,6 @@ app.post('/api/document-requests/action', upload.single('issued_slip'), async (r
             await pool.query(insertNoteQuery, [noteId, request_id, nurse_id, message.trim()]);
         }
 
-        // --- NOTIFICATION LOGIC ---
         const [nurseRows] = await pool.query(`SELECT user_id FROM nurses WHERE nurse_id = ?`, [nurse_id]);
         const nurseUserId = nurseRows[0]?.user_id || null;
 
@@ -5098,7 +5279,6 @@ app.post('/api/document-requests/action', upload.single('issued_slip'), async (r
             const notifTitle = `${request_type} Request ${status}`;
             const notifMsg = `Your ${request_type} (ID: ${request_id}) has been ${status.toLowerCase()}.${message ? ` Note: ${message}` : ''}`;
 
-            // Notify Student via notifyUsers (System DB + Web Push)
             if (target.student_user_id) {
                 await notifyUsers({
                     sender_id: nurseUserId,
@@ -5110,7 +5290,6 @@ app.post('/api/document-requests/action', upload.single('issued_slip'), async (r
                 });
             }
 
-            // Notify Parent via notifyUsers (System DB + Web Push)
             if (target.parent_user_id) {
                 await notifyUsers({
                     sender_id: nurseUserId,
@@ -5134,7 +5313,7 @@ app.post('/api/document-requests/action', upload.single('issued_slip'), async (r
 });
 
 // ==========================================
-// 6. POST A NEW NOTE / MESSAGE FOR A REQUEST
+// 6. POST A NEW NOTE / MESSAGE
 // ==========================================
 app.post('/api/document-requests/notes', async (req, res) => {
     const { request_id, request_type, sender_id, sender_type, message } = req.body;
@@ -5168,7 +5347,6 @@ app.post('/api/document-requests/notes', async (req, res) => {
         const [senderUserRows] = await pool.query(senderUserSql, [sender_id, sender_id, sender_id]);
         const senderUserId = senderUserRows[0]?.user_id || null;
 
-        // If Nurse sent message -> Notify Student
         if (sender_type === 'Nurse') {
             const [studentRows] = await pool.query(
                 `SELECT s.user_id FROM ${requestTable} req JOIN students s ON req.student_id = s.student_id WHERE req.request_id = ?`,
@@ -5185,9 +5363,7 @@ app.post('/api/document-requests/notes', async (req, res) => {
                     payloadData: { request_id, request_type }
                 });
             }
-        } 
-        // If Student sent message -> Notify all Nurses
-        else {
+        } else {
             const [nurses] = await pool.query(`SELECT user_id FROM nurses WHERE user_id IS NOT NULL`);
             const nurseUserIds = nurses.map(n => n.user_id).filter(Boolean);
 
@@ -5226,7 +5402,7 @@ app.post('/api/document-requests/notes', async (req, res) => {
 app.get('/api/medical-requirements', async (req, res) => {
     try {
         const [rows] = await pool.query(
-            'SELECT DISTINCT requirement_name FROM medical_requirements WHERE requirement_name IS NOT NULL AND requirement_name != "" ORDER BY requirement_name ASC'
+            'SELECT requirement_name FROM medical_requirements WHERE requirement_name IS NOT NULL AND requirement_name != "" ORDER BY requirement_name ASC'
         );
         const requirements = rows.map(row => row.requirement_name);
         res.status(200).json({ success: true, requirements });
@@ -5242,7 +5418,7 @@ app.get('/api/medical-requirements', async (req, res) => {
 app.get('/api/partner-facilities', async (req, res) => {
     try {
         const [facilities] = await pool.query('SELECT * FROM partner_facilities ORDER BY facility_name ASC');
-        const [services] = await pool.query('SELECT * FROM facility_services ORDER BY service_name ASC');
+        const [services] = await pool.query('SELECT * FROM facility_services ORDER BY requirement_name ASC');
 
         const combined = facilities.map(facility => ({
             ...facility,
@@ -5302,9 +5478,7 @@ app.put('/api/partner-facilities/:id', async (req, res) => {
 app.delete('/api/partner-facilities/:id', async (req, res) => {
     const { id } = req.params;
     try {
-        // Delete connected services first
         await pool.query('DELETE FROM facility_services WHERE facility_id = ?', [id]);
-        // Delete the facility
         await pool.query('DELETE FROM partner_facilities WHERE facility_id = ?', [id]);
         
         res.status(200).json({ success: true, message: 'Facility and associated services deleted successfully.' });
@@ -5315,34 +5489,34 @@ app.delete('/api/partner-facilities/:id', async (req, res) => {
 });
 
 // ==========================================
-// 6. CREATE FACILITY SERVICE (WITH DUPLICATE CHECK)
+// 6. CREATE FACILITY SERVICE (WITH REQUIREMENT NAME & DUPLICATE CHECK)
 // ==========================================
 app.post('/api/partner-facilities/:facilityId/services', async (req, res) => {
     const { facilityId } = req.params;
-    const { service_name, description } = req.body;
+    const { requirement_name, description } = req.body;
 
-    if (!service_name || !service_name.trim()) {
-        return res.status(400).json({ success: false, message: 'Service name is required.' });
+    if (!requirement_name || !requirement_name.trim()) {
+        return res.status(400).json({ success: false, message: 'Requirement name is required.' });
     }
 
     try {
-        // Prevent duplicate service_name for the same facility
+        // Prevent duplicate requirement_name for the same facility
         const [existing] = await pool.query(
-            'SELECT * FROM facility_services WHERE facility_id = ? AND LOWER(service_name) = LOWER(?)',
-            [facilityId, service_name.trim()]
+            'SELECT * FROM facility_services WHERE facility_id = ? AND LOWER(requirement_name) = LOWER(?)',
+            [facilityId, requirement_name.trim()]
         );
 
         if (existing.length > 0) {
             return res.status(400).json({ 
                 success: false, 
-                message: 'This service already exists for the selected partner facility.' 
+                message: 'This requirement/service is already added for the selected partner facility.' 
             });
         }
 
         const service_id = `SRV-${uuidv4().substring(0, 8)}`;
         await pool.query(
-            'INSERT INTO facility_services (service_id, facility_id, service_name, description) VALUES (?, ?, ?, ?)',
-            [service_id, facilityId, service_name.trim(), description || null]
+            'INSERT INTO facility_services (service_id, facility_id, requirement_name, description) VALUES (?, ?, ?, ?)',
+            [service_id, facilityId, requirement_name.trim(), description || null]
         );
         res.status(201).json({ success: true, message: 'Service created successfully.', service_id });
     } catch (error) {
@@ -5352,18 +5526,17 @@ app.post('/api/partner-facilities/:facilityId/services', async (req, res) => {
 });
 
 // ==========================================
-// 7. UPDATE FACILITY SERVICE (WITH DUPLICATE CHECK)
+// 7. UPDATE FACILITY SERVICE (WITH REQUIREMENT NAME & DUPLICATE CHECK)
 // ==========================================
 app.put('/api/facility-services/:serviceId', async (req, res) => {
     const { serviceId } = req.params;
-    const { service_name, description } = req.body;
+    const { requirement_name, description } = req.body;
 
-    if (!service_name || !service_name.trim()) {
-        return res.status(400).json({ success: false, message: 'Service name is required.' });
+    if (!requirement_name || !requirement_name.trim()) {
+        return res.status(400).json({ success: false, message: 'Requirement name is required.' });
     }
 
     try {
-        // Fetch current service details to get facility_id
         const [currentService] = await pool.query(
             'SELECT facility_id FROM facility_services WHERE service_id = ?',
             [serviceId]
@@ -5375,22 +5548,21 @@ app.put('/api/facility-services/:serviceId', async (req, res) => {
 
         const facilityId = currentService[0].facility_id;
 
-        // Check for duplicate service_name in the same facility
         const [existing] = await pool.query(
-            'SELECT * FROM facility_services WHERE facility_id = ? AND LOWER(service_name) = LOWER(?) AND service_id != ?',
-            [facilityId, service_name.trim(), serviceId]
+            'SELECT * FROM facility_services WHERE facility_id = ? AND LOWER(requirement_name) = LOWER(?) AND service_id != ?',
+            [facilityId, requirement_name.trim(), serviceId]
         );
 
         if (existing.length > 0) {
             return res.status(400).json({ 
                 success: false, 
-                message: 'Another service with this name already exists for this facility.' 
+                message: 'Another service with this requirement name already exists for this facility.' 
             });
         }
 
         await pool.query(
-            'UPDATE facility_services SET service_name = ?, description = ? WHERE service_id = ?',
-            [service_name.trim(), description || null, serviceId]
+            'UPDATE facility_services SET requirement_name = ?, description = ? WHERE service_id = ?',
+            [requirement_name.trim(), description || null, serviceId]
         );
         res.status(200).json({ success: true, message: 'Service updated successfully.' });
     } catch (error) {

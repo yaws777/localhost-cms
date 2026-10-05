@@ -25,7 +25,6 @@ import {
 import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/DocumentIssuance.css';
 
-// Vector signature data URL generated for Nurse Marilou H. Balarao
 const NURSE_SIGNATURE_SVG = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 100" width="260" height="100">
   <path d="
@@ -106,8 +105,8 @@ const DocumentIssuance = () => {
     const [isEditingFacility, setIsEditingFacility] = useState(false);
     const [showFacilityForm, setShowFacilityForm] = useState(false);
 
-    // Form states and toggles for Service CRUD (Scoped to specific card)
-    const [serviceForm, setServiceForm] = useState({ service_id: '', facility_id: '', service_name: '', description: '' });
+    // Form states and toggles for Service CRUD (Mapped with requirement_name)
+    const [serviceForm, setServiceForm] = useState({ service_id: '', facility_id: '', requirement_name: '', description: '' });
     const [isEditingService, setIsEditingService] = useState(false);
     const [showServiceForm, setShowServiceForm] = useState(false);
     const [activeServiceFacilityId, setActiveServiceFacilityId] = useState(null);
@@ -154,12 +153,12 @@ const DocumentIssuance = () => {
             const data = await res.json();
             
             let loadedFacilities = [];
-            if (Array.isArray(data)) {
+            if (data.success && Array.isArray(data.facilities)) {
+                loadedFacilities = data.facilities;
+            } else if (Array.isArray(data)) {
                 loadedFacilities = data;
             } else if (Array.isArray(data.facilities)) {
                 loadedFacilities = data.facilities;
-            } else if (Array.isArray(data.data)) {
-                loadedFacilities = data.data;
             }
 
             setFacilities(loadedFacilities);
@@ -175,19 +174,36 @@ const DocumentIssuance = () => {
         try {
             const res = await fetch('http://localhost:3001/api/medical-requirements');
             const data = await res.json();
-            if (data.success) {
-                const uniqueReqs = Array.from(new Set(data.requirements || []));
-                setMedicalRequirements(uniqueReqs);
+            
+            let list = [];
+            if (Array.isArray(data)) {
+                list = data;
+            } else if (Array.isArray(data.requirements)) {
+                list = data.requirements;
+            } else if (Array.isArray(data.data)) {
+                list = data.data;
             }
+
+            const parsedList = list.map(item => {
+                if (typeof item === 'string') return item.trim();
+                if (item && typeof item === 'object') return (item.requirement_name || item.name || '').trim();
+                return '';
+            }).filter(Boolean);
+
+            setMedicalRequirements(Array.from(new Set(parsedList)));
         } catch (err) {
             console.error('Error fetching medical requirements:', err);
         }
     };
 
+    // Initial Load
     useEffect(() => {
         fetchRequests();
+        fetchFacilities();
+        fetchMedicalRequirements();
     }, []);
 
+    // Re-fetch when opening config modal
     useEffect(() => {
         if (showConfigModal) {
             fetchFacilities();
@@ -378,10 +394,11 @@ const DocumentIssuance = () => {
         });
     };
 
-    // --- FACILITY SERVICES CRUD (CARD-SPECIFIC) ---
+    // --- FACILITY SERVICES CRUD ---
     const handleOpenAddService = (facility) => {
+        fetchMedicalRequirements();
         const facId = facility.facility_id || facility.id;
-        setServiceForm({ service_id: '', facility_id: facId, service_name: '', description: '' });
+        setServiceForm({ service_id: '', facility_id: facId, requirement_name: '', description: '' });
         setActiveFacilityName(facility.facility_name || '');
         setActiveServiceFacilityId(facId);
         setIsEditingService(false);
@@ -390,12 +407,13 @@ const DocumentIssuance = () => {
     };
 
     const handleOpenEditService = (facility, service) => {
+        fetchMedicalRequirements();
         const facId = facility.facility_id || facility.id;
         const srvId = service.service_id || service.id;
         setServiceForm({
             service_id: srvId,
             facility_id: facId,
-            service_name: service.service_name || '',
+            requirement_name: service.requirement_name || service.service_name || '',
             description: service.description || ''
         });
         setActiveFacilityName(facility.facility_name || '');
@@ -420,7 +438,7 @@ const DocumentIssuance = () => {
             });
             const data = await res.json();
             if (data.success || res.ok) {
-                setServiceForm({ service_id: '', facility_id: '', service_name: '', description: '' });
+                setServiceForm({ service_id: '', facility_id: '', requirement_name: '', description: '' });
                 setIsEditingService(false);
                 setShowServiceForm(false);
                 setActiveServiceFacilityId(null);
@@ -437,26 +455,28 @@ const DocumentIssuance = () => {
 
     const handleSaveService = (e) => {
         e.preventDefault();
-        if (!serviceForm.facility_id || !serviceForm.service_name.trim()) return;
+        if (!serviceForm.facility_id || !serviceForm.requirement_name.trim()) {
+            alert('Please select a valid medical requirement.');
+            return;
+        }
 
-        // Frontend Check: Avoid duplicate service_name for this facility
         const targetFacility = facilities.find(f => (f.facility_id || f.id) === serviceForm.facility_id);
         const existingServices = targetFacility?.services || [];
         const isDuplicate = existingServices.some(s => 
-            s.service_name.toLowerCase() === serviceForm.service_name.trim().toLowerCase() && 
+            ((s.requirement_name || s.service_name) || '').toLowerCase() === serviceForm.requirement_name.trim().toLowerCase() && 
             (s.service_id || s.id) !== serviceForm.service_id
         );
 
         if (isDuplicate) {
-            alert(`The service "${serviceForm.service_name}" already exists for ${activeFacilityName}. Please select or enter a different service.`);
+            alert(`The requirement/service "${serviceForm.requirement_name}" is already connected to ${activeFacilityName}. Please select a different medical requirement.`);
             return;
         }
 
         setConfirmState({
             isOpen: true,
-            title: isEditingService ? 'Confirm Service Update' : 'Confirm Save Service',
-            message: `Are you sure you want to ${isEditingService ? 'update' : 'add'} "${serviceForm.service_name}" service for ${activeFacilityName}?`,
-            confirmText: isEditingService ? 'Update Service' : 'Save Service',
+            title: isEditingService ? 'Confirm Service Update' : 'Confirm Service Addition',
+            message: `Are you sure you want to ${isEditingService ? 'update' : 'connect'} "${serviceForm.requirement_name}" service for ${activeFacilityName}?`,
+            confirmText: isEditingService ? 'Update Service' : 'Connect Service',
             type: 'approve',
             onConfirm: executeSaveService
         });
@@ -481,10 +501,11 @@ const DocumentIssuance = () => {
 
     const handleDeleteService = (service) => {
         const srvId = service.service_id || service.id;
+        const reqName = service.requirement_name || service.service_name || 'Service';
         setConfirmState({
             isOpen: true,
-            title: 'Delete Service',
-            message: `Are you sure you want to delete the "${service.service_name}" service?`,
+            title: 'Delete Service Connection',
+            message: `Are you sure you want to remove the "${reqName}" service connection?`,
             confirmText: 'Yes, Delete Service',
             type: 'deny',
             onConfirm: () => executeDeleteService(srvId)
@@ -636,31 +657,39 @@ const DocumentIssuance = () => {
                         ctx.stroke();
                     }
                 } else {
-                    ctx.font = '18px "Times New Roman", Serif';
-                    ctx.fillText('REFERRED TO:', 60, 370);
-                    ctx.beginPath();
-                    ctx.moveTo(210, 373);
-                    ctx.lineTo(740, 373);
-                    ctx.stroke();
-                    ctx.font = 'bold 18px "Times New Roman", Serif';
-                    ctx.fillText(slipDetails.partnerFacility || '', 220, 368);
+                    const isOthers = (slipDetails.partnerFacility || '').trim().toLowerCase() === 'others';
+                    let currentY = 370;
+
+                    if (!isOthers) {
+                        ctx.font = '18px "Times New Roman", Serif';
+                        ctx.fillText('REFERRED TO:', 60, currentY);
+                        ctx.beginPath();
+                        ctx.moveTo(210, currentY + 3);
+                        ctx.lineTo(740, currentY + 3);
+                        ctx.stroke();
+                        ctx.font = 'bold 18px "Times New Roman", Serif';
+                        ctx.fillText(slipDetails.partnerFacility || '', 220, currentY - 2);
+                        currentY += 50;
+                    }
 
                     ctx.font = '18px "Times New Roman", Serif';
-                    ctx.fillText('REQUESTED SERVICES:', 60, 420);
+                    ctx.fillText('REQUESTED SERVICES:', 60, currentY);
                     ctx.beginPath();
-                    ctx.moveTo(290, 423);
-                    ctx.lineTo(740, 423);
+                    ctx.moveTo(290, currentY + 3);
+                    ctx.lineTo(740, currentY + 3);
                     ctx.stroke();
                     ctx.font = 'bold 18px "Times New Roman", Serif';
-                    ctx.fillText(slipDetails.requestedServices || '', 300, 418);
+                    ctx.fillText(slipDetails.requestedServices || '', 300, currentY - 2);
+                    currentY += 60;
 
                     ctx.font = '20px "Times New Roman", Serif';
-                    ctx.fillText('Please provide medical evaluation / services for the above student.', 120, 480);
+                    ctx.fillText('Please provide medical evaluation / services for the above student.', 120, currentY);
+                    currentY += 60;
 
                     ctx.font = 'italic 20px "Times New Roman", Serif';
-                    ctx.fillText('Reason:', 60, 540);
+                    ctx.fillText('Reason:', 60, currentY);
 
-                    let lineY = 543;
+                    let lineY = currentY + 3;
                     ctx.beginPath();
                     ctx.moveTo(140, lineY);
                     ctx.lineTo(740, lineY);
@@ -668,7 +697,8 @@ const DocumentIssuance = () => {
                     ctx.font = '18px "Times New Roman", Serif';
                     ctx.fillText(slipDetails.reason || '', 150, lineY - 5);
 
-                    for (let i = 1; i <= 2; i++) {
+                    const extraLines = isOthers ? 3 : 2;
+                    for (let i = 1; i <= extraLines; i++) {
                         lineY += 45;
                         ctx.beginPath();
                         ctx.moveTo(140, lineY);
@@ -814,7 +844,6 @@ const DocumentIssuance = () => {
         });
     };
 
-    // Filter out facilities named "Others" (case-insensitive check)
     const displayedFacilities = facilities.filter(fac => 
         (fac.facility_name || '').trim().toLowerCase() !== 'others'
     );
@@ -1282,7 +1311,9 @@ const DocumentIssuance = () => {
                                                 </>
                                             ) : (
                                                 <>
-                                                    <div className="slip-row-di"><span>REFERRED TO:</span><span className="slip-underlined-di full-di">{slipDetails.partnerFacility}</span></div>
+                                                    {(slipDetails.partnerFacility || '').trim().toLowerCase() !== 'others' && (
+                                                        <div className="slip-row-di"><span>REFERRED TO:</span><span className="slip-underlined-di full-di">{slipDetails.partnerFacility}</span></div>
+                                                    )}
                                                     <div className="slip-row-di"><span>REQUESTED SERVICES:</span><span className="slip-underlined-di full-di">{slipDetails.requestedServices}</span></div>
                                                     <p className="slip-statement-di">Please provide medical evaluation / services for the above student.</p>
                                                     <div className="slip-reason-section-di">
@@ -1290,6 +1321,9 @@ const DocumentIssuance = () => {
                                                         <div className="reason-line-wrap-di">
                                                             <span className="slip-underlined-di full-di">{slipDetails.reason}</span>
                                                             <div className="empty-underline-di"></div>
+                                                            {(slipDetails.partnerFacility || '').trim().toLowerCase() === 'others' && (
+                                                                <div className="empty-underline-di"></div>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 </>
@@ -1358,8 +1392,11 @@ const DocumentIssuance = () => {
                                 <button 
                                     type="button" 
                                     className="btn-secondary-di btn-sm-di"
-                                    onClick={fetchFacilities}
-                                    title="Reload Facilities"
+                                    onClick={() => {
+                                        fetchFacilities();
+                                        fetchMedicalRequirements();
+                                    }}
+                                    title="Reload Facilities & Medical Requirements"
                                 >
                                     <RefreshCw size={14} /> Refresh
                                 </button>
@@ -1436,7 +1473,7 @@ const DocumentIssuance = () => {
                                         </form>
                                     )}
 
-                                    {/* Facility List View with Inline Service Creation inside Respective Card */}
+                                    {/* Facility List View */}
                                     <div className="facility-full-list-di">
                                         {displayedFacilities.length === 0 ? (
                                             <p className="no-notes-di">No partner facilities found.</p>
@@ -1484,24 +1521,28 @@ const DocumentIssuance = () => {
                                                             </div>
                                                         </div>
 
-                                                        {/* Inline Add/Edit Service Form ONLY inside this Respective Facility Card */}
+                                                        {/* Inline Add/Edit Service Form with Medical Requirements Dropdown */}
                                                         {isServiceFormOpenHere && (
                                                             <form onSubmit={handleSaveService} className="config-form-di inline-service-form-di my-3-di">
                                                                 <h5>{isEditingService ? `Edit Service for ${activeFacilityName}` : `Add Service to ${activeFacilityName}`}</h5>
                                                                 <div className="form-grid-2-di">
                                                                     <div className="form-group-di">
-                                                                        <label>Service Name (from Medical Requirements):</label>
+                                                                        <label>Requirement Name (from Medical Requirements):</label>
                                                                         <select
-                                                                            value={serviceForm.service_name}
-                                                                            onChange={(e) => setServiceForm({ ...serviceForm, service_name: e.target.value })}
+                                                                            value={serviceForm.requirement_name}
+                                                                            onChange={(e) => setServiceForm({ ...serviceForm, requirement_name: e.target.value })}
                                                                             required
                                                                         >
-                                                                            <option value="">-- Select Service / Requirement --</option>
-                                                                            {medicalRequirements.map((reqName, idx) => (
-                                                                                <option key={idx} value={reqName}>
-                                                                                    {reqName}
-                                                                                </option>
-                                                                            ))}
+                                                                            <option value="">-- Select Requirement Name --</option>
+                                                                            {medicalRequirements.length === 0 ? (
+                                                                                <option value="" disabled>No medical requirements found in database</option>
+                                                                            ) : (
+                                                                                medicalRequirements.map((reqName, idx) => (
+                                                                                    <option key={idx} value={reqName}>
+                                                                                        {reqName}
+                                                                                    </option>
+                                                                                ))
+                                                                            )}
                                                                         </select>
                                                                     </div>
 
@@ -1517,7 +1558,7 @@ const DocumentIssuance = () => {
                                                                 </div>
                                                                 <div className="form-button-row-di">
                                                                     <button type="submit" className="btn-save-sm-di">
-                                                                        <Plus size={14} /> {isEditingService ? 'Update Service' : 'Save Service'}
+                                                                        <Plus size={14} /> {isEditingService ? 'Update Service' : 'Connect Service'}
                                                                     </button>
                                                                     <button 
                                                                         type="button" 
@@ -1527,7 +1568,7 @@ const DocumentIssuance = () => {
                                                                             setIsEditingService(false);
                                                                             setActiveServiceFacilityId(null);
                                                                             setActiveFacilityName('');
-                                                                            setServiceForm({ service_id: '', facility_id: '', service_name: '', description: '' });
+                                                                            setServiceForm({ service_id: '', facility_id: '', requirement_name: '', description: '' });
                                                                         }}
                                                                     >
                                                                         Cancel
@@ -1538,15 +1579,16 @@ const DocumentIssuance = () => {
 
                                                         {/* Nested Existing Services List View for target Facility */}
                                                         <div className="facility-services-container-di">
-                                                            <h5 className="services-section-title-di">Existing Services</h5>
+                                                            <h5 className="services-section-title-di">Connected Facility Services</h5>
                                                             {fac.services && fac.services.length > 0 ? (
                                                                 <ul className="services-list-di">
                                                                     {fac.services.map((srv) => {
                                                                         const srvId = srv.service_id || srv.id;
+                                                                        const displayReqName = srv.requirement_name || srv.service_name;
                                                                         return (
                                                                             <li key={srvId} className="service-item-di">
                                                                                 <div className="service-item-details-di">
-                                                                                    <span className="service-name-text-di">{srv.service_name}</span>
+                                                                                    <span className="service-name-text-di">{displayReqName}</span>
                                                                                     {srv.description && (
                                                                                         <span className="service-desc-text-di"> — {srv.description}</span>
                                                                                     )}
@@ -1556,7 +1598,7 @@ const DocumentIssuance = () => {
                                                                                         type="button"
                                                                                         className="btn-icon-sm-di btn-edit-sm-di"
                                                                                         onClick={() => handleOpenEditService(fac, srv)}
-                                                                                        title="Edit Service"
+                                                                                        title="Edit Service Connection"
                                                                                     >
                                                                                         <Edit3 size={13} />
                                                                                     </button>
@@ -1564,7 +1606,7 @@ const DocumentIssuance = () => {
                                                                                         type="button"
                                                                                         className="btn-icon-sm-di btn-delete-sm-di"
                                                                                         onClick={() => handleDeleteService(srv)}
-                                                                                        title="Delete Service"
+                                                                                        title="Delete Service Connection"
                                                                                     >
                                                                                         <Trash2 size={13} />
                                                                                     </button>
@@ -1574,7 +1616,7 @@ const DocumentIssuance = () => {
                                                                     })}
                                                                 </ul>
                                                             ) : (
-                                                                <p className="no-services-text-di">No services added to this facility yet.</p>
+                                                                <p className="no-services-text-di">No services connected to this facility yet.</p>
                                                             )}
                                                         </div>
                                                     </div>

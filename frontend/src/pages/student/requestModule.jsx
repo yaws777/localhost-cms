@@ -62,9 +62,14 @@ export default function RequestModule() {
         setMedicalRequirements(data.requirements);
       } else if (Array.isArray(data)) {
         setMedicalRequirements(data);
+      } else if (data.data && Array.isArray(data.data)) {
+        setMedicalRequirements(data.data);
+      } else {
+        setMedicalRequirements([]);
       }
     } catch (err) {
       console.error('Failed to fetch medical requirements:', err);
+      setMedicalRequirements([]);
     }
   }, []);
 
@@ -73,9 +78,11 @@ export default function RequestModule() {
     try {
       const res = await fetch(`${API_BASE}/partner-facilities`);
       const data = await res.json();
-      const rawFacilities = Array.isArray(data) ? data : (data.facilities || []);
+      const rawFacilities = Array.isArray(data) 
+        ? data 
+        : (Array.isArray(data.facilities) ? data.facilities : []);
 
-      // Sort so 'Others' facility is always at the last option in dropdown
+      // Sort so 'Others' facility is always the last option in dropdown
       const sortedFacilities = [...rawFacilities].sort((a, b) => {
         const nameA = (a.facility_name || '').trim().toLowerCase();
         const nameB = (b.facility_name || '').trim().toLowerCase();
@@ -95,18 +102,25 @@ export default function RequestModule() {
       setAvailableServices([]);
     } catch (err) {
       console.error('Failed to fetch partner facilities:', err);
+      setPartnerFacilities([]);
     }
   }, []);
 
-  // Fetch Requests for logged-in student
+  // Fetch Requests for logged-in student with array verification
   const fetchRequests = useCallback(async () => {
     if (!student_id) return;
     try {
       const res = await fetch(`${API_BASE}/requests/student/${student_id}`);
       const data = await res.json();
-      setRequests(data);
+      if (Array.isArray(data)) {
+        setRequests(data);
+      } else {
+        console.error('Expected array of requests, got:', data);
+        setRequests([]);
+      }
     } catch (err) {
       console.error('Failed to fetch requests:', err);
+      setRequests([]);
     }
   }, [student_id]);
 
@@ -130,7 +144,6 @@ export default function RequestModule() {
       const isOthers = (selectedFac.facility_name || '').trim().toLowerCase() === 'others';
       
       if (isOthers && (!selectedFac.services || selectedFac.services.length === 0)) {
-        // Fix: Safely extract string name from medicalRequirements objects
         const reqServices = medicalRequirements.map((reqItem, index) => {
           const reqName = typeof reqItem === 'object' && reqItem !== null 
             ? (reqItem.requirement_name || reqItem.name || `Requirement ${index + 1}`) 
@@ -141,7 +154,7 @@ export default function RequestModule() {
 
           return {
             service_id: `REQ-${reqId}`,
-            service_name: String(reqName)
+            requirement_name: String(reqName)
           };
         });
         setAvailableServices(reqServices);
@@ -170,9 +183,10 @@ export default function RequestModule() {
     try {
       const res = await fetch(`${API_BASE}/requests/${encodeURIComponent(reqItem.request_type)}/${reqItem.request_id}/notes`);
       const data = await res.json();
-      setNotes(data);
+      setNotes(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Failed to fetch notes:', err);
+      setNotes([]);
     }
   };
 
@@ -290,14 +304,14 @@ export default function RequestModule() {
       {/* Action Cards */}
       <div className="sti-cards-grid">
         <div className="sti-action-card" onClick={() => setActiveModal('excuse')}>
-          <div className="sti-card-icon">📄</div>
+          <div className="sti-card-icon">📋</div>
           <h3>Request Excuse Slip</h3>
           <p>Submit an excuse slip for missed classes or school activities.</p>
           <button className="sti-btn-primary" style={{ maxWidth: '100%', boxSizing: 'border-box' }}>New Request</button>
         </div>
 
         <div className="sti-action-card" onClick={() => setActiveModal('referral')}>
-          <div className="sti-card-icon">🏥</div>
+          <div className="sti-card-icon">🩺</div>
           <h3>Request Referral Slip</h3>
           <p>Request medical or laboratory referral for partner facilities.</p>
           <button className="sti-btn-primary" style={{ maxWidth: '100%', boxSizing: 'border-box' }}>New Request</button>
@@ -319,7 +333,7 @@ export default function RequestModule() {
             </tr>
           </thead>
           <tbody>
-            {requests.length === 0 ? (
+            {!Array.isArray(requests) || requests.length === 0 ? (
               <tr>
                 <td colSpan="6" style={{ textAlign: 'center' }}>No request history found.</td>
               </tr>
@@ -487,9 +501,7 @@ export default function RequestModule() {
                           onChange={() => handleServiceCheckbox(service.service_id)}
                         />
                         <span>
-                          {typeof service.service_name === 'object' && service.service_name !== null
-                            ? (service.service_name.requirement_name || service.service_name.name || String(service.service_name))
-                            : String(service.service_name || '')}
+                          {service.requirement_name || service.service_name || service.name || 'Unnamed Service'}
                         </span>
                       </label>
                     ))
@@ -561,7 +573,7 @@ export default function RequestModule() {
               {/* Notes / Chat Thread */}
               <h4>Messages & Notes</h4>
               <div className="sti-chat-box">
-                {notes.length === 0 ? (
+                {!Array.isArray(notes) || notes.length === 0 ? (
                   <p className="sti-text-muted">No notes or messages yet.</p>
                 ) : (
                   notes.map((n) => (
