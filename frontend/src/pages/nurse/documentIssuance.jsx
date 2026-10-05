@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import jsPDF from 'jspdf';
 import { 
@@ -60,8 +60,7 @@ const NURSE_SIGNATURE_SVG = `data:image/svg+xml;charset=utf-8,${encodeURICompone
 `)}`;
 
 const DocumentIssuance = () => {
-    const outletContext = useOutletContext() || {};
-    const nurseId = outletContext.nurseId;
+    const { nurseId } = useOutletContext();
 
     const [requests, setRequests] = useState([]);
     const [filteredRequests, setFilteredRequests] = useState([]);
@@ -127,10 +126,10 @@ const DocumentIssuance = () => {
         validityEnd: ''
     });
 
-    const fetchRequests = useCallback(async () => {
+    const fetchRequests = async () => {
         setLoading(true);
         try {
-            const response = await fetch(`${API_BASE_URL}/api/document-requests`);
+            const response = await fetch('http://localhost:3001/api/document-requests');
             const data = await response.json();
             if (data.success) {
                 setRequests(data.requests || []);
@@ -144,13 +143,13 @@ const DocumentIssuance = () => {
         } finally {
             setLoading(false);
         }
-    }, []);
+    };
 
-    const fetchFacilities = useCallback(async () => {
+    const fetchFacilities = async () => {
         setConfigLoading(true);
         setConfigError('');
         try {
-            const res = await fetch(`${API_BASE_URL}/api/partner-facilities`);
+            const res = await fetch('http://localhost:3001/api/partner-facilities');
             if (!res.ok) throw new Error(`Server returned status ${res.status}`);
             const data = await res.json();
             
@@ -170,7 +169,7 @@ const DocumentIssuance = () => {
         } finally {
             setConfigLoading(false);
         }
-    }, []);
+    };
 
     const fetchMedicalRequirements = async () => {
         try {
@@ -211,7 +210,7 @@ const DocumentIssuance = () => {
             fetchFacilities();
             fetchMedicalRequirements();
         }
-    }, [showConfigModal, fetchFacilities]);
+    }, [showConfigModal]);
 
     // Filter Requests Logic
     useEffect(() => {
@@ -251,9 +250,9 @@ const DocumentIssuance = () => {
         denied: requests.filter(r => (r.status || '').toLowerCase() === 'denied').length
     };
 
-    const fetchNotes = useCallback(async (requestType, requestId) => {
+    const fetchNotes = async (requestType, requestId) => {
         try {
-            const res = await fetch(`${API_BASE_URL}/api/document-requests/notes/${requestType}/${requestId}`);
+            const res = await fetch(`http://localhost:3001/api/document-requests/notes/${requestType}/${requestId}`);
             const data = await res.json();
             if (data.success) {
                 setNotes(data.notes || []);
@@ -261,7 +260,7 @@ const DocumentIssuance = () => {
         } catch (err) {
             console.error("Error fetching notes:", err);
         }
-    }, []);
+    };
 
     const formatDateForInput = (dateStr) => {
         if (!dateStr) return '';
@@ -499,8 +498,8 @@ const DocumentIssuance = () => {
     const executeSaveFacility = async () => {
         const targetId = facilityForm.facility_id;
         const url = isEditingFacility 
-            ? `${API_BASE_URL}/api/partner-facilities/${targetId}`
-            : `${API_BASE_URL}/api/partner-facilities`;
+            ? `http://localhost:3001/api/partner-facilities/${targetId}`
+            : 'http://localhost:3001/api/partner-facilities';
         const method = isEditingFacility ? 'PUT' : 'POST';
 
         try {
@@ -599,8 +598,8 @@ const DocumentIssuance = () => {
     const executeSaveService = async () => {
         const targetServiceId = serviceForm.service_id;
         const url = isEditingService 
-            ? `${API_BASE_URL}/api/facility-services/${targetServiceId}`
-            : `${API_BASE_URL}/api/partner-facilities/${serviceForm.facility_id}/services`;
+            ? `http://localhost:3001/api/facility-services/${targetServiceId}`
+            : `http://localhost:3001/api/partner-facilities/${serviceForm.facility_id}/services`;
         const method = isEditingService ? 'PUT' : 'POST';
 
         try {
@@ -696,7 +695,7 @@ const DocumentIssuance = () => {
         setModalError('');
 
         try {
-            const response = await fetch(`${API_BASE_URL}/api/document-requests/notes`, {
+            const response = await fetch('http://localhost:3001/api/document-requests/notes', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -969,7 +968,7 @@ const DocumentIssuance = () => {
         }
 
         try {
-            const response = await fetch(`${API_BASE_URL}/api/document-requests/action`, {
+            const response = await fetch('http://localhost:3001/api/document-requests/action', {
                 method: 'POST',
                 body: formData,
             });
@@ -1222,7 +1221,7 @@ const DocumentIssuance = () => {
                                         {selectedRequest.student_proof_url && (
                                             <div className="file-attachment-di">
                                                 <Paperclip size={16} />
-                                                <a href={getMediaUrl(selectedRequest.student_proof_url)} target="_blank" rel="noreferrer">
+                                                <a href={`http://localhost:3001${selectedRequest.student_proof_url}`} target="_blank" rel="noreferrer">
                                                     View Student Attachment Proof
                                                 </a>
                                             </div>
@@ -1288,7 +1287,7 @@ const DocumentIssuance = () => {
                                     {selectedRequest.issued_slip_url && (
                                         <div className="file-attachment-di mt-2-di">
                                             <FileText size={16} />
-                                            <a href={getMediaUrl(selectedRequest.issued_slip_url)} target="_blank" rel="noreferrer">
+                                            <a href={`http://localhost:3001${selectedRequest.issued_slip_url}`} target="_blank" rel="noreferrer">
                                                 View Official Issued PDF Slip
                                             </a>
                                         </div>
