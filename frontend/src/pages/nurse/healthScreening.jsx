@@ -1,3 +1,4 @@
+// healthScreening.jsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Calendar, Clock, Plus, Users, Eye, Activity, Smile, 
@@ -805,47 +806,47 @@ export default function HealthScreening() {
   });
 
   return (
-    <div className="sti-health-container">
+    <div className="container-hs">
       {/* Header */}
-      <header className="sti-header">
-        <div className="sti-title-group">
+      <header className="header-hs">
+        <div className="title-group-hs">
           <h1>Health Screening Management</h1>
           <p>Schedule, manage, and document student health assessments</p>
         </div>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
           <button 
             type="button" 
-            className="btn btn-secondary" 
+            className="btn-hs btn-secondary-hs" 
             onClick={handleExportAllReport}
             style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
           >
             <Printer size={18} /> export
           </button>
-          <button type="button" className="btn btn-primary" onClick={() => setShowScheduleModal(true)}>
+          <button type="button" className="btn-hs btn-primary-hs" onClick={() => setShowScheduleModal(true)}>
             <Plus size={18} /> Schedule Screening
           </button>
         </div>
       </header>
 
       {/* Tabs */}
-      <div className="sti-tabs">
+      <div className="tabs-hs">
         <button 
           type="button"
-          className={`tab-btn ${activeTab === 'upcoming' ? 'active' : ''}`}
+          className={`tab-btn-hs ${activeTab === 'upcoming' ? 'active-hs' : ''}`}
           onClick={() => setActiveTab('upcoming')}
         >
           <Calendar size={16} /> Upcoming Screenings
         </button>
         <button 
           type="button"
-          className={`tab-btn ${activeTab === 'ongoing' ? 'active' : ''}`}
+          className={`tab-btn-hs ${activeTab === 'ongoing' ? 'active-hs' : ''}`}
           onClick={() => setActiveTab('ongoing')}
         >
           <Clock size={16} /> Ongoing Screenings
         </button>
         <button 
           type="button"
-          className={`tab-btn ${activeTab === 'past' ? 'active' : ''}`}
+          className={`tab-btn-hs ${activeTab === 'past' ? 'active-hs' : ''}`}
           onClick={() => setActiveTab('past')}
         >
           <CheckCircle size={16} /> Past Screenings
@@ -853,36 +854,36 @@ export default function HealthScreening() {
       </div>
 
       {/* Card Grid */}
-      <div className="sti-card-grid">
+      <div className="card-grid-hs">
         {filteredSchedules.length === 0 ? (
-          <div className="no-records">
+          <div className="no-records-hs">
             <p>No screening schedules found for this status.</p>
           </div>
         ) : (
           filteredSchedules.map(sch => (
-            <div key={sch.screening_schedule_id} className="sti-card">
-              <div className="card-badge">
+            <div key={sch.screening_schedule_id} className="card-hs">
+              <div className="card-badge-hs">
                 {sch.screening_type === 'BMI' && <Activity size={14} />}
                 {sch.screening_type === 'Dental' && <Smile size={14} />}
                 {sch.screening_type === 'Vision' && <Eye size={14} />}
                 {sch.screening_type}
               </div>
-              <h3 className="card-title">{sch.title}</h3>
-              <p className="card-info"><Calendar size={14} /> {sch.scheduled_date ? sch.scheduled_date.split('T')[0] : ''}</p>
-              <p className="card-info"><Clock size={14} /> {sch.start_time} - {sch.end_time}</p>
-              <p className="card-info"><Users size={14} /> {sch.total_students || 0} Students Assigned</p>
+              <h3 className="card-title-hs">{sch.title}</h3>
+              <p className="card-info-hs"><Calendar size={14} /> {sch.scheduled_date ? sch.scheduled_date.split('T')[0] : ''}</p>
+              <p className="card-info-hs"><Clock size={14} /> {sch.start_time} - {sch.end_time}</p>
+              <p className="card-info-hs"><Users size={14} /> {sch.total_students || 0} Students Assigned</p>
               {sch.announcement && (
-                <p className="card-info announcement-preview">
+                <p className="card-info-hs announcement-preview-hs">
                   <Megaphone size={14} /> {sch.announcement}
                 </p>
               )}
               
-              <div className="card-actions">
+              <div className="card-actions-hs">
                 {activeTab === 'upcoming' && (
                   <>
                     <button 
                       type="button"
-                      className="btn btn-icon btn-secondary" 
+                      className="btn-hs btn-icon-hs btn-secondary-hs" 
                       onClick={() => { setEditingSchedule(sch); setShowEditModal(true); }}
                       title="Edit Schedule"
                       aria-label="Edit Schedule"
@@ -891,7 +892,7 @@ export default function HealthScreening() {
                     </button>
                     <button 
                       type="button"
-                      className="btn btn-icon btn-danger" 
+                      className="btn-hs btn-icon-hs btn-danger-hs" 
                       onClick={() => handleCancelSchedule(sch.screening_schedule_id)}
                       title="Cancel Schedule"
                       aria-label="Cancel Schedule"
@@ -904,7 +905,7 @@ export default function HealthScreening() {
                 {(activeTab === 'ongoing' || activeTab === 'past') && (
                   <button 
                     type="button"
-                    className="btn btn-icon btn-primary" 
+                    className="btn-hs btn-icon-hs btn-primary-hs" 
                     onClick={() => openViewModal(sch)}
                     title="View & Document Screening"
                     aria-label="View & Document Screening"
@@ -920,17 +921,17 @@ export default function HealthScreening() {
 
       {/* MODAL 1: Schedule Screening Details */}
       {showScheduleModal && (
-        <div className="modal-overlay">
-          <div className="modal-content">
-            <div className="modal-header">
+        <div className="modal-overlay-hs">
+          <div className="modal-hs">
+            <div className="modal-header-hs">
               <h2>Schedule Health Screening (Step 1 of 2)</h2>
-              <button type="button" className="close-btn" onClick={() => setShowScheduleModal(false)}>
+              <button type="button" className="close-btn-hs" onClick={() => setShowScheduleModal(false)}>
                 <X size={20} />
               </button>
             </div>
-            <form onSubmit={handleNextToStudents} className="modal-form">
-              <div className="modal-body">
-                <div className="form-group">
+            <form onSubmit={handleNextToStudents} className="modal-form-hs">
+              <div className="modal-body-hs">
+                <div className="form-group-hs">
                   <label>Title</label>
                   <input 
                     type="text" 
@@ -941,7 +942,7 @@ export default function HealthScreening() {
                   />
                 </div>
 
-                <div className="form-group">
+                <div className="form-group-hs">
                   <label>Screening Type</label>
                   <select value={scheduleForm.screening_type} onChange={e => setScheduleForm({...scheduleForm, screening_type: e.target.value})}>
                     <option value="BMI">BMI Monitoring</option>
@@ -950,7 +951,7 @@ export default function HealthScreening() {
                   </select>
                 </div>
 
-                <div className="form-group">
+                <div className="form-group-hs">
                   <label>Scheduled Date</label>
                   <input 
                     type="date" 
@@ -969,8 +970,8 @@ export default function HealthScreening() {
                   />
                 </div>
 
-                <div className="form-grid">
-                  <div className="form-group">
+                <div className="form-grid-hs">
+                  <div className="form-group-hs">
                     <label>Start Time</label>
                     <input 
                       type="time" 
@@ -988,7 +989,7 @@ export default function HealthScreening() {
                       }} 
                     />
                   </div>
-                  <div className="form-group">
+                  <div className="form-group-hs">
                     <label>End Time</label>
                     <input 
                       type="time" 
@@ -1010,7 +1011,7 @@ export default function HealthScreening() {
                   </div>
                 </div>
 
-                <div className="form-group">
+                <div className="form-group-hs">
                   <label>Announcement / Instructions (Optional)</label>
                   <textarea 
                     rows={3}
@@ -1021,9 +1022,9 @@ export default function HealthScreening() {
                 </div>
               </div>
 
-              <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setShowScheduleModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary">
+              <div className="modal-footer-hs">
+                <button type="button" className="btn-hs btn-secondary-hs" onClick={() => setShowScheduleModal(false)}>Cancel</button>
+                <button type="submit" className="btn-hs btn-primary-hs">
                   Next: Select Target Students <ArrowRight size={16} />
                 </button>
               </div>
@@ -1034,25 +1035,25 @@ export default function HealthScreening() {
 
       {/* MODAL 2: Select Target Students */}
       {showStudentSelectModal && (
-        <div className="modal-overlay">
-          <div className="modal-content modal-lg">
-            <div className="modal-header">
+        <div className="modal-overlay-hs">
+          <div className="modal-hs modal-lg-hs">
+            <div className="modal-header-hs">
               <h2>Select Target Students (Step 2 of 2)</h2>
-              <button type="button" className="close-btn" onClick={() => setShowStudentSelectModal(false)}>
+              <button type="button" className="close-btn-hs" onClick={() => setShowStudentSelectModal(false)}>
                 <X size={20} />
               </button>
             </div>
-            <form onSubmit={handleCreateSchedule} className="modal-form">
-              <div className="modal-body">
-                <div className="form-grid">
-                  <div className="form-group">
+            <form onSubmit={handleCreateSchedule} className="modal-form-hs">
+              <div className="modal-body-hs">
+                <div className="form-grid-hs">
+                  <div className="form-group-hs">
                     <label>Academic Program</label>
                     <select value={scheduleForm.target_program_id} onChange={e => setScheduleForm({...scheduleForm, target_program_id: e.target.value})}>
                       <option value="">All Programs</option>
                       {programs.map(p => <option key={p.program_id} value={p.program_id}>{p.program_name}</option>)}
                     </select>
                   </div>
-                  <div className="form-group">
+                  <div className="form-group-hs">
                     <label>Year Level</label>
                     <select value={scheduleForm.target_year_level} onChange={e => setScheduleForm({...scheduleForm, target_year_level: e.target.value})}>
                       <option value="">All Years</option>
@@ -1062,21 +1063,21 @@ export default function HealthScreening() {
                       <option value="4">4th Year</option>
                     </select>
                   </div>
-                  <div className="form-group">
+                  <div className="form-group-hs">
                     <label>Section</label>
                     <input type="text" placeholder="e.g. BSIT-101" value={scheduleForm.target_section} onChange={e => setScheduleForm({...scheduleForm, target_section: e.target.value})} />
                   </div>
                 </div>
 
-                <div className="student-select-list">
-                  <span className="list-title">
+                <div className="student-select-list-hs">
+                  <span className="list-title-hs">
                     Matching Students ({filterStudents.length}) — {selectedStudentIds.length} Total Selected
                   </span>
-                  <div className="table-wrapper">
-                    <table className="sti-table">
+                  <div className="table-wrapper-hs">
+                    <table className="table-hs">
                       <thead>
                         <tr>
-                          <th className="col-checkbox">
+                          <th className="col-checkbox-hs">
                             <input 
                               type="checkbox" 
                               checked={areAllFilteredSelected} 
@@ -1093,14 +1094,14 @@ export default function HealthScreening() {
                       <tbody>
                         {filterStudents.length === 0 ? (
                           <tr>
-                            <td colSpan="4" className="empty-table-msg">
+                            <td colSpan="4" className="empty-table-msg-hs">
                               No students match the selected Program, Year Level, or Section filter.
                             </td>
                           </tr>
                         ) : (
                           filterStudents.map(st => (
                             <tr key={st.student_id}>
-                              <td className="col-checkbox">
+                              <td className="col-checkbox-hs">
                                 <input 
                                   type="checkbox" 
                                   checked={selectedStudentIds.includes(st.student_id)}
@@ -1122,13 +1123,13 @@ export default function HealthScreening() {
                 </div>
               </div>
 
-              <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={handleBackToSchedule}>
+              <div className="modal-footer-hs">
+                <button type="button" className="btn-hs btn-secondary-hs" onClick={handleBackToSchedule}>
                   <ArrowLeft size={16} /> Back
                 </button>
                 <button 
                   type="submit" 
-                  className="btn btn-primary"
+                  className="btn-hs btn-primary-hs"
                   disabled={selectedStudentIds.length === 0}
                   title={selectedStudentIds.length === 0 ? "Select at least 1 student to create schedule" : ""}
                 >
@@ -1142,17 +1143,17 @@ export default function HealthScreening() {
 
       {/* MODAL 3: Edit Upcoming Schedule */}
       {showEditModal && editingSchedule && (
-        <div className="modal-overlay">
-          <div className="modal-content">
-            <div className="modal-header">
+        <div className="modal-overlay-hs">
+          <div className="modal-hs">
+            <div className="modal-header-hs">
               <h2>Update Screening Schedule</h2>
-              <button type="button" className="close-btn" onClick={() => setShowEditModal(false)}>
+              <button type="button" className="close-btn-hs" onClick={() => setShowEditModal(false)}>
                 <X size={20} />
               </button>
             </div>
-            <form onSubmit={handleUpdateSchedule} className="modal-form">
-              <div className="modal-body">
-                <div className="form-group">
+            <form onSubmit={handleUpdateSchedule} className="modal-form-hs">
+              <div className="modal-body-hs">
+                <div className="form-group-hs">
                   <label>Scheduled Date</label>
                   <input 
                     type="date" 
@@ -1170,8 +1171,8 @@ export default function HealthScreening() {
                     }} 
                   />
                 </div>
-                <div className="form-grid">
-                  <div className="form-group">
+                <div className="form-grid-hs">
+                  <div className="form-group-hs">
                     <label>Start Time</label>
                     <input 
                       type="time" 
@@ -1189,7 +1190,7 @@ export default function HealthScreening() {
                       }} 
                     />
                   </div>
-                  <div className="form-group">
+                  <div className="form-group-hs">
                     <label>End Time</label>
                     <input 
                       type="time" 
@@ -1209,14 +1210,14 @@ export default function HealthScreening() {
                     />
                   </div>
                 </div>
-                <div className="form-group">
+                <div className="form-group-hs">
                   <label>Announcement / Instructions</label>
                   <textarea rows={3} value={editingSchedule.announcement || ''} onChange={e => setEditingSchedule({...editingSchedule, announcement: e.target.value})} />
                 </div>
               </div>
-              <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setShowEditModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary">Update & Notify</button>
+              <div className="modal-footer-hs">
+                <button type="button" className="btn-hs btn-secondary-hs" onClick={() => setShowEditModal(false)}>Cancel</button>
+                <button type="submit" className="btn-hs btn-primary-hs">Update & Notify</button>
               </div>
             </form>
           </div>
@@ -1225,36 +1226,36 @@ export default function HealthScreening() {
 
       {/* MODAL 4: View & Document Ongoing/Past Screening */}
       {showViewModal && activeSchedule && (
-        <div className="modal-overlay">
-          <div className="modal-content modal-lg">
-            <div className="modal-header">
+        <div className="modal-overlay-hs">
+          <div className="modal-hs modal-lg-hs">
+            <div className="modal-header-hs">
               <h2>{activeSchedule.title} - Participant List ({activeSchedule.screening_type})</h2>
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                 <button 
                   type="button" 
-                  className="btn btn-secondary" 
+                  className="btn-hs btn-secondary-hs" 
                   onClick={handleExportSingleReport}
                   style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                 >
                   <Printer size={16} /> export
                 </button>
-                <button type="button" className="close-btn" onClick={() => setShowViewModal(false)}>
+                <button type="button" className="close-btn-hs" onClick={() => setShowViewModal(false)}>
                   <X size={20} />
                 </button>
               </div>
             </div>
-            <div className="modal-body">
+            <div className="modal-body-hs">
               {activeTab === 'ongoing' && (
-                <div className="qr-scanner-bar">
-                  <button type="button" className="btn btn-primary" onClick={() => { setShowQrModal(true); setScanFeedback({ message: '', type: '' }); }}>
+                <div className="qr-scanner-bar-hs">
+                  <button type="button" className="btn-hs btn-primary-hs" onClick={() => { setShowQrModal(true); setScanFeedback({ message: '', type: '' }); }}>
                     <QrCode size={18} /> Scan Student QR Code
                   </button>
-                  <p className="qr-hint">Scan student QR code to mark attendance as PRESENT.</p>
+                  <p className="qr-hint-hs">Scan student QR code to mark attendance as PRESENT.</p>
                 </div>
               )}
 
-              <div className="table-wrapper">
-                <table className="sti-table">
+              <div className="table-wrapper-hs">
+                <table className="table-hs">
                   <thead>
                     <tr>
                       <th>Student Name</th>
@@ -1262,7 +1263,7 @@ export default function HealthScreening() {
                       <th>Year/Section</th>
                       <th>Attendance Status</th>
                       <th>Record Status</th>
-                      <th className="col-action">Action</th>
+                      <th className="col-action-hs">Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1284,19 +1285,19 @@ export default function HealthScreening() {
                           <td>{st.program_name}</td>
                           <td>Yr {st.year_level} - {st.section}</td>
                           <td>
-                            <span className={`badge badge-status-${effectiveAttendanceStatus.toLowerCase()}`}>
+                            <span className={`badge-hs badge-status-${effectiveAttendanceStatus.toLowerCase()}-hs`}>
                               {effectiveAttendanceStatus}
                             </span>
                           </td>
                           <td>
-                            <span className={`badge ${isDocumented ? 'badge-success' : 'badge-warning'}`}>
+                            <span className={`badge-hs ${isDocumented ? 'badge-success-hs' : 'badge-warning-hs'}`}>
                               {isDocumented ? 'Documented' : 'Pending'}
                             </span>
                           </td>
-                          <td className="col-action">
+                          <td className="col-action-hs">
                             <button 
                               type="button"
-                              className={`btn btn-icon ${isPresent ? 'btn-primary' : 'btn-disabled'}`} 
+                              className={`btn-hs btn-icon-hs ${isPresent ? 'btn-primary-hs' : 'btn-disabled-hs'}`} 
                               onClick={() => openDocumentModal({ ...st, attendance_status: effectiveAttendanceStatus })}
                               disabled={!isPresent}
                               title={!isPresent ? "Student must be marked PRESENT before documenting" : "Document Result"}
@@ -1312,8 +1313,8 @@ export default function HealthScreening() {
                 </table>
               </div>
             </div>
-            <div className="modal-footer">
-              <button type="button" className="btn btn-secondary" onClick={() => setShowViewModal(false)}>
+            <div className="modal-footer-hs">
+              <button type="button" className="btn-hs btn-secondary-hs" onClick={() => setShowViewModal(false)}>
                 Close
               </button>
             </div>
@@ -1323,37 +1324,37 @@ export default function HealthScreening() {
 
       {/* MODAL 5: Live Camera QR Code Scanner via jsQR */}
       {showQrModal && activeSchedule && (
-        <div className="modal-overlay">
-          <div className="modal-content modal-sm">
-            <div className="modal-header">
+        <div className="modal-overlay-hs">
+          <div className="modal-hs modal-sm-hs">
+            <div className="modal-header-hs">
               <h2>Scan Student QR Code</h2>
-              <button type="button" className="close-btn" onClick={() => setShowQrModal(false)}>
+              <button type="button" className="close-btn-hs" onClick={() => setShowQrModal(false)}>
                 <X size={20} />
               </button>
             </div>
-            <div className="modal-body text-center">
-              <div className="qr-video-container">
-                <video ref={videoRef} className="qr-video" />
-                <canvas ref={canvasRef} className="qr-canvas" />
+            <div className="modal-body-hs text-center-hs">
+              <div className="qr-video-container-hs">
+                <video ref={videoRef} className="qr-video-hs" />
+                <canvas ref={canvasRef} className="qr-canvas-hs" />
               </div>
 
               {scanFeedback.message && (
-                <div className={`scan-alert alert-${scanFeedback.type}`}>
+                <div className={`scan-alert-hs alert-${scanFeedback.type}-hs`}>
                   {scanFeedback.type === 'error' && <AlertCircle size={16} />}
                   {scanFeedback.type === 'success' && <CheckCircle size={16} />}
                   <span>{scanFeedback.message}</span>
                 </div>
               )}
 
-              <form onSubmit={handleManualScanSubmit} className="qr-input-form">
+              <form onSubmit={handleManualScanSubmit} className="qr-input-form-hs">
                 <input 
                   type="text" 
                   placeholder="Or enter Student ID manually..." 
                   value={qrInput} 
                   onChange={e => setQrInput(e.target.value)}
-                  className="qr-text-input"
+                  className="qr-text-input-hs"
                 />
-                <button type="submit" className="btn btn-secondary btn-full">
+                <button type="submit" className="btn-hs btn-secondary-hs btn-full-hs">
                   Submit Manual Input
                 </button>
               </form>
@@ -1364,20 +1365,20 @@ export default function HealthScreening() {
 
       {/* MODAL 6: Dynamic Screening Entry Form */}
       {showDocModal && selectedStudent && activeSchedule && (
-        <div className="modal-overlay">
-          <div className="modal-content">
-            <div className="modal-header">
+        <div className="modal-overlay-hs">
+          <div className="modal-hs">
+            <div className="modal-header-hs">
               <h2>Document Screening: {selectedStudent.first_name} {selectedStudent.last_name}</h2>
-              <button type="button" className="close-btn" onClick={() => setShowDocModal(false)}>
+              <button type="button" className="close-btn-hs" onClick={() => setShowDocModal(false)}>
                 <X size={20} />
               </button>
             </div>
-            <form onSubmit={handleDocSubmit} className="modal-form">
-              <div className="modal-body">
+            <form onSubmit={handleDocSubmit} className="modal-form-hs">
+              <div className="modal-body-hs">
                 {/* BMI FORM */}
                 {activeSchedule.screening_type === 'BMI' && (
                   <>
-                    <div className="form-group">
+                    <div className="form-group-hs">
                       <label>Height (cm)</label>
                       <input 
                         type="number" step="0.1" required value={docData.height_cm} 
@@ -1388,7 +1389,7 @@ export default function HealthScreening() {
                         }} 
                       />
                     </div>
-                    <div className="form-group">
+                    <div className="form-group-hs">
                       <label>Weight (kg)</label>
                       <input 
                         type="number" step="0.1" required value={docData.weight_kg} 
@@ -1399,11 +1400,11 @@ export default function HealthScreening() {
                         }} 
                       />
                     </div>
-                    <div className="form-group">
+                    <div className="form-group-hs">
                       <label>Calculated BMI</label>
                       <input type="text" readOnly value={docData.bmi_value} placeholder="Auto-calculated" />
                     </div>
-                    <div className="form-group">
+                    <div className="form-group-hs">
                       <label>BMI Category</label>
                       <input type="text" readOnly value={docData.bmi_category} placeholder="Auto-categorized" />
                     </div>
@@ -1413,11 +1414,11 @@ export default function HealthScreening() {
                 {/* DENTAL FORM */}
                 {activeSchedule.screening_type === 'Dental' && (
                   <>
-                    <div className="form-group">
+                    <div className="form-group-hs">
                       <label>Dental Findings</label>
                       <textarea required value={docData.dental_findings} onChange={e => setDocData({...docData, dental_findings: e.target.value})} rows={3} placeholder="Describe oral health observations..." />
                     </div>
-                    <div className="form-group">
+                    <div className="form-group-hs">
                       <label>Remarks</label>
                       <textarea value={docData.remarks} onChange={e => setDocData({...docData, remarks: e.target.value})} rows={2} placeholder="Recommendations / Treatment advice..." />
                     </div>
@@ -1427,15 +1428,15 @@ export default function HealthScreening() {
                 {/* VISION FORM */}
                 {activeSchedule.screening_type === 'Vision' && (
                   <>
-                    <div className="form-group">
+                    <div className="form-group-hs">
                       <label>Visual Acuity (Left Eye)</label>
                       <input type="text" required value={docData.visual_acuity_left} onChange={e => setDocData({...docData, visual_acuity_left: e.target.value})} placeholder="e.g. 20/20" />
                     </div>
-                    <div className="form-group">
+                    <div className="form-group-hs">
                       <label>Visual Acuity (Right Eye)</label>
                       <input type="text" required value={docData.visual_acuity_right} onChange={e => setDocData({...docData, visual_acuity_right: e.target.value})} placeholder="e.g. 20/20" />
                     </div>
-                    <div className="form-group">
+                    <div className="form-group-hs">
                       <label>Remarks</label>
                       <textarea value={docData.remarks} onChange={e => setDocData({...docData, remarks: e.target.value})} rows={2} placeholder="Prescription / Doctor referral notes..." />
                     </div>
@@ -1443,9 +1444,9 @@ export default function HealthScreening() {
                 )}
               </div>
 
-              <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setShowDocModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary">Save Document</button>
+              <div className="modal-footer-hs">
+                <button type="button" className="btn-hs btn-secondary-hs" onClick={() => setShowDocModal(false)}>Cancel</button>
+                <button type="submit" className="btn-hs btn-primary-hs">Save Document</button>
               </div>
             </form>
           </div>

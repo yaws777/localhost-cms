@@ -46,8 +46,11 @@ export const RequirementManagement = () => {
     const [programConfigs, setProgramConfigs] = useState([]);
     const [isNewMode, setIsNewMode] = useState({});
 
+    // Modal State for Assigning Medical Requirement to a Course
+    const [assignCourseModalProgram, setAssignCourseModalProgram] = useState(null);
+    const [courseModalInput, setCourseModalInput] = useState({ name: '', year_level: '', deadline: '', allowLate: false });
+
     // Inline inputs tracking per program configuration updates
-    const [programInlineInputs, setProgramInlineInputs] = useState({});
     const [inlineEditingConfigId, setInlineEditingConfigId] = useState(null);
     const [inlineEditForm, setInlineEditForm] = useState({ 
         requirement_name: '', 
@@ -84,7 +87,6 @@ export const RequirementManagement = () => {
         setConfirmModal(prev => ({ ...prev, isOpen: false, onConfirm: null, details: null }));
     };
 
-    // Helper to safely parse JSON responses without throwing syntax errors on HTML 404 pages
     const parseJsonResponse = async (res) => {
         try {
             const contentType = res.headers.get("content-type");
@@ -299,7 +301,6 @@ export const RequirementManagement = () => {
         ).sort();
     }, [medicalRequirements, programConfigs, students]);
 
-    // EXPORT REPORT FOR ALL STUDENTS
     const handleExportAllReport = () => {
         const rowsToExport = filteredStudents.length > 0 ? filteredStudents : students;
 
@@ -341,81 +342,21 @@ export const RequirementManagement = () => {
             <head>
                 <title>All Students Requirement Summary Report</title>
                 <style>
-                    body {
-                        font-family: Arial, Helvetica, sans-serif;
-                        margin: 25px;
-                        color: #0f172a;
-                    }
-                    .report-header {
-                        display: flex;
-                        align-items: center;
-                        border-bottom: 2px solid #0056b3;
-                        padding-bottom: 12px;
-                        margin-bottom: 16px;
-                    }
-                    .report-header img {
-                        height: 60px;
-                        margin-right: 20px;
-                    }
-                    .report-title h2 {
-                        margin: 0;
-                        font-size: 20px;
-                        color: #1e3a8a;
-                    }
-                    .report-title p {
-                        margin: 4px 0 0;
-                        font-size: 13px;
-                        color: #475569;
-                    }
-                    .meta-info {
-                        display: flex;
-                        justify-content: space-between;
-                        font-size: 13px;
-                        color: #475569;
-                        margin-bottom: 16px;
-                        font-weight: 500;
-                    }
-                    table {
-                        width: 100%;
-                        border-collapse: collapse;
-                        font-size: 12px;
-                        margin-bottom: 35px;
-                    }
-                    th {
-                        background-color: #f1f5f9;
-                        color: #0f172a;
-                        text-align: left;
-                        padding: 9px 10px;
-                        border: 1px solid #cbd5e1;
-                        font-weight: bold;
-                    }
-                    td {
-                        padding: 8px 10px;
-                        border: 1px solid #e2e8f0;
-                    }
-                    tr:nth-child(even) {
-                        background-color: #f8fafc;
-                    }
-                    .signature-section {
-                        margin-top: 40px;
-                        font-size: 13px;
-                    }
-                    .signature-title {
-                        color: #475569;
-                        margin-bottom: 35px;
-                    }
-                    .signature-name {
-                        font-weight: bold;
-                        font-size: 14px;
-                        color: #0f172a;
-                    }
-                    .signature-role {
-                        font-style: italic;
-                        color: #64748b;
-                    }
-                    @media print {
-                        body { margin: 0; }
-                    }
+                    body { font-family: Arial, Helvetica, sans-serif; margin: 25px; color: #0f172a; }
+                    .report-header { display: flex; align-items: center; border-bottom: 2px solid #0056b3; padding-bottom: 12px; margin-bottom: 16px; }
+                    .report-header img { height: 60px; margin-right: 20px; }
+                    .report-title h2 { margin: 0; font-size: 20px; color: #1e3a8a; }
+                    .report-title p { margin: 4px 0 0; font-size: 13px; color: #475569; }
+                    .meta-info { display: flex; justify-content: space-between; font-size: 13px; color: #475569; margin-bottom: 16px; font-weight: 500; }
+                    table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 35px; }
+                    th { background-color: #f1f5f9; color: #0f172a; text-align: left; padding: 9px 10px; border: 1px solid #cbd5e1; font-weight: bold; }
+                    td { padding: 8px 10px; border: 1px solid #e2e8f0; }
+                    tr:nth-child(even) { background-color: #f8fafc; }
+                    .signature-section { margin-top: 40px; font-size: 13px; }
+                    .signature-title { color: #475569; margin-bottom: 35px; }
+                    .signature-name { font-weight: bold; font-size: 14px; color: #0f172a; }
+                    .signature-role { font-style: italic; color: #64748b; }
+                    @media print { body { margin: 0; } }
                 </style>
             </head>
             <body>
@@ -426,12 +367,10 @@ export const RequirementManagement = () => {
                         <p>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan</p>
                     </div>
                 </div>
-
                 <div class="meta-info">
                     <span><strong>STUDENT REQUIREMENTS SUMMARY REPORT</strong></span>
                     <span>Date Generated: ${reportDate}</span>
                 </div>
-
                 <table>
                     <thead>
                         <tr>
@@ -443,22 +382,14 @@ export const RequirementManagement = () => {
                             <th>Status</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        ${tableRowsHtml || '<tr><td colspan="6">No student records found.</td></tr>'}
-                    </tbody>
+                    <tbody>${tableRowsHtml || '<tr><td colspan="6">No student records found.</td></tr>'}</tbody>
                 </table>
-
                 <div class="signature-section">
                     <div class="signature-title">Prepared by:</div>
                     <div class="signature-name">Marilou H. Balarao</div>
                     <div class="signature-role">School Nurse</div>
                 </div>
-
-                <script>
-                    window.onload = function() {
-                        window.print();
-                    };
-                </script>
+                <script>window.onload = function() { window.print(); };</script>
             </body>
             </html>
         `;
@@ -468,7 +399,6 @@ export const RequirementManagement = () => {
         printWindow.document.close();
     };
 
-    // EXPORT REPORT FOR SINGLE STUDENT
     const handleExportStudentReport = () => {
         if (!selectedStudent) return;
 
@@ -512,92 +442,22 @@ export const RequirementManagement = () => {
             <head>
                 <title>Individual Student Requirement Report - ${selectedStudent.student_id}</title>
                 <style>
-                    body {
-                        font-family: Arial, Helvetica, sans-serif;
-                        margin: 25px;
-                        color: #0f172a;
-                    }
-                    .report-header {
-                        display: flex;
-                        align-items: center;
-                        border-bottom: 2px solid #0056b3;
-                        padding-bottom: 12px;
-                        margin-bottom: 16px;
-                    }
-                    .report-header img {
-                        height: 60px;
-                        margin-right: 20px;
-                    }
-                    .report-title h2 {
-                        margin: 0;
-                        font-size: 20px;
-                        color: #1e3a8a;
-                    }
-                    .report-title p {
-                        margin: 4px 0 0;
-                        font-size: 13px;
-                        color: #475569;
-                    }
-                    .meta-info {
-                        display: flex;
-                        justify-content: space-between;
-                        font-size: 13px;
-                        color: #475569;
-                        margin-bottom: 16px;
-                        font-weight: 500;
-                    }
-                    .student-card {
-                        background-color: #f8fafc;
-                        border: 1px solid #cbd5e1;
-                        padding: 12px 16px;
-                        border-radius: 6px;
-                        margin-bottom: 20px;
-                        display: grid;
-                        grid-template-columns: 1fr 1fr;
-                        gap: 10px;
-                        font-size: 13px;
-                    }
-                    table {
-                        width: 100%;
-                        border-collapse: collapse;
-                        font-size: 12px;
-                        margin-bottom: 35px;
-                    }
-                    th {
-                        background-color: #f1f5f9;
-                        color: #0f172a;
-                        text-align: left;
-                        padding: 9px 10px;
-                        border: 1px solid #cbd5e1;
-                        font-weight: bold;
-                    }
-                    td {
-                        padding: 8px 10px;
-                        border: 1px solid #e2e8f0;
-                    }
-                    tr:nth-child(even) {
-                        background-color: #f8fafc;
-                    }
-                    .signature-section {
-                        margin-top: 40px;
-                        font-size: 13px;
-                    }
-                    .signature-title {
-                        color: #475569;
-                        margin-bottom: 35px;
-                    }
-                    .signature-name {
-                        font-weight: bold;
-                        font-size: 14px;
-                        color: #0f172a;
-                    }
-                    .signature-role {
-                        font-style: italic;
-                        color: #64748b;
-                    }
-                    @media print {
-                        body { margin: 0; }
-                    }
+                    body { font-family: Arial, Helvetica, sans-serif; margin: 25px; color: #0f172a; }
+                    .report-header { display: flex; align-items: center; border-bottom: 2px solid #0056b3; padding-bottom: 12px; margin-bottom: 16px; }
+                    .report-header img { height: 60px; margin-right: 20px; }
+                    .report-title h2 { margin: 0; font-size: 20px; color: #1e3a8a; }
+                    .report-title p { margin: 4px 0 0; font-size: 13px; color: #475569; }
+                    .meta-info { display: flex; justify-content: space-between; font-size: 13px; color: #475569; margin-bottom: 16px; font-weight: 500; }
+                    .student-card { background-color: #f8fafc; border: 1px solid #cbd5e1; padding: 12px 16px; border-radius: 6px; margin-bottom: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 13px; }
+                    table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 35px; }
+                    th { background-color: #f1f5f9; color: #0f172a; text-align: left; padding: 9px 10px; border: 1px solid #cbd5e1; font-weight: bold; }
+                    td { padding: 8px 10px; border: 1px solid #e2e8f0; }
+                    tr:nth-child(even) { background-color: #f8fafc; }
+                    .signature-section { margin-top: 40px; font-size: 13px; }
+                    .signature-title { color: #475569; margin-bottom: 35px; }
+                    .signature-name { font-weight: bold; font-size: 14px; color: #0f172a; }
+                    .signature-role { font-style: italic; color: #64748b; }
+                    @media print { body { margin: 0; } }
                 </style>
             </head>
             <body>
@@ -608,19 +468,16 @@ export const RequirementManagement = () => {
                         <p>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan</p>
                     </div>
                 </div>
-
                 <div class="meta-info">
                     <span><strong>INDIVIDUAL STUDENT REQUIREMENT REPORT</strong></span>
                     <span>Date Generated: ${reportDate}</span>
                 </div>
-
                 <div class="student-card">
                     <div><strong>Student Name:</strong> ${studentName}</div>
                     <div><strong>Student ID:</strong> ${selectedStudent.student_id || 'N/A'}</div>
                     <div><strong>Course / Section:</strong> ${selectedStudent.program_id || 'N/A'} ${selectedStudent.section ? `- ${selectedStudent.section}` : ''}</div>
                     <div><strong>Year Level:</strong> ${yearLevelStr}</div>
                 </div>
-
                 <table>
                     <thead>
                         <tr>
@@ -631,22 +488,14 @@ export const RequirementManagement = () => {
                             <th>Nurse Remarks</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        ${tableRowsHtml || '<tr><td colspan="5">No requirements assigned to this student.</td></tr>'}
-                    </tbody>
+                    <tbody>${tableRowsHtml || '<tr><td colspan="5">No requirements assigned to this student.</td></tr>'}</tbody>
                 </table>
-
                 <div class="signature-section">
                     <div class="signature-title">Prepared by:</div>
                     <div class="signature-name">Marilou H. Balarao</div>
                     <div class="signature-role">School Nurse</div>
                 </div>
-
-                <script>
-                    window.onload = function() {
-                        window.print();
-                    };
-                </script>
+                <script>window.onload = function() { window.print(); };</script>
             </body>
             </html>
         `;
@@ -656,7 +505,6 @@ export const RequirementManagement = () => {
         printWindow.document.close();
     };
 
-    // CRUD Handlers for Medical Requirements Masterlist
     const handleAddMedicalRequirement = async () => {
         setMedReqError('');
         const trimmed = newMedReqName.trim();
@@ -764,7 +612,6 @@ export const RequirementManagement = () => {
                 return;
             }
 
-            // If backend detects existing connections and requests user confirmation
             if (data.requiresConfirmation) {
                 const { connections } = data;
                 const details = {
@@ -922,23 +769,13 @@ export const RequirementManagement = () => {
         );
     };
 
-    const handleInitializeInlineState = (programId, field, value) => {
-        setProgramInlineInputs(prev => ({
-            ...prev,
-            [programId]: {
-                ...(prev[programId] || { name: '', year_level: '', deadline: '', allowLate: false }),
-                [field]: value
-            }
-        }));
-    };
-
-    const addProgramRequirement = async (programId) => {
+    const addProgramRequirement = async (programId, inputDataOverride = null) => {
         if (!programId || programId === 'undefined') {
             alert("Error: Invalid or missing Program ID.");
             return;
         }
 
-        const targetInput = programInlineInputs[programId] || {};
+        const targetInput = inputDataOverride || courseModalInput;
         const reqName = targetInput.name;
         const yearLevel = targetInput.year_level;
         const deadline = targetInput.deadline;
@@ -991,10 +828,8 @@ export const RequirementManagement = () => {
                         return;
                     }
 
-                    setProgramInlineInputs(prev => ({
-                        ...prev,
-                        [programId]: { name: '', year_level: '', deadline: '', allowLate: false }
-                    }));
+                    setCourseModalInput({ name: '', year_level: '', deadline: '', allowLate: false });
+                    setAssignCourseModalProgram(null);
                     
                     await fetchProgramConfigs();
                     fetchMedicalRequirements();
@@ -1230,7 +1065,7 @@ export const RequirementManagement = () => {
             <div className="req-header-section-rm">
                 <div>
                     <h2>Requirement Management</h2>
-                    <p>Configure structural compliance pipelines and monitor student submissions</p>
+                    <p>Manage and track student requirements</p>
                 </div>
                 <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                     <button 
@@ -1509,19 +1344,31 @@ export const RequirementManagement = () => {
                 <div className="tab-content-rm course-grid-rm">
                     {programs.map(prog => {
                         const assignedConfigs = programConfigs.filter(config => config.program_id === prog.program_id);
-                        const currentInline = programInlineInputs[prog.program_id] || { name: '', year_level: '', deadline: '', allowLate: false };
                         const progYearLevelOptions = getYearLevelOptions(prog);
 
                         return (
                             <div className="program-card-rm" key={prog.program_id}>
                                 <div className="program-header-rm">
                                     <h3>{prog.program_name}</h3>
-                                    <button 
-                                        className="btn-edit-toggle-rm" 
-                                        onClick={() => setIsNewMode({...isNewMode, [prog.program_id]: !isNewMode[prog.program_id]})}
-                                    >
-                                        {isNewMode[prog.program_id] ? <><X size={14} /> Close</> : <><Edit size={14} /> Edit</>}
-                                    </button>
+                                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                        <button 
+                                            type="button"
+                                            className="btn-add-primary-sm-rm"
+                                            onClick={() => {
+                                                setAssignCourseModalProgram(prog);
+                                                setCourseModalInput({ name: '', year_level: '', deadline: '', allowLate: false });
+                                            }}
+                                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                        >
+                                            <Plus size={14} /> Assign Requirement
+                                        </button>
+                                        <button 
+                                            className="btn-edit-toggle-rm" 
+                                            onClick={() => setIsNewMode({...isNewMode, [prog.program_id]: !isNewMode[prog.program_id]})}
+                                        >
+                                            {isNewMode[prog.program_id] ? <><X size={14} /> Close Edit</> : <><Edit size={14} /> Edit</>}
+                                        </button>
+                                    </div>
                                 </div>
                                 
                                 <ul className="req-list-rm">
@@ -1540,7 +1387,7 @@ export const RequirementManagement = () => {
                                                                 {req.year_level && <span className="year-badge-rm">Year {req.year_level}</span>}
                                                             </span>
                                                             <div className="req-meta-rm">
-                                                                <span><Calendar size={12}/> Target: {formattedDeadline}</span>
+                                                                <span><Calendar size={12}/> Deadline: {formattedDeadline}</span>
                                                                 <span className={`late-badge-rm ${req.allow_late_submission ? 'allowed' : 'blocked'}`}>
                                                                     {req.allow_late_submission ? 'Late Allowed' : 'Late Blocked'}
                                                                 </span>
@@ -1604,55 +1451,112 @@ export const RequirementManagement = () => {
                                         );
                                     })}
                                 </ul>
-
-                                {isNewMode[prog.program_id] && (
-                                    <div className="add-req-inline-rm">
-                                        <h4><Plus size={14}/> Construct New Requirement</h4>
-                                        <div className="inline-add-inputs-rm">
-                                            <select 
-                                                value={currentInline.name || ''}
-                                                onChange={(e) => handleInitializeInlineState(prog.program_id, 'name', e.target.value)}
-                                                className="flex-2-rm filter-select-rm"
-                                            >
-                                                <option value="">-- Select Medical Requirement --</option>
-                                                {medicalRequirements.map((medReq, idx) => (
-                                                    <option key={medReq.requirement_name || idx} value={medReq.requirement_name}>
-                                                        {medReq.requirement_name}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                            <select 
-                                                value={currentInline.year_level || ''}
-                                                onChange={(e) => handleInitializeInlineState(prog.program_id, 'year_level', e.target.value)}
-                                                className="flex-1-rm filter-select-rm"
-                                            >
-                                                <option value="">Year Level</option>
-                                                {progYearLevelOptions.map(y => (
-                                                    <option key={y} value={y}>{y}{y === 1 ? 'st' : y === 2 ? 'nd' : y === 3 ? 'rd' : 'th'} Year</option>
-                                                ))}
-                                            </select>
-                                            <input 
-                                                type="date"
-                                                value={currentInline.deadline || ''}
-                                                onChange={(e) => handleInitializeInlineState(prog.program_id, 'deadline', e.target.value)}
-                                                className="flex-1-rm"
-                                            />
-                                        </div>
-                                        <div className="inline-add-footer-rm">
-                                            <label className="checkbox-label-rm">
-                                                <input 
-                                                    type="checkbox"
-                                                    checked={currentInline.allowLate || false}
-                                                    onChange={(e) => handleInitializeInlineState(prog.program_id, 'allowLate', e.target.checked)}
-                                                /> Allow post-deadline submissions
-                                            </label>
-                                            <button onClick={() => addProgramRequirement(prog.program_id)} className="btn-add-rm">Add Config</button>
-                                        </div>
-                                    </div>
-                                )}
                             </div>
                         );
                     })}
+                </div>
+            )}
+
+            {/* MODAL: ASSIGN / ADD MEDICAL REQUIREMENT TO SPECIFIC COURSE (Only rendered when assignCourseModalProgram is set) */}
+            {assignCourseModalProgram && (
+                <div className="modal-overlay-rm">
+                    <div className="modal-content-rm medium-modal-rm">
+                        <div className="modal-header-rm">
+                            <div>
+                                <h3>Assign Requirement to Course</h3>
+                                <p className="modal-subtitle-rm">{assignCourseModalProgram.program_name} ({assignCourseModalProgram.program_id})</p>
+                            </div>
+                            <button 
+                                onClick={() => {
+                                    setAssignCourseModalProgram(null);
+                                    setCourseModalInput({ name: '', year_level: '', deadline: '', allowLate: false });
+                                }} 
+                                className="btn-close-rm" 
+                                title="Close Modal"
+                            >
+                                <X size={20}/>
+                            </button>
+                        </div>
+
+                        <div className="modal-body-rm">
+                            <div className="add-special-req-form-rm">
+                                <h4>Add Medical Requirement</h4>
+                                <div className="form-grid-2-rm">
+                                    <div className="form-group-rm">
+                                        <label>Select Medical Requirement</label>
+                                        <select 
+                                            value={courseModalInput.name}
+                                            onChange={(e) => setCourseModalInput({ ...courseModalInput, name: e.target.value })}
+                                            className="form-control-rm"
+                                        >
+                                            <option value="">-- Select Requirement --</option>
+                                            {medicalRequirements.map((medReq, idx) => (
+                                                <option key={medReq.requirement_name || idx} value={medReq.requirement_name}>
+                                                    {medReq.requirement_name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="form-group-rm">
+                                        <label>Target Year Level</label>
+                                        <select 
+                                            value={courseModalInput.year_level}
+                                            onChange={(e) => setCourseModalInput({ ...courseModalInput, year_level: e.target.value })}
+                                            className="form-control-rm"
+                                        >
+                                            <option value="">All Year Levels</option>
+                                            {getYearLevelOptions(assignCourseModalProgram).map(y => (
+                                                <option key={y} value={y}>
+                                                    {y}{y === 1 ? 'st' : y === 2 ? 'nd' : y === 3 ? 'rd' : 'th'} Year
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div className="form-grid-2-rm mt-2-rm">
+                                    <div className="form-group-rm">
+                                        <label>Submission Deadline</label>
+                                        <input 
+                                            type="date"
+                                            value={courseModalInput.deadline}
+                                            onChange={(e) => setCourseModalInput({ ...courseModalInput, deadline: e.target.value })}
+                                            className="form-control-rm"
+                                        />
+                                    </div>
+                                    <div className="form-group-rm" style={{ display: 'flex', alignItems: 'center', paddingTop: '22px' }}>
+                                        <label className="checkbox-label-rm">
+                                            <input 
+                                                type="checkbox"
+                                                checked={courseModalInput.allowLate}
+                                                onChange={(e) => setCourseModalInput({ ...courseModalInput, allowLate: e.target.checked })}
+                                            /> Allow late submission?
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div className="form-actions-rm space-top-rm">
+                                    <button 
+                                        type="button"
+                                        onClick={() => addProgramRequirement(assignCourseModalProgram.program_id, courseModalInput)} 
+                                        className="btn-save-rm"
+                                    >
+                                        <Plus size={16}/> Assign to Course
+                                    </button>
+                                    <button 
+                                        type="button"
+                                        onClick={() => {
+                                            setAssignCourseModalProgram(null);
+                                            setCourseModalInput({ name: '', year_level: '', deadline: '', allowLate: false });
+                                        }} 
+                                        className="btn-cancel-rm"
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             )}
 
@@ -1663,7 +1567,7 @@ export const RequirementManagement = () => {
                         <div className="modal-header-rm">
                             <div>
                                 <h3>Manage Medical Requirements</h3>
-                                <p className="modal-subtitle-rm">Masterlist defined in `medical_requirements` table</p>
+                                <p className="modal-subtitle-rm">Manage medical requirements in the system</p>
                             </div>
                             <button 
                                 onClick={() => { setIsMedReqModalOpen(false); setMedReqError(''); setEditingMedReq(null); }} 
@@ -1842,7 +1746,7 @@ export const RequirementManagement = () => {
                                                             
                                                             {req.submission_deadline && (
                                                                 <div className="deadline-info-rm">
-                                                                    <Calendar size={13}/> Target: {formatDeadlineDate(req.submission_deadline)} 
+                                                                    <Calendar size={13}/> Deadline: {formatDeadlineDate(req.submission_deadline)} 
                                                                     {overdueDays && <span className="overdue-text-rm"> ({overdueDays}d overdue)</span>}
                                                                 </div>
                                                             )}
@@ -2035,7 +1939,6 @@ export const RequirementManagement = () => {
                         <div className="modal-body-rm">
                             <p className="confirm-message-rm">{confirmModal.message}</p>
 
-                            {/* Render active connection warnings if present */}
                             {confirmModal.details && (
                                 <div className="connection-details-box-rm" style={{ margin: '12px 0', padding: '10px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '6px' }}>
                                     <h5 style={{ margin: '0 0 6px 0', color: '#991b1b' }}>Connected Dependencies Found:</h5>
