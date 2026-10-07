@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
     Image, Paperclip, Mic, Video, Send, 
-    Square, User, FileText, Trash2, MoreVertical, MoreHorizontal, X 
+    Square, User, FileText, Trash2, MoreVertical, MoreHorizontal, X, Loader2 
 } from 'lucide-react';
 import '../../styles/student/StudentMessagesModal.css';
 
@@ -13,6 +13,10 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
     const [textInput, setTextInput] = useState('');
     const [attachment, setAttachment] = useState(null);
     const [attachmentType, setAttachmentType] = useState('text');
+    
+    // Loading & submit lock states
+    const [isSending, setIsSending] = useState(false);
+    const [isLoadingHistory, setIsLoadingHistory] = useState(false);
     
     // Menu states
     const [activeMenuId, setActiveMenuId] = useState(null);
@@ -91,6 +95,7 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
     };
 
     const fetchChatHistory = async (contactUserId) => {
+        setIsLoadingHistory(true);
         try {
             const res = await fetch(`http://localhost:3001/api/messages/history/${userId}/${contactUserId}`);
             const data = await res.json();
@@ -99,6 +104,8 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
             }
         } catch (err) {
             console.error('Error fetching chat history:', err);
+        } finally {
+            setIsLoadingHistory(false);
         }
     };
 
@@ -202,12 +209,18 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
     const handleSendMessage = async (e) => {
         e.preventDefault();
 
+        // 1. Block redundant requests (Prevents double texting)
+        if (isSending) return;
+
         if (!userId || !selectedContact?.user_id) {
             alert('Recipient is missing.');
             return;
         }
 
         if (!textInput.trim() && !attachment) return;
+
+        // 2. Lock sending state
+        setIsSending(true);
 
         const formData = new FormData();
         formData.append('sender_id', userId);
@@ -238,6 +251,9 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
         } catch (err) {
             console.error('Network error sending message:', err);
             alert('Server unreachable or network connection error.');
+        } finally {
+            // 3. Always unlock state on completion or failure
+            setIsSending(false);
         }
     };
 
@@ -249,6 +265,30 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
 
     return (
         <div className="student-msg-overlay" onClick={() => { setActiveMenuId(null); setActiveConvMenuId(null); }}>
+            {/* Embedded keyframes & styles for spinning loaders */}
+            <style>{`
+                @keyframes spin {
+                    from { transform: rotate(0deg); }
+                    to { transform: rotate(360deg); }
+                }
+                .spin-icon {
+                    animation: spin 1s linear infinite;
+                }
+                .send-btn:disabled {
+                    opacity: 0.6;
+                    cursor: not-allowed;
+                }
+                .chat-loading-indicator {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 8px;
+                    padding: 20px;
+                    color: #666;
+                    font-size: 0.9rem;
+                }
+            `}</style>
+
             <div className="student-msg-modal" onClick={(e) => e.stopPropagation()}>
                 <div className="modal-header">
                     <h3>Messages</h3>
@@ -323,63 +363,70 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
                                 </div>
 
                                 <div className="chat-body">
-                                    {messages.map((msg) => {
-                                        const isSender = String(msg.sender_id) === String(userId);
+                                    {isLoadingHistory ? (
+                                        <div className="chat-loading-indicator">
+                                            <Loader2 size={20} className="spin-icon" />
+                                            <span>Loading conversation history...</span>
+                                        </div>
+                                    ) : (
+                                        messages.map((msg) => {
+                                            const isSender = String(msg.sender_id) === String(userId);
 
-                                        return (
-                                            <div key={msg.message_id} className={`message-bubble-wrapper ${isSender ? 'sent' : 'received'}`}>
-                                                {isSender && (
-                                                    <div className="msg-action-container">
-                                                        <button 
-                                                            className="msg-more-btn"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                setActiveMenuId(activeMenuId === msg.message_id ? null : msg.message_id);
-                                                            }}
-                                                        >
-                                                            <MoreVertical size={16} />
-                                                        </button>
+                                            return (
+                                                <div key={msg.message_id} className={`message-bubble-wrapper ${isSender ? 'sent' : 'received'}`}>
+                                                    {isSender && (
+                                                        <div className="msg-action-container">
+                                                            <button 
+                                                                className="msg-more-btn"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setActiveMenuId(activeMenuId === msg.message_id ? null : msg.message_id);
+                                                                }}
+                                                            >
+                                                                <MoreVertical size={16} />
+                                                            </button>
 
-                                                        {activeMenuId === msg.message_id && (
-                                                            <div className="msg-dropdown-menu">
-                                                                <button onClick={() => handleDeleteMessage(msg.message_id)}>
-                                                                    <Trash2 size={14} /> Unsend
-                                                                </button>
-                                                            </div>
+                                                            {activeMenuId === msg.message_id && (
+                                                                <div className="msg-dropdown-menu">
+                                                                    <button onClick={() => handleDeleteMessage(msg.message_id)}>
+                                                                        <Trash2 size={14} /> Unsend
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    )}
+
+                                                    <div className="message-bubble">
+                                                        {msg.content && <p>{msg.content}</p>}
+                                                        
+                                                        {msg.message_type === 'image' && msg.media_url && (
+                                                            <img src={`http://localhost:3001${msg.media_url}`} alt="attachment" className="chat-image-preview" />
                                                         )}
-                                                    </div>
-                                                )}
+                                                        
+                                                        {msg.message_type === 'video' && msg.media_url && (
+                                                            <video controls src={`http://localhost:3001${msg.media_url}`} className="chat-video-preview" />
+                                                        )}
 
-                                                <div className="message-bubble">
-                                                    {msg.content && <p>{msg.content}</p>}
-                                                    
-                                                    {msg.message_type === 'image' && msg.media_url && (
-                                                        <img src={`http://localhost:3001${msg.media_url}`} alt="attachment" className="chat-image-preview" />
-                                                    )}
-                                                    
-                                                    {msg.message_type === 'video' && msg.media_url && (
-                                                        <video controls src={`http://localhost:3001${msg.media_url}`} className="chat-video-preview" />
-                                                    )}
+                                                        {msg.message_type === 'audio' && msg.media_url && (
+                                                            <audio controls src={`http://localhost:3001${msg.media_url}`} />
+                                                        )}
 
-                                                    {msg.message_type === 'audio' && msg.media_url && (
-                                                        <audio controls src={`http://localhost:3001${msg.media_url}`} />
-                                                    )}
+                                                        {msg.message_type === 'file' && msg.media_url && (
+                                                            <a href={`http://localhost:3001${msg.media_url}`} target="_blank" rel="noreferrer" className="file-attachment-link">
+                                                                <FileText size={16} /> Download File
+                                                            </a>
+                                                        )}
 
-                                                    {msg.message_type === 'file' && msg.media_url && (
-                                                        <a href={`http://localhost:3001${msg.media_url}`} target="_blank" rel="noreferrer" className="file-attachment-link">
-                                                            <FileText size={16} /> Download File
-                                                        </a>
-                                                    )}
-
-                                                    <div className="message-footer-info">
-                                                        <span className="time-stamp">
-                                                            {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                        </span>
+                                                        <div className="message-footer-info">
+                                                            <span className="time-stamp">
+                                                                {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                            </span>
+                                                        </div>
                                                     </div>
                                                 </div>
-                                            </div>
-                                        );
-                                    })}
+                                            );
+                                        })
+                                    )}
                                     <div ref={messagesEndRef} />
                                 </div>
 
@@ -388,7 +435,7 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
                                     {attachment && (
                                         <div className="attachment-preview-bar">
                                             <span>Attachment: {attachment.name} ({attachmentType})</span>
-                                            <button type="button" onClick={clearAttachment}>✕</button>
+                                            <button type="button" onClick={clearAttachment} disabled={isSending}>✕</button>
                                         </div>
                                     )}
 
@@ -398,6 +445,7 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
                                             ref={fileInputRef} 
                                             style={{ display: 'none' }} 
                                             onChange={handleFileSelect} 
+                                            disabled={isSending}
                                         />
 
                                         <button 
@@ -405,6 +453,7 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
                                             className="media-btn" 
                                             title="Send Image" 
                                             onClick={() => triggerFilePicker('image', 'image/*')}
+                                            disabled={isSending}
                                         >
                                             <Image size={20} />
                                         </button>
@@ -414,6 +463,7 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
                                             className="media-btn" 
                                             title="Send Video" 
                                             onClick={() => triggerFilePicker('video', 'video/*')}
+                                            disabled={isSending}
                                         >
                                             <Video size={20} />
                                         </button>
@@ -423,16 +473,17 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
                                             className="media-btn" 
                                             title="Send File" 
                                             onClick={() => triggerFilePicker('file', '*/*')}
+                                            disabled={isSending}
                                         >
                                             <Paperclip size={20} />
                                         </button>
 
                                         {!isRecording ? (
-                                            <button type="button" className="media-btn" title="Record Audio" onClick={startRecording}>
+                                            <button type="button" className="media-btn" title="Record Audio" onClick={startRecording} disabled={isSending}>
                                                 <Mic size={20} />
                                             </button>
                                         ) : (
-                                            <button type="button" className="media-btn recording" title="Stop Recording" onClick={stopRecording}>
+                                            <button type="button" className="media-btn recording" title="Stop Recording" onClick={stopRecording} disabled={isSending}>
                                                 <Square size={20} color="red" />
                                             </button>
                                         )}
@@ -440,13 +491,22 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
                                         <input 
                                             type="text" 
                                             className="message-input"
-                                            placeholder="Type a message..."
+                                            placeholder={isSending ? "Sending message..." : "Type a message..."}
                                             value={textInput}
                                             onChange={(e) => setTextInput(e.target.value)}
+                                            disabled={isSending}
                                         />
 
-                                        <button type="submit" className="send-btn">
-                                            <Send size={18} />
+                                        <button 
+                                            type="submit" 
+                                            className="send-btn" 
+                                            disabled={isSending || (!textInput.trim() && !attachment)}
+                                        >
+                                            {isSending ? (
+                                                <Loader2 size={18} className="spin-icon" />
+                                            ) : (
+                                                <Send size={18} />
+                                            )}
                                         </button>
                                     </div>
                                 </form>

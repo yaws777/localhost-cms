@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { 
     Search, Image, Paperclip, Mic, Video, Send, 
-    Square, User, FileText, Trash2, MoreVertical, MoreHorizontal 
+    Square, User, FileText, Trash2, MoreHorizontal, MoreVertical,
+    GraduationCap
 } from 'lucide-react';
 import '../../styles/nurse/NurseMessages.css';
 
@@ -77,11 +78,15 @@ const NurseMessages = () => {
     const selectConversation = async (contact) => {
         setActiveConvMenuId(null);
         const contactUserId = contact.user_id || contact.contact_user_id;
+        const linkedStudentName = contact.linked_student || contact.student_name || contact.linked_student_name || (contact.role?.toLowerCase() === 'parent' ? contact.detail : null);
+
         setSelectedContact({
             user_id: contactUserId,
             first_name: contact.first_name,
             last_name: contact.last_name,
-            role: contact.role
+            role: contact.role,
+            student_name: linkedStudentName,
+            student_id: contact.student_id || contact.linked_student_id || null
         });
 
         fetchChatHistory(contactUserId);
@@ -272,72 +277,109 @@ const NurseMessages = () => {
                         <div className="search-results">
                             <span className="section-title">Search Results</span>
                             {searchResults.length === 0 && <p className="no-result">No contacts found.</p>}
-                            {searchResults.map((contact) => (
-                                <div 
-                                    key={contact.user_id} 
-                                    className="conversation-item"
-                                    onClick={() => selectConversation(contact)}
-                                >
-                                    <div className="avatar"><User size={20} /></div>
-                                    <div className="details">
-                                        <h4>{contact.first_name} {contact.last_name}</h4>
-                                        <span className="role-tag">{contact.role} ({contact.detail || 'N/A'})</span>
+                            {searchResults.map((contact) => {
+                                const role = (contact.role || '').toLowerCase();
+                                const isParent = role === 'parent' || role === 'guardian';
+                                const linkedStudentName = contact.linked_student || contact.student_name || contact.linked_student_name || (isParent ? contact.detail : null);
+                                const studentId = contact.student_id || contact.linked_student_id;
+
+                                return (
+                                    <div 
+                                        key={contact.user_id} 
+                                        className="conversation-item"
+                                        onClick={() => selectConversation(contact)}
+                                    >
+                                        <div className="avatar"><User size={20} /></div>
+                                        <div className="details">
+                                            <h4>{contact.first_name} {contact.last_name}</h4>
+                                            <span className="role-tag">{contact.role.toUpperCase()}</span>
+                                            
+                                            {/* Linked Student Name Indicator for Parents */}
+                                            {isParent && linkedStudentName && (
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#096dd9', marginTop: '3px' }}>
+                                                    <GraduationCap size={13} />
+                                                    <span><strong>Connected Child:</strong> {linkedStudentName} {studentId ? `(${studentId})` : ''}</span>
+                                                </div>
+                                            )}
+
+                                            {/* Student Details for Student Role */}
+                                            {!isParent && contact.detail && (
+                                                <span style={{ fontSize: '11px', color: '#595959', display: 'block', marginTop: '2px' }}>
+                                                    {contact.detail}
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     ) : (
                         <div className="recent-conversations">
                             <span className="section-title">Chats</span>
                             {conversations.length === 0 && <p className="no-result">No recent conversations.</p>}
-                            {conversations.map((conv) => (
-                                <div 
-                                    key={conv.contact_user_id} 
-                                    className={`conversation-item ${String(selectedContact?.user_id) === String(conv.contact_user_id) ? 'active' : ''}`}
-                                    onClick={() => selectConversation(conv)}
-                                >
-                                    <div className="avatar"><User size={20} /></div>
-                                    <div className="details">
-                                        <div className="header-row">
-                                            <h4>{conv.first_name} {conv.last_name}</h4>
-                                            <span className="timestamp">
-                                                {new Date(conv.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                            </span>
+                            {conversations.map((conv) => {
+                                const role = (conv.role || '').toLowerCase();
+                                const isParent = role === 'parent' || role === 'guardian';
+                                const linkedStudentName = conv.linked_student || conv.student_name || conv.linked_student_name || (isParent ? conv.detail : null);
+
+                                return (
+                                    <div 
+                                        key={conv.contact_user_id} 
+                                        className={`conversation-item ${String(selectedContact?.user_id) === String(conv.contact_user_id) ? 'active' : ''}`}
+                                        onClick={() => selectConversation(conv)}
+                                    >
+                                        <div className="avatar"><User size={20} /></div>
+                                        <div className="details">
+                                            <div className="header-row">
+                                                <h4>{conv.first_name} {conv.last_name}</h4>
+                                                <span className="timestamp">
+                                                    {new Date(conv.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                </span>
+                                            </div>
+                                            
+                                            {/* Linked Student Badge for Parent Conversation */}
+                                            {isParent && linkedStudentName && (
+                                                <span style={{ fontSize: '11px', color: '#1890ff', display: 'flex', alignItems: 'center', gap: '3px', marginBottom: '2px' }}>
+                                                    <GraduationCap size={12} />
+                                                    <span>Student: {linkedStudentName}</span>
+                                                </span>
+                                            )}
+
+                                            <div className="message-preview-row">
+                                                <p className={`preview ${conv.unread_count > 0 ? 'unread' : ''}`}>
+                                                    {conv.message_type !== 'text' ? `[${conv.message_type}]` : conv.content}
+                                                </p>
+                                                {conv.unread_count > 0 && (
+                                                    <span className="chat-unread-badge">{conv.unread_count}</span>
+                                                )}
+                                            </div>
                                         </div>
-                                        <div className="message-preview-row">
-                                            <p className={`preview ${conv.unread_count > 0 ? 'unread' : ''}`}>
-                                                {conv.message_type !== 'text' ? `[${conv.message_type}]` : conv.content}
-                                            </p>
-                                            {conv.unread_count > 0 && (
-                                                <span className="chat-unread-badge">{conv.unread_count}</span>
+
+                                        {/* Messenger Sidebar Hover Action Menu */}
+                                        <div className="conv-action-container">
+                                            <button 
+                                                className="conv-more-btn"
+                                                title="Options"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setActiveConvMenuId(activeConvMenuId === conv.contact_user_id ? null : conv.contact_user_id);
+                                                }}
+                                            >
+                                                <MoreHorizontal size={18} />
+                                            </button>
+
+                                            {/* Dropdown Popover */}
+                                            {activeConvMenuId === conv.contact_user_id && (
+                                                <div className="conv-dropdown-menu">
+                                                    <button onClick={(e) => handleDeleteConversation(e, conv.contact_user_id)}>
+                                                        <Trash2 size={14} /> Delete Chat
+                                                    </button>
+                                                </div>
                                             )}
                                         </div>
                                     </div>
-
-                                    {/* Messenger Sidebar Hover Action Menu */}
-                                    <div className="conv-action-container">
-                                        <button 
-                                            className="conv-more-btn"
-                                            title="Options"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                setActiveConvMenuId(activeConvMenuId === conv.contact_user_id ? null : conv.contact_user_id);
-                                            }}
-                                        >
-                                            <MoreHorizontal size={18} />
-                                        </button>
-
-                                        {/* Dropdown Popover */}
-                                        {activeConvMenuId === conv.contact_user_id && (
-                                            <div className="conv-dropdown-menu">
-                                                <button onClick={(e) => handleDeleteConversation(e, conv.contact_user_id)}>
-                                                    <Trash2 size={14} /> Delete Chat
-                                                </button>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     )}
                 </div>
@@ -351,7 +393,14 @@ const NurseMessages = () => {
                             <div className="avatar"><User size={20} /></div>
                             <div>
                                 <h3>{selectedContact.first_name} {selectedContact.last_name}</h3>
-                                <span className="status-text">{selectedContact.role.toUpperCase()}</span>
+                                <span className="status-text">
+                                    {selectedContact.role?.toUpperCase()}
+                                    {(selectedContact.role?.toLowerCase() === 'parent' || selectedContact.role?.toLowerCase() === 'guardian') && selectedContact.student_name && (
+                                        <span style={{ marginLeft: '8px', color: '#595959', fontWeight: 'normal', textTransform: 'none' }}>
+                                            • Student: <strong>{selectedContact.student_name}</strong> {selectedContact.student_id ? `(${selectedContact.student_id})` : ''}
+                                        </span>
+                                    )}
+                                </span>
                             </div>
                         </div>
 

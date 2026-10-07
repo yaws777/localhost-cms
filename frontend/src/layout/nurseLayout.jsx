@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { 
     LayoutDashboard, FileBarChart, Stethoscope, FolderHeart, 
@@ -20,35 +20,48 @@ export const NurseLayout = () => {
     const nurseUserId = nurseData?.user_id || null;
     const { isSubscribed, subscribe } = useWebPush(nurseUserId);
 
-    // Auto-sync web push subscription if browser permission was already granted
+    // Auto-sync web push subscription
     useEffect(() => {
         if (nurseUserId && typeof Notification !== 'undefined' && Notification?.permission === 'granted' && !isSubscribed) {
             subscribe();
         }
     }, [nurseUserId, isSubscribed, subscribe]);
 
-    // State for overall unread contacts count
-    const [unreadContactsCount, setUnreadContactsCount] = useState(0);
-
-    // State for notifications
+    // Unread messages & notifications state
+    const [unreadCount, setUnreadCount] = useState(0);
     const [notifications, setNotifications] = useState([]);
     const [showNotifDropdown, setShowNotifDropdown] = useState(false);
 
-    // Fetch unread messages count
-    const fetchUnreadCount = async (userId) => {
+    // Derive active user ID dynamically
+    const getStoredUserId = () => {
         try {
-            const res = await fetch(`https://localhost-cms.onrender.com/api/messages/unread-count/${userId}`);
+            const storedUser = localStorage.getItem('user');
+            if (!storedUser) return null;
+            const user = JSON.parse(storedUser);
+            return user.user_id || user.id || user.UserID || user.userId || user.nurse_id || null;
+        } catch (e) {
+            return null;
+        }
+    };
+
+    const activeUserId = nurseData?.user_id || nurseData?.nurse_id || getStoredUserId();
+
+    // Fetch unread messages count
+    const fetchUnreadCount = useCallback(async (targetUserId) => {
+        if (!targetUserId || targetUserId === 'undefined') return;
+        try {
+            const res = await fetch(`https://localhost-cms.onrender.com/api/messages/unread-count/${targetUserId}`);
             const data = await res.json();
             if (data.success) {
-                setUnreadContactsCount(data.unreadCount);
+                setUnreadCount(Number(data.unreadCount || 0));
             }
         } catch (err) {
             console.error('Failed to fetch unread message count:', err);
         }
-    };
+    }, []);
 
     // Fetch unread notifications
-    const fetchNotifications = async (nurseId) => {
+    const fetchNotifications = useCallback(async (nurseId) => {
         if (!nurseId) return;
         try {
             const res = await fetch(`https://localhost-cms.onrender.com/api/notifications/nurse/${nurseId}`);
@@ -59,12 +72,21 @@ export const NurseLayout = () => {
         } catch (err) {
             console.error('Failed to fetch notifications:', err);
         }
-    };
+    }, []);
 
+    // Initial Nurse profile fetch
     useEffect(() => {
-        const fetchNurseProfile = async (userId) => {
+        const accurateUserId = getStoredUserId();
+
+        if (!accurateUserId) {
+            setIsLoading(false);
+            navigate('/');
+            return;
+        }
+
+        const fetchNurseProfile = async () => {
             try {
-                const response = await fetch(`https://localhost-cms.onrender.com/api/get-nurse/${userId}`);
+                const response = await fetch(`https://localhost-cms.onrender.com/api/get-nurse/${accurateUserId}`);
                 const data = await response.json();
 
                 if (data.success && data.nurse) {
@@ -83,83 +105,46 @@ export const NurseLayout = () => {
             }
         };
 
-        const storedUser = localStorage.getItem('user');
-        
-        if (storedUser) {
-            const user = JSON.parse(storedUser);
-            const accurateUserId = user.user_id || user.id || user.UserID || user.userId;
+        fetchNurseProfile();
+    }, [navigate, fetchNotifications]);
 
-            if (accurateUserId) {
-                fetchNurseProfile(accurateUserId);
-                fetchUnreadCount(accurateUserId);
+    // Polling timer & immediate fetch on ID resolution
+    useEffect(() => {
+        if (!activeUserId) return;
 
-                const interval = setInterval(() => {
-                    fetchUnreadCount(accurateUserId);
-                    if (nurseData?.nurse_id) {
-                        fetchNotifications(nurseData.nurse_id);
-                    }
-                }, 5000);
+        // Fetch unread count immediately once ID resolves
+        fetchUnreadCount(activeUserId);
 
-                return () => clearInterval(interval);
-            } else {
-                setIsLoading(false);
+        const interval = setInterval(() => {
+            fetchUnreadCount(activeUserId);
+            if (nurseData?.nurse_id) {
+                fetchNotifications(nurseData.nurse_id);
             }
-        } else {
-            navigate('/');
-        }
-    }, [navigate, nurseData?.nurse_id]);
+        }, 5000);
 
-    // Comprehensive route matching for all nurse notifications
+        return () => clearInterval(interval);
+    }, [activeUserId, nurseData?.nurse_id, fetchUnreadCount, fetchNotifications]);
+
     const getNotificationRoute = (notification) => {
         const type = (notification.type || '').toLowerCase();
         const title = (notification.title || '').toLowerCase();
         const msg = (notification.message || '').toLowerCase();
 
-        if (type.includes('requirement') || msg.includes('requirement') || title.includes('submission')) {
-            return '/RequirementManagement';
-        }
-        if (type.includes('visit') || type.includes('consultation') || msg.includes('clinic visit') || title.includes('visit')) {
-            return '/VisitLogConsultation';
-        }
-        if (type.includes('health_record') || type.includes('record') || msg.includes('health record')) {
-            return '/HealthRecords';
-        }
-        if (type.includes('dispense') || type.includes('dispensed_medicine') || msg.includes('dispensed')) {
-            return '/DispensedMedicine';
-        }
-        if (type.includes('inventory') || type.includes('stock') || msg.includes('medicine stock')) {
-            return '/MedicineInventory';
-        }
-        if (type.includes('request') || type.includes('request') || msg.includes('request')){
-            return '/DocumentIssuance';
-        }
-        if (type.includes('screening') || msg.includes('health screening')) {
-            return '/HealthScreening';
-        }
-        if (type.includes('doctor') || msg.includes('doctor visit')) {
-            return '/DoctorVisit';
-        }
-        if (type.includes('incident') || msg.includes('incident report')) {
-            return '/IncidentReport';
-        }
-        if (type.includes('insurance') || type.includes('vault') || msg.includes('insurance')) {
-            return '/InsuranceVault';
-        }
-        if (type.includes('student_account') || (type.includes('student') && msg.includes('account'))) {
-            return '/ManageStudentAccounts';
-        }
-        if (type.includes('parent_account') || (type.includes('parent') && msg.includes('account'))) {
-            return '/ManageParentAccounts';
-        }
-        if (type.includes('message') || type.includes('chat') || msg.includes('message')) {
-            return '/NurseMessages';
-        }
-        if (type.includes('report') || msg.includes('weekly report')) {
-            return '/WeeklyReports';
-        }
-        if (type.includes('setting') || msg.includes('notification settings')) {
-            return '/NurseNotificationSettings';
-        }
+        if (type.includes('requirement') || msg.includes('requirement') || title.includes('submission')) return '/RequirementManagement';
+        if (type.includes('visit') || type.includes('consultation') || msg.includes('clinic visit')) return '/VisitLogConsultation';
+        if (type.includes('health_record') || type.includes('record')) return '/HealthRecords';
+        if (type.includes('dispense') || msg.includes('dispensed')) return '/DispensedMedicine';
+        if (type.includes('inventory') || msg.includes('stock')) return '/MedicineInventory';
+        if (type.includes('request') || msg.includes('request')) return '/DocumentIssuance';
+        if (type.includes('screening')) return '/HealthScreening';
+        if (type.includes('doctor')) return '/DoctorVisit';
+        if (type.includes('incident')) return '/IncidentReport';
+        if (type.includes('insurance') || type.includes('vault')) return '/InsuranceVault';
+        if (type.includes('student_account')) return '/ManageStudentAccounts';
+        if (type.includes('parent_account')) return '/ManageParentAccounts';
+        if (type.includes('message') || type.includes('chat')) return '/NurseMessages';
+        if (type.includes('report')) return '/WeeklyReports';
+        if (type.includes('setting')) return '/NurseNotificationSettings';
 
         return '/NurseDashboard';
     };
@@ -177,17 +162,10 @@ export const NurseLayout = () => {
         setShowNotifDropdown(false);
         const targetRoute = getNotificationRoute(notification);
 
-        // Navigation state payload passed to child page inside Outlet
         navigate(targetRoute, { 
             state: { 
                 notificationId: notification.notification_id,
-                navigateId: notification.navigate_id || null,
-                submissionId: notification.submission_id || notification.navigate_id || null,
-                studentId: notification.student_id || notification.navigate_id || null,
-                reqName: notification.requirement_name || null,
-                type: notification.type || null,
-                title: notification.title || null,
-                message: notification.message || null
+                navigateId: notification.navigate_id || null
             } 
         });
     };
@@ -216,6 +194,7 @@ export const NurseLayout = () => {
             <button className="mobile-toggle-btn" onClick={toggleSidebar}>☰</button>
             {isOpen && <div className="sidebar-overlay" onClick={closeSidebar}></div>}
 
+            {/* Sidebar - Messages nav item removed */}
             <div className={`student-sidebar ${isOpen ? 'open' : ''}`}>
                 <button className="close-sidebar-btn" onClick={closeSidebar} aria-label="Close Sidebar">&times;</button>
 
@@ -386,53 +365,84 @@ export const NurseLayout = () => {
                 </nav>
             </div>
             
+            {/* Top Bar - Message Icon with Unread Count Badge */}
             <div className="student-top-bar">
                 <div className="top-bar-left">
                     <span className="system-name">STI Baliuag Clinic Management System</span>
                 </div>
-                <div className="top-bar-right" style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+                <div className="top-bar-right" style={{ display: 'flex', alignItems: 'center', gap: '20px', overflow: 'visible' }}>
                     
-                    <NavLink to="/NurseMessages" className="topbar-message-link" style={{ position: 'relative', display: 'flex', alignItems: 'center', color: '#333', textDecoration: 'none' }} title="Messages">
-                        <MessageSquare size={20} />
-                        {unreadContactsCount > 0 && (
+                    {/* Topbar Message Link with Dynamic Badge Counter */}
+                    <NavLink 
+                        to="/NurseMessages" 
+                        className="topbar-message-link" 
+                        style={{ 
+                            position: 'relative', 
+                            display: 'inline-flex', 
+                            alignItems: 'center', 
+                            justifyContent: 'center',
+                            color: '#333', 
+                            textDecoration: 'none',
+                            overflow: 'visible',
+                            padding: '4px'
+                        }} 
+                        title="Messages"
+                    >
+                        <MessageSquare size={22} />
+                        {unreadCount > 0 && (
                             <span style={{
                                 position: 'absolute',
                                 top: '-6px',
-                                right: '-10px',
+                                right: '-8px',
                                 backgroundColor: '#ff4d4f',
                                 color: '#ffffff',
                                 borderRadius: '10px',
                                 padding: '2px 6px',
-                                fontSize: '11px',
+                                fontSize: '10px',
                                 fontWeight: 'bold',
-                                lineHeight: '1'
+                                lineHeight: '1',
+                                minWidth: '18px',
+                                height: '18px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
+                                zIndex: 20
                             }}>
-                                {unreadContactsCount}
+                                {unreadCount > 99 ? '99+' : unreadCount}
                             </span>
                         )}
                     </NavLink>
 
-                    <div style={{ position: 'relative' }}>
+                    {/* Notifications Icon with Dropdown */}
+                    <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
                         <button 
                             onClick={() => setShowNotifDropdown(!showNotifDropdown)} 
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', position: 'relative', display: 'flex', alignItems: 'center', color: '#333', padding: 0 }}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', position: 'relative', display: 'inline-flex', alignItems: 'center', color: '#333', padding: '4px' }}
                             title="Notifications"
                         >
-                            <Bell size={20} />
+                            <Bell size={22} />
                             {notifications.length > 0 && (
                                 <span style={{
                                     position: 'absolute',
                                     top: '-6px',
-                                    right: '-10px',
+                                    right: '-8px',
                                     backgroundColor: '#ff4d4f',
                                     color: '#ffffff',
                                     borderRadius: '10px',
                                     padding: '2px 6px',
-                                    fontSize: '11px',
+                                    fontSize: '10px',
                                     fontWeight: 'bold',
-                                    lineHeight: '1'
+                                    lineHeight: '1',
+                                    minWidth: '18px',
+                                    height: '18px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
+                                    zIndex: 20
                                 }}>
-                                    {notifications.length}
+                                    {notifications.length > 99 ? '99+' : notifications.length}
                                 </span>
                             )}
                         </button>
@@ -508,11 +518,11 @@ export const NurseLayout = () => {
             <div className="main-content">
                 <Outlet context={{ 
                     nurseId: nurseData?.nurse_id || '', 
-                    userId: nurseData?.user_id || '',
+                    userId: activeUserId,
                     firstName: nurseData?.first_name || '', 
                     lastName: nurseData?.last_name || '',
                     username: nurseData?.username || '',
-                    refreshUnreadCount: () => fetchUnreadCount(nurseData?.user_id),
+                    refreshUnreadCount: () => fetchUnreadCount(activeUserId),
                     refreshNotifications: () => fetchNotifications(nurseData?.nurse_id)
                 }} />
             </div>

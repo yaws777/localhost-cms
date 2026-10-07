@@ -8504,24 +8504,47 @@ app.put('/manageParentAccount', async (req, res) => {
 });
 
 //NurseMessage API
-// 1. Search contacts (Students & Parents by First or Last name)
+// 1. Search contacts (Students & Parents by First or Last name, or Student Name for Parents)
 app.get('/api/messages/contacts', async (req, res) => {
     const { search } = req.query;
     const searchTerm = `%${search || ''}%`;
 
     const sql = `
-        SELECT user_id, first_name, last_name, 'student' AS role, program_id AS detail 
-        FROM students 
-        WHERE first_name LIKE ? OR last_name LIKE ?
-        UNION
-        SELECT user_id, first_name, last_name, 'parent' AS role, primary_phone AS detail 
-        FROM parents 
-        WHERE first_name LIKE ? OR last_name LIKE ?
+        SELECT 
+            s.user_id, 
+            s.first_name, 
+            s.last_name, 
+            'student' AS role, 
+            s.program_id AS detail,
+            NULL AS linked_student
+        FROM students s
+        WHERE s.first_name LIKE ? OR s.last_name LIKE ?
+
+        UNION ALL
+
+        SELECT 
+            p.user_id, 
+            p.first_name, 
+            p.last_name, 
+            'parent' AS role, 
+            p.primary_phone AS detail,
+            GROUP_CONCAT(DISTINCT CONCAT(s.first_name, ' ', s.last_name) SEPARATOR ', ') AS linked_student
+        FROM parents p
+        LEFT JOIN parent_student_mapping psm ON p.parent_id = psm.parent_id
+        LEFT JOIN students s ON psm.student_id = s.student_id
+        WHERE p.first_name LIKE ? 
+           OR p.last_name LIKE ?
+           OR s.first_name LIKE ? 
+           OR s.last_name LIKE ?
+        GROUP BY p.user_id, p.first_name, p.last_name, p.primary_phone
         LIMIT 20;
     `;
 
     try {
-        const [rows] = await pool.query(sql, [searchTerm, searchTerm, searchTerm, searchTerm]);
+        const [rows] = await pool.query(sql, [
+            searchTerm, searchTerm,                         // Student search (first_name, last_name)
+            searchTerm, searchTerm, searchTerm, searchTerm  // Parent search (parent first/last name OR student first/last name)
+        ]);
         res.json({ success: true, contacts: rows });
     } catch (error) {
         console.error('Error searching contacts:', error);
@@ -8584,18 +8607,29 @@ app.get('/api/messages/conversations/:userId', async (req, res) => {
 });
 
 // 3. Get Total Unread Contacts Count (For Nurse Sidebar Badge)
+// Get Total Unread Messages Count (For Nurse Sidebar & Topbar Badges)
 app.get('/api/messages/unread-count/:userId', async (req, res) => {
     const { userId } = req.params;
 
+    if (!userId || userId === 'undefined' || userId === 'null') {
+        return res.json({ success: true, unreadCount: 0 });
+    }
+
     const sql = `
-        SELECT COUNT(DISTINCT sender_id) AS total_unread_contacts
+        SELECT COUNT(*) AS total_unread_messages
         FROM messages 
-        WHERE receiver_id = ? AND is_read = FALSE;
+        WHERE (
+            receiver_id = ? 
+            OR receiver_id IN (SELECT nurse_id FROM nurses WHERE user_id = ?)
+            OR receiver_id IN (SELECT user_id FROM nurses WHERE nurse_id = ?)
+        )
+        AND (is_read = FALSE OR is_read = 0 OR is_read IS NULL);
     `;
 
     try {
-        const [rows] = await pool.query(sql, [userId]);
-        res.json({ success: true, unreadCount: rows[0]?.total_unread_contacts || 0 });
+        const [rows] = await pool.query(sql, [userId, userId, userId]);
+        const count = Number(rows[0]?.total_unread_messages || 0);
+        res.json({ success: true, unreadCount: count });
     } catch (error) {
         console.error('Error fetching unread count:', error);
         res.status(500).json({ success: false, message: 'Error fetching unread count' });
@@ -8694,7 +8728,7 @@ app.delete('/api/messages/:messageId', async (req, res) => {
     }
 });
 
-// 8. Delete an Entire Conversation (Clears all messages between two users)
+// 8. Delete an Entire Conversation (Clear All Messages between two users)
 app.delete('/api/messages/conversations/:userId/:contactId', async (req, res) => {
     const { userId, contactId } = req.params;
 
@@ -8706,7 +8740,7 @@ app.delete('/api/messages/conversations/:userId/:contactId', async (req, res) =>
 
     try {
         await pool.query(sql, [userId, contactId, contactId, userId]);
-        res.json({ success: true, message: 'Conversation deleted successfully' });
+        res.json({ success: true, message: 'Conversation cleared successfully' });
     } catch (error) {
         console.error('Error deleting conversation:', error);
         res.status(500).json({ success: false, message: 'Error deleting conversation' });
@@ -8758,6 +8792,7 @@ app.get('/api/messages/student-contacts/:userId', async (req, res) => {
 });
 
 // 2. Get Recent Conversations for Student (with per-chat unread count)
+// Get Recent Conversations for Nurse (with linked student full name for parents)
 app.get('/api/messages/conversations/:userId', async (req, res) => {
     const { userId } = req.params;
 
@@ -8767,6 +8802,7 @@ app.get('/api/messages/conversations/:userId', async (req, res) => {
             u.first_name,
             u.last_name,
             u.role,
+            u.linked_student,
             m.message_id,
             m.sender_id,
             m.receiver_id,
@@ -8782,11 +8818,36 @@ app.get('/api/messages/conversations/:userId', async (req, res) => {
                   AND is_read = FALSE
             ) AS unread_count
         FROM (
-            SELECT user_id COLLATE utf8mb4_unicode_ci AS contact_user_id, first_name, last_name, 'student' AS role FROM students
-            UNION
-            SELECT user_id COLLATE utf8mb4_unicode_ci AS contact_user_id, first_name, last_name, 'parent' AS role FROM parents
-            UNION
-            SELECT user_id COLLATE utf8mb4_unicode_ci AS contact_user_id, first_name, last_name, 'nurse' AS role FROM nurses
+            SELECT 
+                s.user_id COLLATE utf8mb4_unicode_ci AS contact_user_id, 
+                s.first_name, 
+                s.last_name, 
+                'student' AS role,
+                NULL AS linked_student
+            FROM students s
+
+            UNION ALL
+
+            SELECT 
+                p.user_id COLLATE utf8mb4_unicode_ci AS contact_user_id, 
+                p.first_name, 
+                p.last_name, 
+                'parent' AS role,
+                GROUP_CONCAT(DISTINCT CONCAT(s.first_name, ' ', s.last_name) SEPARATOR ', ') AS linked_student
+            FROM parents p
+            LEFT JOIN parent_student_mapping psm ON p.parent_id = psm.parent_id
+            LEFT JOIN students s ON psm.student_id = s.student_id
+            GROUP BY p.user_id, p.first_name, p.last_name
+
+            UNION ALL
+
+            SELECT 
+                n.user_id COLLATE utf8mb4_unicode_ci AS contact_user_id, 
+                n.first_name, 
+                n.last_name, 
+                'nurse' AS role,
+                NULL AS linked_student
+            FROM nurses n
         ) u
         INNER JOIN messages m ON (
             (m.sender_id = ? AND m.receiver_id = u.contact_user_id) OR

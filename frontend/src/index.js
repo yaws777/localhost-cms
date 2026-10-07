@@ -41,7 +41,7 @@ import NurseNotificationSettings from './pages/nurse/nurseNotificationSettings';
 import NotificationSettings from './components/student/NotificationSettings'; // Import the NotificationSettings component
 import ParentNotificationSettings from './pages/parent/parentNotificationSettings'; // Import the ParentNotificationSettings component
 import StudentNotificationSettings from './pages/student/studentNotificationSettings'; // Import the StudentNotificationSettings component 
-
+import ParentMessages from './components/student/ParentMessageModal'; // Import the ParentMessages component
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   <BrowserRouter>
@@ -60,6 +60,7 @@ root.render(
           <Route path="/MyProfileParent" element={<MyProfileParent/>}/>
           <Route path="/ParentNotificationSettings" element={<ParentNotificationSettings />} />
           <Route path="/notification-settings" element={<NotificationSettings />} />
+          <Route path="/ParentMessages" element={<ParentMessages />} />
       </Route>
 
       <Route element={<NurseLayout />}>

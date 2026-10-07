@@ -8,7 +8,8 @@ import {
     LogOut,
     Bell,
     X,
-    MessageSquare
+    MessageSquare,
+    Loader2
 } from 'lucide-react';
 import '../styles/parent/ParentLayout.css'; 
 import ParentMessageModal from '../components/student/ParentMessageModal.jsx';
@@ -19,16 +20,13 @@ const ParentLayout = () => {
     const [isOpen, setIsOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
 
-    // State to hold the fetched parent and linked students list from parent_student_mapping
     const [parentData, setParentData] = useState(null);
     const [students, setStudents] = useState([]);
     const [errorMsg, setErrorMsg] = useState('');
 
-    // Messaging States
     const [isMessageOpen, setIsMessageOpen] = useState(false);
     const [unreadCount, setUnreadCount] = useState(0);
 
-    // Refs for safe polling and persistent state across page transitions
     const parentIdRef = useRef(null);
     const studentsRef = useRef([]);
     const parentUserIdRef = useRef(null);
@@ -42,23 +40,19 @@ const ParentLayout = () => {
         studentsRef.current = students;
     }, [students]);
 
-    // Web Push Hook integration
     const parentUserId = parentData?.user_id ? String(parentData.user_id) : null;
     const { isSubscribed, subscribe } = useWebPush(parentUserId);
 
-    // Auto-sync web push subscription if browser permission was already granted
     useEffect(() => {
         if (parentUserId && typeof Notification !== 'undefined' && Notification?.permission === 'granted' && !isSubscribed) {
             subscribe();
         }
     }, [parentUserId, isSubscribed, subscribe]);
 
-    // Notification states
     const [notifications, setNotifications] = useState([]);
     const [showNotifDropdown, setShowNotifDropdown] = useState(false);
     const [activeNotifModal, setActiveNotifModal] = useState(null);
 
-    // Fetch unread messages count
     const fetchUnreadCount = useCallback(async (userId) => {
         if (!userId) return;
         try {
@@ -72,14 +66,12 @@ const ParentLayout = () => {
         }
     }, []);
 
-    // Stable callback for refreshing unread count
     const handleRefreshUnreadCount = useCallback(() => {
         if (parentUserIdRef.current) {
             fetchUnreadCount(parentUserIdRef.current);
         }
     }, [fetchUnreadCount]);
 
-    // Fetch notifications for parent_id and ALL linked student_ids
     const fetchAllNotifications = useCallback(async (parentId, studentList) => {
         if (!parentId) return;
 
@@ -100,7 +92,6 @@ const ParentLayout = () => {
 
             const results = await Promise.all(fetchPromises);
             
-            // Extract items whether backend returns { success: true, data: [...] } or array
             const combinedNotifs = results.flatMap(res => {
                 if (res && res.success && Array.isArray(res.data)) {
                     return res.data;
@@ -111,12 +102,10 @@ const ParentLayout = () => {
                 return [];
             });
 
-            // Deduplicate by notification_id if any overlap occurs
             const uniqueNotifs = Array.from(
                 new Map(combinedNotifs.map(item => [item.notification_id, item])).values()
             );
 
-            // Sort descending by creation date
             uniqueNotifs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
             setNotifications(uniqueNotifs);
@@ -126,7 +115,6 @@ const ParentLayout = () => {
     }, []);
 
     useEffect(() => {
-        // Read linkedStudents from localStorage mapped via parent_student_mapping
         const storedLinkedStudents = localStorage.getItem('linkedStudents');
         let parsedStudents = [];
         if (storedLinkedStudents) {
@@ -196,7 +184,6 @@ const ParentLayout = () => {
             navigate('/');
         }
 
-        // Poll notifications and unread messages count every 5 seconds
         const interval = setInterval(() => {
             if (parentIdRef.current) {
                 fetchAllNotifications(parentIdRef.current, studentsRef.current);
@@ -212,7 +199,6 @@ const ParentLayout = () => {
     const toggleSidebar = () => setIsOpen(!isOpen);
     const closeSidebar = () => setIsOpen(false);
 
-    // Full logout cleanup
     const handleLogout = () => {
         localStorage.removeItem('user');
         localStorage.removeItem('parent_id');
@@ -228,23 +214,19 @@ const ParentLayout = () => {
         return (first + last).toUpperCase() || 'PR';
     };
 
-    // Filter unviewed/unread notifications
     const unviewedNotifications = notifications.filter(
         n => Number(n.is_read) === 0 && n.is_read !== true && n.status !== 'read'
     );
 
-    // Handle clicking individual notification
     const handleNotificationClick = async (notif) => {
         setShowNotifDropdown(false);
 
-        // 1. Mark as read locally
         setNotifications(prev =>
             prev.map(item =>
                 item.notification_id === notif.notification_id ? { ...item, is_read: 1 } : item
             )
         );
 
-        // 2. Persist read status on server
         try {
             await fetch(`http://localhost:3001/api/notifications/${notif.notification_id}/read`, {
                 method: 'PATCH'
@@ -256,7 +238,6 @@ const ParentLayout = () => {
         const notifType = notif.type ? notif.type.toLowerCase() : '';
         const notifMsg = notif.message ? notif.message.toLowerCase() : '';
 
-        // 3. Determine destination page vs modal
         if (notifType.includes('message') || notifMsg.includes('message')) {
             setIsMessageOpen(true);
         } else if (notifType.includes('clinic') || notifMsg.includes('clinic') || notifMsg.includes('medical')) {
@@ -272,16 +253,22 @@ const ParentLayout = () => {
 
     return (
         <div className="parent-layout">
-        
-            {/* Mobile Hamburger Button */}
+            <style>{`
+                @keyframes pmmSpin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+                .pmm-spin {
+                    animation: pmmSpin 1s linear infinite;
+                }
+            `}</style>
+            
             <button className="mobile-toggle-btn" onClick={toggleSidebar}>
                 ☰
             </button>
 
-            {/* Overlay for mobile when sidebar is open */}
             {isOpen && <div className="sidebar-overlay" onClick={closeSidebar}></div>}
 
-            {/* Sidebar Container */}
             <div className={`parent-sidebar ${isOpen ? 'open' : ''}`}>
                 <button className="close-sidebar-btn" onClick={closeSidebar} aria-label="Close Sidebar">
                     &times;
@@ -292,18 +279,21 @@ const ParentLayout = () => {
                     <p>Parent Portal</p>
                 </div>
 
-                {/* PROFILE INFO SECTION */}
                 <div className="sidebar-profile">
                     <div className="profile-avatar">
                         {getInitials()}
                     </div>
                     <div className="profile-details">
                         <h3 className="profile-name">
-                            {isLoading 
-                                ? 'Loading...' 
-                                : parentData 
-                                    ? `${parentData.first_name} ${parentData.last_name}`.trim() 
-                                    : 'Parent User'}
+                            {isLoading ? (
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                                    <Loader2 size={14} className="pmm-spin" /> Loading...
+                                </span>
+                            ) : parentData ? (
+                                `${parentData.first_name} ${parentData.last_name}`.trim()
+                            ) : (
+                                'Parent User'
+                            )}
                         </h3>
                         <p className="profile-username">
                             {parentData?.username ? `${parentData.username}` : '---'}
@@ -375,14 +365,16 @@ const ParentLayout = () => {
                 </nav>
             </div>
 
-            {/* MAIN CONTENT SECTION */}
             <div className="main-content">
-                {/* TOP BAR */}
                 <div className="parent-top-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div className="top-bar-info">
                         <span className="viewing-label">Linked Student(s):</span>
                         
-                        {students && students.length > 0 ? (
+                        {isLoading ? (
+                            <span className="student-name" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#666' }}>
+                                <Loader2 size={14} className="pmm-spin" /> Loading Student Info...
+                            </span>
+                        ) : students && students.length > 0 ? (
                             <div className="student-topbar-details" style={{ display: 'inline-flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                                 {students.map((st) => (
                                     <React.Fragment key={st.student_id}>
@@ -403,12 +395,11 @@ const ParentLayout = () => {
                                 ))}
                             </div>
                         ) : (
-                            <span className="student-name">Loading Student Info...</span>
+                            <span className="student-name">No Linked Students</span>
                         )}
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                        {/* MESSAGE BUTTON */}
                         <button 
                             onClick={() => setIsMessageOpen(true)}
                             title="Messages"
@@ -448,7 +439,6 @@ const ParentLayout = () => {
                             )}
                         </button>
 
-                        {/* NOTIFICATION BELL BUTTON */}
                         <div style={{ position: 'relative' }}>
                             <button 
                                 onClick={() => setShowNotifDropdown(!showNotifDropdown)}
@@ -489,7 +479,6 @@ const ParentLayout = () => {
                                 )}
                             </button>
 
-                            {/* UNVIEWED NOTIFICATIONS DROPDOWN */}
                             {showNotifDropdown && (
                                 <div style={{
                                     position: 'absolute',
@@ -557,7 +546,6 @@ const ParentLayout = () => {
                     </div>
                 </div>
 
-                {/* Content Wrapper */}
                 <div className="page-content">
                     <Outlet context={{ 
                         parentId: parentData?.parent_id || '',
@@ -579,7 +567,6 @@ const ParentLayout = () => {
                 </div>
             </div>
 
-            {/* MESSENGER MODAL FOR PARENT */}
             {isMessageOpen && parentUserId && (
                 <ParentMessageModal 
                     userId={parentUserId}
@@ -593,7 +580,6 @@ const ParentLayout = () => {
                 />
             )}
 
-            {/* NOTIFICATION DETAIL MODAL */}
             {activeNotifModal && (
                 <div style={{
                     position: 'fixed',

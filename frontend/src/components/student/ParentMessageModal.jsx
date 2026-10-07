@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
     X, Send, ShieldCheck, User, MessageSquare, 
     Image, Paperclip, Mic, Video, FileText, 
-    Trash2, MoreVertical, Square, AlertCircle 
+    Trash2, MoreVertical, Square, AlertCircle, Loader2
 } from 'lucide-react';
 import '../../styles/parent/ParentMessageModal.css';
 
@@ -21,6 +21,8 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
     const [activeMenuId, setActiveMenuId] = useState(null);
 
     const [isSending, setIsSending] = useState(false);
+    const isSendingRef = useRef(false); // Synchronous guard to prevent double texting
+
     const [isLoadingContacts, setIsLoadingContacts] = useState(true);
     const [isLoadingThread, setIsLoadingThread] = useState(false);
 
@@ -91,7 +93,6 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
                     console.error('Error fetching nurses:', err);
                 }
 
-                // Strict normalization for Nurse contacts requiring user_id as contact_user_id
                 const normalizedNurses = fetchedNurses.map(n => {
                     const recipientUserId = n.user_id ? String(n.user_id) : (n.nurse_id ? String(n.nurse_id) : '');
                     return {
@@ -312,32 +313,41 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
         }
     };
 
-    // Send Message Handler
+    // Send Message Handler with Double Texting Protection
     const handleSendMessage = async (e) => {
         e.preventDefault();
 
-        // Guard: Verify receiver_id exists
+        // 1. Guard against double texting (synchronous lock)
+        if (isSendingRef.current || isSending) return;
+
         if (!selectedContact || !selectedContact.contact_user_id) {
             alert("Cannot send message: Receiver account ID is missing for this contact.");
             return;
         }
 
-        if ((!inputContent.trim() && !attachment) || isSending) return;
+        const textContent = inputContent.trim();
+        if (!textContent && !attachment) return;
+
+        // Immediately lock sending ref and update state
+        isSendingRef.current = true;
+        setIsSending(true);
 
         const contactUserId = String(selectedContact.contact_user_id);
-        const textContent = inputContent.trim();
-        
+        const currentAttachment = attachment;
+        const currentAttachmentType = attachmentType;
+
+        // Clear UI input states immediately to prevent double submits
         setInputContent('');
-        setIsSending(true);
+        clearAttachment();
 
         const formData = new FormData();
         formData.append('sender_id', String(userId));
         formData.append('receiver_id', contactUserId);
-        formData.append('message_type', attachment ? attachmentType : 'text');
+        formData.append('message_type', currentAttachment ? currentAttachmentType : 'text');
         formData.append('content', textContent);
 
-        if (attachment) {
-            formData.append('media', attachment);
+        if (currentAttachment) {
+            formData.append('media', currentAttachment);
         }
 
         try {
@@ -348,20 +358,37 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
 
             const data = await response.json();
             if (data.success) {
-                clearAttachment();
-                fetchChatThread(contactUserId);
+                await fetchChatThread(contactUserId);
             } else {
+                // Restore input on failure
+                setInputContent(textContent);
+                setAttachment(currentAttachment);
+                setAttachmentType(currentAttachmentType);
                 alert(data.message || 'Failed to send message.');
             }
         } catch (err) {
             console.error('Error sending message:', err);
+            setInputContent(textContent);
+            setAttachment(currentAttachment);
+            setAttachmentType(currentAttachmentType);
+            alert('Failed to send message due to a connection delay.');
         } finally {
+            isSendingRef.current = false;
             setIsSending(false);
         }
     };
 
     return (
         <div className="pmm-overlay" onClick={() => setActiveMenuId(null)}>
+            <style>{`
+                @keyframes pmmSpin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+                .pmm-spin {
+                    animation: pmmSpin 1s linear infinite;
+                }
+            `}</style>
             <div className="pmm-container">
                 {/* Header */}
                 <div className="pmm-header">
@@ -385,7 +412,10 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
                     <div className="pmm-sidebar">
                         <div className="pmm-sidebar-scroll">
                             {isLoadingContacts ? (
-                                <div className="pmm-sidebar-loading">Loading contacts...</div>
+                                <div className="pmm-sidebar-loading" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '20px 0', color: '#666' }}>
+                                    <Loader2 size={18} className="pmm-spin" />
+                                    <span>Loading contacts...</span>
+                                </div>
                             ) : (
                                 <>
                                     {studentContacts.length > 0 && (
@@ -467,7 +497,6 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
                                     </div>
                                 </div>
 
-                                {/* Warning banner if nurse has no user_id account linked */}
                                 {!selectedContact.hasValidUserAccount && (
                                     <div style={{
                                         backgroundColor: '#fffbe6',
@@ -487,7 +516,10 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
                                 {/* Messages Container */}
                                 <div className="pmm-messages-container">
                                     {isLoadingThread ? (
-                                        <div className="pmm-empty-thread">Loading conversation...</div>
+                                        <div className="pmm-empty-thread" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '10px', padding: '40px 0' }}>
+                                            <Loader2 size={28} className="pmm-spin" style={{ color: '#003366' }} />
+                                            <span style={{ color: '#666', fontSize: '0.88rem' }}>Loading conversation...</span>
+                                        </div>
                                     ) : messages.length === 0 ? (
                                         <div className="pmm-empty-thread">
                                             No messages yet. Send a message to start the conversation.
@@ -502,7 +534,6 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
                                                     key={msg.message_id || msg.created_at}
                                                     className={`pmm-msg-wrapper ${isMe ? 'sent' : 'received'}`}
                                                 >
-                                                    {/* Unsend Action Menu Container */}
                                                     {isMe && !isUnsent && (
                                                         <div className="pmm-msg-actions-wrapper">
                                                             <button 
@@ -528,7 +559,6 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
                                                         </div>
                                                     )}
 
-                                                    {/* Message Content Bubble */}
                                                     <div className={`pmm-msg-bubble ${isUnsent ? 'unsent' : ''}`}>
                                                         {isUnsent ? (
                                                             <p className="pmm-unsent-text">{isMe ? 'You unsent a message' : 'Message unsent'}</p>
@@ -594,7 +624,7 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
                                     </div>
                                 )}
 
-                                {/* Input Controls Form */}
+                                {/* Input Form */}
                                 <form onSubmit={handleSendMessage} className="pmm-input-form">
                                     <div className="pmm-controls-row">
                                         <input 
@@ -609,7 +639,7 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
                                             onClick={() => triggerFilePicker('image', 'image/*')} 
                                             title="Attach Image"
                                             className="pmm-media-btn"
-                                            disabled={!selectedContact.contact_user_id}
+                                            disabled={!selectedContact.contact_user_id || isSending}
                                         >
                                             <Image size={20} />
                                         </button>
@@ -619,7 +649,7 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
                                             onClick={() => triggerFilePicker('video', 'video/*')} 
                                             title="Attach Video"
                                             className="pmm-media-btn"
-                                            disabled={!selectedContact.contact_user_id}
+                                            disabled={!selectedContact.contact_user_id || isSending}
                                         >
                                             <Video size={20} />
                                         </button>
@@ -629,7 +659,7 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
                                             onClick={() => triggerFilePicker('file', '*/*')} 
                                             title="Attach Document"
                                             className="pmm-media-btn"
-                                            disabled={!selectedContact.contact_user_id}
+                                            disabled={!selectedContact.contact_user_id || isSending}
                                         >
                                             <Paperclip size={20} />
                                         </button>
@@ -640,7 +670,7 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
                                                 onClick={startRecording} 
                                                 title="Record Audio"
                                                 className="pmm-media-btn"
-                                                disabled={!selectedContact.contact_user_id}
+                                                disabled={!selectedContact.contact_user_id || isSending}
                                             >
                                                 <Mic size={20} />
                                             </button>
@@ -655,13 +685,18 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
                                             </button>
                                         )}
 
-                                        {/* Textbox / Message Box Input */}
                                         <input 
                                             type="text"
                                             value={inputContent}
                                             onChange={(e) => setInputContent(e.target.value)}
-                                            placeholder={selectedContact.contact_user_id ? "Type a message..." : "Contact cannot receive messages"}
-                                            disabled={!selectedContact.contact_user_id}
+                                            placeholder={
+                                                isSending 
+                                                    ? "Sending message..." 
+                                                    : selectedContact.contact_user_id 
+                                                        ? "Type a message..." 
+                                                        : "Contact cannot receive messages"
+                                            }
+                                            disabled={!selectedContact.contact_user_id || isSending}
                                             className="pmm-message-input"
                                         />
 
@@ -669,8 +704,13 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
                                             type="submit"
                                             disabled={(!inputContent.trim() && !attachment) || !selectedContact.contact_user_id || isSending}
                                             className="pmm-send-btn"
+                                            title={isSending ? "Sending message..." : "Send message"}
                                         >
-                                            <Send size={18} />
+                                            {isSending ? (
+                                                <Loader2 size={18} className="pmm-spin" />
+                                            ) : (
+                                                <Send size={18} />
+                                            )}
                                         </button>
                                     </div>
                                 </form>
