@@ -17,6 +17,28 @@ import '../styles/student/StudentLayout.css';
 import StudentMessageModal from '../components/student/StudentMessageModal.jsx';
 import { useWebPush } from '../hooks/useWebPush';
 
+// Base API URL with environment variable support for Netlify production
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://localhost-cms.onrender.com';
+
+// Safari Private Mode safe localStorage helper
+const safeLocalStorage = {
+    getItem: (key) => {
+        try {
+            return localStorage.getItem(key);
+        } catch (e) {
+            console.warn(`[Storage Warning] Unable to get ${key}:`, e);
+            return null;
+        }
+    },
+    removeItem: (key) => {
+        try {
+            localStorage.removeItem(key);
+        } catch (e) {
+            console.warn(`[Storage Warning] Unable to remove ${key}:`, e);
+        }
+    }
+};
+
 const StudentLayout = () => {
     const navigate = useNavigate();
     const sidebarQrRef = useRef(null);
@@ -35,7 +57,6 @@ const StudentLayout = () => {
     const studentIdRef = useRef(null);
     const currentUserIdRef = useRef(null);
 
-    // Keep refs in sync with state
     useEffect(() => {
         studentIdRef.current = studentData?.student_id || null;
     }, [studentData?.student_id]);
@@ -62,7 +83,7 @@ const StudentLayout = () => {
     const fetchUnreadCount = useCallback(async (userId) => {
         if (!userId) return;
         try {
-            const res = await fetch(`https://localhost-cms.onrender.com/api/messages/unread-count/${userId}`);
+            const res = await fetch(`${API_BASE_URL}/api/messages/unread-count/${userId}`);
             const data = await res.json();
             if (data.success) {
                 setUnreadCount(data.unreadCount || 0);
@@ -76,10 +97,9 @@ const StudentLayout = () => {
     const fetchNotifications = useCallback(async (studentId) => {
         if (!studentId) return;
         try {
-            const res = await fetch(`https://localhost-cms.onrender.com/api/notifications/student/${studentId}`);
+            const res = await fetch(`${API_BASE_URL}/api/notifications/student/${studentId}`);
             const data = await res.json();
             if (data.success) {
-                // Filter out any notifications already marked as read
                 const unreadNotifs = (data.data || []).filter(
                     (n) => n.is_read !== 1 && n.is_read !== true && n.status !== 'read'
                 );
@@ -91,7 +111,7 @@ const StudentLayout = () => {
     }, []);
 
     useEffect(() => {
-        const storedUser = localStorage.getItem('user');
+        const storedUser = safeLocalStorage.getItem('user');
         
         if (!storedUser) {
             navigate('/');
@@ -119,7 +139,7 @@ const StudentLayout = () => {
 
         const fetchStudentProfile = async () => {
             try {
-                const response = await fetch(`https://localhost-cms.onrender.com/api/get-student/${accurateUserId}`);
+                const response = await fetch(`${API_BASE_URL}/api/get-student/${accurateUserId}`);
                 const data = await response.json();
 
                 if (data.success && data.student) {
@@ -139,11 +159,9 @@ const StudentLayout = () => {
             }
         };
 
-        // Fetch student profile and unread count once on mount
         fetchStudentProfile();
         fetchUnreadCount(accurateUserId);
 
-        // Poll messages and notifications every 5 seconds using refs to avoid re-triggering main effect
         const interval = setInterval(() => {
             if (currentUserIdRef.current) {
                 fetchUnreadCount(currentUserIdRef.current);
@@ -162,18 +180,15 @@ const StudentLayout = () => {
 
         const originalCanvas = sidebarQrRef.current.querySelector('canvas');
         if (originalCanvas) {
-            const padding = 20; // White border padding around the QR code
+            const padding = 20;
             const offscreenCanvas = document.createElement('canvas');
             offscreenCanvas.width = originalCanvas.width + padding * 2;
             offscreenCanvas.height = originalCanvas.height + padding * 2;
 
             const ctx = offscreenCanvas.getContext('2d');
             if (ctx) {
-                // Fill canvas with solid white background
                 ctx.fillStyle = '#ffffff';
                 ctx.fillRect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
-
-                // Draw QR code onto white canvas centered
                 ctx.drawImage(originalCanvas, padding, padding);
 
                 const url = offscreenCanvas.toDataURL('image/png');
@@ -187,15 +202,12 @@ const StudentLayout = () => {
         }
     };
 
-    // Navigate to sub-routes or trigger modals based on notification content
     const handleNotificationClick = async (notification) => {
         try {
-            // 1. Mark notification as read
-            await fetch(`https://localhost-cms.onrender.com/api/notifications/${notification.notification_id}/read`, {
+            await fetch(`${API_BASE_URL}/api/notifications/${notification.notification_id}/read`, {
                 method: 'PATCH'
             });
 
-            // 2. Remove read item locally
             setNotifications(prev => prev.filter(n => n.notification_id !== notification.notification_id));
         } catch (err) {
             console.error('Error marking notification as read:', err);
@@ -207,7 +219,6 @@ const StudentLayout = () => {
         const title = (notification.title || '').toLowerCase();
         const msg = (notification.message || '').toLowerCase();
 
-        // 3. Perform internal routing without exiting StudentLayout
         if (type.includes('message') || msg.includes('message') || title.includes('message')) {
             setIsMessageOpen(true);
         } else if (type.includes('requirement') || msg.includes('requirement') || title.includes('requirement')) {
@@ -231,7 +242,7 @@ const StudentLayout = () => {
     const closeSidebar = () => setIsOpen(false);
 
     const handleLogout = () => {
-        localStorage.removeItem('user');
+        safeLocalStorage.removeItem('user');
         navigate('/');
     };
 
@@ -251,15 +262,12 @@ const StudentLayout = () => {
 
     return (
         <div className="student-layout">
-            {/* Mobile Hamburger Button */}
             <button className="mobile-toggle-btn" onClick={toggleSidebar}>
                 ☰
             </button>
 
-            {/* Overlay for mobile when sidebar is open */}
             {isOpen && <div className="sidebar-overlay" onClick={closeSidebar}></div>}
 
-            {/* Sidebar Container */}
             <div className={`student-sidebar ${isOpen ? 'open' : ''}`}>
                 <button className="close-sidebar-btn" onClick={closeSidebar} aria-label="Close Sidebar">
                     &times;
@@ -289,7 +297,6 @@ const StudentLayout = () => {
                             ID: {studentData?.student_id || '--------'}
                         </span>
 
-                        {/* Student QR Code in Sidebar with Download Button */}
                         {studentData?.student_id && (
                             <div style={{ marginTop: '10px', textAlign: 'center' }}>
                                 <div 
@@ -312,28 +319,27 @@ const StudentLayout = () => {
                                         includeMargin={false}
                                     />
                                 </div>
-                                <button
-                                    onClick={handleDownloadSidebarQr}
-                                    style={{
-                                        marginTop: '8px',
-                                        padding: '5px 12px',
-                                        backgroundColor: '#ffd100',
-                                        color: '#004b87',
-                                        border: 'none',
-                                        borderRadius: '4px',
-                                        fontSize: '0.75rem',
-                                        fontWeight: 'bold',
-                                        cursor: 'pointer',
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        position: 'fixed',
-                                        width: 'fit-content',
-                                        gap: '5px'
-                                    }}
-                                >
-                                    <Download size={14} />                               
-                                </button>
+                                <div style={{ marginTop: '8px' }}>
+                                    <button
+                                        onClick={handleDownloadSidebarQr}
+                                        style={{
+                                            padding: '5px 12px',
+                                            backgroundColor: '#ffd100',
+                                            color: '#004b87',
+                                            border: 'none',
+                                            borderRadius: '4px',
+                                            fontSize: '0.75rem',
+                                            fontWeight: 'bold',
+                                            cursor: 'pointer',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '5px'
+                                        }}
+                                    >
+                                        <Download size={14} /> Download QR                           
+                                    </button>
+                                </div>
                             </div>
                         )}
                         
@@ -386,7 +392,6 @@ const StudentLayout = () => {
                 </nav>
             </div>
 
-            {/* TOP BAR WITH MESSAGES AND NOTIFICATION BELL */}
             <div className="student-top-bar">
                 <div className="top-bar-left">
                     <span className="system-name">STI Baliuag Clinic Management System</span>
@@ -394,7 +399,6 @@ const StudentLayout = () => {
                 <div className="top-bar-right" style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                     <span className="current-date">{currentDate}</span>
 
-                    {/* MESSAGE BUTTON */}
                     <button 
                         className="top-bar-message-btn" 
                         title="Messages"
@@ -406,7 +410,6 @@ const StudentLayout = () => {
                         )}
                     </button>
 
-                    {/* NOTIFICATION BELL BUTTON & DROPDOWN */}
                     <div style={{ position: 'relative' }}>
                         <button 
                             className="top-bar-message-btn" 
@@ -419,7 +422,6 @@ const StudentLayout = () => {
                             )}
                         </button>
 
-                        {/* DROPDOWN CONTAINER */}
                         {showNotifDropdown && (
                             <div style={{
                                 position: 'absolute',
@@ -487,7 +489,6 @@ const StudentLayout = () => {
                 </div>
             </div>
 
-            {/* MAIN CONTENT SECTION */}
             <div className="main-content">
                 <div className="page-content">
                     <Outlet context={{ 
@@ -507,7 +508,6 @@ const StudentLayout = () => {
                 </div>
             </div>
 
-            {/* MESSENGER MODAL POPUP */}
             {isMessageOpen && currentUserId && (
                 <StudentMessageModal 
                     userId={currentUserId} 

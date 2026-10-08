@@ -1,13 +1,43 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
-import '../styles/Login.css'; 
+import '../styles/Login.css';
+
+// Base API URL with environment variable support for Netlify production
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://localhost-cms.onrender.com';
+
+// Safari Private Mode safe localStorage helper
+const safeLocalStorage = {
+    setItem: (key, value) => {
+        try {
+            localStorage.setItem(key, value);
+        } catch (e) {
+            console.warn(`[Storage Warning] Unable to set ${key} in localStorage:`, e);
+        }
+    },
+    getItem: (key) => {
+        try {
+            return localStorage.getItem(key);
+        } catch (e) {
+            console.warn(`[Storage Warning] Unable to get ${key} from localStorage:`, e);
+            return null;
+        }
+    },
+    removeItem: (key) => {
+        try {
+            localStorage.removeItem(key);
+        } catch (e) {
+            console.warn(`[Storage Warning] Unable to remove ${key} from localStorage:`, e);
+        }
+    }
+};
 
 export default function Login() {
     const navigate = useNavigate();
     const [isLoginView, setIsLoginView] = useState(true);
     const [errorMsg, setErrorMsg] = useState('');
     const [successMsg, setSuccessMsg] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
     
     // Login Form State
     const [username, setUsername] = useState('');
@@ -64,9 +94,10 @@ export default function Login() {
         e.preventDefault();
         setErrorMsg('');
         setSuccessMsg('');
+        setIsLoading(true);
 
         try {
-            const response = await fetch('https://localhost-cms.onrender.com/api/login', {
+            const response = await fetch(`${API_BASE_URL}/api/login`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username, password })
@@ -74,27 +105,25 @@ export default function Login() {
             const data = await response.json();
             
             if (data.success) {
-                // Check for Default Password ("123")
                 if (data.isDefaultPassword) {
                     setShowChangePassModal(true);
-                    return; // Halt login sequence until password is changed
+                    return;
                 }
-
-                // Proceed with regular role-based routing
                 proceedLoginFlow(data);
             } else {
-                setErrorMsg(data.message);
+                setErrorMsg(data.message || 'Invalid credentials');
             }
         } catch (error) {
-            setErrorMsg("Network error. Please check if the server is running.");
+            setErrorMsg("Network error. Please check your internet connection or server availability.");
+        } finally {
+            setIsLoading(false);
         }
     };
 
-    // Sequential Flow Handler for Authenticated User (Admin removed)
+    // Sequential Flow Handler for Authenticated User
     const proceedLoginFlow = (data) => {
-        localStorage.setItem('user', JSON.stringify(data.user));
+        safeLocalStorage.setItem('user', JSON.stringify(data.user));
 
-        // Role Routing
         if (data.user.role === 'student') {
             if (data.isFormCompleted) {
                 navigate('/StudentDashboard');
@@ -104,9 +133,8 @@ export default function Login() {
         } else if (data.user.role === 'nurse') {
             navigate('/NurseDashboard');
         } else if (data.user.role === 'parent') {
-            localStorage.setItem('parent_id', data.user.parent_id);
+            safeLocalStorage.setItem('parent_id', data.user.parent_id);
 
-            // Check Parent Details Completion
             if (data.isProfileIncomplete) {
                 setPendingAuthData(data);
                 setParentFirstName(data.user.first_name || '');
@@ -116,7 +144,6 @@ export default function Login() {
                 return;
             }
 
-            // Direct Routing for Parent regardless of single or multiple linked students
             finalizeParentRouting(data.students);
         }
     };
@@ -124,14 +151,12 @@ export default function Login() {
     // Helper to finalize Parent Routing directly to parent portal
     const finalizeParentRouting = (students) => {
         if (students && students.length > 0) {
-            localStorage.setItem('linkedStudents', JSON.stringify(students));
-            // Keep fallback selectedStudentId so child page guards do not trigger auto-exit
-            localStorage.setItem('selectedStudentId', students[0].student_id);
+            safeLocalStorage.setItem('linkedStudents', JSON.stringify(students));
+            safeLocalStorage.setItem('selectedStudentId', students[0].student_id);
             navigate('/ParentDashboard');
         } else {
-            // Still allow access even if no linked students exist yet
-            localStorage.setItem('linkedStudents', JSON.stringify([]));
-            localStorage.removeItem('selectedStudentId');
+            safeLocalStorage.setItem('linkedStudents', JSON.stringify([]));
+            safeLocalStorage.removeItem('selectedStudentId');
             navigate('/ParentDashboard');
         }
     };
@@ -151,8 +176,9 @@ export default function Login() {
             return;
         }
 
+        setIsLoading(true);
         try {
-            const response = await fetch('https://localhost-cms.onrender.com/api/change-password', {
+            const response = await fetch(`${API_BASE_URL}/api/change-password`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username, newPassword })
@@ -166,10 +192,12 @@ export default function Login() {
                 setPassword('');
                 setSuccessMsg("Password changed successfully. Please log in again with your new password.");
             } else {
-                setPassModalError(data.message);
+                setPassModalError(data.message || "Failed to change password.");
             }
         } catch (error) {
             setPassModalError("Failed to update password. Try again later.");
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -183,14 +211,14 @@ export default function Login() {
             return;
         }
 
-        // Philippine Phone Validation
         if (!isValidPHPhone(parentPhone)) {
             setParentModalError("Please enter a valid Philippine mobile number (e.g., 09171234567 or +639171234567).");
             return;
         }
 
+        setIsLoading(true);
         try {
-            const response = await fetch('https://localhost-cms.onrender.com/api/update-parent-profile', {
+            const response = await fetch(`${API_BASE_URL}/api/update-parent-profile`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -206,10 +234,12 @@ export default function Login() {
                 setShowParentModal(false);
                 finalizeParentRouting(pendingAuthData.students);
             } else {
-                setParentModalError(data.message);
+                setParentModalError(data.message || "Failed to update profile.");
             }
         } catch (error) {
             setParentModalError("Failed to update details. Try again.");
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -218,8 +248,9 @@ export default function Login() {
         e.preventDefault();
         setErrorMsg('');
         setRetrievedPassword('');
+        setIsLoading(true);
         try {
-            const response = await fetch('https://localhost-cms.onrender.com/api/forgot-password', {
+            const response = await fetch(`${API_BASE_URL}/api/forgot-password`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username, firstName, lastName })
@@ -229,10 +260,12 @@ export default function Login() {
             if (data.success) {
                 setRetrievedPassword(`Your password is: ${data.password}`);
             } else {
-                setErrorMsg(data.message);
+                setErrorMsg(data.message || "Could not retrieve password.");
             }
         } catch (error) {
             setErrorMsg("Network error. Please try again.");
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -257,6 +290,7 @@ export default function Login() {
                             onChange={(e) => setUsername(e.target.value)} 
                             placeholder="Username (@baliuag.sti.edu.ph)" 
                             className="auth-input" 
+                            disabled={isLoading}
                         />
                         
                         <div className="password-input-wrapper">
@@ -267,22 +301,27 @@ export default function Login() {
                                 onChange={(e) => setPassword(e.target.value)} 
                                 placeholder="Password" 
                                 className="auth-input"
+                                disabled={isLoading}
                             />
                             <button 
                                 type="button" 
                                 className="password-toggle-btn" 
                                 onClick={() => setShowPassword(!showPassword)}
                                 aria-label="Toggle password visibility"
+                                disabled={isLoading}
                             >
                                 {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                             </button>
                         </div>
 
-                        <button type="submit" className="btn-primary">Login</button>
+                        <button type="submit" className="btn-primary" disabled={isLoading}>
+                            {isLoading ? 'Logging in...' : 'Login'}
+                        </button>
                         <button 
                             type="button" 
                             onClick={() => { setIsLoginView(false); setErrorMsg(''); setSuccessMsg(''); setRetrievedPassword(''); }} 
                             className="btn-link"
+                            disabled={isLoading}
                         >
                             Forgot Password?
                         </button>
@@ -296,6 +335,7 @@ export default function Login() {
                             onChange={(e) => setUsername(e.target.value)} 
                             placeholder="Username (@baliuag.sti.edu.ph)" 
                             className="auth-input"
+                            disabled={isLoading}
                         />
                         <input 
                             type="text" 
@@ -304,6 +344,7 @@ export default function Login() {
                             onChange={(e) => setFirstName(e.target.value)} 
                             placeholder="First Name" 
                             className="auth-input"
+                            disabled={isLoading}
                         />
                         <input 
                             type="text" 
@@ -312,12 +353,16 @@ export default function Login() {
                             onChange={(e) => setLastName(e.target.value)} 
                             placeholder="Last Name" 
                             className="auth-input"
+                            disabled={isLoading}
                         />
-                        <button type="submit" className="btn-primary">Retrieve Password</button>
+                        <button type="submit" className="btn-primary" disabled={isLoading}>
+                            {isLoading ? 'Retrieving...' : 'Retrieve Password'}
+                        </button>
                         <button 
                             type="button" 
                             onClick={() => { setIsLoginView(true); setErrorMsg(''); setSuccessMsg(''); setRetrievedPassword(''); }} 
                             className="btn-link"
+                            disabled={isLoading}
                         >
                             Back to Login
                         </button>
@@ -343,12 +388,14 @@ export default function Login() {
                                     value={newPassword}
                                     onChange={(e) => setNewPassword(e.target.value)}
                                     className="auth-input"
+                                    disabled={isLoading}
                                 />
                                 <button 
                                     type="button" 
                                     className="password-toggle-btn" 
                                     onClick={() => setShowNewPassword(!showNewPassword)}
                                     aria-label="Toggle new password visibility"
+                                    disabled={isLoading}
                                 >
                                     {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                                 </button>
@@ -362,18 +409,19 @@ export default function Login() {
                                     value={confirmPassword}
                                     onChange={(e) => setConfirmPassword(e.target.value)}
                                     className="auth-input"
+                                    disabled={isLoading}
                                 />
                                 <button 
                                     type="button" 
                                     className="password-toggle-btn" 
                                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                                     aria-label="Toggle confirm password visibility"
+                                    disabled={isLoading}
                                 >
                                     {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                                 </button>
                             </div>
 
-                            {/* Password Indicator & Requirement Checklist */}
                             <div className="password-strength-container">
                                 <div className="strength-header">
                                     <span>Password Strength:</span>
@@ -393,9 +441,9 @@ export default function Login() {
                             <button 
                                 type="submit" 
                                 className="btn-primary" 
-                                disabled={!isPasswordStrong || newPassword !== confirmPassword}
+                                disabled={!isPasswordStrong || newPassword !== confirmPassword || isLoading}
                             >
-                                Save & Re-login
+                                {isLoading ? 'Updating...' : 'Save & Re-login'}
                             </button>
                         </form>
                     </div>
@@ -419,6 +467,7 @@ export default function Login() {
                                 value={parentFirstName}
                                 onChange={(e) => setParentFirstName(e.target.value)}
                                 className="auth-input"
+                                disabled={isLoading}
                             />
                             <input 
                                 type="text" 
@@ -427,6 +476,7 @@ export default function Login() {
                                 value={parentLastName}
                                 onChange={(e) => setParentLastName(e.target.value)}
                                 className="auth-input"
+                                disabled={isLoading}
                             />
                             <div>
                                 <input 
@@ -437,12 +487,15 @@ export default function Login() {
                                     onChange={(e) => setParentPhone(e.target.value)}
                                     className="auth-input"
                                     maxLength={13}
+                                    disabled={isLoading}
                                 />
                                 <small style={{ color: '#6b7280', fontSize: '0.75rem', marginTop: '4px', display: 'block', textAlign: 'left' }}>
                                     Must be a valid PH number starting with 09 or +639 (11 digits).
                                 </small>
                             </div>
-                            <button type="submit" className="btn-primary">Save Profile & Continue</button>
+                            <button type="submit" className="btn-primary" disabled={isLoading}>
+                                {isLoading ? 'Saving...' : 'Save Profile & Continue'}
+                            </button>
                         </form>
                     </div>
                 </div>

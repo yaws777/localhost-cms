@@ -14,12 +14,41 @@ import '../styles/parent/ParentLayout.css';
 import ParentMessageModal from '../components/student/ParentMessageModal.jsx';
 import { useWebPush } from '../hooks/useWebPush';
 
+// Base API URL with environment variable support for Netlify production
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://localhost-cms.onrender.com';
+
+// Safari Private Mode safe localStorage helper
+const safeLocalStorage = {
+    setItem: (key, value) => {
+        try {
+            localStorage.setItem(key, value);
+        } catch (e) {
+            console.warn(`[Storage Warning] Unable to set ${key}:`, e);
+        }
+    },
+    getItem: (key) => {
+        try {
+            return localStorage.getItem(key);
+        } catch (e) {
+            console.warn(`[Storage Warning] Unable to get ${key}:`, e);
+            return null;
+        }
+    },
+    removeItem: (key) => {
+        try {
+            localStorage.removeItem(key);
+        } catch (e) {
+            console.warn(`[Storage Warning] Unable to remove ${key}:`, e);
+        }
+    }
+};
+
 const ParentLayout = () => {
     const navigate = useNavigate();
     const [isOpen, setIsOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
 
-    // State to hold the fetched parent and linked students list from parent_student_mapping
+    // State to hold the fetched parent and linked students list
     const [parentData, setParentData] = useState(null);
     const [students, setStudents] = useState([]);
     const [errorMsg, setErrorMsg] = useState('');
@@ -62,7 +91,7 @@ const ParentLayout = () => {
     const fetchUnreadCount = useCallback(async (userId) => {
         if (!userId) return;
         try {
-            const res = await fetch(`https://localhost-cms.onrender.com/api/messages/unread-count/${String(userId)}`);
+            const res = await fetch(`${API_BASE_URL}/api/messages/unread-count/${String(userId)}`);
             const data = await res.json();
             if (data.success) {
                 setUnreadCount(data.unreadCount || 0);
@@ -85,14 +114,14 @@ const ParentLayout = () => {
 
         try {
             const fetchPromises = [
-                fetch(`https://localhost-cms.onrender.com/api/notifications/parent/${String(parentId)}`).then(res => res.json())
+                fetch(`${API_BASE_URL}/api/notifications/parent/${String(parentId)}`).then(res => res.json())
             ];
 
             if (studentList && studentList.length > 0) {
                 studentList.forEach(st => {
                     if (st.student_id) {
                         fetchPromises.push(
-                            fetch(`https://localhost-cms.onrender.com/api/notifications/student/${String(st.student_id)}`).then(res => res.json())
+                            fetch(`${API_BASE_URL}/api/notifications/student/${String(st.student_id)}`).then(res => res.json())
                         );
                     }
                 });
@@ -100,7 +129,6 @@ const ParentLayout = () => {
 
             const results = await Promise.all(fetchPromises);
             
-            // Extract items whether backend returns { success: true, data: [...] } or array
             const combinedNotifs = results.flatMap(res => {
                 if (res && res.success && Array.isArray(res.data)) {
                     return res.data;
@@ -111,12 +139,10 @@ const ParentLayout = () => {
                 return [];
             });
 
-            // Deduplicate by notification_id if any overlap occurs
             const uniqueNotifs = Array.from(
                 new Map(combinedNotifs.map(item => [item.notification_id, item])).values()
             );
 
-            // Sort descending by creation date
             uniqueNotifs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
             setNotifications(uniqueNotifs);
@@ -126,8 +152,7 @@ const ParentLayout = () => {
     }, []);
 
     useEffect(() => {
-        // Read linkedStudents from localStorage mapped via parent_student_mapping
-        const storedLinkedStudents = localStorage.getItem('linkedStudents');
+        const storedLinkedStudents = safeLocalStorage.getItem('linkedStudents');
         let parsedStudents = [];
         if (storedLinkedStudents) {
             try {
@@ -135,8 +160,8 @@ const ParentLayout = () => {
                 if (Array.isArray(parsedStudents)) {
                     setStudents(parsedStudents);
                     studentsRef.current = parsedStudents;
-                    if (parsedStudents.length > 0 && !localStorage.getItem('selectedStudentId')) {
-                        localStorage.setItem('selectedStudentId', String(parsedStudents[0].student_id));
+                    if (parsedStudents.length > 0 && !safeLocalStorage.getItem('selectedStudentId')) {
+                        safeLocalStorage.setItem('selectedStudentId', String(parsedStudents[0].student_id));
                     }
                 }
             } catch (error) {
@@ -146,7 +171,7 @@ const ParentLayout = () => {
 
         const fetchProfiles = async (userId) => {
             try {
-                const parentRes = await fetch(`https://localhost-cms.onrender.com/api/get-parent/${String(userId)}`);
+                const parentRes = await fetch(`${API_BASE_URL}/api/get-parent/${String(userId)}`);
                 const parentJson = await parentRes.json();
 
                 if (parentJson.success && parentJson.parent) {
@@ -172,7 +197,7 @@ const ParentLayout = () => {
             }
         };
 
-        const storedUser = localStorage.getItem('user');
+        const storedUser = safeLocalStorage.getItem('user');
         
         if (storedUser) {
             let user;
@@ -196,7 +221,6 @@ const ParentLayout = () => {
             navigate('/');
         }
 
-        // Poll notifications and unread messages count every 5 seconds
         const interval = setInterval(() => {
             if (parentIdRef.current) {
                 fetchAllNotifications(parentIdRef.current, studentsRef.current);
@@ -214,10 +238,10 @@ const ParentLayout = () => {
 
     // Full logout cleanup
     const handleLogout = () => {
-        localStorage.removeItem('user');
-        localStorage.removeItem('parent_id');
-        localStorage.removeItem('linkedStudents');
-        localStorage.removeItem('selectedStudentId');
+        safeLocalStorage.removeItem('user');
+        safeLocalStorage.removeItem('parent_id');
+        safeLocalStorage.removeItem('linkedStudents');
+        safeLocalStorage.removeItem('selectedStudentId');
         navigate('/');
     };
 
@@ -228,25 +252,21 @@ const ParentLayout = () => {
         return (first + last).toUpperCase() || 'PR';
     };
 
-    // Filter unviewed/unread notifications
     const unviewedNotifications = notifications.filter(
         n => Number(n.is_read) === 0 && n.is_read !== true && n.status !== 'read'
     );
 
-    // Handle clicking individual notification
     const handleNotificationClick = async (notif) => {
         setShowNotifDropdown(false);
 
-        // 1. Mark as read locally
         setNotifications(prev =>
             prev.map(item =>
                 item.notification_id === notif.notification_id ? { ...item, is_read: 1 } : item
             )
         );
 
-        // 2. Persist read status on server
         try {
-            await fetch(`https://localhost-cms.onrender.com/api/notifications/${notif.notification_id}/read`, {
+            await fetch(`${API_BASE_URL}/api/notifications/${notif.notification_id}/read`, {
                 method: 'PATCH'
             });
         } catch (err) {
@@ -256,7 +276,6 @@ const ParentLayout = () => {
         const notifType = notif.type ? notif.type.toLowerCase() : '';
         const notifMsg = notif.message ? notif.message.toLowerCase() : '';
 
-        // 3. Determine destination page vs modal
         if (notifType.includes('message') || notifMsg.includes('message')) {
             setIsMessageOpen(true);
         } else if (notifType.includes('clinic') || notifMsg.includes('clinic') || notifMsg.includes('medical')) {
@@ -268,20 +287,16 @@ const ParentLayout = () => {
         }
     };
 
-    const primaryStudentId = students[0]?.student_id || localStorage.getItem('selectedStudentId') || '';
+    const primaryStudentId = students[0]?.student_id || safeLocalStorage.getItem('selectedStudentId') || '';
 
     return (
         <div className="parent-layout">
-        
-            {/* Mobile Hamburger Button */}
             <button className="mobile-toggle-btn" onClick={toggleSidebar}>
                 ☰
             </button>
 
-            {/* Overlay for mobile when sidebar is open */}
             {isOpen && <div className="sidebar-overlay" onClick={closeSidebar}></div>}
 
-            {/* Sidebar Container */}
             <div className={`parent-sidebar ${isOpen ? 'open' : ''}`}>
                 <button className="close-sidebar-btn" onClick={closeSidebar} aria-label="Close Sidebar">
                     &times;
@@ -292,7 +307,6 @@ const ParentLayout = () => {
                     <p>Parent Portal</p>
                 </div>
 
-                {/* PROFILE INFO SECTION */}
                 <div className="sidebar-profile">
                     <div className="profile-avatar">
                         {getInitials()}
@@ -375,9 +389,7 @@ const ParentLayout = () => {
                 </nav>
             </div>
 
-            {/* MAIN CONTENT SECTION */}
             <div className="main-content">
-                {/* TOP BAR */}
                 <div className="parent-top-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div className="top-bar-info">
                         <span className="viewing-label">Linked Student(s):</span>
@@ -408,7 +420,6 @@ const ParentLayout = () => {
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                        {/* MESSAGE BUTTON */}
                         <button 
                             onClick={() => setIsMessageOpen(true)}
                             title="Messages"
@@ -448,7 +459,6 @@ const ParentLayout = () => {
                             )}
                         </button>
 
-                        {/* NOTIFICATION BELL BUTTON */}
                         <div style={{ position: 'relative' }}>
                             <button 
                                 onClick={() => setShowNotifDropdown(!showNotifDropdown)}
@@ -489,7 +499,6 @@ const ParentLayout = () => {
                                 )}
                             </button>
 
-                            {/* UNVIEWED NOTIFICATIONS DROPDOWN */}
                             {showNotifDropdown && (
                                 <div style={{
                                     position: 'absolute',
@@ -557,7 +566,6 @@ const ParentLayout = () => {
                     </div>
                 </div>
 
-                {/* Content Wrapper */}
                 <div className="page-content">
                     <Outlet context={{ 
                         parentId: parentData?.parent_id || '',
@@ -579,7 +587,6 @@ const ParentLayout = () => {
                 </div>
             </div>
 
-            {/* MESSENGER MODAL FOR PARENT */}
             {isMessageOpen && parentUserId && (
                 <ParentMessageModal 
                     userId={parentUserId}
@@ -593,7 +600,6 @@ const ParentLayout = () => {
                 />
             )}
 
-            {/* NOTIFICATION DETAIL MODAL */}
             {activeNotifModal && (
                 <div style={{
                     position: 'fixed',

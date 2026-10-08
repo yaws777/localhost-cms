@@ -9,6 +9,28 @@ import {
 import '../styles/nurse/NurseLayout.css';
 import { useWebPush } from '../hooks/useWebPush';
 
+// Base API URL with environment variable support for Netlify production
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://localhost-cms.onrender.com';
+
+// Safari Private Mode safe localStorage helper
+const safeLocalStorage = {
+    getItem: (key) => {
+        try {
+            return localStorage.getItem(key);
+        } catch (e) {
+            console.warn(`[Storage Warning] Unable to get ${key}:`, e);
+            return null;
+        }
+    },
+    removeItem: (key) => {
+        try {
+            localStorage.removeItem(key);
+        } catch (e) {
+            console.warn(`[Storage Warning] Unable to remove ${key}:`, e);
+        }
+    }
+};
+
 export const NurseLayout = () => {
     const navigate = useNavigate();
     const [isOpen, setIsOpen] = useState(false);
@@ -37,7 +59,7 @@ export const NurseLayout = () => {
     // Fetch unread messages count
     const fetchUnreadCount = async (userId) => {
         try {
-            const res = await fetch(`https://localhost-cms.onrender.com/api/messages/unread-count/${userId}`);
+            const res = await fetch(`${API_BASE_URL}/api/messages/unread-count/${userId}`);
             const data = await res.json();
             if (data.success) {
                 setUnreadContactsCount(data.unreadCount);
@@ -51,7 +73,7 @@ export const NurseLayout = () => {
     const fetchNotifications = async (nurseId) => {
         if (!nurseId) return;
         try {
-            const res = await fetch(`https://localhost-cms.onrender.com/api/notifications/nurse/${nurseId}`);
+            const res = await fetch(`${API_BASE_URL}/api/notifications/nurse/${nurseId}`);
             const data = await res.json();
             if (data.success) {
                 setNotifications(data.data || []);
@@ -64,7 +86,7 @@ export const NurseLayout = () => {
     useEffect(() => {
         const fetchNurseProfile = async (userId) => {
             try {
-                const response = await fetch(`https://localhost-cms.onrender.com/api/get-nurse/${userId}`);
+                const response = await fetch(`${API_BASE_URL}/api/get-nurse/${userId}`);
                 const data = await response.json();
 
                 if (data.success && data.nurse) {
@@ -83,10 +105,18 @@ export const NurseLayout = () => {
             }
         };
 
-        const storedUser = localStorage.getItem('user');
+        const storedUser = safeLocalStorage.getItem('user');
         
         if (storedUser) {
-            const user = JSON.parse(storedUser);
+            let user;
+            try {
+                user = JSON.parse(storedUser);
+            } catch (e) {
+                console.error("Invalid user JSON in localStorage:", e);
+                navigate('/');
+                return;
+            }
+
             const accurateUserId = user.user_id || user.id || user.UserID || user.userId;
 
             if (accurateUserId) {
@@ -130,7 +160,7 @@ export const NurseLayout = () => {
         if (type.includes('inventory') || type.includes('stock') || msg.includes('medicine stock')) {
             return '/MedicineInventory';
         }
-        if (type.includes('request') || type.includes('request') || msg.includes('request')){
+        if (type.includes('request') || msg.includes('request')){
             return '/DocumentIssuance';
         }
         if (type.includes('screening') || msg.includes('health screening')) {
@@ -166,7 +196,7 @@ export const NurseLayout = () => {
 
     const handleNotificationClick = async (notification) => {
         try {
-            await fetch(`https://localhost-cms.onrender.com/api/notifications/${notification.notification_id}/read`, {
+            await fetch(`${API_BASE_URL}/api/notifications/${notification.notification_id}/read`, {
                 method: 'PATCH'
             });
             setNotifications(prev => prev.filter(n => n.notification_id !== notification.notification_id));
@@ -177,7 +207,6 @@ export const NurseLayout = () => {
         setShowNotifDropdown(false);
         const targetRoute = getNotificationRoute(notification);
 
-        // Navigation state payload passed to child page inside Outlet
         navigate(targetRoute, { 
             state: { 
                 notificationId: notification.notification_id,
@@ -196,7 +225,7 @@ export const NurseLayout = () => {
     const closeSidebar = () => setIsOpen(false);
 
     const handleLogout = () => {
-        localStorage.removeItem('user');
+        safeLocalStorage.removeItem('user');
         navigate('/');
     };
 
