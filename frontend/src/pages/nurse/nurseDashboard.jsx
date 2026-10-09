@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useOutletContext } from 'react-router-dom';
 import {
   BarChart,
   Bar,
@@ -32,7 +32,12 @@ import {
   FileCheck,
   UserCheck,
   ShieldAlert,
-  Download
+  Download,
+  Megaphone,
+  Send,
+  Edit3,
+  Trash2,
+  Plus
 } from 'lucide-react';
 import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/NurseDashboard.css';
@@ -83,6 +88,17 @@ const getCurrentMonthString = () => {
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, '0');
   return `${year}-${month}`;
+};
+
+const formatDateTimeForInput = (d) => {
+  const date = new Date(d);
+  if (isNaN(date.getTime())) return '';
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
 };
 
 const getBrandNameOnly = (fullName) => {
@@ -151,6 +167,21 @@ const isScheduleUpcoming = (dateStr, timeStr) => {
 
   if (!scheduleDate || isNaN(scheduleDate.getTime())) return true;
   return scheduleDate > now;
+};
+
+// Helper function to calculate announcement active status dynamically
+const getAnnouncementStatusInfo = (startAt, expiresAt) => {
+  const now = new Date();
+  const start = new Date(startAt);
+  const expires = new Date(expiresAt);
+
+  if (now < start) {
+    return { label: 'UPCOMING', color: '#2563EB', bg: '#EFF6FF', border: '#BFDBFE' };
+  } else if (now >= start && now <= expires) {
+    return { label: 'ONGOING', color: '#059669', bg: '#D1FAE5', border: '#A7F3D0' };
+  } else {
+    return { label: 'EXPIRED', color: '#6B7280', bg: '#F3F4F6', border: '#E5E7EB' };
+  }
 };
 
 /* --- PDF REPORT GENERATOR HELPER --- */
@@ -442,6 +473,8 @@ const CustomXAxisTick = ({ x, y, payload, filterType, isCurrentYearSelected, cur
 /* --- MAIN DASHBOARD COMPONENT --- */
 const NurseDashboard = () => {
   const navigate = useNavigate();
+  // Get active nurseId and account userId from NurseLayout outlet context
+  const { nurseId, userId } = useOutletContext() || {};
 
   const maxCurrentMonth = getCurrentMonthString();
   const defaultNextMonth = getNextMonthString();
@@ -502,6 +535,26 @@ const NurseDashboard = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalSearch, setModalSearch] = useState('');
   const [modalDate, setModalDate] = useState('');
+
+  // 5. Announcement State (CRUD & Management)
+  const [isAnnouncementModalOpen, setIsAnnouncementModalOpen] = useState(false);
+  const [announcementsList, setAnnouncementsList] = useState([]);
+  const [isAnnouncementLoading, setIsAnnouncementLoading] = useState(false);
+  const [announcementModalTab, setAnnouncementModalTab] = useState('CREATE'); // 'CREATE' | 'EDIT' | 'LIST'
+  const [editingAnnouncementId, setEditingAnnouncementId] = useState(null);
+  const [programsList, setProgramsList] = useState([]);
+  const [announcementError, setAnnouncementError] = useState('');
+  const [isAnnouncementSubmitting, setIsAnnouncementSubmitting] = useState(false);
+  const [announcementForm, setAnnouncementForm] = useState({
+    title: '',
+    content: '',
+    target_audience: 'BOTH',
+    target_program_id: '',
+    target_year_level: '',
+    start_at: '',
+    expires_at: '',
+    notify_update: false
+  });
 
   // Frequent Visit Details State
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
@@ -871,6 +924,171 @@ const NurseDashboard = () => {
     }
   }, []);
 
+  // Fetch Announcements List (for Read, Edit, and Delete)
+  const fetchAnnouncements = useCallback(async () => {
+    setIsAnnouncementLoading(true);
+    try {
+      const res = await fetch('http://localhost:3001/api/announcements');
+      if (res.ok) {
+        const data = await res.json();
+        setAnnouncementsList(data.data || (Array.isArray(data) ? data : []));
+      }
+    } catch (err) {
+      console.error('Failed to fetch announcements:', err);
+    } finally {
+      setIsAnnouncementLoading(false);
+    }
+  }, []);
+
+  // Fetch Programs for Announcement Modal
+  const fetchPrograms = async () => {
+    try {
+      const res = await fetch('http://localhost:3001/api/programs');
+      if (res.ok) {
+        const data = await res.json();
+        setProgramsList(Array.isArray(data) ? data : data.data || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch programs:', err);
+    }
+  };
+
+  // Open Announcement Modal (Mode: 'CREATE', 'EDIT', 'LIST')
+  const handleOpenAnnouncementModal = (tab = 'CREATE', ann = null) => {
+    setAnnouncementError('');
+    setAnnouncementModalTab(tab);
+    fetchPrograms();
+    fetchAnnouncements();
+
+    if (tab === 'EDIT' && ann) {
+      setEditingAnnouncementId(ann.announcement_id || ann.id);
+      setAnnouncementForm({
+        title: ann.title || '',
+        content: ann.content || '',
+        target_audience: ann.target_audience || 'BOTH',
+        target_program_id: ann.target_program_id || '',
+        target_year_level: ann.target_year_level !== null && ann.target_year_level !== undefined ? String(ann.target_year_level) : '',
+        start_at: formatDateTimeForInput(ann.start_at),
+        expires_at: formatDateTimeForInput(ann.expires_at),
+        notify_update: false
+      });
+    } else if (tab === 'CREATE') {
+      const now = new Date();
+      const nextWeek = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+      setEditingAnnouncementId(null);
+      setAnnouncementForm({
+        title: '',
+        content: '',
+        target_audience: 'BOTH',
+        target_program_id: '',
+        target_year_level: '',
+        start_at: formatDateTimeForInput(now),
+        expires_at: formatDateTimeForInput(nextWeek),
+        notify_update: false
+      });
+    }
+    setIsAnnouncementModalOpen(true);
+  };
+
+  // Handle Create or Update Announcement Submit
+  const handleAnnouncementSubmit = async (e) => {
+    e.preventDefault();
+    setAnnouncementError('');
+
+    if (!announcementForm.title.trim() || !announcementForm.content.trim()) {
+      setAnnouncementError('Announcement title and details are required.');
+      return;
+    }
+
+    if (!announcementForm.start_at || !announcementForm.expires_at) {
+      setAnnouncementError('Please select both Start Date and Expiration Date.');
+      return;
+    }
+
+    if (new Date(announcementForm.start_at) >= new Date(announcementForm.expires_at)) {
+      setAnnouncementError('Expiration Date & Time must be set after the Start Date & Time.');
+      return;
+    }
+
+    setIsAnnouncementSubmitting(true);
+
+    try {
+      const isEditing = Boolean(editingAnnouncementId);
+      const url = isEditing
+        ? `http://localhost:3001/api/announcements/${editingAnnouncementId}`
+        : 'http://localhost:3001/api/announcements';
+      const method = isEditing ? 'PUT' : 'POST';
+
+      // Pass nurse_id for the announcements table and user_id for notifyUsers sender_id
+      const payload = {
+        nurse_id: nurseId || 'NURSE02000',
+        user_id: userId,
+        ...announcementForm
+      };
+
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        alert(isEditing ? 'Announcement updated successfully!' : 'Announcement created and published successfully!');
+        fetchAnnouncements();
+        fetchNurseDashboard();
+        setAnnouncementModalTab('LIST');
+      } else {
+        setAnnouncementError(result.message || 'Failed to save announcement.');
+      }
+    } catch (err) {
+      console.error('Error saving announcement:', err);
+      setAnnouncementError('Network error. Unable to reach server.');
+    } finally {
+      setIsAnnouncementSubmitting(false);
+    }
+  };
+
+  // Handle Delete / Cancel Announcement with Push Notification Prompt
+  const handleDeleteAnnouncement = async (announcementId, title) => {
+    if (!window.confirm(`Are you sure you want to delete "${title}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    // Ask nurse whether to trigger a push notification to target users regarding the cancellation
+    const notifyCancellation = window.confirm(
+      `Would you like to send a push notification to affected students/parents alerting them that "${title}" was cancelled?`
+    );
+
+    try {
+      const response = await fetch(`http://localhost:3001/api/announcements/${announcementId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          notify_cancellation: notifyCancellation
+        })
+      });
+      const result = await response.json();
+
+      if (result.success) {
+        alert(
+          notifyCancellation
+            ? 'Announcement deleted and cancellation push notification sent!'
+            : 'Announcement deleted successfully!'
+        );
+        fetchAnnouncements();
+        fetchNurseDashboard();
+      } else {
+        alert(result.message || 'Failed to delete announcement.');
+      }
+    } catch (err) {
+      console.error('Error deleting announcement:', err);
+      alert('Network error. Unable to delete announcement.');
+    }
+  };
+
   const handleDismissAlert = async (studentId, complaint) => {
     if (!window.confirm(`Are you sure you want to dismiss the alert for ${complaint}?`)) {
       return;
@@ -923,7 +1141,8 @@ const NurseDashboard = () => {
     fetchMedicineDispensed();
     fetchPredictiveDemand();
     fetchFrequentAlerts();
-  }, [fetchNurseDashboard, fetchHealthTrends, fetchMedicineDispensed, fetchPredictiveDemand, fetchFrequentAlerts]);
+    fetchAnnouncements();
+  }, [fetchNurseDashboard, fetchHealthTrends, fetchMedicineDispensed, fetchPredictiveDemand, fetchFrequentAlerts, fetchAnnouncements]);
 
   const activeComplaintsInGraph = complaintsList.filter(complaint => 
     trendData.some(dataPoint => (Number(dataPoint[complaint]) || 0) > 0)
@@ -1144,6 +1363,21 @@ const NurseDashboard = () => {
             <span className="quick-action-content-nd">
               <strong>Dispense Medicine with QR</strong>
               <span>Scan a student QR code to dispense medicine</span>
+            </span>
+            <ChevronRight size={18} className="quick-action-arrow-nd" />
+          </button>
+
+          <button
+            type="button"
+            className="quick-action-card-nd"
+            onClick={() => handleOpenAnnouncementModal('LIST')}
+          >
+            <span className="quick-action-icon-nd icon-blue-nd">
+              <Megaphone size={22} />
+            </span>
+            <span className="quick-action-content-nd">
+              <strong>Manage Announcements</strong>
+              <span>Create, update, delete, and send system & web push notices</span>
             </span>
             <ChevronRight size={18} className="quick-action-arrow-nd" />
           </button>
@@ -1799,6 +2033,341 @@ const NurseDashboard = () => {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* ANNOUNCEMENT CRUD MODAL */}
+      {isAnnouncementModalOpen && (
+        <div className="modal-overlay-nd" onClick={() => setIsAnnouncementModalOpen(false)}>
+          <div className="modal-container-nd modal-container-narrow-nd" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header-nd">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Megaphone size={20} color="#0250A3" />
+                <div>
+                  <h3 className="modal-title-nd">
+                    {announcementModalTab === 'EDIT' 
+                      ? 'Edit Announcement' 
+                      : announcementModalTab === 'LIST' 
+                      ? 'Active & Scheduled Announcements Directory' 
+                      : 'Post New Announcement'}
+                  </h3>
+                  <p className="modal-subtitle-nd">Broadcast and manage targeted campus health notices</p>
+                </div>
+              </div>
+              <button className="modal-close-btn-nd" onClick={() => setIsAnnouncementModalOpen(false)}>
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* TAB NAVIGATION HEADER */}
+            <div style={{ display: 'flex', gap: '8px', padding: '12px 20px 0 20px', borderBottom: '1px solid #E5E7EB' }}>
+              <button
+                type="button"
+                style={{
+                  padding: '8px 14px',
+                  fontSize: '12.5px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  backgroundColor: announcementModalTab === 'CREATE' ? '#0250A3' : '#F3F4F6',
+                  color: announcementModalTab === 'CREATE' ? '#FFF' : '#374151',
+                  border: 'none',
+                  borderRadius: '6px 6px 0 0'
+                }}
+                onClick={() => handleOpenAnnouncementModal('CREATE')}
+              >
+                <Plus size={14} style={{ display: 'inline', marginRight: '4px' }} /> Post New
+              </button>
+              <button
+                type="button"
+                style={{
+                  padding: '8px 14px',
+                  fontSize: '12.5px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  backgroundColor: announcementModalTab === 'LIST' ? '#0250A3' : '#F3F4F6',
+                  color: announcementModalTab === 'LIST' ? '#FFF' : '#374151',
+                  border: 'none',
+                  borderRadius: '6px 6px 0 0'
+                }}
+                onClick={() => {
+                  setAnnouncementModalTab('LIST');
+                  fetchAnnouncements();
+                }}
+              >
+                Manage Active Notices ({announcementsList.length})
+              </button>
+            </div>
+
+            <div className="modal-body-scroll-nd" style={{ padding: '20px' }}>
+              {/* LIST TAB: READ, EDIT, DELETE ACTIVE, UPCOMING & EXPIRED NOTICES */}
+              {announcementModalTab === 'LIST' ? (
+                <div>
+                  {isAnnouncementLoading ? (
+                    <div className="loading-container-nd" style={{ height: '180px' }}>
+                      <div className="spinner-nd"></div>
+                      <p className="loading-text-nd">Fetching announcements...</p>
+                    </div>
+                  ) : announcementsList.length === 0 ? (
+                    <div className="panel-empty-nd">No announcements recorded.</div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      {announcementsList.map((ann) => {
+                        const statusInfo = getAnnouncementStatusInfo(ann.start_at, ann.expires_at);
+
+                        return (
+                          <div 
+                            key={ann.announcement_id || ann.id} 
+                            style={{
+                              border: `1px solid ${statusInfo.border}`,
+                              borderRadius: '8px',
+                              padding: '14px',
+                              backgroundColor: '#FAFAFA'
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <h4 style={{ margin: 0, fontSize: '14px', fontWeight: '700', color: '#111827' }}>
+                                  {ann.title}
+                                </h4>
+                                <span style={{
+                                  fontSize: '11px',
+                                  fontWeight: '700',
+                                  color: statusInfo.color,
+                                  backgroundColor: statusInfo.bg,
+                                  border: `1px solid ${statusInfo.border}`,
+                                  padding: '2px 8px',
+                                  borderRadius: '12px'
+                                }}>
+                                  {statusInfo.label}
+                                </span>
+                              </div>
+                              <div style={{ display: 'flex', gap: '6px' }}>
+                                <button
+                                  type="button"
+                                  style={{
+                                    background: '#EFF6FF',
+                                    border: '1px solid #BFDBFE',
+                                    color: '#1D4ED8',
+                                    borderRadius: '4px',
+                                    padding: '4px 8px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    fontSize: '12px'
+                                  }}
+                                  onClick={() => handleOpenAnnouncementModal('EDIT', ann)}
+                                >
+                                  <Edit3 size={13} /> Edit / Update
+                                </button>
+                                <button
+                                  type="button"
+                                  style={{
+                                    background: '#FEE2E2',
+                                    border: '1px solid #FCA5A5',
+                                    color: '#991B1B',
+                                    borderRadius: '4px',
+                                    padding: '4px 8px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    fontSize: '12px'
+                                  }}
+                                  onClick={() => handleDeleteAnnouncement(ann.announcement_id || ann.id, ann.title)}
+                                >
+                                  <Trash2 size={13} /> Delete / Cancel
+                                </button>
+                              </div>
+                            </div>
+
+                            <p style={{ fontSize: '13px', color: '#4B5563', margin: '0 0 10px 0', lineHeight: '1.4' }}>
+                              {ann.content}
+                            </p>
+
+                            <div style={{ fontSize: '11px', color: '#6B7280', display: 'flex', flexWrap: 'wrap', gap: '14px' }}>
+                              <span><strong>Target Audience:</strong> {ann.target_audience}</span>
+                              <span><strong>Start Date:</strong> {formatDateTime(ann.start_at)}</span>
+                              <span><strong>Expiration Date:</strong> {formatDateTime(ann.expires_at)}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* FORM TAB: CREATE / EDIT */
+                <form onSubmit={handleAnnouncementSubmit}>
+                  {announcementError && (
+                    <div style={{ padding: '10px 14px', backgroundColor: '#FEE2E2', color: '#991B1B', borderRadius: '6px', marginBottom: '16px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <AlertCircle size={16} />
+                      <span>{announcementError}</span>
+                    </div>
+                  )}
+
+                  {/* Title */}
+                  <div style={{ marginBottom: '16px' }}>
+                    <label style={{ display: 'block', fontWeight: '600', fontSize: '13px', marginBottom: '6px', color: '#374151' }}>
+                      Announcement Title *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Annual Student Physical Health Examination 2026"
+                      value={announcementForm.title}
+                      onChange={(e) => setAnnouncementForm(prev => ({ ...prev, title: e.target.value }))}
+                      className="filter-input-nd"
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+
+                  {/* Content */}
+                  <div style={{ marginBottom: '16px' }}>
+                    <label style={{ display: 'block', fontWeight: '600', fontSize: '13px', marginBottom: '6px', color: '#374151' }}>
+                      Announcement Details / Content *
+                    </label>
+                    <textarea
+                      required
+                      rows={4}
+                      placeholder="Write full announcement details here..."
+                      value={announcementForm.content}
+                      onChange={(e) => setAnnouncementForm(prev => ({ ...prev, content: e.target.value }))}
+                      className="filter-input-nd"
+                      style={{ width: '100%', height: 'auto', padding: '8px 12px' }}
+                    />
+                  </div>
+
+                  {/* Target Audience */}
+                  <div style={{ marginBottom: '16px' }}>
+                    <label style={{ display: 'block', fontWeight: '600', fontSize: '13px', marginBottom: '6px', color: '#374151' }}>
+                      Target Audience *
+                    </label>
+                    <select
+                      value={announcementForm.target_audience}
+                      onChange={(e) => setAnnouncementForm(prev => ({ ...prev, target_audience: e.target.value }))}
+                      className="filter-input-nd filter-select-nd"
+                      style={{ width: '100%' }}
+                    >
+                      <option value="BOTH">Both Students & Parents</option>
+                      <option value="STUDENT">Students Only</option>
+                      <option value="PARENT">Parents Only</option>
+                    </select>
+                  </div>
+
+                  {/* Program & Year Level Filters */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontWeight: '600', fontSize: '13px', marginBottom: '6px', color: '#374151' }}>
+                        Target Program (Optional)
+                      </label>
+                      <select
+                        value={announcementForm.target_program_id}
+                        onChange={(e) => setAnnouncementForm(prev => ({ ...prev, target_program_id: e.target.value }))}
+                        className="filter-input-nd filter-select-nd"
+                        style={{ width: '100%' }}
+                      >
+                        <option value="">All Programs</option>
+                        {programsList.map((prog) => (
+                          <option key={prog.program_id || prog.id} value={prog.program_id || prog.id}>
+                            {prog.program_name || prog.code || prog.program_id}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontWeight: '600', fontSize: '13px', marginBottom: '6px', color: '#374151' }}>
+                        Target Year Level (Optional)
+                      </label>
+                      <select
+                        value={announcementForm.target_year_level}
+                        onChange={(e) => setAnnouncementForm(prev => ({ ...prev, target_year_level: e.target.value }))}
+                        className="filter-input-nd filter-select-nd"
+                        style={{ width: '100%' }}
+                      >
+                        <option value="">All Year Levels</option>
+                        <option value="1">1st Year</option>
+                        <option value="2">2nd Year</option>
+                        <option value="3">3rd Year</option>
+                        <option value="4">4th Year</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Start Date & End Date */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontWeight: '600', fontSize: '13px', marginBottom: '6px', color: '#374151' }}>
+                        Start Date & Time *
+                      </label>
+                      <input
+                        type="datetime-local"
+                        required
+                        value={announcementForm.start_at}
+                        onChange={(e) => setAnnouncementForm(prev => ({ ...prev, start_at: e.target.value }))}
+                        className="filter-input-nd date-picker-nd"
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontWeight: '600', fontSize: '13px', marginBottom: '6px', color: '#374151' }}>
+                        Expiration Date & Time *
+                      </label>
+                      <input
+                        type="datetime-local"
+                        required
+                        value={announcementForm.expires_at}
+                        onChange={(e) => setAnnouncementForm(prev => ({ ...prev, expires_at: e.target.value }))}
+                        className="filter-input-nd date-picker-nd"
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* System & Push Notification Flag on Edit */}
+                  {announcementModalTab === 'EDIT' && (
+                    <div style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <input
+                        type="checkbox"
+                        id="notify_update_check"
+                        checked={announcementForm.notify_update}
+                        onChange={(e) => setAnnouncementForm(prev => ({ ...prev, notify_update: e.target.checked }))}
+                      />
+                      <label htmlFor="notify_update_check" style={{ fontSize: '13px', color: '#374151', cursor: 'pointer' }}>
+                        Resend System & Web Push Notification to target recipients upon update
+                      </label>
+                    </div>
+                  )}
+
+                  <div className="modal-footer-nd" style={{ padding: '0', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                    <button
+                      type="button"
+                      className="modal-close-secondary-btn-nd"
+                      onClick={() => setIsAnnouncementModalOpen(false)}
+                      disabled={isAnnouncementSubmitting}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="export-btn-nd"
+                      style={{ backgroundColor: '#0250A3', color: '#FFF', border: 'none' }}
+                      disabled={isAnnouncementSubmitting}
+                    >
+                      <Send size={15} />{' '}
+                      {isAnnouncementSubmitting
+                        ? 'Saving...'
+                        : announcementModalTab === 'EDIT'
+                        ? 'Update Announcement'
+                        : 'Publish Announcement'}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>
         </div>
       )}
 

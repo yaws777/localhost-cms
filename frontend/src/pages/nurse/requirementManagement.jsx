@@ -30,7 +30,7 @@ export const RequirementManagement = () => {
     const [medReqError, setMedReqError] = useState('');
     const [editingMedReq, setEditingMedReq] = useState(null);
 
-    // Confirmation Modal State for CRUD
+    // Confirmation & Alert Modal State for CRUD
     const [confirmModal, setConfirmModal] = useState({
         isOpen: false,
         title: '',
@@ -38,7 +38,8 @@ export const RequirementManagement = () => {
         details: null,
         onConfirm: null,
         confirmText: 'Confirm',
-        type: 'primary' // 'primary' | 'danger'
+        type: 'primary', // 'primary' | 'danger' | 'warning' | 'error'
+        hideCancel: false
     });
 
     // Program Configuration States
@@ -79,7 +80,21 @@ export const RequirementManagement = () => {
             details,
             onConfirm,
             confirmText,
-            type
+            type,
+            hideCancel: false
+        });
+    };
+
+    const showAlertModal = (title, message, type = 'primary') => {
+        setConfirmModal({
+            isOpen: true,
+            title,
+            message,
+            details: null,
+            onConfirm: null,
+            confirmText: 'OK',
+            type,
+            hideCancel: true
         });
     };
 
@@ -154,13 +169,13 @@ export const RequirementManagement = () => {
             const data = await parseJsonResponse(res);
             
             if (!res.ok || !data) {
-                alert(`Server error (${res.status}): Failed to retrieve student requirements.`);
+                showAlertModal("Retrieve Error", data?.error || `Server error (${res.status}): Failed to retrieve student requirements. Account may be inactive.`, "error");
                 setStudentReqs([]);
                 return;
             }
 
             if (data.error) {
-                alert("Backend Database Error: " + data.error);
+                showAlertModal("Backend Database Error", data.error, "error");
                 setStudentReqs([]);
                 return;
             }
@@ -168,7 +183,7 @@ export const RequirementManagement = () => {
             setStudentReqs(Array.isArray(data) ? data : []);
         } catch (error) {
             console.error("Network connectivity issue:", error);
-            alert("Failed to connect to backend API service layer.");
+            showAlertModal("Network Error", "Failed to connect to backend API service layer.", "error");
         }
     }, []);
 
@@ -306,7 +321,7 @@ export const RequirementManagement = () => {
 
         const printWindow = window.open('', '_blank', 'width=950,height=750');
         if (!printWindow) {
-            alert('Please allow popups to preview and print the report.');
+            showAlertModal("Print Error", "Please allow popups to preview and print the report.", "warning");
             return;
         }
 
@@ -404,7 +419,7 @@ export const RequirementManagement = () => {
 
         const printWindow = window.open('', '_blank', 'width=950,height=750');
         if (!printWindow) {
-            alert('Please allow popups to preview and print the report.');
+            showAlertModal("Print Error", "Please allow popups to preview and print the report.", "warning");
             return;
         }
 
@@ -543,6 +558,7 @@ export const RequirementManagement = () => {
                     setNewMedReqName('');
                     setMedReqError('');
                     fetchMedicalRequirements();
+                    showAlertModal("Success", `Medical requirement "${trimmed}" added successfully.`, "primary");
                 } catch (error) {
                     console.error("Error adding medical requirement:", error);
                     setMedReqError("Network error adding medical requirement.");
@@ -556,7 +572,7 @@ export const RequirementManagement = () => {
     const handleUpdateMedicalRequirement = async (oldName, newName) => {
         const trimmed = newName.trim();
         if (!trimmed) {
-            alert("Requirement name cannot be empty.");
+            showAlertModal("Validation Error", "Requirement name cannot be empty.", "warning");
             return;
         }
 
@@ -565,7 +581,7 @@ export const RequirementManagement = () => {
                 req => req.requirement_name.toLowerCase() === trimmed.toLowerCase()
             );
             if (exists) {
-                alert(`Duplicate Error: Requirement "${trimmed}" already exists.`);
+                showAlertModal("Duplicate Error", `Requirement "${trimmed}" already exists.`, "error");
                 return;
             }
         }
@@ -583,7 +599,7 @@ export const RequirementManagement = () => {
 
                     const data = await parseJsonResponse(response);
                     if (!response.ok || !data || !data.success) {
-                        alert(data?.error || `Server Error (${response.status}): Failed to update requirement.`);
+                        showAlertModal("Update Error", data?.error || `Server Error (${response.status}): Failed to update requirement.`, "error");
                         return;
                     }
 
@@ -591,9 +607,10 @@ export const RequirementManagement = () => {
                     fetchMedicalRequirements();
                     fetchProgramConfigs();
                     fetchStudents();
+                    showAlertModal("Success", `Requirement renamed to "${trimmed}" successfully.`, "primary");
                 } catch (error) {
                     console.error("Error updating medical requirement:", error);
-                    alert("Network error updating requirement.");
+                    showAlertModal("Network Error", "Network error updating requirement.", "error");
                 }
             },
             "Save Changes",
@@ -608,7 +625,7 @@ export const RequirementManagement = () => {
             const data = await parseJsonResponse(response);
 
             if (!response.ok) {
-                alert(data?.error || `Server Error (${response.status}): Failed to delete requirement.`);
+                showAlertModal("Delete Error", data?.error || `Server Error (${response.status}): Failed to delete requirement.`, "error");
                 return;
             }
 
@@ -634,9 +651,10 @@ export const RequirementManagement = () => {
             fetchMedicalRequirements();
             fetchProgramConfigs();
             fetchStudents();
+            showAlertModal("Success", `Medical requirement "${reqName}" deleted successfully.`, "primary");
         } catch (error) {
             console.error("Error deleting medical requirement:", error);
-            alert("Network error deleting requirement.");
+            showAlertModal("Network Error", "Network error deleting requirement.", "error");
         }
     };
 
@@ -663,7 +681,7 @@ export const RequirementManagement = () => {
 
     const handleAddSpecialRequirement = async () => {
         if (!newReqInput.name || !newReqInput.deadline) {
-            alert("Requirement Name and Deadline are required.");
+            showAlertModal("Validation Error", "Requirement Name and Deadline are required.", "warning");
             return;
         }
 
@@ -687,7 +705,7 @@ export const RequirementManagement = () => {
                     const data = await parseJsonResponse(response);
                     
                     if (!response.ok || !data || !data.success) {
-                        alert(`Database Failure: ${data?.error || `Server returned HTTP status ${response.status}`}`);
+                        showAlertModal("Assignment Error", data?.error || `Server error (${response.status}): Failed to assign requirement. Student account may be inactive.`, "error");
                         return;
                     }
                     
@@ -697,9 +715,10 @@ export const RequirementManagement = () => {
                     fetchStudentFullRequirements(selectedStudent.student_id);
                     fetchStudents();
                     fetchMedicalRequirements();
+                    showAlertModal("Success", "Special requirement assigned and push notification delivered.", "primary");
                 } catch (error) {
                     console.error("Error adding special requirement:", error);
-                    alert("Network failure: Could not reach target API server gateway.");
+                    showAlertModal("Network Failure", "Could not reach target API server gateway.", "error");
                 }
             },
             "Assign Requirement",
@@ -709,7 +728,7 @@ export const RequirementManagement = () => {
 
     const handleUpdateRequirement = async (studentId, reqName, updatePayload) => {
         if (!studentId || studentId === 'undefined' || studentId === '') {
-            alert("Error: Cannot update. The app lost track of this student's reference ID.");
+            showAlertModal("Error", "Cannot update. The app lost track of this student's reference ID.", "error");
             return;
         }
 
@@ -731,15 +750,16 @@ export const RequirementManagement = () => {
 
                     const data = await parseJsonResponse(response);
                     if (!response.ok || !data || !data.success) {
-                        alert(`Failed to update: ${data?.error || `Server error ${response.status}`}`);
+                        showAlertModal("Update Failed", `Failed to update: ${data?.error || `Server error ${response.status}`}`, "error");
                     } else {
                         setEditingReq(null);
                         fetchStudentFullRequirements(studentId);
                         fetchStudents();
+                        showAlertModal("Success", "Requirement parameters updated successfully.", "primary");
                     }
                 } catch (error) {
                     console.error("Networking payload exception:", error);
-                    alert("Network error processing update request.");
+                    showAlertModal("Network Error", "Network error processing update request.", "error");
                 }
             },
             "Save",
@@ -760,8 +780,10 @@ export const RequirementManagement = () => {
                     });
                     fetchStudentFullRequirements(selectedStudent.student_id);
                     fetchStudents();
+                    showAlertModal("Success", "Special requirement removed successfully.", "primary");
                 } catch (error) {
                     console.error("Error deleting special requirement:", error);
+                    showAlertModal("Delete Error", "Failed to delete special requirement.", "error");
                 }
             },
             "Delete",
@@ -771,7 +793,7 @@ export const RequirementManagement = () => {
 
     const addProgramRequirement = async (programId, inputDataOverride = null) => {
         if (!programId || programId === 'undefined') {
-            alert("Error: Invalid or missing Program ID.");
+            showAlertModal("Error", "Invalid or missing Program ID.", "error");
             return;
         }
 
@@ -782,7 +804,7 @@ export const RequirementManagement = () => {
         const allowLate = targetInput.allowLate || false;
 
         if (!reqName || !reqName.trim() || !deadline) {
-            alert("Please select a Requirement Name and Target Deadline.");
+            showAlertModal("Validation Error", "Please select a Requirement Name and Target Deadline.", "warning");
             return;
         }
 
@@ -799,7 +821,7 @@ export const RequirementManagement = () => {
         });
 
         if (isDuplicateInProgram) {
-            alert(`Duplicate Error: Requirement "${trimmedReqName}" is already assigned to this program for ${yearLevel ? `Year Level ${yearLevel}` : 'all year levels'}.`);
+            showAlertModal("Duplicate Error", `Requirement "${trimmedReqName}" is already assigned to this program for ${yearLevel ? `Year Level ${yearLevel}` : 'all year levels'}.`, "error");
             return;
         }
 
@@ -824,7 +846,7 @@ export const RequirementManagement = () => {
 
                     if (!response.ok || !data) {
                         const errorMsg = data?.error || `Server error (${response.status}): ${response.statusText || 'Unable to process program requirement'}`;
-                        alert(errorMsg);
+                        showAlertModal("Configuration Error", errorMsg, "error");
                         return;
                     }
 
@@ -833,9 +855,10 @@ export const RequirementManagement = () => {
                     
                     await fetchProgramConfigs();
                     fetchMedicalRequirements();
+                    showAlertModal("Success", "Program requirement configured successfully.", "primary");
                 } catch (error) {
                     console.error("Error adding program requirement:", error);
-                    alert(`Network error processing request: ${error.message}`);
+                    showAlertModal("Network Error", `Network error processing request: ${error.message}`, "error");
                 }
             },
             "Add Config",
@@ -855,7 +878,7 @@ export const RequirementManagement = () => {
 
     const saveInlineRequirementUpdate = async (programId, configId) => {
         if (!inlineEditForm.requirement_name.trim() || !inlineEditForm.submission_deadline) {
-            alert("Requirement name and target deadline cannot be blank.");
+            showAlertModal("Validation Error", "Requirement name and target deadline cannot be blank.", "warning");
             return;
         }
 
@@ -882,12 +905,13 @@ export const RequirementManagement = () => {
                     if (response.ok) {
                         setInlineEditingConfigId(null);
                         await fetchProgramConfigs();
+                        showAlertModal("Success", "Program configuration updated.", "primary");
                     } else {
-                        alert(data?.error || `Failed to save changes (Server Status: ${response.status}).`);
+                        showAlertModal("Save Error", data?.error || `Failed to save changes (Server Status: ${response.status}).`, "error");
                     }
                 } catch (err) {
                     console.error("Failed saving adjustment changes:", err);
-                    alert("Network error processing request.");
+                    showAlertModal("Network Error", "Network error processing request.", "error");
                 }
             },
             "Save",
@@ -908,13 +932,14 @@ export const RequirementManagement = () => {
                     });
                     const data = await parseJsonResponse(response);
                     if (!response.ok) {
-                        alert(data?.error || `Failed to delete requirement (Server Status: ${response.status}).`);
+                        showAlertModal("Delete Error", data?.error || `Failed to delete requirement (Server Status: ${response.status}).`, "error");
                         return;
                     }
                     await fetchProgramConfigs();
+                    showAlertModal("Success", "Program requirement rule removed.", "primary");
                 } catch (error) {
                     console.error("Error deleting program requirement:", error);
-                    alert("Network error deleting requirement.");
+                    showAlertModal("Network Error", "Network error deleting requirement.", "error");
                 }
             },
             "Delete",
@@ -1133,7 +1158,7 @@ export const RequirementManagement = () => {
                             <Search className="search-icon-rm" size={18} />
                             <input 
                                 type="text" 
-                                placeholder="Search by student name, ID, section..." 
+                                placeholder="Search active students by name, ID, section..." 
                                 className="search-bar-rm" 
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -1329,7 +1354,7 @@ export const RequirementManagement = () => {
                                 ) : (
                                     <tr>
                                         <td colSpan="4" className="empty-table-cell-rm">
-                                            No student records matched the active search and filter criteria.
+                                            No active student records matched the active search and filter criteria.
                                         </td>
                                     </tr>
                                 )}
@@ -1457,7 +1482,7 @@ export const RequirementManagement = () => {
                 </div>
             )}
 
-            {/* MODAL: ASSIGN / ADD MEDICAL REQUIREMENT TO SPECIFIC COURSE (Only rendered when assignCourseModalProgram is set) */}
+            {/* MODAL: ASSIGN / ADD MEDICAL REQUIREMENT TO SPECIFIC COURSE */}
             {assignCourseModalProgram && (
                 <div className="modal-overlay-rm">
                     <div className="modal-content-rm medium-modal-rm">
@@ -1846,7 +1871,7 @@ export const RequirementManagement = () => {
                                     e.preventDefault();
                                     
                                     if (['Completed', 'Rejected'].includes(editingReq.status) && !editingReq.file_url) {
-                                        alert("Cannot mark requirement as Completed or Rejected without an uploaded document file.");
+                                        showAlertModal("Validation Error", "Cannot mark requirement as Completed or Rejected without an uploaded document file.", "warning");
                                         return;
                                     }
 
@@ -1924,13 +1949,13 @@ export const RequirementManagement = () => {
                 </div>
             )}
 
-            {/* CONFIRMATION MODAL FOR ALL CRUD OPERATIONS & CASCADE DELETE WARNINGS */}
+            {/* CONFIRMATION / ALERT MODAL FOR ALL OPERATIONS & CASCADE WARNINGS */}
             {confirmModal.isOpen && (
                 <div className="modal-overlay-rm confirm-overlay-rm">
                     <div className="modal-content-rm confirm-modal-rm">
                         <div className="modal-header-rm">
                             <div>
-                                <h3>{confirmModal.title || "Confirm Action"}</h3>
+                                <h3>{confirmModal.title || "Message"}</h3>
                             </div>
                             <button onClick={closeConfirmModal} className="btn-close-rm" title="Close">
                                 <X size={18} />
@@ -1966,11 +1991,13 @@ export const RequirementManagement = () => {
                                     }} 
                                     className={confirmModal.type === 'danger' ? "btn-confirm-danger-rm" : "btn-confirm-rm"}
                                 >
-                                    {confirmModal.confirmText || "Confirm"}
+                                    {confirmModal.confirmText || "OK"}
                                 </button>
-                                <button onClick={closeConfirmModal} className="btn-cancel-rm">
-                                    Cancel
-                                </button>
+                                {!confirmModal.hideCancel && (
+                                    <button onClick={closeConfirmModal} className="btn-cancel-rm">
+                                        Cancel
+                                    </button>
+                                )}
                             </div>
                         </div>
                     </div>

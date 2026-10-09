@@ -13,14 +13,15 @@ import {
   CheckCircle2, 
   XCircle,
   UserCheck,
-  User
+  User,
+  Megaphone
 } from 'lucide-react';
 import '../../styles/parent/ParentDashboard.css';
 
 const ParentDashboard = () => {
   const navigate = useNavigate();
   // Retrieve linked students passed down from ParentLayout outlet context
-  const { linkedStudents = [] } = useOutletContext() || {};
+  const { linkedStudents = [], parentId = '' } = useOutletContext() || {};
 
   // Combined Dashboard state hooks
   const [visitsData, setVisitsData] = useState({ clinic_visits: [], direct_dispensations: [] });
@@ -28,6 +29,7 @@ const ParentDashboard = () => {
   const [documentRequestsData, setDocumentRequestsData] = useState({ recent_updates: [] });
   const [screeningsData, setScreeningsData] = useState([]);
   const [appointmentsData, setAppointmentsData] = useState([]);
+  const [announcementsData, setAnnouncementsData] = useState([]);
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -51,20 +53,24 @@ const ParentDashboard = () => {
             section: student?.section || student?.target_section || ''
           }).toString();
 
-          const [visitsRes, reqsRes, docsRes, screeningsRes, apptsRes] = await Promise.all([
+          const [visitsRes, reqsRes, docsRes, screeningsRes, apptsRes, annRes] = await Promise.all([
             fetch(`http://localhost:3001/api/student/dashboard/visits-dispensation/${student.student_id}`),
             fetch(`http://localhost:3001/api/student/dashboard/requirements/${student.student_id}`),
             fetch(`http://localhost:3001/api/student/dashboard/document-requests/${student.student_id}`),
             fetch(`http://localhost:3001/api/student/dashboard/upcoming-health-screenings?${queryParams}`),
-            fetch(`http://localhost:3001/api/student/dashboard/doctor-appointments/${student.student_id}`)
+            fetch(`http://localhost:3001/api/student/dashboard/doctor-appointments/${student.student_id}`),
+            parentId
+              ? fetch(`http://localhost:3001/api/parent/dashboard/announcements/${parentId}`)
+              : fetch(`http://localhost:3001/api/student/dashboard/announcements/${student.student_id}`)
           ]);
 
-          const [visitsJson, reqsJson, docsJson, screeningsJson, apptsJson] = await Promise.all([
+          const [visitsJson, reqsJson, docsJson, screeningsJson, apptsJson, annJson] = await Promise.all([
             visitsRes.json(),
             reqsRes.json(),
             docsRes.json(),
             screeningsRes.json(),
-            apptsRes.json()
+            apptsRes.json(),
+            annRes.json()
           ]);
 
           const studentName = `${student.first_name || ''} ${student.last_name || ''}`.trim() || `Student #${student.student_id}`;
@@ -75,7 +81,8 @@ const ParentDashboard = () => {
             reqs: reqsJson.success ? reqsJson.data : { all_requirements: [], total_assigned: 0, total_incomplete: 0 },
             docs: docsJson.success ? docsJson.data : { recent_updates: [] },
             screenings: screeningsJson.success ? screeningsJson.data : [],
-            appts: apptsJson.success ? apptsJson.data : []
+            appts: apptsJson.success ? apptsJson.data : [],
+            announcements: annJson.success ? annJson.data : []
           };
         });
 
@@ -88,6 +95,7 @@ const ParentDashboard = () => {
         let combinedDocs = [];
         let combinedScreenings = [];
         let combinedAppts = [];
+        let combinedAnnouncementsMap = new Map();
 
         results.forEach((res) => {
           const name = res.studentName;
@@ -115,7 +123,17 @@ const ParentDashboard = () => {
           if (res.appts) {
             combinedAppts.push(...res.appts.map(a => ({ ...a, studentName: name })));
           }
+
+          if (res.announcements) {
+            res.announcements.forEach((ann) => {
+              if (!combinedAnnouncementsMap.has(ann.announcement_id)) {
+                combinedAnnouncementsMap.set(ann.announcement_id, { ...ann, studentName: name });
+              }
+            });
+          }
         });
+
+        const combinedAnnouncements = Array.from(combinedAnnouncementsMap.values());
 
         // Calculate strictly 'Pending' status count (excludes 'Not Submitted', 'Incomplete', etc.)
         const totalPending = combinedReqs.filter(
@@ -128,12 +146,14 @@ const ParentDashboard = () => {
         combinedDocs.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
         combinedAppts.sort((a, b) => new Date(a.start_time || 0) - new Date(b.start_time || 0));
         combinedScreenings.sort((a, b) => new Date(a.scheduled_date || 0) - new Date(b.scheduled_date || 0));
+        combinedAnnouncements.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
 
         setVisitsData({ clinic_visits: combinedVisits, direct_dispensations: combinedDirectDispenses });
         setRequirementsData({ all_requirements: combinedReqs, total_assigned: totalAssigned, total_incomplete: totalPending });
         setDocumentRequestsData({ recent_updates: combinedDocs });
         setScreeningsData(combinedScreenings);
         setAppointmentsData(combinedAppts);
+        setAnnouncementsData(combinedAnnouncements);
 
       } catch (err) {
         console.error("Error fetching combined dashboard data:", err);
@@ -144,7 +164,7 @@ const ParentDashboard = () => {
     };
 
     fetchAllStudentsData();
-  }, [linkedStudents]);
+  }, [linkedStudents, parentId]);
 
   // Navigation handlers
   const handleNavigateToClinic = () => navigate('/ChildClinicRecords');
@@ -223,7 +243,36 @@ const ParentDashboard = () => {
 
       <div className="pd-grid">
 
-        {/* 1. RECENT CLINIC VISITS & MEDICINE DISPENSATION */}
+        {/* 1. NURSE ANNOUNCEMENTS CARD */}
+        <section className="pd-card pd-card-large">
+          <div className="pd-card-header">
+            <div className="pd-card-title">
+              <Megaphone className="pd-header-icon pd-text-blue" size={18} />
+              <h2>Nurse Announcements</h2>
+            </div>
+          </div>
+
+          <div className="pd-card-body">
+            {announcementsData.length === 0 ? (
+              <p className="pd-empty-state">No active nurse announcements.</p>
+            ) : (
+              <ul className="pd-overview-list">
+                {announcementsData.slice(0, 3).map((ann, idx) => (
+                  <li key={ann.announcement_id || idx} className="pd-overview-item" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '4px' }}>
+                    <div className="pd-flex-gap" style={{ width: '100%', justifyContent: 'space-between' }}>
+                      <strong style={{ fontSize: '0.95rem', color: '#1e293b' }}>{ann.title}</strong>
+                      <span className="pd-visit-date">Nurse: {ann.nurse_name || 'Clinic Staff'}</span>
+                    </div>
+                    <p style={{ margin: '4px 0', fontSize: '0.85rem', color: '#475569' }}>{ann.content}</p>
+                    <span className="pd-dispense-time">Posted: {formatDateTime(ann.created_at)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </section>
+
+        {/* 2. RECENT CLINIC VISITS & MEDICINE DISPENSATION */}
         <section className="pd-card pd-card-large">
           <div className="pd-card-header">
             <div className="pd-card-title">
@@ -302,7 +351,7 @@ const ParentDashboard = () => {
           </div>
         </section>
 
-        {/* 2. OVERVIEW OF REQUIREMENTS STATUS */}
+        {/* 3. OVERVIEW OF REQUIREMENTS STATUS */}
         <section className="pd-card">
           <div className="pd-card-header">
             <div className="pd-card-title">
@@ -349,7 +398,7 @@ const ParentDashboard = () => {
           </div>
         </section>
 
-        {/* 3. DOCUMENT REQUEST UPDATES */}
+        {/* 4. DOCUMENT REQUEST UPDATES */}
         <section className="pd-card">
           <div className="pd-card-header">
             <div className="pd-card-title">
@@ -386,7 +435,7 @@ const ParentDashboard = () => {
           </div>
         </section>
 
-        {/* 4. UPCOMING HEALTH SCREENING */}
+        {/* 5. UPCOMING HEALTH SCREENING */}
         <section className="pd-card">
           <div className="pd-card-header">
             <div className="pd-card-title">
@@ -433,7 +482,7 @@ const ParentDashboard = () => {
           </div>
         </section>
 
-        {/* 5. UPCOMING DOCTOR VISIT SCHEDULE */}
+        {/* 6. UPCOMING DOCTOR VISIT SCHEDULE */}
         <section className="pd-card">
           <div className="pd-card-header">
             <div className="pd-card-title">

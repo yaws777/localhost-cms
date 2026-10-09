@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Calendar, Clock, Plus, Users, Eye, Activity, Smile, 
-  X, CheckCircle, Edit3, Trash2, FileText, ArrowLeft, ArrowRight, QrCode, AlertCircle, Megaphone, Printer
+  X, CheckCircle, Edit3, Trash2, FileText, ArrowLeft, ArrowRight, QrCode, AlertCircle, Megaphone, Printer, Filter
 } from 'lucide-react';
 import jsQR from 'jsqr';
 
@@ -45,6 +45,11 @@ export default function HealthScreening() {
   const [schedules, setSchedules] = useState([]);
   const [programs, setPrograms] = useState([]);
 
+  // Filtering States
+  const [filterType, setFilterType] = useState('ALL');
+  const [filterStartDate, setFilterStartDate] = useState('');
+  const [filterEndDate, setFilterEndDate] = useState('');
+
   // Modal States
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [showStudentSelectModal, setShowStudentSelectModal] = useState(false);
@@ -52,6 +57,17 @@ export default function HealthScreening() {
   const [showViewModal, setShowViewModal] = useState(false);
   const [showDocModal, setShowDocModal] = useState(false);
   const [showQrModal, setShowQrModal] = useState(false);
+
+  // Custom Notification & Confirmation Modal State
+  const [alertModal, setAlertModal] = useState({
+    show: false,
+    title: '',
+    message: '',
+    type: 'info', // 'info', 'success', 'warning', 'error', 'confirm'
+    onConfirm: null,
+    confirmText: 'Confirm',
+    cancelText: 'Cancel'
+  });
 
   // Form States
   const [scheduleForm, setScheduleForm] = useState({
@@ -92,10 +108,64 @@ export default function HealthScreening() {
     return new Date(`${cleanDate}T${timeStr}`);
   };
 
+  // Helper Modal Trigger Functions
+  const showAlert = (message, title = 'Notice', type = 'info') => {
+    setAlertModal({
+      show: true,
+      title,
+      message,
+      type,
+      onConfirm: null,
+      confirmText: 'OK',
+      cancelText: 'Cancel'
+    });
+  };
+
+  const showConfirm = (message, onConfirm, title = 'Confirmation Required', confirmText = 'Confirm', cancelText = 'Cancel') => {
+    setAlertModal({
+      show: true,
+      title,
+      message,
+      type: 'confirm',
+      onConfirm,
+      confirmText,
+      cancelText
+    });
+  };
+
+  const closeAlertModal = () => {
+    setAlertModal(prev => ({ ...prev, show: false, onConfirm: null }));
+  };
+
   useEffect(() => {
     fetchSchedules();
     fetchPrograms();
   }, []);
+
+  // Handle Date Filter Changes with Validation
+  const handleStartDateChange = (e) => {
+    const val = e.target.value;
+    if (filterEndDate && val > filterEndDate) {
+      showAlert('Start date cannot be after End date.', 'Invalid Date Range', 'warning');
+      return;
+    }
+    setFilterStartDate(val);
+  };
+
+  const handleEndDateChange = (e) => {
+    const val = e.target.value;
+    if (filterStartDate && val < filterStartDate) {
+      showAlert('End date cannot be before Start date.', 'Invalid Date Range', 'warning');
+      return;
+    }
+    setFilterEndDate(val);
+  };
+
+  const handleResetFilters = () => {
+    setFilterType('ALL');
+    setFilterStartDate('');
+    setFilterEndDate('');
+  };
 
   // EXPORT REPORT FOR ALL HEALTH SCREENINGS
   const handleExportAllReport = () => {
@@ -103,7 +173,7 @@ export default function HealthScreening() {
 
     const printWindow = window.open('', '_blank', 'width=950,height=750');
     if (!printWindow) {
-      alert('Please allow popups to preview and print the report.');
+      showAlert('Please allow popups in your browser to preview and print the report.', 'Popup Blocked', 'warning');
       return;
     }
 
@@ -116,6 +186,8 @@ export default function HealthScreening() {
     const tableRowsHtml = rowsToExport.map(sch => {
       const dateStr = sch.scheduled_date ? sch.scheduled_date.split('T')[0] : 'N/A';
       const timeStr = `${sch.start_time || ''} - ${sch.end_time || ''}`;
+      const presentCount = sch.present_count ?? sch.present_students ?? 0;
+      const totalCount = sch.total_students || 0;
 
       return `
         <tr>
@@ -123,7 +195,7 @@ export default function HealthScreening() {
           <td>${sch.screening_type || 'N/A'}</td>
           <td>${dateStr}</td>
           <td>${timeStr}</td>
-          <td>${sch.total_students || 0}</td>
+          <td>${presentCount} / ${totalCount} Present</td>
         </tr>
       `;
     }).join('');
@@ -134,81 +206,21 @@ export default function HealthScreening() {
       <head>
         <title>Health Screening Report</title>
         <style>
-          body {
-            font-family: Arial, Helvetica, sans-serif;
-            margin: 25px;
-            color: #0f172a;
-          }
-          .report-header {
-            display: flex;
-            align-items: center;
-            border-bottom: 2px solid #0056b3;
-            padding-bottom: 12px;
-            margin-bottom: 16px;
-          }
-          .report-header img {
-            height: 60px;
-            margin-right: 20px;
-          }
-          .report-title h2 {
-            margin: 0;
-            font-size: 20px;
-            color: #1e3a8a;
-          }
-          .report-title p {
-            margin: 4px 0 0;
-            font-size: 13px;
-            color: #475569;
-          }
-          .meta-info {
-            display: flex;
-            justify-content: space-between;
-            font-size: 13px;
-            color: #475569;
-            margin-bottom: 16px;
-            font-weight: 500;
-          }
-          table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 12px;
-            margin-bottom: 35px;
-          }
-          th {
-            background-color: #f1f5f9;
-            color: #0f172a;
-            text-align: left;
-            padding: 9px 10px;
-            border: 1px solid #cbd5e1;
-            font-weight: bold;
-          }
-          td {
-            padding: 8px 10px;
-            border: 1px solid #e2e8f0;
-          }
-          tr:nth-child(even) {
-            background-color: #f8fafc;
-          }
-          .signature-section {
-            margin-top: 40px;
-            font-size: 13px;
-          }
-          .signature-title {
-            color: #475569;
-            margin-bottom: 35px;
-          }
-          .signature-name {
-            font-weight: bold;
-            font-size: 14px;
-            color: #0f172a;
-          }
-          .signature-role {
-            font-style: italic;
-            color: #64748b;
-          }
-          @media print {
-            body { margin: 0; }
-          }
+          body { font-family: Arial, Helvetica, sans-serif; margin: 25px; color: #0f172a; }
+          .report-header { display: flex; align-items: center; border-bottom: 2px solid #0056b3; padding-bottom: 12px; margin-bottom: 16px; }
+          .report-header img { height: 60px; margin-right: 20px; }
+          .report-title h2 { margin: 0; font-size: 20px; color: #1e3a8a; }
+          .report-title p { margin: 4px 0 0; font-size: 13px; color: #475569; }
+          .meta-info { display: flex; justify-content: space-between; font-size: 13px; color: #475569; margin-bottom: 16px; font-weight: 500; }
+          table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 35px; }
+          th { background-color: #f1f5f9; color: #0f172a; text-align: left; padding: 9px 10px; border: 1px solid #cbd5e1; font-weight: bold; }
+          td { padding: 8px 10px; border: 1px solid #e2e8f0; }
+          tr:nth-child(even) { background-color: #f8fafc; }
+          .signature-section { margin-top: 40px; font-size: 13px; }
+          .signature-title { color: #475569; margin-bottom: 35px; }
+          .signature-name { font-weight: bold; font-size: 14px; color: #0f172a; }
+          .signature-role { font-style: italic; color: #64748b; }
+          @media print { body { margin: 0; } }
         </style>
       </head>
       <body>
@@ -232,7 +244,7 @@ export default function HealthScreening() {
               <th>Type</th>
               <th>Date</th>
               <th>Time</th>
-              <th>Assigned Students</th>
+              <th>Attendance (Present / Total)</th>
             </tr>
           </thead>
           <tbody>
@@ -247,9 +259,7 @@ export default function HealthScreening() {
         </div>
 
         <script>
-          window.onload = function() {
-            window.print();
-          };
+          window.onload = function() { window.print(); };
         </script>
       </body>
       </html>
@@ -266,7 +276,7 @@ export default function HealthScreening() {
 
     const printWindow = window.open('', '_blank', 'width=950,height=750');
     if (!printWindow) {
-      alert('Please allow popups to preview and print the report.');
+      showAlert('Please allow popups in your browser to preview and print the report.', 'Popup Blocked', 'warning');
       return;
     }
 
@@ -279,6 +289,7 @@ export default function HealthScreening() {
     const dateStr = activeSchedule.scheduled_date ? activeSchedule.scheduled_date.split('T')[0] : 'N/A';
     const timeStr = `${activeSchedule.start_time || ''} - ${activeSchedule.end_time || ''}`;
 
+    let presentCount = 0;
     const tableRowsHtml = scheduleStudents.map(st => {
       const studentName = `${st.first_name || ''} ${st.last_name || ''}`.trim();
       const progYrSec = `${st.program_name || ''} (Yr ${st.year_level || ''} - ${st.section || ''})`;
@@ -289,6 +300,10 @@ export default function HealthScreening() {
       let effectiveAttendanceStatus = st.attendance_status || 'PENDING';
       if (isScheduleEnded && effectiveAttendanceStatus === 'PENDING') {
         effectiveAttendanceStatus = 'ABSENT';
+      }
+
+      if (effectiveAttendanceStatus === 'PRESENT') {
+        presentCount++;
       }
 
       const isDocumented = st.bmi_log_id || st.dental_record_id || st.vision_record_id;
@@ -311,92 +326,22 @@ export default function HealthScreening() {
       <head>
         <title>Health Screening Participant Report</title>
         <style>
-          body {
-            font-family: Arial, Helvetica, sans-serif;
-            margin: 25px;
-            color: #0f172a;
-          }
-          .report-header {
-            display: flex;
-            align-items: center;
-            border-bottom: 2px solid #0056b3;
-            padding-bottom: 12px;
-            margin-bottom: 16px;
-          }
-          .report-header img {
-            height: 60px;
-            margin-right: 20px;
-          }
-          .report-title h2 {
-            margin: 0;
-            font-size: 20px;
-            color: #1e3a8a;
-          }
-          .report-title p {
-            margin: 4px 0 0;
-            font-size: 13px;
-            color: #475569;
-          }
-          .meta-info {
-            display: flex;
-            justify-content: space-between;
-            font-size: 13px;
-            color: #475569;
-            margin-bottom: 16px;
-            font-weight: 500;
-          }
-          .details-card {
-            background-color: #f8fafc;
-            border: 1px solid #cbd5e1;
-            padding: 12px 16px;
-            border-radius: 6px;
-            margin-bottom: 20px;
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-            font-size: 13px;
-          }
-          table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 12px;
-            margin-bottom: 35px;
-          }
-          th {
-            background-color: #f1f5f9;
-            color: #0f172a;
-            text-align: left;
-            padding: 9px 10px;
-            border: 1px solid #cbd5e1;
-            font-weight: bold;
-          }
-          td {
-            padding: 8px 10px;
-            border: 1px solid #e2e8f0;
-          }
-          tr:nth-child(even) {
-            background-color: #f8fafc;
-          }
-          .signature-section {
-            margin-top: 40px;
-            font-size: 13px;
-          }
-          .signature-title {
-            color: #475569;
-            margin-bottom: 35px;
-          }
-          .signature-name {
-            font-weight: bold;
-            font-size: 14px;
-            color: #0f172a;
-          }
-          .signature-role {
-            font-style: italic;
-            color: #64748b;
-          }
-          @media print {
-            body { margin: 0; }
-          }
+          body { font-family: Arial, Helvetica, sans-serif; margin: 25px; color: #0f172a; }
+          .report-header { display: flex; align-items: center; border-bottom: 2px solid #0056b3; padding-bottom: 12px; margin-bottom: 16px; }
+          .report-header img { height: 60px; margin-right: 20px; }
+          .report-title h2 { margin: 0; font-size: 20px; color: #1e3a8a; }
+          .report-title p { margin: 4px 0 0; font-size: 13px; color: #475569; }
+          .meta-info { display: flex; justify-content: space-between; font-size: 13px; color: #475569; margin-bottom: 16px; font-weight: 500; }
+          .details-card { background-color: #f8fafc; border: 1px solid #cbd5e1; padding: 12px 16px; border-radius: 6px; margin-bottom: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 13px; }
+          table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 35px; }
+          th { background-color: #f1f5f9; color: #0f172a; text-align: left; padding: 9px 10px; border: 1px solid #cbd5e1; font-weight: bold; }
+          td { padding: 8px 10px; border: 1px solid #e2e8f0; }
+          tr:nth-child(even) { background-color: #f8fafc; }
+          .signature-section { margin-top: 40px; font-size: 13px; }
+          .signature-title { color: #475569; margin-bottom: 35px; }
+          .signature-name { font-weight: bold; font-size: 14px; color: #0f172a; }
+          .signature-role { font-style: italic; color: #64748b; }
+          @media print { body { margin: 0; } }
         </style>
       </head>
       <body>
@@ -418,6 +363,7 @@ export default function HealthScreening() {
           <div><strong>Screening Type:</strong> ${activeSchedule.screening_type || 'N/A'}</div>
           <div><strong>Scheduled Date:</strong> ${dateStr}</div>
           <div><strong>Time:</strong> ${timeStr}</div>
+          <div><strong>Attendance Rate:</strong> ${presentCount} / ${scheduleStudents.length} Present</div>
         </div>
 
         <table>
@@ -442,9 +388,7 @@ export default function HealthScreening() {
         </div>
 
         <script>
-          window.onload = function() {
-            window.print();
-          };
+          window.onload = function() { window.print(); };
         </script>
       </body>
       </html>
@@ -597,17 +541,17 @@ export default function HealthScreening() {
     e.preventDefault();
 
     if (scheduleForm.scheduled_date < getTodayString()) {
-      alert('Scheduled date cannot be in the past.');
+      showAlert('Scheduled date cannot be in the past.', 'Invalid Date', 'warning');
       return;
     }
 
     if (scheduleForm.scheduled_date === getTodayString() && scheduleForm.start_time < getCurrentTimeString()) {
-      alert('Start time cannot be in the past for today.');
+      showAlert('Start time cannot be in the past for today.', 'Invalid Time', 'warning');
       return;
     }
 
     if (scheduleForm.end_time <= scheduleForm.start_time) {
-      alert('End time must be after start time.');
+      showAlert('End time must be after start time.', 'Invalid Time Range', 'warning');
       return;
     }
 
@@ -636,7 +580,7 @@ export default function HealthScreening() {
   const handleCreateSchedule = async (e) => {
     e.preventDefault();
     if (selectedStudentIds.length === 0) {
-      alert('Screening cannot be created without at least one target student selected.');
+      showAlert('Screening cannot be created without at least one target student selected.', 'Selection Required', 'warning');
       return;
     }
 
@@ -652,11 +596,13 @@ export default function HealthScreening() {
         setShowStudentSelectModal(false);
         resetScheduleForm();
         fetchSchedules();
+        showAlert('Health screening schedule created and students notified successfully!', 'Success', 'success');
       } else {
-        alert(data.error || 'Failed to create screening schedule.');
+        showAlert(data.error || 'Failed to create screening schedule.', 'Error', 'error');
       }
     } catch (err) {
       console.error('Error creating schedule:', err);
+      showAlert('Failed to create screening schedule.', 'Error', 'error');
     }
   };
 
@@ -665,17 +611,17 @@ export default function HealthScreening() {
 
     const cleanDate = editingSchedule.scheduled_date ? editingSchedule.scheduled_date.split('T')[0] : '';
     if (cleanDate < getTodayString()) {
-      alert('Scheduled date cannot be in the past.');
+      showAlert('Scheduled date cannot be in the past.', 'Invalid Date', 'warning');
       return;
     }
 
     if (cleanDate === getTodayString() && editingSchedule.start_time < getCurrentTimeString()) {
-      alert('Start time cannot be in the past for today.');
+      showAlert('Start time cannot be in the past for today.', 'Invalid Time', 'warning');
       return;
     }
 
     if (editingSchedule.end_time <= editingSchedule.start_time) {
-      alert('End time must be after start time.');
+      showAlert('End time must be after start time.', 'Invalid Time Range', 'warning');
       return;
     }
 
@@ -688,21 +634,39 @@ export default function HealthScreening() {
       if (res.ok) {
         setShowEditModal(false);
         fetchSchedules();
+        showAlert('Screening schedule updated successfully!', 'Success', 'success');
+      } else {
+        const data = await res.json();
+        showAlert(data.error || 'Failed to update schedule.', 'Error', 'error');
       }
     } catch (err) {
       console.error('Error updating schedule:', err);
+      showAlert('Failed to update schedule.', 'Error', 'error');
     }
   };
 
-  const handleCancelSchedule = async (id) => {
-    if (window.confirm('Are you sure you want to cancel this screening? Students will be notified.')) {
-      try {
-        const res = await fetch(`${API_BASE}/screenings/${id}`, { method: 'DELETE' });
-        if (res.ok) fetchSchedules();
-      } catch (err) {
-        console.error('Error cancelling schedule:', err);
-      }
-    }
+  const handleCancelSchedule = (id) => {
+    showConfirm(
+      'Are you sure you want to cancel this screening? Students will be notified.',
+      async () => {
+        try {
+          const res = await fetch(`${API_BASE}/screenings/${id}`, { method: 'DELETE' });
+          if (res.ok) {
+            fetchSchedules();
+            showAlert('Screening schedule cancelled successfully.', 'Cancelled', 'success');
+          } else {
+            const data = await res.json();
+            showAlert(data.error || 'Failed to cancel screening.', 'Error', 'error');
+          }
+        } catch (err) {
+          console.error('Error cancelling schedule:', err);
+          showAlert('Failed to cancel screening schedule.', 'Error', 'error');
+        }
+      },
+      'Cancel Screening Schedule',
+      'Yes, Cancel',
+      'Keep Screening'
+    );
   };
 
   const openViewModal = async (schedule) => {
@@ -726,7 +690,7 @@ export default function HealthScreening() {
 
   const openDocumentModal = (student) => {
     if (student.attendance_status !== 'PRESENT') {
-      alert('Student must be marked as PRESENT in order to document screening results.');
+      showAlert('Student must be marked as PRESENT in order to document screening results.', 'Action Required', 'warning');
       return;
     }
 
@@ -771,11 +735,13 @@ export default function HealthScreening() {
       if (res.ok) {
         setShowDocModal(false);
         openViewModal(activeSchedule);
+        showAlert('Screening result saved successfully!', 'Success', 'success');
       } else {
-        alert(data.error || 'Failed to save document.');
+        showAlert(data.error || 'Failed to save document.', 'Error', 'error');
       }
     } catch (err) {
       console.error('Error submitting document:', err);
+      showAlert('Error saving document.', 'Error', 'error');
     }
   };
 
@@ -799,9 +765,22 @@ export default function HealthScreening() {
     const isOngoing = now >= startDt && now <= endDt;
     const isUpcoming = now < startDt;
 
-    if (activeTab === 'upcoming') return isUpcoming;
-    if (activeTab === 'ongoing') return isOngoing;
-    if (activeTab === 'past') return isPast;
+    // Filter by Tab
+    if (activeTab === 'upcoming' && !isUpcoming) return false;
+    if (activeTab === 'ongoing' && !isOngoing) return false;
+    if (activeTab === 'past' && !isPast) return false;
+
+    // Filters are strictly evaluated ONLY for the Past Screenings tab
+    if (activeTab === 'past') {
+      // Filter by Screening Type
+      if (filterType !== 'ALL' && s.screening_type !== filterType) return false;
+
+      // Filter by Date Range (Start Date & End Date)
+      const cleanDate = s.scheduled_date ? s.scheduled_date.split('T')[0] : '';
+      if (filterStartDate && cleanDate < filterStartDate) return false;
+      if (filterEndDate && cleanDate > filterEndDate) return false;
+    }
+
     return true;
   });
 
@@ -853,69 +832,145 @@ export default function HealthScreening() {
         </button>
       </div>
 
+      {/* Filters Toolbar - Only appears on Past Screenings tab */}
+      {activeTab === 'past' && (
+        <div className="filter-bar-hs" style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '15px',
+          alignItems: 'center',
+          padding: '12px 16px',
+          backgroundColor: '#f8fafc',
+          borderRadius: '8px',
+          border: '1px solid #e2e8f0',
+          marginBottom: '20px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Filter size={16} color="#64748b" />
+            <label style={{ fontSize: '13px', fontWeight: '600', color: '#475569' }}>
+              Screening Type:
+            </label>
+            <select
+              value={filterType}
+              onChange={e => setFilterType(e.target.value)}
+              style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}
+            >
+              <option value="ALL">All Types</option>
+              <option value="BMI">BMI Monitoring</option>
+              <option value="Dental">Dental Assessment</option>
+              <option value="Vision">Vision Screening</option>
+            </select>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <label style={{ fontSize: '13px', fontWeight: '600', color: '#475569' }}>
+              Start Date:
+            </label>
+            <input
+              type="date"
+              value={filterStartDate}
+              max={filterEndDate || undefined}
+              onChange={handleStartDateChange}
+              style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}
+            />
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <label style={{ fontSize: '13px', fontWeight: '600', color: '#475569' }}>
+              End Date:
+            </label>
+            <input
+              type="date"
+              value={filterEndDate}
+              min={filterStartDate || undefined}
+              onChange={handleEndDateChange}
+              style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}
+            />
+          </div>
+
+          {(filterType !== 'ALL' || filterStartDate || filterEndDate) && (
+            <button
+              type="button"
+              onClick={handleResetFilters}
+              className="btn-hs btn-secondary-hs"
+              style={{ padding: '6px 12px', fontSize: '13px', marginLeft: 'auto' }}
+            >
+              Reset Filters
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Card Grid */}
       <div className="card-grid-hs">
         {filteredSchedules.length === 0 ? (
           <div className="no-records-hs">
-            <p>No screening schedules found for this status.</p>
+            <p>No screening schedules found for this status or date range.</p>
           </div>
         ) : (
-          filteredSchedules.map(sch => (
-            <div key={sch.screening_schedule_id} className="card-hs">
-              <div className="card-badge-hs">
-                {sch.screening_type === 'BMI' && <Activity size={14} />}
-                {sch.screening_type === 'Dental' && <Smile size={14} />}
-                {sch.screening_type === 'Vision' && <Eye size={14} />}
-                {sch.screening_type}
-              </div>
-              <h3 className="card-title-hs">{sch.title}</h3>
-              <p className="card-info-hs"><Calendar size={14} /> {sch.scheduled_date ? sch.scheduled_date.split('T')[0] : ''}</p>
-              <p className="card-info-hs"><Clock size={14} /> {sch.start_time} - {sch.end_time}</p>
-              <p className="card-info-hs"><Users size={14} /> {sch.total_students || 0} Students Assigned</p>
-              {sch.announcement && (
-                <p className="card-info-hs announcement-preview-hs">
-                  <Megaphone size={14} /> {sch.announcement}
-                </p>
-              )}
-              
-              <div className="card-actions-hs">
-                {activeTab === 'upcoming' && (
-                  <>
-                    <button 
-                      type="button"
-                      className="btn-hs btn-icon-hs btn-secondary-hs" 
-                      onClick={() => { setEditingSchedule(sch); setShowEditModal(true); }}
-                      title="Edit Schedule"
-                      aria-label="Edit Schedule"
-                    >
-                      <Edit3 size={16} />
-                    </button>
-                    <button 
-                      type="button"
-                      className="btn-hs btn-icon-hs btn-danger-hs" 
-                      onClick={() => handleCancelSchedule(sch.screening_schedule_id)}
-                      title="Cancel Schedule"
-                      aria-label="Cancel Schedule"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </>
-                )}
+          filteredSchedules.map(sch => {
+            const presentCount = sch.present_count ?? sch.present_students ?? 0;
+            const totalCount = sch.total_students || 0;
 
-                {(activeTab === 'ongoing' || activeTab === 'past') && (
-                  <button 
-                    type="button"
-                    className="btn-hs btn-icon-hs btn-primary-hs" 
-                    onClick={() => openViewModal(sch)}
-                    title="View & Document Screening"
-                    aria-label="View & Document Screening"
-                  >
-                    <FileText size={16} />
-                  </button>
+            return (
+              <div key={sch.screening_schedule_id} className="card-hs">
+                <div className="card-badge-hs">
+                  {sch.screening_type === 'BMI' && <Activity size={14} />}
+                  {sch.screening_type === 'Dental' && <Smile size={14} />}
+                  {sch.screening_type === 'Vision' && <Eye size={14} />}
+                  {sch.screening_type}
+                </div>
+                <h3 className="card-title-hs">{sch.title}</h3>
+                <p className="card-info-hs"><Calendar size={14} /> {sch.scheduled_date ? sch.scheduled_date.split('T')[0] : ''}</p>
+                <p className="card-info-hs"><Clock size={14} /> {sch.start_time} - {sch.end_time}</p>
+                <p className="card-info-hs">
+                  <Users size={14} /> <strong>{presentCount} / {totalCount}</strong> Present
+                </p>
+                {sch.announcement && (
+                  <p className="card-info-hs announcement-preview-hs">
+                    <Megaphone size={14} /> {sch.announcement}
+                  </p>
                 )}
+                
+                <div className="card-actions-hs">
+                  {activeTab === 'upcoming' && (
+                    <>
+                      <button 
+                        type="button"
+                        className="btn-hs btn-icon-hs btn-secondary-hs" 
+                        onClick={() => { setEditingSchedule(sch); setShowEditModal(true); }}
+                        title="Edit Schedule"
+                        aria-label="Edit Schedule"
+                      >
+                        <Edit3 size={16} />
+                      </button>
+                      <button 
+                        type="button"
+                        className="btn-hs btn-icon-hs btn-danger-hs" 
+                        onClick={() => handleCancelSchedule(sch.screening_schedule_id)}
+                        title="Cancel Schedule"
+                        aria-label="Cancel Schedule"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </>
+                  )}
+
+                  {(activeTab === 'ongoing' || activeTab === 'past') && (
+                    <button 
+                      type="button"
+                      className="btn-hs btn-icon-hs btn-primary-hs" 
+                      onClick={() => openViewModal(sch)}
+                      title="View & Document Screening"
+                      aria-label="View & Document Screening"
+                    >
+                      <FileText size={16} />
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
 
@@ -1000,7 +1055,7 @@ export default function HealthScreening() {
                       onChange={e => {
                         const newEnd = e.target.value;
                         if (newEnd && scheduleForm.start_time && newEnd <= scheduleForm.start_time) {
-                          alert('End time must be after Start time.');
+                          showAlert('End time must be after Start time.', 'Invalid Time Range', 'warning');
                           setScheduleForm(prev => ({ ...prev, end_time: '' }));
                           return;
                         }
@@ -1201,7 +1256,7 @@ export default function HealthScreening() {
                       onChange={e => {
                         const newEnd = e.target.value;
                         if (newEnd && editingSchedule.start_time && newEnd <= editingSchedule.start_time) {
-                          alert('End time must be after Start time.');
+                          showAlert('End time must be after Start time.', 'Invalid Time Range', 'warning');
                           setEditingSchedule(prev => ({ ...prev, end_time: '' }));
                           return;
                         }
@@ -1229,7 +1284,14 @@ export default function HealthScreening() {
         <div className="modal-overlay-hs">
           <div className="modal-hs modal-lg-hs">
             <div className="modal-header-hs">
-              <h2>{activeSchedule.title} - Participant List ({activeSchedule.screening_type})</h2>
+              <div>
+                <h2>{activeSchedule.title} - Participant List ({activeSchedule.screening_type})</h2>
+                <div style={{ fontSize: '13px', color: '#64748b', marginTop: '4px' }}>
+                  Attendance Rate: <strong>
+                    {scheduleStudents.filter(st => st.attendance_status === 'PRESENT').length} / {scheduleStudents.length}
+                  </strong> Present
+                </div>
+              </div>
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                 <button 
                   type="button" 
@@ -1449,6 +1511,62 @@ export default function HealthScreening() {
                 <button type="submit" className="btn-hs btn-primary-hs">Save Document</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 7: Unified Alert & Confirmation Dialog */}
+      {alertModal.show && (
+        <div className="modal-overlay-hs" style={{ zIndex: 1100 }}>
+          <div className="modal-hs modal-sm-hs" style={{ maxWidth: '420px', textAlign: 'center' }}>
+            <div className="modal-header-hs" style={{ justifyContent: 'center', borderBottom: 'none', paddingBottom: '0' }}>
+              <h2 style={{ fontSize: '18px' }}>{alertModal.title}</h2>
+            </div>
+            <div className="modal-body-hs" style={{ paddingTop: '10px', paddingBottom: '20px' }}>
+              <div style={{ marginBottom: '15px', display: 'flex', justifyContent: 'center' }}>
+                {alertModal.type === 'success' && <CheckCircle size={48} color="#16a34a" />}
+                {alertModal.type === 'warning' && <AlertCircle size={48} color="#ea580c" />}
+                {alertModal.type === 'error' && <AlertCircle size={48} color="#dc2626" />}
+                {alertModal.type === 'confirm' && <AlertCircle size={48} color="#2563eb" />}
+                {alertModal.type === 'info' && <AlertCircle size={48} color="#0284c7" />}
+              </div>
+              <p style={{ fontSize: '14px', color: '#334155', margin: 0, lineHeight: '1.5' }}>
+                {alertModal.message}
+              </p>
+            </div>
+            <div className="modal-footer-hs" style={{ justifyContent: 'center', gap: '10px', paddingTop: '10px' }}>
+              {alertModal.type === 'confirm' ? (
+                <>
+                  <button
+                    type="button"
+                    className="btn-hs btn-secondary-hs"
+                    onClick={closeAlertModal}
+                  >
+                    {alertModal.cancelText || 'Cancel'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-hs btn-primary-hs"
+                    onClick={() => {
+                      const action = alertModal.onConfirm;
+                      closeAlertModal();
+                      if (action) action();
+                    }}
+                  >
+                    {alertModal.confirmText || 'Confirm'}
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="btn-hs btn-primary-hs"
+                  onClick={closeAlertModal}
+                  style={{ minWidth: '100px' }}
+                >
+                  OK
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

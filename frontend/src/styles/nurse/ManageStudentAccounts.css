@@ -1,4 +1,4 @@
-/* ManageStudentAccounts.css - Desktop-First Responsive Stylesheet (Scoped to MSA) */
+/* ManageStudentAccounts.css - Scoped Desktop-First Responsive Stylesheet */
 
 .student-container-msa {
   --sti-primary: #0056b3;
@@ -324,6 +324,7 @@
   box-sizing: border-box;
 }
 
+/* FIXED: Changed width from 120% to 100% */
 .student-container-msa .modal-msa {
   background-color: var(--sti-card-bg);
   border-radius: 10px;
@@ -339,7 +340,7 @@
 
 .student-container-msa .modal-lg-msa {
   width: min(1400px, calc(100vw - 32px));
-  max-width: none;
+  max-width: 100%;
   height: min(850px, calc(100vh - 32px));
   max-height: calc(100vh - 32px);
 }
@@ -390,11 +391,14 @@
   overflow: hidden;
 }
 
+/* FIXED: Prevent horizontal scrolling in modal body while supporting smooth vertical scroll */
 .student-container-msa .modal-body-msa {
   padding: 20px;
   overflow-y: auto;
+  overflow-x: hidden;
   flex: 1;
   box-sizing: border-box;
+  width: 100%;
 }
 
 .student-container-msa .modal-footer-msa {
@@ -424,12 +428,20 @@
   grid-template-columns: repeat(3, 1fr);
   gap: 12px 14px;
   margin-bottom: 16px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* ADDED: Missing col-span-2-msa class */
+.student-container-msa .col-span-2-msa {
+  grid-column: span 2;
 }
 
 .student-container-msa .form-group-msa {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
 }
 
 .student-container-msa .form-group-msa label {
@@ -447,6 +459,7 @@
   border-radius: 6px;
   outline: none;
   box-sizing: border-box;
+  width: 100%;
 }
 
 .student-container-msa .form-group-msa input:focus,
@@ -495,6 +508,8 @@
   padding: 12px 14px;
   margin-top: 10px;
   margin-bottom: 10px;
+  box-sizing: border-box;
+  width: 100%;
 }
 
 .student-container-msa .parent-box-msa > label {
@@ -571,6 +586,7 @@
   padding: 14px;
   border-radius: 8px;
   border: 1px solid var(--sti-border-color);
+  box-sizing: border-box;
 }
 
 .student-container-msa .parent-details-card-msa {
@@ -582,15 +598,19 @@
   padding: 14px;
   border-radius: 8px;
   border: 1px solid var(--sti-border-color);
+  box-sizing: border-box;
 }
 
 /* Batch Modal Table Formatting */
 .student-container-msa .batch-table-wrapper-msa {
   max-height: 520px;
   min-height: 200px;
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: auto;
   border: 1px solid var(--sti-border-color);
   border-radius: 6px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .student-container-msa .table-compact-msa {
@@ -645,6 +665,53 @@
 .student-container-msa .text-danger-msa { color: var(--sti-danger); }
 .student-container-msa .inline-flex-gap-4-msa { display: flex; gap: 4px; }
 .student-container-msa .inline-icon-msa { display: inline; margin-right: 4px; }
+
+/* Domain Addon Input Group - FIXED: Changed min-width: 100% to min-width: 0 */
+.student-container-msa .domain-input-group-msa {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.student-container-msa .domain-input-group-msa input {
+  flex: 1;
+  min-width: 0 !important;
+  width: 100%;
+  border-top-right-radius: 0 !important;
+  border-bottom-right-radius: 0 !important;
+}
+
+.student-container-msa .domain-suffix-msa {
+  background-color: #e9ecef;
+  color: #6c757d;
+  border: 1px solid var(--sti-border-color);
+  border-left: none;
+  padding: 8px 10px;
+  font-size: 0.8rem;
+  border-top-right-radius: 6px;
+  border-bottom-right-radius: 6px;
+  white-space: nowrap;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+/* Default Password Checkbox Subgroup */
+.student-container-msa .checkbox-subgroup-msa {
+  margin-top: 4px;
+}
+
+.student-container-msa .checkbox-subgroup-msa label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.775rem;
+  color: var(--sti-text-muted);
+  cursor: pointer;
+  font-weight: normal;
+}
 
 /* Responsive Breakpoints */
 @media (max-width: 1024px) {
@@ -716,6 +783,10 @@
     grid-template-columns: 1fr;
   }
 
+  .student-container-msa .col-span-2-msa {
+    grid-column: span 1;
+  }
+
   .student-container-msa .details-grid-msa {
     grid-template-columns: 1fr;
   }
@@ -753,50 +824,4 @@
   .student-container-msa .modal-lg-msa .modal-title-msa h3 {
     font-size: 0.95rem;
   }
-}
-
-/* ManageStudentAccounts.css - Additional Styles for Domain Addon & Default Password Checkbox */
-
-/* Domain Addon Input Group */
-.student-container-msa .domain-input-group-msa {
-  display: flex;
-  align-items: center;
-  width: 100%;
-}
-
-.student-container-msa .domain-input-group-msa input {
-  flex: 1;
-  border-top-right-radius: 0 !important;
-  border-bottom-right-radius: 0 !important;
-  min-width: 100%;
-}
-
-.student-container-msa .domain-suffix-msa {
-  background-color: #e9ecef;
-  color: #6c757d;
-  border: 1px solid var(--sti-border-color);
-  border-left: none;
-  padding: 8px 10px;
-  font-size: 0.8rem;
-  border-top-right-radius: 6px;
-  border-bottom-right-radius: 6px;
-  white-space: nowrap;
-  user-select: none;
-  display: flex;
-  align-items: center;
-}
-
-/* Default Password Checkbox Subgroup */
-.student-container-msa .checkbox-subgroup-msa {
-  margin-top: 4px;
-}
-
-.student-container-msa .checkbox-subgroup-msa label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.775rem;
-  color: var(--sti-text-muted);
-  cursor: pointer;
-  font-weight: normal;
 }

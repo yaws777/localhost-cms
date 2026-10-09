@@ -59,7 +59,7 @@ export default function HealthRecord() {
         return [1, 2, 3, 4];
     }, [programType]);
 
-    // Fetch students and enrich with healthInfo from /api/profile/:studentId (exact pattern from healthRecordProfile.jsx)
+    // Fetch students and enrich with healthInfo from /api/profile/:studentId
     const fetchStudents = useCallback(async () => {
         setLoading(true);
         setErrorMsg('');
@@ -78,7 +78,7 @@ export default function HealthRecord() {
             if (data.success) {
                 const rawStudents = data.students || [];
 
-                // Fetch healthInfo per student identical to healthRecordProfile.jsx
+                // Fetch healthInfo per student
                 const enrichedStudents = await Promise.all(
                     rawStudents.map(async (student) => {
                         try {
@@ -92,7 +92,6 @@ export default function HealthRecord() {
                                 parsedHealth = { ...student };
                             }
 
-                            // Convert 1 -> true and 0 -> false (exact logic from healthRecordProfile.jsx)
                             for (let key in parsedHealth) {
                                 if (parsedHealth[key] === 1) parsedHealth[key] = true;
                                 if (parsedHealth[key] === 0) parsedHealth[key] = false;
@@ -153,12 +152,11 @@ export default function HealthRecord() {
         setSelectedYear('all');
     };
 
-    // Auto-generates detailed health history string for JSX table and PDF report using healthInfo
+    // Auto-generates detailed health history string for JSX table and PDF report
     const formatHealthHistory = (student) => {
         if (!student) return 'No Known Conditions';
 
         const h = student.healthInfo || student;
-
         const conditions = [];
 
         if (h.has_allergies) {
@@ -280,14 +278,16 @@ export default function HealthRecord() {
             doc.setLineWidth(0.5);
             doc.line(14, 34, 283, 34);
 
-            const tableColumns = ["Student ID", "Full Name", "Program", "Section", "Year Level", "Health History"];
+            // Updated column order per requirements
+            const tableColumns = ["Student ID", "Last Name", "First Name", "Program", "Year Level", "Section", "Health History"];
 
             const tableRows = filteredStudents.map((student) => [
                 student.student_id || 'N/A',
-                `${student.last_name || ''}, ${student.first_name || ''}`,
+                student.last_name || 'N/A',
+                student.first_name || 'N/A',
                 student.program_id || 'N/A',
-                student.section || 'N/A',
                 student.year_level ? `Year ${student.year_level}` : 'N/A',
+                student.section || 'N/A',
                 formatHealthHistory(student)
             ]);
 
@@ -307,12 +307,13 @@ export default function HealthRecord() {
                     textColor: [30, 30, 30]
                 },
                 columnStyles: {
-                    0: { cellWidth: 32 },
-                    1: { cellWidth: 50 },
+                    0: { cellWidth: 30 },
+                    1: { cellWidth: 30 },
                     2: { cellWidth: 30 },
                     3: { cellWidth: 25 },
-                    4: { cellWidth: 25 },
-                    5: { cellWidth: 'auto' }
+                    4: { cellWidth: 22 },
+                    5: { cellWidth: 22 },
+                    6: { cellWidth: 'auto' }
                 },
                 alternateRowStyles: {
                     fillColor: [248, 249, 250]
@@ -509,6 +510,7 @@ export default function HealthRecord() {
                                     <th>First Name</th>
                                     <th>Program</th>
                                     <th>Year Level</th>
+                                    <th>Section</th>
                                     <th>Health History</th>
                                     <th className="action-col">Action</th>
                                 </tr>
@@ -525,6 +527,7 @@ export default function HealthRecord() {
                                             </span>
                                         </td>
                                         <td>{student.year_level}</td>
+                                        <td>{student.section || 'N/A'}</td>
                                         <td style={{ fontSize: '0.85rem', color: '#475569' }}>
                                             {formatHealthHistory(student)}
                                         </td>

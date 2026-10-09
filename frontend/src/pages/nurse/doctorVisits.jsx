@@ -18,7 +18,8 @@ import {
     QrCode,
     Users,
     Trash2,
-    Printer
+    Printer,
+    Filter
 } from 'lucide-react';
 
 import stiLogo from '../../assets/sti-logof.png';
@@ -64,12 +65,80 @@ const parseSQLDate = (dateStr) => {
 const DoctorVisit = () => {
     const { nurseId } = useOutletContext() || {};
 
+    const todayStr = formatLocalDateOnly(new Date());
+
     const [activeTab, setActiveTab] = useState('upcoming');
     const [doctors, setDoctors] = useState([]);
     const [students, setStudents] = useState([]);
     const [programs, setPrograms] = useState([]);
     const [appointments, setAppointments] = useState([]);
     const [loading, setLoading] = useState(true);
+
+    // Filter Controls for Past Visits
+    const [pastStartDate, setPastStartDate] = useState('');
+    const [pastEndDate, setPastEndDate] = useState('');
+    const [pastDoctorFilter, setPastDoctorFilter] = useState('');
+
+    // Custom Modal Alert & Confirmation State
+    const [feedbackModal, setFeedbackModal] = useState({
+        show: false,
+        type: 'info', // 'success', 'danger', 'warning', 'info', 'confirm'
+        title: '',
+        message: '',
+        onConfirm: null,
+        confirmText: 'Confirm',
+        cancelText: 'Cancel'
+    });
+
+    const showAlert = useCallback((message, title = 'Notice', type = 'info') => {
+        setFeedbackModal({
+            show: true,
+            type,
+            title,
+            message,
+            onConfirm: null,
+            confirmText: 'OK',
+            cancelText: ''
+        });
+    }, []);
+
+    const showSuccess = useCallback((message, title = 'Success') => {
+        showAlert(message, title, 'success');
+    }, [showAlert]);
+
+    const showError = useCallback((message, title = 'Error') => {
+        showAlert(message, title, 'danger');
+    }, [showAlert]);
+
+    const showConfirm = useCallback((message, title, onConfirm, confirmText = 'Confirm', type = 'warning') => {
+        setFeedbackModal({
+            show: true,
+            type,
+            title,
+            message,
+            onConfirm: () => {
+                setFeedbackModal(prev => ({ ...prev, show: false }));
+                if (onConfirm) onConfirm();
+            },
+            confirmText,
+            cancelText: 'Cancel'
+        });
+    }, []);
+
+    const closeFeedbackModal = () => {
+        setFeedbackModal(prev => ({ ...prev, show: false }));
+    };
+
+    // Helper for disabling past times when schedule is today
+    const getMinStartTime = (scheduledDate) => {
+        if (scheduledDate === todayStr) {
+            const now = new Date();
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            return `${hours}:${minutes}`;
+        }
+        return undefined;
+    };
 
     // Modals
     const [showDoctorModal, setShowDoctorModal] = useState(false);
@@ -122,7 +191,6 @@ const DoctorVisit = () => {
     const videoRef = useRef(null);
     const canvasRef = useRef(null);
     const streamRef = useRef(null);
-    // Ref to prevent duplicate scan processing while a scan is in progress
     const isProcessingScanRef = useRef(false);
 
     const fetchDoctors = async () => {
@@ -137,7 +205,7 @@ const DoctorVisit = () => {
 
     const fetchStudents = async () => {
         try {
-                const res = await fetch('http://localhost:3001/api/students-list');
+            const res = await fetch('http://localhost:3001/api/students-list');
             const data = await res.json();
             if (data.success) setStudents(data.students);
         } catch (err) {
@@ -181,7 +249,7 @@ const DoctorVisit = () => {
 
         const printWindow = window.open('', '_blank', 'width=950,height=750');
         if (!printWindow) {
-            alert('Please allow popups to preview and print the report.');
+            showError('Please allow popups to preview and print the report.', 'Popup Blocked');
             return;
         }
 
@@ -198,13 +266,16 @@ const DoctorVisit = () => {
             const timeStr = `${startTimeFormatted} - ${endTimeFormatted}`;
             const docStr = `${group.doctorName || 'N/A'} (${group.specialization || 'General'})`;
 
+            const totalCount = group.appointments ? group.appointments.length : 0;
+            const presentCount = group.appointments ? group.appointments.filter(a => (a.attendance_status || '').toLowerCase() === 'present').length : 0;
+
             return `
                 <tr>
                     <td><strong>${group.title || 'N/A'}</strong></td>
                     <td>${docStr}</td>
                     <td>${dateFormatted}</td>
                     <td>${timeStr}</td>
-                    <td>${group.appointments ? group.appointments.length : 0}</td>
+                    <td>${presentCount} / ${totalCount} Present</td>
                 </tr>
             `;
         }).join('');
@@ -313,7 +384,7 @@ const DoctorVisit = () => {
                             <th>Doctor & Specialization</th>
                             <th>Date</th>
                             <th>Time Window</th>
-                            <th>Participants</th>
+                            <th>Attendance (Present / Total)</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -347,7 +418,7 @@ const DoctorVisit = () => {
 
         const printWindow = window.open('', '_blank', 'width=950,height=750');
         if (!printWindow) {
-            alert('Please allow popups to preview and print the report.');
+            showError('Please allow popups to preview and print the report.', 'Popup Blocked');
             return;
         }
 
@@ -364,6 +435,9 @@ const DoctorVisit = () => {
 
         const now = new Date();
 
+        const totalCount = selectedGroup.appointments.length;
+        let presentCount = 0;
+
         const tableRowsHtml = selectedGroup.appointments.map(appt => {
             const studentName = `${appt.student_first_name || ''} ${appt.student_last_name || ''}`.trim();
             const progSec = appt.program_id ? `${appt.program_id} - ${appt.year_level || ''}${appt.section || ''}` : 'N/A';
@@ -378,6 +452,10 @@ const DoctorVisit = () => {
             let currentAttendance = appt.attendance_status || 'Pending';
             if (studentEnd < now && currentAttendance.toLowerCase() === 'pending') {
                 currentAttendance = 'Absent';
+            }
+
+            if (currentAttendance.toLowerCase() === 'present') {
+                presentCount++;
             }
 
             const assessmentStr = appt.assessment_id ? 'Documented' : 'Pending';
@@ -507,6 +585,7 @@ const DoctorVisit = () => {
                     <div><strong>Assigned Doctor:</strong> ${selectedGroup.doctorName || 'N/A'} (${selectedGroup.specialization || 'General'})</div>
                     <div><strong>Scheduled Date:</strong> ${dateFormatted}</div>
                     <div><strong>Time Window:</strong> ${timeStr}</div>
+                    <div><strong>Attendance Rate:</strong> ${presentCount} / ${totalCount} Present</div>
                 </div>
 
                 <table>
@@ -554,18 +633,18 @@ const DoctorVisit = () => {
             });
             const data = await res.json();
             if (data.success) {
-                await fetchAppointments(); // Await refresh to update UI state immediately
+                await fetchAppointments();
                 return true;
             } else {
-                alert(data.message || 'Failed to update status');
+                showError(data.message || 'Failed to update status', 'Update Failed');
                 return false;
             }
         } catch (err) {
             console.error('Error updating status:', err);
-            alert('Server error updating status.');
+            showError('Server error updating status.', 'Server Error');
             return false;
         }
-    }, [fetchAppointments]);
+    }, [fetchAppointments, showError]);
 
     useEffect(() => {
         const checkAndSyncExpiredPending = async () => {
@@ -606,7 +685,6 @@ const DoctorVisit = () => {
 
         let parsedId = String(scannedValue).trim();
 
-        // Try parsing JSON if QR contains structured payload
         try {
             const parsedObj = JSON.parse(parsedId);
             parsedId = String(parsedObj.student_id || parsedObj.student_user_id || parsedObj.appointment_id || parsedId).trim();
@@ -617,7 +695,6 @@ const DoctorVisit = () => {
         const targetPool = activeScanGroup ? activeScanGroup.appointments : appointments;
         const cleanScanValue = parsedId.toLowerCase();
 
-        // Flexible, case-insensitive comparison matching student_id, user_id, or appointment_id
         const appt = targetPool.find((a) => {
             const sId = String(a.student_id || '').trim().toLowerCase();
             const uId = String(a.student_user_id || '').trim().toLowerCase();
@@ -629,16 +706,16 @@ const DoctorVisit = () => {
         if (appt) {
             const success = await updateAppointmentStatus(appt.appointment_id, appt.student_id, 'Present');
             if (success) {
-                alert(`Student ${appt.student_first_name} ${appt.student_last_name} marked as PRESENT.`);
+                showSuccess(`Student ${appt.student_first_name} ${appt.student_last_name} marked as PRESENT.`, 'Attendance Updated');
             }
         } else {
-            alert(`No matching student found for QR code "${scannedValue}".`);
+            showError(`No matching student found for QR code "${scannedValue}".`, 'QR Scan Failed');
         }
 
         setShowScannerModal(false);
         setActiveScanGroup(null);
         isProcessingScanRef.current = false;
-    }, [appointments, activeScanGroup, updateAppointmentStatus]);
+    }, [appointments, activeScanGroup, updateAppointmentStatus, showError, showSuccess]);
 
     const scanQRCode = useCallback(() => {
         if (!showScannerModal || isProcessingScanRef.current) return;
@@ -658,7 +735,7 @@ const DoctorVisit = () => {
 
                 if (code && code.data && code.data.trim() !== '') {
                     handleScannedCode(code.data.trim());
-                    return; // Stop animation loop once code is captured
+                    return;
                 }
             }
         }
@@ -680,7 +757,7 @@ const DoctorVisit = () => {
                     }
                 })
                 .catch((err) => {
-                    alert('Camera access denied or unavailable: ' + err.message);
+                    showError('Camera access denied or unavailable: ' + err.message, 'Camera Error');
                     setShowScannerModal(false);
                     setActiveScanGroup(null);
                 });
@@ -692,7 +769,7 @@ const DoctorVisit = () => {
             cancelAnimationFrame(animationFrameId);
             stopCamera();
         };
-    }, [showScannerModal, scanQRCode]);
+    }, [showScannerModal, scanQRCode, showError]);
 
     const openScannerForBatch = (group) => {
         setActiveScanGroup(group);
@@ -724,13 +801,15 @@ const DoctorVisit = () => {
             });
             const data = await res.json();
             if (data.success) {
-                alert(data.message);
+                showSuccess(data.message || 'Doctor profile saved successfully!', isEditDoctor ? 'Doctor Updated' : 'Doctor Added');
                 setShowDoctorModal(false);
                 fetchDoctors();
                 setDoctorForm({ doctor_id: '', first_name: '', last_name: '', specialization: '', contact_number: '' });
+            } else {
+                showError(data.message || 'Failed to save doctor details.', 'Save Failed');
             }
         } catch (err) {
-            alert('Error saving doctor details.');
+            showError('Error saving doctor details.', 'Save Error');
         }
     };
 
@@ -764,7 +843,7 @@ const DoctorVisit = () => {
         setTimeSlotCollisions('');
 
         if (selectedStudentIds.length === 0) {
-            alert('Please select at least one student for scheduling.');
+            showError('Please select at least one student for scheduling.', 'Selection Required');
             return;
         }
 
@@ -823,7 +902,7 @@ const DoctorVisit = () => {
             });
             const data = await res.json();
             if (data.success) {
-                alert('Doctor visit mass schedule created successfully with instilled time blocks!');
+                showSuccess('Doctor visit mass schedule created successfully with instilled time blocks!', 'Schedule Created');
                 setShowScheduleModal(false);
                 setSelectedStudentIds([]);
                 setScheduleForm({
@@ -840,10 +919,10 @@ const DoctorVisit = () => {
                 });
                 fetchAppointments();
             } else {
-                alert(data.message || 'Failed to create schedule');
+                showError(data.message || 'Failed to create schedule', 'Schedule Creation Failed');
             }
         } catch (err) {
-            alert('Server error creating schedule.');
+            showError('Server error creating schedule.', 'Server Error');
         }
     };
 
@@ -872,12 +951,14 @@ const DoctorVisit = () => {
             });
             const data = await res.json();
             if (data.success) {
-                alert('Assessment recorded successfully!');
+                showSuccess('Assessment recorded successfully!', 'Assessment Saved');
                 setShowAssessmentModal(false);
                 fetchAppointments();
+            } else {
+                showError(data.message || 'Failed to save assessment.', 'Save Failed');
             }
         } catch (err) {
-            alert('Failed to save assessment.');
+            showError('Failed to save assessment.', 'Server Error');
         }
     };
 
@@ -919,12 +1000,12 @@ const DoctorVisit = () => {
         const endDT = new Date(year, month - 1, day, endHour, endMin, 0);
 
         if (isNaN(startDT.getTime()) || isNaN(endDT.getTime())) {
-            alert('Invalid date or time selected.');
+            showError('Invalid date or time selected.', 'Invalid Input');
             return;
         }
 
         if (startDT >= endDT) {
-            alert('Batch end time must be after batch start time.');
+            showError('Batch end time must be strictly after batch start time.', 'Invalid Time Window');
             return;
         }
 
@@ -932,7 +1013,7 @@ const DoctorVisit = () => {
         const targetGroup = groupedVisits.find(g => g.groupKey === batchRescheduleData.groupKey);
 
         if (!targetGroup) {
-            alert('Batch schedule not found.');
+            showError('Batch schedule not found.', 'Error');
             return;
         }
 
@@ -961,77 +1042,89 @@ const DoctorVisit = () => {
             });
             const data = await res.json();
             if (data.success) {
-                alert('Batch appointment date and start/end time updated successfully!');
+                showSuccess('Batch appointment date and start/end time updated successfully!', 'Batch Rescheduled');
                 setShowBatchRescheduleModal(false);
                 fetchAppointments();
             } else {
-                alert(data.message || 'Failed to update batch schedule date and times.');
+                showError(data.message || 'Failed to update batch schedule date and times.', 'Update Failed');
             }
         } catch (err) {
-            alert('Failed to update batch schedule date and times.');
+            showError('Failed to update batch schedule date and times.', 'Update Failed');
         }
     };
 
-    const handleCancelAppointment = async (appt) => {
-        if (!window.confirm('Are you sure you want to cancel this doctor visit appointment?')) return;
-
-        try {
-            const res = await fetch(`http://localhost:3001/api/doctor-visits/cancel/${appt.appointment_id}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ student_user_id: appt.student_user_id })
-            });
-            const data = await res.json();
-            if (data.success) {
-                alert('Appointment cancelled and student notified.');
-                fetchAppointments();
-            }
-        } catch (err) {
-            alert('Failed to cancel appointment.');
-        }
-    };
-
-    // Permanently delete batch schedule & all associated appointments
-    const handleDeleteBatch = async (group) => {
-        if (!group) return;
-        if (!window.confirm(`Are you sure you want to permanently DELETE "${group.title}" and all ${group.appointments.length} associated appointment records? This action CANNOT be undone.`)) return;
-
-        try {
-            const appointmentIds = group.appointments.map(a => a.appointment_id);
-
-            let res = await fetch(`http://localhost:3001/api/doctor-visits/batch/${group.batchId || 'delete'}`, {
-                method: 'DELETE',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    batch_id: group.batchId,
-                    appointment_ids: appointmentIds 
-                })
-            });
-
-            let data = await res.json();
-            if (data.success) {
-                alert('Batch schedule permanently deleted.');
-                if (selectedGroup?.groupKey === group.groupKey) setSelectedGroup(null);
-                fetchAppointments();
-            } else {
-                // Fallback attempt to mass-schedules endpoint
-                const res2 = await fetch(`http://localhost:3001/api/mass-schedules/${group.batchId}`, {
-                    method: 'DELETE',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ appointment_ids: appointmentIds })
-                });
-                const data2 = await res2.json();
-                if (data2.success) {
-                    alert('Batch schedule permanently deleted.');
-                    if (selectedGroup?.groupKey === group.groupKey) setSelectedGroup(null);
-                    fetchAppointments();
-                } else {
-                    alert(data.message || data2.message || 'Failed to delete batch schedule.');
+    const handleCancelAppointment = (appt) => {
+        showConfirm(
+            `Are you sure you want to cancel the doctor visit appointment for ${appt.student_first_name} ${appt.student_last_name}?`,
+            'Cancel Appointment',
+            async () => {
+                try {
+                    const res = await fetch(`http://localhost:3001/api/doctor-visits/cancel/${appt.appointment_id}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ student_user_id: appt.student_user_id })
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        showSuccess('Appointment cancelled and student notified.', 'Appointment Cancelled');
+                        fetchAppointments();
+                    } else {
+                        showError(data.message || 'Failed to cancel appointment.', 'Cancellation Failed');
+                    }
+                } catch (err) {
+                    showError('Failed to cancel appointment.', 'Server Error');
                 }
-            }
-        } catch (err) {
-            alert('Server error deleting batch schedule.');
-        }
+            },
+            'Yes, Cancel',
+            'danger'
+        );
+    };
+
+    const handleDeleteBatch = (group) => {
+        if (!group) return;
+        showConfirm(
+            `Are you sure you want to permanently DELETE "${group.title}" and all ${group.appointments.length} associated appointment records? This action CANNOT be undone.`,
+            'Delete Batch Schedule',
+            async () => {
+                try {
+                    const appointmentIds = group.appointments.map(a => a.appointment_id);
+
+                    let res = await fetch(`http://localhost:3001/api/doctor-visits/batch/${group.batchId || 'delete'}`, {
+                        method: 'DELETE',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            batch_id: group.batchId,
+                            appointment_ids: appointmentIds 
+                        })
+                    });
+
+                    let data = await res.json();
+                    if (data.success) {
+                        showSuccess('Batch schedule permanently deleted.', 'Batch Deleted');
+                        if (selectedGroup?.groupKey === group.groupKey) setSelectedGroup(null);
+                        fetchAppointments();
+                    } else {
+                        const res2 = await fetch(`http://localhost:3001/api/mass-schedules/${group.batchId}`, {
+                            method: 'DELETE',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ appointment_ids: appointmentIds })
+                        });
+                        const data2 = await res2.json();
+                        if (data2.success) {
+                            showSuccess('Batch schedule permanently deleted.', 'Batch Deleted');
+                            if (selectedGroup?.groupKey === group.groupKey) setSelectedGroup(null);
+                            fetchAppointments();
+                        } else {
+                            showError(data.message || data2.message || 'Failed to delete batch schedule.', 'Delete Failed');
+                        }
+                    }
+                } catch (err) {
+                    showError('Server error deleting batch schedule.', 'Server Error');
+                }
+            },
+            'Yes, Delete',
+            'danger'
+        );
     };
 
     const groupedVisits = useMemo(() => {
@@ -1064,6 +1157,7 @@ const DoctorVisit = () => {
                     batchId: batchId || null,
                     title,
                     specialization,
+                    doctorId: appt.doctor_id,
                     doctorName,
                     apptStart,
                     apptEnd,
@@ -1084,7 +1178,7 @@ const DoctorVisit = () => {
 
         const groups = Array.from(map.values());
 
-        return groups.filter((group) => {
+        const filtered = groups.filter((group) => {
             const isFinished = group.appointments.length > 0 && group.appointments.every(a => {
                 const status = (a.status || '').toLowerCase();
                 const attendance = (a.attendance_status || '').toLowerCase();
@@ -1105,7 +1199,16 @@ const DoctorVisit = () => {
             if (!matchesSearch) return false;
 
             if (activeTab === 'past') {
-                return isFinished || isExpired;
+                if (!isFinished && !isExpired) return false;
+
+                const groupDateStr = group.apptStart ? formatLocalDateOnly(group.apptStart) : '';
+                if (pastStartDate && groupDateStr < pastStartDate) return false;
+                if (pastEndDate && groupDateStr > pastEndDate) return false;
+
+                // Filter by Assigned Doctor
+                if (pastDoctorFilter && String(group.doctorId) !== String(pastDoctorFilter)) return false;
+
+                return true;
             }
 
             if (activeTab === 'ongoing') {
@@ -1120,7 +1223,14 @@ const DoctorVisit = () => {
 
             return true;
         });
-    }, [appointments, activeTab, searchTerm]);
+
+        // PAST VISITS ORDERING: Latest to previous (descending date/time)
+        if (activeTab === 'past') {
+            return filtered.sort((a, b) => b.apptStart - a.apptStart);
+        }
+
+        return filtered.sort((a, b) => a.apptStart - b.apptStart);
+    }, [appointments, activeTab, searchTerm, pastStartDate, pastEndDate, pastDoctorFilter]);
 
     useEffect(() => {
         if (selectedGroup) {
@@ -1197,6 +1307,70 @@ const DoctorVisit = () => {
                 </div>
             </div>
 
+            {/* Past Visits Date & Assigned Doctor Filter Bar */}
+            {activeTab === 'past' && (
+                <div className="past-filters-dv" style={{ display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap', marginTop: '15px', background: '#f8fafc', padding: '12px 16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                    <span style={{ fontSize: '13px', fontWeight: '600', color: '#475569', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Filter size={16} /> Filter Past Visits:
+                    </span>
+
+                    {/* Filter by Doctor */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <label style={{ fontSize: '12px', fontWeight: '600', color: '#64748b' }}>Assigned Doctor:</label>
+                        <select
+                            value={pastDoctorFilter}
+                            onChange={(e) => setPastDoctorFilter(e.target.value)}
+                            style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}
+                        >
+                            <option value="">All Doctors</option>
+                            {doctors.map(doc => (
+                                <option key={doc.doctor_id} value={doc.doctor_id}>
+                                    Dr. {doc.first_name} {doc.last_name} ({doc.specialization})
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* Filter by Date Range */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <label style={{ fontSize: '12px', fontWeight: '600', color: '#64748b' }}>Start Date:</label>
+                        <input 
+                            type="date" 
+                            max={pastEndDate || undefined}
+                            value={pastStartDate} 
+                            onChange={(e) => {
+                                const newStart = e.target.value;
+                                setPastStartDate(newStart);
+                                if (pastEndDate && newStart > pastEndDate) {
+                                    setPastEndDate('');
+                                }
+                            }}
+                            style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}
+                        />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <label style={{ fontSize: '12px', fontWeight: '600', color: '#64748b' }}>End Date:</label>
+                        <input 
+                            type="date" 
+                            min={pastStartDate || undefined}
+                            value={pastEndDate} 
+                            onChange={(e) => setPastEndDate(e.target.value)}
+                            style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}
+                        />
+                    </div>
+                    {(pastStartDate || pastEndDate || pastDoctorFilter) && (
+                        <button 
+                            type="button" 
+                            className="sti-btn-dv sti-btn-light-dv"
+                            onClick={() => { setPastStartDate(''); setPastEndDate(''); setPastDoctorFilter(''); }}
+                            style={{ padding: '6px 12px', fontSize: '12px', marginLeft: 'auto' }}
+                        >
+                            Reset Filters
+                        </button>
+                    )}
+                </div>
+            )}
+
             {/* Group Cards Grid Section */}
             {loading ? (
                 <div className="loading-dv">Loading doctor visits...</div>
@@ -1211,6 +1385,9 @@ const DoctorVisit = () => {
                         const dateFormatted = group.apptStart ? formatLocalDateOnly(group.apptStart) : 'N/A';
                         const startTimeFormatted = group.apptStart ? group.apptStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }) : '';
                         const endTimeFormatted = group.apptEnd ? group.apptEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }) : '';
+
+                        const totalCount = group.appointments.length;
+                        const presentCount = group.appointments.filter(a => (a.attendance_status || '').toLowerCase() === 'present').length;
 
                         return (
                             <div key={group.groupKey} className="card-dv" style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.04)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
@@ -1241,7 +1418,7 @@ const DoctorVisit = () => {
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                             <Users size={16} />
-                                            <span><strong>{group.appointments.length}</strong> Participating Students</span>
+                                            <span><strong>{presentCount} / {totalCount}</strong> Present Students</span>
                                         </div>
                                         <div style={{ fontSize: '13px', color: '#475569', fontStyle: 'italic', marginTop: '2px' }}>
                                             Assigned Doctor: {group.doctorName}
@@ -1302,7 +1479,9 @@ const DoctorVisit = () => {
                             <div>
                                 <h3 style={{ margin: 0 }}>{selectedGroup.title}</h3>
                                 <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#64748b' }}>
-                                    {selectedGroup.doctorName} ({selectedGroup.specialization}) • {selectedGroup.appointments.length} Total Student Participants
+                                    {selectedGroup.doctorName} ({selectedGroup.specialization}) • <strong>
+                                        {selectedGroup.appointments.filter(a => (a.attendance_status || '').toLowerCase() === 'present').length} / {selectedGroup.appointments.length}
+                                    </strong> Present
                                 </p>
                             </div>
                             <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
@@ -1561,18 +1740,64 @@ const DoctorVisit = () => {
                                 </div>
                                 <div className="form-group-dv">
                                     <label>Scheduled Date</label>
-                                    <input type="date" required value={scheduleForm.scheduled_date} onChange={e => setScheduleForm({...scheduleForm, scheduled_date: e.target.value})} />
+                                    <input 
+                                        type="date" 
+                                        min={todayStr} 
+                                        required 
+                                        value={scheduleForm.scheduled_date} 
+                                        onChange={e => {
+                                            const newDate = e.target.value;
+                                            setScheduleForm(prev => {
+                                                const minStart = getMinStartTime(newDate);
+                                                let updatedStart = prev.batch_start_time;
+                                                if (minStart && updatedStart && updatedStart < minStart) {
+                                                    updatedStart = '';
+                                                }
+                                                return { ...prev, scheduled_date: newDate, batch_start_time: updatedStart };
+                                            });
+                                        }} 
+                                    />
                                 </div>
                             </div>
 
                             <div className="form-row-dv">
                                 <div className="form-group-dv">
                                     <label>Batch Start Time</label>
-                                    <input type="time" required value={scheduleForm.batch_start_time} onChange={e => setScheduleForm({...scheduleForm, batch_start_time: e.target.value})} />
+                                    <input 
+                                        type="time" 
+                                        required 
+                                        min={getMinStartTime(scheduleForm.scheduled_date)}
+                                        value={scheduleForm.batch_start_time} 
+                                        onChange={e => {
+                                            const newStart = e.target.value;
+                                            setScheduleForm(prev => {
+                                                let updatedEnd = prev.batch_end_time;
+                                                if (updatedEnd && updatedEnd <= newStart) {
+                                                    updatedEnd = '';
+                                                }
+                                                return { ...prev, batch_start_time: newStart, batch_end_time: updatedEnd };
+                                            });
+                                        }} 
+                                    />
                                 </div>
                                 <div className="form-group-dv">
                                     <label>Batch End Time</label>
-                                    <input type="time" required value={scheduleForm.batch_end_time} onChange={e => setScheduleForm({...scheduleForm, batch_end_time: e.target.value})} />
+                                    <input 
+                                        type="time" 
+                                        min={scheduleForm.batch_start_time || getMinStartTime(scheduleForm.scheduled_date)} 
+                                        required 
+                                        value={scheduleForm.batch_end_time} 
+                                        onChange={e => {
+                                            const newEnd = e.target.value;
+                                            if (scheduleForm.batch_start_time && newEnd <= scheduleForm.batch_start_time) {
+                                                setTimeSlotCollisions('Batch end time must be strictly after batch start time.');
+                                                return;
+                                            } else {
+                                                setTimeSlotCollisions('');
+                                            }
+                                            setScheduleForm({...scheduleForm, batch_end_time: newEnd});
+                                        }} 
+                                    />
                                 </div>
                                 <div className="form-group-dv">
                                     <label>Duration Slot (Mins / Student)</label>
@@ -1765,9 +1990,20 @@ const DoctorVisit = () => {
                                 <label>Batch Appointment Scheduled Date</label>
                                 <input 
                                     type="date" 
+                                    min={todayStr} 
                                     required 
                                     value={batchRescheduleData.scheduled_date} 
-                                    onChange={e => setBatchRescheduleData({...batchRescheduleData, scheduled_date: e.target.value})} 
+                                    onChange={e => {
+                                        const newDate = e.target.value;
+                                        setBatchRescheduleData(prev => {
+                                            const minStart = getMinStartTime(newDate);
+                                            let updatedStart = prev.batch_start_time;
+                                            if (minStart && updatedStart && updatedStart < minStart) {
+                                                updatedStart = '';
+                                            }
+                                            return { ...prev, scheduled_date: newDate, batch_start_time: updatedStart };
+                                        });
+                                    }} 
                                 />
                             </div>
 
@@ -1776,8 +2012,18 @@ const DoctorVisit = () => {
                                 <input 
                                     type="time" 
                                     required 
+                                    min={getMinStartTime(batchRescheduleData.scheduled_date)}
                                     value={batchRescheduleData.batch_start_time} 
-                                    onChange={e => setBatchRescheduleData({...batchRescheduleData, batch_start_time: e.target.value})} 
+                                    onChange={e => {
+                                        const newStart = e.target.value;
+                                        setBatchRescheduleData(prev => {
+                                            let updatedEnd = prev.batch_end_time;
+                                            if (updatedEnd && updatedEnd <= newStart) {
+                                                updatedEnd = '';
+                                            }
+                                            return { ...prev, batch_start_time: newStart, batch_end_time: updatedEnd };
+                                        });
+                                    }} 
                                 />
                             </div>
 
@@ -1785,6 +2031,7 @@ const DoctorVisit = () => {
                                 <label>Batch End Time</label>
                                 <input 
                                     type="time" 
+                                    min={batchRescheduleData.batch_start_time || getMinStartTime(batchRescheduleData.scheduled_date)} 
                                     required 
                                     value={batchRescheduleData.batch_end_time} 
                                     onChange={e => setBatchRescheduleData({...batchRescheduleData, batch_end_time: e.target.value})} 
@@ -1808,6 +2055,61 @@ const DoctorVisit = () => {
                                 <button type="submit" className="sti-btn-dv sti-btn-primary-dv">Save Batch Date & Times</button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* GENERIC FEEDBACK / ALERT / CONFIRMATION MODAL */}
+            {feedbackModal.show && (
+                <div className="modal-overlay-dv" style={{ zIndex: 1100 }}>
+                    <div className="modal-content-dv" style={{ maxWidth: '440px', textAlign: 'center', padding: '24px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+                            {feedbackModal.type === 'success' && (
+                                <div style={{ background: '#dcfce7', color: '#16a34a', borderRadius: '50%', padding: '12px', display: 'flex' }}>
+                                    <CheckCircle size={36} />
+                                </div>
+                            )}
+                            {feedbackModal.type === 'danger' && (
+                                <div style={{ background: '#fee2e2', color: '#dc2626', borderRadius: '50%', padding: '12px', display: 'flex' }}>
+                                    <AlertCircle size={36} />
+                                </div>
+                            )}
+                            {(feedbackModal.type === 'info' || feedbackModal.type === 'warning') && (
+                                <div style={{ background: '#fef3c7', color: '#d97706', borderRadius: '50%', padding: '12px', display: 'flex' }}>
+                                    <AlertCircle size={36} />
+                                </div>
+                            )}
+                        </div>
+
+                        <h3 style={{ margin: '0 0 8px 0', fontSize: '18px', color: '#0f172a' }}>{feedbackModal.title}</h3>
+                        <p style={{ margin: '0 0 20px 0', fontSize: '14px', color: '#475569', lineHeight: '1.5' }}>{feedbackModal.message}</p>
+
+                        <div style={{ display: 'flex', justifyContent: 'center', gap: '12px' }}>
+                            {feedbackModal.cancelText && (
+                                <button 
+                                    type="button" 
+                                    className="sti-btn-dv sti-btn-light-dv"
+                                    onClick={closeFeedbackModal}
+                                    style={{ minWidth: '90px' }}
+                                >
+                                    {feedbackModal.cancelText}
+                                </button>
+                            )}
+                            <button 
+                                type="button" 
+                                className={`sti-btn-dv ${feedbackModal.type === 'danger' ? '' : 'sti-btn-primary-dv'}`}
+                                style={feedbackModal.type === 'danger' ? { background: '#ef4444', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', minWidth: '90px' } : { minWidth: '90px' }}
+                                onClick={() => {
+                                    if (feedbackModal.onConfirm) {
+                                        feedbackModal.onConfirm();
+                                    } else {
+                                        closeFeedbackModal();
+                                    }
+                                }}
+                            >
+                                {feedbackModal.confirmText}
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

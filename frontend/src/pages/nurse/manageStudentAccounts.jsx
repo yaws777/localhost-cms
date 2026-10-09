@@ -19,7 +19,11 @@ import {
   Download,
   Trash2,
   Layers,
-  Printer
+  Printer,
+  AlertCircle,
+  CheckCircle,
+  AlertTriangle,
+  XCircle
 } from 'lucide-react';
 
 import stiLogo from '../../assets/sti-logof.png';
@@ -27,6 +31,13 @@ import '../../styles/nurse/ManageStudentAccounts.css';
 
 const API_BASE = 'http://localhost:3001/api';
 const DOMAIN_EXTENSION = '@baliuag.sti.edu.ph';
+
+// Helper function to validate Philippine phone number format (09XXXXXXXXX or +639XXXXXXXXX)
+const isValidPhPhone = (phone) => {
+  if (!phone) return false;
+  const cleanPhone = phone.trim();
+  return /^(09|\+639)\d{9}$/.test(cleanPhone);
+};
 
 // Helper function to auto-generate parent_id in PARENT-[LASTNAME]001 format
 const generateParentId = (lastName, count = 1) => {
@@ -63,6 +74,45 @@ export default function ManageStudentAccounts() {
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [selectedStudentView, setSelectedStudentView] = useState(null);
 
+  // Unified Alert & Confirmation Modal State
+  const [modalConfig, setModalConfig] = useState({
+    isOpen: false,
+    type: 'info', // 'info' | 'success' | 'error' | 'warning' | 'confirm'
+    title: '',
+    message: '',
+    onConfirm: null,
+    confirmText: 'Confirm',
+    cancelText: 'Cancel'
+  });
+
+  const showAlert = (title, message, type = 'info') => {
+    setModalConfig({
+      isOpen: true,
+      type,
+      title,
+      message,
+      onConfirm: null,
+      confirmText: 'OK',
+      cancelText: 'Cancel'
+    });
+  };
+
+  const showConfirm = (title, message, onConfirm, confirmText = 'Yes, Proceed', type = 'confirm') => {
+    setModalConfig({
+      isOpen: true,
+      type,
+      title,
+      message,
+      onConfirm,
+      confirmText,
+      cancelText: 'Cancel'
+    });
+  };
+
+  const closeModalConfig = () => {
+    setModalConfig(prev => ({ ...prev, isOpen: false, onConfirm: null }));
+  };
+
   // Helper to determine program type ('strand' vs 'course')
   const getProgramType = (programId) => {
     const selectedProg = programs.find((p) => String(p.program_id) === String(programId));
@@ -76,7 +126,7 @@ export default function ManageStudentAccounts() {
     return type.includes('strand') ? 'strand' : 'course';
   };
 
-  // Form State for Single Student Creation (Default ID initialized with '02000')
+  // Form State for Single Student Creation
   const [studentForm, setStudentForm] = useState({
     student_id: '02000',
     first_name: '',
@@ -118,6 +168,7 @@ export default function ManageStudentAccounts() {
     student_id: '',
     first_name: '',
     last_name: '',
+    username: '',
     program_id: '',
     year_level: '1',
     section: 'A',
@@ -183,7 +234,7 @@ export default function ManageStudentAccounts() {
 
     const printWindow = window.open('', '_blank', 'width=950,height=750');
     if (!printWindow) {
-      alert('Please allow popups to preview and print the report.');
+      showAlert('Popup Blocked', 'Please allow popups in your browser to preview and print the report.', 'warning');
       return;
     }
 
@@ -219,81 +270,21 @@ export default function ManageStudentAccounts() {
       <head>
           <title>Student Accounts Summary Report</title>
           <style>
-              body {
-                  font-family: Arial, Helvetica, sans-serif;
-                  margin: 25px;
-                  color: #0f172a;
-              }
-              .report-header {
-                  display: flex;
-                  align-items: center;
-                  border-bottom: 2px solid #0056b3;
-                  padding-bottom: 12px;
-                  margin-bottom: 16px;
-              }
-              .report-header img {
-                  height: 60px;
-                  margin-right: 20px;
-              }
-              .report-title h2 {
-                  margin: 0;
-                  font-size: 20px;
-                  color: #1e3a8a;
-              }
-              .report-title p {
-                  margin: 4px 0 0;
-                  font-size: 13px;
-                  color: #475569;
-              }
-              .meta-info {
-                  display: flex;
-                  justify-content: space-between;
-                  font-size: 13px;
-                  color: #475569;
-                  margin-bottom: 16px;
-                  font-weight: 500;
-              }
-              table {
-                  width: 100%;
-                  border-collapse: collapse;
-                  font-size: 12px;
-                  margin-bottom: 35px;
-              }
-              th {
-                  background-color: #f1f5f9;
-                  color: #0f172a;
-                  text-align: left;
-                  padding: 9px 10px;
-                  border: 1px solid #cbd5e1;
-                  font-weight: bold;
-              }
-              td {
-                  padding: 8px 10px;
-                  border: 1px solid #e2e8f0;
-              }
-              tr:nth-child(even) {
-                  background-color: #f8fafc;
-              }
-              .signature-section {
-                  margin-top: 40px;
-                  font-size: 13px;
-              }
-              .signature-title {
-                  color: #475569;
-                  margin-bottom: 35px;
-              }
-              .signature-name {
-                  font-weight: bold;
-                  font-size: 14px;
-                  color: #0f172a;
-              }
-              .signature-role {
-                  font-style: italic;
-                  color: #64748b;
-              }
-              @media print {
-                  body { margin: 0; }
-              }
+              body { font-family: Arial, Helvetica, sans-serif; margin: 25px; color: #0f172a; }
+              .report-header { display: flex; align-items: center; border-bottom: 2px solid #0056b3; padding-bottom: 12px; margin-bottom: 16px; }
+              .report-header img { height: 60px; margin-right: 20px; }
+              .report-title h2 { margin: 0; font-size: 20px; color: #1e3a8a; }
+              .report-title p { margin: 4px 0 0; font-size: 13px; color: #475569; }
+              .meta-info { display: flex; justify-content: space-between; font-size: 13px; color: #475569; margin-bottom: 16px; font-weight: 500; }
+              table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 35px; }
+              th { background-color: #f1f5f9; color: #0f172a; text-align: left; padding: 9px 10px; border: 1px solid #cbd5e1; font-weight: bold; }
+              td { padding: 8px 10px; border: 1px solid #e2e8f0; }
+              tr:nth-child(even) { background-color: #f8fafc; }
+              .signature-section { margin-top: 40px; font-size: 13px; }
+              .signature-title { color: #475569; margin-bottom: 35px; }
+              .signature-name { font-weight: bold; font-size: 14px; color: #0f172a; }
+              .signature-role { font-style: italic; color: #64748b; }
+              @media print { body { margin: 0; } }
           </style>
       </head>
       <body>
@@ -334,9 +325,7 @@ export default function ManageStudentAccounts() {
           </div>
 
           <script>
-              window.onload = function() {
-                  window.print();
-              };
+              window.onload = function() { window.print(); };
           </script>
       </body>
       </html>
@@ -353,7 +342,7 @@ export default function ManageStudentAccounts() {
 
     const printWindow = window.open('', '_blank', 'width=950,height=750');
     if (!printWindow) {
-      alert('Please allow popups to preview and print the report.');
+      showAlert('Popup Blocked', 'Please allow popups in your browser to preview and print the report.', 'warning');
       return;
     }
 
@@ -378,92 +367,22 @@ export default function ManageStudentAccounts() {
       <head>
           <title>Individual Student Account Report - ${selectedStudentView.student_id || 'Student'}</title>
           <style>
-              body {
-                  font-family: Arial, Helvetica, sans-serif;
-                  margin: 25px;
-                  color: #0f172a;
-              }
-              .report-header {
-                  display: flex;
-                  align-items: center;
-                  border-bottom: 2px solid #0056b3;
-                  padding-bottom: 12px;
-                  margin-bottom: 16px;
-              }
-              .report-header img {
-                  height: 60px;
-                  margin-right: 20px;
-              }
-              .report-title h2 {
-                  margin: 0;
-                  font-size: 20px;
-                  color: #1e3a8a;
-              }
-              .report-title p {
-                  margin: 4px 0 0;
-                  font-size: 13px;
-                  color: #475569;
-              }
-              .meta-info {
-                  display: flex;
-                  justify-content: space-between;
-                  font-size: 13px;
-                  color: #475569;
-                  margin-bottom: 16px;
-                  font-weight: 500;
-              }
-              .details-card {
-                  background-color: #f8fafc;
-                  border: 1px solid #cbd5e1;
-                  padding: 12px 16px;
-                  border-radius: 6px;
-                  margin-bottom: 20px;
-                  display: grid;
-                  grid-template-columns: 1fr 1fr;
-                  gap: 10px;
-                  font-size: 13px;
-              }
-              table {
-                  width: 100%;
-                  border-collapse: collapse;
-                  font-size: 12px;
-                  margin-bottom: 35px;
-              }
-              th {
-                  background-color: #f1f5f9;
-                  color: #0f172a;
-                  text-align: left;
-                  padding: 9px 10px;
-                  border: 1px solid #cbd5e1;
-                  font-weight: bold;
-              }
-              td {
-                  padding: 8px 10px;
-                  border: 1px solid #e2e8f0;
-              }
-              tr:nth-child(even) {
-                  background-color: #f8fafc;
-              }
-              .signature-section {
-                  margin-top: 40px;
-                  font-size: 13px;
-              }
-              .signature-title {
-                  color: #475569;
-                  margin-bottom: 35px;
-              }
-              .signature-name {
-                  font-weight: bold;
-                  font-size: 14px;
-                  color: #0f172a;
-              }
-              .signature-role {
-                  font-style: italic;
-                  color: #64748b;
-              }
-              @media print {
-                  body { margin: 0; }
-              }
+              body { font-family: Arial, Helvetica, sans-serif; margin: 25px; color: #0f172a; }
+              .report-header { display: flex; align-items: center; border-bottom: 2px solid #0056b3; padding-bottom: 12px; margin-bottom: 16px; }
+              .report-header img { height: 60px; margin-right: 20px; }
+              .report-title h2 { margin: 0; font-size: 20px; color: #1e3a8a; }
+              .report-title p { margin: 4px 0 0; font-size: 13px; color: #475569; }
+              .meta-info { display: flex; justify-content: space-between; font-size: 13px; color: #475569; margin-bottom: 16px; font-weight: 500; }
+              .details-card { background-color: #f8fafc; border: 1px solid #cbd5e1; padding: 12px 16px; border-radius: 6px; margin-bottom: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 13px; }
+              table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 35px; }
+              th { background-color: #f1f5f9; color: #0f172a; text-align: left; padding: 9px 10px; border: 1px solid #cbd5e1; font-weight: bold; }
+              td { padding: 8px 10px; border: 1px solid #e2e8f0; }
+              tr:nth-child(even) { background-color: #f8fafc; }
+              .signature-section { margin-top: 40px; font-size: 13px; }
+              .signature-title { color: #475569; margin-bottom: 35px; }
+              .signature-name { font-weight: bold; font-size: 14px; color: #0f172a; }
+              .signature-role { font-style: italic; color: #64748b; }
+              @media print { body { margin: 0; } }
           </style>
       </head>
       <body>
@@ -518,9 +437,7 @@ export default function ManageStudentAccounts() {
           </div>
 
           <script>
-              window.onload = function() {
-                  window.print();
-              };
+              window.onload = function() { window.print(); };
           </script>
       </body>
       </html>
@@ -531,7 +448,7 @@ export default function ManageStudentAccounts() {
     printWindow.document.close();
   };
 
-  // Enforce student_id prefix '02000' & autofill username (e.g. bernardo.345411)
+  // Enforce student_id prefix '02000' & autofill username
   const handleStudentIdChange = (e) => {
     const value = e.target.value;
     let newId = value;
@@ -595,7 +512,21 @@ export default function ManageStudentAccounts() {
     setNewParentForm(prev => ({ ...prev, password: checked ? '123' : '' }));
   };
 
-  // Handlers for dynamic student/parent last name changes with auto username & parent_id generation
+  // Enforce parent username format with fixed 'parent.' prefix
+  const handleParentUsernameChange = (val, isEdit = false) => {
+    let clean = val.trim().toLowerCase();
+    if (!clean.startsWith('parent.')) {
+      const withoutPrefix = clean.replace(/^parent\.?/, '');
+      clean = `parent.${withoutPrefix}`;
+    }
+    if (isEdit) {
+      setEditNewParentForm(prev => ({ ...prev, username: clean }));
+    } else {
+      setNewParentForm(prev => ({ ...prev, username: clean }));
+    }
+  };
+
+  // Dynamic student/parent last name changes with auto username parent.lastname & parent_id generation
   const handleStudentLastNameChange = (e) => {
     const lastName = e.target.value;
 
@@ -612,30 +543,36 @@ export default function ManageStudentAccounts() {
       const effectiveParentLastName = prev.last_name && prev.last_name !== studentForm.last_name 
         ? prev.last_name 
         : lastName;
-      
+      const cleanParentLastName = effectiveParentLastName.trim().toLowerCase().replace(/\s+/g, '');
+
       return {
         ...prev,
         last_name: effectiveParentLastName,
-        parent_id: generateParentId(effectiveParentLastName)
+        parent_id: generateParentId(effectiveParentLastName),
+        username: cleanParentLastName ? `parent.${cleanParentLastName}` : ''
       };
     });
   };
 
   const handleParentLastNameChange = (e) => {
     const parentLastName = e.target.value;
+    const cleanParentLastName = parentLastName.trim().toLowerCase().replace(/\s+/g, '');
     setNewParentForm(prev => ({
       ...prev,
       last_name: parentLastName,
-      parent_id: generateParentId(parentLastName)
+      parent_id: generateParentId(parentLastName),
+      username: cleanParentLastName ? `parent.${cleanParentLastName}` : ''
     }));
   };
 
   const handleEditParentLastNameChange = (e) => {
     const parentLastName = e.target.value;
+    const cleanParentLastName = parentLastName.trim().toLowerCase().replace(/\s+/g, '');
     setEditNewParentForm(prev => ({
       ...prev,
       last_name: parentLastName,
-      parent_id: generateParentId(parentLastName)
+      parent_id: generateParentId(parentLastName),
+      username: cleanParentLastName ? `parent.${cleanParentLastName}` : ''
     }));
   };
 
@@ -667,8 +604,24 @@ export default function ManageStudentAccounts() {
     }
   };
 
-  const handleCreateStudent = async (e) => {
+  const handleCreateStudent = (e) => {
     e.preventDefault();
+
+    // Validate Philippine Phone Number if creating a new parent
+    if (parentOption === 'new' && newParentForm.primary_phone && !isValidPhPhone(newParentForm.primary_phone)) {
+      showAlert('Validation Error', 'Please enter a valid Philippine phone number format (e.g. 09196398319 or +639196398319).', 'warning');
+      return;
+    }
+
+    showConfirm(
+      'Confirm Account Creation',
+      `Are you sure you want to create a new student account for ${studentForm.first_name} ${studentForm.last_name}?`,
+      () => executeCreateStudent(),
+      'Create Student'
+    );
+  };
+
+  const executeCreateStudent = async () => {
     const payload = {
       ...studentForm,
       username: formatUsernameInput(studentForm.username),
@@ -688,24 +641,41 @@ export default function ManageStudentAccounts() {
       });
 
       if (res.ok) {
-        alert('Student Account created successfully!');
+        showAlert('Success', 'Student Account created successfully!', 'success');
         setIsAddModalOpen(false);
         resetAddForm();
         fetchStudents(searchQuery);
       } else {
         const err = await res.json();
-        alert(`Error: ${err.error}`);
+        showAlert('Error', `Error: ${err.error || 'Failed to create student account'}`, 'error');
       }
     } catch (err) {
       console.error('Error creating student:', err);
-      alert('Failed to create student account.');
+      showAlert('Error', 'Failed to create student account.', 'error');
     }
   };
 
-  const handleUpdateStudent = async (e) => {
+  const handleUpdateStudent = (e) => {
     e.preventDefault();
+
+    // Validate Philippine Phone Number if creating/updating a new parent
+    if (parentAction === 'new' && editNewParentForm.primary_phone && !isValidPhPhone(editNewParentForm.primary_phone)) {
+      showAlert('Validation Error', 'Please enter a valid Philippine phone number format (e.g. 09196398319 or +639196398319).', 'warning');
+      return;
+    }
+
+    showConfirm(
+      'Confirm Update',
+      `Are you sure you want to save changes for student account ${editForm.student_id}?`,
+      () => executeUpdateStudent(),
+      'Save Changes'
+    );
+  };
+
+  const executeUpdateStudent = async () => {
     const payload = {
       ...editForm,
+      username: formatUsernameInput(editForm.username),
       parent_action: parentAction,
       selected_parent_id: editSelectedParentId,
       new_parent: parentAction === 'new' ? {
@@ -722,15 +692,16 @@ export default function ManageStudentAccounts() {
       });
 
       if (res.ok) {
-        alert('Student details updated successfully!');
+        showAlert('Success', 'Student details updated successfully!', 'success');
         setIsEditModalOpen(false);
         fetchStudents(searchQuery);
       } else {
         const err = await res.json();
-        alert(`Failed to update student account: ${err.error}`);
+        showAlert('Error', `Failed to update student account: ${err.error || 'Unknown error'}`, 'error');
       }
     } catch (err) {
       console.error('Error updating student:', err);
+      showAlert('Error', 'Failed to update student account.', 'error');
     }
   };
 
@@ -744,7 +715,7 @@ export default function ManageStudentAccounts() {
         const text = event.target.result;
         const lines = text.split(/\r\n|\n/).filter(line => line.trim() !== '');
         if (lines.length < 2) {
-          alert('CSV file is empty or missing data rows.');
+          showAlert('Invalid CSV', 'CSV file is empty or missing data rows.', 'error');
           return;
         }
 
@@ -776,9 +747,14 @@ export default function ManageStudentAccounts() {
           const isActive = row.is_active !== undefined ? (String(row.is_active) === '1' || String(row.is_active).toLowerCase() === 'true') : true;
 
           const parentLastName = row.parent_last_name || lastName;
+          const cleanParentLastName = parentLastName.trim().toLowerCase().replace(/\s+/g, '');
           const autoParentId = row.parent_id || generateParentId(parentLastName, idx + 1);
           const hasParent = Boolean(row.parent_id || row.parent_username || row.parent_last_name);
           const parentOption = hasParent ? 'new' : 'none';
+
+          const parentUsernameClean = row.parent_username 
+            ? row.parent_username.replace(DOMAIN_EXTENSION, '').trim() 
+            : `parent.${cleanParentLastName}`;
 
           return {
             id: idx,
@@ -797,7 +773,7 @@ export default function ManageStudentAccounts() {
               parent_id: autoParentId,
               first_name: row.parent_first_name || '',
               last_name: parentLastName,
-              username: row.parent_username ? row.parent_username.replace(DOMAIN_EXTENSION, '').trim() : '',
+              username: parentUsernameClean,
               password: row.parent_password || '123',
               primary_phone: row.parent_phone || row.primary_phone || '',
               is_active: true
@@ -809,7 +785,7 @@ export default function ManageStudentAccounts() {
         setIsBatchModalOpen(true);
       } catch (err) {
         console.error('Error parsing CSV:', err);
-        alert('Failed to parse CSV file.');
+        showAlert('CSV Error', 'Failed to parse CSV file.', 'error');
       } finally {
         e.target.value = '';
       }
@@ -845,9 +821,16 @@ export default function ManageStudentAccounts() {
     setBatchStudents(prev => {
       const updated = [...prev];
       if (updated[index].new_parent) {
+        let val = value;
+        if (field === 'username') {
+          val = val.trim().toLowerCase();
+          if (!val.startsWith('parent.')) {
+            val = `parent.${val.replace(/^parent\.?/, '')}`;
+          }
+        }
         updated[index] = {
           ...updated[index],
-          new_parent: { ...updated[index].new_parent, [field]: value }
+          new_parent: { ...updated[index].new_parent, [field]: val }
         };
       }
       return updated;
@@ -855,13 +838,34 @@ export default function ManageStudentAccounts() {
   };
 
   const handleRemoveBatchRow = (index) => {
-    setBatchStudents(prev => prev.filter((_, i) => i !== index));
+    const item = batchStudents[index];
+    const nameStr = item ? `${item.first_name} ${item.last_name}`.trim() : '';
+    const label = nameStr ? `for "${nameStr}"` : `at position #${index + 1}`;
+
+    showConfirm(
+      'Confirm Removal',
+      `Are you sure you want to remove the record ${label} from the batch list?`,
+      () => {
+        setBatchStudents(prev => prev.filter((_, i) => i !== index));
+      },
+      'Remove Row',
+      'warning'
+    );
   };
 
-  const handleBatchSubmit = async (e) => {
+  const handleBatchSubmit = (e) => {
     e.preventDefault();
     if (batchStudents.length === 0) return;
 
+    showConfirm(
+      'Confirm Batch Creation',
+      `Are you sure you want to process and create all ${batchStudents.length} student account(s)?`,
+      () => executeBatchSubmit(),
+      'Submit Batch'
+    );
+  };
+
+  const executeBatchSubmit = async () => {
     setIsSubmittingBatch(true);
     let successCount = 0;
     let failCount = 0;
@@ -905,17 +909,17 @@ export default function ManageStudentAccounts() {
     if (successCount > 0) fetchStudents(searchQuery);
 
     if (failCount === 0) {
-      alert(`Successfully created all ${successCount} student account(s).`);
+      showAlert('Batch Complete', `Successfully created all ${successCount} student account(s).`, 'success');
       setIsBatchModalOpen(false);
       setBatchStudents([]);
     } else {
-      alert(`Batch Finished: Success: ${successCount}, Failed: ${failCount}`);
+      showAlert('Batch Process Finished', `Batch Creation Completed.\nSuccess: ${successCount}, Failed: ${failCount}`, failCount > 0 && successCount > 0 ? 'warning' : 'error');
     }
   };
 
   const handleCSVExport = () => {
     if (!students || students.length === 0) {
-      alert('No student account data available to export.');
+      showAlert('Export Failed', 'No student account data available to export.', 'warning');
       return;
     }
 
@@ -972,10 +976,14 @@ export default function ManageStudentAccounts() {
       ? student.section.toUpperCase() 
       : 'A';
 
+    const cleanLastName = (student.last_name || '').trim().toLowerCase().replace(/\s+/g, '');
+    const cleanStudentUsername = (student.username || '').replace(DOMAIN_EXTENSION, '').trim();
+
     setEditForm({
       student_id: student.student_id,
       first_name: student.first_name,
       last_name: student.last_name,
+      username: cleanStudentUsername,
       program_id: student.program_id,
       year_level: yLevel,
       section: sec,
@@ -993,7 +1001,7 @@ export default function ManageStudentAccounts() {
       parent_id: generateParentId(student.last_name),
       first_name: '',
       last_name: student.last_name || '',
-      username: '',
+      username: cleanLastName ? `parent.${cleanLastName}` : '',
       password: '123',
       primary_phone: '',
       is_active: true
@@ -1672,14 +1680,14 @@ export default function ManageStudentAccounts() {
                       />
                     </div>
                     <div className="form-group-msa col-span-2-msa">
-                      <label>Parent Username *</label>
+                      <label>Parent Username (Fixed prefix: parent.) *</label>
                       <div className="domain-input-group-msa">
                         <input
                           type="text"
                           required
-                          placeholder="e.g. parent.bernardo"
+                          placeholder="parent.lastname"
                           value={newParentForm.username}
-                          onChange={(e) => setNewParentForm({ ...newParentForm, username: e.target.value })}
+                          onChange={(e) => handleParentUsernameChange(e.target.value, false)}
                         />
                         <span className="domain-suffix-msa">{DOMAIN_EXTENSION}</span>
                       </div>
@@ -1694,14 +1702,32 @@ export default function ManageStudentAccounts() {
                         Use default password ("123")
                       </label>
                     </div>
+
+                    {/* Philippine Phone Format with Real-Time Validation */}
                     <div className="form-group-msa">
-                      <label>Primary Phone</label>
+                      <label>Primary Phone *</label>
                       <input
                         type="text"
+                        placeholder="e.g. 09196398319 or +639196398319"
+                        className={
+                          newParentForm.primary_phone
+                            ? isValidPhPhone(newParentForm.primary_phone)
+                              ? 'input-valid-msa'
+                              : 'input-invalid-msa'
+                            : ''
+                        }
                         value={newParentForm.primary_phone}
                         onChange={(e) => setNewParentForm({ ...newParentForm, primary_phone: e.target.value })}
                       />
+                      {newParentForm.primary_phone && (
+                        <small className={isValidPhPhone(newParentForm.primary_phone) ? 'text-success-msa' : 'text-danger-msa'}>
+                          {isValidPhPhone(newParentForm.primary_phone)
+                            ? '✓ Valid Philippine phone number format'
+                            : '✕ Invalid format. Must start with 09 (11 digits) or +639 (13 characters)'}
+                        </small>
+                      )}
                     </div>
+
                     <div className="form-group-msa checkbox-group-msa">
                       <label>
                         <input
@@ -1761,6 +1787,20 @@ export default function ManageStudentAccounts() {
                       value={editForm.last_name}
                       onChange={(e) => setEditForm({ ...editForm, last_name: e.target.value })}
                     />
+                  </div>
+
+                  <div className="form-group-msa col-span-2-msa">
+                    <label>Username *</label>
+                    <div className="domain-input-group-msa">
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. bernardo.345411"
+                        value={editForm.username}
+                        onChange={(e) => setEditForm({ ...editForm, username: e.target.value })}
+                      />
+                      <span className="domain-suffix-msa">{DOMAIN_EXTENSION}</span>
+                    </div>
                   </div>
 
                   <div className="form-group-msa">
@@ -1948,14 +1988,14 @@ export default function ManageStudentAccounts() {
                       />
                     </div>
                     <div className="form-group-msa col-span-2-msa">
-                      <label>Parent Username *</label>
+                      <label>Parent Username (Fixed prefix: parent.) *</label>
                       <div className="domain-input-group-msa">
                         <input
                           type="text"
                           required
-                          placeholder="e.g. parent.bernardo"
+                          placeholder="parent.lastname"
                           value={editNewParentForm.username}
-                          onChange={(e) => setEditNewParentForm({ ...editNewParentForm, username: e.target.value })}
+                          onChange={(e) => handleParentUsernameChange(e.target.value, true)}
                         />
                         <span className="domain-suffix-msa">{DOMAIN_EXTENSION}</span>
                       </div>
@@ -1970,14 +2010,32 @@ export default function ManageStudentAccounts() {
                         Use default password ("123")
                       </label>
                     </div>
+
+                    {/* Philippine Phone Format with Real-Time Validation */}
                     <div className="form-group-msa">
-                      <label>Primary Phone</label>
+                      <label>Primary Phone *</label>
                       <input
                         type="text"
+                        placeholder="e.g. 09196398319 or +639196398319"
+                        className={
+                          editNewParentForm.primary_phone
+                            ? isValidPhPhone(editNewParentForm.primary_phone)
+                              ? 'input-valid-msa'
+                              : 'input-invalid-msa'
+                            : ''
+                        }
                         value={editNewParentForm.primary_phone}
                         onChange={(e) => setEditNewParentForm({ ...editNewParentForm, primary_phone: e.target.value })}
                       />
+                      {editNewParentForm.primary_phone && (
+                        <small className={isValidPhPhone(editNewParentForm.primary_phone) ? 'text-success-msa' : 'text-danger-msa'}>
+                          {isValidPhPhone(editNewParentForm.primary_phone)
+                            ? '✓ Valid Philippine phone number format'
+                            : '✕ Invalid format. Must start with 09 (11 digits) or +639 (13 characters)'}
+                        </small>
+                      )}
                     </div>
+
                     <div className="form-group-msa checkbox-group-msa">
                       <label>
                         <input
@@ -2001,6 +2059,61 @@ export default function ManageStudentAccounts() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Custom Alert & Confirmation Modal */}
+      {modalConfig.isOpen && (
+        <div className="modal-overlay-msa" style={{ zIndex: 1100 }}>
+          <div className="modal-msa" style={{ maxWidth: '420px', width: '90%' }}>
+            <div className="modal-header-msa" style={{ borderBottom: '1px solid #e2e8f0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {modalConfig.type === 'success' && <CheckCircle className="text-success-msa" size={22} />}
+                {modalConfig.type === 'error' && <XCircle className="text-danger-msa" size={22} />}
+                {modalConfig.type === 'warning' && <AlertTriangle style={{ color: '#f59e0b' }} size={22} />}
+                {(modalConfig.type === 'info' || modalConfig.type === 'confirm') && <AlertCircle className="text-blue-msa" size={22} />}
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '600' }}>{modalConfig.title}</h3>
+              </div>
+              <button type="button" className="close-btn-msa" onClick={closeModalConfig}>
+                <X size={20} />
+              </button>
+            </div>
+            <div className="modal-body-msa" style={{ padding: '20px 16px', fontSize: '14px', lineHeight: '1.5', color: '#334155' }}>
+              <p style={{ margin: 0, whiteSpace: 'pre-line' }}>{modalConfig.message}</p>
+            </div>
+            <div className="modal-footer-msa" style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', paddingTop: '12px' }}>
+              {modalConfig.onConfirm ? (
+                <>
+                  <button 
+                    type="button" 
+                    className="btn-msa btn-secondary-msa" 
+                    onClick={closeModalConfig}
+                  >
+                    {modalConfig.cancelText || 'Cancel'}
+                  </button>
+                  <button 
+                    type="button" 
+                    className="btn-msa btn-primary-msa" 
+                    onClick={() => {
+                      const action = modalConfig.onConfirm;
+                      closeModalConfig();
+                      if (action) action();
+                    }}
+                  >
+                    {modalConfig.confirmText || 'Confirm'}
+                  </button>
+                </>
+              ) : (
+                <button 
+                  type="button" 
+                  className="btn-msa btn-primary-msa" 
+                  onClick={closeModalConfig}
+                >
+                  {modalConfig.confirmText || 'OK'}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

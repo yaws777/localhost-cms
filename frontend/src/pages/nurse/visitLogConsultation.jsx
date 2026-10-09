@@ -3,7 +3,7 @@ import { useLocation, useOutletContext } from 'react-router-dom';
 import { 
     Search, QrCode, User, Activity, ShieldAlert, Clock, 
     XCircle, CheckCircle, FileText, LogOut, RefreshCw, Camera, 
-    AlertTriangle, History, Filter, RotateCcw, Download
+    AlertTriangle, History, Filter, RotateCcw, Download, Info
 } from 'lucide-react';
 import jsQR from 'jsqr';
 import jsPDF from 'jspdf';
@@ -139,8 +139,6 @@ const VisitLogConsultation = () => {
     const [batches, setBatches] = useState([]);
     const [todayVisits, setTodayVisits] = useState([]);
 
-    const [inlineTimeouts, setInlineTimeouts] = useState({});
-
     const [showAllLogsModal, setShowAllLogsModal] = useState(false);
     const [allVisits, setAllVisits] = useState([]);
     const [logsSearch, setLogsSearch] = useState('');
@@ -169,6 +167,17 @@ const VisitLogConsultation = () => {
     const [qrTimeoutVisit, setQrTimeoutVisit] = useState(null);
     const [qrTimeoutInput, setQrTimeoutInput] = useState('');
 
+    // Dynamic Centralized Modal System State
+    const [feedbackModal, setFeedbackModal] = useState({
+        isOpen: false,
+        type: 'info', // 'confirm' | 'success' | 'error' | 'warning'
+        title: '',
+        message: '',
+        onConfirm: null,
+        confirmText: 'OK',
+        cancelText: 'Cancel'
+    });
+
     const qrTimeoutVisitRef = useRef(qrTimeoutVisit);
     const searchModeRef = useRef(searchMode);
 
@@ -182,12 +191,32 @@ const VisitLogConsultation = () => {
 
     const todayStr = new Date().toISOString().split('T')[0];
 
-    const handleInlineTimeoutChange = (visitId, value) => {
-        setInlineTimeouts(prev => ({
-            ...prev,
-            [visitId]: value
-        }));
-    };
+    const showAlertModal = useCallback((title, message, type = 'error') => {
+        setFeedbackModal({
+            isOpen: true,
+            type,
+            title,
+            message,
+            onConfirm: () => setFeedbackModal(prev => ({ ...prev, isOpen: false })),
+            confirmText: 'OK',
+            cancelText: ''
+        });
+    }, []);
+
+    const showConfirmDialog = useCallback((title, message, onConfirmAction, confirmText = 'Confirm', cancelText = 'Cancel', type = 'confirm') => {
+        setFeedbackModal({
+            isOpen: true,
+            type,
+            title,
+            message,
+            onConfirm: () => {
+                setFeedbackModal(prev => ({ ...prev, isOpen: false }));
+                if (onConfirmAction) onConfirmAction();
+            },
+            confirmText,
+            cancelText
+        });
+    }, []);
 
     const stopCameraScan = useCallback(() => {
         if (streamRef.current) {
@@ -299,6 +328,16 @@ const VisitLogConsultation = () => {
     }, [requestCameraAndStartScan]);
 
     const handleSelectStudent = useCallback((student) => {
+        // Check for inactive account status
+        if (student.is_active === 0 || student.is_active === false) {
+            showAlertModal(
+                'Inactive Account Warning',
+                `Cannot process student record. The account for ${student.first_name} ${student.last_name} (ID: ${student.student_id}) is marked as INACTIVE.`,
+                'error'
+            );
+            return;
+        }
+
         stopCameraScan();
 
         const activeVisit = todayVisits.find(
@@ -306,12 +345,14 @@ const VisitLogConsultation = () => {
         );
 
         if (activeVisit) {
-            const shouldTimeout = window.confirm(
-                `${student.first_name} ${student.last_name} (ID: ${student.student_id}) is ALREADY checked into the clinic!\n\nWould you like to scan or process Time-Out for this student instead?`
+            showConfirmDialog(
+                'Active Visit Detected',
+                `${student.first_name} ${student.last_name} (ID: ${student.student_id}) is ALREADY checked into the clinic. Would you like to process Time-Out for this student now?`,
+                () => handleOpenQrTimeoutModal(activeVisit),
+                'Process Time-Out',
+                'Cancel',
+                'warning'
             );
-            if (shouldTimeout) {
-                handleOpenQrTimeoutModal(activeVisit);
-            }
             return;
         }
 
@@ -321,28 +362,39 @@ const VisitLogConsultation = () => {
         ).length;
         setPreviousVisitsCount(existingCount);
         setShowConfirmModal(true);
-    }, [todayVisits, stopCameraScan, handleOpenQrTimeoutModal]);
+    }, [todayVisits, stopCameraScan, handleOpenQrTimeoutModal, showAlertModal, showConfirmDialog]);
 
     const searchStudentByQr = useCallback(async (studentId) => {
         if (!studentId || !studentId.trim() || isProcessingScan.current) return;
         isProcessingScan.current = true;
 
         try {
-            const res = await fetch(`http://localhost:3001/api/students/search?query=${encodeURIComponent(studentId.trim())}`);
+            const res = await fetch(`http://localhost:3001/api/students/search-visit?query=${encodeURIComponent(studentId.trim())}`);
             const data = await res.json();
+
             if (Array.isArray(data) && data.length > 0) {
+                const student = data[0];
+                if (student.is_active === 0 || student.is_active === false) {
+                    stopCameraScan();
+                    showAlertModal(
+                        'Inactive Student Account',
+                        `Scanning blocked: Account for ${student.first_name} ${student.last_name} (ID: ${student.student_id}) is INACTIVE.`,
+                        'error'
+                    );
+                    return;
+                }
                 stopCameraScan();
-                handleSelectStudent(data[0]);
+                handleSelectStudent(student);
             } else {
-                alert(`No student found with QR/Student ID: ${studentId}`);
+                showAlertModal('Student Not Found', `No student found matching QR or Student ID: "${studentId}"`, 'warning');
             }
         } catch (err) {
             console.error("Error reading QR code:", err);
-            alert("Failed to read QR code data.");
+            showAlertModal('System Error', "Failed to connect to student database.", 'error');
         } finally {
             isProcessingScan.current = false;
         }
-    }, [handleSelectStudent, stopCameraScan]);
+    }, [handleSelectStudent, stopCameraScan, showAlertModal]);
 
     const handleSearch = async (val) => {
         setSearchQuery(val);
@@ -351,9 +403,16 @@ const VisitLogConsultation = () => {
             return;
         }
         try {
-            const res = await fetch(`http://localhost:3001/api/students/search?query=${val}`);
+            const res = await fetch(`http://localhost:3001/api/students/search-visit?query=${val}`);
             const data = await res.json();
-            setStudents(Array.isArray(data) ? data : []);
+            
+            if (Array.isArray(data)) {
+                // Filter out inactive accounts from active search list
+                const activeOnly = data.filter(s => s.is_active !== 0 && s.is_active !== false);
+                setStudents(activeOnly);
+            } else {
+                setStudents([]);
+            }
         } catch (err) {
             console.error("Error searching students:", err);
             setStudents([]);
@@ -384,38 +443,46 @@ const VisitLogConsultation = () => {
         }
     };
 
-    const handleManualTimeout = useCallback(async (visitId, timeOutVal = null) => {
-        const selectedTime = timeOutVal || inlineTimeouts[visitId];
-        
-        if (!selectedTime || !selectedTime.trim()) {
-            alert('Please select or enter a Time Out time first before clicking Manual Time Out.');
-            return;
-        }
+    // Manual Time-Out automatically uses current local time
+    const handleManualTimeout = useCallback(async (visitId, customTime = null) => {
+        const now = new Date();
+        const currentTime = customTime || now.toTimeString().split(' ')[0].substring(0, 5);
+        const formattedCurrentTime = formatTimeDisplay(currentTime);
 
-        try {
-            const res = await fetch(`http://localhost:3001/api/clinic-visits/${visitId}/timeout`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ time_out: selectedTime })
-            });
-            const data = await res.json();
-            if (data.success) {
-                alert('Student successfully timed out.');
-                setInlineTimeouts(prev => {
-                    const copy = { ...prev };
-                    delete copy[visitId];
-                    return copy;
+        const performTimeout = async () => {
+            try {
+                const res = await fetch(`http://localhost:3001/api/clinic-visits/${visitId}/timeout`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ time_out: currentTime })
                 });
-                fetchTodayVisits();
-                if (showAllLogsModal) fetchAllVisits();
-            } else {
-                alert(`Time out error: ${data.error}`);
+                const data = await res.json();
+                if (data.success) {
+                    showAlertModal('Time Out Success', `Student successfully timed out at ${formattedCurrentTime}.`, 'success');
+                    fetchTodayVisits();
+                    if (showAllLogsModal) fetchAllVisits();
+                } else {
+                    showAlertModal('Time Out Error', data.error || "Failed to update time out status.", 'error');
+                }
+            } catch (err) {
+                console.error(err);
+                showAlertModal('Network Error', "Failed to connect to backend server for time out.", 'error');
             }
-        } catch (err) {
-            console.error(err);
-            alert("Failed to set time out.");
+        };
+
+        if (customTime) {
+            await performTimeout();
+        } else {
+            showConfirmDialog(
+                'Confirm Time Out',
+                `Set Time Out based on current time (${formattedCurrentTime}) for this student visit?`,
+                performTimeout,
+                'Time Out Now',
+                'Cancel',
+                'confirm'
+            );
         }
-    }, [inlineTimeouts, fetchTodayVisits, fetchAllVisits, showAllLogsModal]);
+    }, [fetchTodayVisits, fetchAllVisits, showAllLogsModal, showAlertModal, showConfirmDialog]);
 
     useEffect(() => {
         let animationFrameId;
@@ -451,7 +518,7 @@ const VisitLogConsultation = () => {
                             await handleManualTimeout(targetVisitId, currentTime);
                             isProcessingScan.current = false;
                         } else {
-                            alert(`QR Mismatch! Scanned ID "${scannedVal}" does not match active student ID "${qrTimeoutVisitRef.current.student_id}".`);
+                            showAlertModal('QR Code Mismatch', `Scanned ID "${scannedVal}" does not match active student ID "${qrTimeoutVisitRef.current.student_id}".`, 'error');
                         }
                         return;
                     }
@@ -476,7 +543,7 @@ const VisitLogConsultation = () => {
         return () => {
             if (animationFrameId) cancelAnimationFrame(animationFrameId);
         };
-    }, [isCameraScanning, stopCameraScan, searchStudentByQr, handleManualTimeout]);
+    }, [isCameraScanning, stopCameraScan, searchStudentByQr, handleManualTimeout, showAlertModal]);
 
     const handleConfirmVisitEntry = async () => {
         if (!selectedStudent) return;
@@ -485,7 +552,7 @@ const VisitLogConsultation = () => {
         );
 
         if (activeVisit) {
-            alert(`${selectedStudent.first_name} ${selectedStudent.last_name} (ID: ${selectedStudent.student_id}) is ALREADY currently checked in without timing out!`);
+            showAlertModal('Duplicate Check-In Blocked', `${selectedStudent.first_name} ${selectedStudent.last_name} (ID: ${selectedStudent.student_id}) is ALREADY currently checked in without timing out!`, 'warning');
             setShowConfirmModal(false);
             return;
         }
@@ -506,7 +573,7 @@ const VisitLogConsultation = () => {
             });
             const data = await res.json();
             if (data.success) {
-                alert(`Check-in GRANTED at ${formatTimeDisplay(currentTime)} for ${selectedStudent.first_name} ${selectedStudent.last_name}. Click "Document" to record details.`);
+                showAlertModal('Check-In Granted', `Check-in logged at ${formatTimeDisplay(currentTime)} for ${selectedStudent.first_name} ${selectedStudent.last_name}.`, 'success');
                 setShowConfirmModal(false);
                 setSelectedStudent(null);
                 setSearchMode(null);
@@ -515,16 +582,15 @@ const VisitLogConsultation = () => {
                 fetchTodayVisits();
                 if (showAllLogsModal) fetchAllVisits();
             } else {
-                alert(`Failed to log check-in: ${data.error || 'Unknown error'}`);
+                showAlertModal('Check-In Error', data.error || 'Failed to log check-in entry.', 'error');
             }
         } catch (err) {
             console.error(err);
-            alert("Error connecting to backend application.");
+            showAlertModal('System Error', "Error connecting to backend application.", 'error');
         }
     };
 
     const handleDenyVisitEntry = () => {
-        alert(`Check-in entry for ${selectedStudent?.first_name} ${selectedStudent?.last_name} was DENIED.`);
         setShowConfirmModal(false);
         setSelectedStudent(null);
         setPreviousVisitsCount(0);
@@ -613,7 +679,7 @@ const VisitLogConsultation = () => {
         selectedComplaintObj.complaint_name.trim().toLowerCase()
     );
 
-    const handleDocumentSubmit = async (e) => {
+    const handleDocumentSubmit = (e) => {
         e.preventDefault();
         if (!documentingVisit) return;
 
@@ -627,64 +693,72 @@ const VisitLogConsultation = () => {
             !formData.nursing_intervention.trim() || 
             !formData.assessment.trim()
         ) {
-            alert('All required visit documentation fields must be filled out.');
+            showAlertModal('Missing Required Fields', 'All required visit documentation fields must be filled out before saving.', 'warning');
             return;
         }
 
         if (!isAlreadyDispensed && formData.batch_id && formData.dosage_consumption_unit_value) {
             const val = Number(formData.dosage_consumption_unit_value);
             if (isNaN(val) || val <= 0) {
-                alert('Dosage quantity must be greater than 0.');
+                showAlertModal('Invalid Dosage Quantity', 'Dosage quantity must be greater than 0.', 'warning');
                 return;
             }
             if (!isMeasuredUnit && !Number.isInteger(val)) {
-                alert(`Quantity for discrete units (${formData.dosage_consumption_unit_of_measure}) must be a whole integer.`);
+                showAlertModal('Invalid Quantity', `Quantity for discrete units (${formData.dosage_consumption_unit_of_measure}) must be a whole integer.`, 'warning');
                 return;
             }
             if (activeBatchInfo) {
                 if (new Date(activeBatchInfo.expiration_date) < new Date()) {
-                    alert('Cannot dispense from an expired batch.');
+                    showAlertModal('Expired Medicine', 'Cannot dispense medicine from an expired batch.', 'error');
                     return;
                 }
                 
                 if (isVolumeUnit && val > calculatedTotalAvailableVolume) {
-                    alert(`Requested quantity (${val} ${formData.dosage_consumption_unit_of_measure}) exceeds available stock.`);
+                    showAlertModal('Stock Deficit', `Requested quantity (${val} ${formData.dosage_consumption_unit_of_measure}) exceeds available stock.`, 'error');
                     return;
                 }
                 if (!isVolumeUnit && val > parseInt(activeBatchInfo.current_stock, 10)) {
                     const formLabel = formatDosageForm(activeBatchInfo.dosage_form, activeBatchInfo.current_stock).toLowerCase();
-                    alert(`Requested quantity (${val}) exceeds available ${formLabel} stock (${activeBatchInfo.current_stock}).`);
+                    showAlertModal('Stock Deficit', `Requested quantity (${val}) exceeds available ${formLabel} stock (${activeBatchInfo.current_stock}).`, 'error');
                     return;
                 }
             }
         }
 
-        const submissionPayload = {
-            ...formData,
-            student_id: documentingVisit.student_id,
-            nurse_id: nurseId || 'NURSE-DEFAULT'
-        };
+        showConfirmDialog(
+            'Confirm Documentation',
+            `Are you sure you want to save consultation details for ${documentingVisit.first_name} ${documentingVisit.last_name}?`,
+            async () => {
+                const submissionPayload = {
+                    ...formData,
+                    student_id: documentingVisit.student_id,
+                    nurse_id: nurseId || 'NURSE-DEFAULT'
+                };
 
-        try {
-            const res = await fetch(`http://localhost:3001/api/clinic-visits/${documentingVisit.visit_id}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(submissionPayload)
-            });
-            const data = await res.json();
-            if (data.success) {
-                alert(data.message || 'Visit documentation saved successfully!');
-                setDocumentingVisit(null);
-                fetchTodayVisits();
-                if (showAllLogsModal) fetchAllVisits();
-                fetchBatches();
-            } else {
-                alert(`Error: ${data.error || 'Failed to save documentation'}`);
-            }
-        } catch (err) {
-            console.error(err);
-            alert("Error saving documentation.");
-        }
+                try {
+                    const res = await fetch(`http://localhost:3001/api/clinic-visits/${documentingVisit.visit_id}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(submissionPayload)
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        showAlertModal('Documentation Saved', data.message || 'Visit documentation updated successfully!', 'success');
+                        setDocumentingVisit(null);
+                        fetchTodayVisits();
+                        if (showAllLogsModal) fetchAllVisits();
+                        fetchBatches();
+                    } else {
+                        showAlertModal('Save Failed', `Error: ${data.error || 'Failed to save documentation'}`, 'error');
+                    }
+                } catch (err) {
+                    console.error(err);
+                    showAlertModal('Network Error', "Error saving visit documentation.", 'error');
+                }
+            },
+            'Save Details',
+            'Cancel'
+        );
     };
 
     const handleCloseQrTimeoutModal = () => {
@@ -698,7 +772,7 @@ const VisitLogConsultation = () => {
         if (!qrTimeoutVisit || !qrTimeoutInput.trim()) return;
 
         if (qrTimeoutInput.trim().toUpperCase() !== qrTimeoutVisit.student_id.toUpperCase()) {
-            alert(`QR Code mismatch! Scanned: "${qrTimeoutInput.trim()}" but expected Student ID: "${qrTimeoutVisit.student_id}"`);
+            showAlertModal('QR Code Mismatch', `Scanned: "${qrTimeoutInput.trim()}" but expected Student ID: "${qrTimeoutVisit.student_id}"`, 'error');
             setQrTimeoutInput('');
             return;
         }
@@ -747,7 +821,6 @@ const VisitLogConsultation = () => {
         const doc = new jsPDF('p', 'mm', 'a4');
         const pageWidth = doc.internal.pageSize.getWidth();
 
-        // Add STI Logo image
         try {
             if (stiLogo) {
                 doc.addImage(stiLogo, 'PNG', 14, 10, 20, 20);
@@ -756,7 +829,6 @@ const VisitLogConsultation = () => {
             console.warn("STI Logo render notice:", err);
         }
 
-        // STI Header Details
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(14);
         doc.setTextColor(15, 23, 42);
@@ -784,7 +856,6 @@ const VisitLogConsultation = () => {
         doc.setDrawColor(203, 213, 225);
         doc.line(14, 38, pageWidth - 14, 38);
 
-        // Tabular Columns
         const tableHeaders = [
             ["Date", "Student ID", "Student Name", "Chief Complaint", "Time In", "Time Out", "Medicine Dispensed"]
         ];
@@ -846,7 +917,6 @@ const VisitLogConsultation = () => {
             signatureY = 25;
         }
 
-        // SVG Nurse Signature Data URL
         try {
             doc.addImage(NURSE_SIGNATURE_SVG, 'SVG', 14, signatureY, 45, 15);
         } catch (e) {
@@ -868,7 +938,6 @@ const VisitLogConsultation = () => {
         doc.setTextColor(100, 116, 139);
         doc.text("School Nurse", 14, signatureY + 23);
 
-        // Preview in a new browser tab instead of direct download
         const blobUrl = doc.output('bloburl');
         window.open(blobUrl, '_blank');
     };
@@ -892,6 +961,63 @@ const VisitLogConsultation = () => {
                     </button>
                 </div>
             </div>
+
+            {/* Custom Centralized Notification & Confirmation Modal */}
+            {feedbackModal.isOpen && (
+                <div className="modal-viewport-backdrop-vlc" style={{ zIndex: 2000 }}>
+                    <div className="modal-body-container-vlc confirm-modal-small-vlc">
+                        <div 
+                            className="modal-header-accent-vlc" 
+                            style={{ 
+                                backgroundColor: 
+                                    feedbackModal.type === 'error' ? '#dc2626' : 
+                                    feedbackModal.type === 'warning' ? '#d97706' : 
+                                    feedbackModal.type === 'success' ? '#16a34a' : '#1e3a8a' 
+                            }}
+                        >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                {feedbackModal.type === 'error' && <XCircle size={20} />}
+                                {feedbackModal.type === 'warning' && <AlertTriangle size={20} />}
+                                {feedbackModal.type === 'success' && <CheckCircle size={20} />}
+                                {feedbackModal.type === 'confirm' && <Info size={20} />}
+                                <h3>{feedbackModal.title}</h3>
+                            </div>
+                            <button className="modal-dismiss-btn-vlc" onClick={() => setFeedbackModal(prev => ({ ...prev, isOpen: false }))}>
+                                <XCircle size={22} />
+                            </button>
+                        </div>
+                        <div className="confirm-modal-body-vlc" style={{ paddingTop: '16px' }}>
+                            <p className="confirm-notice-vlc" style={{ fontSize: '0.95rem', color: '#334155', lineHeight: '1.5' }}>
+                                {feedbackModal.message}
+                            </p>
+                            <div className="modal-action-footer-vlc" style={{ marginTop: '20px' }}>
+                                {feedbackModal.cancelText && (
+                                    <button 
+                                        type="button" 
+                                        className="btn-deny-action-vlc" 
+                                        onClick={() => setFeedbackModal(prev => ({ ...prev, isOpen: false }))}
+                                    >
+                                        {feedbackModal.cancelText}
+                                    </button>
+                                )}
+                                <button 
+                                    type="button" 
+                                    className="btn-confirm-action-vlc" 
+                                    onClick={feedbackModal.onConfirm}
+                                    style={{
+                                        backgroundColor: 
+                                            feedbackModal.type === 'error' ? '#dc2626' : 
+                                            feedbackModal.type === 'warning' ? '#d97706' : 
+                                            feedbackModal.type === 'success' ? '#16a34a' : '#1e3a8a'
+                                    }}
+                                >
+                                    {feedbackModal.confirmText}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {!searchMode ? (
                 <div className="entry-option-card-vlc">
@@ -1036,7 +1162,7 @@ const VisitLogConsultation = () => {
                                     Deny
                                 </button>
                                 <button type="button" className="btn-confirm-action-vlc" onClick={handleConfirmVisitEntry}>
-                                    Confirm
+                                    Confirm Check-In
                                 </button>
                             </div>
                         </div>
@@ -1290,17 +1416,10 @@ const VisitLogConsultation = () => {
                                                                         >
                                                                             <QrCode size={16} />
                                                                         </button>
-                                                                        <input 
-                                                                            type="time" 
-                                                                            className="inline-time-input-vlc" 
-                                                                            title="Select custom time-out before manual time out"
-                                                                            value={inlineTimeouts[visit.visit_id] || ''} 
-                                                                            onChange={(e) => handleInlineTimeoutChange(visit.visit_id, e.target.value)} 
-                                                                        />
                                                                         <button 
                                                                             type="button" 
                                                                             className="icon-action-btn-vlc btn-manual-timeout-vlc"
-                                                                            title="Manual Time Out"
+                                                                            title="Manual Time Out (Current Time)"
                                                                             aria-label="Manual Time Out"
                                                                             onClick={() => handleManualTimeout(visit.visit_id)}
                                                                         >
@@ -1671,17 +1790,10 @@ const VisitLogConsultation = () => {
                                                             >
                                                                 <QrCode size={16} />
                                                             </button>
-                                                            <input 
-                                                                type="time" 
-                                                                className="inline-time-input-vlc" 
-                                                                title="Select custom time-out before manual time out"
-                                                                value={inlineTimeouts[visit.visit_id] || ''} 
-                                                                onChange={(e) => handleInlineTimeoutChange(visit.visit_id, e.target.value)} 
-                                                            />
                                                             <button 
                                                                 type="button" 
                                                                 className="icon-action-btn-vlc btn-manual-timeout-vlc"
-                                                                title="Manual Time Out"
+                                                                title="Manual Time Out (Current Time)"
                                                                 aria-label="Manual Time Out"
                                                                 onClick={() => handleManualTimeout(visit.visit_id)}
                                                             >

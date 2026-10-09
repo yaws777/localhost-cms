@@ -12,7 +12,8 @@ import {
   FileCheck,
   ArrowRight,
   PlusCircle,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Megaphone
 } from 'lucide-react';
 import HealthTipsModal from '../../components/student/HealthTips';
 import '../../styles/student/StudentDashboard.css';
@@ -38,6 +39,7 @@ const StudentDashboard = () => {
   const [documentRequestsData, setDocumentRequestsData] = useState({ excuse_slip_requests: [], referral_slip_requests: [], recent_updates: [] });
   const [healthScreenings, setHealthScreenings] = useState([]);
   const [doctorAppointments, setDoctorAppointments] = useState([]);
+  const [announcements, setAnnouncements] = useState([]);
 
   // UI States
   const [loading, setLoading] = useState(true);
@@ -91,12 +93,13 @@ const StudentDashboard = () => {
           section: section || ''
         }).toString();
 
-        const [visitsRes, reqsRes, docsRes, screeningsRes, appointmentsRes] = await Promise.all([
+        const [visitsRes, reqsRes, docsRes, screeningsRes, appointmentsRes, announcementsRes] = await Promise.all([
           fetch(`${API_BASE}/student/dashboard/visits-dispensation/${studentId}`),
           fetch(`${API_BASE}/student/dashboard/requirements/${studentId}`),
           fetch(`${API_BASE}/student/dashboard/document-requests/${studentId}`),
           fetch(`${API_BASE}/student/dashboard/upcoming-health-screenings?${queryParams}`),
-          fetch(`${API_BASE}/student/dashboard/doctor-appointments/${studentId}`)
+          fetch(`${API_BASE}/student/dashboard/doctor-appointments/${studentId}`),
+          fetch(`${API_BASE}/student/dashboard/announcements/${studentId}`)
         ]);
 
         const responses = [
@@ -104,7 +107,8 @@ const StudentDashboard = () => {
           { name: 'Requirements', res: reqsRes },
           { name: 'Document Requests', res: docsRes },
           { name: 'Health Screenings', res: screeningsRes },
-          { name: 'Doctor Appointments', res: appointmentsRes }
+          { name: 'Doctor Appointments', res: appointmentsRes },
+          { name: 'Announcements', res: announcementsRes }
         ];
 
         const failedEndpoints = responses.filter((r) => !r.res.ok);
@@ -113,12 +117,13 @@ const StudentDashboard = () => {
           throw new Error('Failed to load parts of your health dashboard.');
         }
 
-        const [visits, reqs, docs, screenings, appointments] = await Promise.all([
+        const [visits, reqs, docs, screenings, appointments, announcementsData] = await Promise.all([
           visitsRes.json(),
           reqsRes.json(),
           docsRes.json(),
           screeningsRes.json(),
-          appointmentsRes.json()
+          appointmentsRes.json(),
+          announcementsRes.json()
         ]);
 
         if (visits.success) setVisitsData(visits.data);
@@ -126,6 +131,7 @@ const StudentDashboard = () => {
         if (docs.success) setDocumentRequestsData(docs.data);
         if (screenings.success) setHealthScreenings(screenings.data);
         if (appointments.success) setDoctorAppointments(appointments.data);
+        if (announcementsData.success) setAnnouncements(announcementsData.data);
 
       } catch (err) {
         console.error('Error fetching student dashboard data:', err);
@@ -265,7 +271,40 @@ const StudentDashboard = () => {
       {/* Main Grid Layout */}
       <main className="grid-sd">
 
-        {/* 1. OVERVIEW: Clinic Visits & Medicine Dispensation */}
+        {/* 1. NURSE ANNOUNCEMENTS SECTION */}
+        <section className="card-section-sd col-span-2-sd">
+          <div className="card-header-sd">
+            <div className="card-title-group-sd">
+              <h2><Megaphone size={18} /> Nurse Announcements</h2>
+              <span className="meta-count-sd">{announcements.length} New</span>
+            </div>
+          </div>
+
+          {announcements.length === 0 ? (
+            <p className="empty-state-sd">No active nurse announcements.</p>
+          ) : (
+            <div className="card-content-stack-sd">
+              {announcements.slice(0, 3).map((ann) => (
+                <div key={ann.announcement_id} className="item-card-sd info-card-sd">
+                  <div className="item-card-row-sd">
+                    <span className="item-title-sd">{ann.title}</span>
+                    <span className="badge-sd badge-info-sd">
+                      Nurse: {ann.nurse_name || 'Clinic Staff'}
+                    </span>
+                  </div>
+                  <p className="item-subtext-sd" style={{ marginTop: '6px', fontSize: '0.9rem', color: '#334155' }}>
+                    {ann.content}
+                  </p>
+                  <p className="item-subtext-sd" style={{ marginTop: '8px', fontSize: '0.78rem' }}>
+                    Posted: <span>{formatDateTime(ann.created_at)}</span>
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* 2. OVERVIEW: Clinic Visits & Medicine Dispensation */}
         <section className="card-section-sd col-span-2-sd">
           <div className="card-header-sd">
             <div className="card-title-group-sd">
@@ -365,7 +404,7 @@ const StudentDashboard = () => {
           )}
         </section>
 
-        {/* 2. OVERVIEW: Requirements & Status */}
+        {/* 3. OVERVIEW: Requirements & Status */}
         <section className="card-section-sd">
           <div className="card-header-sd">
             <div className="card-title-group-sd">
@@ -416,7 +455,7 @@ const StudentDashboard = () => {
           )}
         </section>
 
-        {/* 3. OVERVIEW: Document Requests Updates */}
+        {/* 4. OVERVIEW: Document Requests Updates */}
         <section className="card-section-sd">
           <div className="card-header-sd">
             <div className="card-title-group-sd">
@@ -497,7 +536,7 @@ const StudentDashboard = () => {
           )}
         </section>
 
-        {/* 4. OVERVIEW: Upcoming Health Screenings */}
+        {/* 5. OVERVIEW: Upcoming Health Screenings */}
         <section className="card-section-sd">
           <div className="card-header-sd">
             <div className="card-title-group-sd">
@@ -533,7 +572,7 @@ const StudentDashboard = () => {
           )}
         </section>
 
-        {/* 5. OVERVIEW: Doctor Visit Schedule */}
+        {/* 6. OVERVIEW: Doctor Visit Schedule */}
         <section className="card-section-sd">
           <div className="card-header-sd">
             <div className="card-title-group-sd">

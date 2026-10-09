@@ -14,14 +14,15 @@ import {
   Eye, 
   RotateCcw,
   Clock,
-  Download
+  Download,
+  HelpCircle,
+  Info
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import jsQR from 'jsqr';
 import '../../styles/nurse/DispensedMedicine.css';
 
-// Included 'pcs.' to treat piece-counted boxes as volume-backed stock
 const MEASURED_UNITS = ['mg', 'g', 'mcg', 'mL', 'L', 'pcs.'];
 
 const convertUnit = (val, fromUnit, toUnit) => {
@@ -51,7 +52,6 @@ const convertUnit = (val, fromUnit, toUnit) => {
   return fromBase(toBase(val, fromUnit), toUnit);
 };
 
-// Helper function to check if item packaging or unit indicates a box
 const isBoxUnit = (item) => {
   if (!item) return false;
   const fields = [
@@ -66,7 +66,6 @@ const isBoxUnit = (item) => {
   return fields.some(field => typeof field === 'string' && field.toLowerCase().includes('box'));
 };
 
-// Helper function to derive singular dosage form name
 const getSingularDosageForm = (item) => {
   if (!item) return 'unit';
 
@@ -107,7 +106,6 @@ const getSingularDosageForm = (item) => {
   return unitLower;
 };
 
-// Helper function to format strength per dosage form (e.g. "(80 ml per spray)")
 const getStrengthPerDosageForm = (item) => {
   if (!item || item.strength_unit_value === undefined || item.strength_unit_value === null || item.strength_unit_value === '' || !item.strength_unit_of_measure) {
     return '';
@@ -120,7 +118,6 @@ const getStrengthPerDosageForm = (item) => {
   return `(${val} ${unit} per ${form})`;
 };
 
-// Helper function to get the appropriate dosage form/unit label for stock display
 const getStockLabel = (item) => {
   if (!item) return 'unit';
   
@@ -190,7 +187,6 @@ const getStockLabel = (item) => {
   return unit;
 };
 
-// Helper function to format full current stock display with strength unit per dosage form
 const formatCurrentStock = (item) => {
   if (!item) return '0 units';
   const stockUnit = getStockLabel(item);
@@ -198,14 +194,12 @@ const formatCurrentStock = (item) => {
   return `${item.current_stock} ${stockUnit}${strengthInfo ? ` ${strengthInfo}` : ''}`;
 };
 
-// Stock status helper function
 const getStockStatus = (stock, lowThreshold = 10, criticalThreshold = 5) => {
   if (stock <= criticalThreshold) return { label: 'Critical', class: 'critical-dm' };
   if (stock <= lowThreshold) return { label: 'Low Stock', class: 'status-low-dm' };
   return { label: 'Adequate', class: 'adequate-dm' };
 };
 
-// Helper to convert Image element/src to Base64 for PDF generation
 const getBase64ImageFromURL = (url) => {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -265,11 +259,42 @@ const DispensedMedicine = () => {
   const [toDate, setToDate] = useState('');
   const [filterStudent, setFilterStudent] = useState('');
   const [filterMedicine, setFilterMedicine] = useState('');
-  const [message, setMessage] = useState({ text: '', type: '' });
 
   // Modal States
   const [isLogModalOpen, setIsLogModalOpen] = useState(false);
   const [selectedLogDetail, setSelectedLogDetail] = useState(null);
+
+  // NOTIFICATION ALERT MODAL STATE (Replaces all standard window.alert)
+  const [alertModal, setAlertModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'info' // 'success' | 'error' | 'warning' | 'info'
+  });
+
+  // CONFIRMATION MODAL STATE (Replaces standard window.confirm for operations)
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: null
+  });
+
+  const showAlertModal = (title, message, type = 'info') => {
+    setAlertModal({ isOpen: true, title, message, type });
+  };
+
+  const closeAlertModal = () => {
+    setAlertModal(prev => ({ ...prev, isOpen: false }));
+  };
+
+  const showConfirmModal = (title, message, onConfirm) => {
+    setConfirmModal({ isOpen: true, title, message, onConfirm });
+  };
+
+  const closeConfirmModal = () => {
+    setConfirmModal({ isOpen: false, title: '', message: '', onConfirm: null });
+  };
 
   // Stop QR Scanner Stream and Frame Loops
   const stopQRScan = useCallback(() => {
@@ -285,7 +310,7 @@ const DispensedMedicine = () => {
     setQrError('');
   }, []);
 
-  // Handle scanned QR result
+  // Handle scanned QR result with Active Account Filter
   const handleScannedCode = useCallback(async (scannedText) => {
     const cleanText = scannedText.trim();
     stopQRScan();
@@ -300,14 +325,24 @@ const DispensedMedicine = () => {
           setSelectedStudent(match);
           setSearchStudent(`${match.first_name} ${match.last_name} (${match.student_id})`);
           setStudents([]);
+        } else {
+          // Alert Modal for inactive/not found QR scanned student
+          setSelectedStudent(null);
+          showAlertModal(
+            'Inactive or Unregistered Student', 
+            `No active student account found matching ID or QR content "${cleanText}". Inactive accounts cannot be scanned or processed.`,
+            'warning'
+          );
         }
+      } else {
+        showAlertModal('Error', 'Unable to verify student status from server.', 'error');
       }
     } catch (err) {
       console.error("Error fetching scanned student:", err);
+      showAlertModal('Error', 'A network error occurred while scanning student QR code.', 'error');
     }
   }, [stopQRScan]);
 
-  // QR Scanning Continuous Loop via Canvas & jsQR
   const tick = useCallback(() => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -332,7 +367,6 @@ const DispensedMedicine = () => {
     animationFrameRef.current = requestAnimationFrame(tick);
   }, [handleScannedCode]);
 
-  // Start Camera for QR Scanning
   const startQRScan = useCallback(async () => {
     setIsScanningQR(true);
     setQrError('');
@@ -350,6 +384,7 @@ const DispensedMedicine = () => {
     } catch (err) {
       console.error("Error accessing camera for QR scan:", err);
       setQrError('Unable to access camera. Please verify device permissions.');
+      showAlertModal('Camera Error', 'Unable to access camera. Please check browser camera permissions.', 'error');
     }
   }, [tick]);
 
@@ -414,7 +449,7 @@ const DispensedMedicine = () => {
         })
         .then((data) => setStudents(Array.isArray(data) ? data : []))
         .catch((err) => {
-          console.error("Error fetching students:", err);
+          console.error("Error fetching active students:", err);
           setStudents([]);
         });
     } else if (searchStudent.trim().length <= 1) {
@@ -479,74 +514,8 @@ const DispensedMedicine = () => {
     fetchHistory({ fromDate: '', toDate: '', filterStudent: '', filterMedicine: '' });
   };
 
-  const handleFormSubmit = async (e) => {
-    e.preventDefault();
-
-    if (!nurseId) {
-      setMessage({ 
-        text: 'Nurse authentication missing from NurseLayout context. Please re-login.', 
-        type: 'error' 
-      });
-      return;
-    }
-
-    if (!selectedStudent) {
-      setMessage({ text: 'Please search and select a valid student from the dropdown list.', type: 'error' });
-      return;
-    }
-    if (!selectedBatchId) {
-      setMessage({ text: 'Please select a valid medicine batch expiration date.', type: 'error' });
-      return;
-    }
-
-    const selectedBatch = inventory.find(b => b.batch_id === selectedBatchId);
-    const numericValue = parseFloat(dosageValue);
-    const isMeasuredUnit = MEASURED_UNITS.includes(dosageUnit);
-
-    if (isNaN(numericValue) || numericValue <= 0) {
-      setMessage({ text: 'Dosage value must be greater than 0.', type: 'error' });
-      return;
-    }
-
-    if (!isMeasuredUnit && !Number.isInteger(numericValue)) {
-      setMessage({ 
-        text: 'Quantity dispensed for discrete items (e.g. tablets, capsules) must be a whole integer.', 
-        type: 'error' 
-      });
-      return;
-    }
-
-    if (selectedBatch) {
-      const currentStock = parseInt(selectedBatch.current_stock, 10);
-      const strengthVal = parseFloat(selectedBatch.strength_unit_value);
-      const remainingVol = parseFloat(selectedBatch.remaining_volume);
-      const strengthUnit = selectedBatch.strength_unit_of_measure;
-
-      if (!isMeasuredUnit) {
-        if (numericValue > currentStock) {
-          setMessage({ 
-            text: `Requested quantity (${numericValue}) exceeds available stock (${currentStock}).`, 
-            type: 'error' 
-          });
-          return;
-        }
-      } else {
-        const reqInBatchUnit = convertUnit(numericValue, dosageUnit, strengthUnit);
-        const totalAvailableBatchUnit = currentStock > 0 
-          ? remainingVol + (currentStock - 1) * strengthVal 
-          : 0;
-
-        if (reqInBatchUnit > totalAvailableBatchUnit) {
-          const availInDispenseUnit = convertUnit(totalAvailableBatchUnit, strengthUnit, dosageUnit);
-          setMessage({ 
-            text: `Dosage cannot exceed current available volume/count (${availInDispenseUnit.toFixed(2)} ${dosageUnit}).`, 
-            type: 'error' 
-          });
-          return;
-        }
-      }
-    }
-
+  // Actual API call execution after confirmation modal
+  const executeDispense = async () => {
     try {
       const response = await fetch('http://localhost:3001/api/dispensation', {
         method: 'POST',
@@ -555,7 +524,7 @@ const DispensedMedicine = () => {
           student_id: selectedStudent.student_id,
           nurse_id: nurseId,
           batch_id: selectedBatchId,
-          dosage_consumption_unit_value: numericValue,
+          dosage_consumption_unit_value: parseFloat(dosageValue),
           dosage_consumption_unit_of_measure: dosageUnit
         })
       });
@@ -563,7 +532,7 @@ const DispensedMedicine = () => {
       const result = await response.json();
 
       if (response.ok) {
-        setMessage({ text: 'Medicine successfully dispensed and logged!', type: 'success' });
+        showAlertModal('Success', 'Medicine was successfully dispensed and logged.', 'success');
         
         setSelectedStudent(null);
         setSearchStudent('');
@@ -575,14 +544,83 @@ const DispensedMedicine = () => {
         fetchInventory();
         fetchHistory();
       } else {
-        setMessage({ text: result.error || 'Transaction rejected by server.', type: 'error' });
+        showAlertModal('Dispensation Error', result.error || 'Transaction rejected by server.', 'error');
       }
     } catch (error) {
-      setMessage({ text: 'A communications error occurred with the backend system.', type: 'error' });
+      showAlertModal('System Error', 'A communications error occurred with the backend system.', 'error');
     }
   };
 
-  // PDF Export Functionality with preview, logo, exact address, and designated nurse
+  // Form Validation and Confirmation Modal Trigger
+  const handleFormSubmit = (e) => {
+    e.preventDefault();
+
+    if (!nurseId) {
+      showAlertModal('Authentication Error', 'Nurse authentication missing from NurseLayout context. Please re-login.', 'error');
+      return;
+    }
+
+    if (!selectedStudent) {
+      showAlertModal('Validation Error', 'Please search and select a valid active student from the dropdown list.', 'warning');
+      return;
+    }
+
+    if (!selectedBatchId) {
+      showAlertModal('Validation Error', 'Please select a valid medicine batch expiration date.', 'warning');
+      return;
+    }
+
+    const selectedBatch = inventory.find(b => b.batch_id === selectedBatchId);
+    const numericValue = parseFloat(dosageValue);
+    const isMeasuredUnit = MEASURED_UNITS.includes(dosageUnit);
+
+    if (isNaN(numericValue) || numericValue <= 0) {
+      showAlertModal('Validation Error', 'Dosage value must be greater than 0.', 'warning');
+      return;
+    }
+
+    if (!isMeasuredUnit && !Number.isInteger(numericValue)) {
+      showAlertModal('Validation Error', 'Quantity dispensed for discrete items (e.g. tablets, capsules) must be a whole integer.', 'warning');
+      return;
+    }
+
+    if (selectedBatch) {
+      const currentStock = parseInt(selectedBatch.current_stock, 10);
+      const strengthVal = parseFloat(selectedBatch.strength_unit_value);
+      const remainingVol = parseFloat(selectedBatch.remaining_volume);
+      const strengthUnit = selectedBatch.strength_unit_of_measure;
+
+      if (!isMeasuredUnit) {
+        if (numericValue > currentStock) {
+          showAlertModal('Stock Exceeded', `Requested quantity (${numericValue}) exceeds available stock (${currentStock}).`, 'error');
+          return;
+        }
+      } else {
+        const reqInBatchUnit = convertUnit(numericValue, dosageUnit, strengthUnit);
+        const totalAvailableBatchUnit = currentStock > 0 
+          ? remainingVol + (currentStock - 1) * strengthVal 
+          : 0;
+
+        if (reqInBatchUnit > totalAvailableBatchUnit) {
+          const availInDispenseUnit = convertUnit(totalAvailableBatchUnit, strengthUnit, dosageUnit);
+          showAlertModal('Stock Exceeded', `Dosage cannot exceed current available volume/count (${availInDispenseUnit.toFixed(2)} ${dosageUnit}).`, 'error');
+          return;
+        }
+      }
+    }
+
+    // Trigger Confirmation Modal for Create/Dispense Operation
+    const medName = selectedBatch ? selectedBatch.medicine_name : 'Selected Medicine';
+    const studentName = `${selectedStudent.first_name} ${selectedStudent.last_name}`;
+
+    showConfirmModal(
+      'Confirm Medicine Dispensation',
+      `Are you sure you want to dispense ${numericValue} ${dosageUnit} of ${medName} to ${studentName} (${selectedStudent.student_id})?`,
+      executeDispense
+    );
+  };
+
+  // PDF Export
   const handleExportPDF = async () => {
     try {
       const doc = new jsPDF();
@@ -591,7 +629,7 @@ const DispensedMedicine = () => {
       try {
         logoDataUrl = await getBase64ImageFromURL('/sti_logo.png');
       } catch (e) {
-        console.warn('Logo image could not be loaded for PDF generation, proceeding with standard layout:', e);
+        console.warn('Logo image could not be loaded for PDF generation:', e);
       }
 
       if (logoDataUrl) {
@@ -600,7 +638,6 @@ const DispensedMedicine = () => {
 
       const textStartX = logoDataUrl ? 40 : 14;
 
-      // Header Branding & Address
       doc.setFontSize(16);
       doc.setFont('helvetica', 'bold');
       doc.text('STI COLLEGE BALIUAG', textStartX, 16);
@@ -621,7 +658,6 @@ const DispensedMedicine = () => {
       doc.setFont('helvetica', 'normal');
       doc.text(`Generated Date: ${new Date().toLocaleString()}`, 14, 48);
 
-      // Necessary Columns Only
       const tableColumns = [
         'Date & Time',
         'Student ID',
@@ -652,7 +688,6 @@ const DispensedMedicine = () => {
         alternateRowStyles: { fillColor: [245, 247, 250] },
       });
 
-      // Prepared By Signature Block (Strictly Nurse Marilou H. Balarao)
       const finalY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 18 : 70;
       
       doc.setFontSize(10);
@@ -665,14 +700,13 @@ const DispensedMedicine = () => {
       doc.setFont('helvetica', 'normal');
       doc.text('School Nurse', 14, finalY + 17);
 
-      // Generate preview without immediate auto-download
       const pdfBlob = doc.output('blob');
       const previewUrl = URL.createObjectURL(pdfBlob);
       window.open(previewUrl, '_blank');
 
     } catch (error) {
       console.error('Error generating PDF report:', error);
-      setMessage({ text: 'Failed to generate PDF report preview.', type: 'error' });
+      showAlertModal('Export Error', 'Failed to generate PDF report preview.', 'error');
     }
   };
 
@@ -690,7 +724,6 @@ const DispensedMedicine = () => {
 
   return (
     <div className="dispense-container-dm">
-      {/* Hidden STI Logo element in JSX imported by src="" */}
       <img id="sti-logo-preview" src="/sti_logo.png" alt="STI Logo" style={{ display: 'none' }} />
 
       <header className="dispense-header-dm">
@@ -723,23 +756,80 @@ const DispensedMedicine = () => {
         </div>
       </header>
 
-      {message.text && (
-        <div className={`alert-banner-dm ${message.type === 'success' ? 'alert-success-dm' : 'alert-error-dm'}`}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            {message.type === 'success' ? <CheckCircle size={18} /> : <AlertTriangle size={18} />}
-            <span>{message.text}</span>
-          </div>
-          <button className="alert-close-btn-dm" onClick={() => setMessage({ text: '', type: '' })} aria-label="Close message">
-            <X size={16} />
-          </button>
-        </div>
-      )}
-
       {!nurseId && (
         <div className="alert-banner-dm alert-error-dm">
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <AlertTriangle size={18} />
             <span>Warning: No active nurse session detected from NurseLayout context.</span>
+          </div>
+        </div>
+      )}
+
+      {/* --------------------------------------------------------------------- */}
+      {/* GLOBAL ALERT / SYSTEM NOTIFICATION MODAL */}
+      {/* --------------------------------------------------------------------- */}
+      {alertModal.isOpen && (
+        <div className="modal-overlay-dm">
+          <div className="modal-card-dm alert-modal-card-dm">
+            <div className="modal-header-dm">
+              <div className="modal-header-title-dm" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                {alertModal.type === 'success' && <CheckCircle size={24} style={{ color: '#28a745' }} />}
+                {alertModal.type === 'error' && <AlertTriangle size={24} style={{ color: '#dc3545' }} />}
+                {alertModal.type === 'warning' && <AlertTriangle size={24} style={{ color: '#ffc107' }} />}
+                {alertModal.type === 'info' && <Info size={24} style={{ color: '#17a2b8' }} />}
+                <h3>{alertModal.title}</h3>
+              </div>
+              <button type="button" className="modal-close-icon-dm" onClick={closeAlertModal} aria-label="Close Modal">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="modal-body-dm">
+              <p style={{ fontSize: '0.95rem', color: '#333', margin: '10px 0' }}>{alertModal.message}</p>
+            </div>
+            <div className="modal-footer-dm">
+              <button type="button" className="btn-secondary-action-dm" onClick={closeAlertModal}>
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --------------------------------------------------------------------- */}
+      {/* OPERATION CONFIRMATION MODAL */}
+      {/* --------------------------------------------------------------------- */}
+      {confirmModal.isOpen && (
+        <div className="modal-overlay-dm">
+          <div className="modal-card-dm confirm-modal-card-dm">
+            <div className="modal-header-dm">
+              <div className="modal-header-title-dm" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <HelpCircle size={24} style={{ color: '#0056b3' }} />
+                <h3>{confirmModal.title}</h3>
+              </div>
+              <button type="button" className="modal-close-icon-dm" onClick={closeConfirmModal} aria-label="Close Modal">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="modal-body-dm">
+              <p style={{ fontSize: '0.95rem', color: '#333', margin: '10px 0' }}>{confirmModal.message}</p>
+            </div>
+            <div className="modal-footer-dm" style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button type="button" className="btn-secondary-action-dm" onClick={closeConfirmModal}>
+                Cancel
+              </button>
+              <button 
+                type="button" 
+                className="btn-filter-apply-dm" 
+                style={{ backgroundColor: '#0056b3', borderColor: '#0056b3', color: '#fff' }}
+                onClick={() => {
+                  const action = confirmModal.onConfirm;
+                  closeConfirmModal();
+                  if (action) action();
+                }}
+              >
+                Confirm
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -773,7 +863,7 @@ const DispensedMedicine = () => {
             )}
 
             <p className="qr-hint-text-dm">
-              Position student QR code within camera view to automatically scan ID.
+              Position active student QR code within camera view to automatically scan ID.
             </p>
 
             <button type="button" onClick={stopQRScan} className="btn-secondary-action-dm">
@@ -789,7 +879,7 @@ const DispensedMedicine = () => {
           <h2><PlusCircle size={20} className="icon-blue-dm" /> Dispense Medicine Form</h2>
           <form onSubmit={handleFormSubmit}>
             <div className="form-group-dm student-search-container-dm">
-              <label htmlFor="student-search">Search Student (Name or ID)</label>
+              <label htmlFor="student-search">Search Active Student (Name or ID)</label>
               <div className="search-input-wrapper-dm">
                 <div className="input-with-icon-dm">
                   <input
@@ -809,7 +899,7 @@ const DispensedMedicine = () => {
                   type="button"
                   className="qr-scan-btn-dm"
                   onClick={startQRScan}
-                  title="Search student by QR code"
+                  title="Search active student by QR code"
                 >
                   <QrCode size={18} />
                   <span>Scan QR</span>
@@ -836,7 +926,7 @@ const DispensedMedicine = () => {
                       </li>
                     ))
                   ) : (
-                    <li className="dropdown-no-results-dm">No students found matching query</li>
+                    <li className="dropdown-no-results-dm">No active students found matching query</li>
                   )}
                 </ul>
               )}
@@ -1091,7 +1181,6 @@ const DispensedMedicine = () => {
             </div>
 
             <div className="modal-body-dm">
-              {/* Filter Toolbar */}
               <div className="filter-toolbar-dm">
                 <div className="filter-item-dm date-range-group-dm">
                   <Calendar size={16} className="filter-icon-dm" />
@@ -1154,7 +1243,6 @@ const DispensedMedicine = () => {
                 </div>
               </div>
 
-              {/* Full Log History Table */}
               <div className="modal-table-wrap-dm">
                 <table className="custom-table-dm">
                   <thead>

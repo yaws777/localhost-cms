@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Folder, Lock, FileText, Download } from 'lucide-react';
+import { 
+    ArrowLeft, Folder, Lock, FileText, Download, AlertCircle, 
+    User, X, ShieldCheck, CheckCircle, XCircle 
+} from 'lucide-react';
 import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/HealthRecordProfile.css';
 
@@ -18,6 +21,12 @@ export default function HealthRecordsProfile() {
     const [healthInfo, setHealthInfo] = useState({});
     const [emergencyContact, setEmergencyContact] = useState({});
     const [requirementsList, setRequirementsList] = useState([]);
+
+    // Modal state for viewing Parent Profile
+    const [showParentModal, setShowParentModal] = useState(false);
+    const [parentDetails, setParentDetails] = useState(null);
+    const [parentLoading, setParentLoading] = useState(false);
+    const [parentError, setParentError] = useState('');
 
     useEffect(() => {
         const loadStudentData = async () => {
@@ -70,8 +79,8 @@ export default function HealthRecordsProfile() {
         const fetchStudentRequirements = async () => {
             if (activeTab !== 'requirements' || !studentId) return;
             setReqLoading(true);
-                try {
-                    const response = await fetch(`http://localhost:3001/api/students/${studentId}/full-requirements`);
+            try {
+                const response = await fetch(`http://localhost:3001/api/students/${studentId}/full-requirements`);
                 const data = await response.json();
                 if (Array.isArray(data)) {
                     setRequirementsList(data);
@@ -86,11 +95,36 @@ export default function HealthRecordsProfile() {
         fetchStudentRequirements();
     }, [activeTab, studentId]);
 
+    const handleOpenParentModal = async () => {
+        setShowParentModal(true);
+        setParentLoading(true);
+        setParentError('');
+        try {
+            const res = await fetch(`http://localhost:3001/api/health-records/parent-profile/${studentId}`);
+            const data = await res.json();
+            if (data.success) {
+                setParentDetails(data.parent);
+            } else {
+                setParentError(data.message || 'No parent profile associated with this student.');
+            }
+        } catch (err) {
+            setParentError('Error loading parent profile from backend service.');
+        } finally {
+            setParentLoading(false);
+        }
+    };
+
+    const handleCloseParentModal = () => {
+        setShowParentModal(false);
+    };
+
     const handleExport = () => {
         window.print();
     };
 
     if (loading) return <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>Loading student medical file index...</div>;
+
+    const isInactive = studentHeader?.is_active === 0 || studentHeader?.is_active === false;
 
     return (
         <div className="profile-viewer-wrapper">
@@ -122,6 +156,172 @@ export default function HealthRecordsProfile() {
                     .printable-health-report {
                         display: block;
                     }
+                }
+                .inactive-badge {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 4px;
+                    background-color: #fee2e2;
+                    color: #dc2626;
+                    border: 1px solid #fca5a5;
+                    padding: 2px 10px;
+                    border-radius: 9999px;
+                    font-size: 0.78rem;
+                    font-weight: 700;
+                    margin-left: 10px;
+                }
+                .btn-view-parent {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 6px;
+                    background-color: #004487;
+                    color: #ffffff;
+                    border: none;
+                    padding: 6px 14px;
+                    border-radius: 6px;
+                    font-size: 0.85rem;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: background-color 0.2s ease;
+                }
+                .btn-view-parent:hover {
+                    background-color: #002b54;
+                }
+
+                /* Modal Overlay Styling */
+                .modal-backdrop-overlay {
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100vw;
+                    height: 100vh;
+                    background: rgba(15, 23, 42, 0.6);
+                    backdrop-filter: blur(3px);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    z-index: 9999;
+                    padding: 16px;
+                }
+                .modal-content-card {
+                    background: #ffffff;
+                    border-radius: 12px;
+                    width: 100%;
+                    max-width: 520px;
+                    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+                    overflow: hidden;
+                    animation: modalSlideIn 0.2s ease-out;
+                }
+                @keyframes modalSlideIn {
+                    from { opacity: 0; transform: translateY(12px) scale(0.98); }
+                    to { opacity: 1; transform: translateY(0) scale(1); }
+                }
+                .modal-header-bar {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    padding: 16px 20px;
+                    background-color: #004487;
+                    color: #ffffff;
+                }
+                .modal-header-bar h3 {
+                    margin: 0;
+                    font-size: 1.1rem;
+                    font-weight: 600;
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    color: #ffffff !important;
+                    border-bottom: none !important;
+                    padding-bottom: 0 !important;
+                }
+                .btn-modal-close {
+                    background: transparent;
+                    border: none;
+                    color: #ffffff;
+                    cursor: pointer;
+                    padding: 4px;
+                    border-radius: 4px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    opacity: 0.85;
+                }
+                .btn-modal-close:hover {
+                    opacity: 1;
+                    background-color: rgba(255, 255, 255, 0.15);
+                }
+                .modal-body-content {
+                    padding: 20px 24px;
+                }
+                .parent-profile-grid {
+                    display: grid;
+                    grid-template-columns: repeat(2, 1fr);
+                    gap: 16px;
+                }
+                .parent-info-field {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 4px;
+                }
+                .parent-info-field label {
+                    font-size: 0.75rem;
+                    font-weight: 700;
+                    color: #64748b;
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                }
+                .parent-info-field p {
+                    margin: 0;
+                    font-size: 0.95rem;
+                    font-weight: 600;
+                    color: #1e293b;
+                }
+                .status-pill {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 4px;
+                    padding: 3px 10px;
+                    border-radius: 9999px;
+                    font-size: 0.8rem;
+                    font-weight: 600;
+                    width: fit-content;
+                }
+                .status-pill.status-verified {
+                    background-color: #dcfce7;
+                    color: #15803d;
+                }
+                .status-pill.status-unverified {
+                    background-color: #f1f5f9;
+                    color: #64748b;
+                }
+                .status-pill.status-active {
+                    background-color: #dbeafe;
+                    color: #1d4ed8;
+                }
+                .status-pill.status-inactive {
+                    background-color: #fee2e2;
+                    color: #b91c1c;
+                }
+                .modal-footer-bar {
+                    padding: 12px 24px;
+                    background-color: #f8fafc;
+                    border-top: 1px solid #e2e8f0;
+                    display: flex;
+                    justify-content: flex-end;
+                }
+                .btn-modal-dismiss {
+                    padding: 8px 18px;
+                    background-color: #64748b;
+                    color: #ffffff;
+                    border: none;
+                    border-radius: 6px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    font-size: 0.88rem;
+                }
+                .btn-modal-dismiss:hover {
+                    background-color: #475569;
                 }
             `}</style>
 
@@ -156,7 +356,14 @@ export default function HealthRecordsProfile() {
                     <Folder size={26} />
                 </div>
                 <div className="identity-details-block">
-                    <h2>{studentHeader?.first_name} {studentHeader?.last_name}</h2>
+                    <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <h2>{studentHeader?.first_name} {studentHeader?.last_name}</h2>
+                        {isInactive && (
+                            <span className="inactive-badge">
+                                <AlertCircle size={13} /> Inactive Account
+                            </span>
+                        )}
+                    </div>
                     <p>{studentHeader?.program_id} - {studentHeader?.year_level} Year</p>
                     <span className="student-id-pill">{studentId}</span>
                 </div>
@@ -211,6 +418,29 @@ export default function HealthRecordsProfile() {
                             </label>
                             <label>Mother's Name
                                 <input type="text" name="mother_name" value={personalInfo.mother_name || ''} disabled={true} />
+                            </label>
+
+                            {/* Connected Parent Account Header & View Modal Button */}
+                            <div className="column-full-width" style={{ marginTop: '16px', borderTop: '1px solid #e2e8f0', paddingTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <h4 style={{ margin: 0, color: '#1e293b', fontSize: '1rem', fontWeight: '600' }}>
+                                    Connected Parent Account Details
+                                </h4>
+                                <button 
+                                    type="button" 
+                                    onClick={handleOpenParentModal}
+                                    className="btn-view-parent"
+                                >
+                                    <User size={15} /> View Parent Account
+                                </button>
+                            </div>
+                            <label>Parent First Name
+                                <input type="text" value={studentHeader?.parent_first_name || 'N/A'} disabled={true} />
+                            </label>
+                            <label>Parent Last Name
+                                <input type="text" value={studentHeader?.parent_last_name || 'N/A'} disabled={true} />
+                            </label>
+                            <label>Parent Contact Number
+                                <input type="text" value={studentHeader?.parent_phone || 'N/A'} disabled={true} />
                             </label>
                         </div>
                     </div>
@@ -454,6 +684,75 @@ export default function HealthRecordsProfile() {
                 )}
             </div>
 
+            {/* CONNECTED PARENT PROFILE MODAL */}
+            {showParentModal && (
+                <div className="modal-backdrop-overlay no-print" onClick={handleCloseParentModal}>
+                    <div className="modal-content-card" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-header-bar">
+                            <h3><User size={20} /> Connected Parent Profile</h3>
+                            <button className="btn-modal-close" onClick={handleCloseParentModal}>
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <div className="modal-body-content">
+                            {parentLoading ? (
+                                <div style={{ textAlign: 'center', padding: '30px', color: '#64748b' }}>
+                                    Loading parent details...
+                                </div>
+                            ) : parentError ? (
+                                <div className="error-message" style={{ margin: 0 }}>
+                                    {parentError}
+                                </div>
+                            ) : parentDetails ? (
+                                <div className="parent-profile-grid">
+                                    <div className="parent-info-field">
+                                        <label>Parent ID</label>
+                                        <p>{parentDetails.parent_id}</p>
+                                    </div>
+                                    <div className="parent-info-field">
+                                        <label>Full Name</label>
+                                        <p>{parentDetails.first_name} {parentDetails.last_name}</p>
+                                    </div>
+                                    <div className="parent-info-field">
+                                        <label>Primary Contact</label>
+                                        <p>{parentDetails.primary_phone || 'N/A'}</p>
+                                    </div>
+                                    <div className="parent-info-field">
+                                        <label>Username</label>
+                                        <p>{parentDetails.username || 'N/A'}</p>
+                                    </div>
+                                    <div className="parent-info-field">
+                                        <label>SMS Verification</label>
+                                        <p>
+                                            {parentDetails.is_sms_verified ? (
+                                                <span className="status-pill status-verified"><ShieldCheck size={14} /> Verified</span>
+                                            ) : (
+                                                <span className="status-pill status-unverified">Not Verified</span>
+                                            )}
+                                        </p>
+                                    </div>
+                                    <div className="parent-info-field">
+                                        <label>Account Status</label>
+                                        <p>
+                                            {parentDetails.is_active === 1 || parentDetails.is_active === true ? (
+                                                <span className="status-pill status-active"><CheckCircle size={14} /> Active</span>
+                                            ) : (
+                                                <span className="status-pill status-inactive"><XCircle size={14} /> Inactive</span>
+                                            )}
+                                        </p>
+                                    </div>
+                                </div>
+                            ) : null}
+                        </div>
+                        <div className="modal-footer-bar">
+                            <button className="btn-modal-dismiss" onClick={handleCloseParentModal}>
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* PRINTABLE PDF REPORT CONTAINER */}
             <div className="printable-health-report">
                 <div style={{ textAlign: 'center', marginBottom: '20px', borderBottom: '2px solid #0f172a', paddingBottom: '12px' }}>
@@ -465,12 +764,18 @@ export default function HealthRecordsProfile() {
 
                 <div style={{ marginBottom: '20px' }}>
                     <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px' }}>Student Information</h4>
-                    <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Student ID:</strong> {studentId}</p>
+                    <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Student ID:</strong> {studentId} {isInactive ? '(Inactive Account)' : ''}</p>
                     <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Name:</strong> {studentHeader?.first_name} {studentHeader?.last_name}</p>
                     <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Program & Year:</strong> {studentHeader?.program_id} - {studentHeader?.year_level} Year</p>
                     <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Gender:</strong> {personalInfo.gender || 'N/A'} | <strong>Age:</strong> {personalInfo.age || 'N/A'} | <strong>Date of Birth:</strong> {personalInfo.birth_date || 'N/A'}</p>
                     <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Contact No.:</strong> {personalInfo.contact_number || 'N/A'}</p>
                     <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Address:</strong> {personalInfo.address || 'N/A'}</p>
+                </div>
+
+                <div style={{ marginBottom: '20px' }}>
+                    <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px' }}>Connected Parent Information</h4>
+                    <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Parent Name:</strong> {studentHeader?.parent_first_name ? `${studentHeader.parent_first_name} ${studentHeader.parent_last_name}` : 'N/A'}</p>
+                    <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Parent Contact No.:</strong> {studentHeader?.parent_phone || 'N/A'}</p>
                 </div>
 
                 <div style={{ marginBottom: '20px' }}>
