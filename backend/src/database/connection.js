@@ -69,7 +69,8 @@ const pool = mysql.createPool({
         user: "root",
         password: "Yahweh0512",
         database: "ClinicManagementSystem",
-        dateStrings: true
+        dateStrings: true,
+        charset: 'utf8mb4', // Forces UTF-8 encoding on client connections
 });
 
 
@@ -952,6 +953,31 @@ app.put('/api/update-profile', async (req, res) => {
 // =========================================================================
 // REQUIREMENT MANAGEMENT API
 // =========================================================================
+// Helper function to fetch user_id(s) of connected active parents for student_id(s)
+async function getConnectedParentUserIds(studentIds) {
+    if (!studentIds) return [];
+    const ids = Array.isArray(studentIds) ? studentIds.filter(Boolean) : [studentIds];
+    if (ids.length === 0) return [];
+
+    try {
+        const [rows] = await pool.query(
+            `SELECT DISTINCT p.user_id 
+             FROM parent_student_mapping psm
+             JOIN parents p ON psm.parent_id = p.parent_id
+             JOIN users u ON p.user_id = u.user_id
+             WHERE psm.student_id IN (?) AND u.is_active = 1`,
+            [ids]
+        );
+        return rows.map(r => r.user_id).filter(Boolean);
+    } catch (err) {
+        console.error("[Notify] Error fetching connected parent user IDs:", err.message);
+        return [];
+    }
+}
+
+// =========================================================================
+// REQUIREMENT MANAGEMENT API
+// =========================================================================
 
 // 1. Get all active students with dynamic metric auto-evaluation pipeline
 app.get('/api/students', async (req, res) => {
@@ -1066,8 +1092,7 @@ app.get('/api/students', async (req, res) => {
     }
 });
 
-// 2. Get combined requirements list matching all statuses for a specific student (Includes submission_id)
-// 2. Get combined requirements list matching all statuses for a specific active student
+// 2. Get combined requirements list matching all statuses for a specific student
 app.get('/api/students/:id/full-requirements', async (req, res) => {
     const studentId = req.params.id; 
     try {
@@ -1208,8 +1233,7 @@ app.get('/api/students/:id/full-requirements', async (req, res) => {
     }
 });
 
-// 3. Add Special Requirement & notify student via System DB + Web Push
-// 3. Add Special Requirement & notify student via System DB + Web Push (Active Accounts Only)
+// 3. Add Special Requirement & notify student + connected parent(s) via System DB + Web Push
 app.post('/api/students/:id/special-requirements', async (req, res) => {
     const connection = await pool.getConnection();
     try {
@@ -1287,18 +1311,22 @@ app.post('/api/students/:id/special-requirements', async (req, res) => {
 
         await connection.commit();
 
-        if (student.student_user_id) {
+        // Retrieve connected active parent user IDs
+        const parentUserIds = await getConnectedParentUserIds(studentId);
+        const recipientIds = [...new Set([student.student_user_id, ...parentUserIds].filter(Boolean))];
+
+        if (recipientIds.length > 0) {
             await notifyUsers({
                 sender_id: senderUserId,
-                recipient_ids: [student.student_user_id],
+                recipient_ids: recipientIds,
                 title: 'Special Requirement Assigned',
-                message: `You have been assigned a special requirement: "${requirement_name}". Deadline: ${submission_deadline}`,
+                message: `Special requirement assigned for ${student.first_name} ${student.last_name}: "${requirement_name}". Deadline: ${submission_deadline}`,
                 type: 'special_requirement',
                 payloadData: { url: '/student/requirements', requirement_name }
             });
         }
 
-        res.json({ success: true, message: "Special requirement assigned and push notification delivered." });
+        res.json({ success: true, message: "Special requirement assigned and push notification delivered to student and parent." });
 
     } catch (err) {
         await connection.rollback();
@@ -1309,8 +1337,7 @@ app.post('/api/students/:id/special-requirements', async (req, res) => {
     }
 });
 
-// 4. Update requirement submission & notify student
-// 4. Update requirement submission & notify student (Active Accounts Only)
+// 4. Update requirement submission & notify student + connected parent(s)
 app.put('/api/students/:id/requirements/:reqName', async (req, res) => {
     try {
         const studentId = req.params.id;
@@ -1427,18 +1454,22 @@ app.put('/api/students/:id/requirements/:reqName', async (req, res) => {
             }
         }
 
-        if (student.student_user_id) {
+        // Retrieve connected active parent user IDs
+        const parentUserIds = await getConnectedParentUserIds(studentId);
+        const recipientIds = [...new Set([student.student_user_id, ...parentUserIds].filter(Boolean))];
+
+        if (recipientIds.length > 0) {
             await notifyUsers({
                 sender_id: senderUserId,
-                recipient_ids: [student.student_user_id],
+                recipient_ids: recipientIds,
                 title: 'Requirement Status Updated',
-                message: `Your requirement "${reqName}" status was updated to "${status}". Remarks: ${nurse_remarks || 'None'}`,
+                message: `Requirement "${reqName}" for ${student.first_name} ${student.last_name} status was updated to "${status}". Remarks: ${nurse_remarks || 'None'}`,
                 type: 'requirement_update',
                 payloadData: { url: '/student/requirements', reqName, status }
             });
         }
 
-        res.json({ success: true, message: "Requirement updated and push notification delivered." });
+        res.json({ success: true, message: "Requirement updated and push notification delivered to student and parent." });
 
     } catch (err) {
         console.error("CRITICAL BACKEND UPDATE FAILURE:", err.message);
@@ -1446,20 +1477,57 @@ app.put('/api/students/:id/requirements/:reqName', async (req, res) => {
     }
 });
 
-// 5. Delete Special Requirement
+// 5. Delete Special Requirement & notify student + connected parent(s)
 app.delete('/api/students/:id/special-requirements/:reqName', async (req, res) => {
     const studentId = req.params.id;
     const reqName = req.params.reqName;
+    const nurse_id = req.body?.nurse_id || req.query?.nurse_id || null;
+
     try {
+        const [studentRows] = await pool.query(
+            `SELECT s.student_id, s.user_id AS student_user_id, s.first_name, s.last_name
+             FROM students s
+             JOIN users u ON s.user_id = u.user_id
+             WHERE s.student_id = ? AND u.is_active = 1`,
+            [studentId]
+        );
+
+        if (studentRows.length === 0) {
+            return res.status(403).json({ success: false, error: "Student record not found or account is inactive." });
+        }
+
+        const student = studentRows[0];
+
+        let senderUserId = null;
+        if (nurse_id) {
+            const [nurseRows] = await pool.query(`SELECT user_id FROM nurses WHERE nurse_id = ? OR user_id = ?`, [nurse_id, nurse_id]);
+            if (nurseRows.length > 0) senderUserId = nurseRows[0].user_id;
+        }
+
         await pool.query(`DELETE FROM student_special_requirements WHERE student_id = ? AND requirement_name = ?`, [studentId, reqName]);
         await pool.query(`DELETE FROM student_requirement_submissions WHERE student_id = ? AND requirement_name = ?`, [studentId, reqName]);
-        res.json({ success: true });
+
+        // Retrieve connected active parent user IDs
+        const parentUserIds = await getConnectedParentUserIds(studentId);
+        const recipientIds = [...new Set([student.student_user_id, ...parentUserIds].filter(Boolean))];
+
+        if (recipientIds.length > 0) {
+            await notifyUsers({
+                sender_id: senderUserId,
+                recipient_ids: recipientIds,
+                title: 'Special Requirement Removed',
+                message: `The special requirement "${reqName}" for ${student.first_name} ${student.last_name} has been removed.`,
+                type: 'special_requirement_deleted',
+                payloadData: { url: '/student/requirements', reqName }
+            });
+        }
+
+        res.json({ success: true, message: "Special requirement removed and notifications sent." });
     } catch (err) {
+        console.error("Error deleting special requirement:", err.message);
         res.status(500).json({ error: err.message });
     }
 });
-
-// --- COURSE / STRAND MANAGEMENT API ENDPOINTS ---
 
 // 6. Get all academic programs
 app.get('/api/programs', async (req, res) => {
@@ -1482,10 +1550,10 @@ app.get('/api/program-requirements-config', async (req, res) => {
     }
 });
 
-// 8. ADD REQUIREMENT RULE ARCHITECTURE
+// 8. ADD REQUIREMENT RULE ARCHITECTURE & notify affected students + connected parent(s)
 app.post('/api/programs/:programId/requirements', async (req, res) => {
     const { programId } = req.params;
-    const { requirement_name, year_level, submission_deadline, allow_late_submission } = req.body;
+    const { requirement_name, year_level, submission_deadline, allow_late_submission, nurse_id } = req.body;
 
     if (!requirement_name || !submission_deadline) {
         return res.status(400).json({ error: "Requirement name and deadline are required fields." });
@@ -1498,7 +1566,12 @@ app.post('/api/programs/:programId/requirements', async (req, res) => {
     try {
         await connection.beginTransaction();
 
-        // 1. Ensure requirement exists in masterlist
+        let senderUserId = null;
+        if (nurse_id) {
+            const [nurseRows] = await connection.query(`SELECT user_id FROM nurses WHERE nurse_id = ? OR user_id = ?`, [nurse_id, nurse_id]);
+            if (nurseRows.length > 0) senderUserId = nurseRows[0].user_id;
+        }
+
         const checkBaseQuery = `SELECT requirement_name FROM medical_requirements WHERE requirement_name = ?`;
         const [baseExists] = await connection.query(checkBaseQuery, [trimmedReqName]);
 
@@ -1507,7 +1580,6 @@ app.post('/api/programs/:programId/requirements', async (req, res) => {
             await connection.query(insertBaseQuery, [trimmedReqName]);
         }
 
-        // 2. Duplicate Check
         const checkMappingQuery = `
             SELECT config_id 
             FROM program_requirements_config 
@@ -1533,7 +1605,6 @@ app.post('/api/programs/:programId/requirements', async (req, res) => {
             });
         }
 
-        // 3. Insert new program requirement configuration
         const newConfigId = `CFG-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
         const insertConfigQuery = `
             INSERT INTO program_requirements_config 
@@ -1550,8 +1621,6 @@ app.post('/api/programs/:programId/requirements', async (req, res) => {
             allow_late_submission ? 1 : 0
         ]);
 
-        // 4. Seed submission rows for matching students
-        // 4. Seed submission rows ONLY for active matching students
         const seedSubmissionsQuery = `
             INSERT INTO student_requirement_submissions (submission_id, student_id, requirement_name, status, nurse_remarks, file_url, submitted_at)
             SELECT UUID(), s.student_id, ?, 'Pending', '', NULL, NULL
@@ -1575,10 +1644,43 @@ app.post('/api/programs/:programId/requirements', async (req, res) => {
             trimmedReqName
         ]);
 
+        // Get matching active student user IDs & student IDs
+        const [matchingStudents] = await connection.query(
+            `SELECT s.student_id, s.user_id AS student_user_id
+             FROM students s
+             JOIN users u ON s.user_id = u.user_id
+             WHERE s.program_id = ?
+               AND u.is_active = 1
+               AND (? IS NULL OR s.year_level = ? OR s.year_level LIKE CONCAT('%', ?, '%'))`,
+            [programId, targetYearLevel, targetYearLevel, targetYearLevel]
+        );
+
+        const studentUserIds = matchingStudents.map(s => s.student_user_id).filter(Boolean);
+        const studentIds = matchingStudents.map(s => s.student_id);
+
+        let parentUserIds = [];
+        if (studentIds.length > 0) {
+            parentUserIds = await getConnectedParentUserIds(studentIds);
+        }
+
         await connection.commit();
+
+        const recipientIds = [...new Set([...studentUserIds, ...parentUserIds])];
+
+        if (recipientIds.length > 0) {
+            await notifyUsers({
+                sender_id: senderUserId,
+                recipient_ids: recipientIds,
+                title: 'New Program Requirement Assigned',
+                message: `A new requirement "${trimmedReqName}" has been assigned to course track (${programId}). Deadline: ${submission_deadline}`,
+                type: 'program_requirement_created',
+                payloadData: { url: '/student/requirements', requirement_name: trimmedReqName }
+            });
+        }
+
         res.status(201).json({ 
             success: true, 
-            message: "Program requirement configured and synchronized for all matching tracking profiles.", 
+            message: "Program requirement configured and synchronized with notifications delivered.", 
             config_id: newConfigId 
         });
 
@@ -1591,18 +1693,27 @@ app.post('/api/programs/:programId/requirements', async (req, res) => {
     }
 });
 
-// 9. UPDATE EXTANT REQUIREMENT CONFIGURATION PROPERTIES
+// 9. UPDATE PROGRAM REQUIREMENT CONFIGURATION & notify affected students + connected parent(s)
 app.put('/api/programs/:programId/requirements/:configId', async (req, res) => {
     const { programId, configId } = req.params;
-    const { requirement_name, year_level, submission_deadline, allow_late_submission } = req.body;
+    const { requirement_name, year_level, submission_deadline, allow_late_submission, nurse_id } = req.body;
 
     try {
+        let senderUserId = null;
+        if (nurse_id) {
+            const [nurseRows] = await pool.query(`SELECT user_id FROM nurses WHERE nurse_id = ? OR user_id = ?`, [nurse_id, nurse_id]);
+            if (nurseRows.length > 0) senderUserId = nurseRows[0].user_id;
+        }
+
+        const trimmedReqName = requirement_name.trim();
+        const targetYearLevel = year_level || null;
+
         const checkBaseQuery = `SELECT requirement_name FROM medical_requirements WHERE requirement_name = ?`;
-        const [baseExists] = await pool.query(checkBaseQuery, [requirement_name.trim()]);
+        const [baseExists] = await pool.query(checkBaseQuery, [trimmedReqName]);
 
         if (baseExists.length === 0) {
             const insertBaseQuery = `INSERT INTO medical_requirements (requirement_name) VALUES (?)`;
-            await pool.query(insertBaseQuery, [requirement_name.trim()]);
+            await pool.query(insertBaseQuery, [trimmedReqName]);
         }
 
         const updateConfigQuery = `
@@ -1612,28 +1723,67 @@ app.put('/api/programs/:programId/requirements/:configId', async (req, res) => {
         `;
         
         await pool.query(updateConfigQuery, [
-            requirement_name.trim(), 
-            year_level || null,
+            trimmedReqName, 
+            targetYearLevel,
             submission_deadline, 
             allow_late_submission ? 1 : 0, 
             configId, 
             programId
         ]);
 
-        res.json({ message: "Requirement rules modification successfully applied." });
+        // Get matching active students & connected parents
+        const [matchingStudents] = await pool.query(
+            `SELECT s.student_id, s.user_id AS student_user_id
+             FROM students s
+             JOIN users u ON s.user_id = u.user_id
+             WHERE s.program_id = ?
+               AND u.is_active = 1
+               AND (? IS NULL OR s.year_level = ? OR s.year_level LIKE CONCAT('%', ?, '%'))`,
+            [programId, targetYearLevel, targetYearLevel, targetYearLevel]
+        );
+
+        const studentUserIds = matchingStudents.map(s => s.student_user_id).filter(Boolean);
+        const studentIds = matchingStudents.map(s => s.student_id);
+
+        let parentUserIds = [];
+        if (studentIds.length > 0) {
+            parentUserIds = await getConnectedParentUserIds(studentIds);
+        }
+
+        const recipientIds = [...new Set([...studentUserIds, ...parentUserIds])];
+
+        if (recipientIds.length > 0) {
+            await notifyUsers({
+                sender_id: senderUserId,
+                recipient_ids: recipientIds,
+                title: 'Program Requirement Updated',
+                message: `Requirement "${trimmedReqName}" schedule/settings for course track (${programId}) have been updated. Deadline: ${submission_deadline}`,
+                type: 'program_requirement_updated',
+                payloadData: { url: '/student/requirements', requirement_name: trimmedReqName }
+            });
+        }
+
+        res.json({ message: "Requirement rules modification successfully applied and notifications sent." });
     } catch (error) {
         console.error("Failed executing configuration update parameters:", error);
         res.status(500).json({ error: "Database exception error routing updates." });
     }
 });
 
-// 10. REMOVE CONFIGURATION RULE
+// 10. REMOVE CONFIGURATION RULE & notify affected students + connected parent(s)
 app.delete('/api/programs/:programId/requirements/:configId', async (req, res) => {
     const { programId, configId } = req.params;
+    const nurse_id = req.body?.nurse_id || req.query?.nurse_id || null;
     const connection = await pool.getConnection();
 
     try {
         await connection.beginTransaction();
+
+        let senderUserId = null;
+        if (nurse_id) {
+            const [nurseRows] = await connection.query(`SELECT user_id FROM nurses WHERE nurse_id = ? OR user_id = ?`, [nurse_id, nurse_id]);
+            if (nurseRows.length > 0) senderUserId = nurseRows[0].user_id;
+        }
 
         const [configRows] = await connection.query(
             `SELECT requirement_name, year_level FROM program_requirements_config WHERE config_id = ? AND program_id = ?`,
@@ -1646,6 +1796,25 @@ app.delete('/api/programs/:programId/requirements/:configId', async (req, res) =
         }
 
         const { requirement_name, year_level } = configRows[0];
+
+        // Fetch affected student user IDs and student IDs before deletion
+        const [matchingStudents] = await connection.query(
+            `SELECT s.student_id, s.user_id AS student_user_id
+             FROM students s
+             JOIN users u ON s.user_id = u.user_id
+             WHERE s.program_id = ?
+               AND u.is_active = 1
+               AND (? IS NULL OR s.year_level = ? OR s.year_level LIKE CONCAT('%', ?, '%'))`,
+            [programId, year_level, year_level, year_level]
+        );
+
+        const studentUserIds = matchingStudents.map(s => s.student_user_id).filter(Boolean);
+        const studentIds = matchingStudents.map(s => s.student_id);
+
+        let parentUserIds = [];
+        if (studentIds.length > 0) {
+            parentUserIds = await getConnectedParentUserIds(studentIds);
+        }
 
         await connection.query(
             `DELETE srs FROM student_requirement_submissions srs
@@ -1667,6 +1836,20 @@ app.delete('/api/programs/:programId/requirements/:configId', async (req, res) =
         );
 
         await connection.commit();
+
+        const recipientIds = [...new Set([...studentUserIds, ...parentUserIds])];
+
+        if (recipientIds.length > 0) {
+            await notifyUsers({
+                sender_id: senderUserId,
+                recipient_ids: recipientIds,
+                title: 'Program Requirement Removed',
+                message: `Requirement "${requirement_name}" was removed from course track (${programId}).`,
+                type: 'program_requirement_deleted',
+                payloadData: { url: '/student/requirements', requirement_name }
+            });
+        }
+
         res.json({ success: true, message: "Configuration removed and matching records cleaned up." });
 
     } catch (error) {

@@ -23,29 +23,46 @@ import autoTable from 'jspdf-autotable';
 import jsQR from 'jsqr';
 import '../../styles/nurse/DispensedMedicine.css';
 
-const MEASURED_UNITS = ['mg', 'g', 'mcg', 'mL', 'L', 'pcs.'];
+// Measured units allow continuous decimal values (liquids, weights, volumes)
+const MEASURED_UNITS = ['mg', 'g', 'mcg', 'mL', 'L'];
+
+// Helper to check if a unit of measure is continuous/measured vs discrete
+const isMeasuredUnitFn = (unit) => {
+  if (!unit) return false;
+  return MEASURED_UNITS.some(u => u.toLowerCase() === String(unit).trim().toLowerCase());
+};
+
+// Global value formatter: Strips decimals for discrete units ('Tablet/s', 'Capsule/s', 'Patch/es', 'Sachet', 'Vial', 'Prefilled Syringe', 'Spray/s', 'Inhaler', 'Box/es', 'pcs.', etc.)
+const formatUnitValue = (val, unit) => {
+  if (val === undefined || val === null || val === '') return '';
+  const num = parseFloat(val);
+  if (isNaN(num)) return val;
+
+  if (!isMeasuredUnitFn(unit)) {
+    return Math.round(num).toString();
+  }
+  return num.toString();
+};
 
 const convertUnit = (val, fromUnit, toUnit) => {
   if (fromUnit === toUnit || !fromUnit || !toUnit) return val;
   const toBase = (v, u) => {
-    switch (u) {
+    switch (String(u).toLowerCase()) {
       case 'g': return v * 1000000;
       case 'mg': return v * 1000;
       case 'mcg': return v;
-      case 'L': return v * 1000;
-      case 'mL': return v;
-      case 'pcs.': return v;
+      case 'l': return v * 1000;
+      case 'ml': return v;
       default: return v;
     }
   };
   const fromBase = (v, u) => {
-    switch (u) {
+    switch (String(u).toLowerCase()) {
       case 'g': return v / 1000000;
       case 'mg': return v / 1000;
       case 'mcg': return v / 1000000;
-      case 'L': return v / 1000;
-      case 'mL': return v;
-      case 'pcs.': return v;
+      case 'l': return v / 1000;
+      case 'ml': return v;
       default: return v;
     }
   };
@@ -111,8 +128,8 @@ const getStrengthPerDosageForm = (item) => {
     return '';
   }
   
-  const val = item.strength_unit_value;
   const unit = item.strength_unit_of_measure;
+  const val = formatUnitValue(item.strength_unit_value, unit);
   const form = getSingularDosageForm(item);
 
   return `(${val} ${unit} per ${form})`;
@@ -176,7 +193,7 @@ const getStockLabel = (item) => {
     return PLURAL_FORMS[unitLower] || VALID_DOSAGE_FORMS[unitLower] + 's';
   }
   
-  if (MEASURED_UNITS.includes(unitLower)) {
+  if (isMeasuredUnitFn(unitLower)) {
     return unitLower;
   }
   
@@ -264,7 +281,7 @@ const DispensedMedicine = () => {
   const [isLogModalOpen, setIsLogModalOpen] = useState(false);
   const [selectedLogDetail, setSelectedLogDetail] = useState(null);
 
-  // NOTIFICATION ALERT MODAL STATE (Replaces all standard window.alert)
+  // NOTIFICATION ALERT MODAL STATE
   const [alertModal, setAlertModal] = useState({
     isOpen: false,
     title: '',
@@ -272,7 +289,7 @@ const DispensedMedicine = () => {
     type: 'info' // 'success' | 'error' | 'warning' | 'info'
   });
 
-  // CONFIRMATION MODAL STATE (Replaces standard window.confirm for operations)
+  // CONFIRMATION MODAL STATE
   const [confirmModal, setConfirmModal] = useState({
     isOpen: false,
     title: '',
@@ -326,7 +343,6 @@ const DispensedMedicine = () => {
           setSearchStudent(`${match.first_name} ${match.last_name} (${match.student_id})`);
           setStudents([]);
         } else {
-          // Alert Modal for inactive/not found QR scanned student
           setSelectedStudent(null);
           showAlertModal(
             'Inactive or Unregistered Student', 
@@ -467,9 +483,9 @@ const DispensedMedicine = () => {
       if (sample) {
         const unit = sample.avg_dosage_consumption_unit_of_measure || sample.strength_unit_of_measure || '';
         const rawVal = sample.avg_dosage_consumption_value || '';
-        const isMeasuredUnit = MEASURED_UNITS.includes(unit);
+        const isMeasured = isMeasuredUnitFn(unit);
 
-        if (!isMeasuredUnit && rawVal) {
+        if (!isMeasured && rawVal) {
           setDosageValue(Math.max(1, Math.round(parseFloat(rawVal))).toString());
         } else {
           setDosageValue((rawVal && parseFloat(rawVal) > 0) ? rawVal : '1');
@@ -514,7 +530,7 @@ const DispensedMedicine = () => {
     fetchHistory({ fromDate: '', toDate: '', filterStudent: '', filterMedicine: '' });
   };
 
-  // Actual API call execution after confirmation modal
+  // Execution after modal confirmation
   const executeDispense = async () => {
     try {
       const response = await fetch('http://localhost:3001/api/dispensation', {
@@ -551,7 +567,7 @@ const DispensedMedicine = () => {
     }
   };
 
-  // Form Validation and Confirmation Modal Trigger
+  // Form Validation & Whole Number Integer Check
   const handleFormSubmit = (e) => {
     e.preventDefault();
 
@@ -572,15 +588,16 @@ const DispensedMedicine = () => {
 
     const selectedBatch = inventory.find(b => b.batch_id === selectedBatchId);
     const numericValue = parseFloat(dosageValue);
-    const isMeasuredUnit = MEASURED_UNITS.includes(dosageUnit);
+    const isMeasuredUnit = isMeasuredUnitFn(dosageUnit);
 
     if (isNaN(numericValue) || numericValue <= 0) {
       showAlertModal('Validation Error', 'Dosage value must be greater than 0.', 'warning');
       return;
     }
 
+    // Strict Whole Integer Validation for discrete item units
     if (!isMeasuredUnit && !Number.isInteger(numericValue)) {
-      showAlertModal('Validation Error', 'Quantity dispensed for discrete items (e.g. tablets, capsules) must be a whole integer.', 'warning');
+      showAlertModal('Validation Error', 'Quantity dispensed for discrete items (e.g. Tablet/s, Capsule/s, Patch/es, Sachet, Vial, Prefilled Syringe, Spray/s, Inhaler, Box/es, pcs.) must be a whole number or integer.', 'warning');
       return;
     }
 
@@ -609,13 +626,13 @@ const DispensedMedicine = () => {
       }
     }
 
-    // Trigger Confirmation Modal for Create/Dispense Operation
+    // Trigger Confirmation Modal
     const medName = selectedBatch ? selectedBatch.medicine_name : 'Selected Medicine';
     const studentName = `${selectedStudent.first_name} ${selectedStudent.last_name}`;
 
     showConfirmModal(
       'Confirm Medicine Dispensation',
-      `Are you sure you want to dispense ${numericValue} ${dosageUnit} of ${medName} to ${studentName} (${selectedStudent.student_id})?`,
+      `Are you sure you want to dispense ${formatUnitValue(numericValue, dosageUnit)} ${dosageUnit} of ${medName} to ${studentName} (${selectedStudent.student_id})?`,
       executeDispense
     );
   };
@@ -674,7 +691,7 @@ const DispensedMedicine = () => {
         log.student_id || 'N/A',
         `${log.first_name || ''} ${log.last_name || ''}`.trim() || 'N/A',
         log.medicine_name || 'N/A',
-        `${log.dosage_consumption_unit_value} ${log.dosage_consumption_unit_of_measure}`,
+        `${formatUnitValue(log.dosage_consumption_unit_value, log.dosage_consumption_unit_of_measure)} ${log.dosage_consumption_unit_of_measure}`,
         log.dispensation_type || 'Direct Dispensation'
       ]);
 
@@ -720,7 +737,7 @@ const DispensedMedicine = () => {
   }, [history]);
 
   const activeBatch = inventory.find(b => b.batch_id === selectedBatchId);
-  const isMeasured = MEASURED_UNITS.includes(dosageUnit);
+  const isMeasured = isMeasuredUnitFn(dosageUnit);
 
   return (
     <div className="dispense-container-dm">
@@ -765,9 +782,7 @@ const DispensedMedicine = () => {
         </div>
       )}
 
-      {/* --------------------------------------------------------------------- */}
       {/* GLOBAL ALERT / SYSTEM NOTIFICATION MODAL */}
-      {/* --------------------------------------------------------------------- */}
       {alertModal.isOpen && (
         <div className="modal-overlay-dm">
           <div className="modal-card-dm alert-modal-card-dm">
@@ -795,9 +810,7 @@ const DispensedMedicine = () => {
         </div>
       )}
 
-      {/* --------------------------------------------------------------------- */}
       {/* OPERATION CONFIRMATION MODAL */}
-      {/* --------------------------------------------------------------------- */}
       {confirmModal.isOpen && (
         <div className="modal-overlay-dm">
           <div className="modal-card-dm confirm-modal-card-dm">
@@ -974,11 +987,11 @@ const DispensedMedicine = () => {
               >
                 <option value="">-- Choose Expiration Date --</option>
                 {availableBatches.map((batch) => {
-                  const batchIsMeasured = MEASURED_UNITS.includes(batch.strength_unit_of_measure);
+                  const batchIsMeasured = isMeasuredUnitFn(batch.strength_unit_of_measure);
                   const stockLabel = formatCurrentStock(batch);
 
                   const stockInfo = batchIsMeasured
-                    ? `Stock: ${stockLabel} | Rem. Vol/Pcs: ${batch.remaining_volume} ${batch.strength_unit_of_measure}`
+                    ? `Stock: ${stockLabel} | Rem. Vol: ${batch.remaining_volume} ${batch.strength_unit_of_measure}`
                     : `Stock: ${stockLabel}`;
 
                   return (
@@ -998,8 +1011,8 @@ const DispensedMedicine = () => {
                     {formatCurrentStock(activeBatch)}
                   </span>
                 </p>
-                {MEASURED_UNITS.includes(activeBatch.strength_unit_of_measure) && (
-                  <p><strong>Remaining Volume / Pieces:</strong> {activeBatch.remaining_volume} {activeBatch.strength_unit_of_measure}</p>
+                {isMeasuredUnitFn(activeBatch.strength_unit_of_measure) && (
+                  <p><strong>Remaining Volume:</strong> {activeBatch.remaining_volume} {activeBatch.strength_unit_of_measure}</p>
                 )}
                 <p><strong>Expiration:</strong> {new Date(activeBatch.expiration_date).toLocaleDateString()}</p>
               </div>
@@ -1018,12 +1031,14 @@ const DispensedMedicine = () => {
                   placeholder={isMeasured ? "0.00" : "1"}
                   value={dosageValue}
                   onKeyDown={(e) => {
-                    if (!isMeasured && (e.key === '.' || e.key === 'e' || e.key === 'E' || e.key === '+')) {
+                    // Restrict non-integer keystrokes for discrete items
+                    if (!isMeasured && (e.key === '.' || e.key === 'e' || e.key === 'E' || e.key === '+' || e.key === '-')) {
                       e.preventDefault();
                     }
                   }}
                   onChange={(e) => {
                     const val = e.target.value;
+                    // Strip decimal values for discrete units
                     if (!isMeasured && val.includes('.')) {
                       setDosageValue(val.split('.')[0]);
                     } else {
@@ -1077,7 +1092,7 @@ const DispensedMedicine = () => {
                 ) : (
                   inventory.map((item) => {
                     const status = getStockStatus(item.current_stock, item.low_stock_level, item.critical_stock_level);
-                    const showVolume = MEASURED_UNITS.includes(item.strength_unit_of_measure);
+                    const showVolume = isMeasuredUnitFn(item.strength_unit_of_measure);
                     const isBox = isBoxUnit(item);
 
                     return (
@@ -1140,7 +1155,7 @@ const DispensedMedicine = () => {
                     <td><code>{log.student_id}</code></td>
                     <td>{log.first_name} {log.last_name}</td>
                     <td>{log.medicine_name}</td>
-                    <td><strong>{log.dosage_consumption_unit_value} {log.dosage_consumption_unit_of_measure}</strong></td>
+                    <td><strong>{formatUnitValue(log.dosage_consumption_unit_value, log.dosage_consumption_unit_of_measure)} {log.dosage_consumption_unit_of_measure}</strong></td>
                     <td className="action-column-dm">
                       <button 
                         type="button" 
@@ -1275,7 +1290,7 @@ const DispensedMedicine = () => {
                           <td><code>{log.student_id}</code></td>
                           <td>{log.first_name} {log.last_name}</td>
                           <td>{log.medicine_name}</td>
-                          <td><strong>{log.dosage_consumption_unit_value} {log.dosage_consumption_unit_of_measure}</strong></td>
+                          <td><strong>{formatUnitValue(log.dosage_consumption_unit_value, log.dosage_consumption_unit_of_measure)} {log.dosage_consumption_unit_of_measure}</strong></td>
                           <td className="action-column-dm">
                             <button 
                               type="button" 
@@ -1346,7 +1361,7 @@ const DispensedMedicine = () => {
               </div>
               <div className="detail-item-dm">
                 <span className="detail-label-dm">Dispensed Amount:</span>
-                <span className="detail-value-dm">{selectedLogDetail.dosage_consumption_unit_value} {selectedLogDetail.dosage_consumption_unit_of_measure}</span>
+                <span className="detail-value-dm">{formatUnitValue(selectedLogDetail.dosage_consumption_unit_value, selectedLogDetail.dosage_consumption_unit_of_measure)} {selectedLogDetail.dosage_consumption_unit_of_measure}</span>
               </div>
               <div className="detail-item-dm">
                 <span className="detail-label-dm">Dispensation Type:</span>

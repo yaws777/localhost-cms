@@ -45,6 +45,10 @@ const NURSE_SIGNATURE_SVG = `data:image/svg+xml;charset=utf-8,${encodeURICompone
 `)}`;
 
 const MEASURED_UNITS = ['mg', 'g', 'mcg', 'mL', 'L'];
+const DISCRETE_UNITS = [
+    'Tablet/s', 'Capsule/s', 'Patch/es', 'Sachet', 'Vial',
+    'Prefilled Syringe', 'Spray/s', 'Inhaler', 'Box/es', 'pcs.'
+];
 const VOLUME_UNITS = ['mg', 'g', 'mcg', 'mL', 'L', 'pcs.'];
 
 const CONDITIONAL_COMPLAINT_NAMES = [
@@ -53,6 +57,12 @@ const CONDITIONAL_COMPLAINT_NAMES = [
     'gastrointestinal issues', 
     'body pain'
 ];
+
+const isDiscreteUnit = (unit) => {
+    if (!unit) return false;
+    const lowerUnit = unit.trim().toLowerCase();
+    return DISCRETE_UNITS.some(d => d.toLowerCase() === lowerUnit) || !MEASURED_UNITS.includes(lowerUnit);
+};
 
 const formatDosageForm = (dosageForm, count = 1) => {
     if (!dosageForm) return count === 1 ? 'unit' : 'units';
@@ -167,10 +177,9 @@ const VisitLogConsultation = () => {
     const [qrTimeoutVisit, setQrTimeoutVisit] = useState(null);
     const [qrTimeoutInput, setQrTimeoutInput] = useState('');
 
-    // Dynamic Centralized Modal System State
     const [feedbackModal, setFeedbackModal] = useState({
         isOpen: false,
-        type: 'info', // 'confirm' | 'success' | 'error' | 'warning'
+        type: 'info',
         title: '',
         message: '',
         onConfirm: null,
@@ -328,7 +337,6 @@ const VisitLogConsultation = () => {
     }, [requestCameraAndStartScan]);
 
     const handleSelectStudent = useCallback((student) => {
-        // Check for inactive account status
         if (student.is_active === 0 || student.is_active === false) {
             showAlertModal(
                 'Inactive Account Warning',
@@ -407,7 +415,6 @@ const VisitLogConsultation = () => {
             const data = await res.json();
             
             if (Array.isArray(data)) {
-                // Filter out inactive accounts from active search list
                 const activeOnly = data.filter(s => s.is_active !== 0 && s.is_active !== false);
                 setStudents(activeOnly);
             } else {
@@ -443,7 +450,6 @@ const VisitLogConsultation = () => {
         }
     };
 
-    // Manual Time-Out automatically uses current local time
     const handleManualTimeout = useCallback(async (visitId, customTime = null) => {
         const now = new Date();
         const currentTime = customTime || now.toTimeString().split(' ')[0].substring(0, 5);
@@ -628,7 +634,7 @@ const VisitLogConsultation = () => {
             let rawValue = selected.avg_dosage_consumption_value;
             let initialValue = (rawValue && parseFloat(rawValue) > 0) ? String(rawValue) : '1';
             
-            if (!MEASURED_UNITS.includes(medicineUnit) && initialValue) {
+            if (isDiscreteUnit(medicineUnit) && initialValue) {
                 initialValue = String(Math.max(1, Math.floor(Number(initialValue))));
             }
 
@@ -668,7 +674,7 @@ const VisitLogConsultation = () => {
         ? (activeBatchInfo.avg_dosage_consumption_unit_of_measure || activeBatchInfo.strength_unit_of_measure)
         : formData.dosage_consumption_unit_of_measure;
 
-    const isMeasuredUnit = MEASURED_UNITS.includes(formData.dosage_consumption_unit_of_measure);
+    const isDiscreteQuantity = isDiscreteUnit(formData.dosage_consumption_unit_of_measure) || isDiscreteUnit(activeBatchUnit);
     const isVolumeUnit = VOLUME_UNITS.includes(activeBatchUnit) || VOLUME_UNITS.includes(formData.dosage_consumption_unit_of_measure);
 
     const calculatedTotalAvailableVolume = activeBatchInfo && isVolumeUnit ? getTotalAvailableStock(activeBatchInfo) : 0;
@@ -703,10 +709,13 @@ const VisitLogConsultation = () => {
                 showAlertModal('Invalid Dosage Quantity', 'Dosage quantity must be greater than 0.', 'warning');
                 return;
             }
-            if (!isMeasuredUnit && !Number.isInteger(val)) {
-                showAlertModal('Invalid Quantity', `Quantity for discrete units (${formData.dosage_consumption_unit_of_measure}) must be a whole integer.`, 'warning');
+
+            const currentUnit = formData.dosage_consumption_unit_of_measure || activeBatchUnit;
+            if (isDiscreteUnit(currentUnit) && !Number.isInteger(val)) {
+                showAlertModal('Invalid Quantity', `Unit quantity for discrete measures (${currentUnit}) must be a whole number or integer.`, 'warning');
                 return;
             }
+
             if (activeBatchInfo) {
                 if (new Date(activeBatchInfo.expiration_date) < new Date()) {
                     showAlertModal('Expired Medicine', 'Cannot dispense medicine from an expired batch.', 'error');
@@ -962,7 +971,6 @@ const VisitLogConsultation = () => {
                 </div>
             </div>
 
-            {/* Custom Centralized Notification & Confirmation Modal */}
             {feedbackModal.isOpen && (
                 <div className="modal-viewport-backdrop-vlc" style={{ zIndex: 2000 }}>
                     <div className="modal-body-container-vlc confirm-modal-small-vlc">
@@ -1652,8 +1660,8 @@ const VisitLogConsultation = () => {
                                                 <label>Dosage / Quantity {!isAlreadyDispensed && <span className="required-star-vlc">*</span>}</label>
                                                 <input 
                                                     type="number" 
-                                                    step={isMeasuredUnit ? "any" : "1"} 
-                                                    min={isMeasuredUnit ? "0.01" : "1"} 
+                                                    step={isDiscreteQuantity ? "1" : "any"} 
+                                                    min={isDiscreteQuantity ? "1" : "0.01"} 
                                                     required={!isAlreadyDispensed} 
                                                     readOnly={isAlreadyDispensed}
                                                     disabled={isAlreadyDispensed}
