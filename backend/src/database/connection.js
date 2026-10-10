@@ -9900,6 +9900,7 @@ app.get('/api/student/:studentId/document-requests', async (req, res) => {
 
 //Fetch Nurse Notification
 // 1. Get all unread notifications for a nurse using nurse_id
+// 1. Get all notifications for a nurse using nurse_id (both read and unread)
 app.get('/api/notifications/nurse/:nurse_id', async (req, res) => {
   const { nurse_id } = req.params;
 
@@ -9917,8 +9918,9 @@ app.get('/api/notifications/nurse/:nurse_id', async (req, res) => {
         n.read_at
       FROM notifications n
       INNER JOIN nurses nu ON n.recipient_id = nu.user_id
-      WHERE nu.nurse_id = ? AND n.is_read = 0
+      WHERE nu.nurse_id = ?
       ORDER BY n.created_at DESC
+      LIMIT 50
     `;
 
     const [notifications] = await pool.query(query, [nurse_id]);
@@ -9957,10 +9959,23 @@ app.patch('/api/notifications/:notification_id/read', async (req, res) => {
   }
 });
 
+// Express API route
+app.patch('/api/notifications/nurse/:nurseId/read-all', async (req, res) => {
+    const { nurseId } = req.params;
+    try {
+        await pool.query(
+            'UPDATE notifications SET is_read = true WHERE nurse_id = ? AND is_read = false',
+            [nurseId]
+        );
+        res.json({ success: true, message: 'All notifications marked as read' });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
 
 //Fetch Student Notification 
 // Get all unread notifications for a student using student_id
-// 1. Get all unread notifications for a student using student_id
+// 1. Get all notifications (read and unread) for a student using student_id
 app.get('/api/notifications/student/:student_id', async (req, res) => {
   const { student_id } = req.params;
 
@@ -9978,8 +9993,9 @@ app.get('/api/notifications/student/:student_id', async (req, res) => {
         n.read_at
       FROM notifications n
       INNER JOIN students s ON n.recipient_id = s.user_id
-      WHERE s.student_id = ? AND n.is_read = 0
+      WHERE s.student_id = ?
       ORDER BY n.created_at DESC
+      LIMIT 50
     `;
 
     const [notifications] = await pool.query(query, [student_id]);
@@ -9995,7 +10011,7 @@ app.get('/api/notifications/student/:student_id', async (req, res) => {
   }
 });
 
-// 2. Mark a notification as read
+// 2. Mark a single notification as read
 app.patch('/api/notifications/:notification_id/read', async (req, res) => {
   const { notification_id } = req.params;
 
@@ -10014,6 +10030,30 @@ app.patch('/api/notifications/:notification_id/read', async (req, res) => {
     });
   } catch (error) {
     console.error('Error updating notification:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// 3. Mark all notifications as read for a student
+app.patch('/api/notifications/student/:studentId/read-all', async (req, res) => {
+  const { studentId } = req.params;
+
+  try {
+    const query = `
+      UPDATE notifications n
+      INNER JOIN students s ON n.recipient_id = s.user_id
+      SET n.is_read = 1, n.read_at = CURRENT_TIMESTAMP
+      WHERE s.student_id = ? AND n.is_read = 0
+    `;
+
+    await pool.query(query, [studentId]);
+
+    res.status(200).json({
+      success: true,
+      message: 'All notifications marked as read'
+    });
+  } catch (error) {
+    console.error('Error marking all notifications as read:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
@@ -10085,6 +10125,30 @@ app.get('/api/notifications/student/:studentId', async (req, res) => {
   } catch (error) {
     console.error('Error fetching student notifications:', error);
     return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Mark all notifications as read for a parent (including parent & linked student notifications)
+app.patch('/api/notifications/parent/:parentId/read-all', async (req, res) => {
+  const { parentId } = req.params;
+
+  try {
+    const query = `
+      UPDATE notifications n
+      INNER JOIN parents p ON n.recipient_id = p.user_id
+      SET n.is_read = 1, n.read_at = CURRENT_TIMESTAMP
+      WHERE p.parent_id = ? AND n.is_read = 0
+    `;
+
+    await pool.query(query, [parentId]);
+
+    res.status(200).json({
+      success: true,
+      message: 'All parent notifications marked as read'
+    });
+  } catch (error) {
+    console.error('Error marking all parent notifications as read:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
   }
 });
 
@@ -11115,5 +11179,7 @@ app.get('/api/parent/dashboard/announcements/:parentId', async (req, res) => {
     });
   }
 });
+
+
 
 app.listen(3001, () => console.log('Server running on port 3001'));

@@ -325,7 +325,6 @@ const generatePDFReport = (title, periodText, tableHeaders, tableRows) => {
             <div class="header-info">
               <h1>STI College</h1>
               <p>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan.</p>
-              <p>Clinic & Health Services Department</p>
             </div>
           </div>
           <div class="header-meta">
@@ -444,7 +443,7 @@ const CustomTooltip = ({ active, payload, label, unitLabel = "cases", medicinesU
         <div className="tooltip-divider-nd" />
         <div className="tooltip-footer-nd">
           <span className="tooltip-total-label-nd">Total</span>
-          <span className="tooltip-total-value-nd">{totalCases.toFixed(1)} {unitLabel}</span>
+          <span className="tooltip-total-value-nd">{Math.round(totalCases)} {unitLabel}</span>
         </div>
       </div>
     );
@@ -1377,7 +1376,7 @@ const NurseDashboard = () => {
             </span>
             <span className="quick-action-content-nd">
               <strong>Manage Announcements</strong>
-              <span>Create, update, delete, and send system & web push notices</span>
+              <span>Post announcements and set reminders</span>
             </span>
             <ChevronRight size={18} className="quick-action-arrow-nd" />
           </button>

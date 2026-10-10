@@ -1,48 +1,14 @@
+// VisitLogConsultation.jsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation, useOutletContext } from 'react-router-dom';
 import { 
     Search, QrCode, User, Activity, ShieldAlert, Clock, 
     XCircle, CheckCircle, FileText, LogOut, RefreshCw, Camera, 
-    AlertTriangle, History, Filter, RotateCcw, Download, Info
+    AlertTriangle, History, Filter, RotateCcw, Info, Printer
 } from 'lucide-react';
 import jsQR from 'jsqr';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/VisitLogConsultation.css';
-
-const NURSE_SIGNATURE_SVG = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 100" width="260" height="100">
-  <path d="
-    M 22 72 
-    C 18 45, 25 18, 38 24 
-    C 48 29, 44 58, 48 74 
-    C 53 48, 64 22, 75 26 
-    C 84 30, 80 58, 83 72 
-    C 87 45, 98 28, 114 31 
-    C 126 33, 122 50, 112 53 
-    C 128 55, 126 74, 108 74 
-    C 96 74, 92 70, 90 66 
-    C 95 62, 105 60, 115 60 
-    C 122 53, 130 52, 134 56 
-    C 138 60, 134 71, 128 71 
-    C 123 71, 125 61, 136 61 
-    C 141 44, 147 28, 149 32 
-    C 151 36, 144 70, 151 70 
-    C 155 61, 161 57, 165 60 
-    C 169 63, 165 71, 160 71 
-    C 156 71, 158 61, 168 61 
-    C 173 57, 178 55, 180 58 
-    C 180 62, 176 68, 184 68 
-    C 188 59, 194 56, 198 59 
-    C 202 62, 198 71, 193 71 
-    C 189 71, 191 61, 201 61 
-    C 206 57, 213 57, 213 63 
-    C 213 70, 204 71, 202 63 
-    C 202 58, 211 56, 225 56
-  " fill="none" stroke="#0f172a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>
-`)}`;
 
 const MEASURED_UNITS = ['mg', 'g', 'mcg', 'mL', 'L'];
 const DISCRETE_UNITS = [
@@ -254,6 +220,13 @@ const VisitLogConsultation = () => {
             setCameraPermissionError("Unable to access camera: " + (err.message || ''));
         }
     }, []);
+
+    const handleSelectSearchMode = (mode) => {
+        setSearchMode(mode);
+        if (mode === 'qr') {
+            requestCameraAndStartScan();
+        }
+    };
 
     useEffect(() => {
         if (location.state?.openQrScanner) {
@@ -467,6 +440,10 @@ const VisitLogConsultation = () => {
                     showAlertModal('Time Out Success', `Student successfully timed out at ${formattedCurrentTime}.`, 'success');
                     fetchTodayVisits();
                     if (showAllLogsModal) fetchAllVisits();
+                    if (documentingVisit && documentingVisit.visit_id === visitId) {
+                        setFormData(prev => ({ ...prev, time_out: currentTime }));
+                        setDocumentingVisit(prev => ({ ...prev, time_out: currentTime }));
+                    }
                 } else {
                     showAlertModal('Time Out Error', data.error || "Failed to update time out status.", 'error');
                 }
@@ -488,7 +465,7 @@ const VisitLogConsultation = () => {
                 'confirm'
             );
         }
-    }, [fetchTodayVisits, fetchAllVisits, showAllLogsModal, showAlertModal, showConfirmDialog]);
+    }, [fetchTodayVisits, fetchAllVisits, showAllLogsModal, documentingVisit, showAlertModal, showConfirmDialog]);
 
     useEffect(() => {
         let animationFrameId;
@@ -826,50 +803,23 @@ const VisitLogConsultation = () => {
             : visit.complaint_name;
     };
 
+    // PRINT PREVIEW PDF EXPORT (Matches ManageParentAccount / ManageStudentAccounts)
     const handleExportPDF = () => {
-        const doc = new jsPDF('p', 'mm', 'a4');
-        const pageWidth = doc.internal.pageSize.getWidth();
+        const rowsToExport = Array.isArray(filteredAllVisits) ? filteredAllVisits : [];
 
-        try {
-            if (stiLogo) {
-                doc.addImage(stiLogo, 'PNG', 14, 10, 20, 20);
-            }
-        } catch (err) {
-            console.warn("STI Logo render notice:", err);
+        const printWindow = window.open('', '_blank', 'width=950,height=750');
+        if (!printWindow) {
+            alert('Please allow popups to preview and print the report.');
+            return;
         }
 
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(14);
-        doc.setTextColor(15, 23, 42);
-        doc.text("STI COLLEGE BALIUAG", 38, 15);
-
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8.5);
-        doc.setTextColor(71, 85, 105);
-        doc.text("Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan.", 38, 20);
-
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(11);
-        doc.setTextColor(30, 58, 138);
-        doc.text("CLINIC VISIT LOGS REPORT", 38, 26);
-
-        const currentDateStr = new Date().toLocaleDateString('en-US', { 
-            year: 'numeric', month: 'long', day: 'numeric' 
+        const reportDate = new Date().toLocaleDateString('en-US', { 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
         });
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8.5);
-        doc.setTextColor(100, 116, 139);
-        doc.text(`Date Generated: ${currentDateStr} | Total Records: ${filteredAllVisits.length}`, 14, 35);
 
-        doc.setLineWidth(0.4);
-        doc.setDrawColor(203, 213, 225);
-        doc.line(14, 38, pageWidth - 14, 38);
-
-        const tableHeaders = [
-            ["Date", "Student ID", "Student Name", "Chief Complaint", "Time In", "Time Out", "Medicine Dispensed"]
-        ];
-
-        const tableData = filteredAllVisits.map(visit => {
+        const tableRowsHtml = rowsToExport.map(visit => {
             const vDate = formatDateDisplay(visit.visit_date);
             const stId = visit.student_id || 'N/A';
             const stName = `${visit.first_name || ''} ${visit.last_name || ''}`.trim() || 'N/A';
@@ -882,73 +832,151 @@ const VisitLogConsultation = () => {
                 ? `${dispensedMed}${visit.dosage_consumption_unit_value ? ` (${visit.dosage_consumption_unit_value}${visit.dosage_consumption_unit_of_measure || ''})` : ''}`
                 : 'None';
 
-            return [vDate, stId, stName, complaint, timeIn, timeOut, medText];
-        });
+            return `
+                <tr>
+                    <td>${vDate}</td>
+                    <td>${stId}</td>
+                    <td><strong>${stName}</strong></td>
+                    <td>${complaint}</td>
+                    <td>${timeIn}</td>
+                    <td>${timeOut}</td>
+                    <td>${medText}</td>
+                </tr>
+            `;
+        }).join('');
 
-        autoTable(doc, {
-            startY: 42,
-            head: tableHeaders,
-            body: tableData,
-            theme: 'striped',
-            headStyles: {
-                fillColor: [30, 58, 138],
-                textColor: [255, 255, 255],
-                fontStyle: 'bold',
-                fontSize: 8.5,
-                halign: 'left'
-            },
-            bodyStyles: {
-                fontSize: 8,
-                textColor: [51, 65, 85],
-                cellPadding: 2.5
-            },
-            alternateRowStyles: {
-                fillColor: [248, 250, 252]
-            },
-            columnStyles: {
-                0: { cellWidth: 22 },
-                1: { cellWidth: 24 },
-                2: { cellWidth: 32 },
-                3: { cellWidth: 38 },
-                4: { cellWidth: 18 },
-                5: { cellWidth: 18 },
-                6: { cellWidth: 'auto' }
-            },
-            margin: { left: 14, right: 14 }
-        });
+        const htmlContent = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Clinic Visit Logs Report</title>
+                <style>
+                    body {
+                        font-family: Arial, Helvetica, sans-serif;
+                        margin: 25px;
+                        color: #0f172a;
+                    }
+                    .report-header {
+                        display: flex;
+                        align-items: center;
+                        border-bottom: 2px solid #0056b3;
+                        padding-bottom: 12px;
+                        margin-bottom: 16px;
+                    }
+                    .report-header img {
+                        height: 60px;
+                        margin-right: 20px;
+                    }
+                    .report-title h2 {
+                        margin: 0;
+                        font-size: 20px;
+                        color: #1e3a8a;
+                    }
+                    .report-title p {
+                        margin: 4px 0 0;
+                        font-size: 13px;
+                        color: #475569;
+                    }
+                    .meta-info {
+                        display: flex;
+                        justify-content: space-between;
+                        font-size: 13px;
+                        color: #475569;
+                        margin-bottom: 16px;
+                        font-weight: 500;
+                    }
+                    table {
+                        width: 100%;
+                        border-collapse: collapse;
+                        font-size: 12px;
+                        margin-bottom: 35px;
+                    }
+                    th {
+                        background-color: #f1f5f9;
+                        color: #0f172a;
+                        text-align: left;
+                        padding: 9px 10px;
+                        border: 1px solid #cbd5e1;
+                        font-weight: bold;
+                    }
+                    td {
+                        padding: 8px 10px;
+                        border: 1px solid #e2e8f0;
+                    }
+                    tr:nth-child(even) {
+                        background-color: #f8fafc;
+                    }
+                    .signature-section {
+                        margin-top: 40px;
+                        font-size: 13px;
+                    }
+                    .signature-title {
+                        color: #475569;
+                        margin-bottom: 35px;
+                    }
+                    .signature-name {
+                        font-weight: bold;
+                        font-size: 14px;
+                        color: #0f172a;
+                    }
+                    .signature-role {
+                        font-style: italic;
+                        color: #64748b;
+                    }
+                    @media print {
+                        body { margin: 0; }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="report-header">
+                    <img src="${stiLogo}" alt="STI Logo" />
+                    <div class="report-title">
+                        <h2>STI COLLEGE BALIUAG</h2>
+                        <p>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan.</p>
+                    </div>
+                </div>
 
-        const finalY = (doc.lastAutoTable ? doc.lastAutoTable.finalY : 50) + 15;
-        const pageHeight = doc.internal.pageSize.getHeight();
-        
-        let signatureY = finalY;
-        if (signatureY + 35 > pageHeight) {
-            doc.addPage();
-            signatureY = 25;
-        }
+                <div class="meta-info">
+                    <span><strong>CLINIC VISIT LOGS REPORT</strong></span>
+                    <span>Date Generated: ${reportDate} | Total Records: ${rowsToExport.length}</span>
+                </div>
 
-        try {
-            doc.addImage(NURSE_SIGNATURE_SVG, 'SVG', 14, signatureY, 45, 15);
-        } catch (e) {
-            console.warn("Signature rendering notice:", e);
-        }
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Student ID</th>
+                            <th>Student Name</th>
+                            <th>Chief Complaint</th>
+                            <th>Time In</th>
+                            <th>Time Out</th>
+                            <th>Medicine Dispensed</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tableRowsHtml || '<tr><td colspan="7">No clinic visit records found matching criteria.</td></tr>'}
+                    </tbody>
+                </table>
 
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8.5);
-        doc.setTextColor(71, 85, 105);
-        doc.text("Prepared by:", 14, signatureY - 2);
+                <div class="signature-section">
+                    <div class="signature-title">Prepared by:</div>
+                    <div class="signature-name">Marilou H. Balarao</div>
+                    <div class="signature-role">School Nurse</div>
+                </div>
 
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(10);
-        doc.setTextColor(15, 23, 42);
-        doc.text("Marilou H. Balarao", 14, signatureY + 18);
+                <script>
+                    window.onload = function() {
+                        window.print();
+                    };
+                </script>
+            </body>
+            </html>
+        `;
 
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8.5);
-        doc.setTextColor(100, 116, 139);
-        doc.text("School Nurse", 14, signatureY + 23);
-
-        const blobUrl = doc.output('bloburl');
-        window.open(blobUrl, '_blank');
+        printWindow.document.open();
+        printWindow.document.write(htmlContent);
+        printWindow.document.close();
     };
 
     return (
@@ -956,8 +984,8 @@ const VisitLogConsultation = () => {
             <div className="consultation-header-panel-vlc">
                 <div className="header-title-container-vlc">
                     <div className="header-text-block-vlc">
-                        <h2>Today's Clinic Visit Management</h2>
-                        <p>Register check-ins, record vital signs, dispense medicine, and handle time-outs for today's visits.</p>
+                        <h2>Today's Clinic Visit</h2>
+                        <p>Manage check-ins, record vital signs, dispense medicine, and handle time-outs for today's visits.</p>
                     </div>
                     <button 
                         type="button" 
@@ -1029,14 +1057,14 @@ const VisitLogConsultation = () => {
 
             {!searchMode ? (
                 <div className="entry-option-card-vlc">
-                    <h3>Register New Clinic Visit Entry</h3>
+                    <h3>Log New Clinic Visit</h3>
                     <p>Select how you would like to locate the student record:</p>
                     <div className="entry-buttons-group-vlc">
-                        <button className="entry-btn-vlc mode-search-btn-vlc" onClick={() => setSearchMode('search')}>
+                        <button className="entry-btn-vlc mode-search-btn-vlc" onClick={() => handleSelectSearchMode('search')}>
                             <Search size={20} />
                             <span>Search Student</span>
                         </button>
-                        <button className="entry-btn-vlc mode-qr-btn-vlc" onClick={() => setSearchMode('qr')}>
+                        <button className="entry-btn-vlc mode-qr-btn-vlc" onClick={() => handleSelectSearchMode('qr')}>
                             <QrCode size={20} />
                             <span>Scan QR Code</span>
                         </button>
@@ -1179,7 +1207,7 @@ const VisitLogConsultation = () => {
             )}
 
             {qrTimeoutVisit && (
-                <div className="modal-viewport-backdrop-vlc">
+                <div className="modal-viewport-backdrop-vlc" style={{ zIndex: 1200 }}>
                     <div className="modal-body-container-vlc confirm-modal-small-vlc">
                         <div className="modal-header-accent-vlc">
                             <h3><Camera size={18} /> Scan QR to Time Out</h3>
@@ -1301,7 +1329,7 @@ const VisitLogConsultation = () => {
                                         type="button" 
                                         className="btn-export-pdf-vlc"
                                         onClick={handleExportPDF}
-                                        title="Export Visit Logs to PDF"
+                                        title="Export Visit Logs Report"
                                         style={{
                                             display: 'inline-flex',
                                             alignItems: 'center',
@@ -1319,8 +1347,8 @@ const VisitLogConsultation = () => {
                                             flexShrink: 0
                                         }}
                                     >
-                                        <Download size={14} />
-                                        <span>Export</span>
+                                        <Printer size={14} />
+                                        <span>export</span>
                                     </button>
                                 </div>
                             </div>
@@ -1487,7 +1515,30 @@ const VisitLogConsultation = () => {
                                     </div>
                                     <div className="form-input-element-vlc">
                                         <label>Time Out <span className="label-optional-vlc">(Optional)</span></label>
-                                        <input type="time" value={formData.time_out} onChange={e => setFormData({...formData, time_out: e.target.value})} />
+                                        {formData.time_out ? (
+                                            <input type="text" readOnly value={formatTimeDisplay(formData.time_out)} className="read-only-input-vlc" />
+                                        ) : (
+                                            <div className="action-button-group-vlc" style={{ justifyContent: 'flex-start', height: '38px' }}>
+                                                <button 
+                                                    type="button" 
+                                                    className="icon-action-btn-vlc btn-qr-timeout-vlc"
+                                                    title="Scan QR to Time Out"
+                                                    aria-label="Scan QR to Time Out"
+                                                    onClick={() => handleOpenQrTimeoutModal(documentingVisit)}
+                                                >
+                                                    <QrCode size={16} />
+                                                </button>
+                                                <button 
+                                                    type="button" 
+                                                    className="icon-action-btn-vlc btn-manual-timeout-vlc"
+                                                    title="Manual Time Out (Current Time)"
+                                                    aria-label="Manual Time Out"
+                                                    onClick={() => handleManualTimeout(documentingVisit.visit_id)}
+                                                >
+                                                    <LogOut size={16} />
+                                                </button>
+                                            </div>
+                                        )}
                                     </div>
                                     <div className="form-input-element-vlc full-width-field-vlc">
                                         <label>Chief Complaint <span className="required-star-vlc">*</span></label>

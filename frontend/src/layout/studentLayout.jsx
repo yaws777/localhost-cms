@@ -58,6 +58,11 @@ const StudentLayout = () => {
     const [notifications, setNotifications] = useState([]);
     const [showNotifDropdown, setShowNotifDropdown] = useState(false);
 
+    // Calculate unread notifications count dynamically
+    const unreadNotifCount = notifications.filter(
+        n => !n.is_read && n.is_read !== 1 && !n.read
+    ).length;
+
     // Fetch unread messages count
     const fetchUnreadCount = useCallback(async (userId) => {
         if (!userId) return;
@@ -72,18 +77,29 @@ const StudentLayout = () => {
         }
     }, []);
 
-    // Fetch unread student notifications
+    // Fetch notifications with local read-state preservation
     const fetchNotifications = useCallback(async (studentId) => {
         if (!studentId) return;
         try {
             const res = await fetch(`http://localhost:3001/api/notifications/student/${studentId}`);
             const data = await res.json();
             if (data.success) {
-                // Filter out any notifications already marked as read
-                const unreadNotifs = (data.data || []).filter(
-                    (n) => n.is_read !== 1 && n.is_read !== true && n.status !== 'read'
-                );
-                setNotifications(unreadNotifs);
+                const fetchedNotifications = data.data || [];
+                setNotifications(prev => {
+                    // Collect IDs of notifications that were already marked as read locally
+                    const localReadIds = new Set(
+                        prev.filter(n => n.is_read === 1 || n.is_read === true || n.read === true)
+                            .map(n => n.notification_id)
+                    );
+
+                    // Merge fetched items while preserving local read status so they stay visible
+                    return fetchedNotifications.map(item => {
+                        if (localReadIds.has(item.notification_id)) {
+                            return { ...item, is_read: 1, read: true };
+                        }
+                        return item;
+                    });
+                });
             }
         } catch (err) {
             console.error('Error fetching student notifications:', err);
@@ -190,13 +206,17 @@ const StudentLayout = () => {
     // Navigate to sub-routes or trigger modals based on notification content
     const handleNotificationClick = async (notification) => {
         try {
-            // 1. Mark notification as read
+            // 1. Mark notification as read on the backend
             await fetch(`http://localhost:3001/api/notifications/${notification.notification_id}/read`, {
                 method: 'PATCH'
             });
 
-            // 2. Remove read item locally
-            setNotifications(prev => prev.filter(n => n.notification_id !== notification.notification_id));
+            // 2. Update item locally to read state without removing it from the array
+            setNotifications(prev => prev.map(n => 
+                n.notification_id === notification.notification_id 
+                    ? { ...n, is_read: 1, read: true } 
+                    : n
+            ));
         } catch (err) {
             console.error('Error marking notification as read:', err);
         }
@@ -212,7 +232,7 @@ const StudentLayout = () => {
             setIsMessageOpen(true);
         } else if (type.includes('requirement') || msg.includes('requirement') || title.includes('requirement')) {
             navigate('/MyRequirements'); 
-        } else if (type.includes('log') || type.includes('record') || msg.includes('clinic') || msg.includes('consultation') || msg.includes('visit')) {
+        } else if (type.includes('Doctor','Incident','Visit') || type.includes('record') || msg.includes('clinic','Incident','Doctor') || msg.includes('consultation') || msg.includes('visit')) {
             navigate('/ClinicLogsAndRecords');
         } else if (type.includes('request') || msg.includes('request')) {
             navigate('/RequestModule');
@@ -224,6 +244,22 @@ const StudentLayout = () => {
             navigate('/MyProfile');
         } else {
             navigate('/StudentDashboard');
+        }
+    };
+
+    // Mark ALL notifications as read without removing items
+    const handleMarkAllAsRead = async () => {
+        const studentId = studentData?.student_id;
+        if (!studentId) return;
+
+        try {
+            await fetch(`http://localhost:3001/api/notifications/student/${studentId}/read-all`, {
+                method: 'PATCH'
+            });
+            // Update all notifications as read in local state
+            setNotifications(prev => prev.map(n => ({ ...n, is_read: 1, read: true })));
+        } catch (err) {
+            console.error('Error marking all notifications as read:', err);
         }
     };
 
@@ -414,8 +450,8 @@ const StudentLayout = () => {
                             onClick={() => setShowNotifDropdown(!showNotifDropdown)}
                         >
                             <Bell size={20} />
-                            {notifications.length > 0 && (
-                                <span className="top-bar-unread-badge">{notifications.length}</span>
+                            {unreadNotifCount > 0 && (
+                                <span className="top-bar-unread-badge">{unreadNotifCount > 99 ? '99+' : unreadNotifCount}</span>
                             )}
                         </button>
 
@@ -447,39 +483,75 @@ const StudentLayout = () => {
                                     borderTopRightRadius: '8px'
                                 }}>
                                     <span style={{ color: '#1f1f1f', fontSize: '14px' }}>Notifications</span>
-                                    <span style={{ fontSize: '12px', color: '#8c8c8c' }}>{notifications.length} unread</span>
+                                    {unreadNotifCount > 0 && (
+                                        <button 
+                                            onClick={handleMarkAllAsRead}
+                                            style={{
+                                                background: 'none',
+                                                border: 'none',
+                                                color: '#1890ff',
+                                                fontSize: '12px',
+                                                cursor: 'pointer',
+                                                padding: 0,
+                                                fontWeight: '500'
+                                            }}
+                                        >
+                                            Mark all as read
+                                        </button>
+                                    )}
                                 </div>
 
                                 {notifications.length === 0 ? (
                                     <div style={{ padding: '20px', textAlign: 'center', color: '#8c8c8c', fontSize: '13px' }}>
-                                        No unread notifications
+                                        No notifications
                                     </div>
                                 ) : (
-                                    notifications.map((item) => (
-                                        <div 
-                                            key={item.notification_id}
-                                            onClick={() => handleNotificationClick(item)}
-                                            style={{
-                                                padding: '12px 16px',
-                                                borderBottom: '1px solid #f0f0f0',
-                                                cursor: 'pointer',
-                                                transition: 'background 0.2s',
-                                                backgroundColor: '#ffffff'
-                                            }}
-                                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f5f5f5'}
-                                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#ffffff'}
-                                        >
-                                            <div style={{ fontWeight: 'bold', fontSize: '13px', marginBottom: '4px', color: '#1f1f1f' }}>
-                                                {item.title || 'Notification'}
+                                    notifications.map((item) => {
+                                        const isItemRead = item.is_read === 1 || item.is_read === true || item.read === true;
+                                        return (
+                                            <div 
+                                                key={item.notification_id}
+                                                onClick={() => handleNotificationClick(item)}
+                                                style={{
+                                                    padding: '12px 16px',
+                                                    borderBottom: '1px solid #f0f0f0',
+                                                    cursor: 'pointer',
+                                                    transition: 'background 0.2s',
+                                                    backgroundColor: isItemRead ? '#f9f9f9' : '#ffffff',
+                                                    opacity: isItemRead ? 0.75 : 1
+                                                }}
+                                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f0f0f0'}
+                                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = isItemRead ? '#f9f9f9' : '#ffffff'}
+                                            >
+                                                <div style={{ 
+                                                    fontWeight: isItemRead ? 'normal' : 'bold', 
+                                                    fontSize: '13px', 
+                                                    marginBottom: '4px', 
+                                                    color: '#1f1f1f',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '6px'
+                                                }}>
+                                                    {!isItemRead && (
+                                                        <span style={{
+                                                            width: '6px',
+                                                            height: '6px',
+                                                            backgroundColor: '#1890ff',
+                                                            borderRadius: '50%',
+                                                            display: 'inline-block'
+                                                        }} />
+                                                    )}
+                                                    {item.title || 'Notification'}
+                                                </div>
+                                                <div style={{ fontSize: '12px', color: '#595959', marginBottom: '6px', lineHeight: '1.4' }}>
+                                                    {item.message}
+                                                </div>
+                                                <div style={{ fontSize: '10px', color: '#bfbfbf', textAlign: 'right' }}>
+                                                    {new Date(item.created_at).toLocaleString()}
+                                                </div>
                                             </div>
-                                            <div style={{ fontSize: '12px', color: '#595959', marginBottom: '6px', lineHeight: '1.4' }}>
-                                                {item.message}
-                                            </div>
-                                            <div style={{ fontSize: '10px', color: '#bfbfbf', textAlign: 'right' }}>
-                                                {new Date(item.created_at).toLocaleString()}
-                                            </div>
-                                        </div>
-                                    ))
+                                        );
+                                    })
                                 )}
                             </div>
                         )}

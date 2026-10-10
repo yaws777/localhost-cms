@@ -1,8 +1,7 @@
+// healthRecords.jsx
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, RotateCcw, Download } from 'lucide-react'; 
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import { Eye, RotateCcw, Printer } from 'lucide-react'; 
 import stiLogo from '../../assets/sti-logof.png'; 
 import '../../styles/nurse/HealthRecords.css'; 
 
@@ -245,133 +244,180 @@ export default function HealthRecord() {
         return student.health_history || 'No Known Conditions';
     };
 
-    // PDF Generation & Window Preview Function
+    // Print Preview PDF Export (Matches ManageParentAccount / ManageStudentAccounts / VisitLogConsultation)
     const handleExportPDF = () => {
-        const doc = new jsPDF({
-            orientation: 'landscape',
-            unit: 'mm',
-            format: 'a4'
+        const rowsToExport = Array.isArray(filteredStudents) ? filteredStudents : [];
+
+        const printWindow = window.open('', '_blank', 'width=1000,height=750');
+        if (!printWindow) {
+            alert('Please allow popups to preview and print the report.');
+            return;
+        }
+
+        const reportDate = new Date().toLocaleDateString('en-US', { 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
         });
 
-        const buildPdf = (imgData = null) => {
-            if (imgData) {
-                doc.addImage(imgData, 'PNG', 14, 10, 22, 22);
-            }
+        const tableRowsHtml = rowsToExport.map(student => {
+            const stId = student.student_id || 'N/A';
+            const lastName = student.last_name || 'N/A';
+            const firstName = student.first_name || 'N/A';
+            const prog = student.program_id || 'N/A';
+            const yearLvl = student.year_level ? `Year ${student.year_level}` : 'N/A';
+            const sec = student.section || 'N/A';
+            const historyText = formatHealthHistory(student);
 
-            const headerX = imgData ? 40 : 14;
-            doc.setFontSize(14);
-            doc.setFont('helvetica', 'bold');
-            doc.setTextColor(0, 51, 102);
-            doc.text("STI College Baliuag", headerX, 16);
+            return `
+                <tr>
+                    <td>${stId}</td>
+                    <td><strong>${lastName}</strong></td>
+                    <td>${firstName}</td>
+                    <td>${prog}</td>
+                    <td>${yearLvl}</td>
+                    <td>${sec}</td>
+                    <td>${historyText}</td>
+                </tr>
+            `;
+        }).join('');
 
-            doc.setFontSize(8.5);
-            doc.setFont('helvetica', 'normal');
-            doc.setTextColor(60, 60, 60);
-            doc.text("Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan.", headerX, 22);
+        const htmlContent = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Student Health Records Report</title>
+                <style>
+                    body {
+                        font-family: Arial, Helvetica, sans-serif;
+                        margin: 25px;
+                        color: #0f172a;
+                    }
+                    .report-header {
+                        display: flex;
+                        align-items: center;
+                        border-bottom: 2px solid #0056b3;
+                        padding-bottom: 12px;
+                        margin-bottom: 16px;
+                    }
+                    .report-header img {
+                        height: 60px;
+                        margin-right: 20px;
+                    }
+                    .report-title h2 {
+                        margin: 0;
+                        font-size: 20px;
+                        color: #1e3a8a;
+                    }
+                    .report-title p {
+                        margin: 4px 0 0;
+                        font-size: 13px;
+                        color: #475569;
+                    }
+                    .meta-info {
+                        display: flex;
+                        justify-content: space-between;
+                        font-size: 13px;
+                        color: #475569;
+                        margin-bottom: 16px;
+                        font-weight: 500;
+                    }
+                    table {
+                        width: 100%;
+                        border-collapse: collapse;
+                        font-size: 12px;
+                        margin-bottom: 35px;
+                    }
+                    th {
+                        background-color: #f1f5f9;
+                        color: #0f172a;
+                        text-align: left;
+                        padding: 9px 10px;
+                        border: 1px solid #cbd5e1;
+                        font-weight: bold;
+                    }
+                    td {
+                        padding: 8px 10px;
+                        border: 1px solid #e2e8f0;
+                    }
+                    tr:nth-child(even) {
+                        background-color: #f8fafc;
+                    }
+                    .signature-section {
+                        margin-top: 40px;
+                        font-size: 13px;
+                    }
+                    .signature-title {
+                        color: #475569;
+                        margin-bottom: 35px;
+                    }
+                    .signature-name {
+                        font-weight: bold;
+                        font-size: 14px;
+                        color: #0f172a;
+                    }
+                    .signature-role {
+                        font-style: italic;
+                        color: #64748b;
+                    }
+                    @media print {
+                        body { margin: 0; }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="report-header">
+                    <img src="${stiLogo}" alt="STI Logo" />
+                    <div class="report-title">
+                        <h2>STI COLLEGE BALIUAG</h2>
+                        <p>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan.</p>
+                    </div>
+                </div>
 
-            doc.setFontSize(11);
-            doc.setFont('helvetica', 'bold');
-            doc.setTextColor(0, 0, 0);
-            doc.text("STUDENT HEALTH RECORDS REPORT", headerX, 29);
+                <div class="meta-info">
+                    <span><strong>STUDENT HEALTH RECORDS REPORT</strong></span>
+                    <span>Date Generated: ${reportDate} | Total Records: ${rowsToExport.length}</span>
+                </div>
 
-            doc.setDrawColor(200, 200, 200);
-            doc.setLineWidth(0.5);
-            doc.line(14, 34, 283, 34);
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Student ID</th>
+                            <th>Last Name</th>
+                            <th>First Name</th>
+                            <th>Program</th>
+                            <th>Year Level</th>
+                            <th>Section</th>
+                            <th>Health History</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tableRowsHtml || '<tr><td colspan="7">No student health records found matching criteria.</td></tr>'}
+                    </tbody>
+                </table>
 
-            // Updated column order per requirements
-            const tableColumns = ["Student ID", "Last Name", "First Name", "Program", "Year Level", "Section", "Health History"];
+                <div class="signature-section">
+                    <div class="signature-title">Prepared by:</div>
+                    <div class="signature-name">Marilou H. Balarao</div>
+                    <div class="signature-role">School Nurse</div>
+                </div>
 
-            const tableRows = filteredStudents.map((student) => [
-                student.student_id || 'N/A',
-                student.last_name || 'N/A',
-                student.first_name || 'N/A',
-                student.program_id || 'N/A',
-                student.year_level ? `Year ${student.year_level}` : 'N/A',
-                student.section || 'N/A',
-                formatHealthHistory(student)
-            ]);
+                <script>
+                    window.onload = function() {
+                        window.print();
+                    };
+                </script>
+            </body>
+            </html>
+        `;
 
-            autoTable(doc, {
-                startY: 38,
-                head: [tableColumns],
-                body: tableRows,
-                theme: 'grid',
-                headStyles: {
-                    fillColor: [0, 86, 179],
-                    textColor: [255, 255, 255],
-                    fontStyle: 'bold',
-                    fontSize: 9
-                },
-                bodyStyles: {
-                    fontSize: 8.5,
-                    textColor: [30, 30, 30]
-                },
-                columnStyles: {
-                    0: { cellWidth: 30 },
-                    1: { cellWidth: 30 },
-                    2: { cellWidth: 30 },
-                    3: { cellWidth: 25 },
-                    4: { cellWidth: 22 },
-                    5: { cellWidth: 22 },
-                    6: { cellWidth: 'auto' }
-                },
-                alternateRowStyles: {
-                    fillColor: [248, 249, 250]
-                },
-                margin: { left: 14, right: 14 }
-            });
-
-            const finalY = doc.lastAutoTable.finalY || 120;
-            const pageHeight = doc.internal.pageSize.height;
-            let footerY = finalY + 20;
-
-            if (footerY + 25 > pageHeight) {
-                doc.addPage();
-                footerY = 30;
-            }
-
-            doc.setFontSize(9.5);
-            doc.setFont('helvetica', 'normal');
-            doc.setTextColor(0, 0, 0);
-            doc.text("Prepared by:", 14, footerY);
-
-            doc.setFont('helvetica', 'bold');
-            doc.text("Marilou H. Balarao", 14, footerY + 10);
-
-            doc.setFont('helvetica', 'normal');
-            doc.text("School Nurse", 14, footerY + 15);
-
-            const pdfBlobUrl = doc.output('bloburl');
-            window.open(pdfBlobUrl, '_blank');
-        };
-
-        const logoImg = document.getElementById('sti-logo-export');
-        if (logoImg && logoImg.complete && logoImg.naturalWidth !== 0) {
-            try {
-                const canvas = document.createElement('canvas');
-                canvas.width = logoImg.naturalWidth;
-                canvas.height = logoImg.naturalHeight;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(logoImg, 0, 0);
-                const dataURL = canvas.toDataURL('image/png');
-                buildPdf(dataURL);
-            } catch (err) {
-                buildPdf(null);
-            }
-        } else {
-            buildPdf(null);
-        }
+        printWindow.document.open();
+        printWindow.document.write(htmlContent);
+        printWindow.document.close();
     };
 
     return (
         <div className="directory-page-wrapper">
-            <img 
-                id="sti-logo-export" 
-                src={stiLogo} 
-                alt="STI Logo" 
-                style={{ display: 'none' }} 
-            />
-
             <div className="directory-header-block">
                 <h2>Student Health Records</h2>
                 <p>Search profiles and review medical information checklist histories.</p>
@@ -489,10 +535,10 @@ export default function HealthRecord() {
                             padding: '6px 14px',
                             cursor: filteredStudents.length === 0 ? 'not-allowed' : 'pointer'
                         }}
-                        title="Preview Health Records PDF"
+                        title="Preview Health Records Report"
                     >
-                        <Download size={15} />
-                        <span>Export</span>
+                        <Printer size={15} />
+                        <span>export</span>
                     </button>
                 </div>
 

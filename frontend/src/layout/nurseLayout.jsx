@@ -9,6 +9,8 @@ import {
 import '../styles/nurse/NurseLayout.css';
 import { useWebPush } from '../hooks/useWebPush';
 
+const API_BASE_URL = 'http://localhost:3001';
+
 export const NurseLayout = () => {
     const navigate = useNavigate();
     const [isOpen, setIsOpen] = useState(false);
@@ -32,6 +34,11 @@ export const NurseLayout = () => {
     const [notifications, setNotifications] = useState([]);
     const [showNotifDropdown, setShowNotifDropdown] = useState(false);
 
+    // Calculate unread notifications count dynamically
+    const unreadNotifCount = notifications.filter(
+        n => !n.is_read && n.is_read !== 1 && !n.read
+    ).length;
+
     // Derive active user ID dynamically
     const getStoredUserId = () => {
         try {
@@ -50,7 +57,7 @@ export const NurseLayout = () => {
     const fetchUnreadCount = useCallback(async (targetUserId) => {
         if (!targetUserId || targetUserId === 'undefined') return;
         try {
-            const res = await fetch(`https://localhost-cms.onrender.com/api/messages/unread-count/${targetUserId}`);
+            const res = await fetch(`${API_BASE_URL}/api/messages/unread-count/${targetUserId}`);
             const data = await res.json();
             if (data.success) {
                 setUnreadCount(Number(data.unreadCount || 0));
@@ -60,14 +67,29 @@ export const NurseLayout = () => {
         }
     }, []);
 
-    // Fetch unread notifications
+    // Fetch notifications with local read-state preservation (prevents items from disappearing or resetting on poll)
     const fetchNotifications = useCallback(async (nurseId) => {
         if (!nurseId) return;
         try {
-            const res = await fetch(`https://localhost-cms.onrender.com/api/notifications/nurse/${nurseId}`);
+            const res = await fetch(`${API_BASE_URL}/api/notifications/nurse/${nurseId}`);
             const data = await res.json();
             if (data.success) {
-                setNotifications(data.data || []);
+                const fetchedNotifications = data.data || [];
+                setNotifications(prev => {
+                    // Collect IDs of notifications that were already marked as read locally
+                    const localReadIds = new Set(
+                        prev.filter(n => n.is_read === 1 || n.is_read === true || n.read === true)
+                            .map(n => n.notification_id)
+                    );
+
+                    // Merge fetched items while preserving local read status so they stay visible in the interface
+                    return fetchedNotifications.map(item => {
+                        if (localReadIds.has(item.notification_id)) {
+                            return { ...item, is_read: 1, read: true };
+                        }
+                        return item;
+                    });
+                });
             }
         } catch (err) {
             console.error('Failed to fetch notifications:', err);
@@ -86,7 +108,7 @@ export const NurseLayout = () => {
 
         const fetchNurseProfile = async () => {
             try {
-                const response = await fetch(`https://localhost-cms.onrender.com/api/get-nurse/${accurateUserId}`);
+                const response = await fetch(`${API_BASE_URL}/api/get-nurse/${accurateUserId}`);
                 const data = await response.json();
 
                 if (data.success && data.nurse) {
@@ -151,10 +173,16 @@ export const NurseLayout = () => {
 
     const handleNotificationClick = async (notification) => {
         try {
-            await fetch(`http://localhost:3001/api/notifications/${notification.notification_id}/read`, {
+            await fetch(`${API_BASE_URL}/api/notifications/${notification.notification_id}/read`, {
                 method: 'PATCH'
             });
-            setNotifications(prev => prev.filter(n => n.notification_id !== notification.notification_id));
+
+            // Update item locally to read state without removing it from array
+            setNotifications(prev => prev.map(n => 
+                n.notification_id === notification.notification_id 
+                    ? { ...n, is_read: 1, read: true } 
+                    : n
+            ));
         } catch (err) {
             console.error('Error marking notification as read:', err);
         }
@@ -168,6 +196,22 @@ export const NurseLayout = () => {
                 navigateId: notification.navigate_id || null
             } 
         });
+    };
+
+    // Mark ALL notifications as read without removing items
+    const handleMarkAllAsRead = async () => {
+        const nurseId = nurseData?.nurse_id;
+        if (!nurseId) return;
+
+        try {
+            await fetch(`${API_BASE_URL}/api/notifications/nurse/${nurseId}/read-all`, {
+                method: 'PATCH'
+            });
+            // Update all notifications as read in local state
+            setNotifications(prev => prev.map(n => ({ ...n, is_read: 1, read: true })));
+        } catch (err) {
+            console.error('Error marking all notifications as read:', err);
+        }
     };
 
     const toggleSidebar = () => setIsOpen(!isOpen);
@@ -194,7 +238,7 @@ export const NurseLayout = () => {
             <button className="mobile-toggle-btn" onClick={toggleSidebar}>☰</button>
             {isOpen && <div className="sidebar-overlay" onClick={closeSidebar}></div>}
 
-            {/* Sidebar - Messages nav item removed */}
+            {/* Sidebar */}
             <div className={`student-sidebar ${isOpen ? 'open' : ''}`}>
                 <button className="close-sidebar-btn" onClick={closeSidebar} aria-label="Close Sidebar">&times;</button>
 
@@ -365,14 +409,14 @@ export const NurseLayout = () => {
                 </nav>
             </div>
             
-            {/* Top Bar - Message Icon with Unread Count Badge */}
+            {/* Top Bar */}
             <div className="student-top-bar">
                 <div className="top-bar-left">
                     <span className="system-name">STI Baliuag Clinic Management System</span>
                 </div>
                 <div className="top-bar-right" style={{ display: 'flex', alignItems: 'center', gap: '20px', overflow: 'visible' }}>
                     
-                    {/* Topbar Message Link with Dynamic Badge Counter */}
+                    {/* Topbar Message Link */}
                     <NavLink 
                         to="/NurseMessages" 
                         className="topbar-message-link" 
@@ -422,7 +466,7 @@ export const NurseLayout = () => {
                             title="Notifications"
                         >
                             <Bell size={22} />
-                            {notifications.length > 0 && (
+                            {unreadNotifCount > 0 && (
                                 <span style={{
                                     position: 'absolute',
                                     top: '-6px',
@@ -442,7 +486,7 @@ export const NurseLayout = () => {
                                     boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
                                     zIndex: 20
                                 }}>
-                                    {notifications.length > 99 ? '99+' : notifications.length}
+                                    {unreadNotifCount > 99 ? '99+' : unreadNotifCount}
                                 </span>
                             )}
                         </button>
@@ -464,7 +508,6 @@ export const NurseLayout = () => {
                                 <div style={{
                                     padding: '12px 16px',
                                     borderBottom: '1px solid #f0f0f0',
-                                    fontWeight: 'bold',
                                     display: 'flex',
                                     justifyContent: 'space-between',
                                     alignItems: 'center',
@@ -472,40 +515,76 @@ export const NurseLayout = () => {
                                     borderTopLeftRadius: '8px',
                                     borderTopRightRadius: '8px'
                                 }}>
-                                    <span>Unread Notifications</span>
-                                    <span style={{ fontSize: '12px', color: '#8c8c8c' }}>{notifications.length} unread</span>
+                                    <span style={{ fontWeight: 'bold' }}>Notifications</span>
+                                    {unreadNotifCount > 0 && (
+                                        <button 
+                                            onClick={handleMarkAllAsRead}
+                                            style={{
+                                                background: 'none',
+                                                border: 'none',
+                                                color: '#1890ff',
+                                                fontSize: '12px',
+                                                cursor: 'pointer',
+                                                padding: 0,
+                                                fontWeight: '500'
+                                            }}
+                                        >
+                                            Mark all as read
+                                        </button>
+                                    )}
                                 </div>
 
                                 {notifications.length === 0 ? (
                                     <div style={{ padding: '20px', textAlign: 'center', color: '#8c8c8c', fontSize: '14px' }}>
-                                        No unread notifications
+                                        No notifications
                                     </div>
                                 ) : (
-                                    notifications.map((item) => (
-                                        <div 
-                                            key={item.notification_id}
-                                            onClick={() => handleNotificationClick(item)}
-                                            style={{
-                                                padding: '12px 16px',
-                                                borderBottom: '1px solid #f0f0f0',
-                                                cursor: 'pointer',
-                                                transition: 'background 0.2s',
-                                                backgroundColor: '#ffffff'
-                                            }}
-                                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f5f5f5'}
-                                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#ffffff'}
-                                        >
-                                            <div style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: '4px', color: '#1f1f1f' }}>
-                                                {item.title || 'Notification'}
+                                    notifications.map((item) => {
+                                        const isItemRead = item.is_read === 1 || item.is_read === true || item.read === true;
+                                        return (
+                                            <div 
+                                                key={item.notification_id}
+                                                onClick={() => handleNotificationClick(item)}
+                                                style={{
+                                                    padding: '12px 16px',
+                                                    borderBottom: '1px solid #f0f0f0',
+                                                    cursor: 'pointer',
+                                                    transition: 'background 0.2s',
+                                                    backgroundColor: isItemRead ? '#f9f9f9' : '#ffffff',
+                                                    opacity: isItemRead ? 0.75 : 1
+                                                }}
+                                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f0f0f0'}
+                                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = isItemRead ? '#f9f9f9' : '#ffffff'}
+                                            >
+                                                <div style={{ 
+                                                    fontWeight: isItemRead ? 'normal' : 'bold', 
+                                                    fontSize: '14px', 
+                                                    marginBottom: '4px', 
+                                                    color: '#1f1f1f',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '6px'
+                                                }}>
+                                                    {!isItemRead && (
+                                                        <span style={{
+                                                            width: '6px',
+                                                            height: '6px',
+                                                            backgroundColor: '#1890ff',
+                                                            borderRadius: '50%',
+                                                            display: 'inline-block'
+                                                        }} />
+                                                    )}
+                                                    {item.title || 'Notification'}
+                                                </div>
+                                                <div style={{ fontSize: '13px', color: '#595959', marginBottom: '6px', lineHeight: '1.4' }}>
+                                                    {item.message}
+                                                </div>
+                                                <div style={{ fontSize: '11px', color: '#bfbfbf', textAlign: 'right' }}>
+                                                    {new Date(item.created_at).toLocaleString()}
+                                                </div>
                                             </div>
-                                            <div style={{ fontSize: '13px', color: '#595959', marginBottom: '6px', lineHeight: '1.4' }}>
-                                                {item.message}
-                                            </div>
-                                            <div style={{ fontSize: '11px', color: '#bfbfbf', textAlign: 'right' }}>
-                                                {new Date(item.created_at).toLocaleString()}
-                                            </div>
-                                        </div>
-                                    ))
+                                        );
+                                    })
                                 )}
                             </div>
                         )}

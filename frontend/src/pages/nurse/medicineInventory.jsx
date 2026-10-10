@@ -1,3 +1,4 @@
+// medicineInventory.jsx
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
   PlusCircle, 
@@ -12,11 +13,8 @@ import {
   FilePlus2,
   X,
   Settings2,
-  Download,
-  Eye
+  Printer
 } from 'lucide-react';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/MedicineInventory.css'; 
 
@@ -144,10 +142,6 @@ export default function MedicineInventory() {
   const [isMedicineModalOpen, setIsMedicineModalOpen] = useState(false);
   const [isManageMedicinesOpen, setIsManageMedicinesOpen] = useState(false);
   const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
-  
-  // PDF Preview State
-  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
-  const [pdfPreviewUrl, setPdfPreviewUrl] = useState(null);
 
   const [medicineSearchTerm, setMedicineSearchTerm] = useState('');
   const [complaintSearchTerm, setComplaintSearchTerm] = useState('');
@@ -399,118 +393,181 @@ export default function MedicineInventory() {
     }
   };
 
-  // Function to Preview Medicine Inventory Report PDF in Modal
+  // PRINT PREVIEW PDF EXPORT (Matches ManageParentAccount / ManageStudentAccounts / VisitLogConsultation / HealthRecords / DispensedMedicine)
   const handleExportPDF = () => {
-    const doc = new jsPDF();
+    const filteredInventory = inventory.filter(item => {
+      const query = searchTerm.toLowerCase();
+      const medName = `${item.generic_name} ${item.brand_name}`.toLowerCase();
+      const complaintsText = (item.connected_complaints || '').toLowerCase();
+      return medName.includes(query) || complaintsText.includes(query);
+    });
 
-    const img = new Image();
-    img.src = stiLogo;
-
-    const renderPDFContent = (pdfDoc) => {
-      // Header Section
-      pdfDoc.setFontSize(14);
-      pdfDoc.setFont('helvetica', 'bold');
-      pdfDoc.text('STI College Baliuag', 45, 16);
-
-      pdfDoc.setFontSize(11);
-      pdfDoc.setFont('helvetica', 'bold');
-      pdfDoc.text('School Clinic Medicine Inventory Report', 45, 22);
-
-      pdfDoc.setFontSize(9);
-      pdfDoc.setFont('helvetica', 'normal');
-      pdfDoc.text('Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan.', 45, 28);
-      pdfDoc.text(`Date Generated: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`, 45, 34);
-
-      // Necessary Columns Only
-      const tableColumn = ["Medicine Name", "Form & Strength", "Indications", "Stock", "Expiration Date", "Status"];
-      
-      const filteredInventory = inventory.filter(item => {
-        const query = searchTerm.toLowerCase();
-        const medName = `${item.generic_name} ${item.brand_name}`.toLowerCase();
-        const complaintsText = (item.connected_complaints || '').toLowerCase();
-        return medName.includes(query) || complaintsText.includes(query);
-      });
-
-      const tableRows = filteredInventory.map(item => {
-        const statusEval = getStockStatus(item.current_stock, item.low_stock_level, item.critical_stock_level);
-        const stockUnitLabel = getStockLabel(item);
-        const formattedDate = item.expiration_date 
-          ? new Date(item.expiration_date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) 
-          : 'N/A';
-
-        return [
-          `${item.generic_name}\n(${item.brand_name})`,
-          `${item.dosage_form || ''} - ${item.display_strength || `${item.strength_unit_value || ''} ${item.strength_unit_of_measure || ''}`.trim()}`,
-          item.connected_complaints || 'Unmapped',
-          `${item.current_stock} ${stockUnitLabel}`,
-          formattedDate,
-          statusEval.label
-        ];
-      });
-
-      autoTable(pdfDoc, {
-        head: [tableColumn],
-        body: tableRows,
-        startY: 42,
-        theme: 'grid',
-        headStyles: {
-          fillColor: [0, 114, 206],
-          textColor: [255, 255, 255],
-          fontStyle: 'bold',
-          fontSize: 9,
-          halign: 'left'
-        },
-        styles: {
-          fontSize: 8,
-          cellPadding: 3,
-          valign: 'middle'
-        },
-        columnStyles: {
-          0: { cellWidth: 42 },
-          1: { cellWidth: 32 },
-          2: { cellWidth: 42 },
-          3: { cellWidth: 25 },
-          4: { cellWidth: 25 },
-          5: { cellWidth: 20 }
-        }
-      });
-
-      const finalY = pdfDoc.lastAutoTable ? pdfDoc.lastAutoTable.finalY + 18 : 180;
-
-      // Signatory Section - Nurse only
-      pdfDoc.setFontSize(9);
-      pdfDoc.setFont('helvetica', 'normal');
-      pdfDoc.text('Prepared by:', 14, finalY);
-
-      pdfDoc.setFont('helvetica', 'bold');
-      pdfDoc.text('Marilou H. Balarao', 14, finalY + 8);
-
-      pdfDoc.setFont('helvetica', 'normal');
-      pdfDoc.text('School Nurse', 14, finalY + 13);
-
-      // Generate Blob URL for preview rather than downloading immediately
-      const blob = pdfDoc.output('blob');
-      const blobUrl = URL.createObjectURL(blob);
-      setPdfPreviewUrl(blobUrl);
-      setIsPreviewModalOpen(true);
-    };
-
-    img.onload = () => {
-      doc.addImage(img, 'PNG', 14, 10, 26, 26);
-      renderPDFContent(doc);
-    };
-
-    img.onerror = () => {
-      renderPDFContent(doc);
-    };
-  };
-
-  const closePreviewModal = () => {
-    setIsPreviewModalOpen(false);
-    if (pdfPreviewUrl) {
-      URL.revokeObjectURL(pdfPreviewUrl);
-      setPdfPreviewUrl(null);
+    const printWindow = window.open('', '_blank', 'width=950,height=750');
+    if (!printWindow) {
+      alert('Please allow popups to preview and print the report.');
+      return;
     }
+
+    const reportDate = new Date().toLocaleDateString('en-US', { 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+
+    const tableRowsHtml = filteredInventory.map(item => {
+      const statusEval = getStockStatus(item.current_stock, item.low_stock_level, item.critical_stock_level);
+      const stockUnitLabel = getStockLabel(item);
+      const formattedDate = item.expiration_date 
+        ? new Date(item.expiration_date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) 
+        : 'N/A';
+      const medName = `<strong>${item.generic_name}</strong><br/><span style="color: #64748b; font-size: 11px;">(${item.brand_name})</span>`;
+      const dosageFormText = item.dosage_form || '';
+      const displayStrengthText = item.display_strength || `${item.strength_unit_value || ''} ${item.strength_unit_of_measure || ''}`.trim();
+      const formStrength = `${dosageFormText} - ${displayStrengthText}`;
+
+      return `
+        <tr>
+          <td>${medName}</td>
+          <td>${formStrength}</td>
+          <td>${item.connected_complaints || 'Unmapped'}</td>
+          <td>${item.current_stock} ${stockUnitLabel}</td>
+          <td>${formattedDate}</td>
+          <td>${statusEval.label}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+          <title>Medicine Inventory Report</title>
+          <style>
+              body {
+                  font-family: Arial, Helvetica, sans-serif;
+                  margin: 25px;
+                  color: #0f172a;
+              }
+              .report-header {
+                  display: flex;
+                  align-items: center;
+                  border-bottom: 2px solid #0056b3;
+                  padding-bottom: 12px;
+                  margin-bottom: 16px;
+              }
+              .report-header img {
+                  height: 60px;
+                  margin-right: 20px;
+              }
+              .report-title h2 {
+                  margin: 0;
+                  font-size: 20px;
+                  color: #1e3a8a;
+              }
+              .report-title p {
+                  margin: 4px 0 0;
+                  font-size: 13px;
+                  color: #475569;
+              }
+              .meta-info {
+                  display: flex;
+                  justify-content: space-between;
+                  font-size: 13px;
+                  color: #475569;
+                  margin-bottom: 16px;
+                  font-weight: 500;
+              }
+              table {
+                  width: 100%;
+                  border-collapse: collapse;
+                  font-size: 12px;
+                  margin-bottom: 35px;
+              }
+              th {
+                  background-color: #f1f5f9;
+                  color: #0f172a;
+                  text-align: left;
+                  padding: 9px 10px;
+                  border: 1px solid #cbd5e1;
+                  font-weight: bold;
+              }
+              td {
+                  padding: 8px 10px;
+                  border: 1px solid #e2e8f0;
+              }
+              tr:nth-child(even) {
+                  background-color: #f8fafc;
+              }
+              .signature-section {
+                  margin-top: 40px;
+                  font-size: 13px;
+              }
+              .signature-title {
+                  color: #475569;
+                  margin-bottom: 35px;
+              }
+              .signature-name {
+                  font-weight: bold;
+                  font-size: 14px;
+                  color: #0f172a;
+              }
+              .signature-role {
+                  font-style: italic;
+                  color: #64748b;
+              }
+              @media print {
+                  body { margin: 0; }
+              }
+          </style>
+      </head>
+      <body>
+          <div class="report-header">
+              <img src="${stiLogo}" alt="STI Logo" />
+              <div class="report-title">
+                  <h2>STI COLLEGE BALIUAG</h2>
+                  <p>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan.</p>
+              </div>
+          </div>
+
+          <div class="meta-info">
+              <span><strong>SCHOOL CLINIC MEDICINE INVENTORY REPORT</strong></span>
+              <span>Date Generated: ${reportDate} | Total Records: ${filteredInventory.length}</span>
+          </div>
+
+          <table>
+              <thead>
+                  <tr>
+                      <th>Medicine Name</th>
+                      <th>Form & Strength</th>
+                      <th>Indications</th>
+                      <th>Stock</th>
+                      <th>Expiration Date</th>
+                      <th>Status</th>
+                  </tr>
+              </thead>
+              <tbody>
+                  ${tableRowsHtml || '<tr><td colspan="6">No medicine inventory records found.</td></tr>'}
+              </tbody>
+          </table>
+
+          <div class="signature-section">
+              <div class="signature-title">Prepared by:</div>
+              <div class="signature-name">Marilou H. Balarao</div>
+              <div class="signature-role">School Nurse</div>
+          </div>
+
+          <script>
+              window.onload = function() {
+                  window.print();
+              };
+          </script>
+      </body>
+      </html>
+    `;
+
+    printWindow.document.open();
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
   };
 
   const selectedMedForBatch = medicinesList.find(m => m.medicine_id === batchForm.medicine_id);
@@ -545,7 +602,7 @@ export default function MedicineInventory() {
         
         <div className="header-actions-group">
           <button className="btn-secondary-action" onClick={handleExportPDF}>
-            <Download size={18} /> <span>Export</span>
+            <Printer size={18} /> <span>export</span>
           </button>
 
           <button className="btn-secondary-action" onClick={() => {
@@ -692,59 +749,6 @@ export default function MedicineInventory() {
           </tbody>
         </table>
       </div>
-
-      {/* PDF Report Preview Modal */}
-      {isPreviewModalOpen && (
-        <div className="modal-overlay-bg">
-          <div 
-            className="modal-content-container" 
-            style={{ 
-              maxWidth: '880px', 
-              width: '90%', 
-              height: '85vh', 
-              display: 'flex', 
-              flexDirection: 'column' 
-            }}
-          >
-            <div className="modal-header-section">
-              <h3><Eye size={20} /> Preview Medicine Inventory Report</h3>
-              <button 
-                className="action-icon-button close-modal" 
-                aria-label="Close preview modal"
-                onClick={closePreviewModal}
-              >
-                <X size={20} />
-              </button>
-            </div>
-            
-            <div className="modal-body-form" style={{ flex: 1, padding: '12px', overflow: 'hidden' }}>
-              {pdfPreviewUrl ? (
-                <iframe 
-                  src={pdfPreviewUrl} 
-                  title="PDF Preview" 
-                  style={{ width: '100%', height: '100%', border: 'none', borderRadius: '6px' }} 
-                />
-              ) : (
-                <p>Generating preview...</p>
-              )}
-            </div>
-
-            <div className="modal-footer-actions">
-              <button type="button" className="btn-modal-cancel" onClick={closePreviewModal}>
-                Close
-              </button>
-              <a 
-                href={pdfPreviewUrl} 
-                download={`Medicine_Inventory_Report_${new Date().toISOString().split('T')[0]}.pdf`}
-                className="btn-primary-action"
-                style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-              >
-                <Download size={16} /> Download PDF
-              </a>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Manage Medicines Modal */}
       {isManageMedicinesOpen && (

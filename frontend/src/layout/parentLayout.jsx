@@ -53,6 +53,11 @@ const ParentLayout = () => {
     const [showNotifDropdown, setShowNotifDropdown] = useState(false);
     const [activeNotifModal, setActiveNotifModal] = useState(null);
 
+    // Dynamic unread notifications counter
+    const unreadNotifCount = notifications.filter(
+        n => !n.is_read && n.is_read !== 1 && !n.read
+    ).length;
+
     const fetchUnreadCount = useCallback(async (userId) => {
         if (!userId) return;
         try {
@@ -72,6 +77,7 @@ const ParentLayout = () => {
         }
     }, [fetchUnreadCount]);
 
+    // Fetch notifications with local read-state preservation
     const fetchAllNotifications = useCallback(async (parentId, studentList) => {
         if (!parentId) return;
 
@@ -108,7 +114,21 @@ const ParentLayout = () => {
 
             uniqueNotifs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
-            setNotifications(uniqueNotifs);
+            setNotifications(prev => {
+                // Collect IDs of notifications locally marked as read
+                const localReadIds = new Set(
+                    prev.filter(n => n.is_read === 1 || n.is_read === true || n.read === true)
+                        .map(n => n.notification_id)
+                );
+
+                // Preserve local read state so items stay visible
+                return uniqueNotifs.map(item => {
+                    if (localReadIds.has(item.notification_id)) {
+                        return { ...item, is_read: 1, read: true };
+                    }
+                    return item;
+                });
+            });
         } catch (err) {
             console.error("Error fetching notifications:", err);
         }
@@ -214,16 +234,13 @@ const ParentLayout = () => {
         return (first + last).toUpperCase() || 'PR';
     };
 
-    const unviewedNotifications = notifications.filter(
-        n => Number(n.is_read) === 0 && n.is_read !== true && n.status !== 'read'
-    );
-
     const handleNotificationClick = async (notif) => {
         setShowNotifDropdown(false);
 
+        // Mark item as read locally without removing it
         setNotifications(prev =>
             prev.map(item =>
-                item.notification_id === notif.notification_id ? { ...item, is_read: 1 } : item
+                item.notification_id === notif.notification_id ? { ...item, is_read: 1, read: true } : item
             )
         );
 
@@ -246,6 +263,21 @@ const ParentLayout = () => {
             navigate('/ChildProfile');
         } else {
             setActiveNotifModal(notif);
+        }
+    };
+
+    // Mark ALL parent and student notifications as read
+    const handleMarkAllAsRead = async () => {
+        const pId = parentData?.parent_id;
+        if (!pId) return;
+
+        try {
+            await fetch(`http://localhost:3001/api/notifications/parent/${pId}/read-all`, {
+                method: 'PATCH'
+            });
+            setNotifications(prev => prev.map(n => ({ ...n, is_read: 1, read: true })));
+        } catch (err) {
+            console.error('Error marking all notifications as read:', err);
         }
     };
 
@@ -457,7 +489,7 @@ const ParentLayout = () => {
                                 aria-label="Notifications"
                             >
                                 <Bell size={18} color="#333" />
-                                {unviewedNotifications.length > 0 && (
+                                {unreadNotifCount > 0 && (
                                     <span style={{
                                         position: 'absolute',
                                         top: '-2px',
@@ -474,7 +506,7 @@ const ParentLayout = () => {
                                         justifyContent: 'center',
                                         padding: '0 4px'
                                     }}>
-                                        {unviewedNotifications.length > 99 ? '99+' : unviewedNotifications.length}
+                                        {unreadNotifCount > 99 ? '99+' : unreadNotifCount}
                                     </span>
                                 )}
                             </button>
@@ -503,42 +535,76 @@ const ParentLayout = () => {
                                         alignItems: 'center',
                                         backgroundColor: '#fafafa'
                                     }}>
-                                        <span>Unread Notifications</span>
-                                        <span style={{ fontSize: '0.75rem', color: '#666', fontWeight: 'normal' }}>
-                                            {unviewedNotifications.length} total
-                                        </span>
+                                        <span>Notifications</span>
+                                        {unreadNotifCount > 0 && (
+                                            <button 
+                                                onClick={handleMarkAllAsRead}
+                                                style={{
+                                                    background: 'none',
+                                                    border: 'none',
+                                                    color: '#1890ff',
+                                                    fontSize: '12px',
+                                                    cursor: 'pointer',
+                                                    padding: 0,
+                                                    fontWeight: '500'
+                                                }}
+                                            >
+                                                Mark all as read
+                                            </button>
+                                        )}
                                     </div>
 
-                                    {unviewedNotifications.length === 0 ? (
+                                    {notifications.length === 0 ? (
                                         <div style={{ padding: '20px', textAlign: 'center', color: '#888', fontSize: '0.85rem' }}>
-                                            No unread notifications
+                                            No notifications
                                         </div>
                                     ) : (
-                                        unviewedNotifications.map((notif) => (
-                                            <div 
-                                                key={notif.notification_id}
-                                                onClick={() => handleNotificationClick(notif)}
-                                                style={{
-                                                    padding: '12px 16px',
-                                                    borderBottom: '1px solid #f0f0f0',
-                                                    cursor: 'pointer',
-                                                    transition: 'background 0.2s',
-                                                    backgroundColor: '#e6f7ff'
-                                                }}
-                                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#bae7ff'}
-                                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#e6f7ff'}
-                                            >
-                                                <div style={{ fontWeight: '600', fontSize: '0.85rem', color: '#111', marginBottom: '4px' }}>
-                                                    {notif.title}
+                                        notifications.map((notif) => {
+                                            const isItemRead = notif.is_read === 1 || notif.is_read === true || notif.read === true;
+                                            return (
+                                                <div 
+                                                    key={notif.notification_id}
+                                                    onClick={() => handleNotificationClick(notif)}
+                                                    style={{
+                                                        padding: '12px 16px',
+                                                        borderBottom: '1px solid #f0f0f0',
+                                                        cursor: 'pointer',
+                                                        transition: 'background 0.2s',
+                                                        backgroundColor: isItemRead ? '#f9f9f9' : '#ffffff',
+                                                        opacity: isItemRead ? 0.75 : 1
+                                                    }}
+                                                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f0f0f0'}
+                                                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = isItemRead ? '#f9f9f9' : '#ffffff'}
+                                                >
+                                                    <div style={{ 
+                                                        fontWeight: isItemRead ? 'normal' : '600', 
+                                                        fontSize: '0.85rem', 
+                                                        color: '#111', 
+                                                        marginBottom: '4px',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '6px'
+                                                    }}>
+                                                        {!isItemRead && (
+                                                            <span style={{
+                                                                width: '6px',
+                                                                height: '6px',
+                                                                backgroundColor: '#1890ff',
+                                                                borderRadius: '50%',
+                                                                display: 'inline-block'
+                                                            }} />
+                                                        )}
+                                                        {notif.title || 'Notification'}
+                                                    </div>
+                                                    <div style={{ fontSize: '0.78rem', color: '#555', lineHeight: '1.3' }}>
+                                                        {notif.message}
+                                                    </div>
+                                                    <div style={{ fontSize: '0.68rem', color: '#888', marginTop: '6px', textAlign: 'right' }}>
+                                                        {new Date(notif.created_at).toLocaleString()}
+                                                    </div>
                                                 </div>
-                                                <div style={{ fontSize: '0.78rem', color: '#555', lineHeight: '1.3' }}>
-                                                    {notif.message}
-                                                </div>
-                                                <div style={{ fontSize: '0.68rem', color: '#888', marginTop: '6px' }}>
-                                                    {new Date(notif.created_at).toLocaleString()}
-                                                </div>
-                                            </div>
-                                        ))
+                                            );
+                                        })
                                     )}
                                 </div>
                             )}

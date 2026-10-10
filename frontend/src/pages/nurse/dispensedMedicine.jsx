@@ -1,3 +1,4 @@
+// dispensedMedicine.jsx
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useOutletContext, useLocation } from 'react-router-dom'; 
 import { 
@@ -14,13 +15,12 @@ import {
   Eye, 
   RotateCcw,
   Clock,
-  Download,
+  Printer,
   HelpCircle,
   Info
 } from 'lucide-react';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import jsQR from 'jsqr';
+import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/DispensedMedicine.css';
 
 // Measured units allow continuous decimal values (liquids, weights, volumes)
@@ -217,24 +217,6 @@ const getStockStatus = (stock, lowThreshold = 10, criticalThreshold = 5) => {
   return { label: 'Adequate', class: 'adequate-dm' };
 };
 
-const getBase64ImageFromURL = (url) => {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = 'Anonymous';
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0);
-      const dataURL = canvas.toDataURL('image/png');
-      resolve(dataURL);
-    };
-    img.onerror = (error) => reject(error);
-    img.src = url;
-  });
-};
-
 const DispensedMedicine = () => {
   const location = useLocation();
   const outletContext = useOutletContext() || {};
@@ -286,7 +268,7 @@ const DispensedMedicine = () => {
     isOpen: false,
     title: '',
     message: '',
-    type: 'info' // 'success' | 'error' | 'warning' | 'info'
+    type: 'info'
   });
 
   // CONFIRMATION MODAL STATE
@@ -637,94 +619,173 @@ const DispensedMedicine = () => {
     );
   };
 
-  // PDF Export
-  const handleExportPDF = async () => {
-    try {
-      const doc = new jsPDF();
-      
-      let logoDataUrl = null;
-      try {
-        logoDataUrl = await getBase64ImageFromURL('/sti_logo.png');
-      } catch (e) {
-        console.warn('Logo image could not be loaded for PDF generation:', e);
-      }
+  // PRINT PREVIEW PDF EXPORT (Matches ManageParentAccount / ManageStudentAccounts / VisitLogConsultation / HealthRecords)
+  const handleExportPDF = () => {
+    const rowsToExport = Array.isArray(history) ? history : [];
 
-      if (logoDataUrl) {
-        doc.addImage(logoDataUrl, 'PNG', 14, 10, 22, 22);
-      }
-
-      const textStartX = logoDataUrl ? 40 : 14;
-
-      doc.setFontSize(16);
-      doc.setFont('helvetica', 'bold');
-      doc.text('STI COLLEGE BALIUAG', textStartX, 16);
-      
-      doc.setFontSize(9);
-      doc.setFont('helvetica', 'normal');
-      doc.text('Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan.', textStartX, 22);
-      doc.text('School Clinic - Medicine Dispensation Report Log', textStartX, 27);
-
-      doc.setLineWidth(0.5);
-      doc.line(14, 34, 196, 34);
-
-      doc.setFontSize(11);
-      doc.setFont('helvetica', 'bold');
-      doc.text('DISPENSED MEDICINE REPORT LOG', 14, 42);
-      
-      doc.setFontSize(9);
-      doc.setFont('helvetica', 'normal');
-      doc.text(`Generated Date: ${new Date().toLocaleString()}`, 14, 48);
-
-      const tableColumns = [
-        'Date & Time',
-        'Student ID',
-        'Student Name',
-        'Medicine Dispensed',
-        'Qty / Volume',
-        'Dispensation Type'
-      ];
-
-      const logsToExport = Array.isArray(history) && history.length > 0 ? history : [];
-
-      const tableRows = logsToExport.map(log => [
-        new Date(log.dispensed_at).toLocaleString(),
-        log.student_id || 'N/A',
-        `${log.first_name || ''} ${log.last_name || ''}`.trim() || 'N/A',
-        log.medicine_name || 'N/A',
-        `${formatUnitValue(log.dosage_consumption_unit_value, log.dosage_consumption_unit_of_measure)} ${log.dosage_consumption_unit_of_measure}`,
-        log.dispensation_type || 'Direct Dispensation'
-      ]);
-
-      autoTable(doc, {
-        startY: 53,
-        head: [tableColumns],
-        body: tableRows,
-        theme: 'striped',
-        headStyles: { fillColor: [0, 86, 179], textColor: [255, 255, 255], fontStyle: 'bold' },
-        styles: { fontSize: 8, cellPadding: 3 },
-        alternateRowStyles: { fillColor: [245, 247, 250] },
-      });
-
-      const finalY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 18 : 70;
-      
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'normal');
-      doc.text('Prepared by:', 14, finalY);
-      
-      doc.setFont('helvetica', 'bold');
-      doc.text('Marilou H. Balarao', 14, finalY + 12);
-      
-      doc.setFont('helvetica', 'normal');
-      doc.text('School Nurse', 14, finalY + 17);
-
-      const pdfBlob = doc.output('blob');
-      const previewUrl = URL.createObjectURL(pdfBlob);
-      window.open(previewUrl, '_blank');
-
-    } catch (error) {
-      console.error('Error generating PDF report:', error);
-      showAlertModal('Export Error', 'Failed to generate PDF report preview.', 'error');
+    const printWindow = window.open('', '_blank', 'width=950,height=750');
+    if (!printWindow) {
+      alert('Please allow popups to preview and print the report.');
+      return;
     }
+
+    const reportDate = new Date().toLocaleDateString('en-US', { 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+
+    const tableRowsHtml = rowsToExport.map(log => {
+      const dateTime = new Date(log.dispensed_at).toLocaleString();
+      const stId = log.student_id || 'N/A';
+      const stName = `${log.first_name || ''} ${log.last_name || ''}`.trim() || 'N/A';
+      const medName = log.medicine_name || 'N/A';
+      const qty = `${formatUnitValue(log.dosage_consumption_unit_value, log.dosage_consumption_unit_of_measure)} ${log.dosage_consumption_unit_of_measure || ''}`.trim();
+      const dispType = log.dispensation_type || 'Direct Dispensation';
+
+      return `
+        <tr>
+          <td>${dateTime}</td>
+          <td>${stId}</td>
+          <td><strong>${stName}</strong></td>
+          <td>${medName}</td>
+          <td>${qty}</td>
+          <td>${dispType}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+          <title>Dispensed Medicine Report Log</title>
+          <style>
+              body {
+                  font-family: Arial, Helvetica, sans-serif;
+                  margin: 25px;
+                  color: #0f172a;
+              }
+              .report-header {
+                  display: flex;
+                  align-items: center;
+                  border-bottom: 2px solid #0056b3;
+                  padding-bottom: 12px;
+                  margin-bottom: 16px;
+              }
+              .report-header img {
+                  height: 60px;
+                  margin-right: 20px;
+              }
+              .report-title h2 {
+                  margin: 0;
+                  font-size: 20px;
+                  color: #1e3a8a;
+              }
+              .report-title p {
+                  margin: 4px 0 0;
+                  font-size: 13px;
+                  color: #475569;
+              }
+              .meta-info {
+                  display: flex;
+                  justify-content: space-between;
+                  font-size: 13px;
+                  color: #475569;
+                  margin-bottom: 16px;
+                  font-weight: 500;
+              }
+              table {
+                  width: 100%;
+                  border-collapse: collapse;
+                  font-size: 12px;
+                  margin-bottom: 35px;
+              }
+              th {
+                  background-color: #f1f5f9;
+                  color: #0f172a;
+                  text-align: left;
+                  padding: 9px 10px;
+                  border: 1px solid #cbd5e1;
+                  font-weight: bold;
+              }
+              td {
+                  padding: 8px 10px;
+                  border: 1px solid #e2e8f0;
+              }
+              tr:nth-child(even) {
+                  background-color: #f8fafc;
+              }
+              .signature-section {
+                  margin-top: 40px;
+                  font-size: 13px;
+              }
+              .signature-title {
+                  color: #475569;
+                  margin-bottom: 35px;
+              }
+              .signature-name {
+                  font-weight: bold;
+                  font-size: 14px;
+                  color: #0f172a;
+              }
+              .signature-role {
+                  font-style: italic;
+                  color: #64748b;
+              }
+              @media print {
+                  body { margin: 0; }
+              }
+          </style>
+      </head>
+      <body>
+          <div class="report-header">
+              <img src="${stiLogo}" alt="STI Logo" />
+              <div class="report-title">
+                  <h2>STI COLLEGE BALIUAG</h2>
+                  <p>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan.</p>
+              </div>
+          </div>
+
+          <div class="meta-info">
+              <span><strong>DISPENSED MEDICINE REPORT LOG</strong></span>
+              <span>Date Generated: ${reportDate} | Total Records: ${rowsToExport.length}</span>
+          </div>
+
+          <table>
+              <thead>
+                  <tr>
+                      <th>Date & Time</th>
+                      <th>Student ID</th>
+                      <th>Student Name</th>
+                      <th>Medicine Dispensed</th>
+                      <th>Qty / Volume</th>
+                      <th>Dispensation Type</th>
+                  </tr>
+              </thead>
+              <tbody>
+                  ${tableRowsHtml || '<tr><td colspan="6">No dispensed medicine records found.</td></tr>'}
+              </tbody>
+          </table>
+
+          <div class="signature-section">
+              <div class="signature-title">Prepared by:</div>
+              <div class="signature-name">Marilou H. Balarao</div>
+              <div class="signature-role">School Nurse</div>
+          </div>
+
+          <script>
+              window.onload = function() {
+                  window.print();
+              };
+          </script>
+      </body>
+      </html>
+    `;
+
+    printWindow.document.open();
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
   };
 
   const todaysDispensedLogs = useMemo(() => {
@@ -741,8 +802,6 @@ const DispensedMedicine = () => {
 
   return (
     <div className="dispense-container-dm">
-      <img id="sti-logo-preview" src="/sti_logo.png" alt="STI Logo" style={{ display: 'none' }} />
-
       <header className="dispense-header-dm">
         <div className="header-title-block-dm">
           <h1>Medicine Dispensation Management Panel</h1>
@@ -756,8 +815,8 @@ const DispensedMedicine = () => {
             title="Export Dispense Log PDF Preview"
             style={{ width: 'auto', padding: '0 14px' }}
           >
-            <Download size={18} />
-            <span>Export</span>
+            <Printer size={18} />
+            <span>export</span>
           </button>
 
           <button 
@@ -1031,14 +1090,12 @@ const DispensedMedicine = () => {
                   placeholder={isMeasured ? "0.00" : "1"}
                   value={dosageValue}
                   onKeyDown={(e) => {
-                    // Restrict non-integer keystrokes for discrete items
                     if (!isMeasured && (e.key === '.' || e.key === 'e' || e.key === 'E' || e.key === '+' || e.key === '-')) {
                       e.preventDefault();
                     }
                   }}
                   onChange={(e) => {
                     const val = e.target.value;
-                    // Strip decimal values for discrete units
                     if (!isMeasured && val.includes('.')) {
                       setDosageValue(val.split('.')[0]);
                     } else {
@@ -1251,9 +1308,9 @@ const DispensedMedicine = () => {
                     type="button" 
                     onClick={handleExportPDF} 
                     className="btn-filter-apply-dm" 
-                    style={{ backgroundColor: '#28a745', borderColor: '#28a745' }}
+                    style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '0 12px' }}
                   >
-                    <Download size={14} /> <span>Export</span>
+                    <Printer size={14} /> <span>export</span>
                   </button>
                 </div>
               </div>
