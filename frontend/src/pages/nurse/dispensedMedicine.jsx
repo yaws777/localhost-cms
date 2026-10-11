@@ -619,7 +619,7 @@ const DispensedMedicine = () => {
     );
   };
 
-  // PRINT PREVIEW PDF EXPORT (Matches ManageParentAccount / ManageStudentAccounts / VisitLogConsultation / HealthRecords)
+  // PRINT PREVIEW PDF EXPORT
   const handleExportPDF = () => {
     const rowsToExport = Array.isArray(history) ? history : [];
 
@@ -802,9 +802,10 @@ const DispensedMedicine = () => {
 
   return (
     <div className="dispense-container-dm">
+      {/* Header Section styled as Card matching Insurance Vault Theme */}
       <header className="dispense-header-dm">
         <div className="header-title-block-dm">
-          <h1>Medicine Dispensation Management Panel</h1>
+          <h1>Medicine Dispensation Management</h1>
           <p className="header-subtitle-dm">Process student medication dispensing and monitor inventory real-time.</p>
         </div>
         <div className="header-actions-dm" style={{ display: 'flex', gap: '8px', flexWrap: 'nowrap' }}>
@@ -813,7 +814,7 @@ const DispensedMedicine = () => {
             className="btn-dispense-log-dm"
             onClick={handleExportPDF}
             title="Export Dispense Log PDF Preview"
-            style={{ width: 'auto', padding: '0 14px' }}
+            style={{ width: 'auto' }}
           >
             <Printer size={18} />
             <span>export</span>
@@ -824,7 +825,7 @@ const DispensedMedicine = () => {
             className="btn-dispense-log-dm"
             onClick={() => setIsLogModalOpen(true)}
             title="Open Full Dispensed Records Log History"
-            style={{ width: 'auto', padding: '0 14px' }}
+            style={{ width: 'auto' }}
           >
             <History size={18} />
             <span>Dispense Log</span>

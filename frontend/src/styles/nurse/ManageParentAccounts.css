@@ -36,19 +36,18 @@ body {
 
 /* STI Header Banner */
 .header-mpa {
-  background: linear-gradient(135deg, var(--sti-blue) 0%, var(--sti-blue-dark) 100%);
-  color: #ffffff;
+  background-color: #ffffff;
+  color: var(--sti-text-dark);
   padding: 20px 24px;
-  border-radius: 12px;
-  border-bottom: 5px solid var(--sti-yellow);
-  box-shadow: var(--sti-shadow-md);
+  border-radius: 8px;
+  border-left: 6px solid #0055a5;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
   margin-bottom: 20px;
 }
 
 .brand-mpa {
   display: flex;
   align-items: center;
-  gap: 16px;
 }
 
 .logo-accent-mpa {
@@ -64,15 +63,17 @@ body {
 
 .brand-text-mpa h1 {
   margin: 0;
-  font-size: 20px;
+  font-size: 1.5rem;
   font-weight: 700;
   line-height: 1.2;
+  color: #002b66;
 }
 
 .subtitle-mpa {
   margin: 4px 0 0 0;
-  font-size: 13px;
-  opacity: 0.9;
+  font-size: 0.9rem;
+  color: #64748b;
+  opacity: 1;
 }
 
 /* Controls & Search Box */

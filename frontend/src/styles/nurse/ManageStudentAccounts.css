@@ -28,11 +28,13 @@
 }
 
 /* Header Component */
+/* Header Component - Aligned with Insurance Vault Card Theme */
 .student-container-msa .header-msa {
-  background-color: var(--sti-primary);
-  padding: 18px 24px;
-  border-radius: 10px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  background-color: #ffffff;
+  padding: 20px 24px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  border-left: 6px solid #0055a5;
   margin-bottom: 20px;
   width: 100%;
   box-sizing: border-box;
@@ -45,21 +47,21 @@
 }
 
 .student-container-msa .icon-brand-msa {
-  color: #ffffff;
+  color: #0055a5;
   flex-shrink: 0;
 }
 
 .student-container-msa .brand-msa h1 {
   margin: 0;
-  font-size: 1.4rem;
+  font-size: 1.5rem;
   font-weight: 700;
-  color: #ffffff;
+  color: #002b66;
 }
 
 .student-container-msa .brand-msa p {
-  margin: 2px 0 0 0;
-  font-size: 0.85rem;
-  color: rgba(255, 255, 255, 0.85);
+  margin: 4px 0 0 0;
+  font-size: 0.9rem;
+  color: #64748b;
 }
 
 /* Main Content Layout */

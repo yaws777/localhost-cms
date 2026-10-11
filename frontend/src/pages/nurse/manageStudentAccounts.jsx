@@ -1044,7 +1044,7 @@ export default function ManageStudentAccounts() {
         <div className="brand-msa">
           <GraduationCap className="icon-brand-msa" size={32} />
           <div>
-            <h1>STI College Student Management</h1>
+            <h1>Student Account Management</h1>
             <p>Admin Portal - Account Administration</p>
           </div>
         </div>

@@ -1086,11 +1086,11 @@ export const RequirementManagement = () => {
 
     return (
         <div className="req-container-rm">
-            {/* HEADER SECTION */}
+            {/* HEADER SECTION - Styled matching Insurance Vault Card Theme */}
             <div className="req-header-section-rm">
                 <div>
                     <h2>Requirement Management</h2>
-                    <p>Manage and track student requirements</p>
+                    <p>Manage, configure, and track student medical compliance requirements.</p>
                 </div>
                 <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                     <button 

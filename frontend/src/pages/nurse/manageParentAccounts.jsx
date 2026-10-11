@@ -512,9 +512,9 @@ export default function ManageParentAccount() {
   return (
     <div className="container-mpa">
       {/* STI Top Header Banner */}
+      {/* Header Banner - Insurance Vault Theme (No Logo) */}
       <header className="header-mpa">
         <div className="brand-mpa">
-          <div className="logo-accent-mpa">STI</div>
           <div className="brand-text-mpa">
             <h1>Parent Account Management</h1>
             <p className="subtitle-mpa">Administrator Portal</p>

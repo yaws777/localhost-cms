@@ -244,7 +244,7 @@ export default function HealthRecord() {
         return student.health_history || 'No Known Conditions';
     };
 
-    // Print Preview PDF Export (Matches ManageParentAccount / ManageStudentAccounts / VisitLogConsultation)
+    // Print Preview PDF Export
     const handleExportPDF = () => {
         const rowsToExport = Array.isArray(filteredStudents) ? filteredStudents : [];
 
@@ -418,9 +418,12 @@ export default function HealthRecord() {
 
     return (
         <div className="directory-page-wrapper">
-            <div className="directory-header-block">
-                <h2>Student Health Records</h2>
-                <p>Search profiles and review medical information checklist histories.</p>
+            {/* Header Section styled with Insurance Vault Theme */}
+            <div className="directory-header-card">
+                <div>
+                    <h2>Student Health Records</h2>
+                    <p>Search profiles and review medical information checklist histories.</p>
+                </div>
             </div>
 
             {/* Search and Filters */}

@@ -1022,13 +1022,13 @@ const DocumentIssuance = () => {
 
     return (
         <div className="container-di">
-            {/* Header Section */}
+            {/* Header Section styled matching Insurance Vault Theme */}
             <header className="header-di">
                 <div className="header-text-di">
                     <h2>Document Issuance</h2>
-                    <p>Review, approve, and issue Excuse Slips and Referral Slips for students.</p>
+                    <p className="subtitle-di">Review, approve, and issue Excuse Slips and Referral Slips for students.</p>
                 </div>
-                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <div className="header-actions-di" style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                     <button 
                         type="button"
                         className="btn-secondary-di" 
@@ -1046,7 +1046,7 @@ const DocumentIssuance = () => {
                             setShowServiceForm(false);
                             setActiveServiceFacilityId(null);
                         }}
-                        style={{ width: 'auto' }}
+                        style={{ width: 'auto'}}
                     >
                         <Settings size={18} /> Configure Referral Services
                     </button>

@@ -47,13 +47,18 @@ body {
   gap: 24px;
 }
 
-/* Header Component */
-.reports-header {
+/* Header Card Component (Matching Insurance Vault Theme) */
+.reports-header-card {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 16px;
   width: 100%;
+  background-color: #ffffff;
+  padding: 20px 24px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  border-left: 6px solid #005691;
 }
 
 .header-title-group {
@@ -61,20 +66,16 @@ body {
 }
 
 .reports-title {
-  font-size: 28px;
-  font-weight: 800;
-  color: var(--sti-navy);
-  margin: 0 0 4px 0;
-  letter-spacing: -0.02em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #002b66;
+  margin: 0;
 }
 
 .reports-subtitle {
-  font-size: 14px;
-  color: var(--text-muted);
-  margin: 0;
+  font-size: 0.9rem;
+  color: #64748b;
+  margin: 4px 0 0 0;
 }
 
 .header-actions {
@@ -84,7 +85,7 @@ body {
   flex-shrink: 0;
 }
 
-/* Button Standards (Prevents Overwidth) */
+/* Button Standards */
 .action-btn {
   display: inline-flex;
   align-items: center;
@@ -224,7 +225,7 @@ body {
   flex-direction: column;
   justify-content: space-between;
   min-height: 100px;
-  min-width: 0; /* Ensures truncation inside grid cells */
+  min-width: 0;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
@@ -313,126 +314,6 @@ body {
   text-align: center;
 }
 
-/* Detailed Table Section */
-.table-card {
-  background-color: var(--card-bg);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  padding: 20px;
-  box-shadow: var(--shadow-sm);
-  width: 100%;
-}
-
-.table-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
-}
-
-.table-title {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--sti-navy);
-  margin: 0;
-}
-
-.table-count-badge {
-  font-size: 12px;
-  font-weight: 600;
-  background-color: #E2E8F0;
-  color: var(--text-body);
-  padding: 4px 10px;
-  border-radius: 12px;
-}
-
-.table-responsive-wrapper {
-  width: 100%;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-}
-
-.reports-table {
-  width: 100%;
-  border-collapse: collapse;
-  text-align: left;
-  font-size: 13px;
-}
-
-.reports-table th {
-  background-color: #F8FAFC;
-  color: var(--text-muted);
-  font-weight: 700;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--border-color);
-  white-space: nowrap;
-  text-transform: uppercase;
-  font-size: 11px;
-  letter-spacing: 0.04em;
-}
-
-.reports-table td {
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--border-color);
-  color: var(--text-body);
-  vertical-align: middle;
-}
-
-.reports-table tr:last-child td {
-  border-bottom: none;
-}
-
-.reports-table tr:hover td {
-  background-color: #F8FAFC;
-}
-
-/* Icon-Only Row Actions (Requirement #2) */
-.row-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  justify-content: flex-end;
-}
-
-.icon-only-btn {
-  background: transparent;
-  border: 1px solid var(--border-color);
-  color: var(--text-muted);
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-md);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  padding: 0;
-}
-
-.icon-only-btn:hover {
-  background-color: #F1F5F9;
-  color: var(--sti-blue);
-  border-color: #CBD5E1;
-}
-
-/* Utility Badges & Formatting */
-.badge {
-  display: inline-block;
-  padding: 3px 8px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.badge-complaint {
-  background-color: #FEF3C7;
-  color: #92400E;
-}
-
-.text-right { text-align: right; }
-.font-medium { font-weight: 600; }
-.text-nowrap { white-space: nowrap; }
-
 .spin-icon {
   animation: spin 1s linear infinite;
 }
@@ -441,14 +322,6 @@ body {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
-
-.empty-table-cell {
-  text-align: center;
-  padding: 32px !important;
-  color: var(--text-muted);
-  font-style: italic;
-}
-
 
 /* ==========================================
    DESKTOP-FIRST RESPONSIVE MEDIA QUERIES
@@ -486,7 +359,7 @@ body {
     gap: 20px;
   }
 
-  .reports-header {
+  .reports-header-card {
     align-items: flex-start;
   }
 }
@@ -498,10 +371,11 @@ body {
     gap: 16px;
   }
 
-  .reports-header {
+  .reports-header-card {
     flex-direction: column;
     align-items: stretch;
     gap: 12px;
+    padding: 16px;
   }
 
   .header-actions {
@@ -510,7 +384,7 @@ body {
   }
 
   .action-btn {
-    flex: 1; /* Equal proportional sharing, avoiding extreme full-width stretch */
+    flex: 1;
     max-width: none;
   }
 
@@ -530,11 +404,11 @@ body {
 /* 4. Small Mobile Phones (< 480px) */
 @media (max-width: 480px) {
   .reports-title {
-    font-size: 22px;
+    font-size: 1.25rem;
   }
 
   .reports-subtitle {
-    font-size: 13px;
+    font-size: 0.8rem;
   }
 
   .header-actions {
@@ -548,11 +422,11 @@ body {
   }
 
   .btn-text {
-    display: inline; /* Keep button labels concise and legible */
+    display: inline;
   }
 
   .overview-cards-grid {
-    grid-template-columns: repeat(2, 1fr); /* Compact 2x2 grid on small mobile */
+    grid-template-columns: repeat(2, 1fr);
     gap: 10px;
   }
 

@@ -31,14 +31,15 @@ body {
   box-sizing: border-box;
 }
 
-/* Header & Action Button Layout */
+/* Header & Action Button Layout (Card Style Matching Insurance Vault Theme) */
 .dispense-header-dm {
-  background-color: var(--color-secondary-blue);
-  color: var(--color-primary-bg);
+  background-color: #ffffff;
+  color: var(--color-text-dark);
   padding: 20px 24px;
-  border-radius: 10px;
+  border-radius: 8px;
   margin-bottom: 24px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  border-left: 6px solid #0055a5;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -47,39 +48,36 @@ body {
 
 .header-title-block-dm h1 {
   margin: 0;
-  font-size: 22px;
+  font-size: 1.5rem;
   font-weight: 700;
-  color: #ffffff;
+  color: #002b66;
 }
 
 .header-subtitle-dm {
   margin: 4px 0 0 0;
-  font-size: 13px;
-  color: #e2e8f0;
-  opacity: 0.9;
+  font-size: 0.9rem;
+  color: #64748b;
 }
 
 .btn-dispense-log-dm {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background-color: #ffffff;
-  color: var(--color-secondary-blue);
+  background-color: #0055a5;
+  color: #ffffff;
   border: none;
   padding: 10px 18px;
   border-radius: 6px;
   font-weight: 600;
-  font-size: 14px;
+  font-size: 0.9rem;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease;
   white-space: nowrap;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
   width: fit-content;
 }
 
 .btn-dispense-log-dm:hover {
-  background-color: #f1f5f9;
-  transform: translateY(-1px);
+  background-color: #003d7a;
 }
 
 /* Grid Panel Architecture for Main Form & Live Stock */

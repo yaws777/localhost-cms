@@ -328,14 +328,14 @@ const WeeklyReports = () => {
 
   return (
     <div className="weekly-reports-container">
-      {/* Header Section */}
-      <header className="reports-header">
+      {/* Header Section styled as Card matching Insurance Vault */}
+      <header className="reports-header-card">
         <div className="header-title-group">
           <h1 className="reports-title">Weekly Reports</h1>
           <p className="reports-subtitle">Week-by-week illness summary and clinic statistics</p>
         </div>
 
-        {/* Compact Header Buttons */}
+        {/* Action Buttons */}
         <div className="header-actions">
           <button 
             className="action-btn secondary-btn" 

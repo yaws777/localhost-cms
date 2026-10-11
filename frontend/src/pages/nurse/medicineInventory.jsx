@@ -393,7 +393,7 @@ export default function MedicineInventory() {
     }
   };
 
-  // PRINT PREVIEW PDF EXPORT (Matches ManageParentAccount / ManageStudentAccounts / VisitLogConsultation / HealthRecords / DispensedMedicine)
+  // PRINT PREVIEW PDF EXPORT
   const handleExportPDF = () => {
     const filteredInventory = inventory.filter(item => {
       const query = searchTerm.toLowerCase();
@@ -592,12 +592,11 @@ export default function MedicineInventory() {
 
   return (
     <div className="inventory-dashboard">
+      {/* Header Container styled matching Insurance Vault Theme */}
       <div className="dashboard-header-container">
-        <div className="dashboard-title-area" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <div>
-            <h1>Medicine Inventory</h1>
-            <p className="dashboard-subtitle">Manage clinic medicine stock and monitor shortage alerts</p>
-          </div>
+        <div className="dashboard-title-area">
+          <h1>Medicine Inventory</h1>
+          <p className="dashboard-subtitle">Manage clinic medicine stock and monitor shortage alerts</p>
         </div>
         
         <div className="header-actions-group">

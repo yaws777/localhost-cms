@@ -27,15 +27,32 @@ svg {
     flex-shrink: 0;
 }
 
-.req-container-rm h2 { 
-    margin: 0 0 4px 0; 
-    color: #333; 
+/* Header Container styled matching Insurance Vault Card Theme */
+.req-header-section-rm {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    background-color: #ffffff;
+    padding: 20px 24px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    border-left: 6px solid #0055a5;
+    gap: 16px;
+    flex-wrap: wrap;
 }
 
-.req-container-rm p { 
-    margin: 0 0 24px 0; 
-    color: #666; 
-    font-size: 14px; 
+.req-header-section-rm h2 { 
+    margin: 0; 
+    font-size: 1.5rem;
+    color: #002b66; 
+    font-weight: 700;
+}
+
+.req-header-section-rm p { 
+    margin: 4px 0 0 0; 
+    color: #64748b; 
+    font-size: 0.9rem; 
 }
 
 /* --- Navigation Tabs --- */
@@ -687,16 +704,6 @@ svg {
 .btn-save-rm { background: #16a34a; color: white; border: none; padding: 10px 18px; border-radius: 4px; cursor: pointer; max-width: fit-content; min-width: 100px; }
 .btn-cancel-rm { background: #ef4444; color: white; border: none; padding: 10px 18px; border-radius: 4px; cursor: pointer; max-width: fit-content; min-width: 100px; }
 
-/* --- Header Layout & Top Right Button --- */
-.req-header-section-rm {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    flex-wrap: wrap;
-    gap: 16px;
-    margin-bottom: 20px;
-}
-
 .btn-manage-med-reqs-rm {
     display: inline-flex;
     align-items: center;
@@ -836,6 +843,11 @@ svg {
 @media (max-width: 768px) {
     .req-container-rm {
         padding: 16px;
+    }
+
+    .req-header-section-rm {
+        flex-direction: column;
+        align-items: flex-start;
     }
 
     .dashboard-summary-cards-rm {
