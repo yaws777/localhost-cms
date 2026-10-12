@@ -19,14 +19,22 @@ export default function MyRequirements() {
     useEffect(() => {
         const loadStudentData = async () => {
             try {
-                const storedUser = localStorage.getItem('user');
+                // 1. Read from sessionStorage first (falling back to localStorage)
+                const storedUser = sessionStorage.getItem('user') || localStorage.getItem('user');
                 if (!storedUser) {
                     navigate('/');
                     return;
                 }
                 const user = JSON.parse(storedUser);
 
-                const studentRes = await fetch(`http://localhost:3001/api/get-student/${user.id}`);
+                // 2. Resolve target user ID property safely
+                const targetUserId = user.user_id || user.id || user.UserID || user.userId;
+                if (!targetUserId) {
+                    setErrorMsg("Invalid user session context.");
+                    return;
+                }
+
+                const studentRes = await fetch(`http://localhost:3001/api/get-student/${targetUserId}`);
                 const studentData = await studentRes.json();
 
                 if (studentData.success) {
@@ -110,18 +118,18 @@ export default function MyRequirements() {
         const status = statusStr?.toLowerCase();
         switch (status) {
             case 'completed':
-                return '#15803d'; // STI Emerald Success Green
+                return '#15803d';
             case 'submitted':
             case 'waiting for approval':
-                return '#002b49'; // STI Navy Blue
+                return '#002b49';
             case 'rejected':
-                return '#dc2626'; // Standard Red
+                return '#dc2626';
             case 'late':
             case 'submitted late':
-                return '#d97706'; // STI Gold / Amber
+                return '#d97706';
             case 'pending':
             default:
-                return '#b45309'; // Dark Gold / Brown-Yellow
+                return '#b45309';
         }
     };
 

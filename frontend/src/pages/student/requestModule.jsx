@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useOutletContext, useLocation } from 'react-router-dom';
 import { Eye } from 'lucide-react';
+import { io } from 'socket.io-client';
 import '../../styles/student/RequestModule.css';
 
 const API_BASE = 'http://localhost:3001/api';
@@ -124,11 +125,51 @@ export default function RequestModule() {
     }
   }, [student_id]);
 
+  // Initial Load & Real-Time Socket Connection for Requests & Facilities
   useEffect(() => {
     fetchRequests();
     fetchMedicalRequirements();
     fetchPartnerFacilities();
+
+    // Establish WebSocket connection to backend
+    const socket = io(BASE_URL);
+
+    // Auto-reflect updates whenever any request status or detail changes
+    socket.on('document_request_updated', () => {
+      fetchRequests();
+    });
+
+    // Auto-reflect updates when partner facilities or services change
+    socket.on('partner_facility_updated', () => {
+      fetchPartnerFacilities();
+      fetchMedicalRequirements();
+    });
+
+    return () => {
+      socket.disconnect();
+    };
   }, [fetchRequests, fetchMedicalRequirements, fetchPartnerFacilities]);
+
+  // Real-time Chat / Note Listener for currently selected modal request
+  useEffect(() => {
+    if (!selectedRequest || activeModal !== 'view') return;
+
+    const socket = io(BASE_URL);
+
+    socket.on('note_added', (data) => {
+      if (
+        data &&
+        data.request_id === selectedRequest.request_id &&
+        data.request_type === selectedRequest.request_type
+      ) {
+        fetchNotes(selectedRequest);
+      }
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [selectedRequest, activeModal]);
 
   const handleFacilityChange = (e) => {
     const facilityId = e.target.value;
@@ -311,7 +352,7 @@ export default function RequestModule() {
         </div>
 
         <div className="sti-action-card" onClick={() => setActiveModal('referral')}>
-          <div className="sti-card-icon">🩺</div>
+          <div className="sti-card-icon">🏥</div>
           <h3>Request Referral Slip</h3>
           <p>Request medical or laboratory referral for partner facilities.</p>
           <button className="sti-btn-primary" style={{ maxWidth: '100%', boxSizing: 'border-box' }}>New Request</button>

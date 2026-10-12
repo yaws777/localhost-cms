@@ -512,21 +512,20 @@ export default function ManageStudentAccounts() {
     setNewParentForm(prev => ({ ...prev, password: checked ? '123' : '' }));
   };
 
-  // Enforce parent username format with fixed 'parent.' prefix
+  // Enforce parent username format with fixed '.parent' suffix (e.g., lastname.parent)
   const handleParentUsernameChange = (val, isEdit = false) => {
     let clean = val.trim().toLowerCase();
-    if (!clean.startsWith('parent.')) {
-      const withoutPrefix = clean.replace(/^parent\.?/, '');
-      clean = `parent.${withoutPrefix}`;
-    }
+    const base = clean.replace(/(\.parent|parent\.)/g, '').replace(/[^a-z0-9._-]/g, '');
+    const formatted = base ? `${base}.parent` : '';
+    
     if (isEdit) {
-      setEditNewParentForm(prev => ({ ...prev, username: clean }));
+      setEditNewParentForm(prev => ({ ...prev, username: formatted }));
     } else {
-      setNewParentForm(prev => ({ ...prev, username: clean }));
+      setNewParentForm(prev => ({ ...prev, username: formatted }));
     }
   };
 
-  // Dynamic student/parent last name changes with auto username parent.lastname & parent_id generation
+  // Dynamic student/parent last name changes with auto username lastname.parent & parent_id generation
   const handleStudentLastNameChange = (e) => {
     const lastName = e.target.value;
 
@@ -549,7 +548,7 @@ export default function ManageStudentAccounts() {
         ...prev,
         last_name: effectiveParentLastName,
         parent_id: generateParentId(effectiveParentLastName),
-        username: cleanParentLastName ? `parent.${cleanParentLastName}` : ''
+        username: cleanParentLastName ? `${cleanParentLastName}.parent` : ''
       };
     });
   };
@@ -561,7 +560,7 @@ export default function ManageStudentAccounts() {
       ...prev,
       last_name: parentLastName,
       parent_id: generateParentId(parentLastName),
-      username: cleanParentLastName ? `parent.${cleanParentLastName}` : ''
+      username: cleanParentLastName ? `${cleanParentLastName}.parent` : ''
     }));
   };
 
@@ -572,7 +571,7 @@ export default function ManageStudentAccounts() {
       ...prev,
       last_name: parentLastName,
       parent_id: generateParentId(parentLastName),
-      username: cleanParentLastName ? `parent.${cleanParentLastName}` : ''
+      username: cleanParentLastName ? `${cleanParentLastName}.parent` : ''
     }));
   };
 
@@ -754,7 +753,7 @@ export default function ManageStudentAccounts() {
 
           const parentUsernameClean = row.parent_username 
             ? row.parent_username.replace(DOMAIN_EXTENSION, '').trim() 
-            : `parent.${cleanParentLastName}`;
+            : `${cleanParentLastName}.parent`;
 
           return {
             id: idx,
@@ -823,10 +822,9 @@ export default function ManageStudentAccounts() {
       if (updated[index].new_parent) {
         let val = value;
         if (field === 'username') {
-          val = val.trim().toLowerCase();
-          if (!val.startsWith('parent.')) {
-            val = `parent.${val.replace(/^parent\.?/, '')}`;
-          }
+          let clean = val.trim().toLowerCase();
+          const base = clean.replace(/(\.parent|parent\.)/g, '').replace(/[^a-z0-9._-]/g, '');
+          val = base ? `${base}.parent` : '';
         }
         updated[index] = {
           ...updated[index],
@@ -1001,7 +999,7 @@ export default function ManageStudentAccounts() {
       parent_id: generateParentId(student.last_name),
       first_name: '',
       last_name: student.last_name || '',
-      username: cleanLastName ? `parent.${cleanLastName}` : '',
+      username: cleanLastName ? `${cleanLastName}.parent` : '',
       password: '123',
       primary_phone: '',
       is_active: true
@@ -1680,12 +1678,12 @@ export default function ManageStudentAccounts() {
                       />
                     </div>
                     <div className="form-group-msa col-span-2-msa">
-                      <label>Parent Username (Fixed prefix: parent.) *</label>
+                      <label>Parent Username (Autofilled: lastname.parent) *</label>
                       <div className="domain-input-group-msa">
                         <input
                           type="text"
                           required
-                          placeholder="parent.lastname"
+                          placeholder="lastname.parent"
                           value={newParentForm.username}
                           onChange={(e) => handleParentUsernameChange(e.target.value, false)}
                         />
@@ -1988,12 +1986,12 @@ export default function ManageStudentAccounts() {
                       />
                     </div>
                     <div className="form-group-msa col-span-2-msa">
-                      <label>Parent Username (Fixed prefix: parent.) *</label>
+                      <label>Parent Username (Autofilled: lastname.parent) *</label>
                       <div className="domain-input-group-msa">
                         <input
                           type="text"
                           required
-                          placeholder="parent.lastname"
+                          placeholder="lastname.parent"
                           value={editNewParentForm.username}
                           onChange={(e) => handleParentUsernameChange(e.target.value, true)}
                         />

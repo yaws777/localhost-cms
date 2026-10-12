@@ -117,7 +117,6 @@ body {
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
     border-bottom: 2px solid var(--sti-yellow); 
     
-    /* Fixed positioning next to sidebar */
     position: fixed;
     top: 0;
     left: var(--sidebar-width);
@@ -153,9 +152,9 @@ body {
 }
 
 .page-content {
-    padding: 10px 10px; /* Reduced top padding to move content up */
+    padding: 10px 10px;
     flex: 1;
-    margin-top: 10px; /* Offset to prevent hiding behind the fixed top bar */
+    margin-top: 10px;
 }
 
 /* ============================================== */
@@ -199,7 +198,7 @@ body {
     }
 
     .student-top-bar {
-        padding: 8px 15px 8px 70px; /* Space for hamburger menu */
+        padding: 8px 15px 8px 70px;
         left: 0;
         width: 100%;
     }
@@ -208,7 +207,6 @@ body {
         font-size: 0.9rem;
     }
 
-    /* Hides the date on small screens to prevent overlap with the menu/name */
     .current-date {
         display: none; 
     }
@@ -314,4 +312,169 @@ body {
     border-radius: 20px;
     letter-spacing: 0.5px;
     border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* ============================================== */
+/* LAYOUT MODAL STYLES                            */
+/* ============================================== */
+.modal-backdrop-sl {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: rgba(15, 23, 42, 0.65);
+    backdrop-filter: blur(2px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 2000;
+    padding: 16px;
+    box-sizing: border-box;
+}
+
+.modal-content-sl {
+    background: #ffffff;
+    border-radius: 12px;
+    width: 100%;
+    max-width: 420px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    overflow: hidden;
+    animation: modalFadeInSl 0.2s ease-out;
+}
+
+.modal-sm-sl {
+    max-width: 400px;
+}
+
+@keyframes modalFadeInSl {
+    from {
+        opacity: 0;
+        transform: scale(0.96);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.modal-header-sl {
+    padding: 16px 20px;
+    border-bottom: 1px solid #e2e8f0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: #f8fafc;
+}
+
+.modal-header-sl h2 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--sti-blue);
+}
+
+.btn-close-sl {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: #64748b;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px;
+    border-radius: 4px;
+    transition: color 0.2s, background-color 0.2s;
+}
+
+.btn-close-sl:hover {
+    color: #1e293b;
+    background-color: #e2e8f0;
+}
+
+.modal-body-sl {
+    padding: 24px 20px;
+}
+
+.flex-center-body-sl {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+
+.icon-wrapper-sl {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    margin-bottom: 16px;
+}
+
+.icon-warning-sl {
+    background-color: #fef3c7;
+    color: #d97706;
+}
+
+.modal-message-sl {
+    margin: 0;
+    font-size: 14px;
+    color: #334155;
+    line-height: 1.5;
+}
+
+.modal-footer-sl {
+    padding: 14px 20px;
+    border-top: 1px solid #e2e8f0;
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    background-color: #f8fafc;
+}
+
+.btn-primary-sl,
+.btn-secondary-sl,
+.btn-danger-sl {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-weight: 600;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    padding: 9px 16px;
+    font-size: 14px;
+    border: none;
+}
+
+.btn-primary-sl {
+    background-color: var(--sti-blue);
+    color: #ffffff;
+}
+
+.btn-primary-sl:hover {
+    background-color: #003b75;
+}
+
+.btn-danger-sl {
+    background-color: #ef4444;
+    color: #ffffff;
+}
+
+.btn-danger-sl:hover {
+    background-color: #dc2626;
+}
+
+.btn-secondary-sl {
+    background-color: #e2e8f0;
+    color: #1e293b;
+}
+
+.btn-secondary-sl:hover {
+    background-color: #cbd5e1;
 }

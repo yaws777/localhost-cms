@@ -9,7 +9,8 @@ import {
     Bell,
     X,
     MessageSquare,
-    Loader2
+    Loader2,
+    AlertTriangle
 } from 'lucide-react';
 import '../styles/parent/ParentLayout.css'; 
 import ParentMessageModal from '../components/student/ParentMessageModal.jsx';
@@ -26,6 +27,8 @@ const ParentLayout = () => {
 
     const [isMessageOpen, setIsMessageOpen] = useState(false);
     const [unreadCount, setUnreadCount] = useState(0);
+
+    const [showLogoutModal, setShowLogoutModal] = useState(false);
 
     const parentIdRef = useRef(null);
     const studentsRef = useRef([]);
@@ -49,13 +52,33 @@ const ParentLayout = () => {
         }
     }, [parentUserId, isSubscribed, subscribe]);
 
+    useEffect(() => {
+        if (!parentUserId) return;
+
+        const sendHeartbeat = async () => {
+            try {
+                await fetch('http://localhost:3001/api/users/heartbeat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: parentUserId })
+                });
+            } catch (err) {
+                console.error('Heartbeat ping error:', err);
+            }
+        };
+
+        sendHeartbeat();
+        const heartbeatInterval = setInterval(sendHeartbeat, 10000);
+
+        return () => clearInterval(heartbeatInterval);
+    }, [parentUserId]);
+
     const [notifications, setNotifications] = useState([]);
     const [showNotifDropdown, setShowNotifDropdown] = useState(false);
     const [activeNotifModal, setActiveNotifModal] = useState(null);
 
-    // Dynamic unread notifications counter
     const unreadNotifCount = notifications.filter(
-        n => !n.is_read && n.is_read !== 1 && !n.read
+        n => !n.is_read && n.is_read !== 1 && n.is_read !== '1' && !n.read
     ).length;
 
     const fetchUnreadCount = useCallback(async (userId) => {
@@ -77,7 +100,6 @@ const ParentLayout = () => {
         }
     }, [fetchUnreadCount]);
 
-    // Fetch notifications with local read-state preservation
     const fetchAllNotifications = useCallback(async (parentId, studentList) => {
         if (!parentId) return;
 
@@ -114,16 +136,21 @@ const ParentLayout = () => {
 
             uniqueNotifs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
-            setNotifications(prev => {
-                // Collect IDs of notifications locally marked as read
-                const localReadIds = new Set(
-                    prev.filter(n => n.is_read === 1 || n.is_read === true || n.read === true)
-                        .map(n => n.notification_id)
-                );
+            const storageKey = `read_notifs_parent_${parentId}`;
+            const storedReadIds = JSON.parse(sessionStorage.getItem(storageKey) || '[]');
 
-                // Preserve local read state so items stay visible
+            setNotifications(prev => {
+                const localReadIds = new Set([
+                    ...storedReadIds,
+                    ...prev.filter(n => n.is_read === 1 || n.is_read === '1' || n.is_read === true || n.read === true)
+                        .map(n => n.notification_id)
+                ]);
+
+                sessionStorage.setItem(storageKey, JSON.stringify(Array.from(localReadIds)));
+
                 return uniqueNotifs.map(item => {
-                    if (localReadIds.has(item.notification_id)) {
+                    const isReadInDb = item.is_read === 1 || item.is_read === '1' || item.is_read === true || item.read === true;
+                    if (isReadInDb || localReadIds.has(item.notification_id)) {
                         return { ...item, is_read: 1, read: true };
                     }
                     return item;
@@ -135,7 +162,7 @@ const ParentLayout = () => {
     }, []);
 
     useEffect(() => {
-        const storedLinkedStudents = localStorage.getItem('linkedStudents');
+        const storedLinkedStudents = sessionStorage.getItem('linkedStudents') || localStorage.getItem('linkedStudents');
         let parsedStudents = [];
         if (storedLinkedStudents) {
             try {
@@ -143,8 +170,8 @@ const ParentLayout = () => {
                 if (Array.isArray(parsedStudents)) {
                     setStudents(parsedStudents);
                     studentsRef.current = parsedStudents;
-                    if (parsedStudents.length > 0 && !localStorage.getItem('selectedStudentId')) {
-                        localStorage.setItem('selectedStudentId', String(parsedStudents[0].student_id));
+                    if (parsedStudents.length > 0 && !sessionStorage.getItem('selectedStudentId')) {
+                        sessionStorage.setItem('selectedStudentId', String(parsedStudents[0].student_id));
                     }
                 }
             } catch (error) {
@@ -180,14 +207,14 @@ const ParentLayout = () => {
             }
         };
 
-        const storedUser = localStorage.getItem('user');
+        const storedUser = sessionStorage.getItem('user') || localStorage.getItem('user');
         
         if (storedUser) {
             let user;
             try {
                 user = JSON.parse(storedUser);
             } catch (e) {
-                console.error("Invalid user JSON in localStorage:", e);
+                console.error("Invalid user JSON in storage:", e);
                 navigate('/');
                 return;
             }
@@ -197,7 +224,7 @@ const ParentLayout = () => {
             if (accurateUserId) {
                 fetchProfiles(accurateUserId);
             } else {
-                console.error("No user ID found in localStorage object.");
+                console.error("No user ID found in user object.");
                 setIsLoading(false);
             }
         } else {
@@ -219,11 +246,17 @@ const ParentLayout = () => {
     const toggleSidebar = () => setIsOpen(!isOpen);
     const closeSidebar = () => setIsOpen(false);
 
-    const handleLogout = () => {
-        localStorage.removeItem('user');
-        localStorage.removeItem('parent_id');
-        localStorage.removeItem('linkedStudents');
-        localStorage.removeItem('selectedStudentId');
+    const handleLogoutClick = () => {
+        setShowLogoutModal(true);
+    };
+
+    const confirmLogout = () => {
+        sessionStorage.removeItem('user');
+        sessionStorage.removeItem('parent_id');
+        sessionStorage.removeItem('linkedStudents');
+        sessionStorage.removeItem('selectedStudentId');
+        sessionStorage.removeItem('app_active_user_id');
+        setShowLogoutModal(false);
         navigate('/');
     };
 
@@ -237,7 +270,16 @@ const ParentLayout = () => {
     const handleNotificationClick = async (notif) => {
         setShowNotifDropdown(false);
 
-        // Mark item as read locally without removing it
+        const pId = parentData?.parent_id;
+        if (pId) {
+            const storageKey = `read_notifs_parent_${pId}`;
+            const storedReadIds = JSON.parse(sessionStorage.getItem(storageKey) || '[]');
+            if (!storedReadIds.includes(notif.notification_id)) {
+                storedReadIds.push(notif.notification_id);
+                sessionStorage.setItem(storageKey, JSON.stringify(storedReadIds));
+            }
+        }
+
         setNotifications(prev =>
             prev.map(item =>
                 item.notification_id === notif.notification_id ? { ...item, is_read: 1, read: true } : item
@@ -266,7 +308,6 @@ const ParentLayout = () => {
         }
     };
 
-    // Mark ALL parent and student notifications as read
     const handleMarkAllAsRead = async () => {
         const pId = parentData?.parent_id;
         if (!pId) return;
@@ -275,13 +316,20 @@ const ParentLayout = () => {
             await fetch(`http://localhost:3001/api/notifications/parent/${pId}/read-all`, {
                 method: 'PATCH'
             });
+
+            const storageKey = `read_notifs_parent_${pId}`;
+            const allIds = notifications.map(n => n.notification_id);
+            const storedReadIds = JSON.parse(sessionStorage.getItem(storageKey) || '[]');
+            const updatedReadIds = Array.from(new Set([...storedReadIds, ...allIds]));
+            sessionStorage.setItem(storageKey, JSON.stringify(updatedReadIds));
+
             setNotifications(prev => prev.map(n => ({ ...n, is_read: 1, read: true })));
         } catch (err) {
             console.error('Error marking all notifications as read:', err);
         }
     };
 
-    const primaryStudentId = students[0]?.student_id || localStorage.getItem('selectedStudentId') || '';
+    const primaryStudentId = students[0]?.student_id || sessionStorage.getItem('selectedStudentId') || '';
 
     return (
         <div className="parent-layout">
@@ -387,7 +435,7 @@ const ParentLayout = () => {
                     <hr className="nav-divider" style={{ margin: '15px 0', borderColor: 'rgba(255,255,255,0.1)' }} />
 
                     <button 
-                        onClick={handleLogout} 
+                        onClick={handleLogoutClick} 
                         className="nav-link logout-btn" 
                         style={{ background: 'transparent', border: 'none', width: '100%', textAlign: 'left', cursor: 'pointer', color: 'var(--sti-yellow)' }}
                     >
@@ -560,7 +608,7 @@ const ParentLayout = () => {
                                         </div>
                                     ) : (
                                         notifications.map((notif) => {
-                                            const isItemRead = notif.is_read === 1 || notif.is_read === true || notif.read === true;
+                                            const isItemRead = notif.is_read === 1 || notif.is_read === '1' || notif.is_read === true || notif.read === true;
                                             return (
                                                 <div 
                                                     key={notif.notification_id}
@@ -616,6 +664,7 @@ const ParentLayout = () => {
                     <Outlet context={{ 
                         parentId: parentData?.parent_id || '',
                         userId: parentData?.user_id || '', 
+                        user_id: parentData?.user_id || '',
                         firstName: parentData?.first_name || '', 
                         lastName: parentData?.last_name || '', 
                         username: parentData?.username || '', 
@@ -647,67 +696,84 @@ const ParentLayout = () => {
             )}
 
             {activeNotifModal && (
-                <div style={{
-                    position: 'fixed',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    zIndex: 2000
-                }}>
-                    <div style={{
-                        backgroundColor: '#ffffff',
-                        borderRadius: '8px',
-                        padding: '24px',
-                        maxWidth: '450px',
-                        width: '90%',
-                        boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
-                        position: 'relative'
-                    }}>
-                        <button 
-                            onClick={() => setActiveNotifModal(null)}
-                            style={{
-                                position: 'absolute',
-                                top: '16px',
-                                right: '16px',
-                                background: 'transparent',
-                                border: 'none',
-                                cursor: 'pointer'
-                            }}
-                        >
-                            <X size={18} color="#666" />
-                        </button>
-
-                        <h3 style={{ marginTop: 0, marginBottom: '12px', color: '#111', fontSize: '1.1rem' }}>
-                            {activeNotifModal.title}
-                        </h3>
-
-                        <p style={{ fontSize: '0.9rem', color: '#444', lineHeight: '1.5', marginBottom: '20px' }}>
-                            {activeNotifModal.message}
-                        </p>
-
-                        <div style={{ fontSize: '0.75rem', color: '#888', marginBottom: '20px' }}>
-                            Received: {new Date(activeNotifModal.created_at).toLocaleString()}
-                        </div>
-
-                        <div style={{ textAlign: 'right' }}>
+                <div className="modal-backdrop-pl" onClick={() => setActiveNotifModal(null)}>
+                    <div 
+                        className="modal-content-pl" 
+                        onClick={(e) => e.stopPropagation()}
+                        role="dialog"
+                        aria-modal="true"
+                    >
+                        <div className="modal-header-pl">
+                            <h2>{activeNotifModal.title || 'Notification Details'}</h2>
                             <button 
+                                type="button" 
+                                className="btn-close-pl" 
                                 onClick={() => setActiveNotifModal(null)}
-                                style={{
-                                    backgroundColor: '#003366',
-                                    color: '#ffffff',
-                                    border: 'none',
-                                    padding: '8px 16px',
-                                    borderRadius: '4px',
-                                    cursor: 'pointer',
-                                    fontSize: '0.85rem'
-                                }}
+                                aria-label="Close modal"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="modal-body-pl">
+                            <p className="modal-message-pl">{activeNotifModal.message}</p>
+                            <span className="notif-timestamp-pl">
+                                Received: {new Date(activeNotifModal.created_at).toLocaleString()}
+                            </span>
+                        </div>
+                        <div className="modal-footer-pl">
+                            <button 
+                                type="button" 
+                                className="btn-primary-pl" 
+                                onClick={() => setActiveNotifModal(null)}
                             >
                                 Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {showLogoutModal && (
+                <div className="modal-backdrop-pl" onClick={() => setShowLogoutModal(false)}>
+                    <div 
+                        className="modal-content-pl modal-sm-pl" 
+                        onClick={(e) => e.stopPropagation()} 
+                        role="dialog" 
+                        aria-modal="true"
+                    >
+                        <div className="modal-header-pl">
+                            <h2>Confirm Logout</h2>
+                            <button 
+                                type="button" 
+                                className="btn-close-pl" 
+                                onClick={() => setShowLogoutModal(false)}
+                                aria-label="Close modal"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="modal-body-pl flex-center-body-pl">
+                            <div className="icon-wrapper-pl icon-warning-pl">
+                                <AlertTriangle size={36} />
+                            </div>
+                            <p className="modal-message-pl">
+                                Are you sure you want to log out of the STI Baliuag Parent Portal?
+                            </p>
+                        </div>
+                        <div className="modal-footer-pl">
+                            <button 
+                                type="button" 
+                                className="btn-secondary-pl" 
+                                onClick={() => setShowLogoutModal(false)}
+                            >
+                                Cancel
+                            </button>
+                            <button 
+                                type="button" 
+                                className="btn-danger-pl" 
+                                onClick={confirmLogout}
+                            >
+                                Logout
                             </button>
                         </div>
                     </div>

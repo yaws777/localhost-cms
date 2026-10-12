@@ -237,9 +237,10 @@ body {
   border-color: #fde68a;
 }
 
-/* Buttons System - Avoid Stretched / Overwidth Buttons */
+/* Buttons System */
 .btn-primary-mpa,
 .btn-secondary-mpa,
+.btn-danger-mpa,
 .btn-add-sm-mpa,
 .btn-danger-sm-mpa {
   display: inline-flex;
@@ -265,6 +266,18 @@ body {
 
 .btn-primary-mpa:hover {
   background-color: var(--sti-blue-dark);
+}
+
+.btn-danger-mpa {
+  background-color: var(--sti-danger);
+  color: #ffffff;
+  border: none;
+  padding: 9px 16px;
+  font-size: 14px;
+}
+
+.btn-danger-mpa:hover {
+  background-color: var(--sti-danger-hover);
 }
 
 .btn-secondary-mpa {
@@ -323,6 +336,10 @@ body {
   box-sizing: border-box;
 }
 
+.modal-z-top {
+  z-index: 1100;
+}
+
 .modal-content-mpa {
   background: #ffffff;
   border-radius: 12px;
@@ -338,6 +355,10 @@ body {
 
 .modal-lg-mpa {
   max-width: 768px;
+}
+
+.modal-sm-mpa {
+  max-width: 420px;
 }
 
 @keyframes modalFadeIn {
@@ -399,6 +420,47 @@ body {
   flex: 1;
 }
 
+.flex-center-body-mpa {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px 20px;
+}
+
+.feedback-icon-wrapper-mpa {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  margin-bottom: 16px;
+}
+
+.icon-success-mpa {
+  background-color: #d1fae5;
+  color: #059669;
+}
+
+.icon-warning-mpa {
+  background-color: #fef3c7;
+  color: #d97706;
+}
+
+.icon-error-mpa {
+  background-color: #fee2e2;
+  color: #dc2626;
+}
+
+.modal-message-mpa {
+  margin: 0;
+  font-size: 14px;
+  color: var(--sti-text-dark);
+  line-height: 1.5;
+}
+
 .modal-footer-mpa {
   padding: 14px 20px;
   border-top: 1px solid var(--sti-border);
@@ -407,6 +469,10 @@ body {
   gap: 10px;
   background-color: #f8fafc;
   flex-shrink: 0;
+}
+
+.text-center-footer-mpa {
+  justify-content: center;
 }
 
 /* Form Layouts & Responsive Grids */
@@ -651,10 +717,7 @@ body {
   padding-bottom: 16px;
 }
 
-/* ==========================================================================
-   Responsive Breakpoints (Mobile, Tablet, Desktop)
-   ========================================================================== */
-
+/* Responsive Breakpoints */
 @media (max-width: 768px) {
   .container-mpa {
     padding: 12px;

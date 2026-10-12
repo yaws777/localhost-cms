@@ -10,7 +10,9 @@ import {
     MessageSquare,
     Clipboard,
     Bell,
-    Download
+    Download,
+    X,
+    AlertTriangle
 } from 'lucide-react';
 import { QRCodeCanvas } from 'qrcode.react';
 import '../styles/student/StudentLayout.css'; 
@@ -31,11 +33,12 @@ const StudentLayout = () => {
     const [unreadCount, setUnreadCount] = useState(0);
     const [currentUserId, setCurrentUserId] = useState(null);
 
-    // Refs to store user & student IDs for polling without re-triggering main useEffect
+    // Logout Modal State
+    const [showLogoutModal, setShowLogoutModal] = useState(false);
+
     const studentIdRef = useRef(null);
     const currentUserIdRef = useRef(null);
 
-    // Keep refs in sync with state
     useEffect(() => {
         studentIdRef.current = studentData?.student_id || null;
     }, [studentData?.student_id]);
@@ -44,26 +47,43 @@ const StudentLayout = () => {
         currentUserIdRef.current = currentUserId;
     }, [currentUserId]);
 
-    // Web Push Hook integration
-    const { isSubscribed, subscribe } = useWebPush(currentUserId);
+    const studentUserId = studentData?.user_id || currentUserId;
+    const { isSubscribed, subscribe } = useWebPush(studentUserId);
 
-    // Auto-sync web push subscription if browser permission was already granted
     useEffect(() => {
-        if (currentUserId && typeof Notification !== 'undefined' && Notification?.permission === 'granted' && !isSubscribed) {
+        if (studentUserId && typeof Notification !== 'undefined' && Notification?.permission === 'granted' && !isSubscribed) {
             subscribe();
         }
-    }, [currentUserId, isSubscribed, subscribe]);
+    }, [studentUserId, isSubscribed, subscribe]);
 
-    // Notification States
+    useEffect(() => {
+        if (!currentUserId) return;
+
+        const sendHeartbeat = async () => {
+            try {
+                await fetch('http://localhost:3001/api/users/heartbeat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: currentUserId })
+                });
+            } catch (err) {
+                console.error('Heartbeat error:', err);
+            }
+        };
+
+        sendHeartbeat();
+        const heartbeatInterval = setInterval(sendHeartbeat, 10000);
+
+        return () => clearInterval(heartbeatInterval);
+    }, [currentUserId]);
+
     const [notifications, setNotifications] = useState([]);
     const [showNotifDropdown, setShowNotifDropdown] = useState(false);
 
-    // Calculate unread notifications count dynamically
     const unreadNotifCount = notifications.filter(
-        n => !n.is_read && n.is_read !== 1 && !n.read
+        n => !n.is_read && n.is_read !== 1 && n.is_read !== '1' && !n.read
     ).length;
 
-    // Fetch unread messages count
     const fetchUnreadCount = useCallback(async (userId) => {
         if (!userId) return;
         try {
@@ -77,7 +97,6 @@ const StudentLayout = () => {
         }
     }, []);
 
-    // Fetch notifications with local read-state preservation
     const fetchNotifications = useCallback(async (studentId) => {
         if (!studentId) return;
         try {
@@ -85,16 +104,21 @@ const StudentLayout = () => {
             const data = await res.json();
             if (data.success) {
                 const fetchedNotifications = data.data || [];
-                setNotifications(prev => {
-                    // Collect IDs of notifications that were already marked as read locally
-                    const localReadIds = new Set(
-                        prev.filter(n => n.is_read === 1 || n.is_read === true || n.read === true)
-                            .map(n => n.notification_id)
-                    );
+                const storageKey = `read_notifs_student_${studentId}`;
+                const storedReadIds = JSON.parse(sessionStorage.getItem(storageKey) || '[]');
 
-                    // Merge fetched items while preserving local read status so they stay visible
+                setNotifications(prev => {
+                    const localReadIds = new Set([
+                        ...storedReadIds,
+                        ...prev.filter(n => n.is_read === 1 || n.is_read === '1' || n.is_read === true || n.read === true)
+                            .map(n => n.notification_id)
+                    ]);
+
+                    sessionStorage.setItem(storageKey, JSON.stringify(Array.from(localReadIds)));
+
                     return fetchedNotifications.map(item => {
-                        if (localReadIds.has(item.notification_id)) {
+                        const isReadInDb = item.is_read === 1 || item.is_read === '1' || item.is_read === true || item.read === true;
+                        if (isReadInDb || localReadIds.has(item.notification_id)) {
                             return { ...item, is_read: 1, read: true };
                         }
                         return item;
@@ -107,7 +131,7 @@ const StudentLayout = () => {
     }, []);
 
     useEffect(() => {
-        const storedUser = localStorage.getItem('user');
+        const storedUser = sessionStorage.getItem('user') || localStorage.getItem('user');
         
         if (!storedUser) {
             navigate('/');
@@ -118,7 +142,7 @@ const StudentLayout = () => {
         try {
             user = JSON.parse(storedUser);
         } catch (e) {
-            console.error("Invalid user object in localStorage:", e);
+            console.error("Invalid user object in storage:", e);
             navigate('/');
             return;
         }
@@ -126,7 +150,7 @@ const StudentLayout = () => {
         const accurateUserId = user.user_id || user.id || user.UserID || user.userId;
 
         if (!accurateUserId) {
-            console.error("No user ID found in localStorage object.");
+            console.error("No user ID found in user object.");
             setIsLoading(false);
             return;
         }
@@ -155,11 +179,9 @@ const StudentLayout = () => {
             }
         };
 
-        // Fetch student profile and unread count once on mount
         fetchStudentProfile();
         fetchUnreadCount(accurateUserId);
 
-        // Poll messages and notifications every 5 seconds using refs to avoid re-triggering main effect
         const interval = setInterval(() => {
             if (currentUserIdRef.current) {
                 fetchUnreadCount(currentUserIdRef.current);
@@ -172,24 +194,20 @@ const StudentLayout = () => {
         return () => clearInterval(interval);
     }, [navigate, fetchUnreadCount, fetchNotifications]);
 
-    // Handle downloading the sidebar QR code with solid white background
     const handleDownloadSidebarQr = () => {
         if (!sidebarQrRef.current || !studentData?.student_id) return;
 
         const originalCanvas = sidebarQrRef.current.querySelector('canvas');
         if (originalCanvas) {
-            const padding = 20; // White border padding around the QR code
+            const padding = 20;
             const offscreenCanvas = document.createElement('canvas');
             offscreenCanvas.width = originalCanvas.width + padding * 2;
             offscreenCanvas.height = originalCanvas.height + padding * 2;
 
             const ctx = offscreenCanvas.getContext('2d');
             if (ctx) {
-                // Fill canvas with solid white background
                 ctx.fillStyle = '#ffffff';
                 ctx.fillRect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
-
-                // Draw QR code onto white canvas centered
                 ctx.drawImage(originalCanvas, padding, padding);
 
                 const url = offscreenCanvas.toDataURL('image/png');
@@ -203,15 +221,22 @@ const StudentLayout = () => {
         }
     };
 
-    // Navigate to sub-routes or trigger modals based on notification content
     const handleNotificationClick = async (notification) => {
         try {
-            // 1. Mark notification as read on the backend
             await fetch(`http://localhost:3001/api/notifications/${notification.notification_id}/read`, {
                 method: 'PATCH'
             });
 
-            // 2. Update item locally to read state without removing it from the array
+            const studentId = studentData?.student_id;
+            if (studentId) {
+                const storageKey = `read_notifs_student_${studentId}`;
+                const storedReadIds = JSON.parse(sessionStorage.getItem(storageKey) || '[]');
+                if (!storedReadIds.includes(notification.notification_id)) {
+                    storedReadIds.push(notification.notification_id);
+                    sessionStorage.setItem(storageKey, JSON.stringify(storedReadIds));
+                }
+            }
+
             setNotifications(prev => prev.map(n => 
                 n.notification_id === notification.notification_id 
                     ? { ...n, is_read: 1, read: true } 
@@ -227,7 +252,6 @@ const StudentLayout = () => {
         const title = (notification.title || '').toLowerCase();
         const msg = (notification.message || '').toLowerCase();
 
-        // 3. Perform internal routing without exiting StudentLayout
         if (type.includes('message') || msg.includes('message') || title.includes('message')) {
             setIsMessageOpen(true);
         } else if (type.includes('requirement') || msg.includes('requirement') || title.includes('requirement')) {
@@ -247,7 +271,6 @@ const StudentLayout = () => {
         }
     };
 
-    // Mark ALL notifications as read without removing items
     const handleMarkAllAsRead = async () => {
         const studentId = studentData?.student_id;
         if (!studentId) return;
@@ -256,7 +279,13 @@ const StudentLayout = () => {
             await fetch(`http://localhost:3001/api/notifications/student/${studentId}/read-all`, {
                 method: 'PATCH'
             });
-            // Update all notifications as read in local state
+
+            const storageKey = `read_notifs_student_${studentId}`;
+            const allIds = notifications.map(n => n.notification_id);
+            const storedReadIds = JSON.parse(sessionStorage.getItem(storageKey) || '[]');
+            const updatedReadIds = Array.from(new Set([...storedReadIds, ...allIds]));
+            sessionStorage.setItem(storageKey, JSON.stringify(updatedReadIds));
+
             setNotifications(prev => prev.map(n => ({ ...n, is_read: 1, read: true })));
         } catch (err) {
             console.error('Error marking all notifications as read:', err);
@@ -266,8 +295,14 @@ const StudentLayout = () => {
     const toggleSidebar = () => setIsOpen(!isOpen);
     const closeSidebar = () => setIsOpen(false);
 
-    const handleLogout = () => {
-        localStorage.removeItem('user');
+    const handleLogoutClick = () => {
+        setShowLogoutModal(true);
+    };
+
+    const confirmLogout = () => {
+        sessionStorage.removeItem('user');
+        sessionStorage.removeItem('app_active_user_id');
+        setShowLogoutModal(false);
         navigate('/');
     };
 
@@ -287,15 +322,12 @@ const StudentLayout = () => {
 
     return (
         <div className="student-layout">
-            {/* Mobile Hamburger Button */}
             <button className="mobile-toggle-btn" onClick={toggleSidebar}>
                 ☰
             </button>
 
-            {/* Overlay for mobile when sidebar is open */}
             {isOpen && <div className="sidebar-overlay" onClick={closeSidebar}></div>}
 
-            {/* Sidebar Container */}
             <div className={`student-sidebar ${isOpen ? 'open' : ''}`}>
                 <button className="close-sidebar-btn" onClick={closeSidebar} aria-label="Close Sidebar">
                     &times;
@@ -325,7 +357,6 @@ const StudentLayout = () => {
                             ID: {studentData?.student_id || '--------'}
                         </span>
 
-                        {/* Student QR Code in Sidebar with Download Button */}
                         {studentData?.student_id && (
                             <div style={{ marginTop: '10px', textAlign: 'center' }}>
                                 <div 
@@ -412,7 +443,7 @@ const StudentLayout = () => {
                     <hr className="nav-divider" style={{ margin: '15px 0', borderColor: 'rgba(255,255,255,0.1)' }} />
 
                     <button 
-                        onClick={handleLogout} 
+                        onClick={handleLogoutClick} 
                         className="nav-link logout-btn" 
                         style={{ background: 'transparent', border: 'none', width: '100%', textAlign: 'left', cursor: 'pointer', color: 'yellow' }}
                     >
@@ -422,7 +453,6 @@ const StudentLayout = () => {
                 </nav>
             </div>
 
-            {/* TOP BAR WITH MESSAGES AND NOTIFICATION BELL */}
             <div className="student-top-bar">
                 <div className="top-bar-left">
                     <span className="system-name">STI Baliuag Clinic Management System</span>
@@ -430,7 +460,6 @@ const StudentLayout = () => {
                 <div className="top-bar-right" style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                     <span className="current-date">{currentDate}</span>
 
-                    {/* MESSAGE BUTTON */}
                     <button 
                         className="top-bar-message-btn" 
                         title="Messages"
@@ -438,11 +467,12 @@ const StudentLayout = () => {
                     >
                         <MessageSquare size={20} />
                         {unreadCount > 0 && (
-                            <span className="top-bar-unread-badge">{unreadCount}</span>
+                            <span className="top-bar-unread-badge">
+                                {unreadCount > 99 ? '99+' : unreadCount}
+                            </span>
                         )}
                     </button>
 
-                    {/* NOTIFICATION BELL BUTTON & DROPDOWN */}
                     <div style={{ position: 'relative' }}>
                         <button 
                             className="top-bar-message-btn" 
@@ -455,7 +485,6 @@ const StudentLayout = () => {
                             )}
                         </button>
 
-                        {/* DROPDOWN CONTAINER */}
                         {showNotifDropdown && (
                             <div style={{
                                 position: 'absolute',
@@ -507,7 +536,7 @@ const StudentLayout = () => {
                                     </div>
                                 ) : (
                                     notifications.map((item) => {
-                                        const isItemRead = item.is_read === 1 || item.is_read === true || item.read === true;
+                                        const isItemRead = item.is_read === 1 || item.is_read === '1' || item.is_read === true || item.read === true;
                                         return (
                                             <div 
                                                 key={item.notification_id}
@@ -559,12 +588,12 @@ const StudentLayout = () => {
                 </div>
             </div>
 
-            {/* MAIN CONTENT SECTION */}
             <div className="main-content">
                 <div className="page-content">
                     <Outlet context={{ 
                         studentId: studentData?.student_id || '', 
-                        userId: studentData?.user_id || '',
+                        userId: studentData?.user_id || currentUserId || '',
+                        user_id: studentData?.user_id || currentUserId || '',
                         firstName: studentData?.first_name || '', 
                         lastName: studentData?.last_name || '', 
                         username: studentData?.username || '', 
@@ -579,13 +608,59 @@ const StudentLayout = () => {
                 </div>
             </div>
 
-            {/* MESSENGER MODAL POPUP */}
             {isMessageOpen && currentUserId && (
                 <StudentMessageModal 
                     userId={currentUserId} 
                     onClose={() => setIsMessageOpen(false)} 
                     refreshUnreadCount={() => fetchUnreadCount(currentUserId)}
                 />
+            )}
+
+            {showLogoutModal && (
+                <div className="modal-backdrop-sl" onClick={() => setShowLogoutModal(false)}>
+                    <div 
+                        className="modal-content-sl modal-sm-sl" 
+                        onClick={(e) => e.stopPropagation()} 
+                        role="dialog" 
+                        aria-modal="true"
+                    >
+                        <div className="modal-header-sl">
+                            <h2>Confirm Logout</h2>
+                            <button 
+                                type="button" 
+                                className="btn-close-sl" 
+                                onClick={() => setShowLogoutModal(false)}
+                                aria-label="Close modal"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="modal-body-sl flex-center-body-sl">
+                            <div className="icon-wrapper-sl icon-warning-sl">
+                                <AlertTriangle size={36} />
+                            </div>
+                            <p className="modal-message-sl">
+                                Are you sure you want to log out of the STI Baliuag Student Portal?
+                            </p>
+                        </div>
+                        <div className="modal-footer-sl">
+                            <button 
+                                type="button" 
+                                className="btn-secondary-sl" 
+                                onClick={() => setShowLogoutModal(false)}
+                            >
+                                Cancel
+                            </button>
+                            <button 
+                                type="button" 
+                                className="btn-danger-sl" 
+                                onClick={confirmLogout}
+                            >
+                                Logout
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     );

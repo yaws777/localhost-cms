@@ -3,8 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
 import '../styles/Login.css'; 
 
+import { useMultiAccount } from '../context/MultiAccountContext';
+
 export default function Login() {
     const navigate = useNavigate();
+    const { addSession } = useMultiAccount();
+
     const [isLoginView, setIsLoginView] = useState(true);
     const [errorMsg, setErrorMsg] = useState('');
     const [successMsg, setSuccessMsg] = useState('');
@@ -74,13 +78,11 @@ export default function Login() {
             const data = await response.json();
             
             if (data.success) {
-                // Check for Default Password ("123")
                 if (data.isDefaultPassword) {
                     setShowChangePassModal(true);
-                    return; // Halt login sequence until password is changed
+                    return;
                 }
 
-                // Proceed with regular role-based routing
                 proceedLoginFlow(data);
             } else {
                 setErrorMsg(data.message);
@@ -90,9 +92,13 @@ export default function Login() {
         }
     };
 
-    // Sequential Flow Handler for Authenticated User (Admin removed)
+    // Sequential Flow Handler for Authenticated User
     const proceedLoginFlow = (data) => {
-        localStorage.setItem('user', JSON.stringify(data.user));
+        // Register user and token in MultiAccount Context
+        addSession(data.user, data.token || null);
+
+        // Save tab-isolated user context to sessionStorage
+        sessionStorage.setItem('user', JSON.stringify(data.user));
 
         // Role Routing
         if (data.user.role === 'student') {
@@ -104,7 +110,7 @@ export default function Login() {
         } else if (data.user.role === 'nurse') {
             navigate('/NurseDashboard');
         } else if (data.user.role === 'parent') {
-            localStorage.setItem('parent_id', data.user.parent_id);
+            sessionStorage.setItem('parent_id', data.user.parent_id);
 
             // Check Parent Details Completion
             if (data.isProfileIncomplete) {
@@ -116,7 +122,6 @@ export default function Login() {
                 return;
             }
 
-            // Direct Routing for Parent regardless of single or multiple linked students
             finalizeParentRouting(data.students);
         }
     };
@@ -124,14 +129,12 @@ export default function Login() {
     // Helper to finalize Parent Routing directly to parent portal
     const finalizeParentRouting = (students) => {
         if (students && students.length > 0) {
-            localStorage.setItem('linkedStudents', JSON.stringify(students));
-            // Keep fallback selectedStudentId so child page guards do not trigger auto-exit
-            localStorage.setItem('selectedStudentId', students[0].student_id);
+            sessionStorage.setItem('linkedStudents', JSON.stringify(students));
+            sessionStorage.setItem('selectedStudentId', students[0].student_id);
             navigate('/ParentDashboard');
         } else {
-            // Still allow access even if no linked students exist yet
-            localStorage.setItem('linkedStudents', JSON.stringify([]));
-            localStorage.removeItem('selectedStudentId');
+            sessionStorage.setItem('linkedStudents', JSON.stringify([]));
+            sessionStorage.removeItem('selectedStudentId');
             navigate('/ParentDashboard');
         }
     };
@@ -183,7 +186,6 @@ export default function Login() {
             return;
         }
 
-        // Philippine Phone Validation
         if (!isValidPHPhone(parentPhone)) {
             setParentModalError("Please enter a valid Philippine mobile number (e.g., 09171234567 or +639171234567).");
             return;
@@ -204,6 +206,15 @@ export default function Login() {
 
             if (data.success) {
                 setShowParentModal(false);
+                
+                const updatedUser = {
+                    ...pendingAuthData.user,
+                    first_name: parentFirstName,
+                    last_name: parentLastName,
+                    primary_phone: parentPhone
+                };
+                
+                addSession(updatedUser, pendingAuthData.token || null);
                 finalizeParentRouting(pendingAuthData.students);
             } else {
                 setParentModalError(data.message);
@@ -373,7 +384,6 @@ export default function Login() {
                                 </button>
                             </div>
 
-                            {/* Password Indicator & Requirement Checklist */}
                             <div className="password-strength-container">
                                 <div className="strength-header">
                                     <span>Password Strength:</span>

@@ -24,14 +24,22 @@ export default function MyProfile() {
     useEffect(() => {
         const loadData = async () => {
             try {
-                const storedUser = localStorage.getItem('user');
+                // 1. Read from sessionStorage first (falling back to localStorage)
+                const storedUser = sessionStorage.getItem('user') || localStorage.getItem('user');
                 if (!storedUser) {
                     navigate('/');
                     return;
                 }
                 const user = JSON.parse(storedUser);
 
-                const studentRes = await fetch(`http://localhost:3001/api/get-student/${user.id}`);
+                // 2. Resolve target user ID property safely
+                const targetUserId = user.user_id || user.id || user.UserID || user.userId;
+                if (!targetUserId) {
+                    setErrorMsg("Invalid user session context.");
+                    return;
+                }
+
+                const studentRes = await fetch(`http://localhost:3001/api/get-student/${targetUserId}`);
                 const studentData = await studentRes.json();
 
                 if (studentData.success) {
@@ -177,18 +185,18 @@ export default function MyProfile() {
         const status = statusStr?.toLowerCase();
         switch (status) {
             case 'completed':
-                return '#16a34a'; // Green
+                return '#16a34a';
             case 'submitted':
             case 'waiting for approval':
-                return '#2563eb'; // Blue
+                return '#2563eb';
             case 'rejected':
-                return '#dc2626'; // Red
+                return '#dc2626';
             case 'late':
             case 'submitted late':
-                return '#ea580c'; // Orange
+                return '#ea580c';
             case 'pending':
             default:
-                return '#ca8a04'; // Yellow
+                return '#ca8a04';
         }
     };
 
@@ -501,7 +509,6 @@ export default function MyProfile() {
                                             const isPastDeadline = deadlineDate && new Date() > deadlineDate;
                                             const allowsLate = req.allow_late_submission === 1 || req.allow_late_submission === true || req.allow_late_submission === '1';
                                             
-                                            // Lock upload if completed OR if deadline passed without late permission
                                             const submissionIsLocked = isCompleted || (isPastDeadline && !allowsLate);
                                             const fileIsPresent = !!req.file_url;
 

@@ -5,8 +5,9 @@ import { useWebPush } from '../../hooks/useWebPush';
 
 const NotificationSettings = () => {
     const context = useOutletContext();
-    // Fallback check for user ID
-    const userId = context?.userId || context?.studentId || context?.nurseId || null;
+
+    // Context user_id extraction strictly bound to users.user_id
+    const userId = context?.userId || context?.user_id || context?.user?.user_id || null;
 
     const { isSubscribed, permission, loading, subscribe, unsubscribe } = useWebPush(userId);
     const [testSending, setTestSending] = useState(false);
@@ -16,7 +17,7 @@ const NotificationSettings = () => {
         setStatusMessage('');
 
         if (!userId) {
-            setStatusMessage('User profile is still loading. Please wait a moment and try again.');
+            setStatusMessage('User profile is still loading or user ID is missing. Please try again.');
             return;
         }
 

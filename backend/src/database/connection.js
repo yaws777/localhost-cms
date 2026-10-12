@@ -161,21 +161,29 @@ async function notifyUsers({ sender_id, recipient_ids, title, message, type, pay
     }
 }
 
+// 1. Get Public VAPID Key
+app.get('/api/push/public-key', (req, res) => {
+    res.json({ publicKey: process.env.VAPID_PUBLIC_KEY });
+});
 
-
-
-// ==========================================
-// 2. FIXED PUSH SUBSCRIPTION ENDPOINT
-// ==========================================
-app.post('/api/push-subscriptions', async (req, res) => {
-    const { user_id, endpoint, keys } = req.body;
-
-    if (!user_id || !endpoint || !keys?.p256dh || !keys?.auth) {
-        return res.status(400).json({ error: "Missing required subscription data." });
-    }
-
+// 2. Subscribe / Save Web Push Subscription
+app.post('/api/push/subscribe', async (req, res) => {
     try {
-        // Resolve provided ID to actual users.user_id if a student_id, parent_id, or nurse_id was passed
+        const { user_id, subscription } = req.body;
+
+        // Support both nested subscription objects and flat key structures
+        const endpoint = subscription?.endpoint || req.body.endpoint;
+        const p256dh = subscription?.keys?.p256dh || req.body.keys?.p256dh;
+        const auth = subscription?.keys?.auth || req.body.keys?.auth;
+
+        if (!user_id || !endpoint || !p256dh || !auth) {
+            return res.status(400).json({ 
+                success: false, 
+                message: "Missing required push subscription fields (user_id, endpoint, p256dh, auth)." 
+            });
+        }
+
+        // Resolve user_id if an entity-specific ID (student_id, parent_id, nurse_id) was passed
         const resolveUserSql = `
             SELECT user_id FROM (
                 SELECT user_id FROM users WHERE user_id = ?
@@ -191,32 +199,103 @@ app.post('/api/push-subscriptions', async (req, res) => {
         const [userRows] = await pool.execute(resolveUserSql, [user_id, user_id, user_id, user_id]);
 
         if (userRows.length === 0) {
-            return res.status(400).json({ error: `User reference '${user_id}' not found in the database.` });
+            return res.status(400).json({ 
+                success: false, 
+                message: `User reference '${user_id}' not found in database.` 
+            });
         }
 
         const validUserId = userRows[0].user_id;
 
         // Upsert subscription into push_subscriptions table
-        const sql = `
+        const upsertSql = `
             INSERT INTO push_subscriptions (subscription_id, user_id, endpoint, p256dh, auth, created_at)
-            VALUES (UUID(), ?, ?, ?, ?, NOW())
+            VALUES (?, ?, ?, ?, ?, NOW())
             ON DUPLICATE KEY UPDATE 
                 user_id = VALUES(user_id), 
                 p256dh = VALUES(p256dh), 
                 auth = VALUES(auth)
         `;
 
-        await pool.execute(sql, [validUserId, endpoint, keys.p256dh, keys.auth]);
-        res.status(201).json({ success: true, message: "Push subscription saved successfully." });
+        await pool.execute(upsertSql, [uuidv4(), validUserId, endpoint, p256dh, auth]);
 
+        return res.status(201).json({ 
+            success: true, 
+            message: "Push subscription saved successfully." 
+        });
     } catch (error) {
-        console.error("Subscription save error:", error);
-        res.status(500).json({ error: "Failed to save push subscription." });
+        console.error("Error saving push subscription:", error);
+        return res.status(500).json({ 
+            success: false, 
+            message: "Failed to save push subscription." 
+        });
     }
 });
 
+// 3. Unsubscribe / Remove Web Push Subscription
+app.post('/api/push/unsubscribe', async (req, res) => {
+    try {
+        const { user_id, endpoint } = req.body;
 
+        if (!endpoint) {
+            return res.status(400).json({ success: false, message: "Endpoint is required." });
+        }
 
+        await pool.execute('DELETE FROM push_subscriptions WHERE endpoint = ?', [endpoint]);
+
+        return res.json({ success: true, message: "Push subscription deleted successfully." });
+    } catch (error) {
+        console.error("Error deleting push subscription:", error);
+        return res.status(500).json({ success: false, message: "Failed to remove push subscription." });
+    }
+});
+
+// 4. Send Test Notification Endpoint
+app.post('/api/push/send-test', async (req, res) => {
+    try {
+        const { userId, title, message } = req.body;
+
+        if (!userId) {
+            return res.status(400).json({ success: false, message: "User ID is required." });
+        }
+
+        const [subscriptions] = await pool.query(
+            'SELECT * FROM push_subscriptions WHERE user_id = ?',
+            [userId]
+        );
+
+        if (subscriptions.length === 0) {
+            return res.status(404).json({ success: false, message: "No active push subscription found for this user." });
+        }
+
+        const payload = JSON.stringify({
+            title: title || 'Test Notification',
+            body: message || 'Web push notifications are configured correctly!'
+        });
+
+        const sendPromises = subscriptions.map(async (sub) => {
+            const pushSubscription = {
+                endpoint: sub.endpoint,
+                keys: { p256dh: sub.p256dh, auth: sub.auth }
+            };
+
+            try {
+                await webpush.sendNotification(pushSubscription, payload);
+            } catch (err) {
+                if (err.statusCode === 410 || err.statusCode === 404) {
+                    await pool.query('DELETE FROM push_subscriptions WHERE subscription_id = ?', [sub.subscription_id]);
+                }
+            }
+        });
+
+        await Promise.allSettled(sendPromises);
+
+        return res.json({ success: true, message: "Test notification dispatched." });
+    } catch (error) {
+        console.error("Error sending test notification:", error);
+        return res.status(500).json({ success: false, message: "Failed to send test push notification." });
+    }
+});
 
 //Format Number
 function formatPhoneNumber(phone) {
@@ -8739,6 +8818,30 @@ app.put('/manageParentAccount', async (req, res) => {
   }
 });
 
+// Check if active in system
+// ==========================================
+// 1. ACTIVE USER TRACKING (IN-MEMORY HEARTBEAT)
+// ==========================================
+const activeUsersMap = new Map();
+
+// Heartbeat endpoint pinged by active frontend layouts
+app.post('/api/users/heartbeat', (req, res) => {
+    const { user_id } = req.body;
+    if (user_id) {
+        activeUsersMap.set(String(user_id), Date.now());
+    }
+    res.json({ success: true });
+});
+
+// Helper function to check if user is active (pinged in the last 15 seconds)
+function isUserActiveInSystem(userId) {
+    if (!userId) return false;
+    const lastActive = activeUsersMap.get(String(userId));
+    if (!lastActive) return false;
+    return (Date.now() - lastActive) < 15000; // 15 seconds threshold
+}
+
+
 //NurseMessage API
 // 1. Search contacts (Students & Parents by First or Last name, or Student Name for Parents)
 app.get('/api/messages/contacts', async (req, res) => {
@@ -8785,6 +8888,37 @@ app.get('/api/messages/contacts', async (req, res) => {
     } catch (error) {
         console.error('Error searching contacts:', error);
         res.status(500).json({ success: false, message: 'Error fetching contacts' });
+    }
+});
+
+// ==========================================
+// 2. UNREAD COUNT FOR ALL CONTACTS
+// ==========================================
+app.get('/api/messages/unread-count/:userId', async (req, res) => {
+    const { userId } = req.params;
+
+    if (!userId || userId === 'undefined' || userId === 'null') {
+        return res.json({ success: true, unreadCount: 0 });
+    }
+
+    const sql = `
+        SELECT COUNT(*) AS total_unread_messages
+FROM messages 
+WHERE (
+    receiver_id = 'NRS02000' 
+    OR receiver_id IN (SELECT nurse_id COLLATE utf8mb4_unicode_ci FROM nurses WHERE user_id = 'NRS02000')
+    OR receiver_id IN (SELECT user_id COLLATE utf8mb4_unicode_ci FROM nurses WHERE nurse_id = 'NRS02000')
+)
+AND (is_read = FALSE OR is_read = 0 OR is_read IS NULL);
+    `;
+
+    try {
+        const [rows] = await pool.query(sql, [userId, userId, userId]);
+        const count = Number(rows[0]?.total_unread_messages || 0);
+        res.json({ success: true, unreadCount: count });
+    } catch (error) {
+        console.error('Error fetching unread count:', error);
+        res.status(500).json({ success: false, message: 'Error fetching unread count' });
     }
 });
 
@@ -8844,6 +8978,7 @@ app.get('/api/messages/conversations/:userId', async (req, res) => {
 
 // 3. Get Total Unread Contacts Count (For Nurse Sidebar Badge)
 // Get Total Unread Messages Count (For Nurse Sidebar & Topbar Badges)
+// GET Total Unread Messages Count for Nurse Topbar/Sidebar Badges
 app.get('/api/messages/unread-count/:userId', async (req, res) => {
     const { userId } = req.params;
 
@@ -8856,14 +8991,17 @@ app.get('/api/messages/unread-count/:userId', async (req, res) => {
         FROM messages 
         WHERE (
             receiver_id = ? 
-            OR receiver_id IN (SELECT nurse_id FROM nurses WHERE user_id = ?)
-            OR receiver_id IN (SELECT user_id FROM nurses WHERE nurse_id = ?)
+            OR receiver_id IN (SELECT CAST(nurse_id AS CHAR) FROM nurses WHERE user_id = ?)
+            OR receiver_id IN (SELECT CAST(user_id AS CHAR) FROM nurses WHERE nurse_id = ?)
         )
+        AND sender_id != ?
+        AND sender_id NOT IN (SELECT CAST(nurse_id AS CHAR) FROM nurses WHERE user_id = ?)
+        AND sender_id NOT IN (SELECT CAST(user_id AS CHAR) FROM nurses WHERE nurse_id = ?)
         AND (is_read = FALSE OR is_read = 0 OR is_read IS NULL);
     `;
 
     try {
-        const [rows] = await pool.query(sql, [userId, userId, userId]);
+        const [rows] = await pool.query(sql, [userId, userId, userId, userId, userId, userId]);
         const count = Number(rows[0]?.total_unread_messages || 0);
         res.json({ success: true, unreadCount: count });
     } catch (error) {
@@ -8912,10 +9050,12 @@ app.put('/api/messages/read/:userId/:contactId', async (req, res) => {
 });
 
 // 6. Send Message with Optional File/Audio/Video/Image Upload
+// ==========================================
+// 3. SEND MESSAGE & TRIGGER WEB PUSH (IF USER OFFLINE)
+// ==========================================
 app.post('/api/messages/send', upload.single('media'), async (req, res) => {
     const { sender_id, receiver_id, message_type, content } = req.body;
 
-    // 1. Validate required string IDs
     if (!sender_id || !receiver_id || sender_id === 'undefined' || receiver_id === 'undefined') {
         return res.status(400).json({ 
             success: false, 
@@ -8923,10 +9063,7 @@ app.post('/api/messages/send', upload.single('media'), async (req, res) => {
         });
     }
 
-    // 2. Format media URL safely
     const media_url = req.file ? `/uploads/${req.file.filename}` : null;
-    
-    // 3. Fallback content to NULL if empty string
     const safeContent = content && content.trim() !== '' ? content.trim() : null;
 
     const sql = `
@@ -8944,6 +9081,42 @@ app.post('/api/messages/send', upload.single('media'), async (req, res) => {
         ]);
 
         const [newMessage] = await pool.query('SELECT * FROM messages WHERE message_id = ?', [result.insertId]);
+
+        // --- WEB PUSH NOTIFICATION TRIGGER ---
+        // Check if recipient is currently NOT active in the system
+        const isRecipientActive = isUserActiveInSystem(receiver_id);
+
+        if (!isRecipientActive) {
+            // Fetch sender's full name for push notification header
+            const [senderRows] = await pool.query(`
+                SELECT first_name, last_name FROM (
+                    SELECT user_id, first_name, last_name FROM students
+                    UNION
+                    SELECT user_id, first_name, last_name FROM parents
+                    UNION
+                    SELECT user_id, first_name, last_name FROM nurses
+                ) u WHERE user_id = ? LIMIT 1
+            `, [sender_id]);
+
+            const senderName = senderRows.length > 0 
+                ? `${senderRows[0].first_name} ${senderRows[0].last_name}`.trim()
+                : 'New Message';
+
+            const pushBody = message_type === 'text' 
+                ? (safeContent || 'Sent a message') 
+                : `Sent an attachment [${message_type}]`;
+
+            // Dispatch web push via notifyUsers helper
+            await notifyUsers({
+                sender_id: sender_id,
+                recipient_ids: [receiver_id],
+                title: `Message from ${senderName}`,
+                message: pushBody,
+                type: 'MESSAGE',
+                payloadData: { url: '/NurseMessages' }
+            });
+        }
+
         res.json({ success: true, message: newMessage[0] });
     } catch (error) {
         console.error('Database Error in /api/messages/send:', error);
@@ -9108,18 +9281,22 @@ app.get('/api/messages/conversations/:userId', async (req, res) => {
 });
 
 // 3. Get Total Unread Contacts Count (For Student Top Bar Badge)
+// 3. Get Total Unread Messages Count (For Top Bar Badge across all contacts)
 app.get('/api/messages/unread-count/:userId', async (req, res) => {
     const { userId } = req.params;
 
     const sql = `
-        SELECT COUNT(DISTINCT sender_id) AS total_unread_contacts
+        SELECT COUNT(*) AS total_unread_messages
         FROM messages 
         WHERE receiver_id = ? AND is_read = FALSE;
     `;
 
     try {
         const [rows] = await pool.query(sql, [userId]);
-        res.json({ success: true, unreadCount: rows[0]?.total_unread_contacts || 0 });
+        res.json({ 
+            success: true, 
+            unreadCount: rows[0]?.total_unread_messages || 0 
+        });
     } catch (error) {
         console.error('Error fetching unread count:', error);
         res.status(500).json({ success: false, message: 'Error fetching unread count' });
@@ -9166,6 +9343,7 @@ app.put('/api/messages/read/:userId/:contactId', async (req, res) => {
 });
 
 // 6. Send Message with File/Audio/Video/Image Upload
+// 6. Send Message with File/Audio/Video/Image Upload & Web Push
 app.post('/api/messages/send', upload.single('media'), async (req, res) => {
     const { sender_id, receiver_id, message_type, content } = req.body;
 
@@ -9194,6 +9372,39 @@ app.post('/api/messages/send', upload.single('media'), async (req, res) => {
         ]);
 
         const [newMessage] = await pool.query('SELECT * FROM messages WHERE message_id = ?', [result.insertId]);
+
+        // Trigger Web Push ONLY if recipient is NOT currently active in the system
+        if (!isUserActiveInSystem(receiver_id)) {
+            // Fetch sender full name for notification preview
+            const [senderRows] = await pool.query(
+                `SELECT first_name, last_name FROM (
+                    SELECT user_id, first_name, last_name FROM students
+                    UNION ALL
+                    SELECT user_id, first_name, last_name FROM parents
+                    UNION ALL
+                    SELECT user_id, first_name, last_name FROM nurses
+                ) u WHERE user_id = ? LIMIT 1`,
+                [sender_id]
+            );
+
+            const senderName = senderRows.length > 0 
+                ? `${senderRows[0].first_name} ${senderRows[0].last_name}` 
+                : 'Someone';
+
+            const pushMessage = safeContent 
+                ? (safeContent.length > 60 ? safeContent.substring(0, 57) + '...' : safeContent)
+                : (media_url ? `Sent an attachment (${message_type || 'file'})` : 'Sent a new message');
+
+            await notifyUsers({
+                sender_id,
+                recipient_ids: [receiver_id],
+                title: `New Message from ${senderName}`,
+                message: pushMessage,
+                type: 'MESSAGE',
+                payloadData: { sender_id, type: 'MESSAGE' }
+            });
+        }
+
         res.json({ success: true, message: newMessage[0] });
     } catch (error) {
         console.error('Database Error in /api/messages/send:', error);
@@ -10152,113 +10363,6 @@ app.patch('/api/notifications/parent/:parentId/read-all', async (req, res) => {
   }
 });
 
-//Web Push Notification API
-// 1. Get Public VAPID Key (Frontend needs this to subscribe)
-app.get('/api/push/public-key', (req, res) => {
-    res.json({ publicKey: vapidKeys.publicKey });
-});
-
-// 2. Save Push Subscription for User
-app.post('/api/push/subscribe', async (req, res) => {
-    const { user_id, subscription } = req.body;
-
-    if (!user_id || !subscription || !subscription.endpoint || !subscription.keys) {
-        return res.status(400).json({ success: false, error: "Missing required subscription parameters." });
-    }
-
-    try {
-        const { endpoint, keys } = subscription;
-        const { p256dh, auth } = keys;
-
-        // Upsert push subscription
-        const [existing] = await pool.query(
-            `SELECT subscription_id FROM push_subscriptions WHERE user_id = ? AND endpoint = ?`,
-            [user_id, endpoint]
-        );
-
-        if (existing.length > 0) {
-            await pool.query(
-                `UPDATE push_subscriptions SET p256dh = ?, auth = ? WHERE subscription_id = ?`,
-                [p256dh, auth, existing[0].subscription_id]
-            );
-        } else {
-            await pool.query(
-                `INSERT INTO push_subscriptions (subscription_id, user_id, endpoint, p256dh, auth) 
-                 VALUES (UUID(), ?, ?, ?, ?)`,
-                [user_id, endpoint, p256dh, auth]
-            );
-        }
-
-        res.json({ success: true, message: "Push subscription successfully stored." });
-    } catch (err) {
-        console.error("Subscription save error:", err);
-        res.status(500).json({ success: false, error: err.message });
-    }
-});
-
-// 3. Unsubscribe Web Push
-app.post('/api/push/unsubscribe', async (req, res) => {
-    const { user_id, endpoint } = req.body;
-    try {
-        await pool.query(`DELETE FROM push_subscriptions WHERE user_id = ? AND endpoint = ?`, [user_id, endpoint]);
-        res.json({ success: true, message: "Push subscription removed." });
-    } catch (err) {
-        res.status(500).json({ success: false, error: err.message });
-    }
-});
-
-app.get('/api/push/vapid-public-key', (req, res) => {
-    res.json({ publicKey: process.env.VAPID_PUBLIC_KEY });
-});
-
-// 2. Subscribe user endpoint
-app.post('/api/push/subscribe', async (req, res) => {
-    const { userId, subscription } = req.body;
-    // Save subscription object to your database associated with userId
-    res.status(201).json({ success: true, message: 'Push subscription stored successfully.' });
-});
-
-// 3. Unsubscribe user endpoint
-app.post('/api/push/unsubscribe', async (req, res) => {
-    const { userId, endpoint } = req.body;
-    // Remove subscription matching endpoint for userId from database
-    res.json({ success: true, message: 'Push subscription removed successfully.' });
-});
-
-// 4. Send Test Notification Endpoint
-app.post('/api/push/send-test', async (req, res) => {
-    const { userId, title, message } = req.body;
-    // Retrieve subscription object from DB for userId and trigger push:
-    // await webpush.sendNotification(userSubscription, JSON.stringify({ title, message }));
-    res.json({ success: true, message: 'Test notification sent.' });
-});
-
-// POST: Save or Update Web Push Subscription for a User
-app.post('/api/push-subscriptions', async (req, res) => {
-    const { user_id, endpoint, keys } = req.body;
-
-    if (!user_id || !endpoint || !keys?.p256dh || !keys?.auth) {
-        return res.status(400).json({ error: "Missing required subscription data." });
-    }
-
-    try {
-        const subscription_id = 'SUB-' + Math.random().toString(36).substr(2, 9).toUpperCase();
-        
-        // Upsert subscription based on endpoint
-        const sql = `
-            INSERT INTO push_subscriptions (subscription_id, user_id, endpoint, p256dh, auth, created_at)
-            VALUES (?, ?, ?, ?, ?, NOW())
-            ON DUPLICATE KEY UPDATE user_id = VALUES(user_id), p256dh = VALUES(p256dh), auth = VALUES(auth)
-        `;
-        
-        await pool.execute(sql, [subscription_id, user_id, endpoint, keys.p256dh, keys.auth]);
-        res.status(201).json({ success: true, message: "Push subscription saved successfully." });
-    } catch (error) {
-        console.error("Error saving push subscription:", error);
-        res.status(500).json({ error: "Failed to save push subscription." });
-    }
-});
-
 // GET: Retrieve Notifications for a specific Recipient (User)
 app.get('/api/notifications', async (req, res) => {
     const { recipient_id } = req.query;
@@ -10334,13 +10438,33 @@ app.post('/api/push-subscriptions', async (req, res) => {
 
 // Register or update Web Push Subscription
 app.post('/api/push-subscribe', async (req, res) => {
-    const { user_id, endpoint, keys } = req.body;
+    const { user_id: inputId, endpoint, keys } = req.body;
 
-    if (!user_id || !endpoint || !keys?.p256dh || !keys?.auth) {
+    if (!inputId || !endpoint || !keys?.p256dh || !keys?.auth) {
         return res.status(400).json({ success: false, message: 'Invalid subscription payload.' });
     }
 
     try {
+        // 1. Look up actual users.user_id from users, students, nurses, or parents
+        const [userRows] = await pool.query(
+            `SELECT user_id FROM users WHERE user_id = ?
+             UNION
+             SELECT user_id FROM students WHERE student_id = ?
+             UNION
+             SELECT user_id FROM nurses WHERE nurse_id = ?
+             UNION
+             SELECT user_id FROM parents WHERE parent_id = ?
+             LIMIT 1`,
+            [inputId, inputId, inputId, inputId]
+        );
+
+        if (!userRows || userRows.length === 0) {
+            return res.status(404).json({ success: false, message: 'User record not found in system.' });
+        }
+
+        const actualUserId = userRows[0].user_id;
+
+        // 2. Save push subscription with the validated users.user_id
         const [existing] = await pool.query(
             `SELECT subscription_id FROM push_subscriptions WHERE endpoint = ?`,
             [endpoint]
@@ -10349,14 +10473,14 @@ app.post('/api/push-subscribe', async (req, res) => {
         if (existing.length > 0) {
             await pool.query(
                 `UPDATE push_subscriptions SET user_id = ?, p256dh = ?, auth = ? WHERE endpoint = ?`,
-                [user_id, keys.p256dh, keys.auth, endpoint]
+                [actualUserId, keys.p256dh, keys.auth, endpoint]
             );
         } else {
             const subscription_id = `SUB-${uuidv4().substring(0, 8)}`;
             await pool.query(
                 `INSERT INTO push_subscriptions (subscription_id, user_id, endpoint, p256dh, auth, created_at)
                  VALUES (?, ?, ?, ?, ?, NOW())`,
-                [subscription_id, user_id, endpoint, keys.p256dh, keys.auth]
+                [subscription_id, actualUserId, endpoint, keys.p256dh, keys.auth]
             );
         }
 
@@ -10426,6 +10550,7 @@ app.get('/api/messages/:userId/:contactUserId', async (req, res) => {
 });
 
 // 3. UNREAD MESSAGES COUNT FOR BADGE (Received Messages)
+// 3. Get Total Unread Message Count across all contacts for badge
 app.get('/api/messages/unread-count/:userId', async (req, res) => {
     const { userId } = req.params;
 
@@ -10437,7 +10562,7 @@ app.get('/api/messages/unread-count/:userId', async (req, res) => {
         const query = `
             SELECT COUNT(*) AS unreadCount 
             FROM messages 
-            WHERE receiver_id = ? AND is_read = 0;
+            WHERE receiver_id = ? AND is_read = FALSE;
         `;
         const [rows] = await pool.query(query, [String(userId)]);
 
@@ -10508,6 +10633,7 @@ app.get('/api/parent/:parentId/contacts', async (req, res) => {
 
 //unified
 // 1. Unified Send Message (Handles Text, Image, Video, Audio, and Documents)
+// 1. Unified Send Message Endpoint with Inactive Web Push Trigger
 app.post('/api/messages/send', upload.single('media'), async (req, res) => {
     const { sender_id, receiver_id, message_type, content } = req.body;
 
@@ -10532,14 +10658,47 @@ app.post('/api/messages/send', upload.single('media'), async (req, res) => {
 
     try {
         const [result] = await pool.query(sql, [
-            sender_id,
-            receiver_id,
+            String(sender_id),
+            String(receiver_id),
             message_type || 'text',
             safeContent,
             media_url
         ]);
 
         const [newMessage] = await pool.query('SELECT * FROM messages WHERE message_id = ?', [result.insertId]);
+
+        // Trigger Web Push Notification ONLY if the recipient is NOT currently active in the system
+        if (!isUserActiveInSystem(receiver_id)) {
+            // Resolve sender full name across role tables
+            const [senderRows] = await pool.query(
+                `SELECT first_name, last_name FROM (
+                    SELECT user_id, first_name, last_name FROM students
+                    UNION ALL
+                    SELECT user_id, first_name, last_name FROM parents
+                    UNION ALL
+                    SELECT user_id, first_name, last_name FROM nurses
+                ) u WHERE user_id = ? LIMIT 1`,
+                [String(sender_id)]
+            );
+
+            const senderName = senderRows.length > 0 
+                ? `${senderRows[0].first_name} ${senderRows[0].last_name}` 
+                : 'Someone';
+
+            const pushMessage = safeContent 
+                ? (safeContent.length > 60 ? safeContent.substring(0, 57) + '...' : safeContent)
+                : (media_url ? `Sent an attachment (${message_type || 'file'})` : 'Sent a new message');
+
+            await notifyUsers({
+                sender_id: String(sender_id),
+                recipient_ids: [String(receiver_id)],
+                title: `New Message from ${senderName}`,
+                message: pushMessage,
+                type: 'MESSAGE',
+                payloadData: { sender_id: String(sender_id), type: 'MESSAGE' }
+            });
+        }
+
         res.json({ success: true, message: newMessage[0], message_id: result.insertId });
     } catch (error) {
         console.error('Database error in /api/messages/send:', error);

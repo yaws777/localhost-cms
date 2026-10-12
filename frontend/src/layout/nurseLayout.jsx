@@ -4,9 +4,10 @@ import {
     LayoutDashboard, FileBarChart, Stethoscope, FolderHeart, 
     Pill, Boxes, FileCheck, ClipboardCheck, HeartPulse, 
     BriefcaseMedical, AlertTriangle, Vault, LogOut,
-    MessageSquare, Users, UserCheck, Bell 
+    MessageSquare, Users, UserCheck, Bell, X
 } from 'lucide-react';
 import '../styles/nurse/NurseLayout.css';
+import NurseMessageModal from '../components/student/NurseMessageModal.jsx';
 import { useWebPush } from '../hooks/useWebPush';
 
 const API_BASE_URL = 'http://localhost:3001';
@@ -18,8 +19,25 @@ export const NurseLayout = () => {
     const [nurseData, setNurseData] = useState(null);
     const [errorMsg, setErrorMsg] = useState('');
     
-    // Web Push Hook integration
-    const nurseUserId = nurseData?.user_id || null;
+    // Messaging Modal State
+    const [isMessageOpen, setIsMessageOpen] = useState(false);
+
+    // Modal states
+    const [showLogoutModal, setShowLogoutModal] = useState(false);
+
+    // Derive active user ID dynamically from session/localStorage
+    const getStoredUserId = () => {
+        try {
+            const storedUser = sessionStorage.getItem('user') || localStorage.getItem('user');
+            if (!storedUser) return null;
+            const user = JSON.parse(storedUser);
+            return user.user_id || user.id || user.UserID || user.userId || null;
+        } catch (e) {
+            return null;
+        }
+    };
+
+    const nurseUserId = nurseData?.user_id || getStoredUserId();
     const { isSubscribed, subscribe } = useWebPush(nurseUserId);
 
     // Auto-sync web push subscription
@@ -34,24 +52,11 @@ export const NurseLayout = () => {
     const [notifications, setNotifications] = useState([]);
     const [showNotifDropdown, setShowNotifDropdown] = useState(false);
 
-    // Calculate unread notifications count dynamically
     const unreadNotifCount = notifications.filter(
-        n => !n.is_read && n.is_read !== 1 && !n.read
+        n => !n.is_read && n.is_read !== 1 && n.is_read !== '1' && !n.read
     ).length;
 
-    // Derive active user ID dynamically
-    const getStoredUserId = () => {
-        try {
-            const storedUser = localStorage.getItem('user');
-            if (!storedUser) return null;
-            const user = JSON.parse(storedUser);
-            return user.user_id || user.id || user.UserID || user.userId || user.nurse_id || null;
-        } catch (e) {
-            return null;
-        }
-    };
-
-    const activeUserId = nurseData?.user_id || nurseData?.nurse_id || getStoredUserId();
+    const activeUserId = nurseUserId;
 
     // Fetch unread messages count
     const fetchUnreadCount = useCallback(async (targetUserId) => {
@@ -67,7 +72,7 @@ export const NurseLayout = () => {
         }
     }, []);
 
-    // Fetch notifications with local read-state preservation (prevents items from disappearing or resetting on poll)
+    // Fetch notifications
     const fetchNotifications = useCallback(async (nurseId) => {
         if (!nurseId) return;
         try {
@@ -75,16 +80,21 @@ export const NurseLayout = () => {
             const data = await res.json();
             if (data.success) {
                 const fetchedNotifications = data.data || [];
-                setNotifications(prev => {
-                    // Collect IDs of notifications that were already marked as read locally
-                    const localReadIds = new Set(
-                        prev.filter(n => n.is_read === 1 || n.is_read === true || n.read === true)
-                            .map(n => n.notification_id)
-                    );
+                const storageKey = `read_notifs_nurse_${nurseId}`;
+                const storedReadIds = JSON.parse(sessionStorage.getItem(storageKey) || '[]');
 
-                    // Merge fetched items while preserving local read status so they stay visible in the interface
+                setNotifications(prev => {
+                    const localReadIds = new Set([
+                        ...storedReadIds,
+                        ...prev.filter(n => n.is_read === 1 || n.is_read === '1' || n.is_read === true || n.read === true)
+                            .map(n => n.notification_id)
+                    ]);
+
+                    sessionStorage.setItem(storageKey, JSON.stringify(Array.from(localReadIds)));
+
                     return fetchedNotifications.map(item => {
-                        if (localReadIds.has(item.notification_id)) {
+                        const isReadInDb = item.is_read === 1 || item.is_read === '1' || item.is_read === true || item.read === true;
+                        if (isReadInDb || localReadIds.has(item.notification_id)) {
                             return { ...item, is_read: 1, read: true };
                         }
                         return item;
@@ -130,11 +140,10 @@ export const NurseLayout = () => {
         fetchNurseProfile();
     }, [navigate, fetchNotifications]);
 
-    // Polling timer & immediate fetch on ID resolution
+    // Polling timer
     useEffect(() => {
         if (!activeUserId) return;
 
-        // Fetch unread count immediately once ID resolves
         fetchUnreadCount(activeUserId);
 
         const interval = setInterval(() => {
@@ -164,7 +173,10 @@ export const NurseLayout = () => {
         if (type.includes('insurance') || type.includes('vault')) return '/InsuranceVault';
         if (type.includes('student_account')) return '/ManageStudentAccounts';
         if (type.includes('parent_account')) return '/ManageParentAccounts';
-        if (type.includes('message') || type.includes('chat')) return '/NurseMessages';
+        if (type.includes('message') || type.includes('chat')) {
+            setIsMessageOpen(true);
+            return null;
+        }
         if (type.includes('report')) return '/WeeklyReports';
         if (type.includes('setting')) return '/NurseNotificationSettings';
 
@@ -177,7 +189,16 @@ export const NurseLayout = () => {
                 method: 'PATCH'
             });
 
-            // Update item locally to read state without removing it from array
+            const nurseId = nurseData?.nurse_id;
+            if (nurseId) {
+                const storageKey = `read_notifs_nurse_${nurseId}`;
+                const storedReadIds = JSON.parse(sessionStorage.getItem(storageKey) || '[]');
+                if (!storedReadIds.includes(notification.notification_id)) {
+                    storedReadIds.push(notification.notification_id);
+                    sessionStorage.setItem(storageKey, JSON.stringify(storedReadIds));
+                }
+            }
+
             setNotifications(prev => prev.map(n => 
                 n.notification_id === notification.notification_id 
                     ? { ...n, is_read: 1, read: true } 
@@ -190,15 +211,16 @@ export const NurseLayout = () => {
         setShowNotifDropdown(false);
         const targetRoute = getNotificationRoute(notification);
 
-        navigate(targetRoute, { 
-            state: { 
-                notificationId: notification.notification_id,
-                navigateId: notification.navigate_id || null
-            } 
-        });
+        if (targetRoute) {
+            navigate(targetRoute, { 
+                state: { 
+                    notificationId: notification.notification_id,
+                    navigateId: notification.navigate_id || null
+                } 
+            });
+        }
     };
 
-    // Mark ALL notifications as read without removing items
     const handleMarkAllAsRead = async () => {
         const nurseId = nurseData?.nurse_id;
         if (!nurseId) return;
@@ -207,7 +229,13 @@ export const NurseLayout = () => {
             await fetch(`${API_BASE_URL}/api/notifications/nurse/${nurseId}/read-all`, {
                 method: 'PATCH'
             });
-            // Update all notifications as read in local state
+
+            const storageKey = `read_notifs_nurse_${nurseId}`;
+            const allIds = notifications.map(n => n.notification_id);
+            const storedReadIds = JSON.parse(sessionStorage.getItem(storageKey) || '[]');
+            const updatedReadIds = Array.from(new Set([...storedReadIds, ...allIds]));
+            sessionStorage.setItem(storageKey, JSON.stringify(updatedReadIds));
+
             setNotifications(prev => prev.map(n => ({ ...n, is_read: 1, read: true })));
         } catch (err) {
             console.error('Error marking all notifications as read:', err);
@@ -217,8 +245,14 @@ export const NurseLayout = () => {
     const toggleSidebar = () => setIsOpen(!isOpen);
     const closeSidebar = () => setIsOpen(false);
 
-    const handleLogout = () => {
-        localStorage.removeItem('user');
+    const handleLogoutClick = () => {
+        setShowLogoutModal(true);
+    };
+
+    const confirmLogout = () => {
+        sessionStorage.removeItem('user');
+        sessionStorage.removeItem('app_active_user_id');
+        setShowLogoutModal(false);
         navigate('/');
     };
 
@@ -402,7 +436,7 @@ export const NurseLayout = () => {
                     
                     <hr className="nav-divider" style={{ margin: '15px 0', borderColor: 'rgba(255,255,255,0.1)' }} />
 
-                    <button onClick={handleLogout} className="nav-link logout-btn" style={{ background: 'transparent', border: 'none', width: '100%', textAlign: 'left', cursor: 'pointer', color: 'yellow' }}>
+                    <button onClick={handleLogoutClick} className="nav-link logout-btn" style={{ background: 'transparent', border: 'none', width: '100%', textAlign: 'left', cursor: 'pointer', color: 'yellow' }}>
                         <LogOut className="nav-icon" size={16} />
                         <span>Logout</span>
                     </button>
@@ -416,18 +450,17 @@ export const NurseLayout = () => {
                 </div>
                 <div className="top-bar-right" style={{ display: 'flex', alignItems: 'center', gap: '20px', overflow: 'visible' }}>
                     
-                    {/* Topbar Message Link */}
-                    <NavLink 
-                        to="/NurseMessages" 
-                        className="topbar-message-link" 
+                    <button 
+                        onClick={() => setIsMessageOpen(true)}
                         style={{ 
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
                             position: 'relative', 
                             display: 'inline-flex', 
                             alignItems: 'center', 
                             justifyContent: 'center',
                             color: '#333', 
-                            textDecoration: 'none',
-                            overflow: 'visible',
                             padding: '4px'
                         }} 
                         title="Messages"
@@ -456,9 +489,8 @@ export const NurseLayout = () => {
                                 {unreadCount > 99 ? '99+' : unreadCount}
                             </span>
                         )}
-                    </NavLink>
+                    </button>
 
-                    {/* Notifications Icon with Dropdown */}
                     <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
                         <button 
                             onClick={() => setShowNotifDropdown(!showNotifDropdown)} 
@@ -540,7 +572,7 @@ export const NurseLayout = () => {
                                     </div>
                                 ) : (
                                     notifications.map((item) => {
-                                        const isItemRead = item.is_read === 1 || item.is_read === true || item.read === true;
+                                        const isItemRead = item.is_read === 1 || item.is_read === '1' || item.is_read === true || item.read === true;
                                         return (
                                             <div 
                                                 key={item.notification_id}
@@ -597,7 +629,8 @@ export const NurseLayout = () => {
             <div className="main-content">
                 <Outlet context={{ 
                     nurseId: nurseData?.nurse_id || '', 
-                    userId: activeUserId,
+                    userId: nurseData?.user_id || activeUserId || '',
+                    user_id: nurseData?.user_id || activeUserId || '',
                     firstName: nurseData?.first_name || '', 
                     lastName: nurseData?.last_name || '',
                     username: nurseData?.username || '',
@@ -605,6 +638,61 @@ export const NurseLayout = () => {
                     refreshNotifications: () => fetchNotifications(nurseData?.nurse_id)
                 }} />
             </div>
+
+            {isMessageOpen && activeUserId && (
+                <NurseMessageModal 
+                    userId={activeUserId} 
+                    onClose={() => setIsMessageOpen(false)} 
+                    refreshUnreadCount={() => fetchUnreadCount(activeUserId)}
+                />
+            )}
+
+            {showLogoutModal && (
+                <div className="modal-backdrop-nl" onClick={() => setShowLogoutModal(false)}>
+                    <div 
+                        className="modal-content-nl" 
+                        onClick={(e) => e.stopPropagation()} 
+                        role="dialog" 
+                        aria-modal="true"
+                    >
+                        <div className="modal-header-nl">
+                            <h2>Confirm Logout</h2>
+                            <button 
+                                type="button" 
+                                className="btn-close-nl" 
+                                onClick={() => setShowLogoutModal(false)}
+                                aria-label="Close modal"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="modal-body-nl">
+                            <div className="icon-wrapper-nl icon-warning-nl">
+                                <AlertTriangle size={36} />
+                            </div>
+                            <p className="modal-message-nl">
+                                Are you sure you want to log out of the STI Baliuag Nurse Portal?
+                            </p>
+                        </div>
+                        <div className="modal-footer-nl">
+                            <button 
+                                type="button" 
+                                className="btn-secondary-nl" 
+                                onClick={() => setShowLogoutModal(false)}
+                            >
+                                Cancel
+                            </button>
+                            <button 
+                                type="button" 
+                                className="btn-danger-nl" 
+                                onClick={confirmLogout}
+                            >
+                                Logout
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

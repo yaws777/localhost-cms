@@ -1,4 +1,3 @@
-// manageParentAccounts.jsx
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import {
@@ -14,7 +13,10 @@ import {
   Users,
   GraduationCap,
   Save,
-  Printer
+  Printer,
+  CheckCircle2,
+  AlertTriangle,
+  AlertCircle
 } from 'lucide-react';
 
 import stiLogo from '../../assets/sti-logof.png';
@@ -30,6 +32,46 @@ export default function ManageParentAccount() {
   // Modals state
   const [viewModalData, setViewModalData] = useState(null);
   const [editModalData, setEditModalData] = useState(null);
+
+  // Confirmation Modal state
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmText: 'Confirm',
+    cancelText: 'Cancel',
+    type: 'primary', // 'primary' | 'danger'
+    onConfirm: null
+  });
+
+  // Feedback Modal state (Success / Error / Warning)
+  const [feedbackModal, setFeedbackModal] = useState({
+    isOpen: false,
+    type: 'success', // 'success' | 'error' | 'warning'
+    title: '',
+    message: ''
+  });
+
+  // Helper functions for custom modals
+  const showFeedback = (type, title, message) => {
+    setFeedbackModal({ isOpen: true, type, title, message });
+  };
+
+  const closeFeedback = () => {
+    setFeedbackModal({ isOpen: false, type: 'success', title: '', message: '' });
+  };
+
+  const closeConfirm = () => {
+    setConfirmModal({
+      isOpen: false,
+      title: '',
+      message: '',
+      confirmText: 'Confirm',
+      cancelText: 'Cancel',
+      type: 'primary',
+      onConfirm: null
+    });
+  };
 
   // Edit Form state
   const [editForm, setEditForm] = useState({
@@ -75,7 +117,7 @@ export default function ManageParentAccount() {
 
     const printWindow = window.open('', '_blank', 'width=950,height=750');
     if (!printWindow) {
-      alert('Please allow popups to preview and print the report.');
+      showFeedback('warning', 'Popup Blocked', 'Please allow popups in your browser settings to preview and print the report.');
       return;
     }
 
@@ -241,7 +283,7 @@ export default function ManageParentAccount() {
 
     const printWindow = window.open('', '_blank', 'width=950,height=750');
     if (!printWindow) {
-      alert('Please allow popups to preview and print the report.');
+      showFeedback('warning', 'Popup Blocked', 'Please allow popups in your browser settings to preview and print the report.');
       return;
     }
 
@@ -472,17 +514,27 @@ export default function ManageParentAccount() {
     setStudentSearchResults([]);
   };
 
-  // Remove student from link list
+  // Remove student from link list with Confirmation Modal
   const handleRemoveStudent = (studentId) => {
-    setEditForm((prev) => ({
-      ...prev,
-      linkedStudents: prev.linkedStudents.filter((s) => s.student_id !== studentId)
-    }));
+    setConfirmModal({
+      isOpen: true,
+      title: 'Unlink Student Account',
+      message: `Are you sure you want to unlink student ID "${studentId}" from this parent account?`,
+      confirmText: 'Unlink',
+      cancelText: 'Cancel',
+      type: 'danger',
+      onConfirm: () => {
+        setEditForm((prev) => ({
+          ...prev,
+          linkedStudents: prev.linkedStudents.filter((s) => s.student_id !== studentId)
+        }));
+        closeConfirm();
+      }
+    });
   };
 
-  // Handle Save Update
-  const handleSaveUpdate = async (e) => {
-    e.preventDefault();
+  // Perform API call for Update
+  const executeSaveUpdate = async () => {
     try {
       const payload = {
         original_parent_id: editForm.original_parent_id,
@@ -499,20 +551,37 @@ export default function ManageParentAccount() {
 
       const res = await axios.put(API_BASE, payload);
       if (res.data.success) {
-        alert('Parent account updated successfully!');
         setEditModalData(null);
         fetchParents();
+        showFeedback('success', 'Update Successful', 'Parent account updated successfully!');
+      } else {
+        showFeedback('error', 'Update Failed', res.data.message || 'Failed to update parent account.');
       }
     } catch (err) {
       console.error('Error saving parent account:', err);
-      alert('Failed to update parent account.');
+      showFeedback('error', 'Update Error', 'An error occurred while attempting to update the parent account.');
+    } finally {
+      closeConfirm();
     }
+  };
+
+  // Handle Save Update Request (Triggers Confirmation Modal)
+  const handleSaveUpdate = (e) => {
+    e.preventDefault();
+    setConfirmModal({
+      isOpen: true,
+      title: 'Confirm Parent Account Update',
+      message: `Are you sure you want to save the changes for parent account "${editForm.parent_id}"?`,
+      confirmText: 'Save Changes',
+      cancelText: 'Cancel',
+      type: 'primary',
+      onConfirm: executeSaveUpdate
+    });
   };
 
   return (
     <div className="container-mpa">
       {/* STI Top Header Banner */}
-      {/* Header Banner - Insurance Vault Theme (No Logo) */}
       <header className="header-mpa">
         <div className="brand-mpa">
           <div className="brand-text-mpa">
@@ -905,6 +974,93 @@ export default function ManageParentAccount() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* CONFIRMATION MODAL */}
+      {confirmModal.isOpen && (
+        <div className="modal-backdrop-mpa modal-z-top" onClick={closeConfirm}>
+          <div
+            className="modal-content-mpa modal-sm-mpa"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="modal-header-mpa">
+              <h2>{confirmModal.title}</h2>
+              <button
+                type="button"
+                className="btn-close-mpa"
+                onClick={closeConfirm}
+                aria-label="Close confirmation dialog"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="modal-body-mpa flex-center-body-mpa">
+              <div className="feedback-icon-wrapper-mpa icon-warning-mpa">
+                <AlertTriangle size={36} />
+              </div>
+              <p className="modal-message-mpa">{confirmModal.message}</p>
+            </div>
+            <div className="modal-footer-mpa">
+              <button type="button" className="btn-secondary-mpa" onClick={closeConfirm}>
+                {confirmModal.cancelText}
+              </button>
+              <button
+                type="button"
+                className={confirmModal.type === 'danger' ? 'btn-danger-mpa' : 'btn-primary-mpa'}
+                onClick={confirmModal.onConfirm}
+              >
+                {confirmModal.confirmText}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FEEDBACK MODAL (Success / Error / Warning) */}
+      {feedbackModal.isOpen && (
+        <div className="modal-backdrop-mpa modal-z-top" onClick={closeFeedback}>
+          <div
+            className="modal-content-mpa modal-sm-mpa"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="modal-header-mpa">
+              <h2>{feedbackModal.title}</h2>
+              <button
+                type="button"
+                className="btn-close-mpa"
+                onClick={closeFeedback}
+                aria-label="Close notification message"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="modal-body-mpa flex-center-body-mpa">
+              <div
+                className={`feedback-icon-wrapper-mpa ${
+                  feedbackModal.type === 'success'
+                    ? 'icon-success-mpa'
+                    : feedbackModal.type === 'warning'
+                    ? 'icon-warning-mpa'
+                    : 'icon-error-mpa'
+                }`}
+              >
+                {feedbackModal.type === 'success' && <CheckCircle2 size={40} />}
+                {feedbackModal.type === 'warning' && <AlertTriangle size={40} />}
+                {feedbackModal.type === 'error' && <AlertCircle size={40} />}
+              </div>
+              <p className="modal-message-mpa">{feedbackModal.message}</p>
+            </div>
+            <div className="modal-footer-mpa text-center-footer-mpa">
+              <button type="button" className="btn-primary-mpa" onClick={closeFeedback}>
+                OK
+              </button>
+            </div>
           </div>
         </div>
       )}
