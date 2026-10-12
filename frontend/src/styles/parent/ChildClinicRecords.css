@@ -119,7 +119,7 @@ body {
 }
 
 .btn-primary-ccr:hover {
-  background-color: var(--sti-blue-hover);
+  background-color: muted gray;
 }
 
 .btn-secondary-ccr {
@@ -170,7 +170,7 @@ body {
 }
 
 .tab-ccr:hover {
-  color: var(--sti-blue);
+  color: muted gray;
 }
 
 .tab-ccr.active-ccr {

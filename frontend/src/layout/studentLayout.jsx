@@ -47,7 +47,18 @@ const StudentLayout = () => {
         currentUserIdRef.current = currentUserId;
     }, [currentUserId]);
 
-    const studentUserId = studentData?.user_id || currentUserId;
+    const getStoredUserId = () => {
+        try {
+            const storedUser = sessionStorage.getItem('user') || localStorage.getItem('user');
+            if (!storedUser) return null;
+            const user = JSON.parse(storedUser);
+            return user.user_id || user.id || user.UserID || user.userId || null;
+        } catch (e) {
+            return null;
+        }
+    };
+
+    const studentUserId = studentData?.user_id || currentUserId || getStoredUserId();
     const { isSubscribed, subscribe } = useWebPush(studentUserId);
 
     useEffect(() => {

@@ -43,7 +43,19 @@ const ParentLayout = () => {
         studentsRef.current = students;
     }, [students]);
 
-    const parentUserId = parentData?.user_id ? String(parentData.user_id) : null;
+    // Retrieve active user ID immediately from storage for instant push hook binding
+    const getStoredUserId = () => {
+        try {
+            const storedUser = sessionStorage.getItem('user') || localStorage.getItem('user');
+            if (!storedUser) return null;
+            const user = JSON.parse(storedUser);
+            return user.user_id || user.id || user.UserID || user.userId || null;
+        } catch (e) {
+            return null;
+        }
+    };
+
+    const parentUserId = parentData?.user_id ? String(parentData.user_id) : getStoredUserId();
     const { isSubscribed, subscribe } = useWebPush(parentUserId);
 
     useEffect(() => {

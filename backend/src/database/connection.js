@@ -297,6 +297,43 @@ app.post('/api/push/send-test', async (req, res) => {
     }
 });
 
+/**
+ * Helper function to send SMS via PhilSMS API v3 using standard fetch
+ * @param {string} recipient - Phone number (e.g. "09123456789" or "639123456789")
+ * @param {string} message - Message body content
+ * @returns {Promise<boolean>}
+ */
+async function sendPhilSms(recipient, message) {
+    try {
+        const response = await fetch('https://app.philsms.com/api/v3/sms/send', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${process.env.PHILSMS_API_TOKEN}`,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({
+                recipient: recipient,
+                sender_id: process.env.PHILSMS_SENDER_ID || 'PhilSMS',
+                message: message,
+                type: 'plain'
+            })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            console.error('[PhilSMS Error]:', data);
+            return false;
+        }
+
+        return data && (data.status === 'success' || data.code === 200 || data.code === '200');
+    } catch (error) {
+        console.error('[PhilSMS Fetch Error]:', error.message);
+        return false;
+    }
+}
+
 //Format Number
 function formatPhoneNumber(phone) {
     if (!phone) return null;
@@ -521,6 +558,186 @@ app.post('/api/change-password', async (req, res) => {
     } catch (error) {
         console.error("Change Password Error:", error);
         res.status(500).json({ success: false, message: "Database error while updating password." });
+    }
+});
+
+// ==================== 4. CHECK USERNAME (STEP 1) ====================
+app.post('/api/check-username', async (req, res) => {
+    const { username } = req.body;
+
+    if (!username) {
+        return res.status(400).json({ success: false, message: "Username is required." });
+    }
+
+    try {
+        const [users] = await pool.execute(`
+            SELECT u.user_id, u.username, u.role_id, r.role_name 
+            FROM users u
+            JOIN roles r ON u.role_id = r.role_id
+            WHERE u.username = ?
+        `, [username]);
+
+        if (users.length === 0) {
+            return res.status(404).json({ success: false, message: "Username not found." });
+        }
+
+        const user = users[0];
+
+        res.json({
+            success: true,
+            role_id: user.role_id,
+            role_name: user.role_name
+        });
+
+    } catch (error) {
+        console.error("Check Username Error:", error);
+        res.status(500).json({ success: false, message: "Database error during username verification." });
+    }
+});
+
+// ==================== 5. VERIFY IDENTIFIER IN DATABASE (STEP 2) ====================
+app.post('/api/verify-identifier', async (req, res) => {
+    const { username, identifier } = req.body;
+
+    if (!username || !identifier) {
+        return res.status(400).json({ success: false, message: "Username and verification identifier are required." });
+    }
+
+    try {
+        const [users] = await pool.execute(`
+            SELECT u.user_id, u.username, u.role_id, r.role_name 
+            FROM users u
+            JOIN roles r ON u.role_id = r.role_id
+            WHERE u.username = ?
+        `, [username]);
+
+        if (users.length === 0) {
+            return res.status(404).json({ success: false, message: "Account not found." });
+        }
+
+        const user = users[0];
+        const roleId = user.role_id;
+        let isMatched = false;
+
+        // 1. Student Role: Match student_id
+        if (roleId === 'STDNT' || user.role_name.toLowerCase() === 'student') {
+            const [rows] = await pool.execute(
+                `SELECT student_id FROM students WHERE user_id = ? AND student_id = ?`,
+                [user.user_id, identifier.trim()]
+            );
+            isMatched = rows.length > 0;
+
+            if (!isMatched) {
+                return res.status(400).json({ success: false, message: "Student ID does not match records for this account." });
+            }
+
+        // 2. Parent Role: Match primary_phone
+        } else if (roleId === 'PRNT' || user.role_name.toLowerCase() === 'parent') {
+            const cleanInputPhone = identifier.replace(/[\s\-\(\)]/g, '');
+
+            const [rows] = await pool.execute(
+                `SELECT parent_id FROM parents 
+                 WHERE user_id = ? 
+                 AND REPLACE(REPLACE(REPLACE(REPLACE(primary_phone, ' ', ''), '-', ''), '(', ''), ')', '') = ?`,
+                [user.user_id, cleanInputPhone]
+            );
+            isMatched = rows.length > 0;
+
+            if (!isMatched) {
+                return res.status(400).json({ success: false, message: "Primary phone number does not match records for this account." });
+            }
+
+        // 3. Nurse Role: Match nurse_id
+        } else if (roleId === 'NRS' || user.role_name.toLowerCase() === 'nurse') {
+            const [rows] = await pool.execute(
+                `SELECT nurse_id FROM nurses WHERE user_id = ? AND nurse_id = ?`,
+                [user.user_id, identifier.trim()]
+            );
+            isMatched = rows.length > 0;
+
+            if (!isMatched) {
+                return res.status(400).json({ success: false, message: "Nurse ID does not match records for this account." });
+            }
+
+        } else {
+            return res.status(400).json({ success: false, message: "Password recovery is not permitted for this account role." });
+        }
+
+        res.json({ success: true, message: "Verification successful." });
+
+    } catch (error) {
+        console.error("Verify Identifier Error:", error);
+        res.status(500).json({ success: false, message: "Database error during identifier verification." });
+    }
+});
+
+// ==================== 6. RESET FORGOT PASSWORD (STEP 3) ====================
+app.post('/api/forgot-password', async (req, res) => {
+    const { username, identifier, newPassword } = req.body;
+
+    if (!username || !identifier || !newPassword) {
+        return res.status(400).json({ success: false, message: "All fields are required." });
+    }
+
+    try {
+        const [users] = await pool.execute(`
+            SELECT u.user_id, u.role_id, r.role_name 
+            FROM users u
+            JOIN roles r ON u.role_id = r.role_id
+            WHERE u.username = ?
+        `, [username]);
+
+        if (users.length === 0) {
+            return res.status(404).json({ success: false, message: "User account not found." });
+        }
+
+        const user = users[0];
+        const roleId = user.role_id;
+        let isMatched = false;
+
+        // Re-verify identifier for security
+        if (roleId === 'STDNT' || user.role_name.toLowerCase() === 'student') {
+            const [rows] = await pool.execute(
+                `SELECT student_id FROM students WHERE user_id = ? AND student_id = ?`,
+                [user.user_id, identifier.trim()]
+            );
+            isMatched = rows.length > 0;
+        } else if (roleId === 'PRNT' || user.role_name.toLowerCase() === 'parent') {
+            const cleanInputPhone = identifier.replace(/[\s\-\(\)]/g, '');
+            const [rows] = await pool.execute(
+                `SELECT parent_id FROM parents 
+                 WHERE user_id = ? 
+                 AND REPLACE(REPLACE(REPLACE(REPLACE(primary_phone, ' ', ''), '-', ''), '(', ''), ')', '') = ?`,
+                [user.user_id, cleanInputPhone]
+            );
+            isMatched = rows.length > 0;
+        } else if (roleId === 'NRS' || user.role_name.toLowerCase() === 'nurse') {
+            const [rows] = await pool.execute(
+                `SELECT nurse_id FROM nurses WHERE user_id = ? AND nurse_id = ?`,
+                [user.user_id, identifier.trim()]
+            );
+            isMatched = rows.length > 0;
+        }
+
+        if (!isMatched) {
+            return res.status(400).json({ success: false, message: "Security match failed. Password not updated." });
+        }
+
+        // Update password hash
+        const [updateResult] = await pool.execute(
+            `UPDATE users SET password_hash = ? WHERE user_id = ?`,
+            [newPassword, user.user_id]
+        );
+
+        if (updateResult.affectedRows > 0) {
+            res.json({ success: true, message: "Password changed successfully! You may now log in with your new password." });
+        } else {
+            res.status(500).json({ success: false, message: "Failed to update password. Try again." });
+        }
+
+    } catch (error) {
+        console.error("Reset Password Error:", error);
+        res.status(500).json({ success: false, message: "Database error during password reset." });
     }
 });
 
@@ -3612,6 +3829,7 @@ app.get('/api/clinic-visits', async (req, res) => {
 });
 
 // POST: Add a new Visit Log Consultation
+// POST: Add a new Visit Log Consultation
 app.post('/api/clinic-visits', async (req, res) => {
     const connection = await pool.getConnection();
     try {
@@ -3774,7 +3992,7 @@ app.post('/api/clinic-visits', async (req, res) => {
             );
         }
 
-        // --- System, Push, and Semaphore SMS Notification Logic (Time In) ---
+        // --- System, Push, and PhilSMS Notification Logic (Time In) ---
         let smsNotificationSent = false;
         try {
             const detailsSql = `
@@ -3815,7 +4033,7 @@ app.post('/api/clinic-visits', async (req, res) => {
                 });
 
                 if (info.primary_phone) {
-                    smsNotificationSent = await sendSemaphoreSms(info.primary_phone, notifMessage);
+                    smsNotificationSent = await sendPhilSms(info.primary_phone, notifMessage);
                 }
             }
         } catch (notifError) {
@@ -3839,6 +4057,8 @@ app.post('/api/clinic-visits', async (req, res) => {
     }
 });
 
+
+
 // PATCH: Edit / Update Time Out field ONLY
 app.patch('/api/clinic-visits/:id/timeout', async (req, res) => {
     const { id } = req.params;
@@ -3860,7 +4080,7 @@ app.patch('/api/clinic-visits/:id/timeout', async (req, res) => {
 
         await pool.execute('UPDATE clinic_visits SET time_out = ? WHERE visit_id = ?', [time_out, id]);
 
-        // --- System, Push & Semaphore SMS Notification Logic (Time Out) ---
+        // --- System, Push & PhilSMS Notification Logic (Time Out) ---
         try {
             const notifSql = `
                 SELECT 
@@ -3896,7 +4116,7 @@ app.patch('/api/clinic-visits/:id/timeout', async (req, res) => {
                 });
 
                 if (info.primary_phone) {
-                    await sendSemaphoreSms(info.primary_phone, notifMessage);
+                    await sendPhilSms(info.primary_phone, notifMessage);
                 }
             }
         } catch (notifError) {
@@ -4067,7 +4287,7 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
             }
         }
 
-        // --- System, Push & Semaphore SMS Notification Logic (Document) ---
+        // --- System, Push & PhilSMS Notification Logic (Document) ---
         let smsNotificationSent = false;
         try {
             const detailsSql = `
@@ -4113,7 +4333,7 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
                 });
 
                 if (info.primary_phone) {
-                    smsNotificationSent = await sendSemaphoreSms(info.primary_phone, notifMessage);
+                    smsNotificationSent = await sendPhilSms(info.primary_phone, notifMessage);
                 }
             }
         } catch (notifError) {

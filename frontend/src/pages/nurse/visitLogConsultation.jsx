@@ -110,6 +110,7 @@ const VisitLogConsultation = () => {
     const streamRef = useRef(null);
 
     const isProcessingScan = useRef(false);
+    const isSubmittingCheckIn = useRef(false);
 
     const [complaints, setComplaints] = useState([]);
     const [batches, setBatches] = useState([]);
@@ -529,14 +530,16 @@ const VisitLogConsultation = () => {
     }, [isCameraScanning, stopCameraScan, searchStudentByQr, handleManualTimeout, showAlertModal]);
 
     const handleConfirmVisitEntry = async () => {
-        if (!selectedStudent) return;
+        if (!selectedStudent || isSubmittingCheckIn.current) return;
+        isSubmittingCheckIn.current = true;
+
         const activeVisit = todayVisits.find(
             v => String(v.student_id).toLowerCase() === String(selectedStudent.student_id).toLowerCase() && !v.time_out
         );
 
         if (activeVisit) {
-            showAlertModal('Duplicate Check-In Blocked', `${selectedStudent.first_name} ${selectedStudent.last_name} (ID: ${selectedStudent.student_id}) is ALREADY currently checked in without timing out!`, 'warning');
             setShowConfirmModal(false);
+            isSubmittingCheckIn.current = false;
             return;
         }
 
@@ -570,6 +573,8 @@ const VisitLogConsultation = () => {
         } catch (err) {
             console.error(err);
             showAlertModal('System Error', "Error connecting to backend application.", 'error');
+        } finally {
+            isSubmittingCheckIn.current = false;
         }
     };
 
@@ -803,7 +808,6 @@ const VisitLogConsultation = () => {
             : visit.complaint_name;
     };
 
-    // PRINT PREVIEW PDF EXPORT (Matches ManageParentAccount / ManageStudentAccounts)
     const handleExportPDF = () => {
         const rowsToExport = Array.isArray(filteredAllVisits) ? filteredAllVisits : [];
 

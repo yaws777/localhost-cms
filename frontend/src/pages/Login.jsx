@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, CheckCircle2 } from 'lucide-react';
 import '../styles/Login.css'; 
 
 import { useMultiAccount } from '../context/MultiAccountContext';
@@ -18,16 +18,24 @@ export default function Login() {
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
 
-    // Forgot Password Form State
-    const [firstName, setFirstName] = useState('');
-    const [lastName, setLastName] = useState('');
-    const [retrievedPassword, setRetrievedPassword] = useState('');
+    // ---------------- FORGOT PASSWORD FLOW STATES ----------------
+    // Step 1: Username | Step 2: Role Identifier Match | Step 3: New Strong Password
+    const [forgotStep, setForgotStep] = useState(1);
+    const [forgotUsername, setForgotUsername] = useState('');
+    const [detectedRole, setDetectedRole] = useState(null); // { role_id, role_name }
+    const [forgotIdentifier, setForgotIdentifier] = useState('');
+    const [isIdentifierVerified, setIsIdentifierVerified] = useState(false);
+    
+    const [forgotNewPassword, setForgotNewPassword] = useState('');
+    const [forgotConfirmPassword, setForgotConfirmPassword] = useState('');
+    const [showForgotNewPassword, setShowForgotNewPassword] = useState(false);
+    const [showForgotConfirmPassword, setShowForgotConfirmPassword] = useState(false);
 
     // Modal Visibility States
     const [showChangePassModal, setShowChangePassModal] = useState(false);
     const [showParentModal, setShowParentModal] = useState(false);
 
-    // Change Password Modal State
+    // Change Password Modal State (Default Password flow)
     const [newPassword, setNewPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [showNewPassword, setShowNewPassword] = useState(false);
@@ -40,10 +48,9 @@ export default function Login() {
     const [parentPhone, setParentPhone] = useState('');
     const [parentModalError, setParentModalError] = useState('');
 
-    // Temporary storage for user login session while completing parent modal
     const [pendingAuthData, setPendingAuthData] = useState(null);
 
-    // Password Criteria Validator
+    // Password Strength Validator Helper
     const getPasswordRequirements = (pass) => {
         return {
             minLength: pass.length >= 8,
@@ -57,13 +64,34 @@ export default function Login() {
     const passReqs = getPasswordRequirements(newPassword);
     const isPasswordStrong = Object.values(passReqs).every(Boolean);
 
-    // Philippine Phone Number Validator Helper
+    const forgotPassReqs = getPasswordRequirements(forgotNewPassword);
+    const isForgotPassStrong = Object.values(forgotPassReqs).every(Boolean);
+
+    // PH Phone Validator
     const isValidPHPhone = (phone) => {
         const cleanPhone = phone.replace(/[\s\-()]/g, '');
         return /^(09|\+639)\d{9}$/.test(cleanPhone);
     };
 
-    // Main Login Handler
+    // Toggle between Login & Recovery view
+    const handleSwitchView = (toLogin) => {
+        setIsLoginView(toLogin);
+        setErrorMsg('');
+        setSuccessMsg('');
+        resetForgotFlow();
+    };
+
+    const resetForgotFlow = () => {
+        setForgotStep(1);
+        setForgotUsername('');
+        setDetectedRole(null);
+        setForgotIdentifier('');
+        setIsIdentifierVerified(false);
+        setForgotNewPassword('');
+        setForgotConfirmPassword('');
+    };
+
+    // ---------------- LOGIN HANDLER ----------------
     const handleLogin = async (e) => {
         e.preventDefault();
         setErrorMsg('');
@@ -92,15 +120,10 @@ export default function Login() {
         }
     };
 
-    // Sequential Flow Handler for Authenticated User
     const proceedLoginFlow = (data) => {
-        // Register user and token in MultiAccount Context
         addSession(data.user, data.token || null);
-
-        // Save tab-isolated user context to sessionStorage
         sessionStorage.setItem('user', JSON.stringify(data.user));
 
-        // Role Routing
         if (data.user.role === 'student') {
             if (data.isFormCompleted) {
                 navigate('/StudentDashboard');
@@ -112,7 +135,6 @@ export default function Login() {
         } else if (data.user.role === 'parent') {
             sessionStorage.setItem('parent_id', data.user.parent_id);
 
-            // Check Parent Details Completion
             if (data.isProfileIncomplete) {
                 setPendingAuthData(data);
                 setParentFirstName(data.user.first_name || '');
@@ -126,20 +148,18 @@ export default function Login() {
         }
     };
 
-    // Helper to finalize Parent Routing directly to parent portal
     const finalizeParentRouting = (students) => {
         if (students && students.length > 0) {
             sessionStorage.setItem('linkedStudents', JSON.stringify(students));
             sessionStorage.setItem('selectedStudentId', students[0].student_id);
-            navigate('/ParentDashboard');
         } else {
             sessionStorage.setItem('linkedStudents', JSON.stringify([]));
             sessionStorage.removeItem('selectedStudentId');
-            navigate('/ParentDashboard');
         }
+        navigate('/ParentDashboard');
     };
 
-    // Submit Password Change
+    // ---------------- DEFAULT PASSWORD CHANGE ----------------
     const handleChangePasswordSubmit = async (e) => {
         e.preventDefault();
         setPassModalError('');
@@ -176,7 +196,7 @@ export default function Login() {
         }
     };
 
-    // Submit Parent Setup Details
+    // ---------------- PARENT SETUP HANDLER ----------------
     const handleParentSetupSubmit = async (e) => {
         e.preventDefault();
         setParentModalError('');
@@ -206,14 +226,12 @@ export default function Login() {
 
             if (data.success) {
                 setShowParentModal(false);
-                
                 const updatedUser = {
                     ...pendingAuthData.user,
                     first_name: parentFirstName,
                     last_name: parentLastName,
                     primary_phone: parentPhone
                 };
-                
                 addSession(updatedUser, pendingAuthData.token || null);
                 finalizeParentRouting(pendingAuthData.students);
             } else {
@@ -224,21 +242,23 @@ export default function Login() {
         }
     };
 
-    // Forgot Password Handler
-    const handleForgotPassword = async (e) => {
+    // ---------------- FORGOT PASSWORD STEP 1: VERIFY USERNAME ----------------
+    const handleVerifyUsername = async (e) => {
         e.preventDefault();
         setErrorMsg('');
-        setRetrievedPassword('');
+        setSuccessMsg('');
+
         try {
-            const response = await fetch('http://localhost:3001/api/forgot-password', {
+            const response = await fetch('http://localhost:3001/api/check-username', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, firstName, lastName })
+                body: JSON.stringify({ username: forgotUsername })
             });
             const data = await response.json();
-            
+
             if (data.success) {
-                setRetrievedPassword(`Your password is: ${data.password}`);
+                setDetectedRole({ role_id: data.role_id, role_name: data.role_name });
+                setForgotStep(2);
             } else {
                 setErrorMsg(data.message);
             }
@@ -247,19 +267,134 @@ export default function Login() {
         }
     };
 
+    // ---------------- FORGOT PASSWORD STEP 2: VERIFY IDENTIFIER IN DATABASE ----------------
+    const handleVerifyIdentifier = async (e) => {
+        e.preventDefault();
+        setErrorMsg('');
+        setSuccessMsg('');
+
+        if (!forgotIdentifier.trim()) {
+            setErrorMsg("Please enter your verification details.");
+            return;
+        }
+
+        try {
+            const response = await fetch('http://localhost:3001/api/verify-identifier', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    username: forgotUsername,
+                    identifier: forgotIdentifier
+                })
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                setIsIdentifierVerified(true);
+                setForgotStep(3); // Proceed to enter new strong password
+            } else {
+                setIsIdentifierVerified(false);
+                setErrorMsg(data.message || "Identity verification failed. Information does not match.");
+            }
+        } catch (error) {
+            setIsIdentifierVerified(false);
+            setErrorMsg("Network error during verification. Please try again.");
+        }
+    };
+
+    // ---------------- FORGOT PASSWORD STEP 3: SUBMIT NEW STRONG PASSWORD ----------------
+    const handleResetPassword = async (e) => {
+        e.preventDefault();
+        setErrorMsg('');
+        setSuccessMsg('');
+
+        // Use isIdentifierVerified state check
+        if (!isIdentifierVerified) {
+            setErrorMsg("Identity verification required before resetting password.");
+            return;
+        }
+
+        if (!isForgotPassStrong) {
+            setErrorMsg("New password does not meet strength requirements.");
+            return;
+        }
+
+        if (forgotNewPassword !== forgotConfirmPassword) {
+            setErrorMsg("Passwords do not match.");
+            return;
+        }
+
+        try {
+            const response = await fetch('http://localhost:3001/api/forgot-password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    username: forgotUsername,
+                    identifier: forgotIdentifier,
+                    newPassword: forgotNewPassword
+                })
+            });
+            const data = await response.json();
+            
+            if (data.success) {
+                setSuccessMsg(data.message);
+                resetForgotFlow();
+                setIsLoginView(true);
+            } else {
+                setErrorMsg(data.message);
+            }
+        } catch (error) {
+            setErrorMsg("Network error. Please try again.");
+        }
+    };
+
+    // Get dynamic label & placeholder depending on user role
+    const getRoleIdentifierConfig = () => {
+        if (!detectedRole) return { label: 'Identifier', placeholder: 'Enter Identifier' };
+
+        switch (detectedRole.role_id) {
+            case 'STDNT':
+                return { 
+                    label: 'Student ID Number', 
+                    placeholder: 'Enter Student ID (e.g., 02000123456)',
+                    helpText: 'Enter your official Student ID as registered in the clinic system.'
+                };
+            case 'PRNT':
+                return { 
+                    label: 'Primary Phone Number', 
+                    placeholder: 'Enter Mobile Number (e.g., 09171234567)',
+                    helpText: 'Enter the mobile phone number registered on your parent profile.'
+                };
+            case 'NRS':
+                return { 
+                    label: 'Nurse ID Number', 
+                    placeholder: 'Enter Nurse ID (e.g., NRS-1001)',
+                    helpText: 'Enter your staff/nurse ID number assigned by administrative staff.'
+                };
+            default:
+                return { 
+                    label: 'Verification Identifier', 
+                    placeholder: 'Enter Identifier',
+                    helpText: 'Enter your identification code.'
+                };
+        }
+    };
+
+    const roleConfig = getRoleIdentifierConfig();
+
     return (
         <div className="login-page-wrapper">
             <div className="login-container">
                 <div className="login-brand-header">
                     <div className="login-system-tag">STI Baliuag Clinic System</div>
-                    <h2 className="login-title">{isLoginView ? 'Login Portal' : 'Account Recovery'}</h2>
+                    <h2 className="login-title">{isLoginView ? 'Login Portal' : 'Reset Password'}</h2>
                 </div>
                 
                 {errorMsg && <div className="error-message">{errorMsg}</div>}
                 {successMsg && <div className="success-message">{successMsg}</div>}
-                {retrievedPassword && <div className="success-message">{retrievedPassword}</div>}
 
                 {isLoginView ? (
+                    /* LOGIN FORM */
                     <form onSubmit={handleLogin} className="auth-form">
                         <input 
                             type="text" 
@@ -292,47 +427,172 @@ export default function Login() {
                         <button type="submit" className="btn-primary">Login</button>
                         <button 
                             type="button" 
-                            onClick={() => { setIsLoginView(false); setErrorMsg(''); setSuccessMsg(''); setRetrievedPassword(''); }} 
+                            onClick={() => handleSwitchView(false)} 
                             className="btn-link"
                         >
                             Forgot Password?
                         </button>
                     </form>
                 ) : (
-                    <form onSubmit={handleForgotPassword} className="auth-form">
-                        <input 
-                            type="text" 
-                            required 
-                            value={username} 
-                            onChange={(e) => setUsername(e.target.value)} 
-                            placeholder="Username (@baliuag.sti.edu.ph)" 
-                            className="auth-input"
-                        />
-                        <input 
-                            type="text" 
-                            required 
-                            value={firstName} 
-                            onChange={(e) => setFirstName(e.target.value)} 
-                            placeholder="First Name" 
-                            className="auth-input"
-                        />
-                        <input 
-                            type="text" 
-                            required 
-                            value={lastName} 
-                            onChange={(e) => setLastName(e.target.value)} 
-                            placeholder="Last Name" 
-                            className="auth-input"
-                        />
-                        <button type="submit" className="btn-primary">Retrieve Password</button>
-                        <button 
-                            type="button" 
-                            onClick={() => { setIsLoginView(true); setErrorMsg(''); setSuccessMsg(''); setRetrievedPassword(''); }} 
-                            className="btn-link"
-                        >
-                            Back to Login
-                        </button>
-                    </form>
+                    /* FORGOT PASSWORD MULTI-STEP FLOW */
+                    <div className="forgot-flow-wrapper">
+                        
+                        {/* Step Indicators */}
+                        <div className="flow-step-indicators" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px', fontSize: '0.75rem', fontWeight: '600' }}>
+                            <span style={{ color: forgotStep >= 1 ? '#0284c7' : '#9ca3af' }}>1. Username</span>
+                            <span style={{ color: forgotStep >= 2 ? '#0284c7' : '#9ca3af' }}>2. Verification</span>
+                            <span style={{ color: forgotStep >= 3 && isIdentifierVerified ? '#0284c7' : '#9ca3af' }}>3. New Password</span>
+                        </div>
+
+                        {forgotStep === 1 && (
+                            /* STEP 1: ENTER USERNAME */
+                            <form onSubmit={handleVerifyUsername} className="auth-form">
+                                <div style={{ textAlign: 'left', marginBottom: '6px', fontSize: '0.85rem', color: '#4b5563' }}>
+                                    Enter your registered username to verify account existence.
+                                </div>
+                                <input 
+                                    type="text" 
+                                    required 
+                                    value={forgotUsername} 
+                                    onChange={(e) => setForgotUsername(e.target.value)} 
+                                    placeholder="Enter Username (@baliuag.sti.edu.ph)" 
+                                    className="auth-input"
+                                />
+                                <button type="submit" className="btn-primary">Continue</button>
+                                <button 
+                                    type="button" 
+                                    onClick={() => handleSwitchView(true)} 
+                                    className="btn-link"
+                                >
+                                    Back to Login
+                                </button>
+                            </form>
+                        )}
+
+                        {forgotStep === 2 && (
+                            /* STEP 2: VERIFY ROLE IDENTIFIER MATCH IN DATABASE */
+                            <form onSubmit={handleVerifyIdentifier} className="auth-form">
+                                <div style={{ textAlign: 'left', marginBottom: '8px', padding: '8px', backgroundColor: '#f0f9ff', borderRadius: '6px', border: '1px solid #bae6fd' }}>
+                                    <div style={{ fontSize: '0.8rem', color: '#0369a1' }}>
+                                        Account Found: <strong>{forgotUsername}</strong> ({detectedRole?.role_name})
+                                    </div>
+                                </div>
+
+                                <div className="input-group" style={{ textAlign: 'left', marginTop: '6px' }}>
+                                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '600', marginBottom: '4px', color: '#374151' }}>
+                                        {roleConfig.label}
+                                    </label>
+                                    <input 
+                                        type="text" 
+                                        required 
+                                        value={forgotIdentifier} 
+                                        onChange={(e) => setForgotIdentifier(e.target.value)} 
+                                        placeholder={roleConfig.placeholder} 
+                                        className="auth-input"
+                                    />
+                                    <small style={{ color: '#6b7280', fontSize: '0.75rem', marginTop: '4px', display: 'block' }}>
+                                        {roleConfig.helpText}
+                                    </small>
+                                </div>
+
+                                <button type="submit" className="btn-primary">
+                                    Verify Identity
+                                </button>
+
+                                <button 
+                                    type="button" 
+                                    onClick={() => setForgotStep(1)} 
+                                    className="btn-link"
+                                >
+                                    Back to Step 1
+                                </button>
+                            </form>
+                        )}
+
+                        {forgotStep === 3 && (
+                            /* STEP 3: PROCEED TO ENTER NEW STRONG PASSWORD */
+                            <form onSubmit={handleResetPassword} className="auth-form">
+                                <div style={{ textAlign: 'left', marginBottom: '8px', padding: '8px', backgroundColor: '#f0fdf4', borderRadius: '6px', border: '1px solid #bbf7d0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <CheckCircle2 size={18} color="#16a34a" />
+                                    <span style={{ fontSize: '0.8rem', color: '#15803d', fontWeight: '600' }}>
+                                        Identity Verified! Please enter your new strong password.
+                                    </span>
+                                </div>
+
+                                <div className="password-input-wrapper">
+                                    <input 
+                                        type={showForgotNewPassword ? "text" : "password"} 
+                                        required 
+                                        value={forgotNewPassword} 
+                                        onChange={(e) => setForgotNewPassword(e.target.value)} 
+                                        placeholder="New Strong Password" 
+                                        className="auth-input"
+                                    />
+                                    <button 
+                                        type="button" 
+                                        className="password-toggle-btn" 
+                                        onClick={() => setShowForgotNewPassword(!showForgotNewPassword)}
+                                        aria-label="Toggle password visibility"
+                                    >
+                                        {showForgotNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                                    </button>
+                                </div>
+
+                                <div className="password-input-wrapper">
+                                    <input 
+                                        type={showForgotConfirmPassword ? "text" : "password"} 
+                                        required 
+                                        value={forgotConfirmPassword} 
+                                        onChange={(e) => setForgotConfirmPassword(e.target.value)} 
+                                        placeholder="Confirm New Password" 
+                                        className="auth-input"
+                                    />
+                                    <button 
+                                        type="button" 
+                                        className="password-toggle-btn" 
+                                        onClick={() => setShowForgotConfirmPassword(!showForgotConfirmPassword)}
+                                        aria-label="Toggle password visibility"
+                                    >
+                                        {showForgotConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                                    </button>
+                                </div>
+
+                                {/* Password Strength Checklist */}
+                                <div className="password-strength-container">
+                                    <div className="strength-header">
+                                        <span>Password Strength:</span>
+                                        <span className={`strength-badge ${isForgotPassStrong ? 'strong' : 'weak'}`}>
+                                            {isForgotPassStrong ? 'STRONG' : 'WEAK'}
+                                        </span>
+                                    </div>
+                                    <ul className="req-checklist">
+                                        <li className={forgotPassReqs.minLength ? 'valid' : 'invalid'}>At least 8 characters</li>
+                                        <li className={forgotPassReqs.hasUpper ? 'valid' : 'invalid'}>At least 1 uppercase letter</li>
+                                        <li className={forgotPassReqs.hasLower ? 'valid' : 'invalid'}>At least 1 lowercase letter</li>
+                                        <li className={forgotPassReqs.hasNumber ? 'valid' : 'invalid'}>At least 1 number</li>
+                                        <li className={forgotPassReqs.hasSpecial ? 'valid' : 'invalid'}>At least 1 special character (!@#$%^&*)</li>
+                                    </ul>
+                                </div>
+
+                                <button 
+                                    type="submit" 
+                                    className="btn-primary"
+                                    disabled={!isForgotPassStrong || forgotNewPassword !== forgotConfirmPassword}
+                                >
+                                    Reset Password
+                                </button>
+
+                                <button 
+                                    type="button" 
+                                    onClick={() => setForgotStep(2)} 
+                                    className="btn-link"
+                                >
+                                    Back to Verification
+                                </button>
+                            </form>
+                        )}
+
+                    </div>
                 )}
             </div>
 

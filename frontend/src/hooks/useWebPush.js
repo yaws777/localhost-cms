@@ -1,4 +1,3 @@
-// src/hooks/useWebPush.js
 import { useState, useEffect, useCallback } from 'react';
 
 function urlBase64ToUint8Array(base64String) {
@@ -11,10 +10,12 @@ function urlBase64ToUint8Array(base64String) {
 export function useWebPush(userId) {
     const [isSubscribed, setIsSubscribed] = useState(false);
     const [loading, setLoading] = useState(true);
-    const [permission, setPermission] = useState(Notification?.permission || 'default');
+    const [permission, setPermission] = useState(
+        typeof Notification !== 'undefined' ? Notification.permission : 'default'
+    );
     const [error, setError] = useState(null);
 
-    // Check existing push subscription on mount
+    // Check existing push subscription on mount / userId update & auto-sync to backend
     useEffect(() => {
         let isMounted = true;
 
@@ -25,10 +26,20 @@ export function useWebPush(userId) {
             }
 
             try {
-                const reg = await navigator.serviceWorker.getRegistration('/sw.js');
+                const reg = await navigator.serviceWorker.ready;
                 if (reg) {
                     const sub = await reg.pushManager.getSubscription();
-                    if (isMounted) setIsSubscribed(!!sub);
+                    if (isMounted) {
+                        setIsSubscribed(!!sub);
+                    }
+                    // Auto-sync existing subscription with backend when userId is present on mount/login
+                    if (sub && userId) {
+                        await fetch('http://localhost:3001/api/push/subscribe', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ user_id: userId, subscription: sub })
+                        }).catch(err => console.error('Failed to auto-sync push subscription:', err));
+                    }
                 }
             } catch (err) {
                 console.error('Error checking push subscription:', err);
@@ -43,7 +54,7 @@ export function useWebPush(userId) {
 
     // Enable / Subscribe Function
     const subscribe = useCallback(async () => {
-        if (!userId) return;
+        if (!userId) return false;
         setLoading(true);
         setError(null);
 
@@ -77,9 +88,11 @@ export function useWebPush(userId) {
             });
 
             setIsSubscribed(true);
+            return true;
         } catch (err) {
             console.error('Push Subscription Error:', err);
             setError(err.message);
+            return false;
         } finally {
             setLoading(false);
         }
@@ -87,7 +100,7 @@ export function useWebPush(userId) {
 
     // Disable / Unsubscribe Function
     const unsubscribe = useCallback(async () => {
-        if (!userId) return;
+        if (!userId) return false;
         setLoading(true);
         setError(null);
 
@@ -108,9 +121,11 @@ export function useWebPush(userId) {
             }
 
             setIsSubscribed(false);
+            return true;
         } catch (err) {
             console.error('Push Unsubscribe Error:', err);
             setError(err.message);
+            return false;
         } finally {
             setLoading(false);
         }
