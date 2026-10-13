@@ -52,6 +52,16 @@ const InsuranceVault = () => {
         file: null
     });
 
+    // File Preview Modal State
+    const [previewModal, setPreviewModal] = useState({
+        isOpen: false,
+        title: '',
+        url: '',
+        content: '',
+        fileType: 'unknown',
+        isBlob: false
+    });
+
     // Fetch Vault Folders List
     const fetchVaultFolders = async () => {
         try {
@@ -77,6 +87,93 @@ const InsuranceVault = () => {
     useEffect(() => {
         fetchVaultFolders();
     }, []);
+
+    // Helper: Categorize file extension or MIME type
+    const getFileTypeCategory = (mimeOrExt) => {
+        const val = mimeOrExt?.toLowerCase() || '';
+        if (val.includes('image') || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].some(ext => val.includes(ext))) {
+            return 'image';
+        }
+        if (val.includes('pdf')) {
+            return 'pdf';
+        }
+        if (val.includes('video') || ['mp4', 'webm', 'ogg'].some(ext => val.includes(ext))) {
+            return 'video';
+        }
+        if (val.includes('audio') || ['mp3', 'wav', 'ogg'].some(ext => val.includes(ext))) {
+            return 'audio';
+        }
+        if (val.includes('text') || val.includes('json') || ['txt', 'csv', 'json', 'log'].some(ext => val.includes(ext))) {
+            return 'text';
+        }
+        return 'unknown';
+    };
+
+    // Open preview for existing uploaded vault document
+    const handlePreviewRemote = (fileUrl, docName) => {
+        if (!fileUrl) return;
+        const fullUrl = fileUrl.startsWith('http') 
+            ? fileUrl 
+            : `http://localhost:3001${fileUrl.startsWith('/') ? '' : '/'}${fileUrl}`;
+        const category = getFileTypeCategory(fullUrl);
+
+        setPreviewModal({
+            isOpen: true,
+            title: `Document Preview: ${docName || 'Insurance File'}`,
+            url: fullUrl,
+            content: '',
+            fileType: category,
+            isBlob: false
+        });
+    };
+
+    // Open preview for local file selected before uploading
+    const handlePreviewLocal = () => {
+        const file = fileFormData.file;
+        if (!file) return;
+
+        const category = getFileTypeCategory(file.type || file.name);
+
+        if (category === 'text') {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                setPreviewModal({
+                    isOpen: true,
+                    title: `Local File Preview: ${file.name}`,
+                    url: '',
+                    content: e.target.result,
+                    fileType: 'text',
+                    isBlob: false
+                });
+            };
+            reader.readAsText(file);
+        } else {
+            const objectUrl = URL.createObjectURL(file);
+            setPreviewModal({
+                isOpen: true,
+                title: `Local File Preview: ${file.name}`,
+                url: objectUrl,
+                content: '',
+                fileType: category,
+                isBlob: true
+            });
+        }
+    };
+
+    // Close preview modal & release Memory
+    const closePreviewModal = () => {
+        if (previewModal.isBlob && previewModal.url) {
+            URL.revokeObjectURL(previewModal.url);
+        }
+        setPreviewModal({
+            isOpen: false,
+            title: '',
+            url: '',
+            content: '',
+            fileType: 'unknown',
+            isBlob: false
+        });
+    };
 
     // EXPORT REPORT FOR ALL INSURANCE VAULT FOLDERS
     const handleExportAllReport = () => {
@@ -117,81 +214,21 @@ const InsuranceVault = () => {
             <head>
                 <title>Insurance Vault Summary Report</title>
                 <style>
-                    body {
-                        font-family: Arial, Helvetica, sans-serif;
-                        margin: 25px;
-                        color: #0f172a;
-                    }
-                    .report-header {
-                        display: flex;
-                        align-items: center;
-                        border-bottom: 2px solid #0056b3;
-                        padding-bottom: 12px;
-                        margin-bottom: 16px;
-                    }
-                    .report-header img {
-                        height: 60px;
-                        margin-right: 20px;
-                    }
-                    .report-title h2 {
-                        margin: 0;
-                        font-size: 20px;
-                        color: #1e3a8a;
-                    }
-                    .report-title p {
-                        margin: 4px 0 0;
-                        font-size: 13px;
-                        color: #475569;
-                    }
-                    .meta-info {
-                        display: flex;
-                        justify-content: space-between;
-                        font-size: 13px;
-                        color: #475569;
-                        margin-bottom: 16px;
-                        font-weight: 500;
-                    }
-                    table {
-                        width: 100%;
-                        border-collapse: collapse;
-                        font-size: 12px;
-                        margin-bottom: 35px;
-                    }
-                    th {
-                        background-color: #f1f5f9;
-                        color: #0f172a;
-                        text-align: left;
-                        padding: 9px 10px;
-                        border: 1px solid #cbd5e1;
-                        font-weight: bold;
-                    }
-                    td {
-                        padding: 8px 10px;
-                        border: 1px solid #e2e8f0;
-                    }
-                    tr:nth-child(even) {
-                        background-color: #f8fafc;
-                    }
-                    .signature-section {
-                        margin-top: 40px;
-                        font-size: 13px;
-                    }
-                    .signature-title {
-                        color: #475569;
-                        margin-bottom: 35px;
-                    }
-                    .signature-name {
-                        font-weight: bold;
-                        font-size: 14px;
-                        color: #0f172a;
-                    }
-                    .signature-role {
-                        font-style: italic;
-                        color: #64748b;
-                    }
-                    @media print {
-                        body { margin: 0; }
-                    }
+                    body { font-family: Arial, Helvetica, sans-serif; margin: 25px; color: #0f172a; }
+                    .report-header { display: flex; align-items: center; border-bottom: 2px solid #0056b3; padding-bottom: 12px; margin-bottom: 16px; }
+                    .report-header img { height: 60px; margin-right: 20px; }
+                    .report-title h2 { margin: 0; font-size: 20px; color: #1e3a8a; }
+                    .report-title p { margin: 4px 0 0; font-size: 13px; color: #475569; }
+                    .meta-info { display: flex; justify-content: space-between; font-size: 13px; color: #475569; margin-bottom: 16px; font-weight: 500; }
+                    table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 35px; }
+                    th { background-color: #f1f5f9; color: #0f172a; text-align: left; padding: 9px 10px; border: 1px solid #cbd5e1; font-weight: bold; }
+                    td { padding: 8px 10px; border: 1px solid #e2e8f0; vertical-align: middle; }
+                    tr:nth-child(even) { background-color: #f8fafc; }
+                    .signature-section { margin-top: 40px; font-size: 13px; }
+                    .signature-title { color: #475569; margin-bottom: 35px; }
+                    .signature-name { font-weight: bold; font-size: 14px; color: #0f172a; }
+                    .signature-role { font-style: italic; color: #64748b; }
+                    @media print { body { margin: 0; } }
                 </style>
             </head>
             <body>
@@ -231,9 +268,7 @@ const InsuranceVault = () => {
                 </div>
 
                 <script>
-                    window.onload = function() {
-                        window.print();
-                    };
+                    window.onload = function() { window.print(); };
                 </script>
             </body>
             </html>
@@ -283,92 +318,22 @@ const InsuranceVault = () => {
             <head>
                 <title>Individual Student Insurance Vault Report - ${selectedFolder.student_id || 'Student'}</title>
                 <style>
-                    body {
-                        font-family: Arial, Helvetica, sans-serif;
-                        margin: 25px;
-                        color: #0f172a;
-                    }
-                    .report-header {
-                        display: flex;
-                        align-items: center;
-                        border-bottom: 2px solid #0056b3;
-                        padding-bottom: 12px;
-                        margin-bottom: 16px;
-                    }
-                    .report-header img {
-                        height: 60px;
-                        margin-right: 20px;
-                    }
-                    .report-title h2 {
-                        margin: 0;
-                        font-size: 20px;
-                        color: #1e3a8a;
-                    }
-                    .report-title p {
-                        margin: 4px 0 0;
-                        font-size: 13px;
-                        color: #475569;
-                    }
-                    .meta-info {
-                        display: flex;
-                        justify-content: space-between;
-                        font-size: 13px;
-                        color: #475569;
-                        margin-bottom: 16px;
-                        font-weight: 500;
-                    }
-                    .details-card {
-                        background-color: #f8fafc;
-                        border: 1px solid #cbd5e1;
-                        padding: 12px 16px;
-                        border-radius: 6px;
-                        margin-bottom: 20px;
-                        display: grid;
-                        grid-template-columns: 1fr 1fr;
-                        gap: 10px;
-                        font-size: 13px;
-                    }
-                    table {
-                        width: 100%;
-                        border-collapse: collapse;
-                        font-size: 12px;
-                        margin-bottom: 35px;
-                    }
-                    th {
-                        background-color: #f1f5f9;
-                        color: #0f172a;
-                        text-align: left;
-                        padding: 9px 10px;
-                        border: 1px solid #cbd5e1;
-                        font-weight: bold;
-                    }
-                    td {
-                        padding: 8px 10px;
-                        border: 1px solid #e2e8f0;
-                    }
-                    tr:nth-child(even) {
-                        background-color: #f8fafc;
-                    }
-                    .signature-section {
-                        margin-top: 40px;
-                        font-size: 13px;
-                    }
-                    .signature-title {
-                        color: #475569;
-                        margin-bottom: 35px;
-                    }
-                    .signature-name {
-                        font-weight: bold;
-                        font-size: 14px;
-                        color: #0f172a;
-                    }
-                    .signature-role {
-                        font-style: italic;
-                        color: #64748b;
-                    }
-                    @media print {
-                        body { margin: 0; }
-                    }
+                    body { font-family: Arial, Helvetica, sans-serif; margin: 25px; color: #0f172a; }
+                    .report-header { display: flex; align-items: center; border-bottom: 2px solid #0056b3; padding-bottom: 12px; margin-bottom: 16px; }
+                    .report-header img { height: 60px; margin-right: 20px; }
+                    .report-title h2 { margin: 0; font-size: 20px; color: #1e3a8a; }
+                    .report-title p { margin: 4px 0 0; font-size: 13px; color: #475569; }
+                    .meta-info { display: flex; justify-content: space-between; font-size: 13px; color: #475569; margin-bottom: 16px; font-weight: 500; }
+                    .details-card { background-color: #f8fafc; border: 1px solid #cbd5e1; padding: 12px 16px; border-radius: 6px; margin-bottom: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 13px; }
+                    table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 35px; }
+                    th { background-color: #f1f5f9; color: #0f172a; text-align: left; padding: 9px 10px; border: 1px solid #cbd5e1; font-weight: bold; }
+                    td { padding: 8px 10px; border: 1px solid #e2e8f0; vertical-align: middle; }
+                    tr:nth-child(even) { background-color: #f8fafc; }
+                    .signature-section { margin-top: 40px; font-size: 13px; }
+                    .signature-title { color: #475569; margin-bottom: 35px; }
+                    .signature-name { font-weight: bold; font-size: 14px; color: #0f172a; }
+                    .signature-role { font-style: italic; color: #64748b; }
+                    @media print { body { margin: 0; } }
                 </style>
             </head>
             <body>
@@ -413,9 +378,7 @@ const InsuranceVault = () => {
                 </div>
 
                 <script>
-                    window.onload = function() {
-                        window.print();
-                    };
+                    window.onload = function() { window.print(); };
                 </script>
             </body>
             </html>
@@ -426,7 +389,7 @@ const InsuranceVault = () => {
         printWindow.document.close();
     };
 
-    // Search Students for Auto-complete (Trigger on 1 or more characters)
+    // Search Students for Auto-complete
     useEffect(() => {
         const delayDebounce = setTimeout(async () => {
             if (studentSearch.trim().length > 0 && !selectedStudent) {
@@ -693,7 +656,7 @@ const InsuranceVault = () => {
                                     <td className="font-semibold-iv">{folder.student_id}</td>
                                     <td className="student-name-cell-iv">
                                         <Folder size={16} className="folder-icon-iv" />
-                                        {folder.student_first_name} {folder.student_last_name}
+                                        <span>{folder.student_first_name} {folder.student_last_name}</span>
                                     </td>
                                     <td>
                                         <span className="badge-program-iv">
@@ -729,7 +692,7 @@ const InsuranceVault = () => {
 
             {/* MODAL 1: ADD INSURANCE VAULT / FOLDER */}
             {isCreateVaultModalOpen && (
-                <div className="modal-overlay-iv">
+                <div className="modal-overlay-iv create-vault-overlay-iv">
                     <div className="modal-card-iv">
                         <div className="modal-header-iv">
                             <h3>Add Insurance Vault Folder</h3>
@@ -788,7 +751,7 @@ const InsuranceVault = () => {
 
             {/* MODAL 2: UPLOAD FILE INTO VAULT */}
             {isAddFileModalOpen && selectedFolder && (
-                <div className="modal-overlay-iv">
+                <div className="modal-overlay-iv add-file-overlay-iv">
                     <div className="modal-card-iv">
                         <div className="modal-header-iv">
                             <h3>Upload File to Vault</h3>
@@ -813,11 +776,23 @@ const InsuranceVault = () => {
 
                                 <div className="form-group-iv">
                                     <label>Select Document File</label>
-                                    <input 
-                                        type="file" 
-                                        onChange={(e) => setFileFormData({ ...fileFormData, file: e.target.files[0] })}
-                                        accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
-                                    />
+                                    <div className="file-input-wrapper-iv">
+                                        <input 
+                                            type="file" 
+                                            onChange={(e) => setFileFormData({ ...fileFormData, file: e.target.files[0] })}
+                                            accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.mp4,.mp3,.txt"
+                                        />
+                                        {fileFormData.file && (
+                                            <button 
+                                                type="button" 
+                                                className="btn-local-preview-iv"
+                                                onClick={handlePreviewLocal}
+                                                title="Preview selected local file before uploading"
+                                            >
+                                                👁️ Preview
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
 
                                 <div className="form-group-iv">
@@ -841,7 +816,7 @@ const InsuranceVault = () => {
 
             {/* MODAL 3: VIEW VAULT FOLDER CONTENTS */}
             {isViewModalOpen && selectedFolder && (
-                <div className="modal-overlay-iv">
+                <div className="modal-overlay-iv view-vault-overlay-iv">
                     <div className="modal-card-iv modal-large-iv">
                         <div className="modal-header-iv">
                             <h3>Vault Contents - {selectedFolder.student_first_name} {selectedFolder.student_last_name}</h3>
@@ -888,9 +863,25 @@ const InsuranceVault = () => {
                                             </div>
                                             <div className="file-actions-iv">
                                                 {file.file_url && (
-                                                    <a href={`http://localhost:3001${file.file_url}`} target="_blank" rel="noopener noreferrer" className="btn-action-iv view-iv" title="View/Download">
-                                                        <Download size={16} />
-                                                    </a>
+                                                    <>
+                                                        <button 
+                                                            type="button" 
+                                                            className="btn-action-iv view-iv" 
+                                                            onClick={() => handlePreviewRemote(file.file_url, file.document_name)}
+                                                            title="Preview Document"
+                                                        >
+                                                            <Eye size={16} />
+                                                        </button>
+                                                        <a 
+                                                            href={file.file_url.startsWith('http') ? file.file_url : `http://localhost:3001${file.file_url.startsWith('/') ? '' : '/'}${file.file_url}`} 
+                                                            target="_blank" 
+                                                            rel="noopener noreferrer" 
+                                                            className="btn-action-iv view-iv" 
+                                                            title="Download / Open Original"
+                                                        >
+                                                            <Download size={16} />
+                                                        </a>
+                                                    </>
                                                 )}
                                                 <button className="btn-action-iv delete-iv" onClick={() => handleDeleteFile(file.vault_file_id)} title="Delete File">
                                                     <Trash2 size={16} />
@@ -903,6 +894,55 @@ const InsuranceVault = () => {
                         </div>
                         <div className="modal-footer-iv">
                             <button type="button" className="btn-primary-iv" onClick={() => setIsViewModalOpen(false)}>Close Vault</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL 4: FILE PREVIEW MODAL */}
+            {previewModal.isOpen && (
+                <div className="modal-overlay-iv preview-overlay-iv" onClick={closePreviewModal}>
+                    <div className="modal-card-iv preview-card-iv" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-header-iv">
+                            <h3>{previewModal.title}</h3>
+                            <button className="close-btn-iv" onClick={closePreviewModal}><X size={20} /></button>
+                        </div>
+                        <div className="modal-body-iv preview-body-iv">
+                            {previewModal.fileType === 'image' && (
+                                <img src={previewModal.url} alt="Document Preview" className="preview-media-img-iv" />
+                            )}
+
+                            {previewModal.fileType === 'pdf' && (
+                                <iframe src={previewModal.url} title="PDF Preview" className="preview-media-iframe-iv" />
+                            )}
+
+                            {previewModal.fileType === 'video' && (
+                                <video src={previewModal.url} controls className="preview-media-video-iv" />
+                            )}
+
+                            {previewModal.fileType === 'audio' && (
+                                <audio src={previewModal.url} controls className="preview-media-audio-iv" />
+                            )}
+
+                            {previewModal.fileType === 'text' && (
+                                <pre className="preview-media-text-iv">
+                                    <code>{previewModal.content}</code>
+                                </pre>
+                            )}
+
+                            {previewModal.fileType === 'unknown' && (
+                                <div className="preview-unsupported-iv">
+                                    <p>📄 Direct preview is not available for this file format.</p>
+                                    {previewModal.url && (
+                                        <a href={previewModal.url} target="_blank" rel="noopener noreferrer" className="btn-primary-iv" style={{ display: 'inline-block', marginTop: '10px' }}>
+                                            Download / Open File
+                                        </a>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                        <div className="modal-footer-iv">
+                            <button type="button" className="btn-secondary-iv" onClick={closePreviewModal}>Close Preview</button>
                         </div>
                     </div>
                 </div>

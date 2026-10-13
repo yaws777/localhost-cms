@@ -42,11 +42,27 @@ export default function RequestModule() {
     proof: null
   });
 
+  // Proof Preview State
+  const [proofPreview, setProofPreview] = useState(null);
+
   const [referralForm, setReferralForm] = useState({
     reason_for_referral: '',
     facility_id: '',
     selected_services: []
   });
+
+  // Handle proof object URL creation & automatic memory cleanup
+  useEffect(() => {
+    if (!excuseForm.proof) {
+      setProofPreview(null);
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(excuseForm.proof);
+    setProofPreview(objectUrl);
+
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [excuseForm.proof]);
 
   useEffect(() => {
     if (location.state?.openModal) {
@@ -467,13 +483,55 @@ export default function RequestModule() {
                 </div>
               </div>
 
+              {/* Upload Proof with Live Preview */}
               <div className="sti-form-group">
                 <label>Upload Proof (Optional)</label>
                 <input
                   type="file"
-                  onChange={(e) => setExcuseForm({ ...excuseForm, proof: e.target.files[0] })}
+                  accept="image/*,application/pdf"
+                  onChange={(e) => {
+                    const file = e.target.files[0] || null;
+                    setExcuseForm({ ...excuseForm, proof: file });
+                  }}
                   style={{ width: '100%', boxSizing: 'border-box' }}
                 />
+
+                {excuseForm.proof && proofPreview && (
+                  <div className="sti-proof-preview-container" style={{ marginTop: '12px', padding: '10px', border: '1px solid #e2e8f0', borderRadius: '8px', backgroundColor: '#f8fafc' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <span style={{ fontSize: '0.85rem', fontWeight: '600', color: '#334155', wordBreak: 'break-all' }}>
+                        📎 {excuseForm.proof.name} ({Math.round(excuseForm.proof.size / 1024)} KB)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setExcuseForm({ ...excuseForm, proof: null })}
+                        style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 'bold' }}
+                      >
+                        Remove
+                      </button>
+                    </div>
+
+                    {excuseForm.proof.type.startsWith('image/') ? (
+                      <div style={{ textAlign: 'center', backgroundColor: '#ffffff', padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }}>
+                        <img
+                          src={proofPreview}
+                          alt="Proof Preview"
+                          style={{ maxWidth: '100%', maxHeight: '220px', objectFit: 'contain', borderRadius: '4px' }}
+                        />
+                      </div>
+                    ) : excuseForm.proof.type === 'application/pdf' ? (
+                      <iframe
+                        src={proofPreview}
+                        title="PDF Preview"
+                        style={{ width: '100%', height: '220px', border: '1px solid #cbd5e1', borderRadius: '6px' }}
+                      />
+                    ) : (
+                      <p style={{ fontSize: '0.85rem', color: '#64748b', margin: 0 }}>
+                        File attached ready for upload.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="sti-modal-actions">

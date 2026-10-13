@@ -37,6 +37,7 @@ import {
   Send,
   Edit3,
   Trash2,
+  FolderHeart,
   Plus
 } from 'lucide-react';
 import stiLogo from '../../assets/sti-logof.png';
@@ -1366,6 +1367,21 @@ const NurseDashboard = () => {
             <ChevronRight size={18} className="quick-action-arrow-nd" />
           </button>
 
+          <button
+            type="button"
+            className="quick-action-card-nd"
+            onClick={() => navigate('/HealthRecords')}
+          >
+            <span className="quick-action-icon-nd icon-blue-nd">
+              <FolderHeart size={22} />
+            </span>
+            <span className="quick-action-content-nd">
+              <strong>Find Health Record</strong>
+              <span>Search and manage student health records</span>
+            </span>
+            <ChevronRight size={18} className="quick-action-arrow-nd" />
+          </button>
+          
           <button
             type="button"
             className="quick-action-card-nd"

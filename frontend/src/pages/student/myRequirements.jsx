@@ -1,6 +1,16 @@
 // MyRequirements.jsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { 
+    ClipboardList, 
+    ExternalLink, 
+    Eye, 
+    Upload, 
+    CheckCircle, 
+    Lock, 
+    X, 
+    FileText 
+} from 'lucide-react';
 import '../../styles/student/MyRequirements.css';
 
 export default function MyRequirements() {
@@ -15,6 +25,16 @@ export default function MyRequirements() {
     const [requirementsList, setRequirementsList] = useState([]);
     const [reqLoading, setReqLoading] = useState(false);
     const [uploadFiles, setUploadFiles] = useState({});
+
+    // File Preview Modal State
+    const [previewModal, setPreviewModal] = useState({
+        isOpen: false,
+        title: '',
+        url: '',
+        content: '',
+        fileType: 'unknown',
+        isBlob: false
+    });
 
     useEffect(() => {
         const loadStudentData = async () => {
@@ -114,6 +134,75 @@ export default function MyRequirements() {
         }
     };
 
+    // Helper: Determine file display category
+    const getFileTypeCategory = (mimeOrExt) => {
+        const val = mimeOrExt?.toLowerCase() || '';
+        if (val.includes('image') || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].some(ext => val.includes(ext))) {
+            return 'image';
+        }
+        if (val.includes('pdf')) {
+            return 'pdf';
+        }
+        if (val.includes('video') || ['mp4', 'webm', 'ogg'].some(ext => val.includes(ext))) {
+            return 'video';
+        }
+        if (val.includes('audio') || ['mp3', 'wav', 'ogg'].some(ext => val.includes(ext))) {
+            return 'audio';
+        }
+        if (val.includes('text') || val.includes('json') || ['txt', 'csv', 'json', 'log'].some(ext => val.includes(ext))) {
+            return 'text';
+        }
+        return 'unknown';
+    };
+
+    // Open preview for local selected file (Pre-upload)
+    const handlePreviewLocal = (reqName) => {
+        const file = uploadFiles[reqName];
+        if (!file) return;
+
+        const category = getFileTypeCategory(file.type || file.name);
+
+        if (category === 'text') {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                setPreviewModal({
+                    isOpen: true,
+                    title: `Local File Preview: ${file.name}`,
+                    url: '',
+                    content: e.target.result,
+                    fileType: 'text',
+                    isBlob: false
+                });
+            };
+            reader.readAsText(file);
+        } else {
+            const objectUrl = URL.createObjectURL(file);
+            setPreviewModal({
+                isOpen: true,
+                title: `Local File Preview: ${file.name}`,
+                url: objectUrl,
+                content: '',
+                fileType: category,
+                isBlob: true
+            });
+        }
+    };
+
+    // Close Modal & clean up object URLs
+    const closePreviewModal = () => {
+        if (previewModal.isBlob && previewModal.url) {
+            URL.revokeObjectURL(previewModal.url);
+        }
+        setPreviewModal({
+            isOpen: false,
+            title: '',
+            url: '',
+            content: '',
+            fileType: 'unknown',
+            isBlob: false
+        });
+    };
+
     const getStatusColor = (statusStr) => {
         const status = statusStr?.toLowerCase();
         switch (status) {
@@ -138,7 +227,9 @@ export default function MyRequirements() {
     return (
         <div className="wrapper-mr">
             <div className="header-banner-mr">
-                <div className="avatar-mr">📋</div>
+                <div className="avatar-mr">
+                    <ClipboardList size={30} />
+                </div>
                 <div className="header-details-mr">
                     <h2>My Requirements</h2>
                     <p>{studentHeader?.first_name} {studentHeader?.last_name} ({studentHeader?.program_id} - {studentHeader?.year_level} Year)</p>
@@ -188,6 +279,7 @@ export default function MyRequirements() {
                                         
                                         const submissionIsLocked = isCompleted || (isPastDeadline && !allowsLate);
                                         const fileIsPresent = !!req.file_url;
+                                        const selectedLocalFile = uploadFiles[req.requirement_name];
 
                                         const displayStatus = req.status?.toLowerCase() === 'submitted' 
                                             ? 'Waiting for approval' 
@@ -207,7 +299,8 @@ export default function MyRequirements() {
                                                                 rel="noopener noreferrer" 
                                                                 className="file-link-mr"
                                                             >
-                                                                View Current Submission
+                                                                Open Original
+                                                                <ExternalLink size={12} style={{ marginLeft: '4px' }} />
                                                             </a>
                                                         </div>
                                                     )}
@@ -236,7 +329,17 @@ export default function MyRequirements() {
                                                 <td className="cell-action-mr" data-label="Upload Action">
                                                     {submissionIsLocked ? (
                                                         <span className={`status-lock-mr ${isCompleted ? 'completed-text-mr' : 'closed-text-mr'}`}>
-                                                            {isCompleted ? '✓ Completed (Upload Closed)' : '🔒 Closed (Deadline Passed)'}
+                                                            {isCompleted ? (
+                                                                <>
+                                                                    <CheckCircle size={14} style={{ marginRight: '4px', verticalAlign: 'middle' }} />
+                                                                    Completed (Upload Closed)
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <Lock size={14} style={{ marginRight: '4px', verticalAlign: 'middle' }} />
+                                                                    Closed (Deadline Passed)
+                                                                </>
+                                                            )}
                                                         </span>
                                                     ) : (
                                                         <form 
@@ -250,10 +353,22 @@ export default function MyRequirements() {
                                                                     required
                                                                     className="file-input-mr"
                                                                 />
+                                                                {selectedLocalFile && (
+                                                                    <button 
+                                                                        type="button" 
+                                                                        className="btn-local-preview-mr"
+                                                                        onClick={() => handlePreviewLocal(req.requirement_name)}
+                                                                        title="Preview selected local file before uploading"
+                                                                    >
+                                                                        <Eye size={14} style={{ marginRight: '4px' }} />
+                                                                        Preview
+                                                                    </button>
+                                                                )}
                                                                 <button 
                                                                     type="submit" 
                                                                     className={`submit-btn-mr ${isPastDeadline ? 'btn-late-mr' : 'btn-normal-mr'}`}
                                                                 >
+                                                                    <Upload size={14} style={{ marginRight: '4px' }} />
                                                                     {fileIsPresent ? 'Re-upload' : (isPastDeadline ? 'Submit Late' : 'Submit')}
                                                                 </button>
                                                             </div>
@@ -274,6 +389,57 @@ export default function MyRequirements() {
                     )}
                 </div>
             </div>
+
+            {/* File Preview Modal */}
+            {previewModal.isOpen && (
+                <div className="modal-overlay-mr" onClick={closePreviewModal}>
+                    <div className="modal-container-mr" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-header-mr">
+                            <h4>{previewModal.title}</h4>
+                            <button type="button" className="modal-close-btn-mr" onClick={closePreviewModal}>
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <div className="modal-body-mr">
+                            {previewModal.fileType === 'image' && (
+                                <img src={previewModal.url} alt="Requirement Document Preview" className="preview-image-mr" />
+                            )}
+
+                            {previewModal.fileType === 'pdf' && (
+                                <iframe src={previewModal.url} title="PDF Requirement Preview" className="preview-iframe-mr" />
+                            )}
+
+                            {previewModal.fileType === 'video' && (
+                                <video src={previewModal.url} controls className="preview-video-mr" />
+                            )}
+
+                            {previewModal.fileType === 'audio' && (
+                                <audio src={previewModal.url} controls className="preview-audio-mr" />
+                            )}
+
+                            {previewModal.fileType === 'text' && (
+                                <pre className="preview-text-box-mr">
+                                    <code>{previewModal.content}</code>
+                                </pre>
+                            )}
+
+                            {previewModal.fileType === 'unknown' && (
+                                <div className="preview-unsupported-mr">
+                                    <p style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                                        <FileText size={18} />
+                                        Preview unavailable for this file format.
+                                    </p>
+                                    {previewModal.url && (
+                                        <a href={previewModal.url} target="_blank" rel="noopener noreferrer" className="download-fallback-mr">
+                                            Download or View File
+                                        </a>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

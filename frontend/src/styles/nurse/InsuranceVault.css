@@ -54,6 +54,7 @@
 /* Filters */
 .vault-filter-bar-iv {
     display: flex;
+    align-items: center;
     gap: 16px;
     margin-bottom: 20px;
     flex-wrap: wrap;
@@ -95,7 +96,7 @@
     color: #ef4444;
 }
 
-/* Table */
+/* Table Alignment Fixes */
 .vault-table-wrapper-iv {
     background: #ffffff;
     border-radius: 8px;
@@ -124,6 +125,7 @@
 .vault-table-iv th, .vault-table-iv td {
     padding: 14px 16px;
     border-bottom: 1px solid #e2e8f0;
+    vertical-align: middle;
 }
 
 .vault-table-iv tbody tr:hover {
@@ -132,6 +134,7 @@
 
 .font-semibold-iv {
     font-weight: 600;
+    white-space: nowrap;
 }
 
 .student-name-cell-iv {
@@ -140,10 +143,12 @@
     display: flex;
     align-items: center;
     gap: 8px;
+    white-space: nowrap;
 }
 
 .folder-icon-iv {
     color: #0055a5;
+    flex-shrink: 0;
 }
 
 .badge-program-iv {
@@ -153,6 +158,9 @@
     border-radius: 4px;
     font-size: 0.8rem;
     font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    white-space: nowrap;
 }
 
 .badge-file-count-iv {
@@ -162,12 +170,17 @@
     border-radius: 4px;
     font-weight: 600;
     font-size: 0.8rem;
+    display: inline-flex;
+    align-items: center;
+    white-space: nowrap;
 }
 
-/* Action Buttons */
+/* Action Buttons Alignment */
 .action-buttons-iv {
     display: flex;
+    align-items: center;
     gap: 8px;
+    white-space: nowrap;
 }
 
 .btn-action-iv {
@@ -175,7 +188,7 @@
     padding: 6px 8px;
     border-radius: 4px;
     cursor: pointer;
-    display: flex;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
 }
@@ -195,7 +208,7 @@
     color: #dc2626;
 }
 
-/* Modals */
+/* Modals & Stacking Order Fixes */
 .modal-overlay-iv {
     position: fixed;
     top: 0;
@@ -207,6 +220,21 @@
     align-items: center;
     justify-content: center;
     z-index: 1000;
+}
+
+.create-vault-overlay-iv,
+.view-vault-overlay-iv {
+    z-index: 1000;
+}
+
+/* Fix: Brings "Add File" modal in front when opened from View Vault */
+.add-file-overlay-iv {
+    z-index: 1100 !important;
+}
+
+/* Fix: Preview modal stays on the top-most layer */
+.preview-overlay-iv {
+    z-index: 1200 !important;
 }
 
 .modal-card-iv {
@@ -241,6 +269,8 @@
     border: none;
     color: #ffffff;
     cursor: pointer;
+    display: flex;
+    align-items: center;
 }
 
 .modal-body-iv {
@@ -255,6 +285,7 @@
     border-radius: 6px;
     display: flex;
     justify-content: space-between;
+    align-items: center;
     margin-bottom: 16px;
     font-size: 0.9rem;
 }
@@ -277,6 +308,7 @@
     margin: 0;
 }
 
+/* Modal file item row vertical alignment */
 .file-item-iv {
     display: flex;
     justify-content: space-between;
@@ -290,13 +322,13 @@
 
 .file-info-iv {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     gap: 12px;
 }
 
 .file-icon-iv {
     color: #0055a5;
-    margin-top: 2px;
+    flex-shrink: 0;
 }
 
 .file-title-iv {
@@ -318,6 +350,7 @@
 
 .file-actions-iv {
     display: flex;
+    align-items: center;
     gap: 8px;
 }
 
@@ -387,6 +420,7 @@
     border-top: 1px solid #e2e8f0;
     display: flex;
     justify-content: flex-end;
+    align-items: center;
     gap: 10px;
 }
 
@@ -433,4 +467,92 @@
     border-radius: 6px;
     font-size: 0.9rem;
     outline: none;
+}
+
+/* File Upload Input & Local Preview Button */
+.file-input-wrapper-iv {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 4px;
+}
+
+.btn-local-preview-iv {
+    background-color: #e0f2fe;
+    color: #0369a1;
+    border: 1px solid #bae6fd;
+    padding: 5px 12px;
+    border-radius: 4px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color 0.2s;
+}
+
+.btn-local-preview-iv:hover {
+    background-color: #bae6fd;
+}
+
+.preview-card-iv {
+    max-width: 900px !important;
+    width: 90% !important;
+    max-height: 90vh !important;
+    display: flex;
+    flex-direction: column;
+}
+
+.preview-body-iv {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: #f8fafc;
+    padding: 16px;
+    min-height: 380px;
+    overflow-y: auto;
+}
+
+/* Media Renderer Styles */
+.preview-media-img-iv {
+    max-width: 100%;
+    max-height: 70vh;
+    object-fit: contain;
+    border-radius: 4px;
+}
+
+.preview-media-iframe-iv {
+    width: 100%;
+    height: 70vh;
+    border: none;
+    border-radius: 4px;
+}
+
+.preview-media-video-iv {
+    width: 100%;
+    max-height: 70vh;
+    border-radius: 4px;
+}
+
+.preview-media-audio-iv {
+    width: 100%;
+    margin: 30px 0;
+}
+
+.preview-media-text-iv {
+    width: 100%;
+    max-height: 65vh;
+    overflow: auto;
+    background: #ffffff;
+    padding: 14px;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    font-family: monospace;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.preview-unsupported-iv {
+    text-align: center;
+    padding: 30px;
+    color: #475569;
 }
