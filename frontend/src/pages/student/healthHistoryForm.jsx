@@ -48,26 +48,43 @@ export default function HealthHistoryForm() {
     });
 
     useEffect(() => {
-        const storedUser = localStorage.getItem('user');
-        if (storedUser) {
-            const user = JSON.parse(storedUser);
-            
-            if (user.role === 'student' && user.student_id) {
-                setStudentId(user.student_id);
-            } else {
-                fetch(`http://localhost:3001/api/get-student/${user.id}`)
-                    .then(res => res.json())
-                    .then(data => {
-                        if (data.success && data.student) {
-                            setStudentId(data.student.student_id);
-                        } else {
-                            setErrorMsg('Could not find student record.');
-                        }
-                    })
-                    .catch(err => setErrorMsg('Network error while fetching student ID.'));
-            }
-        } else {
+        // Read from both sessionStorage and localStorage
+        const storedUser = sessionStorage.getItem('user') || localStorage.getItem('user');
+        
+        if (!storedUser) {
             navigate('/');
+            return;
+        }
+
+        let user;
+        try {
+            user = JSON.parse(storedUser);
+        } catch (e) {
+            setErrorMsg('Invalid user session.');
+            return;
+        }
+
+        if (user.role === 'student' && user.student_id) {
+            setStudentId(user.student_id);
+        } else {
+            // Resolve accurate user_id key across login payload variations
+            const accurateUserId = user.user_id || user.id || user.UserID || user.userId;
+
+            if (!accurateUserId) {
+                setErrorMsg('User ID missing from active session.');
+                return;
+            }
+
+            fetch(`http://localhost:3001/api/get-student/${accurateUserId}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success && data.student && data.student.student_id) {
+                        setStudentId(data.student.student_id);
+                    } else {
+                        setErrorMsg(data.message || 'Could not find student record.');
+                    }
+                })
+                .catch(() => setErrorMsg('Network error while fetching student ID.'));
         }
     }, [navigate]);
 
@@ -113,6 +130,11 @@ export default function HealthHistoryForm() {
     };
 
     const handleSubmit = async () => {
+        if (!studentId) {
+            setErrorMsg('Student ID is missing. Please log in again.');
+            return;
+        }
+
         const isEmergencyComplete = Object.values(emergencyContact).every(val => String(val).trim() !== '');
         if (!isEmergencyComplete) {
             setErrorMsg('Please complete all Emergency Contact fields before submitting.');

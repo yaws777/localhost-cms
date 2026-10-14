@@ -297,15 +297,40 @@ app.post('/api/push/send-test', async (req, res) => {
     }
 });
 
+// ==========================================
+// PHILSMS API HELPER FUNCTIONS
+// ==========================================
+
 /**
- * Helper function to send SMS via PhilSMS API v3 using standard fetch
- * @param {string} recipient - Phone number (e.g. "09123456789" or "639123456789")
+ * Format phone number to standard international format
+ * @param {string} phone - Input phone string
+ * @returns {string|null} Formatted phone string or null
+ */
+function formatPhoneNumber(phone) {
+    if (!phone) return null;
+    let cleaned = phone.trim().replace(/[\s\-\(\)]/g, '');
+    
+    // Replace leading local '0' with default country code
+    if (cleaned.startsWith('0')) {
+        const countryCode = process.env.DEFAULT_COUNTRY_CODE || '+63';
+        cleaned = countryCode + cleaned.substring(1);
+    } else if (!cleaned.startsWith('+')) {
+        cleaned = '+' + cleaned;
+    }
+    return cleaned;
+}
+
+/**
+ * Helper function to send SMS via PhilSMS API v3 using fetch
+ * @param {string} recipient - Phone number (e.g. "+639123456789")
  * @param {string} message - Message body content
- * @returns {Promise<boolean>}
+ * @returns {Promise<{ success: boolean, responseTimeMs: number, data?: object, error?: any }>}
  */
 async function sendPhilSms(recipient, message) {
+    const startTime = performance.now();
+
     try {
-        const response = await fetch('https://app.philsms.com/api/v3/sms/send', {
+        const response = await fetch('https:/dashboard.philsms.com/api/v3/sms/send', {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${process.env.PHILSMS_API_TOKEN}`,
@@ -320,92 +345,28 @@ async function sendPhilSms(recipient, message) {
             })
         });
 
+        const responseTimeMs = Math.round(performance.now() - startTime);
         const data = await response.json();
 
         if (!response.ok) {
-            console.error('[PhilSMS Error]:', data);
-            return false;
+            console.error(`[PhilSMS Error] (${responseTimeMs}ms):`, data);
+            return { success: false, responseTimeMs, error: data };
         }
 
-        return data && (data.status === 'success' || data.code === 200 || data.code === '200');
+        const isSuccess = Boolean(data && (data.status === 'success' || data.code === 200 || data.code === '200'));
+
+        if (isSuccess) {
+            console.log(`[PhilSMS Success]: Sent to ${recipient} in ${responseTimeMs}ms`);
+        }
+
+        return { success: isSuccess, responseTimeMs, data };
     } catch (error) {
-        console.error('[PhilSMS Fetch Error]:', error.message);
-        return false;
+        const responseTimeMs = Math.round(performance.now() - startTime);
+        console.error(`[PhilSMS Fetch Error] (${responseTimeMs}ms):`, error.message);
+        return { success: false, responseTimeMs, error: error.message };
     }
 }
 
-//Format Number
-function formatPhoneNumber(phone) {
-    if (!phone) return null;
-    let cleaned = phone.trim().replace(/[\s\-\(\)]/g, '');
-    
-    // If phone starts with local '0', replace with default country code
-    if (cleaned.startsWith('0')) {
-        const countryCode = process.env.DEFAULT_COUNTRY_CODE || '+63';
-        cleaned = countryCode + cleaned.substring(1);
-    } else if (!cleaned.startsWith('+')) {
-        cleaned = '+' + cleaned;
-    }
-    return cleaned;
-}
-
-/**
- * Format local numbers to standard PH format (09171234567)
- */
-function formatPhPhoneForIprog(phone) {
-    if (!phone) return null;
-    let cleaned = phone.trim().replace(/[\s\-\(\)\+]/g, '');
-
-    // Convert 639XXXXXXXXX -> 09XXXXXXXXX
-    if (cleaned.startsWith('639')) {
-        cleaned = '0' + cleaned.substring(2);
-    }
-    
-    // Ensure it starts with 09 and is 11 digits
-    if (/^09\d{9}$/.test(cleaned)) {
-        return cleaned;
-    }
-    
-    return null;
-}
-
-/**
- * Send SMS using iPROG API
- */
-async function sendIprogSms(toPhoneNumber, messageBody) {
-    const formattedPhone = formatPhPhoneForIprog(toPhoneNumber);
-    
-    if (!formattedPhone) {
-        throw new Error(`Invalid PH phone number format: ${toPhoneNumber}`);
-    }
-
-    const endpoint = process.env.IPROG_SMS_ENDPOINT || 'https://sms.iprogtech.com/api/v1/send_sms';
-
-    // Use URLSearchParams (form-urlencoded) required by iPROG API
-    const bodyParams = new URLSearchParams({
-        api_token: process.env.IPROG_API_TOKEN,
-        phone_number: formattedPhone,
-        message: messageBody
-    });
-
-    const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Accept': 'application/json'
-        },
-        body: bodyParams.toString()
-    });
-
-    // Handle non-200 responses (e.g. 404 Not Found, 401 Unauthorized)
-    if (!response.ok) {
-        const rawText = await response.text();
-        throw new Error(`Endpoint returned HTTP ${response.status}: ${rawText || response.statusText}`);
-    }
-
-    const data = await response.json();
-    return data;
-}
 
 
 
@@ -3830,6 +3791,11 @@ app.get('/api/clinic-visits', async (req, res) => {
 
 // POST: Add a new Visit Log Consultation
 // POST: Add a new Visit Log Consultation
+// ==========================================
+// CLINIC VISIT API ENDPOINTS
+// ==========================================
+
+// POST: Add a new Visit Log Consultation
 app.post('/api/clinic-visits', async (req, res) => {
     const connection = await pool.getConnection();
     try {
@@ -3872,7 +3838,7 @@ app.post('/api/clinic-visits', async (req, res) => {
             });
         }
 
-        // --- Generate Custom Sequential Visit ID (VISIT-MMDDYYXXX) ---
+        // Generate Custom Sequential Visit ID (VISIT-MMDDYYXXX)
         const [yearStr, monthStr, dayStr] = visit_date.split('-');
         const datePrefix = `${monthStr}${dayStr}${yearStr.slice(-2)}`;
 
@@ -3971,7 +3937,7 @@ app.post('/api/clinic-visits', async (req, res) => {
                 );
             }
 
-            // --- Generate Custom Sequential Consultation Dispensation ID (DISP-MMDDYYXXX) ---
+            // Generate Custom Sequential Consultation Dispensation ID (DISP-MMDDYYXXX)
             const now = new Date();
             const dispMonthStr = String(now.getMonth() + 1).padStart(2, '0');
             const dispDayStr = String(now.getDate()).padStart(2, '0');
@@ -4033,7 +3999,11 @@ app.post('/api/clinic-visits', async (req, res) => {
                 });
 
                 if (info.primary_phone) {
-                    smsNotificationSent = await sendPhilSms(info.primary_phone, notifMessage);
+                    const formattedPhone = formatPhoneNumber(info.primary_phone);
+                    if (formattedPhone) {
+                        const smsResult = await sendPhilSms(formattedPhone, notifMessage);
+                        smsNotificationSent = smsResult.success;
+                    }
                 }
             }
         } catch (notifError) {
@@ -4081,6 +4051,7 @@ app.patch('/api/clinic-visits/:id/timeout', async (req, res) => {
         await pool.execute('UPDATE clinic_visits SET time_out = ? WHERE visit_id = ?', [time_out, id]);
 
         // --- System, Push & PhilSMS Notification Logic (Time Out) ---
+        let smsNotificationSent = false;
         try {
             const notifSql = `
                 SELECT 
@@ -4116,14 +4087,18 @@ app.patch('/api/clinic-visits/:id/timeout', async (req, res) => {
                 });
 
                 if (info.primary_phone) {
-                    await sendPhilSms(info.primary_phone, notifMessage);
+                    const formattedPhone = formatPhoneNumber(info.primary_phone);
+                    if (formattedPhone) {
+                        const smsResult = await sendPhilSms(formattedPhone, notifMessage);
+                        smsNotificationSent = smsResult.success;
+                    }
                 }
             }
         } catch (notifError) {
             console.error('[Notification Error] Time out notification failed:', notifError.message);
         }
 
-        res.json({ success: true, message: "Time out updated successfully!" });
+        res.json({ success: true, message: "Time out updated successfully!", smsSent: smsNotificationSent });
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: "Failed to update time out" });
@@ -4265,7 +4240,7 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
                     );
                 }
 
-                // --- Generate Custom Sequential Consultation Dispensation ID (DISP-MMDDYYXXX) ---
+                // Generate Custom Sequential Consultation Dispensation ID (DISP-MMDDYYXXX)
                 const now = new Date();
                 const dispMonthStr = String(now.getMonth() + 1).padStart(2, '0');
                 const dispDayStr = String(now.getDate()).padStart(2, '0');
@@ -4333,7 +4308,11 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
                 });
 
                 if (info.primary_phone) {
-                    smsNotificationSent = await sendPhilSms(info.primary_phone, notifMessage);
+                    const formattedPhone = formatPhoneNumber(info.primary_phone);
+                    if (formattedPhone) {
+                        const smsResult = await sendPhilSms(formattedPhone, notifMessage);
+                        smsNotificationSent = smsResult.success;
+                    }
                 }
             }
         } catch (notifError) {
