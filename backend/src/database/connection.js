@@ -3847,6 +3847,20 @@ app.get('/api/clinic-visits', async (req, res) => {
 // CLINIC VISIT API ENDPOINTS
 // ==========================================
 
+// ==========================================
+// CLINIC VISIT API ENDPOINTS
+// ==========================================
+
+// Helper function: Convert "HH:mm:ss" or "HH:mm" to 12-hour AM/PM format without seconds
+function formatTime(timeStr) {
+    if (!timeStr) return '';
+    const [hours, minutes] = timeStr.split(':');
+    let h = parseInt(hours, 10);
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12 || 12;
+    return `${h}:${minutes} ${ampm}`;
+}
+
 // POST: Add a new Visit Log Consultation
 app.post('/api/clinic-visits', async (req, res) => {
     const connection = await pool.getConnection();
@@ -3917,21 +3931,14 @@ app.post('/api/clinic-visits', async (req, res) => {
 
         // Medicine Dispensation
         if (batch_id && dosage_consumption_unit_value) {
-            const numericVal = parseFloat(dosage_consumption_unit_value);
+            const numericVal = parseInt(dosage_consumption_unit_value, 10);
 
             if (isNaN(numericVal) || numericVal <= 0) {
-                throw new Error('Dosage value must be greater than zero.');
+                throw new Error('Dosage value must be a whole integer greater than zero.');
             }
 
-            const continuousUnits = ['mg', 'g', 'mcg', 'mL', 'L'];
             const volumeUnits = ['mg', 'g', 'mcg', 'mL', 'L', 'pcs.'];
-
-            const isContinuous = continuousUnits.includes(dosage_consumption_unit_of_measure);
             const usesVolume = volumeUnits.includes(dosage_consumption_unit_of_measure);
-
-            if (!isContinuous && !Number.isInteger(numericVal)) {
-                throw new Error('Quantity for discrete items must be a whole integer.');
-            }
 
             const [batchRows] = await connection.execute(
                 `SELECT mib.current_stock, mib.remaining_volume, mib.expiration_date, m.strength_unit_value 
@@ -4036,8 +4043,9 @@ app.post('/api/clinic-visits', async (req, res) => {
                 const info = detailsRows[0];
                 const studentFullName = `${info.student_first_name} ${info.student_last_name}`;
                 
-                const notifMessage = `${studentFullName} visit in clinic with time of ${info.time_in}`;
-                const notifTitle = `Clinic Check-In: ${studentFullName}`;
+                const formattedTimeIn = formatTime(info.time_in);
+                const notifMessage = `${studentFullName} visited the clinic at ${formattedTimeIn}.`;
+                const notifTitle = `Clinic Visit: ${studentFullName}`;
 
                 const recipient_ids = [info.parent_user_id, info.student_user_id].filter(Boolean);
 
@@ -4078,7 +4086,6 @@ app.post('/api/clinic-visits', async (req, res) => {
         connection.release();
     }
 });
-
 
 
 // PATCH: Edit / Update Time Out field ONLY
@@ -4126,7 +4133,8 @@ app.patch('/api/clinic-visits/:id/timeout', async (req, res) => {
                 const info = notifRows[0];
                 const studentFullName = `${info.student_first_name} ${info.student_last_name}`;
 
-                const notifMessage = `${studentFullName} was leave in the time of ${time_out}`;
+                const formattedTimeOut = formatTime(time_out);
+                const notifMessage = `${studentFullName} left the clinic at ${formattedTimeOut}.`;
                 const notifTitle = `Clinic Time Out: ${studentFullName}`;
 
                 await notifyUsers({
@@ -4156,6 +4164,7 @@ app.patch('/api/clinic-visits/:id/timeout', async (req, res) => {
         res.status(500).json({ error: "Failed to update time out" });
     }
 });
+
 
 // PUT: Update visit documentation and process dispensation
 app.put('/api/clinic-visits/:id', async (req, res) => {
@@ -4214,21 +4223,14 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
         ]);
 
         if (batch_id && dosage_consumption_unit_value) {
-            const numericVal = parseFloat(dosage_consumption_unit_value);
+            const numericVal = parseInt(dosage_consumption_unit_value, 10);
 
             if (isNaN(numericVal) || numericVal <= 0) {
-                throw new Error('Dosage value must be greater than zero.');
+                throw new Error('Dosage value must be a whole integer greater than zero.');
             }
 
-            const continuousUnits = ['mg', 'g', 'mcg', 'mL', 'L'];
             const volumeUnits = ['mg', 'g', 'mcg', 'mL', 'L', 'pcs.'];
-
-            const isContinuous = continuousUnits.includes(dosage_consumption_unit_of_measure);
             const usesVolume = volumeUnits.includes(dosage_consumption_unit_of_measure);
-
-            if (!isContinuous && !Number.isInteger(numericVal)) {
-                throw new Error('Quantity for discrete items must be a whole integer.');
-            }
 
             const [existingDisp] = await connection.execute(
                 `SELECT consultation_dispense_id FROM consultation_dispensation WHERE visit_id = ?`,
@@ -4327,13 +4329,19 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
                     n.user_id AS nurse_user_id,
                     cc.complaint_name,
                     cv.specify_complaint_text,
-                    cv.assessment
+                    cv.assessment,
+                    m.brand_name AS medicine_name,
+                    cd.dosage_consumption_unit_value,
+                    cd.dosage_consumption_unit_of_measure
                 FROM clinic_visits cv
                 JOIN students s ON cv.student_id = s.student_id
                 LEFT JOIN nurses n ON cv.nurse_id = n.nurse_id
                 LEFT JOIN parent_student_mapping psm ON s.student_id = psm.student_id
                 LEFT JOIN parents p ON psm.parent_id = p.parent_id
                 LEFT JOIN chief_complaints cc ON cv.complaint_id = cc.complaint_id
+                LEFT JOIN consultation_dispensation cd ON cv.visit_id = cd.visit_id
+                LEFT JOIN medicine_inventory_batches mib ON cd.batch_id = mib.batch_id
+                LEFT JOIN medicines m ON mib.medicine_id = m.medicine_id
                 WHERE cv.visit_id = ?
             `;
 
@@ -4345,7 +4353,15 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
                 const complaintText = info.specify_complaint_text || info.complaint_name || 'General Checkup';
                 const assessmentText = info.assessment || 'N/A';
 
-                const notifMessage = `${studentFullName} with the complaint of ${complaintText}. Assessment: ${assessmentText}.`;
+                const formattedDosageVal = info.dosage_consumption_unit_value 
+                    ? Math.round(info.dosage_consumption_unit_value) 
+                    : '';
+
+                const medicineText = info.medicine_name 
+                    ? `${info.medicine_name} (${formattedDosageVal} ${info.dosage_consumption_unit_of_measure || ''})`.trim()
+                    : 'None';
+
+                const notifMessage = `${studentFullName} visited the clinic with a complaint of ${complaintText}. Assessment: ${assessmentText}. Medicine given: ${medicineText}.`;
                 const notifTitle = `Clinic Visit Documented: ${studentFullName}`;
 
                 const recipient_ids = [info.parent_user_id, info.student_user_id].filter(Boolean);
