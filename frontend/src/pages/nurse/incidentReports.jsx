@@ -463,7 +463,7 @@ const IncidentReport = () => {
                             <th>Location</th>
                             <th>Incident Description</th>
                             <th>First Aid Administered</th>
-                            <th>Current Situation / Disposition</th>
+                            <th>Current Situation </th>
                         </tr>
                     </thead>
                     <tbody>
@@ -953,7 +953,7 @@ const IncidentReport = () => {
                             </div>
 
                             <div className="form-group">
-                                <label>Current Physical Situation / Disposition *</label>
+                                <label>Current Physical Situation *</label>
                                 <textarea 
                                     rows="2" 
                                     placeholder="e.g. Sent home, Referred to hospital, Back to class..."
@@ -1052,7 +1052,7 @@ const IncidentReport = () => {
                             </div>
 
                             <div className="detail-section">
-                                <label>Current Physical Situation / Disposition</label>
+                                <label>Current Physical Situation</label>
                                 <div className="detail-text">{selectedReport.current_physical_situation || 'None recorded.'}</div>
                             </div>
 
