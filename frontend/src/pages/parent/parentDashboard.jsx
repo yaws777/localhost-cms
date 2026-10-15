@@ -51,7 +51,7 @@ const ParentDashboard = () => {
 
     const fetchFrequentAlerts = async () => {
       try {
-        const res = await fetch(`http://localhost:3001/api/parent/frequent-complaints/${parentId}`);
+        const res = await fetch(`https://localhost-cms.onrender.com/api/parent/frequent-complaints/${parentId}`);
         const json = await res.json();
         if (json.success) {
           setFrequentAlerts(json.data || []);
@@ -84,14 +84,14 @@ const ParentDashboard = () => {
           }).toString();
 
           const [visitsRes, reqsRes, docsRes, screeningsRes, apptsRes, annRes] = await Promise.all([
-            fetch(`http://localhost:3001/api/student/dashboard/visits-dispensation/${student.student_id}`),
-            fetch(`http://localhost:3001/api/student/dashboard/requirements/${student.student_id}`),
-            fetch(`http://localhost:3001/api/student/dashboard/document-requests/${student.student_id}`),
-            fetch(`http://localhost:3001/api/student/dashboard/upcoming-health-screenings?${queryParams}`),
-            fetch(`http://localhost:3001/api/student/dashboard/doctor-appointments/${student.student_id}`),
+            fetch(`https://localhost-cms.onrender.com/api/student/dashboard/visits-dispensation/${student.student_id}`),
+            fetch(`https://localhost-cms.onrender.com/api/student/dashboard/requirements/${student.student_id}`),
+            fetch(`https://localhost-cms.onrender.com/api/student/dashboard/document-requests/${student.student_id}`),
+            fetch(`https://localhost-cms.onrender.com/api/student/dashboard/upcoming-health-screenings?${queryParams}`),
+            fetch(`https://localhost-cms.onrender.com/api/student/dashboard/doctor-appointments/${student.student_id}`),
             parentId
-              ? fetch(`http://localhost:3001/api/parent/dashboard/announcements/${parentId}`)
-              : fetch(`http://localhost:3001/api/student/dashboard/announcements/${student.student_id}`)
+              ? fetch(`https://localhost-cms.onrender.com/api/parent/dashboard/announcements/${parentId}`)
+              : fetch(`https://localhost-cms.onrender.com/api/student/dashboard/announcements/${student.student_id}`)
           ]);
 
           const [visitsJson, reqsJson, docsJson, screeningsJson, apptsJson, annJson] = await Promise.all([
@@ -202,7 +202,7 @@ const ParentDashboard = () => {
 
     try {
       const res = await fetch(
-        `http://localhost:3001/api/frequent-complaints/details?studentId=${alert.studentId}&complaint=${encodeURIComponent(alert.complaint)}`
+        `https://localhost-cms.onrender.com/api/frequent-complaints/details?studentId=${alert.studentId}&complaint=${encodeURIComponent(alert.complaint)}`
       );
       const json = await res.json();
       if (json.success) {

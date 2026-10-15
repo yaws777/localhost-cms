@@ -69,7 +69,7 @@ const ParentLayout = () => {
 
         const sendHeartbeat = async () => {
             try {
-                await fetch('http://localhost:3001/api/users/heartbeat', {
+                await fetch('https://localhost-cms.onrender.com/api/users/heartbeat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ user_id: parentUserId })
@@ -96,7 +96,7 @@ const ParentLayout = () => {
     const fetchUnreadCount = useCallback(async (userId) => {
         if (!userId) return;
         try {
-            const res = await fetch(`http://localhost:3001/api/messages/unread-count/${String(userId)}`);
+            const res = await fetch(`https://localhost-cms.onrender.com/api/messages/unread-count/${String(userId)}`);
             const data = await res.json();
             if (data.success) {
                 setUnreadCount(data.unreadCount || 0);
@@ -117,14 +117,14 @@ const ParentLayout = () => {
 
         try {
             const fetchPromises = [
-                fetch(`http://localhost:3001/api/notifications/parent/${String(parentId)}`).then(res => res.json())
+                fetch(`https://localhost-cms.onrender.com/api/notifications/parent/${String(parentId)}`).then(res => res.json())
             ];
 
             if (studentList && studentList.length > 0) {
                 studentList.forEach(st => {
                     if (st.student_id) {
                         fetchPromises.push(
-                            fetch(`http://localhost:3001/api/notifications/student/${String(st.student_id)}`).then(res => res.json())
+                            fetch(`https://localhost-cms.onrender.com/api/notifications/student/${String(st.student_id)}`).then(res => res.json())
                         );
                     }
                 });
@@ -193,7 +193,7 @@ const ParentLayout = () => {
 
         const fetchProfiles = async (userId) => {
             try {
-                const parentRes = await fetch(`http://localhost:3001/api/get-parent/${String(userId)}`);
+                const parentRes = await fetch(`https://localhost-cms.onrender.com/api/get-parent/${String(userId)}`);
                 const parentJson = await parentRes.json();
 
                 if (parentJson.success && parentJson.parent) {
@@ -299,7 +299,7 @@ const ParentLayout = () => {
         );
 
         try {
-            await fetch(`http://localhost:3001/api/notifications/${notif.notification_id}/read`, {
+            await fetch(`https://localhost-cms.onrender.com/api/notifications/${notif.notification_id}/read`, {
                 method: 'PATCH'
             });
         } catch (err) {
@@ -325,7 +325,7 @@ const ParentLayout = () => {
         if (!pId) return;
 
         try {
-            await fetch(`http://localhost:3001/api/notifications/parent/${pId}/read-all`, {
+            await fetch(`https://localhost-cms.onrender.com/api/notifications/parent/${pId}/read-all`, {
                 method: 'PATCH'
             });
 

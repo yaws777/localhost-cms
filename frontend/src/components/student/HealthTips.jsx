@@ -239,7 +239,7 @@ const HealthTipsModal = ({ isOpen, onClose }) => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('http://localhost:3001/api/top-complaint-last-week');
+      const response = await fetch('https://localhost-cms.onrender.com/api/top-complaint-last-week');
       const data = await response.json();
 
       if (data.success && data.data) {
