@@ -7673,7 +7673,7 @@ app.get('/api/incident-reports', async (req, res) => {
     }
 });
 
-// POST: Add new Incident Report & Notify Student and Parents
+// POST: Document Incident Report & Dispatch Identical Web Push + SMS Notifications[cite: 2, 3, 4]
 app.post('/api/incident-reports', async (req, res) => {
     try {
         const {
@@ -7690,7 +7690,6 @@ app.post('/api/incident-reports', async (req, res) => {
             return res.status(400).json({ success: false, message: 'Missing required fields' });
         }
 
-        // Generate daily formatted ID: INC-MMDDYY001
         const incident_id = await generateDailyId('INC', 'incident_reports', 'incident_id');
 
         const insertQuery = `
@@ -7710,7 +7709,7 @@ app.post('/api/incident-reports', async (req, res) => {
             current_physical_situation
         ]);
 
-        // Fetch student details & sender nurse user ID
+        // Query student details and nurse sender ID[cite: 4]
         const [studentData] = await pool.query(
             `SELECT s.user_id AS student_user_id, s.first_name, s.last_name, n.user_id AS nurse_user_id
              FROM students s
@@ -7719,9 +7718,9 @@ app.post('/api/incident-reports', async (req, res) => {
             [nurse_id, student_id]
         );
 
-        // JOIN parents with parent_student_mapping to get mapped parent user IDs
+        // Query mapped parents' user IDs and primary phone numbers[cite: 4]
         const [parentData] = await pool.query(
-            `SELECT p.user_id 
+            `SELECT p.user_id, p.primary_phone 
              FROM parents p
              INNER JOIN parent_student_mapping psm ON p.parent_id = psm.parent_id
              WHERE psm.student_id = ?`,
@@ -7734,35 +7733,64 @@ app.post('/api/incident-reports', async (req, res) => {
         const parentUserIds = parentData.map(p => p.user_id).filter(Boolean);
 
         const formattedDate = new Date(incident_datetime).toLocaleString('en-US', {
-            dateStyle: 'short',
+            dateStyle: 'medium',
             timeStyle: 'short'
         });
 
-        // Send System & Web Push Notification to Student
+        // -------------------------------------------------------------
+        // UNIFIED PARENT MESSAGE (Used identically in Web Push and SMS)
+        // -------------------------------------------------------------
+        const parentTitle = `Campus Incident Advisory: ${studentName}`;
+        const parentMessage = `STI Clinic Alert: An incident involving ${studentName} was documented at ${incident_location} on ${formattedDate}. Initial Care: ${first_aid_administered || 'N/A'}. Status: ${current_physical_situation || 'Under observation'}. Please check your Parent Portal for complete details.`;
+
+        const studentTitle = `Incident Report Documented`;
+        const studentMessage = `An incident report was recorded at ${incident_location} on ${formattedDate}. Care provided: ${first_aid_administered || 'N/A'}.`;
+
+        // 1. Send Web Push to Student[cite: 2, 4]
         if (student_user_id) {
             await notifyUsers({
                 sender_id,
                 recipient_ids: [student_user_id],
-                title: 'Incident Report Filed',
-                message: `Incident recorded at ${incident_location} on ${formattedDate}.`,
+                title: studentTitle,
+                message: studentMessage,
                 type: 'INCIDENT_REPORT',
                 payloadData: { incident_id }
             });
         }
 
-        // Send System & Web Push Notification to Parents
+        // 2. Send Web Push to Parents (using parentMessage)[cite: 2, 4]
         if (parentUserIds.length > 0) {
             await notifyUsers({
                 sender_id,
                 recipient_ids: parentUserIds,
-                title: 'Student Incident Report',
-                message: `Incident involving ${studentName} recorded at ${incident_location} on ${formattedDate}.`,
+                title: parentTitle,
+                message: parentMessage,
                 type: 'INCIDENT_REPORT_PARENT',
                 payloadData: { incident_id, student_id }
             });
         }
 
-        res.json({ success: true, message: 'Incident report created successfully', incident_id });
+        // 3. Send SMS to Parents via PhilSMS (using EXACT SAME parentMessage)[cite: 3]
+        let parentSmsResults = [];
+        for (const parent of parentData) {
+            if (parent.primary_phone) {
+                const formattedPhone = formatPhoneNumber(parent.primary_phone);
+                if (formattedPhone) {
+                    const smsResult = await sendPhilSms(formattedPhone, parentMessage);
+                    parentSmsResults.push({
+                        phone: formattedPhone,
+                        sent: smsResult.success
+                    });
+                }
+            }
+        }
+
+        res.json({ 
+            success: true, 
+            message: 'Incident report created and notifications sent successfully', 
+            incident_id,
+            smsNotifications: parentSmsResults
+        });
     } catch (error) {
         console.error('Error creating incident report:', error);
         res.status(500).json({ success: false, message: 'Failed to create report' });
