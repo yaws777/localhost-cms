@@ -386,7 +386,7 @@ export default function Login() {
         <div className="login-page-wrapper">
             <div className="login-container">
                 <div className="login-brand-header">
-                    <div className="login-system-tag">STI Baliuag Clinic System</div>
+                    <div className="login-system-tag">STI Baliuag Clinic Management System</div>
                     <h2 className="login-title">{isLoginView ? 'Login Portal' : 'Reset Password'}</h2>
                 </div>
                 

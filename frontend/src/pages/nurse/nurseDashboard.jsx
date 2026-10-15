@@ -1994,7 +1994,7 @@ const NurseDashboard = () => {
 
       <div className="dashboard-header-nd">
         <div className="title-with-badge-nd">
-          <h2 className="dashboard-title-nd">Frequent Complaint Alerts</h2>
+          <h2 className="dashboard-title-nd">Frequent Illness Alerts</h2>
           {alerts.length > 0 && <span className="alert-count-badge-nd">{alerts.length}</span>}
         </div>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
@@ -2032,7 +2032,7 @@ const NurseDashboard = () => {
                   <span className="visit-badge-nd">{alert.visitCount} Visits in 1 Month</span>
                 </div>
                 <div className="complaint-chip-nd">
-                  <strong>Complaint:</strong> {alert.complaint}
+                  <strong>illness:</strong> {alert.complaint}
                 </div>
                 <div className="advice-box-nd">
                   <div className="advice-header-nd">

@@ -6,7 +6,53 @@ export default function HealthHistoryForm() {
     const navigate = useNavigate();
     const [step, setStep] = useState(1);
     const [studentId, setStudentId] = useState(null);
-    const [errorMsg, setErrorMsg] = useState('');
+
+    // Modal State
+    const [modal, setModal] = useState({
+        isOpen: false,
+        type: '', // 'confirm' | 'success' | 'error'
+        title: '',
+        message: '',
+        onConfirm: null,
+        onClose: null
+    });
+
+    const closeModal = () => {
+        setModal(prev => ({ ...prev, isOpen: false }));
+    };
+
+    const showError = (message) => {
+        setModal({
+            isOpen: true,
+            type: 'error',
+            title: 'Error',
+            message,
+            onConfirm: null,
+            onClose: null
+        });
+    };
+
+    const showSuccess = (message, onCloseCallback) => {
+        setModal({
+            isOpen: true,
+            type: 'success',
+            title: 'Success',
+            message,
+            onConfirm: null,
+            onClose: onCloseCallback || null
+        });
+    };
+
+    const showConfirm = (message, onConfirmCallback) => {
+        setModal({
+            isOpen: true,
+            type: 'confirm',
+            title: 'Confirm Operation',
+            message,
+            onConfirm: onConfirmCallback,
+            onClose: null
+        });
+    };
 
     // Form State Objects
     const [personalInfo, setPersonalInfo] = useState({
@@ -60,7 +106,7 @@ export default function HealthHistoryForm() {
         try {
             user = JSON.parse(storedUser);
         } catch (e) {
-            setErrorMsg('Invalid user session.');
+            showError('Invalid user session.');
             return;
         }
 
@@ -71,7 +117,7 @@ export default function HealthHistoryForm() {
             const accurateUserId = user.user_id || user.id || user.UserID || user.userId;
 
             if (!accurateUserId) {
-                setErrorMsg('User ID missing from active session.');
+                showError('User ID missing from active session.');
                 return;
             }
 
@@ -81,10 +127,10 @@ export default function HealthHistoryForm() {
                     if (data.success && data.student && data.student.student_id) {
                         setStudentId(data.student.student_id);
                     } else {
-                        setErrorMsg(data.message || 'Could not find student record.');
+                        showError(data.message || 'Could not find student record.');
                     }
                 })
-                .catch(() => setErrorMsg('Network error while fetching student ID.'));
+                .catch(() => showError('Network error while fetching student ID.'));
         }
     }, [navigate]);
 
@@ -122,26 +168,31 @@ export default function HealthHistoryForm() {
     const handleNextToHealth = () => {
         const isComplete = Object.values(personalInfo).every(val => String(val).trim() !== '');
         if (!isComplete) {
-            setErrorMsg('Please complete all Personal Information fields before proceeding.');
+            showError('Please complete all Personal Information fields before proceeding.');
             return;
         }
-        setErrorMsg('');
         setStep(2);
     };
 
-    const handleSubmit = async () => {
+    const handleSubmitPrompt = () => {
         if (!studentId) {
-            setErrorMsg('Student ID is missing. Please log in again.');
+            showError('Student ID is missing. Please log in again.');
             return;
         }
 
         const isEmergencyComplete = Object.values(emergencyContact).every(val => String(val).trim() !== '');
         if (!isEmergencyComplete) {
-            setErrorMsg('Please complete all Emergency Contact fields before submitting.');
+            showError('Please complete all Emergency Contact fields before submitting.');
             return;
         }
 
-        setErrorMsg('');
+        showConfirm(
+            'Are you sure you want to submit this Health History record?',
+            executeSubmit
+        );
+    };
+
+    const executeSubmit = async () => {
         try {
             const response = await fetch('http://localhost:3001/api/submit-health-form', {
                 method: 'POST',
@@ -150,21 +201,69 @@ export default function HealthHistoryForm() {
             });
             const data = await response.json();
             if (data.success) {
-                alert('Health History Form Submitted!');
-                navigate('/StudentDashboard');
+                showSuccess('Health History Form Submitted Successfully!', () => {
+                    navigate('/StudentDashboard');
+                });
             } else {
-                setErrorMsg(data.message || 'Submission failed');
+                showError(data.message || 'Submission failed');
             }
         } catch (error) {
-            setErrorMsg('Network error during submission.');
+            showError('Network error during submission.');
         }
     };
 
     return (
         <div className="form-container">
             <h2>Student Health History Form</h2>
-            {errorMsg && <div className="error-message" style={{color: 'red', fontWeight: 'bold'}}>{errorMsg}</div>}
-            
+
+            {/* GLOBAL MODAL COMPONENT */}
+            {modal.isOpen && (
+                <div className="modal-overlay">
+                    <div className={`modal-card modal-${modal.type}`}>
+                        <div className="modal-header">
+                            <h3>{modal.title}</h3>
+                            <button className="modal-close-btn" onClick={closeModal}>&times;</button>
+                        </div>
+                        <div className="modal-body">
+                            <p>{modal.message}</p>
+                        </div>
+                        <div className="modal-footer">
+                            {modal.type === 'confirm' ? (
+                                <>
+                                    <button 
+                                        className="modal-btn modal-btn-secondary" 
+                                        onClick={closeModal}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button 
+                                        className="modal-btn modal-btn-primary" 
+                                        onClick={() => {
+                                            const action = modal.onConfirm;
+                                            closeModal();
+                                            if (action) action();
+                                        }}
+                                    >
+                                        Confirm
+                                    </button>
+                                </>
+                            ) : (
+                                <button 
+                                    className="modal-btn modal-btn-primary" 
+                                    onClick={() => {
+                                        const action = modal.onClose;
+                                        closeModal();
+                                        if (action) action();
+                                    }}
+                                >
+                                    OK
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* PAGE 1: PERSONAL INFORMATION */}
             {step === 1 && (
                 <div className="form-section">
@@ -347,7 +446,7 @@ export default function HealthHistoryForm() {
                     <label>Contact #: <input type="text" name="contact_number" value={emergencyContact.contact_number} onChange={handleEmergencyChange} /></label>
 
                     <button onClick={() => setStep(2)}>Back</button>
-                    <button onClick={handleSubmit} className="btn-primary">Submit Form</button>
+                    <button onClick={handleSubmitPrompt} className="btn-primary">Submit Form</button>
                 </div>
             )}
         </div>

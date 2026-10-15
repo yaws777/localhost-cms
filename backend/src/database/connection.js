@@ -63,7 +63,6 @@ const pool = mysql.createPool({
 });
 */
 
-
     const pool = mysql.createPool({
         host: "localhost",
         user: "root",
@@ -73,6 +72,40 @@ const pool = mysql.createPool({
         charset: 'utf8mb4', // Forces UTF-8 encoding on client connections
 });
 
+const cron = require('node-cron');
+
+// Runs at 23:59 on the 28th, 29th, 30th, and 31st of every month
+cron.schedule('59 23 28-31 * *', async () => {
+  const today = new Date();
+  const tomorrow = new Date(today);
+  tomorrow.setDate(today.getDate() + 1);
+
+  // Check if today is truly the last day of the month
+  if (tomorrow.getDate() === 1) {
+    try {
+      console.log('Running monthly stock snapshot process...');
+
+      await pool.query(`
+        INSERT INTO medicine_monthly_stock_snapshots (medicine_id, snapshot_period, snapshot_date, total_stock)
+        SELECT 
+          m.medicine_id,
+          DATE_FORMAT(LAST_DAY(CURRENT_DATE()), '%Y-%m') AS snapshot_period,
+          LAST_DAY(CURRENT_DATE()) AS snapshot_date,
+          COALESCE(SUM(mib.current_stock), 0) AS total_stock
+        FROM medicines m
+        LEFT JOIN medicine_inventory_batches mib ON m.medicine_id = mib.medicine_id
+        GROUP BY m.medicine_id
+        ON DUPLICATE KEY UPDATE 
+          total_stock = VALUES(total_stock),
+          captured_at = CURRENT_TIMESTAMP;
+      `);
+
+      console.log('Monthly stock snapshot successfully saved.');
+    } catch (error) {
+      console.error('Error saving monthly stock snapshot:', error);
+    }
+  }
+});
 
 const webpush = require('web-push');
 
@@ -321,27 +354,38 @@ function formatPhoneNumber(phone) {
 }
 
 /**
- * Helper function to send SMS via PhilSMS API v3 using fetch
- * @param {string} recipient - Phone number (e.g. "+639123456789")
- * @param {string} message - Message body content
- * @returns {Promise<{ success: boolean, responseTimeMs: number, data?: object, error?: any }>}
+ * Helper function to send SMS via PhilSMS API v3[cite: 4]
+ * @param {string} recipient - Target phone number (e.g. "+639123456789" or "09123456789")[cite: 4]
+ * @param {string} message - Message body content[cite: 4]
+ * @returns {Promise<{ success: boolean, responseTimeMs: number, data?: object, error?: any }>}[cite: 4]
  */
 async function sendPhilSms(recipient, message) {
     const startTime = performance.now();
 
     try {
+        const apiUrl = process.env.PHILSMS_API_URL;
+
+        if (!apiUrl) {
+            throw new Error('PHILSMS_API_URL environment variable is not defined.');
+        }
+
+        // Format recipient to 639XXXXXXXXX standard
+        const formattedRecipient = recipient.startsWith('0')
+            ? '63' + recipient.slice(1)
+            : recipient.replace('+', '');
+
         const payload = {
-            recipient: recipient,
+            recipient: formattedRecipient,
             message: message,
             type: 'plain'
         };
 
-        // Attach sender_id only if an authorized sender ID is explicitly set in .env
+        // Attach sender_id only if explicitly set in .env[cite: 4]
         if (process.env.PHILSMS_SENDER_ID && process.env.PHILSMS_SENDER_ID.trim() !== '') {
             payload.sender_id = process.env.PHILSMS_SENDER_ID.trim();
         }
 
-        const response = await fetch('https://dashboard.philsms.com/api/v3/sms/send', {
+        const response = await fetch(apiUrl, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${process.env.PHILSMS_API_TOKEN}`,
@@ -359,10 +403,12 @@ async function sendPhilSms(recipient, message) {
             return { success: false, responseTimeMs, error: data };
         }
 
-        const isSuccess = Boolean(data && (data.status === 'success' || data.code === 200 || data.code === '200'));
+        const isSuccess = Boolean(
+            data && (data.status === 'success' || data.code === 200 || data.code === '200' || data.status === 200)
+        );
 
         if (isSuccess) {
-            console.log(`[PhilSMS Success]: Sent to ${recipient} in ${responseTimeMs}ms`);
+            console.log(`[PhilSMS Success]: Sent to ${formattedRecipient} in ${responseTimeMs}ms`);
         }
 
         return { success: isSuccess, responseTimeMs, data };
@@ -4743,37 +4789,32 @@ app.get('/api/medicine-dispensed-overview', async (req, res) => {
 
 
 // 3. Predictive Medicine Demand API
-// 3. Predictive Medicine Demand API (3-Tower Container Demand Logic)
+// 3. Predictive Medicine Demand API (Dynamic Query-Only Historical Stock)
 app.get('/api/predictive-medicine', async (req, res) => {
   try {
     const currentDate = new Date();
-    let targetMonthDate;
+    let targetYearMonthStr = req.query.month;
 
-    if (req.query.month) {
-      const [y, m] = req.query.month.split('-');
-      if (y && m) targetMonthDate = new Date(parseInt(y, 10), parseInt(m, 10) - 1, 1);
-    } else {
-      // Default to 1st day of next month
-      targetMonthDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1);
+    if (!targetYearMonthStr) {
+      const nextMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1);
+      const yr = nextMonth.getFullYear();
+      const mo = String(nextMonth.getMonth() + 1).padStart(2, '0');
+      targetYearMonthStr = `${yr}-${mo}`;
     }
 
-    // --- RESTRICTION: Limit selection to max next month ---
-    const maxAllowedDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1);
-    const targetNormalized = new Date(targetMonthDate.getFullYear(), targetMonthDate.getMonth(), 1);
+    const [year, month] = targetYearMonthStr.split('-').map(Number);
+    const targetMonthDate = new Date(year, month - 1, 1);
 
-    if (targetNormalized > maxAllowedDate) {
-      return res.status(400).json({ 
-        error: "Predictive medicine demand cannot be viewed beyond the next month." 
-      });
-    }
+    // Get the last second of the target month (e.g., '2026-10-31 23:59:59')
+    const lastDayObj = new Date(year, month, 0, 23, 59, 59);
+    const endOfTargetMonthStr = `${lastDayObj.getFullYear()}-${String(lastDayObj.getMonth() + 1).padStart(2, '0')}-${String(lastDayObj.getDate()).padStart(2, '0')} 23:59:59`;
 
-    // Use unified getAverageDateWindow(currentDate) so historical baseline matches Medicine Dispensed Overview EXACTLY
+    // Baseline calculation window
     const { avgStartDate, avgEndDate, avgDivisor } = getAverageDateWindow(currentDate);
-
     const avgStartDateTime = `${avgStartDate} 00:00:00`;
     const avgEndDateTime = `${avgEndDate} 23:59:59`;
 
-    // 1. Fetch complaint counts for chief complaint calculations
+    // 1. Fetch complaint counts
     const [complaintCounts] = await pool.query(`
       SELECT cc.complaint_name, COUNT(*) as total_count
       FROM clinic_visits cv
@@ -4787,7 +4828,7 @@ app.get('/api/predictive-medicine', async (req, res) => {
       complaintAveragesMap[row.complaint_name] = row.total_count / avgDivisor;
     });
 
-    // 2. Fetch historical dispensation totals using exact same date window
+    // 2. Fetch historical dispensation totals
     const [dispensedTotals] = await pool.query(`
       SELECT 
         m.medicine_id,
@@ -4809,29 +4850,44 @@ app.get('/api/predictive-medicine', async (req, res) => {
       medicineBaseDispensedMap[row.medicine_id] = (medicineBaseDispensedMap[row.medicine_id] || 0) + baseVal;
     });
 
-    // 3. Fetch all medicines with indications and current inventory stocks
-    const [medicineRows] = await pool.query(`
-      SELECT 
-        m.medicine_id,
-        CONCAT(m.generic_name, ' (', m.brand_name, ')') AS medicine_name,
-        m.dosage_form,
-        m.strength_unit_value,
-        m.strength_unit_of_measure,
-        COALESCE((
-          SELECT SUM(mib.current_stock) 
-          FROM medicine_inventory_batches mib 
-          WHERE mib.medicine_id = m.medicine_id
-        ), 0) AS total_stock,
-        cc.complaint_name
-      FROM medicines m
-      LEFT JOIN medicine_indications mi ON m.medicine_id = mi.medicine_id
-      LEFT JOIN chief_complaints cc ON mi.complaint_id = cc.complaint_id
-      ORDER BY m.generic_name ASC
-    `);
+   // Step 3: Fetch all medicines with indications and dynamically select snapshot vs live inventory stocks
+const targetYearMonth = `${year}-${String(month).padStart(2, '0')}`;
+const currentYearMonth = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
 
-    // 4. Deduplicate medicine indication rows and aggregate complaint metrics
+const isHistoricalMonth = targetYearMonth < currentYearMonth;
+
+// Fixed column name from 's.year_month' to 's.snapshot_period'
+const stockSubquery = isHistoricalMonth
+  ? `COALESCE((
+      SELECT s.total_stock 
+      FROM medicine_monthly_stock_snapshots s 
+      WHERE s.medicine_id = m.medicine_id AND s.snapshot_period = ?
+    ), 0)`
+  : `COALESCE((
+      SELECT SUM(mib.current_stock) 
+      FROM medicine_inventory_batches mib 
+      WHERE mib.medicine_id = m.medicine_id
+    ), 0)`;
+
+const queryParams = isHistoricalMonth ? [targetYearMonth] : [];
+
+const [medicineRows] = await pool.query(`
+  SELECT 
+    m.medicine_id,
+    CONCAT(m.generic_name, ' (', m.brand_name, ')') AS medicine_name,
+    m.dosage_form,
+    m.strength_unit_value,
+    m.strength_unit_of_measure,
+    ${stockSubquery} AS total_stock,
+    cc.complaint_name
+  FROM medicines m
+  LEFT JOIN medicine_indications mi ON m.medicine_id = mi.medicine_id
+  LEFT JOIN chief_complaints cc ON mi.complaint_id = cc.complaint_id
+  ORDER BY m.generic_name ASC
+`, queryParams);
+
+    // 4. Grouping & Response Formatting
     const medicineAggregation = {};
-
     medicineRows.forEach(row => {
       const {
         medicine_id,
@@ -4863,23 +4919,18 @@ app.get('/api/predictive-medicine', async (req, res) => {
       }
     });
 
-    // 5. Construct graph response data (Calculated Container Demand as Monthly Average Dispense)
     const graphData = Object.values(medicineAggregation).map(med => {
       const totalBaseDispensed = medicineBaseDispensedMap[med.id] || 0;
       const avgMonthlyBaseDispensed = totalBaseDispensed / avgDivisor;
       const containerStrengthBase = toBaseValue(med.strengthUnitValue, med.strengthUnitOfMeasure);
       const unitLabel = getBaseUnitLabel(med.strengthUnitOfMeasure, med.dosageForm);
 
-      // Tower 1: Calculated Container Demand (Monthly Avg Dispense in Packages/Bottles)
       const avgMonthlyContainerDemand = containerStrengthBase > 0 
         ? parseFloat((avgMonthlyBaseDispensed / containerStrengthBase).toFixed(1))
         : parseFloat(avgMonthlyBaseDispensed.toFixed(1));
 
-      // Tower 2: Current Stock
-      const currentStock = parseFloat(med.currentStock) || 0;
-
-      // Tower 3: Predicted Need = max(0, Monthly Average Dispense [Container Demand] - Current Stock)
-      const difference = avgMonthlyContainerDemand - currentStock;
+      const stockVal = parseFloat(med.currentStock) || 0;
+      const difference = avgMonthlyContainerDemand - stockVal;
       const predictedNeed = difference > 0 ? parseFloat(difference.toFixed(1)) : 0;
 
       return {
@@ -4889,21 +4940,20 @@ app.get('/api/predictive-medicine', async (req, res) => {
         unitOfMeasure: unitLabel,
         packageStrength: `${med.strengthUnitValue || 1} ${med.strengthUnitOfMeasure || unitLabel}`,
         avgMonthlyDispensedBase: parseFloat(avgMonthlyBaseDispensed.toFixed(1)),
-        avgMonthlyDispensed: avgMonthlyContainerDemand, // Tower 1
-        currentStock: currentStock,                     // Tower 2
+        avgMonthlyDispensed: avgMonthlyContainerDemand,
+        currentStock: stockVal,
         stockUnit: med.dosageForm,
-        predictedNeed: predictedNeed,                   // Tower 3
+        predictedNeed: predictedNeed,
         complaintPredictedNeed: parseFloat(med.complaintPredictedNeed.toFixed(1)),
         connectedComplaints: Array.from(med.connectedComplaints)
       };
     });
 
     const monthFormatted = targetMonthDate.toLocaleString('default', { month: 'long', year: 'numeric' });
-    const graphTitle = `Predictive Medicine Demand - ${monthFormatted}`;
 
     res.json({
-      graphTitle,
-      selectedMonth: formatDate(targetMonthDate).slice(0, 7),
+      graphTitle: `Predictive Medicine Demand - ${monthFormatted}`,
+      selectedMonth: targetYearMonthStr,
       data: graphData
     });
 
