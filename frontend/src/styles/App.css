@@ -361,3 +361,9 @@ h3.section-title {
     width: 100%;
   }
 }
+
+.header-logo {
+  height: 50px;
+  width: auto;
+  object-fit: contain;
+}

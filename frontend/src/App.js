@@ -18,6 +18,7 @@ import {
   ClipboardCheck,
   MessageSquare,
 } from "lucide-react";
+import logo from "./assets/sti-logof.png"; // Adjust path if your image is located elsewhere (e.g., ./assets/logo.png)
 import "./styles/App.css";
 
 const objectives = [
@@ -147,9 +148,11 @@ export default function LandingPage() {
       <header className="main-header">
         <div className="header-container">
           <div className="brand-group">
-            <div className="logo-badge">
-              <span>STI</span>
-            </div>
+            <img 
+              src={logo} 
+              alt="STI College Baliuag Logo" 
+              className="header-logo" 
+            />
             <div>
               <h1 className="brand-title">STI Baliuag</h1>
               <p className="brand-subtitle">School Clinic Management System</p>

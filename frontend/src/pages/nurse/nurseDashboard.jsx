@@ -2029,7 +2029,7 @@ const NurseDashboard = () => {
                     <h4 className="alert-student-name-nd">{alert.studentName}</h4>
                     <span className="alert-student-id-nd">ID: {alert.studentId}</span>
                   </div>
-                  <span className="visit-badge-nd">{alert.visitCount} Visits / Mo</span>
+                  <span className="visit-badge-nd">{alert.visitCount} Visits in 1 Month</span>
                 </div>
                 <div className="complaint-chip-nd">
                   <strong>Complaint:</strong> {alert.complaint}
