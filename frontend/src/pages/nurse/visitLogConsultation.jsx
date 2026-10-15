@@ -587,13 +587,20 @@ const VisitLogConsultation = () => {
     const handleOpenDocumentModal = (visit) => {
         const currentTime = new Date().toTimeString().split(' ')[0].substring(0, 5);
         const visitDateVal = visit.visit_date ? new Date(visit.visit_date).toISOString().split('T')[0] : todayStr;
+        const timeInVal = visit.time_in ? visit.time_in.substring(0, 5) : currentTime;
+        const timeOutVal = visit.time_out ? visit.time_out.substring(0, 5) : '';
+
+        const existingDosageVal = visit.dosage_consumption_unit_value 
+            ? String(Math.round(parseFloat(visit.dosage_consumption_unit_value))) 
+            : '';
+
         setDocumentingVisit(visit);
         setFormData({
             complaint_id: visit.complaint_id || '',
             specify_complaint_text: visit.specify_complaint_text || visit.specify_complaints_text || '',
             visit_date: visitDateVal,
-            time_in: visit.time_in || currentTime,
-            time_out: visit.time_out || '',
+            time_in: timeInVal,
+            time_out: timeOutVal,
             temperature: visit.temperature || '',
             respiratory_rate: visit.respiratory_rate || '',
             pulse_rate: visit.pulse_rate || '',
@@ -601,7 +608,7 @@ const VisitLogConsultation = () => {
             nursing_intervention: visit.nursing_intervention || '',
             assessment: visit.assessment || visit.health_advice || '',
             batch_id: visit.batch_id || '',
-            dosage_consumption_unit_value: visit.dosage_consumption_unit_value || '',
+            dosage_consumption_unit_value: existingDosageVal,
             dosage_consumption_unit_of_measure: visit.dosage_consumption_unit_of_measure || ''
         });
     };
@@ -614,9 +621,11 @@ const VisitLogConsultation = () => {
                 || 'pcs.';
 
             let rawValue = selected.avg_dosage_consumption_value;
-            let initialValue = (rawValue && parseFloat(rawValue) > 0) ? String(rawValue) : '1';
-            
-            if (isDiscreteUnit(medicineUnit) && initialValue) {
+            let initialValue = (rawValue && parseFloat(rawValue) > 0) 
+                ? String(Math.max(1, Math.round(parseFloat(rawValue)))) 
+                : '1';
+
+            if (isDiscreteUnit(medicineUnit)) {
                 initialValue = String(Math.max(1, Math.floor(Number(initialValue))));
             }
 
@@ -687,14 +696,8 @@ const VisitLogConsultation = () => {
 
         if (!isAlreadyDispensed && formData.batch_id && formData.dosage_consumption_unit_value) {
             const val = Number(formData.dosage_consumption_unit_value);
-            if (isNaN(val) || val <= 0) {
-                showAlertModal('Invalid Dosage Quantity', 'Dosage quantity must be greater than 0.', 'warning');
-                return;
-            }
-
-            const currentUnit = formData.dosage_consumption_unit_of_measure || activeBatchUnit;
-            if (isDiscreteUnit(currentUnit) && !Number.isInteger(val)) {
-                showAlertModal('Invalid Quantity', `Unit quantity for discrete measures (${currentUnit}) must be a whole number or integer.`, 'warning');
+            if (isNaN(val) || val <= 0 || !Number.isInteger(val)) {
+                showAlertModal('Invalid Quantity', 'Medicine dosage quantity must be a whole integer number greater than 0.', 'warning');
                 return;
             }
 
@@ -809,246 +812,244 @@ const VisitLogConsultation = () => {
     };
 
     const handleExportPDF = () => {
-    const rowsToExport = Array.isArray(filteredAllVisits) ? filteredAllVisits : [];
+        const rowsToExport = Array.isArray(filteredAllVisits) ? filteredAllVisits : [];
 
-    const printWindow = window.open('', '_blank', 'width=950,height=750');
-    if (!printWindow) {
-        alert('Please allow popups to preview and print the report.');
-        return;
-    }
+        const printWindow = window.open('', '_blank', 'width=950,height=750');
+        if (!printWindow) {
+            alert('Please allow popups to preview and print the report.');
+            return;
+        }
 
-    const reportDate = new Date().toLocaleDateString('en-US', { 
-        year: 'numeric', 
-        month: 'long', 
-        day: 'numeric' 
-    });
+        const reportDate = new Date().toLocaleDateString('en-US', { 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
+        });
 
-    // 1. Calculate frequency of each chief complaint in the filtered report data
-    const complaintCounts = rowsToExport.reduce((acc, visit) => {
-        const name = visit.complaint_name ? visit.complaint_name.trim() : 'General Checkup';
-        acc[name] = (acc[name] || 0) + 1;
-        return acc;
-    }, {});
+        const complaintCounts = rowsToExport.reduce((acc, visit) => {
+            const name = visit.complaint_name ? visit.complaint_name.trim() : 'General Checkup';
+            acc[name] = (acc[name] || 0) + 1;
+            return acc;
+        }, {});
 
-    // 2. Generate HTML elements for complaint summary items
-    const summaryItemsHtml = Object.keys(complaintCounts).length > 0
-        ? Object.entries(complaintCounts).map(([name, count]) => `
-            <div class="summary-card">
-                <span class="summary-label">${name}</span>
-                <span class="summary-badge">${count}</span>
-            </div>
-        `).join('')
-        : '<span style="font-size: 12px; color: #64748b;">No complaints found in current selection.</span>';
+        const summaryItemsHtml = Object.keys(complaintCounts).length > 0
+            ? Object.entries(complaintCounts).map(([name, count]) => `
+                <div class="summary-card">
+                    <span class="summary-label">${name}</span>
+                    <span class="summary-badge">${count}</span>
+                </div>
+            `).join('')
+            : '<span style="font-size: 12px; color: #64748b;">No complaints found in current selection.</span>';
 
-    const tableRowsHtml = rowsToExport.map(visit => {
-        const vDate = formatDateDisplay(visit.visit_date);
-        const stId = visit.student_id || 'N/A';
-        const stName = `${visit.first_name || ''} ${visit.last_name || ''}`.trim() || 'N/A';
-        const complaint = renderComplaintBadgeText(visit);
-        const timeIn = formatTimeDisplay(visit.time_in);
-        const timeOut = formatTimeDisplay(visit.time_out);
-        
-        const dispensedMed = visit.medicine_name || batches.find(b => b.batch_id === visit.batch_id)?.medicine_name;
-        const medText = dispensedMed 
-            ? `${dispensedMed}${visit.dosage_consumption_unit_value ? ` (${visit.dosage_consumption_unit_value}${visit.dosage_consumption_unit_of_measure || ''})` : ''}`
-            : 'None';
+        const tableRowsHtml = rowsToExport.map(visit => {
+            const vDate = formatDateDisplay(visit.visit_date);
+            const stId = visit.student_id || 'N/A';
+            const stName = `${visit.first_name || ''} ${visit.last_name || ''}`.trim() || 'N/A';
+            const complaint = renderComplaintBadgeText(visit);
+            const timeIn = formatTimeDisplay(visit.time_in);
+            const timeOut = formatTimeDisplay(visit.time_out);
+            
+            const dispensedMed = visit.medicine_name || batches.find(b => b.batch_id === visit.batch_id)?.medicine_name;
+            const formattedDosage = visit.dosage_consumption_unit_value ? Math.round(visit.dosage_consumption_unit_value) : '';
+            const medText = dispensedMed 
+                ? `${dispensedMed}${formattedDosage ? ` (${formattedDosage}${visit.dosage_consumption_unit_of_measure || ''})` : ''}`
+                : 'None';
 
-        return `
-            <tr>
-                <td>${vDate}</td>
-                <td>${stId}</td>
-                <td><strong>${stName}</strong></td>
-                <td>${complaint}</td>
-                <td>${timeIn}</td>
-                <td>${timeOut}</td>
-                <td>${medText}</td>
-            </tr>
+            return `
+                <tr>
+                    <td>${vDate}</td>
+                    <td>${stId}</td>
+                    <td><strong>${stName}</strong></td>
+                    <td>${complaint}</td>
+                    <td>${timeIn}</td>
+                    <td>${timeOut}</td>
+                    <td>${medText}</td>
+                </tr>
+            `;
+        }).join('');
+
+        const htmlContent = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Clinic Visit Logs Report</title>
+                <style>
+                    body {
+                        font-family: Arial, Helvetica, sans-serif;
+                        margin: 25px;
+                        color: #0f172a;
+                    }
+                    .report-header {
+                        display: flex;
+                        align-items: center;
+                        border-bottom: 2px solid #0056b3;
+                        padding-bottom: 12px;
+                        margin-bottom: 16px;
+                    }
+                    .report-header img {
+                        height: 60px;
+                        margin-right: 20px;
+                    }
+                    .report-title h2 {
+                        margin: 0;
+                        font-size: 20px;
+                        color: #1e3a8a;
+                    }
+                    .report-title p {
+                        margin: 4px 0 0;
+                        font-size: 13px;
+                        color: #475569;
+                    }
+                    .meta-info {
+                        display: flex;
+                        justify-content: space-between;
+                        font-size: 13px;
+                        color: #475569;
+                        margin-bottom: 16px;
+                        font-weight: 500;
+                    }
+                    .summary-section {
+                        background-color: #f8fafc;
+                        border: 1px solid #cbd5e1;
+                        border-radius: 6px;
+                        padding: 10px 14px;
+                        margin-bottom: 20px;
+                    }
+                    .summary-title {
+                        font-size: 11px;
+                        font-weight: bold;
+                        color: #1e3a8a;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                        margin-bottom: 8px;
+                    }
+                    .summary-grid {
+                        display: flex;
+                        flex-wrap: wrap;
+                        gap: 8px;
+                    }
+                    .summary-card {
+                        background-color: #ffffff;
+                        border: 1px solid #cbd5e1;
+                        border-radius: 4px;
+                        padding: 5px 10px;
+                        display: flex;
+                        align-items: center;
+                        gap: 8px;
+                        font-size: 12px;
+                    }
+                    .summary-label {
+                        color: #334155;
+                        font-weight: 600;
+                    }
+                    .summary-badge {
+                        background-color: #0056b3;
+                        color: #ffffff;
+                        font-size: 11px;
+                        font-weight: bold;
+                        padding: 2px 7px;
+                        border-radius: 10px;
+                    }
+                    table {
+                        width: 100%;
+                        border-collapse: collapse;
+                        font-size: 12px;
+                        margin-bottom: 35px;
+                    }
+                    th {
+                        background-color: #f1f5f9;
+                        color: #0f172a;
+                        text-align: left;
+                        padding: 9px 10px;
+                        border: 1px solid #cbd5e1;
+                        font-weight: bold;
+                    }
+                    td {
+                        padding: 8px 10px;
+                        border: 1px solid #e2e8f0;
+                    }
+                    tr:nth-child(even) {
+                        background-color: #f8fafc;
+                    }
+                    .signature-section {
+                        margin-top: 40px;
+                        font-size: 13px;
+                    }
+                    .signature-title {
+                        color: #475569;
+                        margin-bottom: 35px;
+                    }
+                    .signature-name {
+                        font-weight: bold;
+                        font-size: 14px;
+                        color: #0f172a;
+                    }
+                    .signature-role {
+                        font-style: italic;
+                        color: #64748b;
+                    }
+                    @media print {
+                        body { margin: 0; }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="report-header">
+                    <img src="${stiLogo}" alt="STI Logo" />
+                    <div class="report-title">
+                        <h2>STI COLLEGE BALIUAG</h2>
+                        <p>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan.</p>
+                    </div>
+                </div>
+
+                <div class="meta-info">
+                    <span><strong>CLINIC VISIT LOGS REPORT</strong></span>
+                    <span>Date Generated: ${reportDate} | Total Records: ${rowsToExport.length}</span>
+                </div>
+
+                <div class="summary-section">
+                    <div class="summary-title">Complaint Summary Report</div>
+                    <div class="summary-grid">
+                        ${summaryItemsHtml}
+                    </div>
+                </div>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Student ID</th>
+                            <th>Student Name</th>
+                            <th>Complaint</th>
+                            <th>Time In</th>
+                            <th>Time Out</th>
+                            <th>Medicine Dispensed</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tableRowsHtml || '<tr><td colspan="7">No clinic visit records found matching criteria.</td></tr>'}
+                    </tbody>
+                </table>
+
+                <div class="signature-section">
+                    <div class="signature-title">Prepared by:</div>
+                    <div class="signature-name">Marilou H. Balarao</div>
+                    <div class="signature-role">School Nurse</div>
+                </div>
+
+                <script>
+                    window.onload = function() {
+                        window.print();
+                    };
+                </script>
+            </body>
+            </html>
         `;
-    }).join('');
 
-    const htmlContent = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Clinic Visit Logs Report</title>
-            <style>
-                body {
-                    font-family: Arial, Helvetica, sans-serif;
-                    margin: 25px;
-                    color: #0f172a;
-                }
-                .report-header {
-                    display: flex;
-                    align-items: center;
-                    border-bottom: 2px solid #0056b3;
-                    padding-bottom: 12px;
-                    margin-bottom: 16px;
-                }
-                .report-header img {
-                    height: 60px;
-                    margin-right: 20px;
-                }
-                .report-title h2 {
-                    margin: 0;
-                    font-size: 20px;
-                    color: #1e3a8a;
-                }
-                .report-title p {
-                    margin: 4px 0 0;
-                    font-size: 13px;
-                    color: #475569;
-                }
-                .meta-info {
-                    display: flex;
-                    justify-content: space-between;
-                    font-size: 13px;
-                    color: #475569;
-                    margin-bottom: 16px;
-                    font-weight: 500;
-                }
-                /* Summary Box Styling */
-                .summary-section {
-                    background-color: #f8fafc;
-                    border: 1px solid #cbd5e1;
-                    border-radius: 6px;
-                    padding: 10px 14px;
-                    margin-bottom: 20px;
-                }
-                .summary-title {
-                    font-size: 11px;
-                    font-weight: bold;
-                    color: #1e3a8a;
-                    text-transform: uppercase;
-                    letter-spacing: 0.5px;
-                    margin-bottom: 8px;
-                }
-                .summary-grid {
-                    display: flex;
-                    flex-wrap: wrap;
-                    gap: 8px;
-                }
-                .summary-card {
-                    background-color: #ffffff;
-                    border: 1px solid #cbd5e1;
-                    border-radius: 4px;
-                    padding: 5px 10px;
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
-                    font-size: 12px;
-                }
-                .summary-label {
-                    color: #334155;
-                    font-weight: 600;
-                }
-                .summary-badge {
-                    background-color: #0056b3;
-                    color: #ffffff;
-                    font-size: 11px;
-                    font-weight: bold;
-                    padding: 2px 7px;
-                    border-radius: 10px;
-                }
-                table {
-                    width: 100%;
-                    border-collapse: collapse;
-                    font-size: 12px;
-                    margin-bottom: 35px;
-                }
-                th {
-                    background-color: #f1f5f9;
-                    color: #0f172a;
-                    text-align: left;
-                    padding: 9px 10px;
-                    border: 1px solid #cbd5e1;
-                    font-weight: bold;
-                }
-                td {
-                    padding: 8px 10px;
-                    border: 1px solid #e2e8f0;
-                }
-                tr:nth-child(even) {
-                    background-color: #f8fafc;
-                }
-                .signature-section {
-                    margin-top: 40px;
-                    font-size: 13px;
-                }
-                .signature-title {
-                    color: #475569;
-                    margin-bottom: 35px;
-                }
-                .signature-name {
-                    font-weight: bold;
-                    font-size: 14px;
-                    color: #0f172a;
-                }
-                .signature-role {
-                    font-style: italic;
-                    color: #64748b;
-                }
-                @media print {
-                    body { margin: 0; }
-                }
-            </style>
-        </head>
-        <body>
-            <div class="report-header">
-                <img src="${stiLogo}" alt="STI Logo" />
-                <div class="report-title">
-                    <h2>STI COLLEGE BALIUAG</h2>
-                    <p>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan.</p>
-                </div>
-            </div>
-
-            <div class="meta-info">
-                <span><strong>CLINIC VISIT LOGS REPORT</strong></span>
-                <span>Date Generated: ${reportDate} | Total Records: ${rowsToExport.length}</span>
-            </div>
-
-            <div class="summary-section">
-                <div class="summary-title">Complaint Summary Report</div>
-                <div class="summary-grid">
-                    ${summaryItemsHtml}
-                </div>
-            </div>
-
-            <table>
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>Student ID</th>
-                        <th>Student Name</th>
-                        <th>Complaint</th>
-                        <th>Time In</th>
-                        <th>Time Out</th>
-                        <th>Medicine Dispensed</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${tableRowsHtml || '<tr><td colspan="7">No clinic visit records found matching criteria.</td></tr>'}
-                </tbody>
-            </table>
-
-            <div class="signature-section">
-                <div class="signature-title">Prepared by:</div>
-                <div class="signature-name">Marilou H. Balarao</div>
-                <div class="signature-role">School Nurse</div>
-            </div>
-
-            <script>
-                window.onload = function() {
-                    window.print();
-                };
-            </script>
-        </body>
-        </html>
-    `;
-
-    printWindow.document.open();
-    printWindow.document.write(htmlContent);
-    printWindow.document.close();
-};
+        printWindow.document.open();
+        printWindow.document.write(htmlContent);
+        printWindow.document.close();
+    };
 
     return (
         <div className="consultation-wrapper-vlc">
@@ -1453,6 +1454,7 @@ const VisitLogConsultation = () => {
                                                 const isTimedOut = Boolean(visit.time_out && visit.time_out !== '');
                                                 const documented = isVisitDocumented(visit);
                                                 const dispensedMed = visit.medicine_name || batches.find(b => b.batch_id === visit.batch_id)?.medicine_name;
+                                                const formattedDosage = visit.dosage_consumption_unit_value ? Math.round(visit.dosage_consumption_unit_value) : '';
 
                                                 return (
                                                     <tr key={visit.visit_id} className={isTimedOut ? "row-locked-vlc" : "row-active-vlc"}>
@@ -1480,7 +1482,7 @@ const VisitLogConsultation = () => {
                                                             {dispensedMed ? (
                                                                 <span className="medicine-badge-vlc">
                                                                     {dispensedMed}
-                                                                    {visit.dosage_consumption_unit_value ? ` (${visit.dosage_consumption_unit_value} ${visit.dosage_consumption_unit_of_measure || ''})` : ''}
+                                                                    {formattedDosage ? ` (${formattedDosage} ${visit.dosage_consumption_unit_of_measure || ''})` : ''}
                                                                 </span>
                                                             ) : (
                                                                 <span className="no-med-text-vlc">None</span>
@@ -1586,30 +1588,11 @@ const VisitLogConsultation = () => {
                                     </div>
                                     <div className="form-input-element-vlc">
                                         <label>Time Out <span className="label-optional-vlc">(Optional)</span></label>
-                                        {formData.time_out ? (
-                                            <input type="text" readOnly value={formatTimeDisplay(formData.time_out)} className="read-only-input-vlc" />
-                                        ) : (
-                                            <div className="action-button-group-vlc" style={{ justifyContent: 'flex-start', height: '38px' }}>
-                                                <button 
-                                                    type="button" 
-                                                    className="icon-action-btn-vlc btn-qr-timeout-vlc"
-                                                    title="Scan QR to Time Out"
-                                                    aria-label="Scan QR to Time Out"
-                                                    onClick={() => handleOpenQrTimeoutModal(documentingVisit)}
-                                                >
-                                                    <QrCode size={16} />
-                                                </button>
-                                                <button 
-                                                    type="button" 
-                                                    className="icon-action-btn-vlc btn-manual-timeout-vlc"
-                                                    title="Manual Time Out (Current Time)"
-                                                    aria-label="Manual Time Out"
-                                                    onClick={() => handleManualTimeout(documentingVisit.visit_id)}
-                                                >
-                                                    <LogOut size={16} />
-                                                </button>
-                                            </div>
-                                        )}
+                                        <input 
+                                            type="time" 
+                                            value={formData.time_out || ''} 
+                                            onChange={e => setFormData({...formData, time_out: e.target.value})} 
+                                        />
                                     </div>
                                     <div className="form-input-element-vlc full-width-field-vlc">
                                         <label>Complaint <span className="required-star-vlc">*</span></label>
@@ -1782,14 +1765,18 @@ const VisitLogConsultation = () => {
                                                 <label>Dosage / Quantity {!isAlreadyDispensed && <span className="required-star-vlc">*</span>}</label>
                                                 <input 
                                                     type="number" 
-                                                    step={isDiscreteQuantity ? "1" : "any"} 
-                                                    min={isDiscreteQuantity ? "1" : "0.01"} 
+                                                    step={isDiscreteQuantity ? "1" : "1"} 
+                                                    min="1" 
                                                     required={!isAlreadyDispensed} 
                                                     readOnly={isAlreadyDispensed}
                                                     disabled={isAlreadyDispensed}
                                                     className={isAlreadyDispensed ? "read-only-input-vlc" : ""}
                                                     value={formData.dosage_consumption_unit_value} 
-                                                    onChange={e => setFormData({...formData, dosage_consumption_unit_value: e.target.value})} 
+                                                    onChange={e => {
+                                                        const val = e.target.value;
+                                                        const cleanVal = val ? String(Math.max(1, Math.floor(Number(val)))) : '';
+                                                        setFormData({...formData, dosage_consumption_unit_value: cleanVal});
+                                                    }} 
                                                 />
                                             </div>
                                             <div className="form-input-element-vlc">
@@ -1851,6 +1838,7 @@ const VisitLogConsultation = () => {
                                     const isTimedOut = Boolean(visit.time_out && visit.time_out !== '');
                                     const documented = isVisitDocumented(visit);
                                     const dispensedMed = visit.medicine_name || batches.find(b => b.batch_id === visit.batch_id)?.medicine_name;
+                                    const formattedDosage = visit.dosage_consumption_unit_value ? Math.round(visit.dosage_consumption_unit_value) : '';
 
                                     return (
                                         <tr key={visit.visit_id} className={isTimedOut ? "row-locked-vlc" : "row-active-vlc"}>
@@ -1873,7 +1861,7 @@ const VisitLogConsultation = () => {
                                                 {dispensedMed ? (
                                                     <span className="medicine-badge-vlc">
                                                         {dispensedMed}
-                                                        {visit.dosage_consumption_unit_value ? ` (${visit.dosage_consumption_unit_value} ${visit.dosage_consumption_unit_of_measure || ''})` : ''}
+                                                        {formattedDosage ? ` (${formattedDosage} ${visit.dosage_consumption_unit_of_measure || ''})` : ''}
                                                     </span>
                                                 ) : (
                                                     <span className="no-med-text-vlc">None</span>
