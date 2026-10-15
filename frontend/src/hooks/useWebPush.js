@@ -15,11 +15,11 @@ export function useWebPush(userId) {
     );
     const [error, setError] = useState(null);
 
-    // Check existing push subscription on mount / userId update & auto-sync to backend
+    // Auto-detect browser push subscription on mount/login and bind it to current userId[cite: 1]
     useEffect(() => {
         let isMounted = true;
 
-        async function checkSubscription() {
+        async function checkAndSyncSubscription() {
             if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
                 if (isMounted) setLoading(false);
                 return;
@@ -32,7 +32,8 @@ export function useWebPush(userId) {
                     if (isMounted) {
                         setIsSubscribed(!!sub);
                     }
-                    // Auto-sync existing subscription with backend when userId is present on mount/login
+                    
+                    // Re-assign existing browser push endpoint to the newly logged-in user[cite: 1]
                     if (sub && userId) {
                         await fetch('http://localhost:3001/api/push/subscribe', {
                             method: 'POST',
@@ -48,39 +49,34 @@ export function useWebPush(userId) {
             }
         }
 
-        checkSubscription();
+        checkAndSyncSubscription();
         return () => { isMounted = false; };
     }, [userId]);
 
-    // Enable / Subscribe Function
+    // Manual Subscribe from Notification Settings[cite: 1]
     const subscribe = useCallback(async () => {
         if (!userId) return false;
         setLoading(true);
         setError(null);
 
         try {
-            // 1. Request Browser Permission
             const perm = await Notification.requestPermission();
             setPermission(perm);
             if (perm !== 'granted') {
                 throw new Error('Notification permission was denied by user.');
             }
 
-            // 2. Register Service Worker
             const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
             await navigator.serviceWorker.ready;
 
-            // 3. Get VAPID Public Key from Backend
             const keyRes = await fetch('http://localhost:3001/api/push/public-key');
             const { publicKey } = await keyRes.json();
 
-            // 4. Create Push Subscription
             const subscription = await reg.pushManager.subscribe({
                 userVisibleOnly: true,
                 applicationServerKey: urlBase64ToUint8Array(publicKey)
             });
 
-            // 5. Save to Express Backend DB
             await fetch('http://localhost:3001/api/push/subscribe', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -98,7 +94,7 @@ export function useWebPush(userId) {
         }
     }, [userId]);
 
-    // Disable / Unsubscribe Function
+    // Manual Unsubscribe from Notification Settings[cite: 1]
     const unsubscribe = useCallback(async () => {
         if (!userId) return false;
         setLoading(true);
@@ -109,10 +105,8 @@ export function useWebPush(userId) {
             const subscription = await reg.pushManager.getSubscription();
 
             if (subscription) {
-                // 1. Remove locally from browser
                 await subscription.unsubscribe();
 
-                // 2. Remove from Express Backend DB
                 await fetch('http://localhost:3001/api/push/unsubscribe', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },

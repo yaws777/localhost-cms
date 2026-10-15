@@ -14,13 +14,17 @@ import {
   XCircle,
   UserCheck,
   User,
-  Megaphone
+  Megaphone,
+  AlertTriangle,
+  X,
+  Info,
+  ShieldAlert
 } from 'lucide-react';
 import '../../styles/parent/ParentDashboard.css';
 
 const ParentDashboard = () => {
   const navigate = useNavigate();
-  // Retrieve linked students passed down from ParentLayout outlet context
+  // Retrieve linked students & parentId passed down from ParentLayout outlet context
   const { linkedStudents = [], parentId = '' } = useOutletContext() || {};
 
   // Combined Dashboard state hooks
@@ -31,10 +35,36 @@ const ParentDashboard = () => {
   const [appointmentsData, setAppointmentsData] = useState([]);
   const [announcementsData, setAnnouncementsData] = useState([]);
 
+  // Frequent Illness Alert states
+  const [frequentAlerts, setFrequentAlerts] = useState([]);
+  const [dismissedAlertKeys, setDismissedAlertKeys] = useState([]);
+  const [selectedAlertModal, setSelectedAlertModal] = useState(null);
+  const [alertVisitsList, setAlertVisitsList] = useState([]);
+  const [isLoadingDetails, setIsLoadingDetails] = useState(false);
+
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Fetch and aggregate dashboard metrics for ALL linked students
+  // 1. Fetch Frequent Illness Alerts for Parent's Linked Students
+  useEffect(() => {
+    if (!parentId) return;
+
+    const fetchFrequentAlerts = async () => {
+      try {
+        const res = await fetch(`http://localhost:3001/api/parent/frequent-complaints/${parentId}`);
+        const json = await res.json();
+        if (json.success) {
+          setFrequentAlerts(json.data || []);
+        }
+      } catch (err) {
+        console.error("Error fetching frequent illness alerts:", err);
+      }
+    };
+
+    fetchFrequentAlerts();
+  }, [parentId]);
+
+  // 2. Fetch and aggregate dashboard metrics for ALL linked students
   useEffect(() => {
     if (!linkedStudents || linkedStudents.length === 0) {
       setIsLoading(false);
@@ -135,12 +165,10 @@ const ParentDashboard = () => {
 
         const combinedAnnouncements = Array.from(combinedAnnouncementsMap.values());
 
-        // Calculate strictly 'Pending' status count (excludes 'Not Submitted', 'Incomplete', etc.)
         const totalPending = combinedReqs.filter(
           (req) => req.status && req.status.trim().toLowerCase() === 'pending'
         ).length;
 
-        // Sort combined datasets by date descending/ascending where applicable
         combinedVisits.sort((a, b) => new Date(b.visit_date || 0) - new Date(a.visit_date || 0));
         combinedDirectDispenses.sort((a, b) => new Date(b.dispensed_at || 0) - new Date(a.dispensed_at || 0));
         combinedDocs.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
@@ -166,11 +194,36 @@ const ParentDashboard = () => {
     fetchAllStudentsData();
   }, [linkedStudents, parentId]);
 
+  // Frequent Illness Detail Modal Trigger
+  const handleOpenAlertDetails = async (alert) => {
+    setSelectedAlertModal(alert);
+    setIsLoadingDetails(true);
+    setAlertVisitsList([]);
+
+    try {
+      const res = await fetch(
+        `http://localhost:3001/api/frequent-complaints/details?studentId=${alert.studentId}&complaint=${encodeURIComponent(alert.complaint)}`
+      );
+      const json = await res.json();
+      if (json.success) {
+        setAlertVisitsList(json.data || []);
+      }
+    } catch (err) {
+      console.error("Failed to fetch visit details:", err);
+    } finally {
+      setIsLoadingDetails(false);
+    }
+  };
+
+  const handleDismissAlert = (alertKey) => {
+    setDismissedAlertKeys((prev) => [...prev, alertKey]);
+  };
+
   // Navigation handlers
   const handleNavigateToClinic = () => navigate('/ChildClinicRecords');
   const handleNavigateToProfile = () => navigate('/ChildProfile');
 
-  // Helper date formatters
+  // Formatters
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -191,7 +244,6 @@ const ParentDashboard = () => {
     });
   };
 
-  // Helper status pill renderer
   const renderStatusBadge = (status) => {
     const s = (status || 'Pending').toLowerCase();
     let badgeClass = 'pd-badge-pending';
@@ -216,11 +268,15 @@ const ParentDashboard = () => {
     );
   };
 
-  // Helper badge to explicitly identify student ownership
   const renderStudentBadge = (studentName) => (
     <span className="pd-student-badge">
       <User size={10} /> {studentName}
     </span>
+  );
+
+  // Active frequent alerts excluding dismissed
+  const activeAlerts = frequentAlerts.filter(
+    (a) => !dismissedAlertKeys.includes(`${a.studentId}-${a.complaint}`)
   );
 
   if (isLoading) {
@@ -232,7 +288,6 @@ const ParentDashboard = () => {
     );
   }
 
-  // Limited slice amounts to optimize viewport fit
   const recentVisits = visitsData.clinic_visits ? visitsData.clinic_visits.slice(0, 2) : [];
   const recentDirectDispenses = visitsData.direct_dispensations ? visitsData.direct_dispensations.slice(0, 2) : [];
 
@@ -243,7 +298,7 @@ const ParentDashboard = () => {
 
       <div className="pd-grid">
 
-        {/* 1. NURSE ANNOUNCEMENTS CARD */}
+        {/* 1. NURSE ANNOUNCEMENTS CARD (CONTAINING FREQUENT ILLNESS ALERTS AT THE BOTTOM) */}
         <section className="pd-card pd-card-large">
           <div className="pd-card-header">
             <div className="pd-card-title">
@@ -253,6 +308,7 @@ const ParentDashboard = () => {
           </div>
 
           <div className="pd-card-body">
+            {/* EXISTING ANNOUNCEMENTS CONTENT */}
             {announcementsData.length === 0 ? (
               <p className="pd-empty-state">No active nurse announcements.</p>
             ) : (
@@ -268,6 +324,62 @@ const ParentDashboard = () => {
                   </li>
                 ))}
               </ul>
+            )}
+
+            {/* FREQUENT ILLNESS ALERT SECTION AT THE BOTTOM PART OF ANNOUNCEMENTS */}
+            {activeAlerts.length > 0 && (
+              <div className="pd-announcement-alerts-wrapper">
+                <div className="pd-announcement-alert-header">
+                  <div className="pd-alert-header-left">
+                    <ShieldAlert size={16} className="pd-alert-icon-pulse" />
+                    <span className="pd-announcement-alert-title">Frequent Illness Alerts ({activeAlerts.length})</span>
+                  </div>
+                  <span className="pd-announcement-alert-sub">3+ visits this month</span>
+                </div>
+
+                <div className="pd-announcement-alerts-list">
+                  {activeAlerts.map((alert) => {
+                    const alertKey = `${alert.studentId}-${alert.complaint}`;
+                    return (
+                      <div key={alertKey} className="pd-announcement-alert-item">
+                        <div className="pd-announcement-alert-content">
+                          <div className="pd-alert-student-line">
+                            <strong>{alert.studentName}</strong>
+                            {renderStudentBadge(alert.studentName)}
+                            <span className="pd-alert-badge-count">{alert.visitCount} Visits</span>
+                          </div>
+                          
+                          <div className="pd-alert-complaint-line">
+                            <AlertTriangle size={13} className="pd-text-warning" />
+                            <span className="pd-alert-complaint-name">{alert.complaint}</span>
+                          </div>
+
+                          <div className="pd-alert-advice-text">
+                            <Info size={12} />
+                            <span>{alert.advice}</span>
+                          </div>
+                        </div>
+
+                        <div className="pd-announcement-alert-actions">
+                          <button 
+                            className="pd-alert-btn-details"
+                            onClick={() => handleOpenAlertDetails(alert)}
+                          >
+                            Details <ChevronRight size={13} />
+                          </button>
+                          <button 
+                            className="pd-alert-btn-dismiss"
+                            onClick={() => handleDismissAlert(alertKey)}
+                            title="Dismiss Alert"
+                          >
+                            <X size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             )}
           </div>
         </section>
@@ -533,6 +645,89 @@ const ParentDashboard = () => {
         </section>
 
       </div>
+
+      {/* FREQUENT ILLNESS VISIT BREAKDOWN MODAL */}
+      {selectedAlertModal && (
+        <div className="pd-modal-backdrop" onClick={() => setSelectedAlertModal(null)}>
+          <div className="pd-modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="pd-modal-header">
+              <div className="pd-modal-title-group">
+                <AlertTriangle size={18} className="pd-text-warning" />
+                <h3>Frequent Illness Visit Breakdown</h3>
+              </div>
+              <button className="pd-modal-close" onClick={() => setSelectedAlertModal(null)}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="pd-modal-body">
+              <div className="pd-modal-summary">
+                <p><strong>Student:</strong> {selectedAlertModal.studentName} ({selectedAlertModal.studentId})</p>
+                <p><strong>Condition:</strong> {selectedAlertModal.complaint}</p>
+                <p><strong>Frequency:</strong> {selectedAlertModal.visitCount} visits this month</p>
+              </div>
+
+              <div className="pd-modal-advice-banner">
+                <Info size={16} />
+                <div>
+                  <strong>Clinic Care Advice:</strong>
+                  <p>{selectedAlertModal.advice}</p>
+                </div>
+              </div>
+
+              <h4 className="pd-modal-subtitle">Individual Visit Records</h4>
+
+              {isLoadingDetails ? (
+                <div className="pd-modal-loading">
+                  <div className="pd-spinner-sm"></div>
+                  <span>Loading clinic logs...</span>
+                </div>
+              ) : alertVisitsList.length === 0 ? (
+                <p className="pd-empty-state">No detailed records found.</p>
+              ) : (
+                <div className="pd-modal-visits-table-wrapper">
+                  <table className="pd-modal-visits-table">
+                    <thead>
+                      <tr>
+                        <th>Date & Time</th>
+                        <th>Vitals</th>
+                        <th>Intervention</th>
+                        <th>Assessment</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {alertVisitsList.map((visit) => (
+                        <tr key={visit.visitId}>
+                          <td>
+                            <strong>{formatDate(visit.visitDate)}</strong>
+                            <div className="pd-table-sub">{visit.timeIn || 'N/A'} - {visit.timeOut || 'N/A'}</div>
+                          </td>
+                          <td>
+                            <div className="pd-vitals-mini">
+                              {visit.temperature && <span>Temp: {visit.temperature}°C</span>}
+                              {visit.bloodPressure && <span>BP: {visit.bloodPressure}</span>}
+                              {visit.pulseRate && <span>Pulse: {visit.pulseRate} bpm</span>}
+                            </div>
+                          </td>
+                          <td>{visit.nursingIntervention || 'Rest / Observation'}</td>
+                          <td>{visit.assessment || 'Monitored at clinic'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="pd-modal-footer">
+              <button className="pd-btn-secondary" onClick={() => setSelectedAlertModal(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

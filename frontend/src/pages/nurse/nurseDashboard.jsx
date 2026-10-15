@@ -387,10 +387,7 @@ const PredictiveTooltip = ({ active, payload, label }) => {
         <h4 className="tooltip-header-nd">{label}</h4>
         <ul className="tooltip-items-list-standard-nd">
           {payload.map((entry, index) => {
-            const isStock = entry.dataKey === 'currentStock';
-            const displayUnit = isStock 
-              ? pluralize(dosageUnit, entry.value)
-              : 'package(s)/bottle(s)';
+            const displayUnit = pluralize(dosageUnit, entry.value);
 
             return (
               <li key={index} className="tooltip-item-nd">
@@ -662,22 +659,24 @@ const NurseDashboard = () => {
       'No.', 
       'Medicine Name', 
       'Package Strength / Form', 
+      'Avg Monthly Dispense (Container Demand)', 
       'Current Stock', 
-      'Monthly Avg Dispensed', 
-      'Predicted Demand (Packages/Bottles)'
+      'Predicted Need'
     ];
 
     const rows = predictiveData.map((med, index) => {
-      const ceilAvgBase = Math.ceil(Number(med.avgMonthlyDispensedBase) || 0);
-      const ceilPredicted = Math.ceil(Number(med.predictedNeed) || 0);
+      const avgMonthlyContainer = Math.ceil(Number(med.avgMonthlyDispensed) || 0);
+      const currStock = Number(med.currentStock) || 0;
+      const predNeed = Math.ceil(Number(med.predictedNeed) || 0);
+      const formLabel = med.dosageForm || 'unit';
 
       return [
         index + 1,
         med.name,
         `${med.packageStrength || 'N/A'} (${med.dosageForm || 'Unit'})`,
-        `${med.currentStock} ${pluralize(med.dosageForm, med.currentStock)}`,
-        `${ceilAvgBase} ${med.unitOfMeasure}`,
-        `${ceilPredicted} package(s)/bottle(s)`
+        `${avgMonthlyContainer} ${pluralize(formLabel, avgMonthlyContainer)}`,
+        `${currStock} ${pluralize(formLabel, currStock)}`,
+        `${predNeed} ${pluralize(formLabel, predNeed)}`
       ];
     });
 
@@ -1056,7 +1055,6 @@ const NurseDashboard = () => {
       return;
     }
 
-    // Ask nurse whether to trigger a push notification to target users regarding the cancellation
     const notifyCancellation = window.confirm(
       `Would you like to send a push notification to affected students/parents alerting them that "${title}" was cancelled?`
     );
@@ -1162,8 +1160,11 @@ const NurseDashboard = () => {
     return !isStandardUnit(unit);
   });
 
+  // Filter active items for predictive demand
   const activePredictiveData = predictiveData.filter(med => 
-    (Number(med.predictedNeed) || 0) > 0 || (Number(med.currentStock) || 0) > 0
+    (Number(med.predictedNeed) || 0) > 0 || 
+    (Number(med.currentStock) || 0) > 0 || 
+    (Number(med.avgMonthlyDispensed) || 0) > 0
   );
 
   const predictiveChartMinWidth = Math.max(activePredictiveData.length * 140, 800);
@@ -1642,7 +1643,7 @@ const NurseDashboard = () => {
         </div>
       )}
 
-      {/* SECTION 3: PREDICTIVE MEDICINE DEMAND */}
+      {/* SECTION 3: PREDICTIVE MEDICINE DEMAND (3 TOWERS - DOSAGE FORM SPECIFIC) */}
       <div className="dashboard-divider-line-nd" />
 
       <div className="dashboard-header-nd">
@@ -1671,7 +1672,7 @@ const NurseDashboard = () => {
         {isPredictiveLoading ? (
           <div className="loading-container-nd">
             <div className="spinner-nd"></div>
-            <p className="loading-text-nd">Calculating container package stock requirements...</p>
+            <p className="loading-text-nd">Calculating predictive medicine demand stock requirements...</p>
           </div>
         ) : activePredictiveData.length === 0 ? (
           <div className="no-data-container-nd"><h3 className="no-data-title-nd">No Predictive Demand Records Found</h3></div>
@@ -1685,8 +1686,15 @@ const NurseDashboard = () => {
                   <YAxis tick={{ fill: '#4B5563', fontSize: 12 }} axisLine={false} tickLine={false} />
                   <Tooltip content={<PredictiveTooltip />} cursor={{ fill: '#F3F4F6', opacity: 0.4 }} />
                   <Legend verticalAlign="bottom" height={36} iconType="rect" iconSize={14} wrapperStyle={{ paddingTop: '20px' }} />
-                  <Bar dataKey="currentStock" name="Current Stock (Dosage Form)" fill="#10B981" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="predictedNeed" name="Predicted Need (Packages/Bottles)" fill="#F97316" radius={[4, 4, 0, 0]} />
+                  
+                  {/* Tower 1: Average Per Month Dispense */}
+                  <Bar dataKey="avgMonthlyDispensed" name="Average Per Month Dispense" fill="#3B82F6" radius={[4, 4, 0, 0]} />
+                  
+                  {/* Tower 2: Current Stock */}
+                  <Bar dataKey="currentStock" name="Current Stock" fill="#10B981" radius={[4, 4, 0, 0]} />
+                  
+                  {/* Tower 3: Predicted Need */}
+                  <Bar dataKey="predictedNeed" name="Predicted Need" fill="#F97316" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -1696,20 +1704,24 @@ const NurseDashboard = () => {
 
       {!isPredictiveLoading && predictiveData.length > 0 && (
         <div className="averages-container-nd">
-          <h4 className="averages-title-nd">Predictive Calculation Breakdown (Dispense Avg / Container Strength)</h4>
+          <h4 className="averages-title-nd">Predictive Calculation Breakdown (Avg Monthly Dispense - Current Stock)</h4>
           <div className={`collapsible-container-nd card-collapsible-nd ${isPredictiveExpanded ? 'expanded-nd' : ''}`}>
             <div className="predictive-mapping-grid-nd">
-              {predictiveData.map((med, index) => (
-                <div key={index} className="predictive-mapping-card-nd">
-                  <div className="predictive-card-title-nd">{med.name}</div>
-                  <div className="predictive-card-text-nd">
-                    <strong>Package Strength: </strong>{med.packageStrength} ({med.dosageForm})<br />
-                    <strong>Stock at Date: </strong>{med.currentStock} {pluralize(med.dosageForm, med.currentStock)}<br />
-                    <strong>Monthly Avg Dispense: </strong>{formatCeilAvg(med.avgMonthlyDispensedBase)} {med.unitOfMeasure}<br />
-                    <strong>Calculated Container Demand: </strong>{formatCeilAvg(med.predictedNeed)} package(s)/bottle(s)
+              {predictiveData.map((med, index) => {
+                const dosageLabel = med.dosageForm || 'unit';
+                return (
+                  <div key={index} className="predictive-mapping-card-nd">
+                    <div className="predictive-card-title-nd">{med.name}</div>
+                    <div className="predictive-card-text-nd">
+                      <strong>Package Strength: </strong>{med.packageStrength} ({med.dosageForm})<br />
+                      <strong>Monthly Avg Dispense: </strong>{formatCeilAvg(med.avgMonthlyDispensedBase)} {med.unitOfMeasure}<br />
+                      <strong>Monthly Avg Dispense (Container Demand): </strong>{formatCeilAvg(med.avgMonthlyDispensed)} {pluralize(dosageLabel, med.avgMonthlyDispensed)}<br />
+                      <strong>Current Stock: </strong>{med.currentStock} {pluralize(dosageLabel, med.currentStock)}<br />
+                      <strong>Predicted Need: </strong>{formatCeilAvg(med.predictedNeed)} {pluralize(dosageLabel, med.predictedNeed)}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
           {predictiveData.length > 2 && (
@@ -2392,7 +2404,7 @@ const NurseDashboard = () => {
           <div className="modal-container-nd" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header-nd">
               <div>
-                <h3 className="modal-title-nd">Frequent Complaint Alerts</h3>
+                <h3 className="modal-title-nd">Frequent Illness Alerts</h3>
                 <p className="modal-subtitle-nd">Complete list of students requiring recurring care attention</p>
               </div>
               <button className="modal-close-btn-nd" onClick={() => setIsModalOpen(false)}>

@@ -67,6 +67,11 @@ export default function ManageStudentAccounts() {
   const [searchQuery, setSearchQuery] = useState('');
   const fileInputRef = useRef(null);
 
+  // Calculate active students total count
+  const activeStudentCount = Array.isArray(students)
+    ? students.filter((student) => Number(student.is_active) === 1).length
+    : 0;
+
   // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
@@ -1045,6 +1050,12 @@ export default function ManageStudentAccounts() {
             <h1>Student Account Management</h1>
             <p>Admin Portal - Account Administration</p>
           </div>
+        </div>
+
+        {/* Top Right Active Student Account Counter */}
+        <div className="active-students-badge-msa">
+          <span className="badge-label-msa">Active Accounts</span>
+          <span className="badge-count-msa">{activeStudentCount}</span>
         </div>
       </header>
 

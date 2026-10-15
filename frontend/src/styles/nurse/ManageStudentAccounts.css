@@ -827,3 +827,45 @@
     font-size: 0.95rem;
   }
 }
+
+/* Header Component Alignment */
+.student-container-msa .header-msa {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: #ffffff;
+  padding: 20px 24px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  border-left: 6px solid #0055a5;
+  margin-bottom: 20px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Active Student Badge Styling */
+.student-container-msa .active-students-badge-msa {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  background-color: #e8f5e9;
+  border: 1px solid #a5d6a7;
+  padding: 8px 16px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.student-container-msa .badge-label-msa {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #2e7d32;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.student-container-msa .badge-count-msa {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1b5e20;
+  line-height: 1.2;
+}

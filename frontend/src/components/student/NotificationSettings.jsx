@@ -5,8 +5,6 @@ import { useWebPush } from '../../hooks/useWebPush';
 
 const NotificationSettings = () => {
     const context = useOutletContext();
-
-    // Context user_id extraction strictly bound to users.user_id
     const userId = context?.userId || context?.user_id || context?.user?.user_id || null;
 
     const { isSubscribed, permission, loading, subscribe, unsubscribe } = useWebPush(userId);

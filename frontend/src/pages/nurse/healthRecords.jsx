@@ -245,6 +245,7 @@ export default function HealthRecord() {
     };
 
     // Print Preview PDF Export
+    // Print Preview PDF Export with Course/Strand Summary
     const handleExportPDF = () => {
         const rowsToExport = Array.isArray(filteredStudents) ? filteredStudents : [];
 
@@ -259,6 +260,23 @@ export default function HealthRecord() {
             month: 'long', 
             day: 'numeric' 
         });
+
+        // 1. Calculate frequency/count of students per Course/Strand (program_id)
+        const programCounts = rowsToExport.reduce((acc, student) => {
+            const prog = student.program_id ? student.program_id.trim() : 'Unspecified';
+            acc[prog] = (acc[prog] || 0) + 1;
+            return acc;
+        }, {});
+
+        // 2. Generate HTML items for each course/strand summary card
+        const summaryItemsHtml = Object.keys(programCounts).length > 0
+            ? Object.entries(programCounts).map(([prog, count]) => `
+                <div class="summary-card">
+                    <span class="summary-label">${prog}</span>
+                    <span class="summary-badge">${count} student${count > 1 ? 's' : ''}</span>
+                </div>
+            `).join('')
+            : '<span style="font-size: 12px; color: #64748b;">No program records found in current selection.</span>';
 
         const tableRowsHtml = rowsToExport.map(student => {
             const stId = student.student_id || 'N/A';
@@ -322,6 +340,49 @@ export default function HealthRecord() {
                         margin-bottom: 16px;
                         font-weight: 500;
                     }
+                    /* Course / Strand Summary Box Styling */
+                    .summary-section {
+                        background-color: #f8fafc;
+                        border: 1px solid #cbd5e1;
+                        border-radius: 6px;
+                        padding: 10px 14px;
+                        margin-bottom: 20px;
+                    }
+                    .summary-title {
+                        font-size: 11px;
+                        font-weight: bold;
+                        color: #1e3a8a;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                        margin-bottom: 8px;
+                    }
+                    .summary-grid {
+                        display: flex;
+                        flex-wrap: wrap;
+                        gap: 8px;
+                    }
+                    .summary-card {
+                        background-color: #ffffff;
+                        border: 1px solid #cbd5e1;
+                        border-radius: 4px;
+                        padding: 5px 10px;
+                        display: flex;
+                        align-items: center;
+                        gap: 8px;
+                        font-size: 12px;
+                    }
+                    .summary-label {
+                        color: #334155;
+                        font-weight: 600;
+                    }
+                    .summary-badge {
+                        background-color: #0056b3;
+                        color: #ffffff;
+                        font-size: 11px;
+                        font-weight: bold;
+                        padding: 2px 7px;
+                        border-radius: 10px;
+                    }
                     table {
                         width: 100%;
                         border-collapse: collapse;
@@ -377,6 +438,13 @@ export default function HealthRecord() {
                 <div class="meta-info">
                     <span><strong>STUDENT HEALTH RECORDS REPORT</strong></span>
                     <span>Date Generated: ${reportDate} | Total Records: ${rowsToExport.length}</span>
+                </div>
+
+                <div class="summary-section">
+                    <div class="summary-title">Course / Strand Student Count Summary</div>
+                    <div class="summary-grid">
+                        ${summaryItemsHtml}
+                    </div>
                 </div>
 
                 <table>

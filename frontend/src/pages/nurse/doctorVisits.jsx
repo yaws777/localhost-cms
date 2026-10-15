@@ -78,6 +78,7 @@ const DoctorVisit = () => {
     const [pastStartDate, setPastStartDate] = useState('');
     const [pastEndDate, setPastEndDate] = useState('');
     const [pastDoctorFilter, setPastDoctorFilter] = useState('');
+    const [qrInput, setQrInput] = useState('');
 
     // Custom Modal Alert & Confirmation State
     const [feedbackModal, setFeedbackModal] = useState({
@@ -211,6 +212,13 @@ const DoctorVisit = () => {
         } catch (err) {
             console.error('Error fetching students:', err);
         }
+    };
+
+    const handleManualScanSubmit = (e) => {
+        e.preventDefault();
+        if (!qrInput.trim()) return;
+        handleScannedCode(qrInput.trim());
+        setQrInput('');
     };
 
     const fetchPrograms = async () => {
@@ -1638,27 +1646,45 @@ const DoctorVisit = () => {
                 </div>
             )}
 
-            {/* MODAL: JSQR SCANNER */}
-            {showScannerModal && (
-                <div className="modal-overlay-dv">
-                    <div className="modal-content-dv">
-                        <div className="modal-header-dv">
-                            <h3>Scan Student QR Code {activeScanGroup ? `- ${activeScanGroup.title}` : ''}</h3>
-                            <button className="close-btn-dv" onClick={() => { setShowScannerModal(false); setActiveScanGroup(null); }}><X size={20} /></button>
-                        </div>
-                        <div style={{ textAlign: 'center', padding: '10px' }}>
-                            <p style={{ fontSize: '14px', marginBottom: '10px' }}>
-                                Align the student's QR code within the camera frame to update attendance to <strong>Present</strong> for this batch.
-                            </p>
-                            <video ref={videoRef} style={{ width: '100%', maxHeight: '300px', borderRadius: '8px', border: '2px solid #ccc' }} />
-                            <canvas ref={canvasRef} style={{ display: 'none' }} />
-                        </div>
-                        <div className="modal-footer-dv">
-                            <button type="button" className="sti-btn-dv sti-btn-light-dv" onClick={() => { setShowScannerModal(false); setActiveScanGroup(null); }}>Close Scanner</button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            {/* MODAL: JSQR SCANNER WITH MANUAL ENTRY */}
+{showScannerModal && (
+    <div className="modal-overlay-dv">
+        <div className="modal-content-dv">
+            <div className="modal-header-dv">
+                <h3>Scan Student QR Code {activeScanGroup ? `- ${activeScanGroup.title}` : ''}</h3>
+                <button className="close-btn-dv" onClick={() => { setShowScannerModal(false); setActiveScanGroup(null); setQrInput(''); }}>
+                    <X size={20} />
+                </button>
+            </div>
+            <div style={{ textAlign: 'center', padding: '10px' }}>
+                <p style={{ fontSize: '14px', marginBottom: '10px' }}>
+                    Align the student's QR code within the camera frame or enter their Student ID manually to update attendance to <strong>Present</strong>.
+                </p>
+                <video ref={videoRef} style={{ width: '100%', maxHeight: '260px', borderRadius: '8px', border: '2px solid #ccc' }} />
+                <canvas ref={canvasRef} style={{ display: 'none' }} />
+
+                {/* Manual Input Form */}
+                <form onSubmit={handleManualScanSubmit} style={{ marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <input 
+                        type="text" 
+                        placeholder="Or enter Student ID manually..." 
+                        value={qrInput} 
+                        onChange={(e) => setQrInput(e.target.value)}
+                        style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px' }}
+                    />
+                    <button type="submit" className="sti-btn-dv sti-btn-secondary-dv" style={{ justifyContent: 'center' }}>
+                        Submit Manual Input
+                    </button>
+                </form>
+            </div>
+            <div className="modal-footer-dv">
+                <button type="button" className="sti-btn-dv sti-btn-light-dv" onClick={() => { setShowScannerModal(false); setActiveScanGroup(null); setQrInput(''); }}>
+                    Close Scanner
+                </button>
+            </div>
+        </div>
+    </div>
+)}
 
             {/* MODAL 1: ADD / EDIT DOCTOR */}
             {showDoctorModal && (

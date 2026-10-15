@@ -620,6 +620,7 @@ const DispensedMedicine = () => {
   };
 
   // PRINT PREVIEW PDF EXPORT
+  // PRINT PREVIEW PDF EXPORT WITH MEDICINE QUANTITY/VOLUME SUMMARY
   const handleExportPDF = () => {
     const rowsToExport = Array.isArray(history) ? history : [];
 
@@ -634,6 +635,37 @@ const DispensedMedicine = () => {
       month: 'long', 
       day: 'numeric' 
     });
+
+    // 1. Calculate aggregated total quantity/volume and dispensation count per medicine
+    const medicineTotals = rowsToExport.reduce((acc, log) => {
+      const medName = log.medicine_name ? log.medicine_name.trim() : 'Unknown Medicine';
+      const unit = log.dosage_consumption_unit_of_measure || '';
+      const val = parseFloat(log.dosage_consumption_unit_value) || 0;
+
+      if (!acc[medName]) {
+        acc[medName] = { totalQty: 0, count: 0, unit: unit };
+      }
+      acc[medName].totalQty += val;
+      acc[medName].count += 1;
+      if (!acc[medName].unit && unit) {
+        acc[medName].unit = unit;
+      }
+      return acc;
+    }, {});
+
+    // 2. Generate HTML summary cards for medicines present in the report
+    const summaryItemsHtml = Object.keys(medicineTotals).length > 0
+      ? Object.entries(medicineTotals).map(([medName, data]) => {
+          const formattedTotal = formatUnitValue(data.totalQty, data.unit);
+          const qtyText = `${formattedTotal} ${data.unit}`.trim();
+          return `
+            <div class="summary-card">
+              <span class="summary-label">${medName}</span>
+              <span class="summary-badge">${qtyText} (${data.count} log${data.count > 1 ? 's' : ''})</span>
+            </div>
+          `;
+        }).join('')
+      : '<span style="font-size: 12px; color: #64748b;">No medicine dispensation records found in current selection.</span>';
 
     const tableRowsHtml = rowsToExport.map(log => {
       const dateTime = new Date(log.dispensed_at).toLocaleString();
@@ -695,6 +727,49 @@ const DispensedMedicine = () => {
                   margin-bottom: 16px;
                   font-weight: 500;
               }
+              /* Medicine Summary Box Styling */
+              .summary-section {
+                  background-color: #f8fafc;
+                  border: 1px solid #cbd5e1;
+                  border-radius: 6px;
+                  padding: 10px 14px;
+                  margin-bottom: 20px;
+              }
+              .summary-title {
+                  font-size: 11px;
+                  font-weight: bold;
+                  color: #1e3a8a;
+                  text-transform: uppercase;
+                  letter-spacing: 0.5px;
+                  margin-bottom: 8px;
+              }
+              .summary-grid {
+                  display: flex;
+                  flex-wrap: wrap;
+                  gap: 8px;
+              }
+              .summary-card {
+                  background-color: #ffffff;
+                  border: 1px solid #cbd5e1;
+                  border-radius: 4px;
+                  padding: 5px 10px;
+                  display: flex;
+                  align-items: center;
+                  gap: 8px;
+                  font-size: 12px;
+              }
+              .summary-label {
+                  color: #334155;
+                  font-weight: 600;
+              }
+              .summary-badge {
+                  background-color: #0056b3;
+                  color: #ffffff;
+                  font-size: 11px;
+                  font-weight: bold;
+                  padding: 2px 7px;
+                  border-radius: 10px;
+              }
               table {
                   width: 100%;
                   border-collapse: collapse;
@@ -750,6 +825,13 @@ const DispensedMedicine = () => {
           <div class="meta-info">
               <span><strong>DISPENSED MEDICINE REPORT LOG</strong></span>
               <span>Date Generated: ${reportDate} | Total Records: ${rowsToExport.length}</span>
+          </div>
+
+          <div class="summary-section">
+              <div class="summary-title">Dispensed Medicine Quantity / Volume Summary</div>
+              <div class="summary-grid">
+                  ${summaryItemsHtml}
+              </div>
           </div>
 
           <table>

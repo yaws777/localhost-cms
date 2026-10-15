@@ -331,6 +331,60 @@ export const RequirementManagement = () => {
             day: 'numeric' 
         });
 
+        // 1. Calculate Complete vs Incomplete student and requirement counts per Course/Strand
+        const programCounts = rowsToExport.reduce((acc, student) => {
+            const prog = student.program_id ? student.program_id.trim() : 'Unspecified';
+            const stats = student.stats || {};
+            const totalReqs = Number(stats.total || 0);
+            const completedReqs = Number(stats.completed || 0);
+            const incompleteReqs = totalReqs > completedReqs ? totalReqs - completedReqs : 0;
+
+            const isStudentComplete = totalReqs > 0 && completedReqs === totalReqs;
+
+            if (!acc[prog]) {
+                acc[prog] = {
+                    totalStudents: 0,
+                    completeStudents: 0,
+                    incompleteStudents: 0,
+                    completedReqs: 0,
+                    incompleteReqs: 0,
+                    totalReqs: 0
+                };
+            }
+
+            acc[prog].totalStudents += 1;
+            if (isStudentComplete) {
+                acc[prog].completeStudents += 1;
+            } else {
+                acc[prog].incompleteStudents += 1;
+            }
+
+            acc[prog].completedReqs += completedReqs;
+            acc[prog].incompleteReqs += incompleteReqs;
+            acc[prog].totalReqs += totalReqs;
+
+            return acc;
+        }, {});
+
+        // 2. Generate HTML summary cards with complete & incomplete breakdowns
+        const summaryItemsHtml = Object.keys(programCounts).length > 0
+            ? Object.entries(programCounts).map(([prog, data]) => `
+                <div class="summary-card">
+                    <div class="summary-card-header">
+                        <span class="summary-label">${prog}</span>
+                        <span class="summary-total-badge">${data.totalStudents} Student${data.totalStudents > 1 ? 's' : ''}</span>
+                    </div>
+                    <div class="summary-breakdown">
+                        <span class="status-pill complete-pill">✓ ${data.completeStudents} Complete</span>
+                        <span class="status-pill incomplete-pill">⚠ ${data.incompleteStudents} Incomplete</span>
+                    </div>
+                    <div class="summary-req-meta">
+                        <strong>Requirements:</strong> ${data.completedReqs} Complete / ${data.incompleteReqs} Incomplete (${data.totalReqs} Total)
+                    </div>
+                </div>
+            `).join('')
+            : '<span style="font-size: 12px; color: #64748b;">No course/strand records found in current selection.</span>';
+
         const tableRowsHtml = rowsToExport.map(s => {
             const fullName = `${s.first_name || ''} ${s.last_name || ''}`.trim();
             const programSec = `${s.program_id || ''} ${s.section ? `- ${s.section}` : ''}`.trim();
@@ -363,6 +417,85 @@ export const RequirementManagement = () => {
                     .report-title h2 { margin: 0; font-size: 20px; color: #1e3a8a; }
                     .report-title p { margin: 4px 0 0; font-size: 13px; color: #475569; }
                     .meta-info { display: flex; justify-content: space-between; font-size: 13px; color: #475569; margin-bottom: 16px; font-weight: 500; }
+                    
+                    /* Course / Strand Summary Box Styling */
+                    .summary-section {
+                        background-color: #f8fafc;
+                        border: 1px solid #cbd5e1;
+                        border-radius: 6px;
+                        padding: 12px 16px;
+                        margin-bottom: 20px;
+                    }
+                    .summary-title {
+                        font-size: 11px;
+                        font-weight: bold;
+                        color: #1e3a8a;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                        margin-bottom: 10px;
+                    }
+                    .summary-grid {
+                        display: flex;
+                        flex-wrap: wrap;
+                        gap: 10px;
+                    }
+                    .summary-card {
+                        background-color: #ffffff;
+                        border: 1px solid #cbd5e1;
+                        border-radius: 6px;
+                        padding: 8px 12px;
+                        display: flex;
+                        flex-direction: column;
+                        gap: 6px;
+                        font-size: 12px;
+                        min-width: 220px;
+                    }
+                    .summary-card-header {
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                    }
+                    .summary-label {
+                        color: #0f172a;
+                        font-weight: 700;
+                        font-size: 13px;
+                    }
+                    .summary-total-badge {
+                        background-color: #e2e8f0;
+                        color: #334155;
+                        font-size: 11px;
+                        font-weight: 600;
+                        padding: 2px 8px;
+                        border-radius: 10px;
+                    }
+                    .summary-breakdown {
+                        display: flex;
+                        gap: 6px;
+                    }
+                    .status-pill {
+                        font-size: 11px;
+                        font-weight: 600;
+                        padding: 3px 8px;
+                        border-radius: 4px;
+                    }
+                    .complete-pill {
+                        background-color: #dcfce7;
+                        color: #15803d;
+                        border: 1px solid #86efac;
+                    }
+                    .incomplete-pill {
+                        background-color: #fef3c7;
+                        color: #b45309;
+                        border: 1px solid #fde047;
+                    }
+                    .summary-req-meta {
+                        font-size: 11px;
+                        color: #64748b;
+                        border-top: 1px dashed #e2e8f0;
+                        padding-top: 4px;
+                        margin-top: 2px;
+                    }
+
                     table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 35px; }
                     th { background-color: #f1f5f9; color: #0f172a; text-align: left; padding: 9px 10px; border: 1px solid #cbd5e1; font-weight: bold; }
                     td { padding: 8px 10px; border: 1px solid #e2e8f0; }
@@ -384,7 +517,13 @@ export const RequirementManagement = () => {
                 </div>
                 <div class="meta-info">
                     <span><strong>STUDENT REQUIREMENTS SUMMARY REPORT</strong></span>
-                    <span>Date Generated: ${reportDate}</span>
+                    <span>Date Generated: ${reportDate} | Total Records: ${rowsToExport.length}</span>
+                </div>
+                <div class="summary-section">
+                    <div class="summary-title">Course / Strand Requirement Compliance Summary</div>
+                    <div class="summary-grid">
+                        ${summaryItemsHtml}
+                    </div>
                 </div>
                 <table>
                     <thead>

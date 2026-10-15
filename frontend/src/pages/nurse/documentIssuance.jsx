@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import jsPDF from 'jspdf';
+import { io } from 'socket.io-client';
 import { 
     Clock, 
     CheckCircle2, 
@@ -197,12 +198,50 @@ const DocumentIssuance = () => {
         }
     };
 
-    // Initial Load
+    // Initial Load & Real-Time WebSocket Connection
     useEffect(() => {
         fetchRequests();
         fetchFacilities();
         fetchMedicalRequirements();
+
+        // Establish WebSockets connection to backend
+        const socket = io('http://localhost:3001');
+
+        // Listen for real-time document request events
+        socket.on('document_request_updated', () => {
+            fetchRequests();
+        });
+
+        // Listen for real-time partner facility / service events
+        socket.on('partner_facility_updated', () => {
+            fetchFacilities();
+        });
+
+        return () => {
+            socket.disconnect();
+        };
     }, []);
+
+    // Real-Time Note / Message Sync for Currently Opened Modal Request
+    useEffect(() => {
+        if (!selectedRequest) return;
+
+        const socket = io('http://localhost:3001');
+
+        socket.on('note_added', (data) => {
+            if (
+                data && 
+                data.request_id === selectedRequest.request_id && 
+                data.request_type === selectedRequest.request_type
+            ) {
+                fetchNotes(selectedRequest.request_type, selectedRequest.request_id);
+            }
+        });
+
+        return () => {
+            socket.disconnect();
+        };
+    }, [selectedRequest]);
 
     // Re-fetch when opening config modal
     useEffect(() => {
@@ -310,6 +349,7 @@ const DocumentIssuance = () => {
     };
 
     // --- PRINT PREVIEW REPORT GENERATOR ---
+    // --- PRINT PREVIEW REPORT GENERATOR WITH STATUS SUMMARY ---
     const handleExportReport = () => {
         const rowsToExport = filteredRequests.length > 0 ? filteredRequests : requests;
 
@@ -324,6 +364,13 @@ const DocumentIssuance = () => {
             month: 'long', 
             day: 'numeric' 
         });
+
+        // 1. Calculate status totals from the exported dataset
+        const reportSummary = {
+            pending: rowsToExport.filter(r => ['pending', 'waiting for approval'].includes((r.status || '').toLowerCase())).length,
+            completed: rowsToExport.filter(r => ['completed', 'approved'].includes((r.status || '').toLowerCase())).length,
+            denied: rowsToExport.filter(r => (r.status || '').toLowerCase() === 'denied').length
+        };
 
         const tableRowsHtml = rowsToExport.map(req => {
             const studentName = `${req.first_name || ''} ${req.last_name || ''}`.trim();
@@ -386,6 +433,53 @@ const DocumentIssuance = () => {
                         margin-bottom: 16px;
                         font-weight: 500;
                     }
+
+                    /* Summary Section Styling */
+                    .summary-section {
+                        background-color: #f8fafc;
+                        border: 1px solid #cbd5e1;
+                        border-radius: 6px;
+                        padding: 10px 14px;
+                        margin-bottom: 20px;
+                    }
+                    .summary-title {
+                        font-size: 11px;
+                        font-weight: bold;
+                        color: #1e3a8a;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                        margin-bottom: 8px;
+                    }
+                    .summary-grid {
+                        display: flex;
+                        flex-wrap: wrap;
+                        gap: 10px;
+                    }
+                    .summary-card {
+                        background-color: #ffffff;
+                        border: 1px solid #cbd5e1;
+                        border-radius: 4px;
+                        padding: 6px 12px;
+                        display: flex;
+                        align-items: center;
+                        gap: 8px;
+                        font-size: 12px;
+                    }
+                    .summary-label {
+                        color: #334155;
+                        font-weight: 600;
+                    }
+                    .summary-badge {
+                        color: #ffffff;
+                        font-size: 11px;
+                        font-weight: bold;
+                        padding: 2px 8px;
+                        border-radius: 10px;
+                    }
+                    .pending-badge { background-color: #d97706; }
+                    .completed-badge { background-color: #16a34a; }
+                    .denied-badge { background-color: #dc2626; }
+
                     table {
                         width: 100%;
                         border-collapse: collapse;
@@ -440,7 +534,25 @@ const DocumentIssuance = () => {
 
                 <div class="meta-info">
                     <span><strong>DOCUMENT ISSUANCE REPORT</strong></span>
-                    <span>Date Generated: ${reportDate}</span>
+                    <span>Date Generated: ${reportDate} | Total Records: ${rowsToExport.length}</span>
+                </div>
+
+                <div class="summary-section">
+                    <div class="summary-title">Document Request Status Summary</div>
+                    <div class="summary-grid">
+                        <div class="summary-card">
+                            <span class="summary-label">Waiting for Approval</span>
+                            <span class="summary-badge pending-badge">${reportSummary.pending}</span>
+                        </div>
+                        <div class="summary-card">
+                            <span class="summary-label">Completed / Approved</span>
+                            <span class="summary-badge completed-badge">${reportSummary.completed}</span>
+                        </div>
+                        <div class="summary-card">
+                            <span class="summary-label">Denied</span>
+                            <span class="summary-badge denied-badge">${reportSummary.denied}</span>
+                        </div>
+                    </div>
                 </div>
 
                 <table>
@@ -456,7 +568,7 @@ const DocumentIssuance = () => {
                         </tr>
                     </thead>
                     <tbody>
-                        ${tableRowsHtml}
+                        ${tableRowsHtml || '<tr><td colspan="7">No document requests found.</td></tr>'}
                     </tbody>
                 </table>
 

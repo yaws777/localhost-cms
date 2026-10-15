@@ -809,179 +809,246 @@ const VisitLogConsultation = () => {
     };
 
     const handleExportPDF = () => {
-        const rowsToExport = Array.isArray(filteredAllVisits) ? filteredAllVisits : [];
+    const rowsToExport = Array.isArray(filteredAllVisits) ? filteredAllVisits : [];
 
-        const printWindow = window.open('', '_blank', 'width=950,height=750');
-        if (!printWindow) {
-            alert('Please allow popups to preview and print the report.');
-            return;
-        }
+    const printWindow = window.open('', '_blank', 'width=950,height=750');
+    if (!printWindow) {
+        alert('Please allow popups to preview and print the report.');
+        return;
+    }
 
-        const reportDate = new Date().toLocaleDateString('en-US', { 
-            year: 'numeric', 
-            month: 'long', 
-            day: 'numeric' 
-        });
+    const reportDate = new Date().toLocaleDateString('en-US', { 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric' 
+    });
 
-        const tableRowsHtml = rowsToExport.map(visit => {
-            const vDate = formatDateDisplay(visit.visit_date);
-            const stId = visit.student_id || 'N/A';
-            const stName = `${visit.first_name || ''} ${visit.last_name || ''}`.trim() || 'N/A';
-            const complaint = renderComplaintBadgeText(visit);
-            const timeIn = formatTimeDisplay(visit.time_in);
-            const timeOut = formatTimeDisplay(visit.time_out);
-            
-            const dispensedMed = visit.medicine_name || batches.find(b => b.batch_id === visit.batch_id)?.medicine_name;
-            const medText = dispensedMed 
-                ? `${dispensedMed}${visit.dosage_consumption_unit_value ? ` (${visit.dosage_consumption_unit_value}${visit.dosage_consumption_unit_of_measure || ''})` : ''}`
-                : 'None';
+    // 1. Calculate frequency of each chief complaint in the filtered report data
+    const complaintCounts = rowsToExport.reduce((acc, visit) => {
+        const name = visit.complaint_name ? visit.complaint_name.trim() : 'General Checkup';
+        acc[name] = (acc[name] || 0) + 1;
+        return acc;
+    }, {});
 
-            return `
-                <tr>
-                    <td>${vDate}</td>
-                    <td>${stId}</td>
-                    <td><strong>${stName}</strong></td>
-                    <td>${complaint}</td>
-                    <td>${timeIn}</td>
-                    <td>${timeOut}</td>
-                    <td>${medText}</td>
-                </tr>
-            `;
-        }).join('');
+    // 2. Generate HTML elements for complaint summary items
+    const summaryItemsHtml = Object.keys(complaintCounts).length > 0
+        ? Object.entries(complaintCounts).map(([name, count]) => `
+            <div class="summary-card">
+                <span class="summary-label">${name}</span>
+                <span class="summary-badge">${count}</span>
+            </div>
+        `).join('')
+        : '<span style="font-size: 12px; color: #64748b;">No complaints found in current selection.</span>';
 
-        const htmlContent = `
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>Clinic Visit Logs Report</title>
-                <style>
-                    body {
-                        font-family: Arial, Helvetica, sans-serif;
-                        margin: 25px;
-                        color: #0f172a;
-                    }
-                    .report-header {
-                        display: flex;
-                        align-items: center;
-                        border-bottom: 2px solid #0056b3;
-                        padding-bottom: 12px;
-                        margin-bottom: 16px;
-                    }
-                    .report-header img {
-                        height: 60px;
-                        margin-right: 20px;
-                    }
-                    .report-title h2 {
-                        margin: 0;
-                        font-size: 20px;
-                        color: #1e3a8a;
-                    }
-                    .report-title p {
-                        margin: 4px 0 0;
-                        font-size: 13px;
-                        color: #475569;
-                    }
-                    .meta-info {
-                        display: flex;
-                        justify-content: space-between;
-                        font-size: 13px;
-                        color: #475569;
-                        margin-bottom: 16px;
-                        font-weight: 500;
-                    }
-                    table {
-                        width: 100%;
-                        border-collapse: collapse;
-                        font-size: 12px;
-                        margin-bottom: 35px;
-                    }
-                    th {
-                        background-color: #f1f5f9;
-                        color: #0f172a;
-                        text-align: left;
-                        padding: 9px 10px;
-                        border: 1px solid #cbd5e1;
-                        font-weight: bold;
-                    }
-                    td {
-                        padding: 8px 10px;
-                        border: 1px solid #e2e8f0;
-                    }
-                    tr:nth-child(even) {
-                        background-color: #f8fafc;
-                    }
-                    .signature-section {
-                        margin-top: 40px;
-                        font-size: 13px;
-                    }
-                    .signature-title {
-                        color: #475569;
-                        margin-bottom: 35px;
-                    }
-                    .signature-name {
-                        font-weight: bold;
-                        font-size: 14px;
-                        color: #0f172a;
-                    }
-                    .signature-role {
-                        font-style: italic;
-                        color: #64748b;
-                    }
-                    @media print {
-                        body { margin: 0; }
-                    }
-                </style>
-            </head>
-            <body>
-                <div class="report-header">
-                    <img src="${stiLogo}" alt="STI Logo" />
-                    <div class="report-title">
-                        <h2>STI COLLEGE BALIUAG</h2>
-                        <p>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan.</p>
-                    </div>
-                </div>
+    const tableRowsHtml = rowsToExport.map(visit => {
+        const vDate = formatDateDisplay(visit.visit_date);
+        const stId = visit.student_id || 'N/A';
+        const stName = `${visit.first_name || ''} ${visit.last_name || ''}`.trim() || 'N/A';
+        const complaint = renderComplaintBadgeText(visit);
+        const timeIn = formatTimeDisplay(visit.time_in);
+        const timeOut = formatTimeDisplay(visit.time_out);
+        
+        const dispensedMed = visit.medicine_name || batches.find(b => b.batch_id === visit.batch_id)?.medicine_name;
+        const medText = dispensedMed 
+            ? `${dispensedMed}${visit.dosage_consumption_unit_value ? ` (${visit.dosage_consumption_unit_value}${visit.dosage_consumption_unit_of_measure || ''})` : ''}`
+            : 'None';
 
-                <div class="meta-info">
-                    <span><strong>CLINIC VISIT LOGS REPORT</strong></span>
-                    <span>Date Generated: ${reportDate} | Total Records: ${rowsToExport.length}</span>
-                </div>
-
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Date</th>
-                            <th>Student ID</th>
-                            <th>Student Name</th>
-                            <th>Chief Complaint</th>
-                            <th>Time In</th>
-                            <th>Time Out</th>
-                            <th>Medicine Dispensed</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${tableRowsHtml || '<tr><td colspan="7">No clinic visit records found matching criteria.</td></tr>'}
-                    </tbody>
-                </table>
-
-                <div class="signature-section">
-                    <div class="signature-title">Prepared by:</div>
-                    <div class="signature-name">Marilou H. Balarao</div>
-                    <div class="signature-role">School Nurse</div>
-                </div>
-
-                <script>
-                    window.onload = function() {
-                        window.print();
-                    };
-                </script>
-            </body>
-            </html>
+        return `
+            <tr>
+                <td>${vDate}</td>
+                <td>${stId}</td>
+                <td><strong>${stName}</strong></td>
+                <td>${complaint}</td>
+                <td>${timeIn}</td>
+                <td>${timeOut}</td>
+                <td>${medText}</td>
+            </tr>
         `;
+    }).join('');
 
-        printWindow.document.open();
-        printWindow.document.write(htmlContent);
-        printWindow.document.close();
-    };
+    const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Clinic Visit Logs Report</title>
+            <style>
+                body {
+                    font-family: Arial, Helvetica, sans-serif;
+                    margin: 25px;
+                    color: #0f172a;
+                }
+                .report-header {
+                    display: flex;
+                    align-items: center;
+                    border-bottom: 2px solid #0056b3;
+                    padding-bottom: 12px;
+                    margin-bottom: 16px;
+                }
+                .report-header img {
+                    height: 60px;
+                    margin-right: 20px;
+                }
+                .report-title h2 {
+                    margin: 0;
+                    font-size: 20px;
+                    color: #1e3a8a;
+                }
+                .report-title p {
+                    margin: 4px 0 0;
+                    font-size: 13px;
+                    color: #475569;
+                }
+                .meta-info {
+                    display: flex;
+                    justify-content: space-between;
+                    font-size: 13px;
+                    color: #475569;
+                    margin-bottom: 16px;
+                    font-weight: 500;
+                }
+                /* Summary Box Styling */
+                .summary-section {
+                    background-color: #f8fafc;
+                    border: 1px solid #cbd5e1;
+                    border-radius: 6px;
+                    padding: 10px 14px;
+                    margin-bottom: 20px;
+                }
+                .summary-title {
+                    font-size: 11px;
+                    font-weight: bold;
+                    color: #1e3a8a;
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                    margin-bottom: 8px;
+                }
+                .summary-grid {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 8px;
+                }
+                .summary-card {
+                    background-color: #ffffff;
+                    border: 1px solid #cbd5e1;
+                    border-radius: 4px;
+                    padding: 5px 10px;
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    font-size: 12px;
+                }
+                .summary-label {
+                    color: #334155;
+                    font-weight: 600;
+                }
+                .summary-badge {
+                    background-color: #0056b3;
+                    color: #ffffff;
+                    font-size: 11px;
+                    font-weight: bold;
+                    padding: 2px 7px;
+                    border-radius: 10px;
+                }
+                table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    font-size: 12px;
+                    margin-bottom: 35px;
+                }
+                th {
+                    background-color: #f1f5f9;
+                    color: #0f172a;
+                    text-align: left;
+                    padding: 9px 10px;
+                    border: 1px solid #cbd5e1;
+                    font-weight: bold;
+                }
+                td {
+                    padding: 8px 10px;
+                    border: 1px solid #e2e8f0;
+                }
+                tr:nth-child(even) {
+                    background-color: #f8fafc;
+                }
+                .signature-section {
+                    margin-top: 40px;
+                    font-size: 13px;
+                }
+                .signature-title {
+                    color: #475569;
+                    margin-bottom: 35px;
+                }
+                .signature-name {
+                    font-weight: bold;
+                    font-size: 14px;
+                    color: #0f172a;
+                }
+                .signature-role {
+                    font-style: italic;
+                    color: #64748b;
+                }
+                @media print {
+                    body { margin: 0; }
+                }
+            </style>
+        </head>
+        <body>
+            <div class="report-header">
+                <img src="${stiLogo}" alt="STI Logo" />
+                <div class="report-title">
+                    <h2>STI COLLEGE BALIUAG</h2>
+                    <p>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan.</p>
+                </div>
+            </div>
+
+            <div class="meta-info">
+                <span><strong>CLINIC VISIT LOGS REPORT</strong></span>
+                <span>Date Generated: ${reportDate} | Total Records: ${rowsToExport.length}</span>
+            </div>
+
+            <div class="summary-section">
+                <div class="summary-title">Complaint Summary Report</div>
+                <div class="summary-grid">
+                    ${summaryItemsHtml}
+                </div>
+            </div>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Student ID</th>
+                        <th>Student Name</th>
+                        <th>Complaint</th>
+                        <th>Time In</th>
+                        <th>Time Out</th>
+                        <th>Medicine Dispensed</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${tableRowsHtml || '<tr><td colspan="7">No clinic visit records found matching criteria.</td></tr>'}
+                </tbody>
+            </table>
+
+            <div class="signature-section">
+                <div class="signature-title">Prepared by:</div>
+                <div class="signature-name">Marilou H. Balarao</div>
+                <div class="signature-role">School Nurse</div>
+            </div>
+
+            <script>
+                window.onload = function() {
+                    window.print();
+                };
+            </script>
+        </body>
+        </html>
+    `;
+
+    printWindow.document.open();
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+};
 
     return (
         <div className="consultation-wrapper-vlc">
@@ -1305,7 +1372,7 @@ const VisitLogConsultation = () => {
                                 </div>
 
                                 <div className="filter-input-group-vlc">
-                                    <label><Filter size={14} /> Chief Complaint</label>
+                                    <label><Filter size={14} /> Complaint</label>
                                     <select 
                                         value={complaintFilter} 
                                         onChange={(e) => setComplaintFilter(e.target.value)}
@@ -1545,7 +1612,7 @@ const VisitLogConsultation = () => {
                                         )}
                                     </div>
                                     <div className="form-input-element-vlc full-width-field-vlc">
-                                        <label>Chief Complaint <span className="required-star-vlc">*</span></label>
+                                        <label>Complaint <span className="required-star-vlc">*</span></label>
                                         <select 
                                             required 
                                             value={formData.complaint_id} 

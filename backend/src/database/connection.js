@@ -330,19 +330,25 @@ async function sendPhilSms(recipient, message) {
     const startTime = performance.now();
 
     try {
-        const response = await fetch('https:/dashboard.philsms.com/api/v3/sms/send', {
+        const payload = {
+            recipient: recipient,
+            message: message,
+            type: 'plain'
+        };
+
+        // Attach sender_id only if an authorized sender ID is explicitly set in .env
+        if (process.env.PHILSMS_SENDER_ID && process.env.PHILSMS_SENDER_ID.trim() !== '') {
+            payload.sender_id = process.env.PHILSMS_SENDER_ID.trim();
+        }
+
+        const response = await fetch('https://dashboard.philsms.com/api/v3/sms/send', {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${process.env.PHILSMS_API_TOKEN}`,
                 'Content-Type': 'application/json',
                 'Accept': 'application/json'
             },
-            body: JSON.stringify({
-                recipient: recipient,
-                sender_id: process.env.PHILSMS_SENDER_ID || 'PhilSMS',
-                message: message,
-                type: 'plain'
-            })
+            body: JSON.stringify(payload)
         });
 
         const responseTimeMs = Math.round(performance.now() - startTime);
@@ -4469,11 +4475,13 @@ app.get('/api/health-trends', async (req, res) => {
         graphData.push(weekObj);
       }
 
+      // Query deduplicates per student, complaint, and month (counts earliest visit in month)
       const [visits] = await pool.query(`
-        SELECT cv.visit_date, cc.complaint_name 
+        SELECT cv.student_id, cc.complaint_name, MIN(cv.visit_date) as visit_date 
         FROM clinic_visits cv
         JOIN chief_complaints cc ON cv.complaint_id = cc.complaint_id
         WHERE cv.visit_date BETWEEN ? AND ?
+        GROUP BY cv.student_id, cc.complaint_name, DATE_FORMAT(cv.visit_date, '%Y-%m')
       `, [formatDate(startDate), formatDate(endDate)]);
 
       visits.forEach(visit => {
@@ -4498,11 +4506,13 @@ app.get('/api/health-trends', async (req, res) => {
         graphData.push(monthObj);
       }
 
+      // Query groups by student, complaint, and YYYY-MM so each month allows 1 count per complaint
       const [visits] = await pool.query(`
-        SELECT cv.visit_date, cc.complaint_name 
+        SELECT cv.student_id, cc.complaint_name, MIN(cv.visit_date) as visit_date 
         FROM clinic_visits cv
         JOIN chief_complaints cc ON cv.complaint_id = cc.complaint_id
         WHERE cv.visit_date BETWEEN ? AND ?
+        GROUP BY cv.student_id, cc.complaint_name, DATE_FORMAT(cv.visit_date, '%Y-%m')
       `, [formatDate(startDate), formatDate(endDate)]);
 
       visits.forEach(visit => {
@@ -4516,12 +4526,16 @@ app.get('/api/health-trends', async (req, res) => {
 
     const { avgStartDate, avgEndDate, avgDivisor, averagesLabel } = getAverageDateWindow(targetDate);
 
+    // Counts unique monthly occurrences per student per complaint for monthly averages calculation
     const [avgCounts] = await pool.query(`
-      SELECT cc.complaint_name, COUNT(*) as count
-      FROM clinic_visits cv
-      JOIN chief_complaints cc ON cv.complaint_id = cc.complaint_id
-      WHERE cv.visit_date BETWEEN ? AND ?
-      GROUP BY cc.complaint_name
+      SELECT complaint_name, COUNT(*) as count
+      FROM (
+        SELECT DISTINCT cv.student_id, cc.complaint_name, DATE_FORMAT(cv.visit_date, '%Y-%m') AS visit_month
+        FROM clinic_visits cv
+        JOIN chief_complaints cc ON cv.complaint_id = cc.complaint_id
+        WHERE cv.visit_date BETWEEN ? AND ?
+      ) AS unique_monthly_complaints
+      GROUP BY complaint_name
     `, [avgStartDate, avgEndDate]);
 
     const avgMap = {};
@@ -4729,6 +4743,7 @@ app.get('/api/medicine-dispensed-overview', async (req, res) => {
 
 
 // 3. Predictive Medicine Demand API
+// 3. Predictive Medicine Demand API (3-Tower Container Demand Logic)
 app.get('/api/predictive-medicine', async (req, res) => {
   try {
     const currentDate = new Date();
@@ -4848,16 +4863,24 @@ app.get('/api/predictive-medicine', async (req, res) => {
       }
     });
 
-    // 5. Construct unified graph response data
+    // 5. Construct graph response data (Calculated Container Demand as Monthly Average Dispense)
     const graphData = Object.values(medicineAggregation).map(med => {
       const totalBaseDispensed = medicineBaseDispensedMap[med.id] || 0;
       const avgMonthlyBaseDispensed = totalBaseDispensed / avgDivisor;
       const containerStrengthBase = toBaseValue(med.strengthUnitValue, med.strengthUnitOfMeasure);
       const unitLabel = getBaseUnitLabel(med.strengthUnitOfMeasure, med.dosageForm);
 
-      const predictedNeedUnits = containerStrengthBase > 0 
+      // Tower 1: Calculated Container Demand (Monthly Avg Dispense in Packages/Bottles)
+      const avgMonthlyContainerDemand = containerStrengthBase > 0 
         ? parseFloat((avgMonthlyBaseDispensed / containerStrengthBase).toFixed(1))
-        : 0;
+        : parseFloat(avgMonthlyBaseDispensed.toFixed(1));
+
+      // Tower 2: Current Stock
+      const currentStock = parseFloat(med.currentStock) || 0;
+
+      // Tower 3: Predicted Need = max(0, Monthly Average Dispense [Container Demand] - Current Stock)
+      const difference = avgMonthlyContainerDemand - currentStock;
+      const predictedNeed = difference > 0 ? parseFloat(difference.toFixed(1)) : 0;
 
       return {
         id: med.id,
@@ -4866,9 +4889,10 @@ app.get('/api/predictive-medicine', async (req, res) => {
         unitOfMeasure: unitLabel,
         packageStrength: `${med.strengthUnitValue || 1} ${med.strengthUnitOfMeasure || unitLabel}`,
         avgMonthlyDispensedBase: parseFloat(avgMonthlyBaseDispensed.toFixed(1)),
-        currentStock: med.currentStock,
+        avgMonthlyDispensed: avgMonthlyContainerDemand, // Tower 1
+        currentStock: currentStock,                     // Tower 2
         stockUnit: med.dosageForm,
-        predictedNeed: predictedNeedUnits,
+        predictedNeed: predictedNeed,                   // Tower 3
         complaintPredictedNeed: parseFloat(med.complaintPredictedNeed.toFixed(1)),
         connectedComplaints: Array.from(med.connectedComplaints)
       };
@@ -5058,6 +5082,62 @@ app.delete('/api/frequent-complaints/dismiss', async (req, res) => {
   } catch (error) {
     console.error('Error dismissing alert:', error);
     return res.status(500).json({ success: false, message: 'Failed to dismiss alert.' });
+  }
+});
+
+
+// GET Frequent Illness Alerts for Parent's Linked Students
+app.get('/api/parent/frequent-complaints/:parentId', async (req, res) => {
+  try {
+    const { parentId } = req.params;
+    const targetMonth = req.query.month || new Date().toISOString().slice(0, 7);
+
+    if (!parentId) {
+      return res.status(400).json({ success: false, message: 'parentId is required.' });
+    }
+
+    const query = `
+      SELECT 
+        cv.student_id AS studentId,
+        CONCAT(s.first_name, ' ', s.last_name) AS studentName,
+        CONCAT(s.program_id, ' - Year ', s.year_level) AS gradeSection,
+        cc.complaint_name AS complaint,
+        COUNT(cv.visit_id) AS visitCount,
+        MAX(DATE_FORMAT(cv.visit_date, '%Y-%m-%d')) AS lastVisitDate
+      FROM clinic_visits cv
+      INNER JOIN students s ON cv.student_id = s.student_id
+      INNER JOIN chief_complaints cc ON cv.complaint_id = cc.complaint_id
+      INNER JOIN parent_student_mapping psm ON s.student_id = psm.student_id
+      WHERE psm.parent_id = ?
+        AND DATE_FORMAT(cv.visit_date, '%Y-%m') = ?
+      GROUP BY 
+        cv.student_id, 
+        cv.complaint_id, 
+        s.first_name, 
+        s.last_name, 
+        s.program_id, 
+        s.year_level, 
+        cc.complaint_name
+      HAVING COUNT(cv.visit_id) >= 3
+      ORDER BY visitCount DESC, lastVisitDate DESC;
+    `;
+
+    const [rows] = await pool.query(query, [parentId, targetMonth]);
+
+    const alertsWithAdvice = rows.map((row) => ({
+      ...row,
+      advice: getAutomaticAdvice(row.complaint)
+    }));
+
+    return res.status(200).json({
+      success: true,
+      month: targetMonth,
+      totalAlerts: alertsWithAdvice.length,
+      data: alertsWithAdvice
+    });
+  } catch (error) {
+    console.error('Error fetching parent frequent complaints:', error);
+    return res.status(500).json({ success: false, message: 'Server error retrieving alerts.' });
   }
 });
 
