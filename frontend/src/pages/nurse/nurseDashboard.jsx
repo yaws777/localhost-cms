@@ -91,8 +91,17 @@ const getCurrentMonthString = () => {
   return `${year}-${month}`;
 };
 
+// Normalize MySQL date strings (YYYY-MM-DD HH:mm:ss) to standard ISO format for safe JS Date parsing
+const parseSafeDate = (d) => {
+  if (!d) return new Date(NaN);
+  if (d instanceof Date) return d;
+  const isoStr = String(d).replace(' ', 'T');
+  return new Date(isoStr);
+};
+
 const formatDateTimeForInput = (d) => {
-  const date = new Date(d);
+  if (!d) return '';
+  const date = parseSafeDate(d);
   if (isNaN(date.getTime())) return '';
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -110,14 +119,14 @@ const getBrandNameOnly = (fullName) => {
 
 const formatDate = (dateString) => {
   if (!dateString) return 'N/A';
-  const date = new Date(dateString);
+  const date = parseSafeDate(dateString);
   if (isNaN(date.getTime())) return dateString;
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
 const formatDateTime = (dateTimeString) => {
   if (!dateTimeString) return 'N/A';
-  const date = new Date(dateTimeString);
+  const date = parseSafeDate(dateTimeString);
   if (isNaN(date.getTime())) return dateTimeString;
   return date.toLocaleString('en-US', { 
     month: 'short', 
@@ -132,7 +141,7 @@ const formatDateTime = (dateTimeString) => {
 const formatTime = (timeString) => {
   if (!timeString) return 'N/A';
   if (timeString.includes('T') || timeString.includes('-')) {
-    const date = new Date(timeString);
+    const date = parseSafeDate(timeString);
     if (!isNaN(date.getTime())) {
       return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
     }
@@ -154,27 +163,31 @@ const isScheduleUpcoming = (dateStr, timeStr) => {
   let scheduleDate;
 
   if (timeStr && (timeStr.includes('T') || timeStr.includes('Z'))) {
-    scheduleDate = new Date(timeStr);
+    scheduleDate = parseSafeDate(timeStr);
   } else if (dateStr && (dateStr.includes('T') || dateStr.includes('Z'))) {
-    scheduleDate = new Date(dateStr);
+    scheduleDate = parseSafeDate(dateStr);
   } else if (dateStr && timeStr) {
     const cleanDate = dateStr.split('T')[0];
-    scheduleDate = new Date(`${cleanDate}T${timeStr}`);
+    scheduleDate = parseSafeDate(`${cleanDate}T${timeStr}`);
   } else if (dateStr) {
-    scheduleDate = new Date(dateStr);
+    scheduleDate = parseSafeDate(dateStr);
   } else if (timeStr) {
-    scheduleDate = new Date(timeStr);
+    scheduleDate = parseSafeDate(timeStr);
   }
 
   if (!scheduleDate || isNaN(scheduleDate.getTime())) return true;
   return scheduleDate > now;
 };
 
-// Helper function to calculate announcement active status dynamically
+// Helper function to calculate announcement active status dynamically across all browsers
 const getAnnouncementStatusInfo = (startAt, expiresAt) => {
   const now = new Date();
-  const start = new Date(startAt);
-  const expires = new Date(expiresAt);
+  const start = parseSafeDate(startAt);
+  const expires = parseSafeDate(expiresAt);
+
+  if (isNaN(start.getTime()) || isNaN(expires.getTime())) {
+    return { label: 'UNKNOWN', color: '#6B7280', bg: '#F3F4F6', border: '#E5E7EB' };
+  }
 
   if (now < start) {
     return { label: 'UPCOMING', color: '#2563EB', bg: '#EFF6FF', border: '#BFDBFE' };
@@ -470,7 +483,6 @@ const CustomXAxisTick = ({ x, y, payload, filterType, isCurrentYearSelected, cur
 /* --- MAIN DASHBOARD COMPONENT --- */
 const NurseDashboard = () => {
   const navigate = useNavigate();
-  // Get active nurseId and account userId from NurseLayout outlet context
   const { nurseId, userId } = useOutletContext() || {};
 
   const maxCurrentMonth = getCurrentMonthString();
@@ -533,11 +545,11 @@ const NurseDashboard = () => {
   const [modalSearch, setModalSearch] = useState('');
   const [modalDate, setModalDate] = useState('');
 
-  // 5. Announcement State (CRUD & Management)
+  // 5. Announcement State (CRUD & Management inside Manage Active Notices Tab)
   const [isAnnouncementModalOpen, setIsAnnouncementModalOpen] = useState(false);
   const [announcementsList, setAnnouncementsList] = useState([]);
   const [isAnnouncementLoading, setIsAnnouncementLoading] = useState(false);
-  const [announcementModalTab, setAnnouncementModalTab] = useState('CREATE'); // 'CREATE' | 'EDIT' | 'LIST'
+  const [announcementModalTab, setAnnouncementModalTab] = useState('LIST'); // 'LIST' (Default) | 'CREATE' | 'EDIT'
   const [editingAnnouncementId, setEditingAnnouncementId] = useState(null);
   const [programsList, setProgramsList] = useState([]);
   const [announcementError, setAnnouncementError] = useState('');
@@ -923,7 +935,7 @@ const NurseDashboard = () => {
     }
   }, []);
 
-  // Fetch Announcements List (for Read, Edit, and Delete)
+  // Fetch Announcements List (for Active Notices Tab in Modal)
   const fetchAnnouncements = useCallback(async () => {
     setIsAnnouncementLoading(true);
     try {
@@ -931,15 +943,18 @@ const NurseDashboard = () => {
       if (res.ok) {
         const data = await res.json();
         setAnnouncementsList(data.data || (Array.isArray(data) ? data : []));
+      } else {
+        setAnnouncementsList([]);
       }
     } catch (err) {
       console.error('Failed to fetch announcements:', err);
+      setAnnouncementsList([]);
     } finally {
       setIsAnnouncementLoading(false);
     }
   }, []);
 
-  // Fetch Programs for Announcement Modal
+  // Fetch Programs for Announcement Form
   const fetchPrograms = async () => {
     try {
       const res = await fetch('http://localhost:3001/api/programs');
@@ -952,12 +967,12 @@ const NurseDashboard = () => {
     }
   };
 
-  // Open Announcement Modal (Mode: 'CREATE', 'EDIT', 'LIST')
-  const handleOpenAnnouncementModal = (tab = 'CREATE', ann = null) => {
+  // Open Announcement Modal (Default: 'LIST' tab for active managed notices)
+  const handleOpenAnnouncementModal = async (tab = 'LIST', ann = null) => {
     setAnnouncementError('');
     setAnnouncementModalTab(tab);
     fetchPrograms();
-    fetchAnnouncements();
+    await fetchAnnouncements();
 
     if (tab === 'EDIT' && ann) {
       setEditingAnnouncementId(ann.announcement_id || ann.id);
@@ -1004,7 +1019,10 @@ const NurseDashboard = () => {
       return;
     }
 
-    if (new Date(announcementForm.start_at) >= new Date(announcementForm.expires_at)) {
+    const startDate = parseSafeDate(announcementForm.start_at);
+    const expiresDate = parseSafeDate(announcementForm.expires_at);
+
+    if (startDate >= expiresDate) {
       setAnnouncementError('Expiration Date & Time must be set after the Start Date & Time.');
       return;
     }
@@ -1018,25 +1036,26 @@ const NurseDashboard = () => {
         : 'http://localhost:3001/api/announcements';
       const method = isEditing ? 'PUT' : 'POST';
 
-      // Pass nurse_id for the announcements table and user_id for notifyUsers sender_id
-      const payload = {
+      const formattedPayload = {
         nurse_id: nurseId || 'NURSE02000',
         user_id: userId,
-        ...announcementForm
+        ...announcementForm,
+        start_at: announcementForm.start_at.replace('T', ' '),
+        expires_at: announcementForm.expires_at.replace('T', ' ')
       };
 
       const response = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(formattedPayload)
       });
 
       const result = await response.json();
 
       if (result.success) {
         alert(isEditing ? 'Announcement updated successfully!' : 'Announcement created and published successfully!');
-        fetchAnnouncements();
-        fetchNurseDashboard();
+        await fetchAnnouncements();
+        await fetchNurseDashboard();
         setAnnouncementModalTab('LIST');
       } else {
         setAnnouncementError(result.message || 'Failed to save announcement.');
@@ -1076,8 +1095,8 @@ const NurseDashboard = () => {
             ? 'Announcement deleted and cancellation push notification sent!'
             : 'Announcement deleted successfully!'
         );
-        fetchAnnouncements();
-        fetchNurseDashboard();
+        await fetchAnnouncements();
+        await fetchNurseDashboard();
       } else {
         alert(result.message || 'Failed to delete announcement.');
       }
@@ -1160,7 +1179,6 @@ const NurseDashboard = () => {
     return !isStandardUnit(unit);
   });
 
-  // Filter active items for predictive demand
   const activePredictiveData = predictiveData.filter(med => 
     (Number(med.predictedNeed) || 0) > 0 || 
     (Number(med.currentStock) || 0) > 0 || 
@@ -2063,7 +2081,7 @@ const NurseDashboard = () => {
         </div>
       )}
 
-      {/* ANNOUNCEMENT CRUD MODAL */}
+      {/* ANNOUNCEMENT CRUD MODAL WITH MANAGE ACTIVE NOTICES TAB */}
       {isAnnouncementModalOpen && (
         <div className="modal-overlay-nd" onClick={() => setIsAnnouncementModalOpen(false)}>
           <div className="modal-container-nd modal-container-narrow-nd" onClick={(e) => e.stopPropagation()}>
@@ -2074,9 +2092,9 @@ const NurseDashboard = () => {
                   <h3 className="modal-title-nd">
                     {announcementModalTab === 'EDIT' 
                       ? 'Edit Announcement' 
-                      : announcementModalTab === 'LIST' 
-                      ? 'Active & Scheduled Announcements Directory' 
-                      : 'Post New Announcement'}
+                      : announcementModalTab === 'CREATE' 
+                      ? 'Post New Announcement' 
+                      : 'Active & Managed Notices Directory'}
                   </h3>
                   <p className="modal-subtitle-nd">Broadcast and manage targeted campus health notices</p>
                 </div>
@@ -2095,6 +2113,25 @@ const NurseDashboard = () => {
                   fontSize: '12.5px',
                   fontWeight: '600',
                   cursor: 'pointer',
+                  backgroundColor: announcementModalTab === 'LIST' ? '#0250A3' : '#F3F4F6',
+                  color: announcementModalTab === 'LIST' ? '#FFF' : '#374151',
+                  border: 'none',
+                  borderRadius: '6px 6px 0 0'
+                }}
+                onClick={async () => {
+                  setAnnouncementModalTab('LIST');
+                  await fetchAnnouncements();
+                }}
+              >
+                Manage Active Notices ({announcementsList.length})
+              </button>
+              <button
+                type="button"
+                style={{
+                  padding: '8px 14px',
+                  fontSize: '12.5px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
                   backgroundColor: announcementModalTab === 'CREATE' ? '#0250A3' : '#F3F4F6',
                   color: announcementModalTab === 'CREATE' ? '#FFF' : '#374151',
                   border: 'none',
@@ -2104,29 +2141,10 @@ const NurseDashboard = () => {
               >
                 <Plus size={14} style={{ display: 'inline', marginRight: '4px' }} /> Post New
               </button>
-              <button
-                type="button"
-                style={{
-                  padding: '8px 14px',
-                  fontSize: '12.5px',
-                  fontWeight: '600',
-                  cursor: 'pointer',
-                  backgroundColor: announcementModalTab === 'LIST' ? '#0250A3' : '#F3F4F6',
-                  color: announcementModalTab === 'LIST' ? '#FFF' : '#374151',
-                  border: 'none',
-                  borderRadius: '6px 6px 0 0'
-                }}
-                onClick={() => {
-                  setAnnouncementModalTab('LIST');
-                  fetchAnnouncements();
-                }}
-              >
-                Manage Active Notices ({announcementsList.length})
-              </button>
             </div>
 
             <div className="modal-body-scroll-nd" style={{ padding: '20px' }}>
-              {/* LIST TAB: READ, EDIT, DELETE ACTIVE, UPCOMING & EXPIRED NOTICES */}
+              {/* TAB 1: MANAGE ACTIVE NOTICES (LIST TAB) */}
               {announcementModalTab === 'LIST' ? (
                 <div>
                   {isAnnouncementLoading ? (
@@ -2224,7 +2242,7 @@ const NurseDashboard = () => {
                   )}
                 </div>
               ) : (
-                /* FORM TAB: CREATE / EDIT */
+                /* TAB 2 & 3: FORM TAB (CREATE / EDIT) */
                 <form onSubmit={handleAnnouncementSubmit}>
                   {announcementError && (
                     <div style={{ padding: '10px 14px', backgroundColor: '#FEE2E2', color: '#991B1B', borderRadius: '6px', marginBottom: '16px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -2372,10 +2390,10 @@ const NurseDashboard = () => {
                     <button
                       type="button"
                       className="modal-close-secondary-btn-nd"
-                      onClick={() => setIsAnnouncementModalOpen(false)}
+                      onClick={() => setAnnouncementModalTab('LIST')}
                       disabled={isAnnouncementSubmitting}
                     >
-                      Cancel
+                      Back to Active Notices
                     </button>
                     <button
                       type="submit"

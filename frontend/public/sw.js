@@ -142,3 +142,55 @@ sw.addEventListener('notificationclick', (event) => {
         })
     );
 });
+
+// WEB PUSH NOTIFICATIONS
+sw.addEventListener('push', (event) => {
+    event.waitUntil(
+        (async () => {
+            // 1. Check if user currently has an active, visible app tab open
+            const windowClients = await sw.clients.matchAll({
+                type: 'window',
+                includeUncontrolled: true
+            });
+
+            const isUserActiveInSystem = windowClients.some(
+                (client) => client.visibilityState === 'visible'
+            );
+
+            // If the user is currently using the system, suppress OS notification
+            if (isUserActiveInSystem) {
+                return;
+            }
+
+            // 2. Parse payload if user is NOT currently in the system[cite: 3]
+            let payload = {};
+            if (event.data) {
+                try {
+                    payload = event.data.json();
+                } catch (e) {
+                    payload = {
+                        title: 'STI Clinic Notification',
+                        message: event.data.text()
+                    };
+                }
+            }
+
+            const title = payload.title || 'STI Baliuag Clinic';
+            const options = {
+                body: payload.message || payload.body || 'You have a new update.',
+                icon: payload.icon || '../src/assets/sti-logof.png',
+                badge: payload.badge || '../src/assets/sti-logof.png',
+                vibrate: [100, 50, 100],
+                tag: payload.tag || 'sti-clinic-notification',
+                renotify: true,
+                data: {
+                    url: payload.url || payload.route || '/',
+                    notificationId: payload.notification_id || null
+                }
+            };
+
+            // 3. Display push notification[cite: 3]
+            return sw.registration.showNotification(title, options);
+        })()
+    );
+});

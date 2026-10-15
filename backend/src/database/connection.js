@@ -122,15 +122,16 @@ webpush.setVapidDetails(
 );
 
 //legit system notification and push notification
-async function notifyUsers({ sender_id, recipient_ids, title, message, type, payloadData = {} }) {
+// Example helper: Pass an optional activeUserIds Set (e.g., from Socket.io active connections)
+async function notifyUsers({ sender_id, recipient_ids, title, message, type, payloadData = {}, activeUserIds = new Set() }) {
     if (!recipient_ids || recipient_ids.length === 0) return;
 
     // Sanitize and deduplicate user IDs
     const uniqueRecipients = [...new Set(recipient_ids.filter(Boolean))];
     if (uniqueRecipients.length === 0) return;
 
+    // 1. FAST PATH: Insert system notifications into DB synchronously
     try {
-        // 1. Bulk insert system notifications into database
         const notifValues = uniqueRecipients.map((recipient_id) => [
             uuidv4(),
             sender_id || null,
@@ -145,53 +146,60 @@ async function notifyUsers({ sender_id, recipient_ids, title, message, type, pay
             `INSERT INTO notifications (notification_id, sender_id, recipient_id, title, message, type, is_read) VALUES ?`,
             [notifValues]
         );
-
-        // 2. Query push subscriptions
-        const [subscriptions] = await pool.query(
-            `SELECT * FROM push_subscriptions WHERE user_id IN (?)`,
-            [uniqueRecipients]
-        );
-
-        if (subscriptions.length === 0) {
-            console.warn(`[WebPush] No active subscriptions found for user IDs:`, uniqueRecipients);
-            return;
-        }
-
-        const pushPayload = JSON.stringify({
-            title,
-            body: message,
-            data: payloadData,
-        });
-
-        // 3. Dispatch web push notifications using webpush.sendNotification
-        const pushPromises = subscriptions.map(async (sub) => {
-            const pushSubscription = {
-                endpoint: sub.endpoint,
-                keys: {
-                    p256dh: sub.p256dh,
-                    auth: sub.auth,
-                },
-            };
-
-            try {
-                // FIXED: Changed sendPushNotification to sendNotification
-                await webpush.sendNotification(pushSubscription, pushPayload);
-                console.log(`[WebPush] Successfully sent to subscription: ${sub.subscription_id}`);
-            } catch (err) {
-                console.error(`[WebPush] Error sending to subscription ${sub.subscription_id}:`, err.statusCode || err.message);
-                
-                // Remove expired/unsubscribed tokens (HTTP status 404 or 410)
-                if (err.statusCode === 410 || err.statusCode === 404) {
-                    await pool.query('DELETE FROM push_subscriptions WHERE subscription_id = ?', [sub.subscription_id]);
-                    console.log(`[WebPush] Cleaned up expired subscription: ${sub.subscription_id}`);
-                }
-            }
-        });
-
-        await Promise.allSettled(pushPromises);
     } catch (err) {
-        console.error('[WebPush] Error inside notifyUsers helper:', err);
+        console.error('[Notification DB Error]:', err);
     }
+
+    // 2. CHECK "NOT CURRENTLY IN THE SYSTEM":
+    // Filter out users who are currently active/connected in the app
+    const targetRecipients = uniqueRecipients.filter((userId) => !activeUserIds.has(userId));
+
+    if (targetRecipients.length === 0) {
+        return; // All target recipients are currently using the system
+    }
+
+    // 3. NON-BLOCKING EXECUTION: Dispatch push in background without awaiting
+    setImmediate(async () => {
+        try {
+            // Query push subscriptions ONLY for subscribed & offline users
+            const [subscriptions] = await pool.query(
+                `SELECT * FROM push_subscriptions WHERE user_id IN (?)`,
+                [targetRecipients]
+            );
+
+            if (!subscriptions || subscriptions.length === 0) return;
+
+            const pushPayload = JSON.stringify({
+                title,
+                body: message,
+                data: payloadData,
+            });
+
+            // Send push notifications asynchronously
+            const pushPromises = subscriptions.map(async (sub) => {
+                const pushSubscription = {
+                    endpoint: sub.endpoint,
+                    keys: {
+                        p256dh: sub.p256dh,
+                        auth: sub.auth,
+                    },
+                };
+
+                try {
+                    await webpush.sendNotification(pushSubscription, pushPayload);
+                } catch (err) {
+                    // Clean up unsubscribed or expired tokens (404/410)
+                    if (err.statusCode === 410 || err.statusCode === 404) {
+                        await pool.query('DELETE FROM push_subscriptions WHERE subscription_id = ?', [sub.subscription_id]);
+                    }
+                }
+            });
+
+            await Promise.allSettled(pushPromises);
+        } catch (err) {
+            console.error('[WebPush Background Error]:', err);
+        }
+    });
 }
 
 // 1. Get Public VAPID Key
@@ -3815,7 +3823,7 @@ app.get('/api/students/search-visit', async (req, res) => {
     }
 });
 
-// GET: Retrieve history of all clinic visits
+// GET: Retrieve history of all clinic visits (Latest Check-In First)
 app.get('/api/clinic-visits', async (req, res) => {
     try {
         const sql = `
@@ -3831,12 +3839,12 @@ app.get('/api/clinic-visits', async (req, res) => {
             LEFT JOIN consultation_dispensation cd ON cv.visit_id = cd.visit_id
             LEFT JOIN medicine_inventory_batches mib ON cd.batch_id = mib.batch_id
             LEFT JOIN medicines m ON mib.medicine_id = m.medicine_id
-            ORDER BY cv.visit_date DESC, cv.time_in DESC
+            ORDER BY cv.visit_date DESC, cv.time_in DESC, cv.visit_id DESC
         `;
         const [rows] = await pool.execute(sql);
         res.json(rows);
     } catch (error) {
-        console.error(error);
+        console.error("Error fetching clinic visits:", error);
         res.status(500).json({ error: "Failed to fetch clinic visits" });
     }
 });
@@ -11201,412 +11209,293 @@ app.get('/api/nurses', async (req, res) => {
 // ==========================================
 // Announcement API with notifyUsers Integration
 
+// Helper to format HTML5 datetime-local string (YYYY-MM-DDTHH:mm) to MySQL DATETIME (YYYY-MM-DD HH:mm:ss)
+const formatMySQLDateTime = (dtStr) => {
+  if (!dtStr) return null;
+  const clean = dtStr.replace('T', ' ');
+  return clean.length === 16 ? `${clean}:00` : clean;
+};
+
 // ==========================================
 // 1. CREATE ANNOUNCEMENT & TRIGGER NOTIFICATIONS
 // ==========================================
 app.post('/api/announcements', async (req, res) => {
-    const connection = await pool.getConnection();
-    try {
-        const {
-            nurse_id,
-            user_id, // Nurse's account userId from users table
-            title,
-            content,
-            target_audience, // 'STUDENT', 'PARENT', or 'BOTH'
-            target_program_id = null,
-            target_year_level = null,
-            start_at,
-            expires_at
-        } = req.body;
+  const connection = await pool.getConnection();
+  try {
+    const {
+      nurse_id,
+      user_id,
+      title,
+      content,
+      target_audience,
+      target_program_id = null,
+      target_year_level = null,
+      start_at,
+      expires_at
+    } = req.body;
 
-        if (!nurse_id || !title || !content || !target_audience || !start_at || !expires_at) {
-            return res.status(400).json({
-                success: false,
-                message: 'nurse_id, title, content, target_audience, start_at, and expires_at are required.'
-            });
-        }
-
-        if (new Date(start_at) >= new Date(expires_at)) {
-            return res.status(400).json({
-                success: false,
-                message: 'Expiration date (expires_at) must be after start date (start_at).'
-            });
-        }
-
-        const announcement_id = `ANN-${uuidv4()}`;
-        const cleanProgramId = target_program_id === '' ? null : target_program_id;
-        const cleanYearLevel = target_year_level === '' || target_year_level === null ? null : parseInt(target_year_level, 10);
-
-        await connection.beginTransaction();
-
-        // Insert main announcement using nurse_id domain key
-        await connection.execute(
-            `INSERT INTO announcements (
-                announcement_id, nurse_id, title, content, target_audience,
-                target_program_id, target_year_level, start_at, expires_at, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-            [announcement_id, nurse_id, title, content, target_audience, cleanProgramId, cleanYearLevel, start_at, expires_at]
-        );
-
-        const targetUserIds = new Set();
-
-        // Map target students
-        if (target_audience === 'STUDENT' || target_audience === 'BOTH') {
-            let studentQuery = `SELECT student_id, user_id FROM students WHERE 1=1`;
-            const studentParams = [];
-
-            if (cleanProgramId) {
-                studentQuery += ` AND program_id = ?`;
-                studentParams.push(cleanProgramId);
-            }
-            if (cleanYearLevel) {
-                studentQuery += ` AND year_level = ?`;
-                studentParams.push(cleanYearLevel);
-            }
-
-            const [matchingStudents] = await connection.execute(studentQuery, studentParams);
-
-            if (matchingStudents.length > 0) {
-                const studentValues = matchingStudents.map(s => [announcement_id, s.student_id]);
-                await connection.query(
-                    `INSERT INTO announcement_target_students (announcement_id, student_id) VALUES ?`,
-                    [studentValues]
-                );
-
-                matchingStudents.forEach(s => {
-                    if (s.user_id) targetUserIds.add(s.user_id);
-                });
-            }
-        }
-
-        // Map target parents
-        if (target_audience === 'PARENT' || target_audience === 'BOTH') {
-            let parentQuery = `
-                SELECT DISTINCT p.parent_id, p.user_id 
-                FROM parents p
-                JOIN parent_student_mapping psm ON p.parent_id = psm.parent_id
-                JOIN students s ON psm.student_id = s.student_id
-                WHERE 1=1
-            `;
-            const parentParams = [];
-
-            if (cleanProgramId) {
-                parentQuery += ` AND s.program_id = ?`;
-                parentParams.push(cleanProgramId);
-            }
-            if (cleanYearLevel) {
-                parentQuery += ` AND s.year_level = ?`;
-                parentParams.push(cleanYearLevel);
-            }
-
-            const [matchingParents] = await connection.execute(parentQuery, parentParams);
-
-            if (matchingParents.length > 0) {
-                const parentValues = matchingParents.map(p => [announcement_id, p.parent_id]);
-                await connection.query(
-                    `INSERT INTO announcement_target_parents (announcement_id, parent_id) VALUES ?`,
-                    [parentValues]
-                );
-
-                matchingParents.forEach(p => {
-                    if (p.user_id) targetUserIds.add(p.user_id);
-                });
-            }
-        }
-
-        await connection.commit();
-
-        // Dispatch System Notifications & Web Push Notifications via notifyUsers
-        // Uses user_id (the nurse's user table ID) for sender_id
-        notifyUsers({
-            sender_id: user_id || nurse_id,
-            recipient_ids: Array.from(targetUserIds),
-            title: `📢 New Announcement: ${title}`,
-            message: content.length > 120 ? `${content.substring(0, 117)}...` : content,
-            type: 'ANNOUNCEMENT',
-            payloadData: {
-                announcement_id,
-                url: '/announcements'
-            }
-        }).catch(err => console.error('Error dispatching announcement notifications:', err));
-
-        return res.status(201).json({
-            success: true,
-            message: 'Announcement created and notifications triggered.',
-            announcement_id
-        });
-
-    } catch (error) {
-        await connection.rollback();
-        console.error('Error creating announcement:', error);
-        return res.status(500).json({
-            success: false,
-            message: 'Server error while creating announcement.',
-            error: error.message
-        });
-    } finally {
-        connection.release();
+    if (!nurse_id || !title || !content || !target_audience || !start_at || !expires_at) {
+      return res.status(400).json({
+        success: false,
+        message: 'nurse_id, title, content, target_audience, start_at, and expires_at are required.'
+      });
     }
+
+    const formattedStartAt = formatMySQLDateTime(start_at);
+    const formattedExpiresAt = formatMySQLDateTime(expires_at);
+
+    if (new Date(formattedStartAt) >= new Date(formattedExpiresAt)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Expiration date (expires_at) must be after start date (start_at).'
+      });
+    }
+
+    const announcement_id = `ANN-${uuidv4()}`;
+    const cleanProgramId = target_program_id === '' ? null : target_program_id;
+    const cleanYearLevel = target_year_level === '' || target_year_level === null ? null : parseInt(target_year_level, 10);
+
+    await connection.beginTransaction();
+
+    await connection.execute(
+      `INSERT INTO announcements (
+        announcement_id, nurse_id, title, content, target_audience,
+        target_program_id, target_year_level, start_at, expires_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [announcement_id, nurse_id, title, content, target_audience, cleanProgramId, cleanYearLevel, formattedStartAt, formattedExpiresAt]
+    );
+
+    const targetUserIds = new Set();
+
+    if (target_audience === 'STUDENT' || target_audience === 'BOTH') {
+      let studentQuery = `SELECT student_id, user_id FROM students WHERE 1=1`;
+      const studentParams = [];
+
+      if (cleanProgramId) {
+        studentQuery += ` AND program_id = ?`;
+        studentParams.push(cleanProgramId);
+      }
+      if (cleanYearLevel) {
+        studentQuery += ` AND year_level = ?`;
+        studentParams.push(cleanYearLevel);
+      }
+
+      const [matchingStudents] = await connection.execute(studentQuery, studentParams);
+
+      if (matchingStudents.length > 0) {
+        const studentValues = matchingStudents.map(s => [announcement_id, s.student_id]);
+        await connection.query(
+          `INSERT INTO announcement_target_students (announcement_id, student_id) VALUES ?`,
+          [studentValues]
+        );
+        matchingStudents.forEach(s => { if (s.user_id) targetUserIds.add(s.user_id); });
+      }
+    }
+
+    if (target_audience === 'PARENT' || target_audience === 'BOTH') {
+      let parentQuery = `
+        SELECT DISTINCT p.parent_id, p.user_id 
+        FROM parents p
+        JOIN parent_student_mapping psm ON p.parent_id = psm.parent_id
+        JOIN students s ON psm.student_id = s.student_id
+        WHERE 1=1
+      `;
+      const parentParams = [];
+
+      if (cleanProgramId) {
+        parentQuery += ` AND s.program_id = ?`;
+        parentParams.push(cleanProgramId);
+      }
+      if (cleanYearLevel) {
+        parentQuery += ` AND s.year_level = ?`;
+        parentParams.push(cleanYearLevel);
+      }
+
+      const [matchingParents] = await connection.execute(parentQuery, parentParams);
+
+      if (matchingParents.length > 0) {
+        const parentValues = matchingParents.map(p => [announcement_id, p.parent_id]);
+        await connection.query(
+          `INSERT INTO announcement_target_parents (announcement_id, parent_id) VALUES ?`,
+          [parentValues]
+        );
+        matchingParents.forEach(p => { if (p.user_id) targetUserIds.add(p.user_id); });
+      }
+    }
+
+    await connection.commit();
+
+    notifyUsers({
+      sender_id: user_id || nurse_id,
+      recipient_ids: Array.from(targetUserIds),
+      title: `📣 New Announcement: ${title}`,
+      message: content.length > 120 ? `${content.substring(0, 117)}...` : content,
+      type: 'ANNOUNCEMENT',
+      payloadData: { announcement_id, url: '/announcements' }
+    }).catch(err => console.error('Error dispatching notifications:', err));
+
+    return res.status(201).json({
+      success: true,
+      message: 'Announcement created and published successfully.',
+      announcement_id
+    });
+
+  } catch (error) {
+    await connection.rollback();
+    console.error('Error creating announcement:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error while creating announcement.',
+      error: error.message
+    });
+  } finally {
+    connection.release();
+  }
 });
 
 // ==========================================
-// 2. UPDATE ANNOUNCEMENT & RESEND NOTIFICATIONS
+// 2. UPDATE ANNOUNCEMENT & REFLECT ON DASHBOARD
 // ==========================================
 app.put('/api/announcements/:id', async (req, res) => {
-    const connection = await pool.getConnection();
-    try {
-        const { id: announcement_id } = req.params;
-        const {
-            nurse_id,
-            user_id, // Nurse's account userId from users table
-            title,
-            content,
-            target_audience,
-            target_program_id = null,
-            target_year_level = null,
-            start_at,
-            expires_at,
-            notify_update = false // Optional boolean to resend notifications on update
-        } = req.body;
+  const connection = await pool.getConnection();
+  try {
+    const { id: announcement_id } = req.params;
+    const {
+      nurse_id,
+      user_id,
+      title,
+      content,
+      target_audience,
+      target_program_id = null,
+      target_year_level = null,
+      start_at,
+      expires_at,
+      notify_update = false
+    } = req.body;
 
-        if (!title || !content || !target_audience || !start_at || !expires_at) {
-            return res.status(400).json({
-                success: false,
-                message: 'title, content, target_audience, start_at, and expires_at are required.'
-            });
-        }
-
-        const cleanProgramId = target_program_id === '' ? null : target_program_id;
-        const cleanYearLevel = target_year_level === '' || target_year_level === null ? null : parseInt(target_year_level, 10);
-
-        await connection.beginTransaction();
-
-        // Update main announcement table
-        const [updateResult] = await connection.execute(
-            `UPDATE announcements 
-             SET title = ?, content = ?, target_audience = ?, target_program_id = ?, 
-                 target_year_level = ?, start_at = ?, expires_at = ?
-             WHERE announcement_id = ?`,
-            [title, content, target_audience, cleanProgramId, cleanYearLevel, start_at, expires_at, announcement_id]
-        );
-
-        if (updateResult.affectedRows === 0) {
-            await connection.rollback();
-            return res.status(404).json({ success: false, message: 'Announcement not found.' });
-        }
-
-        // Clear existing target mapping records
-        await connection.execute(`DELETE FROM announcement_target_students WHERE announcement_id = ?`, [announcement_id]);
-        await connection.execute(`DELETE FROM announcement_target_parents WHERE announcement_id = ?`, [announcement_id]);
-
-        const targetUserIds = new Set();
-
-        // Re-populate target students
-        if (target_audience === 'STUDENT' || target_audience === 'BOTH') {
-            let studentQuery = `SELECT student_id, user_id FROM students WHERE 1=1`;
-            const studentParams = [];
-
-            if (cleanProgramId) {
-                studentQuery += ` AND program_id = ?`;
-                studentParams.push(cleanProgramId);
-            }
-            if (cleanYearLevel) {
-                studentQuery += ` AND year_level = ?`;
-                studentParams.push(cleanYearLevel);
-            }
-
-            const [matchingStudents] = await connection.execute(studentQuery, studentParams);
-
-            if (matchingStudents.length > 0) {
-                const studentValues = matchingStudents.map(s => [announcement_id, s.student_id]);
-                await connection.query(
-                    `INSERT INTO announcement_target_students (announcement_id, student_id) VALUES ?`,
-                    [studentValues]
-                );
-                matchingStudents.forEach(s => { if (s.user_id) targetUserIds.add(s.user_id); });
-            }
-        }
-
-        // Re-populate target parents
-        if (target_audience === 'PARENT' || target_audience === 'BOTH') {
-            let parentQuery = `
-                SELECT DISTINCT p.parent_id, p.user_id 
-                FROM parents p
-                JOIN parent_student_mapping psm ON p.parent_id = psm.parent_id
-                JOIN students s ON psm.student_id = s.student_id
-                WHERE 1=1
-            `;
-            const parentParams = [];
-
-            if (cleanProgramId) {
-                parentQuery += ` AND s.program_id = ?`;
-                parentParams.push(cleanProgramId);
-            }
-            if (cleanYearLevel) {
-                parentQuery += ` AND s.year_level = ?`;
-                parentParams.push(cleanYearLevel);
-            }
-
-            const [matchingParents] = await connection.execute(parentQuery, parentParams);
-
-            if (matchingParents.length > 0) {
-                const parentValues = matchingParents.map(p => [announcement_id, p.parent_id]);
-                await connection.query(
-                    `INSERT INTO announcement_target_parents (announcement_id, parent_id) VALUES ?`,
-                    [parentValues]
-                );
-                matchingParents.forEach(p => { if (p.user_id) targetUserIds.add(p.user_id); });
-            }
-        }
-
-        await connection.commit();
-
-        // Resend System & Web Push Notifications if requested
-        // Uses user_id for sender_id
-        if (notify_update) {
-            notifyUsers({
-                sender_id: user_id || nurse_id || null,
-                recipient_ids: Array.from(targetUserIds),
-                title: `📝 Updated Announcement: ${title}`,
-                message: content.length > 120 ? `${content.substring(0, 117)}...` : content,
-                type: 'ANNOUNCEMENT',
-                payloadData: {
-                    announcement_id,
-                    url: '/announcements'
-                }
-            }).catch(err => console.error('Error dispatching update notifications:', err));
-        }
-
-        return res.status(200).json({
-            success: true,
-            message: 'Announcement updated successfully.'
-        });
-
-    } catch (error) {
-        await connection.rollback();
-        console.error('Error updating announcement:', error);
-        return res.status(500).json({
-            success: false,
-            message: 'Server error while updating announcement.',
-            error: error.message
-        });
-    } finally {
-        connection.release();
+    if (!title || !content || !target_audience || !start_at || !expires_at) {
+      return res.status(400).json({
+        success: false,
+        message: 'title, content, target_audience, start_at, and expires_at are required.'
+      });
     }
+
+    const formattedStartAt = formatMySQLDateTime(start_at);
+    const formattedExpiresAt = formatMySQLDateTime(expires_at);
+
+    const cleanProgramId = target_program_id === '' ? null : target_program_id;
+    const cleanYearLevel = target_year_level === '' || target_year_level === null ? null : parseInt(target_year_level, 10);
+
+    await connection.beginTransaction();
+
+    const [updateResult] = await connection.execute(
+      `UPDATE announcements 
+       SET title = ?, content = ?, target_audience = ?, target_program_id = ?, 
+           target_year_level = ?, start_at = ?, expires_at = ?
+       WHERE announcement_id = ?`,
+      [title, content, target_audience, cleanProgramId, cleanYearLevel, formattedStartAt, formattedExpiresAt, announcement_id]
+    );
+
+    if (updateResult.affectedRows === 0) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, message: 'Announcement not found.' });
+    }
+
+    await connection.execute(`DELETE FROM announcement_target_students WHERE announcement_id = ?`, [announcement_id]);
+    await connection.execute(`DELETE FROM announcement_target_parents WHERE announcement_id = ?`, [announcement_id]);
+
+    const targetUserIds = new Set();
+
+    if (target_audience === 'STUDENT' || target_audience === 'BOTH') {
+      let studentQuery = `SELECT student_id, user_id FROM students WHERE 1=1`;
+      const studentParams = [];
+
+      if (cleanProgramId) {
+        studentQuery += ` AND program_id = ?`;
+        studentParams.push(cleanProgramId);
+      }
+      if (cleanYearLevel) {
+        studentQuery += ` AND year_level = ?`;
+        studentParams.push(cleanYearLevel);
+      }
+
+      const [matchingStudents] = await connection.execute(studentQuery, studentParams);
+
+      if (matchingStudents.length > 0) {
+        const studentValues = matchingStudents.map(s => [announcement_id, s.student_id]);
+        await connection.query(
+          `INSERT INTO announcement_target_students (announcement_id, student_id) VALUES ?`,
+          [studentValues]
+        );
+        matchingStudents.forEach(s => { if (s.user_id) targetUserIds.add(s.user_id); });
+      }
+    }
+
+    if (target_audience === 'PARENT' || target_audience === 'BOTH') {
+      let parentQuery = `
+        SELECT DISTINCT p.parent_id, p.user_id 
+        FROM parents p
+        JOIN parent_student_mapping psm ON p.parent_id = psm.parent_id
+        JOIN students s ON psm.student_id = s.student_id
+        WHERE 1=1
+      `;
+      const parentParams = [];
+
+      if (cleanProgramId) {
+        parentQuery += ` AND s.program_id = ?`;
+        parentParams.push(cleanProgramId);
+      }
+      if (cleanYearLevel) {
+        parentQuery += ` AND s.year_level = ?`;
+        parentParams.push(cleanYearLevel);
+      }
+
+      const [matchingParents] = await connection.execute(parentQuery, parentParams);
+
+      if (matchingParents.length > 0) {
+        const parentValues = matchingParents.map(p => [announcement_id, p.parent_id]);
+        await connection.query(
+          `INSERT INTO announcement_target_parents (announcement_id, parent_id) VALUES ?`,
+          [parentValues]
+        );
+        matchingParents.forEach(p => { if (p.user_id) targetUserIds.add(p.user_id); });
+      }
+    }
+
+    await connection.commit();
+
+    if (notify_update) {
+      notifyUsers({
+        sender_id: user_id || nurse_id || null,
+        recipient_ids: Array.from(targetUserIds),
+        title: `📢 Updated Announcement: ${title}`,
+        message: content.length > 120 ? `${content.substring(0, 117)}...` : content,
+        type: 'ANNOUNCEMENT',
+        payloadData: { announcement_id, url: '/announcements' }
+      }).catch(err => console.error('Error dispatching update notifications:', err));
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Announcement updated successfully.'
+    });
+
+  } catch (error) {
+    await connection.rollback();
+    console.error('Error updating announcement:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error while updating announcement.',
+      error: error.message
+    });
+  } finally {
+    connection.release();
+  }
 });
 
 // ==========================================
-// 3. DELETE ANNOUNCEMENT
+// 3. GET ANNOUNCEMENTS FOR STUDENT DASHBOARD
 // ==========================================
-app.delete('/api/announcements/:id', async (req, res) => {
-    const connection = await pool.getConnection();
-    try {
-        const { id: announcement_id } = req.params;
-        const { user_id, notify_cancellation = false } = req.body;
-
-        await connection.beginTransaction();
-
-        // 1. Fetch announcement title and recipient user IDs before deleting
-        const [announcements] = await connection.execute(
-            `SELECT title FROM announcements WHERE announcement_id = ?`,
-            [announcement_id]
-        );
-
-        if (announcements.length === 0) {
-            await connection.rollback();
-            return res.status(404).json({ success: false, message: 'Announcement not found.' });
-        }
-
-        const title = announcements[0].title;
-
-        // Fetch targeted user IDs
-        const [students] = await connection.execute(
-            `SELECT s.user_id FROM announcement_target_students ats 
-             JOIN students s ON ats.student_id = s.student_id 
-             WHERE ats.announcement_id = ? AND s.user_id IS NOT NULL`,
-            [announcement_id]
-        );
-        const [parents] = await connection.execute(
-            `SELECT p.user_id FROM announcement_target_parents atp 
-             JOIN parents p ON atp.parent_id = p.parent_id 
-             WHERE atp.announcement_id = ? AND p.user_id IS NOT NULL`,
-            [announcement_id]
-        );
-
-        const recipientIds = [
-            ...students.map(s => s.user_id),
-            ...parents.map(p => p.user_id)
-        ];
-
-        // 2. Delete child mappings and main record
-        await connection.execute(`DELETE FROM announcement_target_students WHERE announcement_id = ?`, [announcement_id]);
-        await connection.execute(`DELETE FROM announcement_target_parents WHERE announcement_id = ?`, [announcement_id]);
-        await connection.execute(`DELETE FROM announcements WHERE announcement_id = ?`, [announcement_id]);
-
-        await connection.commit();
-
-        // 3. Dispatch cancellation notification if requested
-        if (notify_cancellation && recipientIds.length > 0) {
-            notifyUsers({
-                sender_id: user_id || null,
-                recipient_ids: recipientIds,
-                title: `🚫 Announcement Cancelled: ${title}`,
-                message: `The announcement "${title}" has been cancelled or removed by the clinic.`,
-                type: 'ANNOUNCEMENT',
-                payloadData: { url: '/announcements' }
-            }).catch(err => console.error('Error dispatching cancellation notifications:', err));
-        }
-
-        return res.status(200).json({
-            success: true,
-            message: 'Announcement deleted successfully.'
-        });
-
-    } catch (error) {
-        await connection.rollback();
-        console.error('Error deleting announcement:', error);
-        return res.status(500).json({
-            success: false,
-            message: 'Server error while deleting announcement.',
-            error: error.message
-        });
-    } finally {
-        connection.release();
-    }
-});
-
-// ==========================================
-// GET ALL ANNOUNCEMENTS WITH ACTIVE STATUS
-// ==========================================
-app.get('/api/announcements', async (req, res) => {
-    try {
-        const [rows] = await pool.execute(
-            `SELECT 
-                a.*,
-                CASE 
-                    WHEN NOW() < a.start_at THEN 'UPCOMING'
-                    WHEN NOW() BETWEEN a.start_at AND a.expires_at THEN 'ONGOING'
-                    ELSE 'EXPIRED'
-                END AS status
-             FROM announcements a
-             ORDER BY a.start_at ASC`
-        );
-
-        return res.status(200).json({
-            success: true,
-            data: rows
-        });
-    } catch (error) {
-        console.error('Error fetching announcements:', error);
-        return res.status(500).json({
-            success: false,
-            message: 'Server error while fetching announcements.',
-            error: error.message
-        });
-    }
-});
-//Get Announcement
-// GET Announcements for a specific Student
 app.get('/api/student/dashboard/announcements/:studentId', async (req, res) => {
   const { studentId } = req.params;
 
@@ -11624,16 +11513,16 @@ app.get('/api/student/dashboard/announcements/:studentId', async (req, res) => {
         a.created_at
       FROM announcements a
       LEFT JOIN nurses n ON a.nurse_id = n.nurse_id
-      LEFT JOIN announcement_target_students ats ON a.announcement_id = ats.announcement_id
+      LEFT JOIN announcement_target_students ats 
+             ON a.announcement_id = ats.announcement_id AND ats.student_id = ?
       LEFT JOIN students s ON s.student_id = ?
       WHERE a.target_audience IN ('STUDENT', 'BOTH')
         AND (a.start_at IS NULL OR a.start_at <= NOW())
         AND (a.expires_at IS NULL OR a.expires_at >= NOW())
         AND (
-          ats.student_id = ?
+          ats.student_id IS NOT NULL
           OR (
-            ats.student_id IS NULL
-            AND (a.target_program_id IS NULL OR a.target_program_id = s.program_id)
+            (a.target_program_id IS NULL OR a.target_program_id = s.program_id)
             AND (a.target_year_level IS NULL OR a.target_year_level = s.year_level)
           )
         )
@@ -11655,7 +11544,9 @@ app.get('/api/student/dashboard/announcements/:studentId', async (req, res) => {
   }
 });
 
-// GET Announcements for a Parent (Linked via Parent ID or Linked Students)
+// ==========================================
+// 4. GET ANNOUNCEMENTS FOR PARENT DASHBOARD
+// ==========================================
 app.get('/api/parent/dashboard/announcements/:parentId', async (req, res) => {
   const { parentId } = req.params;
 
@@ -11673,27 +11564,27 @@ app.get('/api/parent/dashboard/announcements/:parentId', async (req, res) => {
         a.created_at
       FROM announcements a
       LEFT JOIN nurses n ON a.nurse_id = n.nurse_id
-      LEFT JOIN announcement_target_parents atp ON a.announcement_id = atp.announcement_id
-      LEFT JOIN announcement_target_students ats ON a.announcement_id = ats.announcement_id
+      LEFT JOIN announcement_target_parents atp 
+             ON a.announcement_id = atp.announcement_id AND atp.parent_id = ?
       LEFT JOIN parent_student_mapping psm ON psm.parent_id = ?
+      LEFT JOIN announcement_target_students ats 
+             ON a.announcement_id = ats.announcement_id AND ats.student_id = psm.student_id
       LEFT JOIN students s ON s.student_id = psm.student_id
       WHERE a.target_audience IN ('PARENT', 'BOTH')
         AND (a.start_at IS NULL OR a.start_at <= NOW())
         AND (a.expires_at IS NULL OR a.expires_at >= NOW())
         AND (
-          atp.parent_id = ?
-          OR ats.student_id = psm.student_id
+          atp.parent_id IS NOT NULL
+          OR ats.student_id IS NOT NULL
           OR (
-            atp.parent_id IS NULL
-            AND ats.student_id IS NULL
-            AND (a.target_program_id IS NULL OR a.target_program_id = s.program_id)
+            (a.target_program_id IS NULL OR a.target_program_id = s.program_id)
             AND (a.target_year_level IS NULL OR a.target_year_level = s.year_level)
           )
         )
       ORDER BY a.created_at DESC;
     `;
 
-    const [rows] = await pool.query(query, [parentId, parentId]);
+    const [rows] = await pool.query(query, [parentId, parentId, parentId]);
 
     return res.status(200).json({
       success: true,
@@ -11708,6 +11599,135 @@ app.get('/api/parent/dashboard/announcements/:parentId', async (req, res) => {
   }
 });
 
+// GET ALL ANNOUNCEMENTS FOR NURSE DASHBOARD ("MANAGE ACTIVE NOTICES" TAB)
+app.get('/api/announcements', async (req, res) => {
+  try {
+    const query = `
+      SELECT 
+        a.announcement_id,
+        a.nurse_id,
+        CONCAT(n.first_name, ' ', n.last_name) AS nurse_name,
+        a.title,
+        a.content,
+        a.target_audience,
+        a.target_program_id,
+        a.target_year_level,
+        a.start_at,
+        a.expires_at,
+        a.created_at
+      FROM announcements a
+      LEFT JOIN nurses n ON a.nurse_id = n.nurse_id
+      ORDER BY a.created_at DESC;
+    `;
+    
+    const [rows] = await pool.query(query);
+
+    return res.status(200).json({
+      success: true,
+      data: rows
+    });
+  } catch (error) {
+    console.error('Error fetching announcements for nurse:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch announcements'
+    });
+  }
+});
+
+// ==========================================
+// DELETE ANNOUNCEMENT & OPTIONALLY NOTIFY RECIPIENTS
+// ==========================================
+app.delete('/api/announcements/:id', async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    const { id: announcement_id } = req.params;
+    const { user_id, notify_cancellation = false } = req.body;
+
+    await connection.beginTransaction();
+
+    // 1. Fetch announcement title and recipient user IDs before deletion
+    const [existing] = await connection.execute(
+      `SELECT title, content, target_audience FROM announcements WHERE announcement_id = ?`,
+      [announcement_id]
+    );
+
+    if (existing.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, message: 'Announcement not found.' });
+    }
+
+    const announcementTitle = existing[0].title;
+    const targetUserIds = new Set();
+
+    if (notify_cancellation) {
+      // Get student user_ids
+      const [students] = await connection.execute(
+        `SELECT DISTINCT s.user_id 
+         FROM announcement_target_students ats
+         JOIN students s ON ats.student_id = s.student_id
+         WHERE ats.announcement_id = ? AND s.user_id IS NOT NULL`,
+        [announcement_id]
+      );
+      students.forEach(s => targetUserIds.add(s.user_id));
+
+      // Get parent user_ids
+      const [parents] = await connection.execute(
+        `SELECT DISTINCT p.user_id 
+         FROM announcement_target_parents atp
+         JOIN parents p ON atp.parent_id = p.parent_id
+         WHERE atp.announcement_id = ? AND p.user_id IS NOT NULL`,
+        [announcement_id]
+      );
+      parents.forEach(p => targetUserIds.add(p.user_id));
+    }
+
+    // 2. Delete child records from target mapping tables first
+    await connection.execute(`DELETE FROM announcement_target_students WHERE announcement_id = ?`, [announcement_id]);
+    await connection.execute(`DELETE FROM announcement_target_parents WHERE announcement_id = ?`, [announcement_id]);
+
+    // 3. Delete the parent announcement record
+    const [deleteResult] = await connection.execute(
+      `DELETE FROM announcements WHERE announcement_id = ?`,
+      [announcement_id]
+    );
+
+    if (deleteResult.affectedRows === 0) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, message: 'Announcement could not be deleted.' });
+    }
+
+    await connection.commit();
+
+    // 4. Send push notification if cancellation alert was requested
+    if (notify_cancellation && targetUserIds.size > 0) {
+      notifyUsers({
+        sender_id: user_id || null,
+        recipient_ids: Array.from(targetUserIds),
+        title: `🚫 Notice Cancelled: ${announcementTitle}`,
+        message: `The campus health announcement "${announcementTitle}" has been cancelled by the school clinic.`,
+        type: 'ANNOUNCEMENT',
+        payloadData: { announcement_id, action: 'DELETED' }
+      }).catch(err => console.error('Error dispatching deletion notifications:', err));
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Announcement deleted successfully.'
+    });
+
+  } catch (error) {
+    await connection.rollback();
+    console.error('Error deleting announcement:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error while deleting announcement.',
+      error: error.message
+    });
+  } finally {
+    connection.release();
+  }
+});
 
 
 app.listen(3001, () => console.log('Server running on port 3001'));

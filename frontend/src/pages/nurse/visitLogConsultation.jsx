@@ -24,6 +24,15 @@ const CONDITIONAL_COMPLAINT_NAMES = [
     'body pain'
 ];
 
+// Helper to get local date YYYY-MM-DD (prevents UTC timezone offset bugs)
+const getLocalDateString = (date = new Date()) => {
+    const d = new Date(date);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
 const isDiscreteUnit = (unit) => {
     if (!unit) return false;
     const lowerUnit = unit.trim().toLowerCase();
@@ -127,7 +136,7 @@ const VisitLogConsultation = () => {
     const [formData, setFormData] = useState({
         complaint_id: '',
         specify_complaint_text: '',
-        visit_date: new Date().toISOString().split('T')[0],
+        visit_date: getLocalDateString(),
         time_in: '',
         time_out: '',
         temperature: '',
@@ -165,7 +174,7 @@ const VisitLogConsultation = () => {
         searchModeRef.current = searchMode;
     }, [searchMode]);
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateString();
 
     const showAlertModal = useCallback((title, message, type = 'error') => {
         setFeedbackModal({
@@ -262,18 +271,34 @@ const VisitLogConsultation = () => {
             const res = await fetch('http://localhost:3001/api/clinic-visits');
             const data = await res.json();
             if (Array.isArray(data)) {
+                const currentToday = getLocalDateString();
+                
+                // Filter records matching current local date
                 const todayOnly = data.filter(v => {
                     if (!v.visit_date) return false;
-                    const vDate = new Date(v.visit_date).toISOString().split('T')[0];
-                    return vDate === todayStr;
+                    const vDate = typeof v.visit_date === 'string' 
+                        ? v.visit_date.split('T')[0] 
+                        : getLocalDateString(v.visit_date);
+                    return vDate === currentToday;
                 });
+
+                // Sort descending: Latest check-in (time_in) comes first
+                todayOnly.sort((a, b) => {
+                    const timeA = a.time_in || '00:00:00';
+                    const timeB = b.time_in || '00:00:00';
+                    if (timeA === timeB) {
+                        return String(b.visit_id).localeCompare(String(a.visit_id));
+                    }
+                    return timeB.localeCompare(timeA);
+                });
+
                 setTodayVisits(todayOnly);
             }
         } catch (err) {
             console.error("Error fetching today visits:", err);
             setTodayVisits([]);
         }
-    }, [todayStr]);
+    }, []);
 
     const fetchAllVisits = useCallback(async () => {
         try {
@@ -547,7 +572,7 @@ const VisitLogConsultation = () => {
         const checkInPayload = {
             student_id: selectedStudent.student_id,
             nurse_id: nurseId || 'NURSE-DEFAULT',
-            visit_date: todayStr,
+            visit_date: getLocalDateString(),
             time_in: currentTime
         };
 
@@ -586,7 +611,7 @@ const VisitLogConsultation = () => {
 
     const handleOpenDocumentModal = (visit) => {
         const currentTime = new Date().toTimeString().split(' ')[0].substring(0, 5);
-        const visitDateVal = visit.visit_date ? new Date(visit.visit_date).toISOString().split('T')[0] : todayStr;
+        const visitDateVal = visit.visit_date ? visit.visit_date.split('T')[0] : getLocalDateString();
         const timeInVal = visit.time_in ? visit.time_in.substring(0, 5) : currentTime;
         const timeOutVal = visit.time_out ? visit.time_out.substring(0, 5) : '';
 
@@ -788,7 +813,7 @@ const VisitLogConsultation = () => {
         let matchesToDate = true;
 
         if (visit.visit_date) {
-            const vDate = new Date(visit.visit_date).toISOString().split('T')[0];
+            const vDate = visit.visit_date.split('T')[0];
             if (fromDateFilter) matchesFromDate = vDate >= fromDateFilter;
             if (toDateFilter) matchesToDate = vDate <= toDateFilter;
         }
