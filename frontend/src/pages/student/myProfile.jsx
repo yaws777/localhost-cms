@@ -39,14 +39,14 @@ export default function MyProfile() {
                     return;
                 }
 
-                const studentRes = await fetch(`http://localhost:3001/api/get-student/${targetUserId}`);
+                const studentRes = await fetch(`https://localhost-cms.onrender.com/api/get-student/${targetUserId}`);
                 const studentData = await studentRes.json();
 
                 if (studentData.success) {
                     setStudentId(studentData.student.student_id);
                     setStudentHeader(studentData.student);
 
-                    const profileRes = await fetch(`http://localhost:3001/api/profile/${studentData.student.student_id}`);
+                    const profileRes = await fetch(`https://localhost-cms.onrender.com/api/profile/${studentData.student.student_id}`);
                     const profileData = await profileRes.json();
 
                     if (profileData.success) {
@@ -87,7 +87,7 @@ export default function MyProfile() {
         if (!id) return;
         setReqLoading(true);
         try {
-            const response = await fetch(`http://localhost:3001/api/students/${id}/full-requirements`);
+            const response = await fetch(`https://localhost-cms.onrender.com/api/students/${id}/full-requirements`);
             const data = await response.json();
             if (Array.isArray(data)) {
                 setRequirementsList(data);
@@ -132,7 +132,7 @@ export default function MyProfile() {
             formData.append('file', targetFile);
             formData.append('is_late', isPastDeadline);
 
-            const response = await fetch(`http://localhost:3001/api/students/${studentId}/requirements/${encodeURIComponent(reqName)}/submit`, {
+            const response = await fetch(`https://localhost-cms.onrender.com/api/students/${studentId}/requirements/${encodeURIComponent(reqName)}/submit`, {
                 method: 'POST',
                 body: formData
             });
@@ -159,7 +159,7 @@ export default function MyProfile() {
         setSuccessMsg('');
 
         try {
-            const response = await fetch('http://localhost:3001/api/update-profile', {
+            const response = await fetch('https://localhost-cms.onrender.com/api/update-profile', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
