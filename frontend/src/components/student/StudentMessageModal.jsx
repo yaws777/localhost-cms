@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
     Image, Paperclip, Mic, Video, Send, 
-    Square, User, FileText, Trash2, MoreVertical, MoreHorizontal, X, Loader2 
+    Square, User, FileText, Trash2, MoreVertical, MoreHorizontal, X, Loader2, ArrowLeft 
 } from 'lucide-react';
 import '../../styles/student/StudentMessagesModal.css';
 
@@ -39,7 +39,6 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
         scrollToBottom();
     }, [messages]);
 
-    // Automatically fetch linked parent(s) and nurses on load
     const fetchContacts = useCallback(async () => {
         if (!userId) return;
         try {
@@ -209,7 +208,6 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
     const handleSendMessage = async (e) => {
         e.preventDefault();
 
-        // 1. Block redundant requests (Prevents double texting)
         if (isSending) return;
 
         if (!userId || !selectedContact?.user_id) {
@@ -219,7 +217,6 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
 
         if (!textInput.trim() && !attachment) return;
 
-        // 2. Lock sending state
         setIsSending(true);
 
         const formData = new FormData();
@@ -252,12 +249,10 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
             console.error('Network error sending message:', err);
             alert('Server unreachable or network connection error.');
         } finally {
-            // 3. Always unlock state on completion or failure
             setIsSending(false);
         }
     };
 
-    // Helper to get unread count for a specific contact from conversations
     const getUnreadCount = (contactUserId) => {
         const conv = conversations.find((c) => String(c.contact_user_id) === String(contactUserId));
         return conv ? conv.unread_count : 0;
@@ -265,7 +260,6 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
 
     return (
         <div className="student-msg-overlay" onClick={() => { setActiveMenuId(null); setActiveConvMenuId(null); }}>
-            {/* Embedded keyframes & styles for spinning loaders */}
             <style>{`
                 @keyframes spin {
                     from { transform: rotate(0deg); }
@@ -295,7 +289,7 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
                     <button className="close-btn" onClick={onClose}><X size={20} /></button>
                 </div>
 
-                <div className="messenger-container">
+                <div className={`messenger-container ${selectedContact ? 'has-selected' : ''}`}>
                     {/* LEFT SIDEBAR - AUTOMATIC CONTACT LIST */}
                     <div className="messenger-sidebar">
                         <div className="conversations-list">
@@ -355,6 +349,13 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
                         {selectedContact ? (
                             <>
                                 <div className="chat-header">
+                                    <button 
+                                        className="mobile-back-btn" 
+                                        onClick={() => setSelectedContact(null)}
+                                        title="Back to contacts"
+                                    >
+                                        <ArrowLeft size={20} />
+                                    </button>
                                     <div className="avatar"><User size={20} /></div>
                                     <div>
                                         <h3>{selectedContact.first_name} {selectedContact.last_name}</h3>

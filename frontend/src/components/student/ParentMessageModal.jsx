@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
     X, Send, ShieldCheck, User, MessageSquare, 
     Image, Paperclip, Mic, Video, FileText, 
-    Trash2, MoreVertical, Square, AlertCircle, Loader2
+    Trash2, MoreVertical, Square, AlertCircle, Loader2, ArrowLeft
 } from 'lucide-react';
 import '../../styles/parent/ParentMessageModal.css';
 
@@ -317,7 +317,6 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
     const handleSendMessage = async (e) => {
         e.preventDefault();
 
-        // 1. Guard against double texting (synchronous lock)
         if (isSendingRef.current || isSending) return;
 
         if (!selectedContact || !selectedContact.contact_user_id) {
@@ -328,7 +327,6 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
         const textContent = inputContent.trim();
         if (!textContent && !attachment) return;
 
-        // Immediately lock sending ref and update state
         isSendingRef.current = true;
         setIsSending(true);
 
@@ -336,7 +334,6 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
         const currentAttachment = attachment;
         const currentAttachmentType = attachmentType;
 
-        // Clear UI input states immediately to prevent double submits
         setInputContent('');
         clearAttachment();
 
@@ -360,7 +357,6 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
             if (data.success) {
                 await fetchChatThread(contactUserId);
             } else {
-                // Restore input on failure
                 setInputContent(textContent);
                 setAttachment(currentAttachment);
                 setAttachmentType(currentAttachmentType);
@@ -407,7 +403,7 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
                 </div>
 
                 {/* Body Area */}
-                <div className="pmm-body">
+                <div className={`pmm-body ${selectedContact ? 'has-selected' : ''}`}>
                     {/* Contacts Sidebar */}
                     <div className="pmm-sidebar">
                         <div className="pmm-sidebar-scroll">
@@ -488,6 +484,13 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
                             <>
                                 {/* Chat Header */}
                                 <div className="pmm-chat-header">
+                                    <button 
+                                        className="pmm-mobile-back-btn" 
+                                        onClick={() => setSelectedContact(null)}
+                                        title="Back to contacts"
+                                    >
+                                        <ArrowLeft size={20} />
+                                    </button>
                                     <div className="pmm-avatar">
                                         {selectedContact.type === 'nurse' ? <ShieldCheck size={20} /> : <User size={20} />}
                                     </div>
@@ -509,7 +512,7 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
                                         gap: '8px'
                                     }}>
                                         <AlertCircle size={16} />
-                                        <span>Warning: This staff record lacks a user account link (`user_id`). Messaging may fail until linked.</span>
+                                        <span>Warning: Staff account ID (`user_id`) missing.</span>
                                     </div>
                                 )}
 
@@ -691,10 +694,10 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
                                             onChange={(e) => setInputContent(e.target.value)}
                                             placeholder={
                                                 isSending 
-                                                    ? "Sending message..." 
+                                                    ? "Sending..." 
                                                     : selectedContact.contact_user_id 
                                                         ? "Type a message..." 
-                                                        : "Contact cannot receive messages"
+                                                        : "Unavailable"
                                             }
                                             disabled={!selectedContact.contact_user_id || isSending}
                                             className="pmm-message-input"

@@ -199,10 +199,10 @@ const getAnnouncementStatusInfo = (startAt, expiresAt) => {
 };
 
 /* --- PDF REPORT GENERATOR HELPER --- */
-const generatePDFReport = (title, periodText, tableHeaders, tableRows) => {
+const generatePDFReport = (title, periodText, tableHeaders, tableRows, onError) => {
   const printWindow = window.open('', '_blank', 'width=900,height=750');
   if (!printWindow) {
-    alert('Please allow popups to export the PDF report.');
+    if (onError) onError('Please allow popups in your browser settings to export the PDF report.');
     return;
   }
 
@@ -488,6 +488,72 @@ const NurseDashboard = () => {
   const maxCurrentMonth = getCurrentMonthString();
   const defaultNextMonth = getNextMonthString();
 
+  // CUSTOM MODAL SYSTEM STATE (Replaces all native alert and confirm popups)
+  const [feedbackModal, setFeedbackModal] = useState({
+    isOpen: false,
+    type: 'info', // 'success' | 'error' | 'warning' | 'confirm'
+    title: '',
+    message: '',
+    confirmText: 'OK',
+    cancelText: 'Cancel',
+    showCancel: false,
+    showCheckbox: false,
+    checkboxLabel: '',
+    onConfirm: null,
+    onCancel: null
+  });
+  const [feedbackModalCheckbox, setFeedbackModalCheckbox] = useState(false);
+
+  const showAlert = ({ type = 'info', title, message, onOk }) => {
+    setFeedbackModal({
+      isOpen: true,
+      type,
+      title: title || (type === 'success' ? 'Success' : type === 'error' ? 'Error' : 'Notice'),
+      message,
+      confirmText: 'OK',
+      cancelText: 'Cancel',
+      showCancel: false,
+      showCheckbox: false,
+      checkboxLabel: '',
+      onConfirm: () => {
+        setFeedbackModal(prev => ({ ...prev, isOpen: false }));
+        if (onOk) onOk();
+      },
+      onCancel: null
+    });
+  };
+
+  const showConfirm = ({
+    type = 'warning',
+    title = 'Confirmation',
+    message,
+    confirmText = 'Confirm',
+    cancelText = 'Cancel',
+    showCheckbox = false,
+    checkboxLabel = '',
+    onConfirm
+  }) => {
+    setFeedbackModalCheckbox(false);
+    setFeedbackModal({
+      isOpen: true,
+      type,
+      title,
+      message,
+      confirmText,
+      cancelText,
+      showCancel: true,
+      showCheckbox,
+      checkboxLabel,
+      onConfirm: (checkboxVal) => {
+        setFeedbackModal(prev => ({ ...prev, isOpen: false }));
+        if (onConfirm) onConfirm(checkboxVal);
+      },
+      onCancel: () => {
+        setFeedbackModal(prev => ({ ...prev, isOpen: false }));
+      }
+    });
+  };
+
   // 0. Unified Nurse Dashboard Operational Overview State
   const [nurseDashboardData, setNurseDashboardData] = useState({
     requirementsOverview: {
@@ -629,7 +695,8 @@ const NurseDashboard = () => {
       'Health Trends Summary Report',
       `${periodLabel || ''} ${timelineLabel ? `(${timelineLabel})` : ''}`,
       headers,
-      rows
+      rows,
+      (errMsg) => showAlert({ type: 'error', title: 'Export Failed', message: errMsg })
     );
   };
 
@@ -662,7 +729,8 @@ const NurseDashboard = () => {
       'Medicine Dispensed Summary Report',
       `${dispensedPeriodLabel || ''} ${dispensedTimelineLabel ? `(${dispensedTimelineLabel})` : ''}`,
       headers,
-      rows
+      rows,
+      (errMsg) => showAlert({ type: 'error', title: 'Export Failed', message: errMsg })
     );
   };
 
@@ -696,7 +764,8 @@ const NurseDashboard = () => {
       'Predictive Medicine Demand Forecast Report',
       `Forecast Target Month: ${predictiveMonth}`,
       headers,
-      rows
+      rows,
+      (errMsg) => showAlert({ type: 'error', title: 'Export Failed', message: errMsg })
     );
   };
 
@@ -716,7 +785,8 @@ const NurseDashboard = () => {
       'Frequent Visit & Repeated Complaint Summary Report',
       'Summary of Students with Recurring Clinic Visit Logs & Frequent Health Concerns',
       headers,
-      rows
+      rows,
+      (errMsg) => showAlert({ type: 'error', title: 'Export Failed', message: errMsg })
     );
   };
 
@@ -756,7 +826,8 @@ const NurseDashboard = () => {
       `Recurring Complaint Logs - ${selectedAlertHeader.studentName}`,
       `Student ID: ${selectedAlertHeader.studentId} | Program/Yr: ${selectedAlertHeader.gradeSection || 'N/A'} | Complaint: ${selectedAlertHeader.complaint} (${detailVisits.length} Visits Recorded)`,
       headers,
-      rows
+      rows,
+      (errMsg) => showAlert({ type: 'error', title: 'Export Failed', message: errMsg })
     );
   };
 
@@ -1053,10 +1124,16 @@ const NurseDashboard = () => {
       const result = await response.json();
 
       if (result.success) {
-        alert(isEditing ? 'Announcement updated successfully!' : 'Announcement created and published successfully!');
-        await fetchAnnouncements();
-        await fetchNurseDashboard();
-        setAnnouncementModalTab('LIST');
+        showAlert({
+          type: 'success',
+          title: isEditing ? 'Announcement Updated' : 'Announcement Published',
+          message: isEditing ? 'Announcement updated successfully!' : 'Announcement created and published successfully!',
+          onOk: async () => {
+            await fetchAnnouncements();
+            await fetchNurseDashboard();
+            setAnnouncementModalTab('LIST');
+          }
+        });
       } else {
         setAnnouncementError(result.message || 'Failed to save announcement.');
       }
@@ -1068,64 +1145,99 @@ const NurseDashboard = () => {
     }
   };
 
-  // Handle Delete / Cancel Announcement with Push Notification Prompt
-  const handleDeleteAnnouncement = async (announcementId, title) => {
-    if (!window.confirm(`Are you sure you want to delete "${title}"? This action cannot be undone.`)) {
-      return;
-    }
+  // Handle Delete / Cancel Announcement with Custom Confirmation Modal
+  const handleDeleteAnnouncement = (announcementId, title) => {
+    showConfirm({
+      type: 'warning',
+      title: 'Delete Announcement',
+      message: `Are you sure you want to delete "${title}"? This action cannot be undone.`,
+      confirmText: 'Delete Announcement',
+      cancelText: 'Cancel',
+      showCheckbox: true,
+      checkboxLabel: 'Send push notification to affected students and parents alerting them that this announcement was cancelled.',
+      onConfirm: async (notifyCancellation) => {
+        try {
+          const response = await fetch(`http://localhost:3001/api/announcements/${announcementId}`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              user_id: userId,
+              notify_cancellation: notifyCancellation
+            })
+          });
+          const result = await response.json();
 
-    const notifyCancellation = window.confirm(
-      `Would you like to send a push notification to affected students/parents alerting them that "${title}" was cancelled?`
-    );
-
-    try {
-      const response = await fetch(`http://localhost:3001/api/announcements/${announcementId}`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_id: userId,
-          notify_cancellation: notifyCancellation
-        })
-      });
-      const result = await response.json();
-
-      if (result.success) {
-        alert(
-          notifyCancellation
-            ? 'Announcement deleted and cancellation push notification sent!'
-            : 'Announcement deleted successfully!'
-        );
-        await fetchAnnouncements();
-        await fetchNurseDashboard();
-      } else {
-        alert(result.message || 'Failed to delete announcement.');
+          if (result.success) {
+            showAlert({
+              type: 'success',
+              title: 'Announcement Deleted',
+              message: notifyCancellation
+                ? 'Announcement deleted and cancellation push notification sent successfully!'
+                : 'Announcement deleted successfully!',
+              onOk: async () => {
+                await fetchAnnouncements();
+                await fetchNurseDashboard();
+              }
+            });
+          } else {
+            showAlert({
+              type: 'error',
+              title: 'Delete Failed',
+              message: result.message || 'Failed to delete announcement.'
+            });
+          }
+        } catch (err) {
+          console.error('Error deleting announcement:', err);
+          showAlert({
+            type: 'error',
+            title: 'Network Error',
+            message: 'Unable to reach the server to delete the announcement.'
+          });
+        }
       }
-    } catch (err) {
-      console.error('Error deleting announcement:', err);
-      alert('Network error. Unable to delete announcement.');
-    }
+    });
   };
 
-  const handleDismissAlert = async (studentId, complaint) => {
-    if (!window.confirm(`Are you sure you want to dismiss the alert for ${complaint}?`)) {
-      return;
-    }
-    try {
-      const response = await fetch('http://localhost:3001/api/frequent-complaints/dismiss', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ studentId, complaint })
-      });
-      const result = await response.json();
-      if (result.success) {
-        setAlerts(prev => prev.filter(a => !(a.studentId === studentId && a.complaint === complaint)));
-      } else {
-        alert(result.message || 'Failed to dismiss alert.');
+  const handleDismissAlert = (studentId, complaint) => {
+    showConfirm({
+      type: 'warning',
+      title: 'Dismiss Frequent Illness Alert',
+      message: `Are you sure you want to dismiss the recurring illness alert for ${complaint}?`,
+      confirmText: 'Dismiss Alert',
+      cancelText: 'Cancel',
+      onConfirm: async () => {
+        try {
+          const response = await fetch('http://localhost:3001/api/frequent-complaints/dismiss', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ studentId, complaint })
+          });
+          const result = await response.json();
+
+          if (result.success) {
+            setAlerts(prev => prev.filter(a => !(a.studentId === studentId && a.complaint === complaint)));
+            showAlert({
+              type: 'success',
+              title: 'Alert Dismissed',
+              message: `The frequent illness alert for ${complaint} has been dismissed successfully.`
+            });
+          } else {
+            showAlert({
+              type: 'error',
+              title: 'Dismiss Failed',
+              message: result.message || 'Failed to dismiss alert.'
+            });
+          }
+        } catch (error) {
+          console.error('Error dismissing alert:', error);
+          showAlert({
+            type: 'error',
+            title: 'Error',
+            message: 'An error occurred while dismissing the alert.'
+          });
+        }
       }
-    } catch (error) {
-      console.error('Error dismissing alert:', error);
-      alert('An error occurred while dismissing the alert.');
-    }
+    });
   };
 
   const handleViewDetails = async (alertData) => {
@@ -1661,7 +1773,7 @@ const NurseDashboard = () => {
         </div>
       )}
 
-      {/* SECTION 3: PREDICTIVE MEDICINE DEMAND (3 TOWERS - DOSAGE FORM SPECIFIC) */}
+      {/* SECTION 3: PREDICTIVE MEDICINE DEMAND (CENTER ALIGNED GRAPH CONTAINER) */}
       <div className="dashboard-divider-line-nd" />
 
       <div className="dashboard-header-nd">
@@ -1696,7 +1808,7 @@ const NurseDashboard = () => {
           <div className="no-data-container-nd"><h3 className="no-data-title-nd">No Predictive Demand Records Found</h3></div>
         ) : (
           <div className="chart-wrapper-nd scrollable-chart-nd">
-            <div style={{ width: predictiveChartMinWidth, height: 420 }}>
+            <div style={{ width: '100%', maxWidth: predictiveChartMinWidth, minWidth: Math.min(predictiveChartMinWidth, 800), margin: '0 auto', height: 420 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={activePredictiveData} margin={{ top: 20, right: 30, left: 10, bottom: 60 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
@@ -2609,6 +2721,104 @@ const NurseDashboard = () => {
               </button>
               <button className="modal-close-secondary-btn-nd" onClick={() => setIsDetailModalOpen(false)}>
                 Close History
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* REUSABLE FEEDBACK & CONFIRMATION DIALOG MODAL (REPLACES NATIVE ALERT & CONFIRM) */}
+      {feedbackModal.isOpen && (
+        <div 
+          className="modal-overlay-nd" 
+          style={{ zIndex: 1300 }} 
+          onClick={() => {
+            if (feedbackModal.showCancel && feedbackModal.onCancel) {
+              feedbackModal.onCancel();
+            } else {
+              setFeedbackModal(prev => ({ ...prev, isOpen: false }));
+            }
+          }}
+        >
+          <div 
+            className="modal-container-nd modal-container-narrow-nd" 
+            style={{ maxWidth: '480px', padding: '0' }} 
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header-nd" style={{ borderBottom: '1px solid #E5E7EB', padding: '16px 20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                {feedbackModal.type === 'success' && <CheckCircle2 size={22} color="#10B981" />}
+                {feedbackModal.type === 'error' && <AlertCircle size={22} color="#EF4444" />}
+                {feedbackModal.type === 'warning' && <ShieldAlert size={22} color="#F59E0B" />}
+                {feedbackModal.type === 'info' && <Lightbulb size={22} color="#0250A3" />}
+                <h3 className="modal-title-nd" style={{ fontSize: '16px', margin: 0 }}>
+                  {feedbackModal.title}
+                </h3>
+              </div>
+              <button 
+                className="modal-close-btn-nd" 
+                onClick={() => {
+                  if (feedbackModal.showCancel && feedbackModal.onCancel) {
+                    feedbackModal.onCancel();
+                  } else {
+                    setFeedbackModal(prev => ({ ...prev, isOpen: false }));
+                  }
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ padding: '20px' }}>
+              <p style={{ margin: 0, fontSize: '14px', color: '#374151', lineHeight: '1.5' }}>
+                {feedbackModal.message}
+              </p>
+
+              {feedbackModal.showCheckbox && (
+                <div style={{ marginTop: '16px', display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                  <input
+                    type="checkbox"
+                    id="feedbackModalCheckbox"
+                    style={{ marginTop: '3px', cursor: 'pointer' }}
+                    checked={feedbackModalCheckbox}
+                    onChange={(e) => setFeedbackModalCheckbox(e.target.checked)}
+                  />
+                  <label htmlFor="feedbackModalCheckbox" style={{ fontSize: '13px', color: '#4B5563', cursor: 'pointer', lineHeight: '1.4' }}>
+                    {feedbackModal.checkboxLabel}
+                  </label>
+                </div>
+              )}
+            </div>
+
+            <div className="modal-footer-nd" style={{ padding: '12px 20px', gap: '10px', display: 'flex', justifyContent: 'flex-end', backgroundColor: '#F9FAFB' }}>
+              {feedbackModal.showCancel && (
+                <button
+                  type="button"
+                  className="modal-close-secondary-btn-nd"
+                  onClick={() => {
+                    if (feedbackModal.onCancel) feedbackModal.onCancel();
+                    else setFeedbackModal(prev => ({ ...prev, isOpen: false }));
+                  }}
+                >
+                  {feedbackModal.cancelText || 'Cancel'}
+                </button>
+              )}
+              <button
+                type="button"
+                className="export-btn-nd"
+                style={{
+                  backgroundColor: feedbackModal.type === 'error' || (feedbackModal.type === 'warning' && feedbackModal.showCancel) ? '#EF4444' : '#0250A3',
+                  borderColor: feedbackModal.type === 'error' || (feedbackModal.type === 'warning' && feedbackModal.showCancel) ? '#EF4444' : '#0250A3'
+                }}
+                onClick={() => {
+                  if (feedbackModal.onConfirm) {
+                    feedbackModal.onConfirm(feedbackModalCheckbox);
+                  } else {
+                    setFeedbackModal(prev => ({ ...prev, isOpen: false }));
+                  }
+                }}
+              >
+                {feedbackModal.confirmText || 'OK'}
               </button>
             </div>
           </div>

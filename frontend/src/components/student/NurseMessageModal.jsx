@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
     Search, Image, Paperclip, Mic, Video, Send, 
     Square, User, FileText, Trash2, MoreHorizontal, MoreVertical,
-    GraduationCap, Loader2, X
+    GraduationCap, Loader2, X, ArrowLeft
 } from 'lucide-react';
 import '../../styles/nurse/NurseMessages.css';
 import '../../styles/student/StudentMessagesModal.css';
@@ -300,7 +300,7 @@ const NurseMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
                     <button className="close-btn" onClick={onClose}><X size={20} /></button>
                 </div>
 
-                <div className="messenger-container">
+                <div className={`messenger-container ${selectedContact ? 'has-selected' : ''}`}>
                     {/* LEFT SIDEBAR */}
                     <div className="messenger-sidebar">
                         <div className="messenger-search-box">
@@ -426,13 +426,20 @@ const NurseMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
                         {selectedContact ? (
                             <>
                                 <div className="chat-header">
+                                    <button 
+                                        className="mobile-back-btn"
+                                        onClick={() => setSelectedContact(null)}
+                                        title="Back to conversations"
+                                    >
+                                        <ArrowLeft size={20} />
+                                    </button>
                                     <div className="avatar"><User size={20} /></div>
-                                    <div>
+                                    <div className="chat-header-info">
                                         <h3>{selectedContact.first_name} {selectedContact.last_name}</h3>
                                         <span className="status-text">
                                             {selectedContact.role?.toUpperCase()}
                                             {(selectedContact.role?.toLowerCase() === 'parent' || selectedContact.role?.toLowerCase() === 'guardian') && selectedContact.student_name && (
-                                                <span style={{ marginLeft: '8px', color: '#595959', fontWeight: 'normal', textTransform: 'none' }}>
+                                                <span className="mobile-hide-student" style={{ marginLeft: '8px', color: '#595959', fontWeight: 'normal', textTransform: 'none' }}>
                                                     • Student: <strong>{selectedContact.student_name}</strong> {selectedContact.student_id ? `(${selectedContact.student_id})` : ''}
                                                 </span>
                                             )}

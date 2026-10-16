@@ -516,9 +516,13 @@
   width: 100%;
 }
 
+/* CENTER ALIGNED SCROLLABLE CHART CONTAINER */
 .scrollable-chart-nd {
   overflow-x: auto;
   width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -779,7 +783,6 @@
   margin-bottom: 12px;
 }
 
-/* Quick Actions Grid (In-Line side-by-side layout) */
 /* Quick Actions Grid (Inline single-row layout for desktop) */
 .quick-actions-grid-nd {
   display: grid;

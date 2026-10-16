@@ -5,6 +5,7 @@
     border-radius: 8px;
     box-shadow: 0 2px 10px rgba(0,0,0,0.08);
     overflow: hidden;
+    width: 100%;
 }
 
 /* Sidebar */
@@ -14,6 +15,7 @@
     display: flex;
     flex-direction: column;
     background: #f8fafc;
+    flex-shrink: 0;
 }
 
 .messenger-search-box {
@@ -53,6 +55,7 @@
     gap: 12px;
     cursor: pointer;
     transition: background 0.2s;
+    position: relative;
 }
 
 .conversation-item:hover, .conversation-item.active {
@@ -68,6 +71,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
 }
 
 .details {
@@ -134,6 +138,7 @@
     flex: 1;
     display: flex;
     flex-direction: column;
+    min-width: 0;
 }
 
 .chat-header {
@@ -145,9 +150,17 @@
     background: #fff;
 }
 
+.chat-header-info {
+    flex: 1;
+    overflow: hidden;
+}
+
 .chat-header h3 {
     margin: 0;
     font-size: 1rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .status-text {
@@ -184,6 +197,7 @@
     border-radius: 16px;
     font-size: 0.9rem;
     position: relative;
+    word-break: break-word;
 }
 
 .sent .message-bubble {
@@ -232,6 +246,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
+    width: 100%;
 }
 
 .media-btn {
@@ -239,11 +254,19 @@
     border: none;
     color: #0056b3;
     cursor: pointer;
-    padding: 6px;
+    width: 36px;
+    height: 36px;
+    padding: 0;
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
+    transition: background 0.2s;
+}
+
+.media-btn:hover {
+    background: #f0f4f8;
 }
 
 .media-btn.recording {
@@ -252,19 +275,31 @@
 
 .message-input {
     flex: 1;
+    min-width: 0;
     border: 1px solid #ddd;
     border-radius: 20px;
-    padding: 8px 16px;
+    padding: 10px 16px;
     outline: none;
+    font-size: 0.9rem;
 }
 
 .send-btn {
     background: #0056b3;
     border: none;
     color: white;
-    padding: 8px 12px;
+    width: 38px;
+    height: 38px;
+    padding: 0;
     border-radius: 50%;
     cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.send-btn:hover {
+    background: #004494;
 }
 
 .attachment-preview-bar {
@@ -285,83 +320,14 @@
     align-items: center;
     justify-content: center;
     color: #999;
+    padding: 20px;
+    text-align: center;
 }
 
 @keyframes pulse {
     0% { transform: scale(1); }
     50% { transform: scale(1.1); }
     100% { transform: scale(1); }
-}
-
-/* Chat Footer Input Area */
-.chat-footer {
-    padding: 10px 16px;
-    background: #fff;
-    border-top: 1px solid #eef2f5;
-}
-
-.controls-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-}
-
-.media-btn {
-    background: transparent;
-    border: none;
-    color: #0056b3;
-    cursor: pointer;
-    width: 36px;
-    height: 36px;
-    padding: 0;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0; /* Prevents action buttons from stretching */
-}
-
-.media-btn:hover {
-    background: #f0f4f8;
-}
-
-.media-btn.recording {
-    animation: pulse 1s infinite;
-}
-
-.message-input {
-    flex: 1; /* Forces the input to expand and fill all remaining space */
-    min-width: 0; /* Ensures flex grow works properly without overflowing */
-    border: 1px solid #ddd;
-    border-radius: 20px;
-    padding: 10px 16px;
-    outline: none;
-    font-size: 0.9rem;
-}
-
-.send-btn {
-    background: #0056b3;
-    border: none;
-    color: white;
-    width: 38px;
-    height: 38px;
-    padding: 0;
-    border-radius: 50%;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0; /* Prevents the send button from becoming a wide oval */
-}
-
-.send-btn:hover {
-    background: #004494;
-}
-
-/* Sidebar Conversation Item Relative Positioning */
-.conversation-item {
-    position: relative;
 }
 
 /* Sidebar Conversation Hover Action Menu Container */
@@ -398,7 +364,6 @@
     transform: scale(1.05);
 }
 
-/* Sidebar Conversation Options Dropdown Popover */
 .conv-dropdown-menu {
     position: absolute;
     top: 34px;
@@ -429,4 +394,75 @@
 
 .conv-dropdown-menu button:hover {
     background: #fff0f0;
+}
+
+.mobile-back-btn {
+    display: none;
+    background: transparent;
+    border: none;
+    color: #0056b3;
+    padding: 6px;
+    border-radius: 50%;
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Mobile Responsive Media Queries */
+@media (max-width: 768px) {
+    .messenger-container {
+        height: 100%;
+        border-radius: 0;
+        box-shadow: none;
+    }
+
+    .mobile-back-btn {
+        display: flex;
+    }
+
+    .mobile-hide-student {
+        display: none !important;
+    }
+
+    /* Screen toggling on Mobile */
+    .messenger-container.has-selected .messenger-sidebar {
+        display: none;
+    }
+
+    .messenger-container:not(.has-selected) .messenger-chat-area {
+        display: none;
+    }
+
+    .messenger-sidebar {
+        width: 100%;
+        border-right: none;
+    }
+
+    .message-bubble {
+        max-width: 82%;
+    }
+
+    .conv-action-container {
+        opacity: 1;
+        visibility: visible;
+    }
+
+    .controls-row {
+        gap: 4px;
+    }
+
+    .media-btn {
+        width: 32px;
+        height: 32px;
+    }
+
+    .message-input {
+        padding: 8px 12px;
+        font-size: 0.85rem;
+    }
+
+    .send-btn {
+        width: 34px;
+        height: 34px;
+    }
 }

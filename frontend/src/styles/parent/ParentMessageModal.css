@@ -84,6 +84,7 @@
   background-color: #f8fafc;
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
 }
 
 .pmm-sidebar-scroll {
@@ -172,6 +173,7 @@
   display: flex;
   flex-direction: column;
   background-color: #ffffff;
+  min-width: 0;
 }
 
 .pmm-chat-header {
@@ -187,12 +189,27 @@
   margin: 0;
   font-size: 1rem;
   color: #333333;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .pmm-status-text {
   font-size: 0.75rem;
   color: #0056b3;
   font-weight: bold;
+}
+
+.pmm-mobile-back-btn {
+  display: none;
+  background: transparent;
+  border: none;
+  color: #0056b3;
+  padding: 6px;
+  border-radius: 50%;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
 }
 
 /* Message Feed Scroll Area */
@@ -468,10 +485,66 @@
   align-items: center;
   justify-content: center;
   color: #999999;
+  padding: 20px;
+  text-align: center;
 }
 
 .pmm-empty-chat-placeholder h3 {
   margin-top: 12px;
   font-size: 1rem;
   font-weight: 500;
+}
+
+/* Mobile Responsiveness */
+@media (max-width: 768px) {
+  .pmm-overlay {
+    padding: 0;
+  }
+
+  .pmm-container {
+    height: 100vh;
+    max-width: 100vw;
+    border-radius: 0;
+  }
+
+  .pmm-mobile-back-btn {
+    display: flex;
+  }
+
+  /* Screen Toggling on Mobile */
+  .pmm-body.has-selected .pmm-sidebar {
+    display: none;
+  }
+
+  .pmm-body:not(.has-selected) .pmm-chat-area {
+    display: none;
+  }
+
+  .pmm-sidebar {
+    width: 100%;
+    border-right: none;
+  }
+
+  .pmm-msg-bubble {
+    max-width: 82%;
+  }
+
+  .pmm-controls-row {
+    gap: 4px;
+  }
+
+  .pmm-media-btn {
+    width: 32px;
+    height: 32px;
+  }
+
+  .pmm-message-input {
+    padding: 8px 12px;
+    font-size: 0.85rem;
+  }
+
+  .pmm-send-btn {
+    width: 34px;
+    height: 34px;
+  }
 }
