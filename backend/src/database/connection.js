@@ -3287,8 +3287,8 @@ app.delete('/api/batches/:id', async (req, res) => {
 });
 
 // Direct Medicine Dispensed api
-// Direct Medicine Dispensed api
-// Helper for continuous unit conversions (g/mg/mcg and L/mL)
+// Direct Medicine Dispensed API
+
 const convertUnit = (val, fromUnit, toUnit) => {
   if (fromUnit === toUnit) return val;
   const toBase = (v, u) => {
@@ -3316,7 +3316,6 @@ const convertUnit = (val, fromUnit, toUnit) => {
   return fromBase(toBase(val, fromUnit), toUnit);
 };
 
-// Search active students for direct dispensation
 // Search ONLY ACTIVE students for direct dispensation (Excludes u.is_active = 0)
 app.get('/api/students/direct', async (req, res) => {
   const { search } = req.query;
@@ -3373,7 +3372,7 @@ app.get('/api/inventory/batches', async (req, res) => {
       SELECT 
         b.batch_id, 
         b.medicine_id, 
-        CONCAT(m.brand_name, ' (', m.generic_name, ')') AS medicine_name,
+        COALESCE(CONCAT(m.brand_name, ' (', m.generic_name, ')'), m.generic_name, 'Unknown Item') AS medicine_name,
         b.current_stock, 
         b.remaining_volume,
         b.expiration_date, 
@@ -3384,7 +3383,7 @@ app.get('/api/inventory/batches', async (req, res) => {
         m.avg_dosage_consumption_value,
         m.avg_dosage_consumption_unit_of_measure
       FROM medicine_inventory_batches b
-      JOIN medicines m ON b.medicine_id = m.medicine_id
+      LEFT JOIN medicines m ON b.medicine_id = m.medicine_id
       ORDER BY m.brand_name ASC, b.expiration_date ASC
     `;
     const [rows] = await pool.execute(queryStr);
@@ -3439,15 +3438,15 @@ app.get('/api/dispensation/history', async (req, res) => {
           d.student_id, 
           s.first_name, 
           s.last_name, 
-          CONCAT(m.brand_name, ' (', m.generic_name, ')') AS medicine_name, 
+          COALESCE(CONCAT(m.brand_name, ' (', m.generic_name, ')'), m.generic_name, 'Unknown Medicine') AS medicine_name, 
           d.dosage_consumption_unit_value, 
           d.dosage_consumption_unit_of_measure,
           d.dispensed_at,
           'Direct Dispensation' AS dispensation_type
         FROM direct_dispensation d
-        JOIN students s ON d.student_id = s.student_id
-        JOIN medicine_inventory_batches b ON d.batch_id = b.batch_id
-        JOIN medicines m ON b.medicine_id = m.medicine_id
+        LEFT JOIN students s ON d.student_id = s.student_id
+        LEFT JOIN medicine_inventory_batches b ON d.batch_id = b.batch_id
+        LEFT JOIN medicines m ON b.medicine_id = m.medicine_id
 
         UNION ALL
 
@@ -3456,16 +3455,16 @@ app.get('/api/dispensation/history', async (req, res) => {
           v.student_id, 
           s.first_name, 
           s.last_name, 
-          CONCAT(m.brand_name, ' (', m.generic_name, ')') AS medicine_name, 
+          COALESCE(CONCAT(m.brand_name, ' (', m.generic_name, ')'), m.generic_name, 'Unknown Medicine') AS medicine_name, 
           c.dosage_consumption_unit_value, 
           c.dosage_consumption_unit_of_measure,
           c.dispensed_at,
           'Consultation Dispensation' AS dispensation_type
         FROM consultation_dispensation c
-        JOIN clinic_visits v ON c.visit_id = v.visit_id
-        JOIN students s ON v.student_id = s.student_id
-        JOIN medicine_inventory_batches b ON c.batch_id = b.batch_id
-        JOIN medicines m ON b.medicine_id = m.medicine_id
+        LEFT JOIN clinic_visits v ON c.visit_id = v.visit_id
+        LEFT JOIN students s ON v.student_id = s.student_id
+        LEFT JOIN medicine_inventory_batches b ON c.batch_id = b.batch_id
+        LEFT JOIN medicines m ON b.medicine_id = m.medicine_id
       ) AS combined_history
       ${whereSql}
       ORDER BY dispensed_at DESC
@@ -3479,7 +3478,7 @@ app.get('/api/dispensation/history', async (req, res) => {
   }
 });
 
-// Core Dispensation POST Handler with Unit Normalization & Push/System Notifications
+// Core Dispensation POST Handler
 app.post('/api/dispensation', async (req, res) => {
   const { 
     student_id, 
@@ -3495,7 +3494,6 @@ app.post('/api/dispensation', async (req, res) => {
     return res.status(400).json({ error: 'Dosage value must be greater than zero.' });
   }
 
-  // Include 'pcs.' so piece deductions lower remaining_volume
   const measuredUnits = ['mg', 'g', 'mcg', 'mL', 'L', 'pcs.'];
   const isMeasured = measuredUnits.includes(dosage_consumption_unit_of_measure);
 
@@ -3530,7 +3528,6 @@ app.post('/api/dispensation', async (req, res) => {
     const strengthUnitMeasure = batchRows[0].strength_unit_of_measure;
     const expirationDate = new Date(batchRows[0].expiration_date);
 
-    // Get formatted medicine name for notifications
     const brandName = batchRows[0].brand_name;
     const genericName = batchRows[0].generic_name;
     const medicineName = brandName ? `${brandName} (${genericName})` : genericName;
@@ -3558,10 +3555,8 @@ app.post('/api/dispensation', async (req, res) => {
         });
       }
 
-      // Deduct pieces directly from remaining_volume
       newRemaining = remainingVolume - requestedInBatchUnit;
 
-      // Automatically decrement box stock (current_stock) when remaining_volume exhausts active box
       while (newRemaining <= 0 && newStock > 0) {
         newStock -= 1;
         if (newRemaining === 0) {
@@ -3593,7 +3588,6 @@ app.post('/api/dispensation', async (req, res) => {
       [newStock, newRemaining, batch_id]
     );
 
-    // --- Generate Custom Sequential Direct Dispense ID (DISP-MMDDYYXXX) ---
     const now = new Date();
     const monthStr = String(now.getMonth() + 1).padStart(2, '0');
     const dayStr = String(now.getDate()).padStart(2, '0');
@@ -3622,9 +3616,6 @@ app.post('/api/dispensation', async (req, res) => {
 
     await connection.commit();
 
-    // ------------------------------------------------------------------
-    // DISPATCH NOTIFICATIONS (STUDENT & PARENTS)
-    // ------------------------------------------------------------------
     try {
       const [studentRows] = await pool.query(
         `SELECT s.user_id AS student_user_id, s.first_name, s.last_name, n.user_id AS nurse_user_id
@@ -3647,7 +3638,6 @@ app.post('/api/dispensation', async (req, res) => {
       const studentName = studentRows[0] ? `${studentRows[0].first_name} ${studentRows[0].last_name}` : 'Your child';
       const parentUserIds = parentRows.map(p => p.user_id).filter(Boolean);
 
-      // Notify Student
       if (student_user_id) {
         await notifyUsers({
           sender_id,
@@ -3659,7 +3649,6 @@ app.post('/api/dispensation', async (req, res) => {
         });
       }
 
-      // Notify Parents
       if (parentUserIds.length > 0) {
         await notifyUsers({
           sender_id,

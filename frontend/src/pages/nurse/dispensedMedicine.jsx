@@ -23,6 +23,20 @@ import jsQR from 'jsqr';
 import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/DispensedMedicine.css';
 
+// Base API configuration for React (Create React App / Webpack)
+const API_BASE = process.env.REACT_APP_API_BASE_URL || 'https://localhost-cms.onrender.com';
+
+// Helper to reliably format date objects or ISO strings to YYYY-MM-DD in local time
+const getLocalDateString = (dateInput) => {
+  if (!dateInput) return '';
+  const d = new Date(dateInput);
+  if (isNaN(d.getTime())) return '';
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 // Measured units allow continuous decimal values (liquids, weights, volumes)
 const MEASURED_UNITS = ['mg', 'g', 'mcg', 'mL', 'L'];
 
@@ -32,7 +46,7 @@ const isMeasuredUnitFn = (unit) => {
   return MEASURED_UNITS.some(u => u.toLowerCase() === String(unit).trim().toLowerCase());
 };
 
-// Global value formatter: Strips decimals for discrete units ('Tablet/s', 'Capsule/s', 'Patch/es', 'Sachet', 'Vial', 'Prefilled Syringe', 'Spray/s', 'Inhaler', 'Box/es', 'pcs.', etc.)
+// Global value formatter
 const formatUnitValue = (val, unit) => {
   if (val === undefined || val === null || val === '') return '';
   const num = parseFloat(val);
@@ -316,7 +330,7 @@ const DispensedMedicine = () => {
     setSearchStudent(cleanText);
 
     try {
-      const res = await fetch(`https://localhost-cms.onrender.com/api/students/direct?search=${encodeURIComponent(cleanText)}`);
+      const res = await fetch(`${API_BASE}/api/students/direct?search=${encodeURIComponent(cleanText)}`);
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data) && data.length > 0) {
@@ -400,7 +414,7 @@ const DispensedMedicine = () => {
 
   const fetchInventory = useCallback(async () => {
     try {
-      const res = await fetch('https://localhost-cms.onrender.com/api/inventory/batches');
+      const res = await fetch(`${API_BASE}/api/inventory/batches`);
       if (!res.ok) throw new Error(`HTTP status ${res.status}`);
       const data = await res.json();
       setInventory(Array.isArray(data) ? data : []);
@@ -423,7 +437,7 @@ const DispensedMedicine = () => {
       if (st) params.append('student', st);
       if (med) params.append('medicine', med);
 
-      const res = await fetch(`https://localhost-cms.onrender.com/api/dispensation/history?${params.toString()}`);
+      const res = await fetch(`${API_BASE}/api/dispensation/history?${params.toString()}`);
       if (!res.ok) throw new Error(`Server returned status ${res.status}`);
       const data = await res.json();
       setHistory(Array.isArray(data) ? data : []);
@@ -440,7 +454,7 @@ const DispensedMedicine = () => {
 
   useEffect(() => {
     if (searchStudent.trim().length > 1 && !selectedStudent) {
-      fetch(`https://localhost-cms.onrender.com/api/students/direct?search=${encodeURIComponent(searchStudent)}`)
+      fetch(`${API_BASE}/api/students/direct?search=${encodeURIComponent(searchStudent)}`)
         .then((res) => {
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           return res.json();
@@ -515,7 +529,7 @@ const DispensedMedicine = () => {
   // Execution after modal confirmation
   const executeDispense = async () => {
     try {
-      const response = await fetch('https://localhost-cms.onrender.com/api/dispensation', {
+      const response = await fetch(`${API_BASE}/api/dispensation`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -620,7 +634,6 @@ const DispensedMedicine = () => {
   };
 
   // PRINT PREVIEW PDF EXPORT
-  // PRINT PREVIEW PDF EXPORT WITH MEDICINE QUANTITY/VOLUME SUMMARY
   const handleExportPDF = () => {
     const rowsToExport = Array.isArray(history) ? history : [];
 
@@ -636,7 +649,6 @@ const DispensedMedicine = () => {
       day: 'numeric' 
     });
 
-    // 1. Calculate aggregated total quantity/volume and dispensation count per medicine
     const medicineTotals = rowsToExport.reduce((acc, log) => {
       const medName = log.medicine_name ? log.medicine_name.trim() : 'Unknown Medicine';
       const unit = log.dosage_consumption_unit_of_measure || '';
@@ -653,7 +665,6 @@ const DispensedMedicine = () => {
       return acc;
     }, {});
 
-    // 2. Generate HTML summary cards for medicines present in the report
     const summaryItemsHtml = Object.keys(medicineTotals).length > 0
       ? Object.entries(medicineTotals).map(([medName, data]) => {
           const formattedTotal = formatUnitValue(data.totalQty, data.unit);
@@ -727,7 +738,6 @@ const DispensedMedicine = () => {
                   margin-bottom: 16px;
                   font-weight: 500;
               }
-              /* Medicine Summary Box Styling */
               .summary-section {
                   background-color: #f8fafc;
                   border: 1px solid #cbd5e1;
@@ -870,12 +880,13 @@ const DispensedMedicine = () => {
     printWindow.document.close();
   };
 
+  // Fixed today's filtering using standard YYYY-MM-DD comparison
   const todaysDispensedLogs = useMemo(() => {
     if (!Array.isArray(history)) return [];
-    const today = new Date().toLocaleDateString();
+    const todayStr = getLocalDateString(new Date());
     return history.filter(log => {
       if (!log.dispensed_at) return false;
-      return new Date(log.dispensed_at).toLocaleDateString() === today;
+      return getLocalDateString(log.dispensed_at) === todayStr;
     });
   }, [history]);
 
@@ -884,7 +895,6 @@ const DispensedMedicine = () => {
 
   return (
     <div className="dispense-container-dm">
-      {/* Header Section styled as Card matching Insurance Vault Theme */}
       <header className="dispense-header-dm">
         <div className="header-title-block-dm">
           <h1>Medicine Dispensation Management</h1>
@@ -1293,7 +1303,7 @@ const DispensedMedicine = () => {
                       </span>
                     </td>
                     <td><code>{log.student_id}</code></td>
-                    <td>{log.first_name} {log.last_name}</td>
+                    <td>{log.first_name || 'N/A'} {log.last_name || ''}</td>
                     <td>{log.medicine_name}</td>
                     <td><strong>{formatUnitValue(log.dosage_consumption_unit_value, log.dosage_consumption_unit_of_measure)} {log.dosage_consumption_unit_of_measure}</strong></td>
                     <td className="action-column-dm">
@@ -1428,7 +1438,7 @@ const DispensedMedicine = () => {
                             </span>
                           </td>
                           <td><code>{log.student_id}</code></td>
-                          <td>{log.first_name} {log.last_name}</td>
+                          <td>{log.first_name || 'N/A'} {log.last_name || ''}</td>
                           <td>{log.medicine_name}</td>
                           <td><strong>{formatUnitValue(log.dosage_consumption_unit_value, log.dosage_consumption_unit_of_measure)} {log.dosage_consumption_unit_of_measure}</strong></td>
                           <td className="action-column-dm">
@@ -1489,7 +1499,7 @@ const DispensedMedicine = () => {
               </div>
               <div className="detail-item-dm">
                 <span className="detail-label-dm">Student Name:</span>
-                <span className="detail-value-dm">{selectedLogDetail.first_name} {selectedLogDetail.last_name}</span>
+                <span className="detail-value-dm">{selectedLogDetail.first_name || 'N/A'} {selectedLogDetail.last_name || ''}</span>
               </div>
               <div className="detail-item-dm">
                 <span className="detail-label-dm">Student ID:</span>
