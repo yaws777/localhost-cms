@@ -18,13 +18,13 @@ import {
 import HealthTipsModal from '../../components/student/HealthTips';
 import '../../styles/student/StudentDashboard.css';
 
-const API_BASE = 'https://localhost-cms.onrender.com/api';
-const BASE_URL = 'https://localhost-cms.onrender.com';
+// Base API configuration using standard React process.env with Render fallback
+const BASE_HOST = (process.env.REACT_APP_API_BASE_URL || 'https://localhost-cms.onrender.com').replace(/\/$/, '');
+const API_BASE = `${BASE_HOST}/api`;
 
 const StudentDashboard = () => {
   const navigate = useNavigate();
 
-  // Extract context values from StudentLayout
   const context = useOutletContext() || {};
   const { 
     studentId = '', 
@@ -33,7 +33,6 @@ const StudentDashboard = () => {
     section = '' 
   } = context;
 
-  // API Data States
   const [visitsData, setVisitsData] = useState({ clinic_visits: [], direct_dispensations: [] });
   const [requirementsData, setRequirementsData] = useState({ all_requirements: [], incomplete_requirements: [], total_assigned: 0, total_incomplete: 0 });
   const [documentRequestsData, setDocumentRequestsData] = useState({ excuse_slip_requests: [], referral_slip_requests: [], recent_updates: [] });
@@ -41,13 +40,11 @@ const StudentDashboard = () => {
   const [doctorAppointments, setDoctorAppointments] = useState([]);
   const [announcements, setAnnouncements] = useState([]);
 
-  // UI States
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isTipsOpen, setIsTipsOpen] = useState(false);
   const [activeDocTab, setActiveDocTab] = useState('all');
 
-  // Daily Health Tips (Mapped from Clinic Complaints)
   const dailyHealthTips = [
     { id: 1, category: 'Respiratory', title: 'Asthma Care', text: 'Always carry your prescribed quick-relief inhaler and stay clear of environmental triggers like dust and smoke.' },
     { id: 2, category: 'Physical Health', title: 'Relieve Body Pain', text: 'Maintain proper posture during long classes and take short stretching breaks to prevent muscle tension.' },
@@ -70,16 +67,14 @@ const StudentDashboard = () => {
 
   const [currentTipIndex, setCurrentTipIndex] = useState(0);
 
-  // Helper to format uploaded document URLs using standard base URL
   const getFileUrl = (url) => {
     if (!url) return '#';
     if (url.startsWith('http://') || url.startsWith('https://')) {
       return url;
     }
-    return `${BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
+    return `${BASE_HOST}${url.startsWith('/') ? '' : '/'}${url}`;
   };
 
-  // Fetch all dashboard endpoints
   useEffect(() => {
     if (!studentId) return;
 
@@ -198,8 +193,6 @@ const StudentDashboard = () => {
 
   return (
     <div className="wrapper-sd">
-      
-      {/* Header & Health Tips Banner */}
       <header className="header-sd">
         <div className="header-info-sd">
           <h1>Student Dashboard</h1>
@@ -237,7 +230,6 @@ const StudentDashboard = () => {
 
       {error && <div className="alert-error-sd"><AlertCircle size={16} /> {error}</div>}
 
-      {/* QUICK ACTION BUTTONS */}
       <section className="quick-actions-bar-sd">
         <button 
           className="quick-action-card-sd"
@@ -268,10 +260,7 @@ const StudentDashboard = () => {
         </button>
       </section>
 
-      {/* Main Grid Layout */}
       <main className="grid-sd">
-
-        {/* 1. NURSE ANNOUNCEMENTS SECTION */}
         <section className="card-section-sd col-span-2-sd">
           <div className="card-header-sd">
             <div className="card-title-group-sd">
@@ -304,7 +293,6 @@ const StudentDashboard = () => {
           )}
         </section>
 
-        {/* 2. OVERVIEW: Clinic Visits & Medicine Dispensation */}
         <section className="card-section-sd col-span-2-sd">
           <div className="card-header-sd">
             <div className="card-title-group-sd">
@@ -366,7 +354,6 @@ const StudentDashboard = () => {
                     )}
                   </div>
 
-                  {/* Dispensed Medicines */}
                   {visit.dispensed_medicines?.length > 0 && (
                     <div className="meds-list-sd">
                       <span className="meds-title-sd">Dispensed Medicine:</span>
@@ -382,7 +369,6 @@ const StudentDashboard = () => {
                 </div>
               ))}
 
-              {/* Direct Dispensations */}
               {visitsData.direct_dispensations.length > 0 && (
                 <div className="direct-dispense-sec-sd">
                   <h3 className="section-subtitle-sd">Direct Medicine Dispensations</h3>
@@ -404,7 +390,6 @@ const StudentDashboard = () => {
           )}
         </section>
 
-        {/* 3. OVERVIEW: Requirements & Status */}
         <section className="card-section-sd">
           <div className="card-header-sd">
             <div className="card-title-group-sd">
@@ -455,7 +440,6 @@ const StudentDashboard = () => {
           )}
         </section>
 
-        {/* 4. OVERVIEW: Document Requests Updates */}
         <section className="card-section-sd">
           <div className="card-header-sd">
             <div className="card-title-group-sd">
@@ -536,7 +520,6 @@ const StudentDashboard = () => {
           )}
         </section>
 
-        {/* 5. OVERVIEW: Upcoming Health Screenings */}
         <section className="card-section-sd">
           <div className="card-header-sd">
             <div className="card-title-group-sd">
@@ -572,7 +555,6 @@ const StudentDashboard = () => {
           )}
         </section>
 
-        {/* 6. OVERVIEW: Doctor Visit Schedule */}
         <section className="card-section-sd">
           <div className="card-header-sd">
             <div className="card-title-group-sd">
@@ -613,10 +595,8 @@ const StudentDashboard = () => {
             </div>
           )}
         </section>
-
       </main>
 
-      {/* Health Tips Modal */}
       <HealthTipsModal 
         isOpen={isTipsOpen} 
         onClose={() => setIsTipsOpen(false)} 
