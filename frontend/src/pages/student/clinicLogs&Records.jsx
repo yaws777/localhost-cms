@@ -25,6 +25,42 @@ const formatDate = (dateStr) => {
   return new Date(dateStr).toLocaleDateString();
 };
 
+const formatKeyLabel = (key) => {
+  if (!key) return '';
+  // Convert camelCase to spaced words (e.g. specifyComplaintText -> specify Complaint Text)
+  const decameled = key.replace(/([a-z])([A-Z])/g, '$1 $2');
+  const normalized = decameled.toLowerCase().replace(/_/g, ' ').trim();
+
+  // Match all variations of medical condition/complaint field keys
+  if (
+    normalized === 'complaint' || 
+    normalized === 'chief complaint' || 
+    normalized === 'complaint id' ||
+    normalized === 'complaint name' ||
+    normalized === 'complaint text' ||
+    normalized === 'complaint type'
+  ) {
+    return 'Medical Condition';
+  }
+
+  if (
+    normalized === 'specify complaint' || 
+    normalized === 'specified complaint' || 
+    normalized === 'specify complaint text' ||
+    normalized === 'specify complaint other' ||
+    normalized === 'specified complaint text'
+  ) {
+    return 'Specify Medical Condition';
+  }
+
+  // Capitalize each word properly for fallbacks
+  return decameled
+    .replace(/_/g, ' ')
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+};
+
 export default function ClinicLogsAndRecords() {
   const { studentId } = useOutletContext();
 
@@ -380,7 +416,7 @@ function Modal({ record, onClose }) {
         <div className="modal-body-clr">
           {Object.entries(record).map(([key, value]) => (
             <div className="modal-field-clr" key={key}>
-              <span className="field-key-clr">{key.replace(/_/g, ' ')}:</span>
+              <span className="field-key-clr">{formatKeyLabel(key)}:</span>
               <span className="field-value-clr">
                 {value !== null && value !== undefined
                   ? (typeof value === 'string' && value.includes('T00:00') ? formatDate(value) : String(value)) 

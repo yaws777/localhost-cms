@@ -4368,7 +4368,7 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
                     ? `${info.medicine_name} (${formattedDosageVal} ${info.dosage_consumption_unit_of_measure || ''})`.trim()
                     : 'None';
 
-                const notifMessage = `${studentFullName} visited the clinic with a complaint of ${complaintText}. Assessment: ${assessmentText}. Medicine given: ${medicineText}.`;
+                const notifMessage = `${studentFullName} visited the clinic with a medical condition of ${complaintText}. Assessment: ${assessmentText}. Medicine given: ${medicineText}.`;
                 const notifTitle = `Clinic Visit Documented: ${studentFullName}`;
 
                 const recipient_ids = [info.parent_user_id, info.student_user_id].filter(Boolean);
@@ -4528,7 +4528,7 @@ app.get('/api/health-trends', async (req, res) => {
       startDate = startOfMonth(targetDate);
       endDate = endOfMonth(targetDate);
       periodLabel = `Weekly Overview: ${format(startDate, 'MMMM yyyy')}`;
-      timelineLabel = `Weekly breakdown of complaints for ${format(startDate, 'MMMM yyyy')}`;
+      timelineLabel = `Weekly breakdown of medical conditions for ${format(startDate, 'MMMM yyyy')}`;
 
       const totalDays = endDate.getDate();
       const numWeeks = totalDays > 28 ? 5 : 4;

@@ -277,7 +277,7 @@ const WeeklyReports = () => {
               <div class="summary-card-value">${reportData.overview.totalVisits}</div>
             </div>
             <div class="summary-card">
-              <div class="summary-card-title">Top Complaint</div>
+              <div class="summary-card-title">Top Medical Condition</div>
               <div class="summary-card-value">${reportData.overview.topComplaint}</div>
             </div>
             <div class="summary-card">
@@ -409,7 +409,7 @@ const WeeklyReports = () => {
         <div className="stat-card complaint">
           <div className="stat-card-header">
             <Activity className="stat-icon complaint" size={18} />
-            <span className="stat-label">Top Complaint</span>
+            <span className="stat-label">Top Medical Condition</span>
           </div>
           <div className="stat-value complaint" title={reportData.overview.topComplaint}>
             {loading ? '...' : reportData.overview.topComplaint}
@@ -438,10 +438,10 @@ const WeeklyReports = () => {
       {/* Analytics Charts */}
       <section className="charts-grid">
         <div className="chart-card">
-          <h2 className="chart-title">Complaint Breakdown</h2>
+          <h2 className="chart-title">Medical Condition Breakdown</h2>
           <div className="chart-wrapper">
             {reportData.complaintsBreakdown.length === 0 ? (
-              <div className="no-data-placeholder">No complaint records for this week</div>
+              <div className="no-data-placeholder">No medical condition records for this week</div>
             ) : (
               <ResponsiveContainer width="100%" height={260}>
                 <BarChart data={reportData.complaintsBreakdown} margin={{ top: 15, right: 10, left: -20, bottom: 25 }}>
