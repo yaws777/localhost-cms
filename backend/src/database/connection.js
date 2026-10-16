@@ -3477,7 +3477,6 @@ app.get('/api/dispensation/history', async (req, res) => {
 });
 
 // Core Dispensation POST Handler with Unit Normalization & Push/System Notifications
-// Core Dispensation POST Handler with Unit Normalization & Collision-Proof Unique ID Generation
 app.post('/api/dispensation', async (req, res) => {
   const { 
     student_id, 
@@ -3493,7 +3492,7 @@ app.post('/api/dispensation', async (req, res) => {
     return res.status(400).json({ error: 'Dosage value must be greater than zero.' });
   }
 
-  // Include 'pcs.' so piece deductions lower remaining_volume[cite: 1]
+  // Include 'pcs.' so piece deductions lower remaining_volume
   const measuredUnits = ['mg', 'g', 'mcg', 'mL', 'L', 'pcs.'];
   const isMeasured = measuredUnits.includes(dosage_consumption_unit_of_measure);
 
@@ -3528,7 +3527,7 @@ app.post('/api/dispensation', async (req, res) => {
     const strengthUnitMeasure = batchRows[0].strength_unit_of_measure;
     const expirationDate = new Date(batchRows[0].expiration_date);
 
-    // Get formatted medicine name for notifications[cite: 1]
+    // Get formatted medicine name for notifications
     const brandName = batchRows[0].brand_name;
     const genericName = batchRows[0].generic_name;
     const medicineName = brandName ? `${brandName} (${genericName})` : genericName;
@@ -3556,10 +3555,10 @@ app.post('/api/dispensation', async (req, res) => {
         });
       }
 
-      // Deduct pieces directly from remaining_volume[cite: 1]
+      // Deduct pieces directly from remaining_volume
       newRemaining = remainingVolume - requestedInBatchUnit;
 
-      // Automatically decrement box stock (current_stock) when remaining_volume exhausts active box[cite: 1]
+      // Automatically decrement box stock (current_stock) when remaining_volume exhausts active box
       while (newRemaining <= 0 && newStock > 0) {
         newStock -= 1;
         if (newRemaining === 0) {
@@ -3596,49 +3595,13 @@ app.post('/api/dispensation', async (req, res) => {
     const monthStr = String(now.getMonth() + 1).padStart(2, '0');
     const dayStr = String(now.getDate()).padStart(2, '0');
     const yearStr = String(now.getFullYear()).slice(-2);
-    const prefix = `DISP-${monthStr}${dayStr}${yearStr}`;
+    const datePrefix = `${monthStr}${dayStr}${yearStr}`;
 
-    // Query highest existing ID for today's prefix to find highest sequence
-    const [maxIdRows] = await connection.execute(
-      `SELECT direct_dispense_id 
-       FROM direct_dispensation 
-       WHERE direct_dispense_id LIKE ? 
-       ORDER BY direct_dispense_id DESC 
-       LIMIT 1 FOR UPDATE`,
-      [`${prefix}%`]
+    const [dispenseCountRows] = await connection.execute(
+      `SELECT COUNT(*) AS totalToday FROM direct_dispensation WHERE DATE(dispensed_at) = CURDATE() FOR UPDATE`
     );
-
-    let nextSequence = 1;
-
-    if (maxIdRows.length > 0) {
-      const lastId = maxIdRows[0].direct_dispense_id;
-      const lastSeqStr = lastId.replace(prefix, '');
-      const parsedSeq = parseInt(lastSeqStr, 10);
-
-      if (!isNaN(parsedSeq)) {
-        nextSequence = parsedSeq + 1;
-      }
-    }
-
-    // Loop check to guarantee uniqueness against any unexpected collisions
-    let direct_dispense_id = '';
-    let isUnique = false;
-
-    while (!isUnique) {
-      const sequenceNum = String(nextSequence).padStart(3, '0');
-      direct_dispense_id = `${prefix}${sequenceNum}`;
-
-      const [existing] = await connection.execute(
-        `SELECT 1 FROM direct_dispensation WHERE direct_dispense_id = ?`,
-        [direct_dispense_id]
-      );
-
-      if (existing.length === 0) {
-        isUnique = true;
-      } else {
-        nextSequence++;
-      }
-    }
+    const sequenceNum = String(dispenseCountRows[0].totalToday + 1).padStart(3, '0');
+    const direct_dispense_id = `DISP-${datePrefix}${sequenceNum}`;
 
     await connection.execute(
       `INSERT INTO direct_dispensation 
@@ -3655,14 +3618,71 @@ app.post('/api/dispensation', async (req, res) => {
     );
 
     await connection.commit();
+
+    // ------------------------------------------------------------------
+    // DISPATCH NOTIFICATIONS (STUDENT & PARENTS)
+    // ------------------------------------------------------------------
+    try {
+      const [studentRows] = await pool.query(
+        `SELECT s.user_id AS student_user_id, s.first_name, s.last_name, n.user_id AS nurse_user_id
+         FROM students s
+         LEFT JOIN nurses n ON n.nurse_id = ?
+         WHERE s.student_id = ?`,
+        [nurse_id, student_id]
+      );
+
+      const [parentRows] = await pool.query(
+        `SELECT p.user_id 
+         FROM parents p
+         INNER JOIN parent_student_mapping psm ON p.parent_id = psm.parent_id
+         WHERE psm.student_id = ?`,
+        [student_id]
+      );
+
+      const sender_id = studentRows[0]?.nurse_user_id || null;
+      const student_user_id = studentRows[0]?.student_user_id;
+      const studentName = studentRows[0] ? `${studentRows[0].first_name} ${studentRows[0].last_name}` : 'Your child';
+      const parentUserIds = parentRows.map(p => p.user_id).filter(Boolean);
+
+      // Notify Student
+      if (student_user_id) {
+        await notifyUsers({
+          sender_id,
+          recipient_ids: [student_user_id],
+          title: 'Medicine Dispensed',
+          message: `Dispensed ${numericVal} ${dosage_consumption_unit_of_measure} of ${medicineName}.`,
+          type: 'MEDICINE_DISPENSE',
+          payloadData: { direct_dispense_id, student_id, batch_id }
+        });
+      }
+
+      // Notify Parents
+      if (parentUserIds.length > 0) {
+        await notifyUsers({
+          sender_id,
+          recipient_ids: parentUserIds,
+          title: 'Child Medicine Dispensing',
+          message: `${studentName} was dispensed ${numericVal} ${dosage_consumption_unit_of_measure} of ${medicineName}.`,
+          type: 'MEDICINE_DISPENSE_PARENT',
+          payloadData: { direct_dispense_id, student_id, batch_id }
+        });
+      }
+    } catch (notifErr) {
+      console.error('Failed to dispatch dispensation notifications:', notifErr);
+    }
+
     res.status(201).json({ 
-      message: 'Medicine dispensed successfully.', 
-      direct_dispense_id 
+      success: true, 
+      message: 'Transaction posted successfully.', 
+      direct_dispense_id: direct_dispense_id,
+      updatedStock: newStock,
+      updatedVolume: newRemaining 
     });
-  } catch (error) {
+
+  } catch (err) {
     await connection.rollback();
-    console.error("Error on /api/dispensation:", error);
-    res.status(500).json({ error: 'Failed to complete dispensation process.' });
+    console.error("Dispensation Transaction Error: ", err);
+    res.status(500).json({ error: 'Internal system transaction failure processing order.' });
   } finally {
     connection.release();
   }
