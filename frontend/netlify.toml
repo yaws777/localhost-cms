@@ -1,3 +1,7 @@
 [build]
   command = "npm run build"
   publish = "build"
+
+[build.environment]
+  # TZ is a timezone name (also set in backend code), not a secret
+  SECRETS_SCAN_OMIT_KEYS = "TZ"
