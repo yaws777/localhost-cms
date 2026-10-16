@@ -658,7 +658,7 @@ export default function MedicineInventory() {
         <input
           type="text"
           className="rounded-search-input"
-          placeholder="Search inventory by medicine or complaint/indication..."
+          placeholder="Search inventory by medicine indication..."
           value={searchTerm}
           onChange={e => setSearchTerm(e.target.value)}
         />
@@ -984,14 +984,14 @@ export default function MedicineInventory() {
 
                 {/* Indications & Complaint mapping */}
                 <div className="modal-form-group">
-                  <label className="input-field-label">Indications / Chief Complaints</label>
+                  <label className="input-field-label">Medicine Indications</label>
                   
                   <div className="search-bar-container modal-search" style={{ marginBottom: '10px' }}>
                     <Search size={16} className="search-icon-placement" />
                     <input
                       type="text"
                       className="rounded-search-input"
-                      placeholder="Search complaint / indication..."
+                      placeholder="Search medicine indication..."
                       value={complaintSearchTerm}
                       onChange={e => setComplaintSearchTerm(e.target.value)}
                     />
@@ -1029,7 +1029,7 @@ export default function MedicineInventory() {
                       })
                     ) : (
                       <p style={{ gridColumn: '1 / -1', color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '4px 0' }}>
-                        No matching complaints found.
+                        No matching medical conditions found.
                       </p>
                     )}
                   </div>

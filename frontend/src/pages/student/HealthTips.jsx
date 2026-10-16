@@ -227,7 +227,7 @@ const HealthTips = () => {
       if (data.success) {
         setComplaints(data.data);
       } else {
-        setError('Failed to retrieve chief complaints list.');
+        setError('Failed to retrieve medical indication list.');
       }
     } catch (err) {
       console.error('Fetch error:', err);
@@ -247,13 +247,13 @@ const HealthTips = () => {
       <header className="module-header">
         <div>
           <h1>🏥 Health Advisory & Care Directory</h1>
-          <p>Comprehensive guide for prevention and cure across all recorded chief complaints</p>
+          <p>Comprehensive guide for prevention and cure across all recorded medical indications</p>
         </div>
 
         <div className="search-box">
           <input
             type="text"
-            placeholder="🔍 Search complaint (e.g. Fever, Asthma)..."
+            placeholder="🔍 Search medical indication (e.g. Fever, Asthma)..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -266,11 +266,11 @@ const HealthTips = () => {
       </header>
 
       {loading ? (
-        <div className="module-status">Loading complaints database...</div>
+        <div className="module-status">Loading medical indications database...</div>
       ) : error ? (
         <div className="module-status error">{error}</div>
       ) : filteredComplaints.length === 0 ? (
-        <div className="module-status">No matching complaints found for "{searchTerm}"</div>
+        <div className="module-status">No matching medical indications found for "{searchTerm}"</div>
       ) : (
         <div className="complaints-grid">
           {filteredComplaints.map((item) => {

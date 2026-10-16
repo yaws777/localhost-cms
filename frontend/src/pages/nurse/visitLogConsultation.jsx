@@ -864,7 +864,7 @@ const VisitLogConsultation = () => {
                     <span class="summary-badge">${count}</span>
                 </div>
             `).join('')
-            : '<span style="font-size: 12px; color: #64748b;">No complaints found in current selection.</span>';
+            : '<span style="font-size: 12px; color: #64748b;">No medical conditions found in current selection.</span>';
 
         const tableRowsHtml = rowsToExport.map(visit => {
             const vDate = formatDateDisplay(visit.visit_date);
@@ -1033,7 +1033,7 @@ const VisitLogConsultation = () => {
                 </div>
 
                 <div class="summary-section">
-                    <div class="summary-title">Complaint Summary Report</div>
+                    <div class="summary-title">Medical Condition Summary Report</div>
                     <div class="summary-grid">
                         ${summaryItemsHtml}
                     </div>
@@ -1045,7 +1045,7 @@ const VisitLogConsultation = () => {
                             <th>Date</th>
                             <th>Student ID</th>
                             <th>Student Name</th>
-                            <th>Complaint</th>
+                            <th>Medical Condition</th>
                             <th>Time In</th>
                             <th>Time Out</th>
                             <th>Medicine Dispensed</th>
@@ -1398,12 +1398,12 @@ const VisitLogConsultation = () => {
                                 </div>
 
                                 <div className="filter-input-group-vlc">
-                                    <label><Filter size={14} /> Complaint</label>
+                                    <label><Filter size={14} /> Medical Condition</label>
                                     <select 
                                         value={complaintFilter} 
                                         onChange={(e) => setComplaintFilter(e.target.value)}
                                     >
-                                        <option value="">All Complaints</option>
+                                        <option value="">All Medical Condition</option>
                                         {complaints.map(c => (
                                             <option key={c.complaint_id} value={c.complaint_id}>{c.complaint_name}</option>
                                         ))}
@@ -1460,7 +1460,7 @@ const VisitLogConsultation = () => {
                                         <tr>
                                             <th>Visit Date</th>
                                             <th>Student Identity</th>
-                                            <th>Complaint</th>
+                                            <th>Medical Condition</th>
                                             <th>Medicine Dispensed</th>
                                             <th>Time In / Out</th>
                                             <th>Status</th>
@@ -1620,7 +1620,7 @@ const VisitLogConsultation = () => {
                                         />
                                     </div>
                                     <div className="form-input-element-vlc full-width-field-vlc">
-                                        <label>Complaint <span className="required-star-vlc">*</span></label>
+                                        <label>Medical Condition <span className="required-star-vlc">*</span></label>
                                         <select 
                                             required 
                                             value={formData.complaint_id} 
@@ -1630,7 +1630,7 @@ const VisitLogConsultation = () => {
                                                 specify_complaint_text: ''
                                             })}
                                         >
-                                            <option value="">-- Choose matching complaint --</option>
+                                            <option value="">-- Choose matching medical condition --</option>
                                             {complaints.map(c => (
                                                 <option key={c.complaint_id} value={c.complaint_id}>{c.complaint_name}</option>
                                             ))}
@@ -1640,12 +1640,12 @@ const VisitLogConsultation = () => {
                                     {isSpecifyComplaintRequired && (
                                         <div className="form-input-element-vlc full-width-field-vlc">
                                             <label>
-                                                Specify Complaint Details <span className="required-star-vlc">*</span>
+                                                Specify Medical Condition Details <span className="required-star-vlc">*</span>
                                             </label>
                                             <input 
                                                 type="text" 
                                                 required 
-                                                placeholder="Provide specific details regarding the selected complaint..." 
+                                                placeholder="Provide specific details regarding the selected medical condition..." 
                                                 value={formData.specify_complaint_text} 
                                                 onChange={e => setFormData({...formData, specify_complaint_text: e.target.value})} 
                                             />
@@ -1845,7 +1845,7 @@ const VisitLogConsultation = () => {
                         <thead>
                             <tr>
                                 <th>Student Identity</th>
-                                <th>Complaint</th>
+                                <th>Medical Condition</th>
                                 <th>Medicine Dispensed</th>
                                 <th>Time In</th>
                                 <th>Time Out</th>

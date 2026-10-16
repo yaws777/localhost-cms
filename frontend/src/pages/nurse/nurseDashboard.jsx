@@ -677,7 +677,7 @@ const NurseDashboard = () => {
 
   // EXPORT HANDLERS FOR REPORTS
   const handleExportHealthTrends = () => {
-    const headers = ['No.', 'Health Complaint / Symptom', 'Total Cases Recorded', 'Average Cases / Month'];
+    const headers = ['No.', 'Medical Condition', 'Total Cases Recorded', 'Average Cases / Month'];
     const rows = complaintsList.map((complaint, index) => {
       const totalCases = trendData.reduce((sum, item) => sum + (Number(item[complaint]) || 0), 0);
       const avgVal = averages && averages[complaint] !== undefined ? averages[complaint] : 0;
@@ -771,7 +771,7 @@ const NurseDashboard = () => {
 
   // EXPORT HANDLER FOR ALL REPEATED COMPLAINT LOGS
   const handleExportFrequentComplaints = () => {
-    const headers = ['No.', 'Student Name', 'Student ID', 'Repeated Complaint', 'Monthly Visits', 'Clinical Advice'];
+    const headers = ['No.', 'Student Name', 'Student ID', 'Repeated Medical Conditions', 'Monthly Visits', 'Clinical Advice'];
     const rows = alerts.map((alert, index) => [
       index + 1,
       alert.studentName || 'N/A',
@@ -782,7 +782,7 @@ const NurseDashboard = () => {
     ]);
 
     generatePDFReport(
-      'Frequent Visit & Repeated Complaint Summary Report',
+      'Frequent Visit & Repeated Medical Condition Summary Report',
       'Summary of Students with Recurring Clinic Visit Logs & Frequent Health Concerns',
       headers,
       rows,
@@ -797,7 +797,7 @@ const NurseDashboard = () => {
     const headers = [
       'No.', 
       'Visit Date & Time', 
-      'Chief Complaint', 
+      'Medical Conditions', 
       'Vitals (BP / Temp / Resp / Pulse)', 
       'Nursing Intervention', 
       'Clinical Assessment'
@@ -823,8 +823,8 @@ const NurseDashboard = () => {
     });
 
     generatePDFReport(
-      `Recurring Complaint Logs - ${selectedAlertHeader.studentName}`,
-      `Student ID: ${selectedAlertHeader.studentId} | Program/Yr: ${selectedAlertHeader.gradeSection || 'N/A'} | Complaint: ${selectedAlertHeader.complaint} (${detailVisits.length} Visits Recorded)`,
+      `Recurring Medical Condition Logs - ${selectedAlertHeader.studentName}`,
+      `Student ID: ${selectedAlertHeader.studentId} | Program/Yr: ${selectedAlertHeader.gradeSection || 'N/A'} | Medical Conditions: ${selectedAlertHeader.complaint} (${detailVisits.length} Visits Recorded)`,
       headers,
       rows,
       (errMsg) => showAlert({ type: 'error', title: 'Export Failed', message: errMsg })
@@ -1000,7 +1000,7 @@ const NurseDashboard = () => {
       const result = await response.json();
       setAlerts(result.data || []); 
     } catch (error) {
-      console.error("Failed to fetch frequent complaint alerts:", error);
+      console.error("Failed to fetch frequent medical condition alerts:", error);
     } finally {
       setIsAlertsLoading(false);
     }
@@ -2146,7 +2146,7 @@ const NurseDashboard = () => {
       ) : alerts.length === 0 ? (
         <div className="empty-alert-card-nd">
           <div className="empty-icon-nd"><CheckCircle2 size={32} /></div>
-          <h3 className="empty-title-nd">No Frequent Complaint Alerts</h3>
+          <h3 className="empty-title-nd">No Frequent Medical Condition Alerts</h3>
           <p className="empty-subtext-nd">All student clinic visit patterns are currently within standard ranges.</p>
         </div>
       ) : (
@@ -2547,7 +2547,7 @@ const NurseDashboard = () => {
                 <Search size={16} className="search-icon-nd" />
                 <input
                   type="text"
-                  placeholder="Search by student name, ID, or complaint..."
+                  placeholder="Search by student name, ID, or medical conditions..."
                   value={modalSearch}
                   onChange={(e) => setModalSearch(e.target.value)}
                   className="filter-input-nd modal-search-input-nd"
@@ -2575,7 +2575,7 @@ const NurseDashboard = () => {
                   <thead>
                     <tr>
                       <th>Student</th>
-                      <th>Complaint</th>
+                      <th>Medical Conditions</th>
                       <th>Monthly Visits</th>
                       <th>Clinical Advice</th>
                       <th className="action-col-header-nd">Action</th>

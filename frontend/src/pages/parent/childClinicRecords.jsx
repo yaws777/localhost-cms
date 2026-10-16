@@ -42,6 +42,42 @@ const getFileUrl = (path) => {
   return `${API_BASE}${cleanPath}`;
 };
 
+const formatKeyLabel = (key) => {
+  if (!key) return '';
+  // Convert camelCase to spaced words (e.g. specifyComplaintText -> specify Complaint Text)
+  const decameled = key.replace(/([a-z])([A-Z])/g, '$1 $2');
+  const normalized = decameled.toLowerCase().replace(/_/g, ' ').trim();
+
+  // Match all variations of medical condition/complaint field keys
+  if (
+    normalized === 'complaint' || 
+    normalized === 'chief complaint' || 
+    normalized === 'complaint id' ||
+    normalized === 'complaint name' ||
+    normalized === 'complaint text' ||
+    normalized === 'complaint type'
+  ) {
+    return 'Medical Condition';
+  }
+
+  if (
+    normalized === 'specify complaint' || 
+    normalized === 'specified complaint' || 
+    normalized === 'specify complaint text' ||
+    normalized === 'specify complaint other' ||
+    normalized === 'specified complaint text'
+  ) {
+    return 'Specify Medical Condition';
+  }
+
+  // Capitalize each word properly for fallbacks
+  return decameled
+    .replace(/_/g, ' ')
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+};
+
 export default function ChildClinicRecords() {
   const context = useOutletContext();
 
@@ -540,7 +576,7 @@ function Modal({ record, onClose }) {
             if (value === null || value === undefined || value === '') {
               return (
                 <div className="modal-field-ccr" key={key}>
-                  <span className="field-key-ccr">{key.replace(/_/g, ' ')}:</span>
+                  <span className="field-key-ccr">{formatKeyLabel(key)}:</span>
                   <span className="field-value-ccr">N/A</span>
                 </div>
               );
@@ -552,7 +588,7 @@ function Modal({ record, onClose }) {
 
               return (
                 <div className="modal-field-ccr modal-field-file-ccr" key={key}>
-                  <span className="field-key-ccr">{key.replace(/_/g, ' ')}:</span>
+                  <span className="field-key-ccr">{formatKeyLabel(key)}:</span>
                   <div className="field-value-ccr file-container-ccr">
                     <a 
                       href={fullFileUrl} 
@@ -579,7 +615,7 @@ function Modal({ record, onClose }) {
 
             return (
               <div className="modal-field-ccr" key={key}>
-                <span className="field-key-ccr">{key.replace(/_/g, ' ')}:</span>
+                <span className="field-key-ccr">{formatKeyLabel(key)}:</span>
                 <span className="field-value-ccr">
                   {typeof value === 'string' && (value.includes('T00:00') || /^\d{4}-\d{2}-\d{2}/.test(value)) 
                     ? formatDate(value) 

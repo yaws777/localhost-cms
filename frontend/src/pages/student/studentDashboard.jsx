@@ -349,7 +349,7 @@ const StudentDashboard = () => {
 
                   <div className="visit-details-sd">
                     <p>
-                      <strong>Complaint:</strong>{' '}
+                      <strong>Medical Condition:</strong>{' '}
                       {visit.complaint_name
                         ? `${visit.complaint_name}${visit.specify_complaint_text ? ` - ${visit.specify_complaint_text}` : ''}`
                         : visit.specify_complaint_text || 'N/A'}
