@@ -268,7 +268,7 @@ const VisitLogConsultation = () => {
 
     const fetchTodayVisits = useCallback(async () => {
         try {
-            const res = await fetch('ttps://localhost-cms.onrender.com/api/clinic-visits');
+            const res = await fetch('https://localhost-cms.onrender.com/api/clinic-visits');
             const data = await res.json();
             if (Array.isArray(data)) {
                 const currentToday = getLocalDateString();
@@ -577,7 +577,7 @@ const VisitLogConsultation = () => {
         };
 
         try {
-            const res = await fetch('ttps://localhost-cms.onrender.com/api/clinic-visits', {
+            const res = await fetch('https://localhost-cms.onrender.com/api/clinic-visits', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(checkInPayload)
