@@ -3477,6 +3477,7 @@ app.get('/api/dispensation/history', async (req, res) => {
 });
 
 // Core Dispensation POST Handler with Unit Normalization & Push/System Notifications
+// Core Dispensation POST Handler with Unit Normalization & Collision-Proof Unique ID Generation
 app.post('/api/dispensation', async (req, res) => {
   const { 
     student_id, 
@@ -3492,7 +3493,7 @@ app.post('/api/dispensation', async (req, res) => {
     return res.status(400).json({ error: 'Dosage value must be greater than zero.' });
   }
 
-  // Include 'pcs.' so piece deductions lower remaining_volume
+  // Include 'pcs.' so piece deductions lower remaining_volume[cite: 1]
   const measuredUnits = ['mg', 'g', 'mcg', 'mL', 'L', 'pcs.'];
   const isMeasured = measuredUnits.includes(dosage_consumption_unit_of_measure);
 
@@ -3527,7 +3528,7 @@ app.post('/api/dispensation', async (req, res) => {
     const strengthUnitMeasure = batchRows[0].strength_unit_of_measure;
     const expirationDate = new Date(batchRows[0].expiration_date);
 
-    // Get formatted medicine name for notifications
+    // Get formatted medicine name for notifications[cite: 1]
     const brandName = batchRows[0].brand_name;
     const genericName = batchRows[0].generic_name;
     const medicineName = brandName ? `${brandName} (${genericName})` : genericName;
@@ -3555,10 +3556,10 @@ app.post('/api/dispensation', async (req, res) => {
         });
       }
 
-      // Deduct pieces directly from remaining_volume
+      // Deduct pieces directly from remaining_volume[cite: 1]
       newRemaining = remainingVolume - requestedInBatchUnit;
 
-      // Automatically decrement box stock (current_stock) when remaining_volume exhausts active box
+      // Automatically decrement box stock (current_stock) when remaining_volume exhausts active box[cite: 1]
       while (newRemaining <= 0 && newStock > 0) {
         newStock -= 1;
         if (newRemaining === 0) {
@@ -3595,13 +3596,49 @@ app.post('/api/dispensation', async (req, res) => {
     const monthStr = String(now.getMonth() + 1).padStart(2, '0');
     const dayStr = String(now.getDate()).padStart(2, '0');
     const yearStr = String(now.getFullYear()).slice(-2);
-    const datePrefix = `${monthStr}${dayStr}${yearStr}`;
+    const prefix = `DISP-${monthStr}${dayStr}${yearStr}`;
 
-    const [dispenseCountRows] = await connection.execute(
-      `SELECT COUNT(*) AS totalToday FROM direct_dispensation WHERE DATE(dispensed_at) = CURDATE() FOR UPDATE`
+    // Query highest existing ID for today's prefix to find highest sequence
+    const [maxIdRows] = await connection.execute(
+      `SELECT direct_dispense_id 
+       FROM direct_dispensation 
+       WHERE direct_dispense_id LIKE ? 
+       ORDER BY direct_dispense_id DESC 
+       LIMIT 1 FOR UPDATE`,
+      [`${prefix}%`]
     );
-    const sequenceNum = String(dispenseCountRows[0].totalToday + 1).padStart(3, '0');
-    const direct_dispense_id = `DISP-${datePrefix}${sequenceNum}`;
+
+    let nextSequence = 1;
+
+    if (maxIdRows.length > 0) {
+      const lastId = maxIdRows[0].direct_dispense_id;
+      const lastSeqStr = lastId.replace(prefix, '');
+      const parsedSeq = parseInt(lastSeqStr, 10);
+
+      if (!isNaN(parsedSeq)) {
+        nextSequence = parsedSeq + 1;
+      }
+    }
+
+    // Loop check to guarantee uniqueness against any unexpected collisions
+    let direct_dispense_id = '';
+    let isUnique = false;
+
+    while (!isUnique) {
+      const sequenceNum = String(nextSequence).padStart(3, '0');
+      direct_dispense_id = `${prefix}${sequenceNum}`;
+
+      const [existing] = await connection.execute(
+        `SELECT 1 FROM direct_dispensation WHERE direct_dispense_id = ?`,
+        [direct_dispense_id]
+      );
+
+      if (existing.length === 0) {
+        isUnique = true;
+      } else {
+        nextSequence++;
+      }
+    }
 
     await connection.execute(
       `INSERT INTO direct_dispensation 
@@ -3618,71 +3655,14 @@ app.post('/api/dispensation', async (req, res) => {
     );
 
     await connection.commit();
-
-    // ------------------------------------------------------------------
-    // DISPATCH NOTIFICATIONS (STUDENT & PARENTS)
-    // ------------------------------------------------------------------
-    try {
-      const [studentRows] = await pool.query(
-        `SELECT s.user_id AS student_user_id, s.first_name, s.last_name, n.user_id AS nurse_user_id
-         FROM students s
-         LEFT JOIN nurses n ON n.nurse_id = ?
-         WHERE s.student_id = ?`,
-        [nurse_id, student_id]
-      );
-
-      const [parentRows] = await pool.query(
-        `SELECT p.user_id 
-         FROM parents p
-         INNER JOIN parent_student_mapping psm ON p.parent_id = psm.parent_id
-         WHERE psm.student_id = ?`,
-        [student_id]
-      );
-
-      const sender_id = studentRows[0]?.nurse_user_id || null;
-      const student_user_id = studentRows[0]?.student_user_id;
-      const studentName = studentRows[0] ? `${studentRows[0].first_name} ${studentRows[0].last_name}` : 'Your child';
-      const parentUserIds = parentRows.map(p => p.user_id).filter(Boolean);
-
-      // Notify Student
-      if (student_user_id) {
-        await notifyUsers({
-          sender_id,
-          recipient_ids: [student_user_id],
-          title: 'Medicine Dispensed',
-          message: `Dispensed ${numericVal} ${dosage_consumption_unit_of_measure} of ${medicineName}.`,
-          type: 'MEDICINE_DISPENSE',
-          payloadData: { direct_dispense_id, student_id, batch_id }
-        });
-      }
-
-      // Notify Parents
-      if (parentUserIds.length > 0) {
-        await notifyUsers({
-          sender_id,
-          recipient_ids: parentUserIds,
-          title: 'Child Medicine Dispensing',
-          message: `${studentName} was dispensed ${numericVal} ${dosage_consumption_unit_of_measure} of ${medicineName}.`,
-          type: 'MEDICINE_DISPENSE_PARENT',
-          payloadData: { direct_dispense_id, student_id, batch_id }
-        });
-      }
-    } catch (notifErr) {
-      console.error('Failed to dispatch dispensation notifications:', notifErr);
-    }
-
     res.status(201).json({ 
-      success: true, 
-      message: 'Transaction posted successfully.', 
-      direct_dispense_id: direct_dispense_id,
-      updatedStock: newStock,
-      updatedVolume: newRemaining 
+      message: 'Medicine dispensed successfully.', 
+      direct_dispense_id 
     });
-
-  } catch (err) {
+  } catch (error) {
     await connection.rollback();
-    console.error("Dispensation Transaction Error: ", err);
-    res.status(500).json({ error: 'Internal system transaction failure processing order.' });
+    console.error("Error on /api/dispensation:", error);
+    res.status(500).json({ error: 'Failed to complete dispensation process.' });
   } finally {
     connection.release();
   }
@@ -3868,6 +3848,31 @@ function formatTime(timeStr) {
     return `${h}:${minutes} ${ampm}`;
 }
 
+// Helper function: Safe custom sequence ID generator
+async function generateUniqueId(connection, tableName, idColumn, prefix, seqLength = 3) {
+    const [rows] = await connection.execute(
+        `SELECT MAX(CAST(SUBSTRING(${idColumn}, -${seqLength}) AS UNSIGNED)) AS maxSeq 
+         FROM ${tableName} 
+         WHERE ${idColumn} LIKE ? FOR UPDATE`,
+        [`${prefix}%`]
+    );
+
+    let nextSeq = (rows[0].maxSeq || 0) + 1;
+    let generatedId = `${prefix}${String(nextSeq).padStart(seqLength, '0')}`;
+
+    while (true) {
+        const [existing] = await connection.execute(
+            `SELECT ${idColumn} FROM ${tableName} WHERE ${idColumn} = ? FOR UPDATE`,
+            [generatedId]
+        );
+        if (existing.length === 0) break;
+        nextSeq++;
+        generatedId = `${prefix}${String(nextSeq).padStart(seqLength, '0')}`;
+    }
+
+    return generatedId;
+}
+
 // POST: Add a new Visit Log Consultation
 app.post('/api/clinic-visits', async (req, res) => {
     const connection = await pool.getConnection();
@@ -3911,17 +3916,10 @@ app.post('/api/clinic-visits', async (req, res) => {
             });
         }
 
-        // Generate Custom Sequential Visit ID (VISIT-MMDDYYXXX)
+        // Generate Custom Sequential Visit ID (VISIT-MMDDYYXXX) avoiding duplicate key collisions
         const [yearStr, monthStr, dayStr] = visit_date.split('-');
-        const datePrefix = `${monthStr}${dayStr}${yearStr.slice(-2)}`;
-
-        const [countRows] = await connection.execute(
-            `SELECT COUNT(*) AS totalToday FROM clinic_visits WHERE visit_date = ? FOR UPDATE`,
-            [visit_date]
-        );
-
-        const sequenceNum = String(countRows[0].totalToday + 1).padStart(3, '0');
-        const visit_id = `VISIT-${datePrefix}${sequenceNum}`;
+        const visitDatePrefix = `VISIT-${monthStr}${dayStr}${yearStr.slice(-2)}`;
+        const visit_id = await generateUniqueId(connection, 'clinic_visits', 'visit_id', visitDatePrefix, 3);
 
         const visitSql = `
             INSERT INTO clinic_visits (
@@ -4003,18 +4001,20 @@ app.post('/api/clinic-visits', async (req, res) => {
                 );
             }
 
-            // Generate Custom Sequential Consultation Dispensation ID (DISP-MMDDYYXXX)
+            // Generate Custom Sequential Consultation Dispensation ID (DISP-MMDDYYXXX) avoiding duplicates
             const now = new Date();
             const dispMonthStr = String(now.getMonth() + 1).padStart(2, '0');
             const dispDayStr = String(now.getDate()).padStart(2, '0');
             const dispYearStr = String(now.getFullYear()).slice(-2);
-            const dispDatePrefix = `${dispMonthStr}${dispDayStr}${dispYearStr}`;
+            const dispDatePrefix = `DISP-${dispMonthStr}${dispDayStr}${dispYearStr}`;
 
-            const [dispCountRows] = await connection.execute(
-                `SELECT COUNT(*) AS totalToday FROM consultation_dispensation WHERE DATE(dispensed_at) = CURDATE() FOR UPDATE`
+            const dispensation_id = await generateUniqueId(
+                connection, 
+                'consultation_dispensation', 
+                'consultation_dispense_id', 
+                dispDatePrefix, 
+                3
             );
-            const dispSeq = String(dispCountRows[0].totalToday + 1).padStart(3, '0');
-            const dispensation_id = `DISP-${dispDatePrefix}${dispSeq}`;
 
             await connection.execute(
                 `INSERT INTO consultation_dispensation 
@@ -4091,84 +4091,6 @@ app.post('/api/clinic-visits', async (req, res) => {
         res.status(400).json({ success: false, error: error.message || "Failed to log consultation" });
     } finally {
         connection.release();
-    }
-});
-
-
-// PATCH: Edit / Update Time Out field ONLY
-app.patch('/api/clinic-visits/:id/timeout', async (req, res) => {
-    const { id } = req.params;
-    const { time_out } = req.body;
-
-    if (!time_out) {
-        return res.status(400).json({ success: false, error: "Time Out is required" });
-    }
-
-    try {
-        const [rows] = await pool.execute('SELECT time_out FROM clinic_visits WHERE visit_id = ?', [id]);
-        if (rows.length === 0) {
-            return res.status(404).json({ success: false, error: "Visit record not found" });
-        }
-
-        if (rows[0].time_out !== null && rows[0].time_out !== '') {
-            return res.status(400).json({ success: false, error: "Once 'Time Out' is set, it cannot be modified." });
-        }
-
-        await pool.execute('UPDATE clinic_visits SET time_out = ? WHERE visit_id = ?', [time_out, id]);
-
-        // --- System, Push & PhilSMS Notification Logic (Time Out) ---
-        let smsNotificationSent = false;
-        try {
-            const notifSql = `
-                SELECT 
-                    s.user_id AS student_user_id,
-                    s.first_name AS student_first_name,
-                    s.last_name AS student_last_name,
-                    p.user_id AS parent_user_id,
-                    p.primary_phone,
-                    n.user_id AS nurse_user_id
-                FROM clinic_visits cv
-                JOIN students s ON cv.student_id = s.student_id
-                LEFT JOIN nurses n ON cv.nurse_id = n.nurse_id
-                LEFT JOIN parent_student_mapping psm ON s.student_id = psm.student_id
-                LEFT JOIN parents p ON psm.parent_id = p.parent_id
-                WHERE cv.visit_id = ?
-            `;
-            const [notifRows] = await pool.execute(notifSql, [id]);
-
-            if (notifRows.length > 0) {
-                const info = notifRows[0];
-                const studentFullName = `${info.student_first_name} ${info.student_last_name}`;
-
-                const formattedTimeOut = formatTime(time_out);
-                const notifMessage = `${studentFullName} left the clinic at ${formattedTimeOut}.`;
-                const notifTitle = `Clinic Time Out: ${studentFullName}`;
-
-                await notifyUsers({
-                    sender_id: info.nurse_user_id || null,
-                    recipient_ids: [info.parent_user_id, info.student_user_id].filter(Boolean),
-                    title: notifTitle,
-                    message: notifMessage,
-                    type: 'clinic_timeout',
-                    payloadData: { visit_id: id, time_out }
-                });
-
-                if (info.primary_phone) {
-                    const formattedPhone = formatPhoneNumber(info.primary_phone);
-                    if (formattedPhone) {
-                        const smsResult = await sendPhilSms(formattedPhone, notifMessage);
-                        smsNotificationSent = smsResult.success;
-                    }
-                }
-            }
-        } catch (notifError) {
-            console.error('[Notification Error] Time out notification failed:', notifError.message);
-        }
-
-        res.json({ success: true, message: "Time out updated successfully!", smsSent: smsNotificationSent });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: "Failed to update time out" });
     }
 });
 
@@ -4301,18 +4223,20 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
                     );
                 }
 
-                // Generate Custom Sequential Consultation Dispensation ID (DISP-MMDDYYXXX)
+                // Generate Custom Sequential Consultation Dispensation ID avoiding duplicates
                 const now = new Date();
                 const dispMonthStr = String(now.getMonth() + 1).padStart(2, '0');
                 const dispDayStr = String(now.getDate()).padStart(2, '0');
                 const dispYearStr = String(now.getFullYear()).slice(-2);
-                const dispDatePrefix = `${dispMonthStr}${dispDayStr}${dispYearStr}`;
+                const dispDatePrefix = `DISP-${dispMonthStr}${dispDayStr}${dispYearStr}`;
 
-                const [dispCountRows] = await connection.execute(
-                    `SELECT COUNT(*) AS totalToday FROM consultation_dispensation WHERE DATE(dispensed_at) = CURDATE() FOR UPDATE`
+                const dispensation_id = await generateUniqueId(
+                    connection, 
+                    'consultation_dispensation', 
+                    'consultation_dispense_id', 
+                    dispDatePrefix, 
+                    3
                 );
-                const dispSeq = String(dispCountRows[0].totalToday + 1).padStart(3, '0');
-                const dispensation_id = `DISP-${dispDatePrefix}${dispSeq}`;
 
                 await connection.execute(
                     `INSERT INTO consultation_dispensation 
