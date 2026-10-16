@@ -59,6 +59,7 @@ const pool = mysql.createPool({
     password: process.env.DB_PASSWORD,
     database: process.env.DB_NAME,
     port: process.env.DB_PORT,
+    timezone: '+08:00',
     dateStrings: true
 });
 
@@ -11213,12 +11214,20 @@ app.get('/api/nurses', async (req, res) => {
 
 // Announcement API with notifyUsers Integration
 
-// Helper to format HTML5 datetime-local string to UTC MySQL DATETIME (YYYY-MM-DD HH:mm:ss)
+//Announcement API
+
+// Announcement API with notifyUsers Integration
+
+// ==========================================
+// 1. CREATE ANNOUNCEMENT & TRIGGER NOTIFICATIONS
+// ==========================================
+// Announcement API with notifyUsers Integration
+
+// Helper to format HTML5 datetime-local string (YYYY-MM-DDTHH:mm) to MySQL DATETIME (YYYY-MM-DD HH:mm:ss)
 const formatMySQLDateTime = (dtStr) => {
   if (!dtStr) return null;
-  const date = new Date(dtStr);
-  if (isNaN(date.getTime())) return null;
-  return date.toISOString().slice(0, 19).replace('T', ' ');
+  const clean = dtStr.replace('T', ' ');
+  return clean.length === 16 ? `${clean}:00` : clean;
 };
 
 // ==========================================
@@ -11266,7 +11275,7 @@ app.post('/api/announcements', async (req, res) => {
       `INSERT INTO announcements (
         announcement_id, nurse_id, title, content, target_audience,
         target_program_id, target_year_level, start_at, expires_at, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP())`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
       [announcement_id, nurse_id, title, content, target_audience, cleanProgramId, cleanYearLevel, formattedStartAt, formattedExpiresAt]
     );
 
@@ -11277,7 +11286,7 @@ app.post('/api/announcements', async (req, res) => {
       const studentParams = [];
 
       if (cleanProgramId) {
-        studentQuery += ` AND LOWER(program_id) = LOWER(?)`;
+        studentQuery += ` AND program_id = ?`;
         studentParams.push(cleanProgramId);
       }
       if (cleanYearLevel) {
@@ -11308,7 +11317,7 @@ app.post('/api/announcements', async (req, res) => {
       const parentParams = [];
 
       if (cleanProgramId) {
-        parentQuery += ` AND LOWER(s.program_id) = LOWER(?)`;
+        parentQuery += ` AND s.program_id = ?`;
         parentParams.push(cleanProgramId);
       }
       if (cleanYearLevel) {
@@ -11359,7 +11368,7 @@ app.post('/api/announcements', async (req, res) => {
 });
 
 // ==========================================
-// 2. UPDATE ANNOUNCEMENT
+// 2. UPDATE ANNOUNCEMENT & REFLECT ON DASHBOARD
 // ==========================================
 app.put('/api/announcements/:id', async (req, res) => {
   const connection = await pool.getConnection();
@@ -11416,7 +11425,7 @@ app.put('/api/announcements/:id', async (req, res) => {
       const studentParams = [];
 
       if (cleanProgramId) {
-        studentQuery += ` AND LOWER(program_id) = LOWER(?)`;
+        studentQuery += ` AND program_id = ?`;
         studentParams.push(cleanProgramId);
       }
       if (cleanYearLevel) {
@@ -11447,7 +11456,7 @@ app.put('/api/announcements/:id', async (req, res) => {
       const parentParams = [];
 
       if (cleanProgramId) {
-        parentQuery += ` AND LOWER(s.program_id) = LOWER(?)`;
+        parentQuery += ` AND s.program_id = ?`;
         parentParams.push(cleanProgramId);
       }
       if (cleanYearLevel) {
@@ -11522,12 +11531,12 @@ app.get('/api/student/dashboard/announcements/:studentId', async (req, res) => {
              ON a.announcement_id = ats.announcement_id AND ats.student_id = ?
       LEFT JOIN students s ON s.student_id = ?
       WHERE a.target_audience IN ('STUDENT', 'BOTH')
-        AND (a.start_at IS NULL OR a.start_at <= UTC_TIMESTAMP())
-        AND (a.expires_at IS NULL OR a.expires_at >= UTC_TIMESTAMP())
+        AND (a.start_at IS NULL OR a.start_at <= NOW())
+        AND (a.expires_at IS NULL OR a.expires_at >= NOW())
         AND (
           ats.student_id IS NOT NULL
           OR (
-            (a.target_program_id IS NULL OR LOWER(a.target_program_id) = LOWER(s.program_id))
+            (a.target_program_id IS NULL OR a.target_program_id = s.program_id)
             AND (a.target_year_level IS NULL OR a.target_year_level = s.year_level)
           )
         )
@@ -11576,13 +11585,13 @@ app.get('/api/parent/dashboard/announcements/:parentId', async (req, res) => {
              ON a.announcement_id = ats.announcement_id AND ats.student_id = psm.student_id
       LEFT JOIN students s ON s.student_id = psm.student_id
       WHERE a.target_audience IN ('PARENT', 'BOTH')
-        AND (a.start_at IS NULL OR a.start_at <= UTC_TIMESTAMP())
-        AND (a.expires_at IS NULL OR a.expires_at >= UTC_TIMESTAMP())
+        AND (a.start_at IS NULL OR a.start_at <= NOW())
+        AND (a.expires_at IS NULL OR a.expires_at >= NOW())
         AND (
           atp.parent_id IS NOT NULL
           OR ats.student_id IS NOT NULL
           OR (
-            (a.target_program_id IS NULL OR LOWER(a.target_program_id) = LOWER(s.program_id))
+            (a.target_program_id IS NULL OR a.target_program_id = s.program_id)
             AND (a.target_year_level IS NULL OR a.target_year_level = s.year_level)
           )
         )
@@ -11604,7 +11613,7 @@ app.get('/api/parent/dashboard/announcements/:parentId', async (req, res) => {
   }
 });
 
-// GET ALL ANNOUNCEMENTS FOR NURSE DASHBOARD
+// GET ALL ANNOUNCEMENTS FOR NURSE DASHBOARD ("MANAGE ACTIVE NOTICES" TAB)
 app.get('/api/announcements', async (req, res) => {
   try {
     const query = `
@@ -11640,7 +11649,9 @@ app.get('/api/announcements', async (req, res) => {
   }
 });
 
-// DELETE ANNOUNCEMENT
+// ==========================================
+// DELETE ANNOUNCEMENT & OPTIONALLY NOTIFY RECIPIENTS
+// ==========================================
 app.delete('/api/announcements/:id', async (req, res) => {
   const connection = await pool.getConnection();
   try {
@@ -11649,6 +11660,7 @@ app.delete('/api/announcements/:id', async (req, res) => {
 
     await connection.beginTransaction();
 
+    // 1. Fetch announcement title and recipient user IDs before deletion
     const [existing] = await connection.execute(
       `SELECT title, content, target_audience FROM announcements WHERE announcement_id = ?`,
       [announcement_id]
@@ -11663,6 +11675,7 @@ app.delete('/api/announcements/:id', async (req, res) => {
     const targetUserIds = new Set();
 
     if (notify_cancellation) {
+      // Get student user_ids
       const [students] = await connection.execute(
         `SELECT DISTINCT s.user_id 
          FROM announcement_target_students ats
@@ -11672,6 +11685,7 @@ app.delete('/api/announcements/:id', async (req, res) => {
       );
       students.forEach(s => targetUserIds.add(s.user_id));
 
+      // Get parent user_ids
       const [parents] = await connection.execute(
         `SELECT DISTINCT p.user_id 
          FROM announcement_target_parents atp
@@ -11682,9 +11696,11 @@ app.delete('/api/announcements/:id', async (req, res) => {
       parents.forEach(p => targetUserIds.add(p.user_id));
     }
 
+    // 2. Delete child records from target mapping tables first
     await connection.execute(`DELETE FROM announcement_target_students WHERE announcement_id = ?`, [announcement_id]);
     await connection.execute(`DELETE FROM announcement_target_parents WHERE announcement_id = ?`, [announcement_id]);
 
+    // 3. Delete the parent announcement record
     const [deleteResult] = await connection.execute(
       `DELETE FROM announcements WHERE announcement_id = ?`,
       [announcement_id]
@@ -11697,6 +11713,7 @@ app.delete('/api/announcements/:id', async (req, res) => {
 
     await connection.commit();
 
+    // 4. Send push notification if cancellation alert was requested
     if (notify_cancellation && targetUserIds.size > 0) {
       notifyUsers({
         sender_id: user_id || null,

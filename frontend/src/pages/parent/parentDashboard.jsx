@@ -22,13 +22,12 @@ import {
 } from 'lucide-react';
 import '../../styles/parent/ParentDashboard.css';
 
-// Base API configuration using standard React process.env with Render fallback
-const API_BASE = (process.env.REACT_APP_API_BASE_URL || 'https://localhost-cms.onrender.com').replace(/\/$/, '');
-
 const ParentDashboard = () => {
   const navigate = useNavigate();
+  // Retrieve linked students & parentId passed down from ParentLayout outlet context
   const { linkedStudents = [], parentId = '' } = useOutletContext() || {};
 
+  // Combined Dashboard state hooks
   const [visitsData, setVisitsData] = useState({ clinic_visits: [], direct_dispensations: [] });
   const [requirementsData, setRequirementsData] = useState({ all_requirements: [], total_assigned: 0, total_incomplete: 0 });
   const [documentRequestsData, setDocumentRequestsData] = useState({ recent_updates: [] });
@@ -36,6 +35,7 @@ const ParentDashboard = () => {
   const [appointmentsData, setAppointmentsData] = useState([]);
   const [announcementsData, setAnnouncementsData] = useState([]);
 
+  // Frequent Illness Alert states
   const [frequentAlerts, setFrequentAlerts] = useState([]);
   const [dismissedAlertKeys, setDismissedAlertKeys] = useState([]);
   const [selectedAlertModal, setSelectedAlertModal] = useState(null);
@@ -45,12 +45,13 @@ const ParentDashboard = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // 1. Fetch Frequent Illness Alerts for Parent's Linked Students
   useEffect(() => {
     if (!parentId) return;
 
     const fetchFrequentAlerts = async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/parent/frequent-complaints/${parentId}`);
+        const res = await fetch(`http://localhost:3001/api/parent/frequent-complaints/${parentId}`);
         const json = await res.json();
         if (json.success) {
           setFrequentAlerts(json.data || []);
@@ -63,6 +64,7 @@ const ParentDashboard = () => {
     fetchFrequentAlerts();
   }, [parentId]);
 
+  // 2. Fetch and aggregate dashboard metrics for ALL linked students
   useEffect(() => {
     if (!linkedStudents || linkedStudents.length === 0) {
       setIsLoading(false);
@@ -82,14 +84,14 @@ const ParentDashboard = () => {
           }).toString();
 
           const [visitsRes, reqsRes, docsRes, screeningsRes, apptsRes, annRes] = await Promise.all([
-            fetch(`${API_BASE}/api/student/dashboard/visits-dispensation/${student.student_id}`),
-            fetch(`${API_BASE}/api/student/dashboard/requirements/${student.student_id}`),
-            fetch(`${API_BASE}/api/student/dashboard/document-requests/${student.student_id}`),
-            fetch(`${API_BASE}/api/student/dashboard/upcoming-health-screenings?${queryParams}`),
-            fetch(`${API_BASE}/api/student/dashboard/doctor-appointments/${student.student_id}`),
+            fetch(`http://localhost:3001/api/student/dashboard/visits-dispensation/${student.student_id}`),
+            fetch(`http://localhost:3001/api/student/dashboard/requirements/${student.student_id}`),
+            fetch(`http://localhost:3001/api/student/dashboard/document-requests/${student.student_id}`),
+            fetch(`http://localhost:3001/api/student/dashboard/upcoming-health-screenings?${queryParams}`),
+            fetch(`http://localhost:3001/api/student/dashboard/doctor-appointments/${student.student_id}`),
             parentId
-              ? fetch(`${API_BASE}/api/parent/dashboard/announcements/${parentId}`)
-              : fetch(`${API_BASE}/api/student/dashboard/announcements/${student.student_id}`)
+              ? fetch(`http://localhost:3001/api/parent/dashboard/announcements/${parentId}`)
+              : fetch(`http://localhost:3001/api/student/dashboard/announcements/${student.student_id}`)
           ]);
 
           const [visitsJson, reqsJson, docsJson, screeningsJson, apptsJson, annJson] = await Promise.all([
@@ -192,6 +194,7 @@ const ParentDashboard = () => {
     fetchAllStudentsData();
   }, [linkedStudents, parentId]);
 
+  // Frequent Illness Detail Modal Trigger
   const handleOpenAlertDetails = async (alert) => {
     setSelectedAlertModal(alert);
     setIsLoadingDetails(true);
@@ -199,7 +202,7 @@ const ParentDashboard = () => {
 
     try {
       const res = await fetch(
-        `${API_BASE}/api/frequent-complaints/details?studentId=${alert.studentId}&complaint=${encodeURIComponent(alert.complaint)}`
+        `http://localhost:3001/api/frequent-complaints/details?studentId=${alert.studentId}&complaint=${encodeURIComponent(alert.complaint)}`
       );
       const json = await res.json();
       if (json.success) {
@@ -216,9 +219,11 @@ const ParentDashboard = () => {
     setDismissedAlertKeys((prev) => [...prev, alertKey]);
   };
 
+  // Navigation handlers
   const handleNavigateToClinic = () => navigate('/ChildClinicRecords');
   const handleNavigateToProfile = () => navigate('/ChildProfile');
 
+  // Formatters
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -269,6 +274,7 @@ const ParentDashboard = () => {
     </span>
   );
 
+  // Active frequent alerts excluding dismissed
   const activeAlerts = frequentAlerts.filter(
     (a) => !dismissedAlertKeys.includes(`${a.studentId}-${a.complaint}`)
   );
@@ -287,9 +293,12 @@ const ParentDashboard = () => {
 
   return (
     <div className="pd-wrapper">
+
       {error && <div className="pd-error-banner">{error}</div>}
 
       <div className="pd-grid">
+
+        {/* 1. NURSE ANNOUNCEMENTS CARD (CONTAINING FREQUENT ILLNESS ALERTS AT THE BOTTOM) */}
         <section className="pd-card pd-card-large">
           <div className="pd-card-header">
             <div className="pd-card-title">
@@ -299,6 +308,7 @@ const ParentDashboard = () => {
           </div>
 
           <div className="pd-card-body">
+            {/* EXISTING ANNOUNCEMENTS CONTENT */}
             {announcementsData.length === 0 ? (
               <p className="pd-empty-state">No active nurse announcements.</p>
             ) : (
@@ -316,6 +326,7 @@ const ParentDashboard = () => {
               </ul>
             )}
 
+            {/* FREQUENT ILLNESS ALERT SECTION AT THE BOTTOM PART OF ANNOUNCEMENTS */}
             {activeAlerts.length > 0 && (
               <div className="pd-announcement-alerts-wrapper">
                 <div className="pd-announcement-alert-header">
@@ -373,6 +384,7 @@ const ParentDashboard = () => {
           </div>
         </section>
 
+        {/* 2. RECENT CLINIC VISITS & MEDICINE DISPENSATION */}
         <section className="pd-card pd-card-large">
           <div className="pd-card-header">
             <div className="pd-card-title">
@@ -451,6 +463,7 @@ const ParentDashboard = () => {
           </div>
         </section>
 
+        {/* 3. OVERVIEW OF REQUIREMENTS STATUS */}
         <section className="pd-card">
           <div className="pd-card-header">
             <div className="pd-card-title">
@@ -497,6 +510,7 @@ const ParentDashboard = () => {
           </div>
         </section>
 
+        {/* 4. DOCUMENT REQUEST UPDATES */}
         <section className="pd-card">
           <div className="pd-card-header">
             <div className="pd-card-title">
@@ -533,6 +547,7 @@ const ParentDashboard = () => {
           </div>
         </section>
 
+        {/* 5. UPCOMING HEALTH SCREENING */}
         <section className="pd-card">
           <div className="pd-card-header">
             <div className="pd-card-title">
@@ -579,6 +594,7 @@ const ParentDashboard = () => {
           </div>
         </section>
 
+        {/* 6. UPCOMING DOCTOR VISIT SCHEDULE */}
         <section className="pd-card">
           <div className="pd-card-header">
             <div className="pd-card-title">
@@ -627,8 +643,10 @@ const ParentDashboard = () => {
             )}
           </div>
         </section>
+
       </div>
 
+      {/* FREQUENT ILLNESS VISIT BREAKDOWN MODAL */}
       {selectedAlertModal && (
         <div className="pd-modal-backdrop" onClick={() => setSelectedAlertModal(null)}>
           <div className="pd-modal-content" onClick={(e) => e.stopPropagation()}>
@@ -709,6 +727,7 @@ const ParentDashboard = () => {
           </div>
         </div>
       )}
+
     </div>
   );
 };
