@@ -98,7 +98,7 @@ export default function Login() {
         setSuccessMsg('');
 
         try {
-            const response = await fetch('http://localhost:3001/api/login', {
+            const response = await fetch('https://localhost-cms.onrender.com/api/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username, password })
@@ -175,7 +175,7 @@ export default function Login() {
         }
 
         try {
-            const response = await fetch('http://localhost:3001/api/change-password', {
+            const response = await fetch('https://localhost-cms.onrender.com/api/change-password', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username, newPassword })
@@ -212,7 +212,7 @@ export default function Login() {
         }
 
         try {
-            const response = await fetch('http://localhost:3001/api/update-parent-profile', {
+            const response = await fetch('https://localhost-cms.onrender.com/api/update-parent-profile', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -249,7 +249,7 @@ export default function Login() {
         setSuccessMsg('');
 
         try {
-            const response = await fetch('http://localhost:3001/api/check-username', {
+            const response = await fetch('https://localhost-cms.onrender.com/api/check-username', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username: forgotUsername })
@@ -279,7 +279,7 @@ export default function Login() {
         }
 
         try {
-            const response = await fetch('http://localhost:3001/api/verify-identifier', {
+            const response = await fetch('https://localhost-cms.onrender.com/api/verify-identifier', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -325,7 +325,7 @@ export default function Login() {
         }
 
         try {
-            const response = await fetch('http://localhost:3001/api/forgot-password', {
+            const response = await fetch('https://localhost-cms.onrender.com/api/forgot-password', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

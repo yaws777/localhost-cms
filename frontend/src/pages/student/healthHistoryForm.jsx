@@ -121,7 +121,7 @@ export default function HealthHistoryForm() {
                 return;
             }
 
-            fetch(`http://localhost:3001/api/get-student/${accurateUserId}`)
+            fetch(`https://localhost-cms.onrender.com/api/get-student/${accurateUserId}`)
                 .then(res => res.json())
                 .then(data => {
                     if (data.success && data.student && data.student.student_id) {
@@ -194,7 +194,7 @@ export default function HealthHistoryForm() {
 
     const executeSubmit = async () => {
         try {
-            const response = await fetch('http://localhost:3001/api/submit-health-form', {
+            const response = await fetch('https://localhost-cms.onrender.com/api/submit-health-form', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ student_id: studentId, personalInfo, healthInfo, emergencyContact })

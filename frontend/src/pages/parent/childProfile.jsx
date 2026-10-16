@@ -77,14 +77,14 @@ export default function ChildProfile() {
 
             try {
                 // Fetch Student Header Details
-                const studentRes = await fetch(`http://localhost:3001/api/get-student-by-studentId/${selectedStudentId}`);
+                const studentRes = await fetch(`https://localhost-cms.onrender.com/api/get-student-by-studentId/${selectedStudentId}`);
                 const studentData = await studentRes.json();
 
                 if (studentData.success) {
                     setStudentHeader(studentData.student);
 
                     // Fetch Profile Data (Personal, Health, Emergency)
-                    const profileRes = await fetch(`http://localhost:3001/api/profile/${selectedStudentId}`);
+                    const profileRes = await fetch(`https://localhost-cms.onrender.com/api/profile/${selectedStudentId}`);
                     const profileData = await profileRes.json();
 
                     if (profileData.success) {

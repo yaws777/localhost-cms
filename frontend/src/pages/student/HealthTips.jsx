@@ -221,7 +221,7 @@ const HealthTips = () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('http://localhost:3001/api/all-chief-complaints');
+      const response = await fetch('https://localhost-cms.onrender.com/api/all-chief-complaints');
       const data = await response.json();
 
       if (data.success) {
@@ -231,7 +231,7 @@ const HealthTips = () => {
       }
     } catch (err) {
       console.error('Fetch error:', err);
-      setError('Unable to reach server. Please ensure localhost:3001 is running.');
+      setError('Unable to reach server. Please ensure https://localhost-cms.onrender.com is running.');
     } finally {
       setLoading(false);
     }

@@ -10,7 +10,7 @@ import '../styles/nurse/NurseLayout.css';
 import NurseMessageModal from '../components/student/NurseMessageModal.jsx';
 import { useWebPush } from '../hooks/useWebPush';
 
-const API_BASE_URL = 'http://localhost:3001';
+const API_BASE_URL = 'https://localhost-cms.onrender.com';
 
 export const NurseLayout = () => {
     const navigate = useNavigate();
