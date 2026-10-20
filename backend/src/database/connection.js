@@ -4972,7 +4972,7 @@ const [medicineRows] = await pool.query(`
     const monthFormatted = targetMonthDate.toLocaleString('default', { month: 'long', year: 'numeric' });
 
     res.json({
-      graphTitle: `Predictive Medicine Demand - ${monthFormatted}`,
+      graphTitle: `Predictive Medicine Demand For Upcoming- ${monthFormatted}`,
       selectedMonth: targetYearMonthStr,
       data: graphData
     });
