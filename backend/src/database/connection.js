@@ -4810,6 +4810,7 @@ app.get('/api/medicine-dispensed-overview', async (req, res) => {
 
 // 3. Predictive Medicine Demand API
 // 3. Predictive Medicine Demand API (Dynamic Query-Only Historical Stock)
+// 3. Predictive Medicine Demand API (Dynamic Query-Only Historical & Baseline Stock)
 app.get('/api/predictive-medicine', async (req, res) => {
   try {
     const currentDate = new Date();
@@ -4870,41 +4871,57 @@ app.get('/api/predictive-medicine', async (req, res) => {
       medicineBaseDispensedMap[row.medicine_id] = (medicineBaseDispensedMap[row.medicine_id] || 0) + baseVal;
     });
 
-   // Step 3: Fetch all medicines with indications and dynamically select snapshot vs live inventory stocks
-const targetYearMonth = `${year}-${String(month).padStart(2, '0')}`;
-const currentYearMonth = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+    // 3. Fetch all medicines with indications and dynamically select stock source based on target period
+    const targetYearMonth = `${year}-${String(month).padStart(2, '0')}`;
+    const currentYearMonth = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
 
-const isHistoricalMonth = targetYearMonth < currentYearMonth;
+    let stockSubquery;
+    let queryParams = [];
 
-// Fixed column name from 's.year_month' to 's.snapshot_period'
-const stockSubquery = isHistoricalMonth
-  ? `COALESCE((
-      SELECT s.total_stock 
-      FROM medicine_monthly_stock_snapshots s 
-      WHERE s.medicine_id = m.medicine_id AND s.snapshot_period = ?
-    ), 0)`
-  : `COALESCE((
-      SELECT SUM(mib.current_stock) 
-      FROM medicine_inventory_batches mib 
-      WHERE mib.medicine_id = m.medicine_id
-    ), 0)`;
+    if (targetYearMonth < currentYearMonth) {
+      // Historical Month: Uses that month's historical snapshot
+      stockSubquery = `COALESCE((
+        SELECT s.total_stock 
+        FROM medicine_monthly_stock_snapshots s 
+        WHERE s.medicine_id = m.medicine_id AND s.snapshot_period = ?
+      ), 0)`;
+      queryParams.push(targetYearMonth);
 
-const queryParams = isHistoricalMonth ? [targetYearMonth] : [];
+    } else if (targetYearMonth === currentYearMonth) {
+      // Current Month: Uses previous month's end snapshot as starting balance
+      const prevMonthDate = new Date(year, month - 2, 1);
+      const prevYearMonth = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, '0')}`;
 
-const [medicineRows] = await pool.query(`
-  SELECT 
-    m.medicine_id,
-    CONCAT(m.generic_name, ' (', m.brand_name, ')') AS medicine_name,
-    m.dosage_form,
-    m.strength_unit_value,
-    m.strength_unit_of_measure,
-    ${stockSubquery} AS total_stock,
-    cc.complaint_name
-  FROM medicines m
-  LEFT JOIN medicine_indications mi ON m.medicine_id = mi.medicine_id
-  LEFT JOIN chief_complaints cc ON mi.complaint_id = cc.complaint_id
-  ORDER BY m.generic_name ASC
-`, queryParams);
+      stockSubquery = `COALESCE((
+        SELECT s.total_stock 
+        FROM medicine_monthly_stock_snapshots s 
+        WHERE s.medicine_id = m.medicine_id AND s.snapshot_period = ?
+      ), 0)`;
+      queryParams.push(prevYearMonth);
+
+    } else {
+      // Upcoming Month: Uses live active inventory as baseline for predictions
+      stockSubquery = `COALESCE((
+        SELECT SUM(mib.current_stock) 
+        FROM medicine_inventory_batches mib 
+        WHERE mib.medicine_id = m.medicine_id
+      ), 0)`;
+    }
+
+    const [medicineRows] = await pool.query(`
+      SELECT 
+        m.medicine_id,
+        CONCAT(m.generic_name, ' (', m.brand_name, ')') AS medicine_name,
+        m.dosage_form,
+        m.strength_unit_value,
+        m.strength_unit_of_measure,
+        ${stockSubquery} AS total_stock,
+        cc.complaint_name
+      FROM medicines m
+      LEFT JOIN medicine_indications mi ON m.medicine_id = mi.medicine_id
+      LEFT JOIN chief_complaints cc ON mi.complaint_id = cc.complaint_id
+      ORDER BY m.generic_name ASC
+    `, queryParams);
 
     // 4. Grouping & Response Formatting
     const medicineAggregation = {};

@@ -76,9 +76,11 @@ const formatCeilAvg = (val) => {
   return <strong>{ceilVal}</strong>;
 };
 
-const getNextMonthString = () => {
-  const now = new Date();
-  const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+const getNextMonthString = (fromMonthStr) => {
+  const base = fromMonthStr
+    ? new Date(Number(fromMonthStr.split('-')[0]), Number(fromMonthStr.split('-')[1]) - 1, 1)
+    : new Date();
+  const nextMonth = new Date(base.getFullYear(), base.getMonth() + 1, 1);
   const year = nextMonth.getFullYear();
   const month = String(nextMonth.getMonth() + 1).padStart(2, '0');
   return `${year}-${month}`;
@@ -486,7 +488,6 @@ const NurseDashboard = () => {
   const { nurseId, userId } = useOutletContext() || {};
 
   const maxCurrentMonth = getCurrentMonthString();
-  const defaultNextMonth = getNextMonthString();
 
   // CUSTOM MODAL SYSTEM STATE (Replaces all native alert and confirm popups)
   const [feedbackModal, setFeedbackModal] = useState({
@@ -601,7 +602,8 @@ const NurseDashboard = () => {
   // 3. Predictive Demand State
   const [predictiveData, setPredictiveData] = useState([]);
   const [predictiveTitle, setPredictiveTitle] = useState("");
-  const [predictiveMonth, setPredictiveMonth] = useState(defaultNextMonth);
+  const [predictiveMonth, setPredictiveMonth] = useState(maxCurrentMonth);
+  const [predictiveTargetMonth, setPredictiveTargetMonth] = useState("");
   const [isPredictiveLoading, setIsPredictiveLoading] = useState(true);
 
   // 4. Frequent Complaint Alerts State
@@ -762,7 +764,7 @@ const NurseDashboard = () => {
 
     generatePDFReport(
       'Predictive Medicine Demand Forecast Report',
-      `Forecast Target Month: ${predictiveMonth}`,
+      `Forecast Target Month: ${predictiveTargetMonth || getNextMonthString(predictiveMonth)}`,
       headers,
       rows,
       (errMsg) => showAlert({ type: 'error', title: 'Export Failed', message: errMsg })
@@ -979,11 +981,13 @@ const NurseDashboard = () => {
   const fetchPredictiveDemand = useCallback(async () => {
     setIsPredictiveLoading(true);
     try {
-      const response = await fetch(`http://localhost:3001/api/predictive-medicine?month=${predictiveMonth}`);
+      const targetMonth = getNextMonthString(predictiveMonth);
+      const response = await fetch(`http://localhost:3001/api/predictive-medicine?month=${targetMonth}`);
       if (!response.ok) throw new Error("Network issue fetching predictive calculation");
       const result = await response.json();
       setPredictiveData(result.data || []);
       setPredictiveTitle(result.graphTitle || "Predictive Medicine Demand");
+      setPredictiveTargetMonth(result.selectedMonth || targetMonth);
     } catch (error) {
       console.error("Failed to fetch predictive demand:", error);
     } finally {
@@ -1782,14 +1786,14 @@ const NurseDashboard = () => {
           <label className="filter-label-nd">Select Month: </label>
           <input 
             type="month" 
-            value={predictiveMonth} 
-            max={defaultNextMonth}
+            value={predictiveMonth}
+            max={maxCurrentMonth}
             onChange={(e) => {
               const selectedValue = e.target.value;
-              if (!selectedValue || selectedValue <= defaultNextMonth) {
+              if (!selectedValue || selectedValue <= maxCurrentMonth) {
                 setPredictiveMonth(selectedValue);
               }
-            }} 
+            }}
             className="filter-input-nd date-picker-nd" 
           />
           <button type="button" className="export-btn-nd" onClick={handleExportPredictiveDemand}>
