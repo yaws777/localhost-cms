@@ -4021,11 +4021,15 @@ app.post('/api/clinic-visits', async (req, res) => {
             );
         }
 
+        await connection.commit();
+
         // --- System, Push, and PhilSMS Notification Logic (Time In) ---
+        // Runs after commit so the DB locks held above are released before
+        // we wait on the (unbounded) outbound SMS/push network calls.
         let smsNotificationSent = false;
         try {
             const detailsSql = `
-                SELECT 
+                SELECT
                     s.user_id AS student_user_id,
                     s.first_name AS student_first_name,
                     s.last_name AS student_last_name,
@@ -4046,7 +4050,7 @@ app.post('/api/clinic-visits', async (req, res) => {
             if (detailsRows.length > 0) {
                 const info = detailsRows[0];
                 const studentFullName = `${info.student_first_name} ${info.student_last_name}`;
-                
+
                 const formattedTimeIn = formatTime(info.time_in);
                 const notifMessage = `${studentFullName} visited the clinic at ${formattedTimeIn}.`;
                 const notifTitle = `Clinic Visit: ${studentFullName}`;
@@ -4074,9 +4078,8 @@ app.post('/api/clinic-visits', async (req, res) => {
             console.error('[Notification Error] System/Push/SMS failed:', notifError.message);
         }
 
-        await connection.commit();
-        res.status(201).json({ 
-            success: true, 
+        res.status(201).json({
+            success: true,
             message: "Consultation logged and notifications processed!",
             visit_id: visit_id,
             smsSent: smsNotificationSent
@@ -4320,11 +4323,15 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
             }
         }
 
+        await connection.commit();
+
         // --- System, Push & PhilSMS Notification Logic (Document) ---
+        // Runs after commit so the DB locks held above are released before
+        // we wait on the (unbounded) outbound SMS/push network calls.
         let smsNotificationSent = false;
         try {
             const detailsSql = `
-                SELECT 
+                SELECT
                     s.user_id AS student_user_id,
                     s.first_name AS student_first_name,
                     s.last_name AS student_last_name,
@@ -4357,11 +4364,11 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
                 const complaintText = info.specify_complaint_text || info.complaint_name || 'General Checkup';
                 const assessmentText = info.assessment || 'N/A';
 
-                const formattedDosageVal = info.dosage_consumption_unit_value 
-                    ? Math.round(info.dosage_consumption_unit_value) 
+                const formattedDosageVal = info.dosage_consumption_unit_value
+                    ? Math.round(info.dosage_consumption_unit_value)
                     : '';
 
-                const medicineText = info.medicine_name 
+                const medicineText = info.medicine_name
                     ? `${info.medicine_name} (${formattedDosageVal} ${info.dosage_consumption_unit_of_measure || ''})`.trim()
                     : 'None';
 
@@ -4390,8 +4397,6 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
         } catch (notifError) {
             console.error('[Notification Error] System/Push/SMS failed:', notifError.message);
         }
-
-        await connection.commit();
         res.status(200).json({ 
             success: true, 
             message: "Visit documentation updated successfully!",
