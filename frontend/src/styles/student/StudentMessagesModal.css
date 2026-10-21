@@ -17,7 +17,7 @@
     width: 90%;
     max-width: 950px;
     height: 85vh;
-    background: white;
+    background: var(--bg-card);
     border-radius: 12px;
     display: flex;
     flex-direction: column;
@@ -107,7 +107,7 @@
     padding: 10px;
     display: flex;
     align-items: center;
-    background: #fff;
+    background: var(--bg-card);
     border-bottom: 1px solid #eef2f5;
     gap: 8px;
 }
@@ -127,7 +127,7 @@
 .section-title {
     font-size: 0.75rem;
     font-weight: 700;
-    color: #888;
+    color: var(--text-secondary);
     padding: 8px 12px;
     text-transform: uppercase;
 }
@@ -142,7 +142,7 @@
 }
 
 .conversation-item:hover, .conversation-item.active {
-    background: #e6f0fa;
+    background: var(--bg-elevated);
 }
 
 .avatar {
@@ -171,12 +171,12 @@
 .header-row h4 {
     margin: 0;
     font-size: 0.85rem;
-    color: #333;
+    color: var(--text-primary);
 }
 
 .timestamp {
     font-size: 0.65rem;
-    color: #999;
+    color: var(--text-secondary);
 }
 
 .message-preview-row {
@@ -189,7 +189,7 @@
 .preview {
     margin: 0;
     font-size: 0.78rem;
-    color: #666;
+    color: var(--text-secondary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -198,7 +198,7 @@
 
 .preview.unread {
     font-weight: bold;
-    color: #000;
+    color: var(--text-primary);
 }
 
 .chat-unread-badge {
@@ -212,7 +212,7 @@
 
 .role-tag {
     font-size: 0.7rem;
-    color: #666;
+    color: var(--text-secondary);
 }
 
 /* Chat View */
@@ -229,7 +229,7 @@
     gap: 12px;
     padding: 10px 16px;
     border-bottom: 1px solid #eef2f5;
-    background: #fff;
+    background: var(--bg-card);
 }
 
 .chat-header h3 {
@@ -285,8 +285,8 @@
 }
 
 .received .message-bubble {
-    background: white;
-    color: #333;
+    background: var(--bg-card);
+    color: var(--text-primary);
     border-bottom-left-radius: 2px;
     box-shadow: 0 1px 3px rgba(0,0,0,0.1);
 }
@@ -316,7 +316,7 @@
 /* Chat Input Footer */
 .chat-footer {
     padding: 8px 12px;
-    background: #fff;
+    background: var(--bg-card);
     border-top: 1px solid #eef2f5;
 }
 
@@ -386,7 +386,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    color: #999;
+    color: var(--text-secondary);
     padding: 20px;
     text-align: center;
 }
@@ -413,14 +413,14 @@
     background: transparent;
     border: none;
     cursor: pointer;
-    color: #666;
+    color: var(--text-secondary);
 }
 
 .conv-dropdown-menu, .msg-dropdown-menu {
     position: absolute;
     top: 20px;
     right: 0;
-    background: white;
+    background: var(--bg-card);
     border: 1px solid #ddd;
     border-radius: 6px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.15);

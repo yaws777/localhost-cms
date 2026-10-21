@@ -5,9 +5,9 @@
   --primary-blue: #0056b3;
   --primary-blue-hover: #003d80;
   --primary-blue-light: #e6f0fa;
-  --bg-main: #f8fafc;
-  --card-bg: #ffffff;
-  --text-dark: #1e293b;
+  /* --bg-main/--text-dark now come from the shared
+     frontend/src/styles/theme.css tokens */
+  --card-bg: var(--bg-card);
   --text-muted: #64748b;
   --border-color: #e2e8f0;
   
@@ -116,8 +116,8 @@
 .custom-table th,
 .sti-table th,
 .doc-table th {
-  background-color: #f1f5f9;
-  color: var(--text-dark);
+  background-color: var(--table-header-bg);
+  color: var(--table-header-text);
   font-weight: 600;
   padding: 12px 16px;
   border-bottom: 2px solid var(--border-color);
@@ -152,7 +152,7 @@
   padding: 0;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-color);
-  background-color: #ffffff;
+  background-color: var(--bg-card);
   color: var(--text-dark);
   cursor: pointer;
   transition: all 0.2s ease;

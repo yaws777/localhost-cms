@@ -18,9 +18,11 @@ import {
 
 import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/InsuranceVault.css';
+import { useAlert } from '../../context/AlertContext';
 
 const InsuranceVault = () => {
     const { nurseId } = useOutletContext();
+    const { showAlert, showConfirm } = useAlert();
 
     // Main States
     const [vaultFolders, setVaultFolders] = useState([]);
@@ -181,7 +183,7 @@ const InsuranceVault = () => {
 
         const printWindow = window.open('', '_blank', 'width=950,height=750');
         if (!printWindow) {
-            alert('Please allow popups to preview and print the report.');
+            showAlert('Please allow popups to preview and print the report.', 'warning');
             return;
         }
 
@@ -285,7 +287,7 @@ const InsuranceVault = () => {
 
         const printWindow = window.open('', '_blank', 'width=950,height=750');
         if (!printWindow) {
-            alert('Please allow popups to preview and print the report.');
+            showAlert('Please allow popups to preview and print the report.', 'warning');
             return;
         }
 
@@ -473,7 +475,7 @@ const InsuranceVault = () => {
     const handleConfirmCreateVault = async (e) => {
         e.preventDefault();
         if (!selectedStudent) {
-            alert("Please search and select a student first.");
+            showAlert('Please search and select a student first.', 'warning');
             return;
         }
 
@@ -491,7 +493,7 @@ const InsuranceVault = () => {
                 setIsCreateVaultModalOpen(false);
                 fetchVaultFolders();
             } else {
-                alert(result.error || 'Failed to create vault.');
+                showAlert(result.error || 'Failed to create vault.', 'error');
             }
         } catch (err) {
             console.error("Create vault error:", err);
@@ -509,7 +511,7 @@ const InsuranceVault = () => {
     const handleAddFileToVault = async (e) => {
         e.preventDefault();
         if (!fileFormData.document_name) {
-            alert("Please enter a document name.");
+            showAlert('Please enter a document name.', 'warning');
             return;
         }
 
@@ -535,7 +537,7 @@ const InsuranceVault = () => {
                     fetchStudentVaultFiles(selectedFolder.student_id);
                 }
             } else {
-                alert(result.error || 'Failed to add file.');
+                showAlert(result.error || 'Failed to add file.', 'error');
             }
         } catch (err) {
             console.error("Add file error:", err);
@@ -551,36 +553,36 @@ const InsuranceVault = () => {
 
     // DELETE INDIVIDUAL FILE
     const handleDeleteFile = async (vaultFileId) => {
-        if (window.confirm("Are you sure you want to delete this file from the vault?")) {
-            try {
-                const res = await fetch(`http://localhost:3001/api/insurance-vault/file/${vaultFileId}`, {
-                    method: 'DELETE'
-                });
-                const result = await res.json();
-                if (result.success) {
-                    fetchStudentVaultFiles(selectedFolder.student_id);
-                    fetchVaultFolders();
-                }
-            } catch (err) {
-                console.error("Delete file error:", err);
+        const confirmed = await showConfirm('Are you sure you want to delete this file from the vault?', { danger: true, confirmLabel: 'Delete' });
+        if (!confirmed) return;
+        try {
+            const res = await fetch(`http://localhost:3001/api/insurance-vault/file/${vaultFileId}`, {
+                method: 'DELETE'
+            });
+            const result = await res.json();
+            if (result.success) {
+                fetchStudentVaultFiles(selectedFolder.student_id);
+                fetchVaultFolders();
             }
+        } catch (err) {
+            console.error("Delete file error:", err);
         }
     };
 
     // DELETE ENTIRE VAULT FOLDER
     const handleDeleteVaultFolder = async (studentId) => {
-        if (window.confirm("Are you sure you want to delete this entire insurance vault folder and all its contents?")) {
-            try {
-                const res = await fetch(`http://localhost:3001/api/insurance-vault/student/${studentId}`, {
-                    method: 'DELETE'
-                });
-                const result = await res.json();
-                if (result.success) {
-                    fetchVaultFolders();
-                }
-            } catch (err) {
-                console.error("Delete vault folder error:", err);
+        const confirmed = await showConfirm('Are you sure you want to delete this entire insurance vault folder and all its contents?', { danger: true, confirmLabel: 'Delete' });
+        if (!confirmed) return;
+        try {
+            const res = await fetch(`http://localhost:3001/api/insurance-vault/student/${studentId}`, {
+                method: 'DELETE'
+            });
+            const result = await res.json();
+            if (result.success) {
+                fetchVaultFolders();
             }
+        } catch (err) {
+            console.error("Delete vault folder error:", err);
         }
     };
 

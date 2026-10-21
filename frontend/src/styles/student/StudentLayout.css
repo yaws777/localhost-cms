@@ -2,10 +2,9 @@
 /* GLOBAL & BASE STYLES                           */
 /* ============================================== */
 :root {
-    --sti-blue: #004b87;
-    --sti-yellow: #ffd100;
-    --bg-color: #f4f7f6;
-    --text-dark: #333333;
+    /* --sti-blue/--sti-yellow/--text-dark now come from the shared
+       frontend/src/styles/theme.css tokens */
+    --bg-color: var(--bg-page);
     --text-light: #ffffff;
     --sidebar-width: 260px;
 }
@@ -33,8 +32,8 @@ body {
     position: fixed;
     top: 0;
     left: 0;
-    background-color: var(--sti-blue);
-    color: var(--text-light);
+    background-color: var(--sidebar-bg);
+    color: var(--sidebar-text);
     box-shadow: 4px 0 10px rgba(0, 0, 0, 0.1);
     overflow-y: auto;
     z-index: 1000;
@@ -46,7 +45,7 @@ body {
 .sidebar-header {
     padding: 5px 0px;
     text-align: center;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    border-bottom: 1px solid var(--sidebar-border);
     margin-bottom: 10px;
 }
 
@@ -73,7 +72,7 @@ body {
 }
 
 .nav-link {
-    color: #d1e3f8;
+    color: var(--sidebar-text);
     text-decoration: none;
     padding: 12px 10px;
     border-radius: 8px;
@@ -93,14 +92,14 @@ body {
 }
 
 .nav-link:hover {
-    background-color: rgba(255, 255, 255, 0.1);
-    color: var(--text-light);
+    background-color: var(--sidebar-hover-bg);
+    color: var(--sidebar-text-strong);
     transform: translateX(5px);
 }
 
 .nav-link.active {
-    background-color: var(--sti-yellow);
-    color: var(--sti-blue);
+    background-color: var(--sidebar-active-bg);
+    color: var(--sidebar-active-text);
     font-weight: 600;
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 }
@@ -109,7 +108,7 @@ body {
 /* MAIN CONTENT & TOP BAR STYLES                  */
 /* ============================================== */
 .student-top-bar {
-    background-color: #ffffff;
+    background-color: var(--bg-card);
     padding: 8px 30px; 
     display: flex;
     justify-content: space-between;
@@ -134,7 +133,7 @@ body {
 .current-date {
     font-size: 0.75rem;
     font-weight: 600;
-    color: #555;
+    color: var(--text-secondary);
     background-color: var(--bg-color);
     padding: 6px 12px;
     border-radius: 4px;
@@ -166,7 +165,7 @@ body {
     top: 15px;
     left: 15px;
     z-index: 998;
-    background-color: var(--sti-blue);
+    background-color: var(--sidebar-bg);
     color: var(--sti-yellow);
     border: none;
     border-radius: 5px;
@@ -254,7 +253,7 @@ body {
     flex-direction: column;
     align-items: center;
     padding: 0 10px 15px 10px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    border-bottom: 1px solid var(--sidebar-border);
     margin-bottom: 1px;
     text-align: center;
 }
@@ -334,7 +333,7 @@ body {
 }
 
 .modal-content-sl {
-    background: #ffffff;
+    background: var(--bg-card);
     border-radius: 12px;
     width: 100%;
     max-width: 420px;
@@ -380,7 +379,7 @@ body {
     background: transparent;
     border: none;
     cursor: pointer;
-    color: #64748b;
+    color: var(--text-secondary);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -390,8 +389,8 @@ body {
 }
 
 .btn-close-sl:hover {
-    color: #1e293b;
-    background-color: #e2e8f0;
+    color: var(--text-primary);
+    background-color: var(--bg-elevated);
 }
 
 .modal-body-sl {
@@ -423,7 +422,7 @@ body {
 .modal-message-sl {
     margin: 0;
     font-size: 14px;
-    color: #334155;
+    color: var(--text-secondary);
     line-height: 1.5;
 }
 
@@ -472,7 +471,7 @@ body {
 
 .btn-secondary-sl {
     background-color: #e2e8f0;
-    color: #1e293b;
+    color: var(--text-primary);
 }
 
 .btn-secondary-sl:hover {

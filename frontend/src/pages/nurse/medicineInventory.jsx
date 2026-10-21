@@ -16,7 +16,8 @@ import {
   Printer
 } from 'lucide-react';
 import stiLogo from '../../assets/sti-logof.png';
-import '../../styles/nurse/MedicineInventory.css'; 
+import '../../styles/nurse/MedicineInventory.css';
+import { useAlert } from '../../context/AlertContext';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
 
@@ -134,6 +135,7 @@ const getStockLabel = (item) => {
 };
 
 export default function MedicineInventory() {
+  const { showConfirm } = useAlert();
   const [inventory, setInventory] = useState([]);
   const [complaints, setComplaints] = useState([]);
   const [medicinesList, setMedicinesList] = useState([]);
@@ -378,7 +380,8 @@ export default function MedicineInventory() {
   };
 
   const handleDeleteBatch = async (batchId) => {
-    if (!window.confirm('Confirm deletion of this batch entry?')) return;
+    const confirmed = await showConfirm('Confirm deletion of this batch entry?', { danger: true, confirmLabel: 'Delete' });
+    if (!confirmed) return;
     try {
       const res = await fetch(`${API_BASE_URL}/batches/${batchId}`, { method: 'DELETE' });
       if (res.ok) {
@@ -404,7 +407,7 @@ export default function MedicineInventory() {
 
     const printWindow = window.open('', '_blank', 'width=950,height=750');
     if (!printWindow) {
-      alert('Please allow popups to preview and print the report.');
+      showAlert('Please allow popups to preview and print the report.', 'warning');
       return;
     }
 

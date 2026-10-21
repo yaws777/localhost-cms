@@ -2,11 +2,13 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Eye, RotateCcw, Printer } from 'lucide-react'; 
-import stiLogo from '../../assets/sti-logof.png'; 
-import '../../styles/nurse/HealthRecords.css'; 
+import stiLogo from '../../assets/sti-logof.png';
+import '../../styles/nurse/HealthRecords.css';
+import { useAlert } from '../../context/AlertContext';
 
 export default function HealthRecord() {
     const navigate = useNavigate();
+    const { showAlert } = useAlert();
     const [students, setStudents] = useState([]);
     const [academicPrograms, setAcademicPrograms] = useState([]); 
     const [loading, setLoading] = useState(false);
@@ -251,7 +253,7 @@ export default function HealthRecord() {
 
         const printWindow = window.open('', '_blank', 'width=1000,height=750');
         if (!printWindow) {
-            alert('Please allow popups to preview and print the report.');
+            showAlert('Please allow popups to preview and print the report.', 'warning');
             return;
         }
 

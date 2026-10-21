@@ -2,11 +2,9 @@
    STI Theme Variables - Profile Details Viewer Component
    ========================================================================== */
 :root {
-    --sti-blue: #004487;
-    --sti-blue-dark: #002b54;
+    /* --sti-blue/--sti-blue-dark/--text-dark now come from the shared
+       frontend/src/styles/theme.css tokens */
     --sti-gold: #f4b223;
-    --sti-gold-light: #fffbeb;
-    --text-dark: #1e293b;
     --text-muted: #64748b;
     --border-color: #cbd5e1;
     --bg-input: #f8fafc;
@@ -100,7 +98,7 @@
     align-items: center;
     gap: 6px;
     background-color: var(--sti-gold);
-    color: #000000;
+    color: var(--text-primary);
     padding: 6px 14px;
     border-radius: 6px;
     font-size: 0.8rem;
@@ -154,7 +152,7 @@
 
 /* Form Container Configurations (No overlap structure) */
 .profile-details-form-card {
-    background-color: #ffffff;
+    background-color: var(--bg-card);
     border: 1px solid var(--border-color);
     border-radius: 12px;
     padding: 24px;
@@ -259,7 +257,7 @@
 .medical-sub-fields input[type="text"],
 .medical-sub-fields input[type="number"],
 .medical-sub-fields input[type="date"] {
-    background-color: #ffffff;
+    background-color: var(--bg-card);
     border: 1px solid #cbd5e1;
     padding: 8px 12px;
     border-radius: 6px;
@@ -279,7 +277,7 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
     gap: 10px;
-    background: #ffffff;
+    background: var(--bg-card);
     padding: 12px;
     border-radius: 6px;
     border: 1px solid #e2e8f0;

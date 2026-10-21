@@ -1,27 +1,8 @@
 /* STI Modern Dashboard Theme Variables */
 :root {
-  --sti-blue-dark: #002060;
-  --sti-blue-primary: #0038A8;
-  --sti-blue-light: #F0F4FC;
-  --sti-yellow: #FFCC00;
-  --sti-yellow-light: #FFFDF0;
-  
-  --bg-main: #FAFBFC;
-  --card-border: #E4E7EC;
-  --text-primary: #1D2939;
-  --text-secondary: #667085;
-  
-  --status-adequate-bg: #ECFDF3;
-  --status-adequate-text: #027A48;
-  --status-adequate-bar: #34D399;
-  
-  --status-low-bg: #FFFAEB;
-  --status-low-text: #B54708;
-  --status-low-bar: #FBBF24;
-  
-  --status-critical-bg: #FEF3F2;
-  --status-critical-text: #B42318;
-  --status-critical-bar: #F87171;
+  /* All tokens in this block now come from the shared
+     frontend/src/styles/theme.css (sti-blue family, bg/card/text surfaces,
+     and the status-adequate/low/critical triad) */
 }
 
 /* Universal Box-Sizing Fix */
@@ -49,7 +30,7 @@
   gap: 20px;
   margin-bottom: 24px;
   flex-wrap: wrap;
-  background-color: #ffffff;
+  background-color: var(--bg-card);
   padding: 20px 24px;
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
@@ -69,7 +50,7 @@
 }
 
 .dashboard-subtitle {
-  color: #64748b;
+  color: var(--text-secondary);
   font-size: 0.9rem;
   margin: 0;
 }
@@ -106,7 +87,7 @@
 }
 
 .btn-secondary-action {
-  background-color: #ffffff;
+  background-color: var(--bg-card);
   color: #0055a5;
   border: 1px solid #0055a5;
   padding: 10px 16px;
@@ -136,7 +117,7 @@
 }
 
 .centered-metric-card {
-  background: #ffffff;
+  background: var(--bg-card);
   border: 1px solid var(--card-border);
   border-radius: 12px;
   padding: 20px 24px;
@@ -199,7 +180,7 @@
   padding: 10px 14px 10px 40px;
   border: 1px solid var(--card-border);
   border-radius: 8px;
-  background-color: #ffffff;
+  background-color: var(--bg-card);
   font-size: 0.9rem;
   outline: none;
   transition: border-color 0.2s, box-shadow 0.2s;
@@ -227,7 +208,7 @@
 
 /* Table Wrapper & Clean Table Styling */
 .table-wrapper-block {
-  background: #ffffff;
+  background: var(--bg-card);
   border: 1px solid var(--card-border);
   border-radius: 12px;
   overflow-x: auto;
@@ -248,12 +229,12 @@
 }
 
 .clean-dashboard-table th {
-  background-color: #F9FAFB;
+  background-color: var(--table-header-bg);
   padding: 14px 20px;
   font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
-  color: var(--text-secondary);
+  color: var(--table-header-text);
   border-bottom: 1px solid var(--card-border);
   letter-spacing: 0.05em;
   white-space: nowrap;
@@ -357,7 +338,7 @@
   border-radius: 6px;
   cursor: pointer;
   padding: 6px;
-  color: #667085;
+  color: var(--text-secondary);
   transition: all 0.2s ease;
   display: inline-flex;
   align-items: center;
@@ -365,7 +346,7 @@
 }
 
 .action-icon-button:hover {
-  background-color: #F2F4F7;
+  background-color: var(--bg-elevated);
   color: var(--text-primary);
 }
 
@@ -405,7 +386,7 @@
 }
 
 .modal-content-container {
-  background: #ffffff;
+  background: var(--bg-card);
   border-radius: 0;
   width: 90vw;
   height: 90vh;
@@ -432,7 +413,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background-color: #ffffff;
+  background-color: var(--bg-card);
   flex-shrink: 0;
 }
 
@@ -505,7 +486,7 @@
   border-radius: 8px;
   font-size: 0.9rem;
   outline: none;
-  background-color: #ffffff;
+  background-color: var(--bg-card);
   color: var(--text-primary);
   transition: border-color 0.2s, box-shadow 0.2s;
 }
@@ -582,7 +563,7 @@
 }
 
 .btn-modal-cancel {
-  background: #ffffff;
+  background: var(--bg-card);
   border: 1px solid var(--card-border);
   padding: 10px 16px;
   border-radius: 8px;
@@ -594,7 +575,7 @@
 }
 
 .btn-modal-cancel:hover {
-  background-color: #F2F4F7;
+  background-color: var(--bg-elevated);
   color: var(--text-primary);
 }
 

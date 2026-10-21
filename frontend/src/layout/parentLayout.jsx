@@ -7,17 +7,26 @@ import {
     Settings,
     LogOut,
     Bell,
-    X,
     MessageSquare,
     Loader2,
-    AlertTriangle
+    Sun,
+    Moon,
+    PanelLeftClose,
+    PanelLeftOpen
 } from 'lucide-react';
-import '../styles/parent/ParentLayout.css'; 
+import '../styles/parent/ParentLayout.css';
 import ParentMessageModal from '../components/student/ParentMessageModal.jsx';
 import { useWebPush } from '../hooks/useWebPush';
+import { useTheme } from '../context/ThemeContext';
+import { useSidebar } from '../context/SidebarContext';
+import Modal from '../components/common/Modal';
+import ConfirmModal from '../components/common/ConfirmModal';
+import { formatDateTime } from '../utils/datetime';
 
 const ParentLayout = () => {
     const navigate = useNavigate();
+    const { theme, toggleTheme } = useTheme();
+    const { collapsed, toggleCollapsed } = useSidebar();
     const [isOpen, setIsOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
 
@@ -361,9 +370,17 @@ const ParentLayout = () => {
 
             {isOpen && <div className="sidebar-overlay" onClick={closeSidebar}></div>}
 
-            <div className={`parent-sidebar ${isOpen ? 'open' : ''}`}>
+            <div className={`parent-sidebar ${isOpen ? 'open' : ''} ${collapsed ? 'collapsed' : ''}`}>
                 <button className="close-sidebar-btn" onClick={closeSidebar} aria-label="Close Sidebar">
                     &times;
+                </button>
+                <button
+                    className="sidebar-collapse-toggle"
+                    onClick={toggleCollapsed}
+                    title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                    aria-label="Toggle sidebar"
+                >
+                    {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
                 </button>
 
                 <div className="sidebar-header">
@@ -457,8 +474,8 @@ const ParentLayout = () => {
                 </nav>
             </div>
 
-            <div className="main-content">
-                <div className="parent-top-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className={`main-content ${collapsed ? 'sidebar-collapsed-margin' : ''}`}>
+                <div className={`parent-top-bar ${collapsed ? 'sidebar-collapsed-margin' : ''}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div className="top-bar-info">
                         <span className="viewing-label">Linked Student(s):</span>
                         
@@ -492,7 +509,28 @@ const ParentLayout = () => {
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                        <button 
+                        <button
+                            onClick={toggleTheme}
+                            className="theme-toggle-btn"
+                            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+                            aria-label="Toggle dark mode"
+                            style={{
+                                background: '#f4f6f8',
+                                border: 'none',
+                                borderRadius: '50%',
+                                width: '38px',
+                                height: '38px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                color: '#333'
+                            }}
+                        >
+                            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+                        </button>
+
+                        <button
                             onClick={() => setIsMessageOpen(true)}
                             title="Messages"
                             style={{
@@ -579,25 +617,26 @@ const ParentLayout = () => {
                                     width: '320px',
                                     maxHeight: '380px',
                                     overflowY: 'auto',
-                                    backgroundColor: '#ffffff',
+                                    backgroundColor: 'var(--bg-card)',
                                     boxShadow: '0 6px 16px rgba(0,0,0,0.15)',
                                     borderRadius: '8px',
                                     zIndex: 1000,
-                                    border: '1px solid #e8e8e8'
+                                    border: '1px solid var(--card-border)'
                                 }}>
                                     <div style={{
                                         padding: '12px 16px',
-                                        borderBottom: '1px solid #eee',
+                                        borderBottom: '1px solid var(--card-border)',
                                         fontWeight: 'bold',
                                         fontSize: '0.9rem',
                                         display: 'flex',
                                         justifyContent: 'space-between',
                                         alignItems: 'center',
-                                        backgroundColor: '#fafafa'
+                                        backgroundColor: 'var(--bg-elevated)',
+                                        color: 'var(--text-primary)'
                                     }}>
                                         <span>Notifications</span>
                                         {unreadNotifCount > 0 && (
-                                            <button 
+                                            <button
                                                 onClick={handleMarkAllAsRead}
                                                 style={{
                                                     background: 'none',
@@ -615,31 +654,31 @@ const ParentLayout = () => {
                                     </div>
 
                                     {notifications.length === 0 ? (
-                                        <div style={{ padding: '20px', textAlign: 'center', color: '#888', fontSize: '0.85rem' }}>
+                                        <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
                                             No notifications
                                         </div>
                                     ) : (
                                         notifications.map((notif) => {
                                             const isItemRead = notif.is_read === 1 || notif.is_read === '1' || notif.is_read === true || notif.read === true;
                                             return (
-                                                <div 
+                                                <div
                                                     key={notif.notification_id}
                                                     onClick={() => handleNotificationClick(notif)}
                                                     style={{
                                                         padding: '12px 16px',
-                                                        borderBottom: '1px solid #f0f0f0',
+                                                        borderBottom: '1px solid var(--card-border)',
                                                         cursor: 'pointer',
                                                         transition: 'background 0.2s',
-                                                        backgroundColor: isItemRead ? '#f9f9f9' : '#ffffff',
+                                                        backgroundColor: isItemRead ? 'var(--bg-elevated)' : 'var(--bg-card)',
                                                         opacity: isItemRead ? 0.75 : 1
                                                     }}
-                                                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f0f0f0'}
-                                                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = isItemRead ? '#f9f9f9' : '#ffffff'}
+                                                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-elevated)'}
+                                                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = isItemRead ? 'var(--bg-elevated)' : 'var(--bg-card)'}
                                                 >
-                                                    <div style={{ 
-                                                        fontWeight: isItemRead ? 'normal' : '600', 
-                                                        fontSize: '0.85rem', 
-                                                        color: '#111', 
+                                                    <div style={{
+                                                        fontWeight: isItemRead ? 'normal' : '600',
+                                                        fontSize: '0.85rem',
+                                                        color: 'var(--text-primary)',
                                                         marginBottom: '4px',
                                                         display: 'flex',
                                                         alignItems: 'center',
@@ -656,11 +695,11 @@ const ParentLayout = () => {
                                                         )}
                                                         {notif.title || 'Notification'}
                                                     </div>
-                                                    <div style={{ fontSize: '0.78rem', color: '#555', lineHeight: '1.3' }}>
+                                                    <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: '1.3' }}>
                                                         {notif.message}
                                                     </div>
-                                                    <div style={{ fontSize: '0.68rem', color: '#888', marginTop: '6px', textAlign: 'right' }}>
-                                                        {new Date(notif.created_at).toLocaleString()}
+                                                    <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', marginTop: '6px', textAlign: 'right' }}>
+                                                        {formatDateTime(notif.created_at)}
                                                     </div>
                                                 </div>
                                             );
@@ -707,90 +746,36 @@ const ParentLayout = () => {
                 />
             )}
 
-            {activeNotifModal && (
-                <div className="modal-backdrop-pl" onClick={() => setActiveNotifModal(null)}>
-                    <div 
-                        className="modal-content-pl" 
-                        onClick={(e) => e.stopPropagation()}
-                        role="dialog"
-                        aria-modal="true"
-                    >
-                        <div className="modal-header-pl">
-                            <h2>{activeNotifModal.title || 'Notification Details'}</h2>
-                            <button 
-                                type="button" 
-                                className="btn-close-pl" 
-                                onClick={() => setActiveNotifModal(null)}
-                                aria-label="Close modal"
-                            >
-                                <X size={20} />
-                            </button>
-                        </div>
-                        <div className="modal-body-pl">
-                            <p className="modal-message-pl">{activeNotifModal.message}</p>
-                            <span className="notif-timestamp-pl">
-                                Received: {new Date(activeNotifModal.created_at).toLocaleString()}
-                            </span>
-                        </div>
-                        <div className="modal-footer-pl">
-                            <button 
-                                type="button" 
-                                className="btn-primary-pl" 
-                                onClick={() => setActiveNotifModal(null)}
-                            >
-                                Close
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            <Modal
+                isOpen={!!activeNotifModal}
+                onClose={() => setActiveNotifModal(null)}
+                title={activeNotifModal?.title || 'Notification Details'}
+                size="sm"
+                footer={
+                    <button type="button" className="shared-btn shared-btn-primary" onClick={() => setActiveNotifModal(null)}>
+                        Close
+                    </button>
+                }
+            >
+                {activeNotifModal && (
+                    <>
+                        <p className="shared-modal-message">{activeNotifModal.message}</p>
+                        <span className="notif-timestamp-pl">
+                            Received: {formatDateTime(activeNotifModal.created_at)}
+                        </span>
+                    </>
+                )}
+            </Modal>
 
-            {showLogoutModal && (
-                <div className="modal-backdrop-pl" onClick={() => setShowLogoutModal(false)}>
-                    <div 
-                        className="modal-content-pl modal-sm-pl" 
-                        onClick={(e) => e.stopPropagation()} 
-                        role="dialog" 
-                        aria-modal="true"
-                    >
-                        <div className="modal-header-pl">
-                            <h2>Confirm Logout</h2>
-                            <button 
-                                type="button" 
-                                className="btn-close-pl" 
-                                onClick={() => setShowLogoutModal(false)}
-                                aria-label="Close modal"
-                            >
-                                <X size={20} />
-                            </button>
-                        </div>
-                        <div className="modal-body-pl flex-center-body-pl">
-                            <div className="icon-wrapper-pl icon-warning-pl">
-                                <AlertTriangle size={36} />
-                            </div>
-                            <p className="modal-message-pl">
-                                Are you sure you want to log out of the STI Baliuag Parent Portal?
-                            </p>
-                        </div>
-                        <div className="modal-footer-pl">
-                            <button 
-                                type="button" 
-                                className="btn-secondary-pl" 
-                                onClick={() => setShowLogoutModal(false)}
-                            >
-                                Cancel
-                            </button>
-                            <button 
-                                type="button" 
-                                className="btn-danger-pl" 
-                                onClick={confirmLogout}
-                            >
-                                Logout
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            <ConfirmModal
+                isOpen={showLogoutModal}
+                onCancel={() => setShowLogoutModal(false)}
+                onConfirm={confirmLogout}
+                title="Confirm Logout"
+                message="Are you sure you want to log out of the STI Baliuag Parent Portal?"
+                confirmLabel="Logout"
+                danger
+            />
         </div>
     );
 };

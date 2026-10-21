@@ -5,7 +5,7 @@
     padding: 24px 32px;
     background-color: #f8fafc;
     box-sizing: border-box;
-    color: #1e293b;
+    color: var(--text-primary);
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     display: flex;
     flex-direction: column;
@@ -17,7 +17,7 @@
     justify-content: space-between;
     align-items: center;
     margin-bottom: 24px;
-    background-color: #ffffff;
+    background-color: var(--bg-card);
     padding: 20px 24px;
     border-radius: 8px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
@@ -35,7 +35,7 @@
 .header-text-di p,
 .header-text-di .subtitle-di {
     margin: 4px 0 0 0;
-    color: #64748b;
+    color: var(--text-secondary);
     font-size: 0.9rem;
 }
 
@@ -48,7 +48,7 @@
 }
 
 .summary-card-di {
-    background: #ffffff;
+    background: var(--bg-card);
     border-radius: 10px;
     padding: 20px;
     display: flex;
@@ -83,7 +83,7 @@
 
 .card-info-di span {
     font-size: 0.8rem;
-    color: #64748b;
+    color: var(--text-secondary);
     font-weight: 600;
     text-transform: uppercase;
 }
@@ -91,7 +91,7 @@
 .card-info-di h3 {
     margin: 4px 0 0 0;
     font-size: 1.8rem;
-    color: #0f172a;
+    color: var(--text-primary);
     font-weight: 700;
 }
 
@@ -130,7 +130,7 @@
     left: 12px;
     top: 50%;
     transform: translateY(-50%);
-    color: #94a3b8;
+    color: var(--text-secondary);
 }
 
 .filter-group-di {
@@ -142,7 +142,7 @@
     padding: 10px 14px;
     border-radius: 8px;
     border: 1px solid #cbd5e1;
-    background-color: #ffffff;
+    background-color: var(--bg-card);
     font-size: 0.9rem;
     outline: none;
     cursor: pointer;
@@ -150,7 +150,7 @@
 
 /* Table Area */
 .table-responsive-di {
-    background: #ffffff;
+    background: var(--bg-card);
     border-radius: 10px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
     overflow-x: auto;
@@ -166,8 +166,8 @@
 }
 
 .table-di th {
-    background-color: #002B66;
-    color: #ffffff;
+    background-color: var(--table-header-bg);
+    color: var(--table-header-text);
     padding: 14px 16px;
     font-weight: 600;
     white-space: nowrap;
@@ -180,7 +180,7 @@
 }
 
 .table-di tbody tr:hover {
-    background-color: #f1f5f9;
+    background-color: var(--bg-elevated);
 }
 
 .font-bold-di { font-weight: 600; }
@@ -193,12 +193,12 @@
 
 .student-name-di {
     font-weight: 600;
-    color: #0f172a;
+    color: var(--text-primary);
 }
 
 .student-id-di {
     font-size: 0.8rem;
-    color: #64748b;
+    color: var(--text-secondary);
 }
 
 .truncate-cell-di {
@@ -261,7 +261,7 @@
     padding: 40px;
     text-align: center;
     font-size: 0.95rem;
-    color: #64748b;
+    color: var(--text-secondary);
 }
 .error-di { color: #dc2626; }
 
@@ -280,7 +280,7 @@
 }
 
 .modal-di {
-    background: #ffffff;
+    background: var(--bg-card);
     border-radius: 12px;
     width: 100%;
     max-width: 620px;
@@ -316,7 +316,7 @@
 
 .modal-subtitle-di {
     font-size: 0.8rem;
-    color: #cbd5e1;
+    color: var(--text-secondary);
 }
 
 .modal-header-actions-di {
@@ -354,7 +354,7 @@
 
 .modal-footer-di {
     padding: 14px 20px;
-    background-color: #ffffff;
+    background-color: var(--bg-card);
     border-top: 1px solid #e2e8f0;
     display: flex;
     justify-content: flex-end;
@@ -374,7 +374,7 @@
 
 .detail-item-di label {
     font-size: 0.75rem;
-    color: #64748b;
+    color: var(--text-secondary);
     text-transform: uppercase;
     font-weight: 600;
 }
@@ -382,7 +382,7 @@
 .detail-item-di p {
     margin: 2px 0 0 0;
     font-size: 0.92rem;
-    color: #0f172a;
+    color: var(--text-primary);
     word-break: break-word;
 }
 
@@ -436,7 +436,7 @@
 
 .no-notes-di {
     font-size: 0.85rem;
-    color: #94a3b8;
+    color: var(--text-secondary);
     margin: 0;
     text-align: center;
 }
@@ -454,11 +454,11 @@
     display: flex;
     justify-content: space-between;
     font-size: 0.75rem;
-    color: #475569;
+    color: var(--text-secondary);
     margin-bottom: 4px;
 }
 
-.note-bubble-di p { margin: 0; color: #1e293b; word-break: break-word; }
+.note-bubble-di p { margin: 0; color: var(--text-primary); word-break: break-word; }
 
 .message-input-container-di {
     display: flex;
@@ -493,13 +493,13 @@
 
 .validity-sublabel-di {
     font-size: 0.75rem;
-    color: #64748b;
+    color: var(--text-secondary);
 }
 
 .validity-separator-di {
     margin-top: 14px;
     font-weight: 600;
-    color: #64748b;
+    color: var(--text-secondary);
 }
 
 /* --- Non-Overlength Bounded Buttons --- */
@@ -528,7 +528,7 @@
 .form-group-di label {
     font-size: 0.85rem;
     font-weight: 600;
-    color: #1e293b;
+    color: var(--text-primary);
 }
 
 .form-group-di textarea, .form-group-di input[type="file"], .form-group-di input[type="date"] {
@@ -544,7 +544,7 @@
 .form-group-di input[type="date"]:disabled {
     background-color: #f1f5f9;
     cursor: not-allowed;
-    color: #94a3b8;
+    color: var(--text-secondary);
 }
 
 .btn-approve-di, .btn-deny-di, .btn-secondary-di {
@@ -631,7 +631,7 @@
 }
 
 .config-form-di {
-    background: #ffffff;
+    background: var(--bg-card);
     border: 1px solid #cbd5e1;
     padding: 16px;
     border-radius: 8px;
@@ -719,7 +719,7 @@
 }
 
 .facility-block-di {
-    background: #ffffff;
+    background: var(--bg-card);
     border: 1px solid #cbd5e1;
     border-radius: 10px;
     padding: 16px;
@@ -752,7 +752,7 @@
     display: flex;
     gap: 16px;
     font-size: 0.82rem;
-    color: #64748b;
+    color: var(--text-secondary);
 }
 
 /* Printable Slip Preview */
@@ -805,12 +805,12 @@
 }
 
 .clinic-slip-paper-di {
-    background-color: #ffffff;
+    background-color: var(--bg-card);
     border: 1px solid #cbd5e1;
     padding: 24px;
     border-radius: 4px;
     font-family: 'Times New Roman', Times, serif;
-    color: #1a202c;
+    color: var(--text-primary);
     position: relative;
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     max-width: 100%;
@@ -827,8 +827,8 @@
 }
 
 .slip-header-center-di { text-align: center; margin-bottom: 20px; }
-.slip-header-center-di h3 { margin: 0; font-size: 1.1rem; font-weight: bold; color: #0f172a; }
-.slip-header-center-di p { margin: 2px 0 0 0; font-size: 0.75rem; color: #334155; }
+.slip-header-center-di h3 { margin: 0; font-size: 1.1rem; font-weight: bold; color: var(--text-primary); }
+.slip-header-center-di p { margin: 2px 0 0 0; font-size: 0.75rem; color: var(--text-secondary); }
 
 .slip-title-di {
     text-align: center;
@@ -890,14 +890,14 @@
     border: none;
     border-radius: 6px;
     background: transparent;
-    color: #475569;
+    color: var(--text-secondary);
     font-size: 0.88rem;
     font-weight: 600;
     cursor: pointer;
 }
 
 .mode-tab-btn-di.active-di {
-    background: #ffffff;
+    background: var(--bg-card);
     color: #0056B3;
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
 }
@@ -1080,7 +1080,7 @@
 
 .confirm-message-di {
     font-size: 0.95rem;
-    color: #334155;
+    color: var(--text-secondary);
     margin: 0;
     line-height: 1.5;
 }
@@ -1108,7 +1108,7 @@
 .services-section-title-di {
     margin: 0 0 8px 0;
     font-size: 0.85rem;
-    color: #475569;
+    color: var(--text-secondary);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -1136,11 +1136,11 @@
 
 .service-name-text-di {
     font-weight: 600;
-    color: #0f172a;
+    color: var(--text-primary);
 }
 
 .service-desc-text-di {
-    color: #64748b;
+    color: var(--text-secondary);
 }
 
 .service-item-actions-di {
@@ -1168,7 +1168,7 @@
 
 .no-services-text-di {
     font-size: 0.82rem;
-    color: #94a3b8;
+    color: var(--text-secondary);
     margin: 0;
     font-style: italic;
 }
@@ -1198,7 +1198,7 @@
     font-size: 0.88rem;
     outline: none;
     width: 100%;
-    background-color: #ffffff;
+    background-color: var(--bg-card);
     box-sizing: border-box;
 }
 

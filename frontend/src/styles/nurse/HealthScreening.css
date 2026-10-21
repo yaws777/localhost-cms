@@ -1,18 +1,14 @@
 /* HealthScreening.css */
 /* STI Official Color Palette & System Theme */
 :root {
-  --sti-blue-dark: #00205b;
-  --sti-blue: #0056b3;
-  --sti-yellow: #ffd100;
-  --sti-bg: #f4f6f9;
-  --sti-card-bg: #ffffff;
-  --text-dark: #1e293b;
+  /* --sti-blue-dark/--sti-blue/--sti-yellow/--text-dark now come from the
+     shared frontend/src/styles/theme.css tokens */
+  --sti-bg: var(--bg-page);
+  --sti-card-bg: var(--bg-card);
   --text-muted: #64748b;
   --border-color: #cbd5e1;
   --danger: #dc3545;
   --danger-hover: #bd2130;
-  --success: #28a745;
-  --warning: #ffc107;
 }
 
 * {
@@ -40,7 +36,7 @@
   justify-content: space-between;
   align-items: center;
   margin-bottom: 1.5rem;
-  background-color: #ffffff;
+  background-color: var(--bg-card);
   padding: 20px 24px;
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
@@ -57,7 +53,7 @@
 
 .title-group-hs p {
   font-size: 0.9rem;
-  color: #64748b;
+  color: var(--text-secondary);
   opacity: 1;
 }
 
@@ -208,7 +204,7 @@
 
 .btn-secondary-hs {
   background-color: #e2e8f0;
-  color: #0f172a;
+  color: var(--text-primary);
 }
 
 .btn-secondary-hs:hover {
@@ -234,7 +230,7 @@
 
 .btn-disabled-hs {
   background-color: #e2e8f0;
-  color: #94a3b8;
+  color: var(--text-secondary);
   cursor: not-allowed;
   opacity: 0.65;
 }
@@ -256,7 +252,7 @@
 }
 
 .modal-hs {
-  background: #ffffff;
+  background: var(--bg-card);
   border-radius: 8px;
   width: 100%;
   max-width: 600px;
@@ -265,7 +261,7 @@
   flex-direction: column;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
   overflow: hidden;
-  color: #0f172a;
+  color: var(--text-primary);
 }
 
 .modal-hs.modal-lg-hs {
@@ -325,7 +321,7 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  color: #0f172a;
+  color: var(--text-primary);
 }
 
 .modal-footer-hs {
@@ -356,7 +352,7 @@
 .form-group-hs label {
   font-size: 0.875rem;
   font-weight: 600;
-  color: #0f172a;
+  color: var(--text-primary);
 }
 
 .form-group-hs input, 
@@ -367,13 +363,13 @@
   border-radius: 6px;
   font-size: 0.9rem;
   width: 100%;
-  background-color: #ffffff;
-  color: #0f172a;
+  background-color: var(--bg-card);
+  color: var(--text-primary);
 }
 
 .form-group-hs input::placeholder, 
 .form-group-hs textarea::placeholder {
-  color: #94a3b8;
+  color: var(--text-secondary);
 }
 
 .form-group-hs input:focus, 
@@ -398,7 +394,7 @@
 .list-title-hs {
   font-size: 0.9rem;
   font-weight: 600;
-  color: #0f172a;
+  color: var(--text-primary);
 }
 
 .table-wrapper-hs {
@@ -409,7 +405,7 @@
   overflow-x: auto;
   border: 1px solid var(--border-color);
   border-radius: 6px;
-  background-color: #ffffff;
+  background-color: var(--bg-card);
 }
 
 /* Centered Table Styling & Visible Text */
@@ -417,15 +413,15 @@
   width: 100%;
   border-collapse: collapse;
   text-align: center;
-  color: #0f172a;
+  color: var(--text-primary);
 }
 
 .table-hs th {
-  background-color: #f1f5f9;
+  background-color: var(--table-header-bg);
   padding: 0.75rem 1rem;
   font-size: 0.85rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--table-header-text);
   border-bottom: 2px solid var(--border-color);
   text-align: center;
   vertical-align: middle;
@@ -442,7 +438,7 @@
   text-align: center;
   vertical-align: middle;
   word-break: break-word;
-  color: #0f172a;
+  color: var(--text-primary);
 }
 
 .col-checkbox-hs {
@@ -566,7 +562,7 @@
   text-align: center;
   font-size: 0.95rem;
   font-weight: 600;
-  color: #0f172a;
+  color: var(--text-primary);
 }
 
 .text-center-hs {
@@ -578,7 +574,7 @@
 .form-group-hs select:disabled,
 .form-group-hs textarea:disabled {
   background-color: #f1f5f9;
-  color: #64748b;
+  color: var(--text-secondary);
   cursor: not-allowed;
   opacity: 0.8;
 }

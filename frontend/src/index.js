@@ -1,5 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import './styles/theme.css';
 import './index.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
@@ -7,6 +8,9 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 
 // 1. Import your session context provider
 import { MultiAccountProvider } from './context/MultiAccountContext';
+import { ThemeProvider } from './context/ThemeContext';
+import { AlertProvider } from './context/AlertContext';
+import { SidebarProvider } from './context/SidebarContext';
 
 import Login from './pages/Login';
 import StudentDashboard from './pages/student/studentDashboard';
@@ -50,6 +54,9 @@ import NurseMessages from './components/student/NurseMessageModal'
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   /* 2. Wrap BrowserRouter with your MultiAccountProvider */
+  <ThemeProvider>
+  <SidebarProvider>
+  <AlertProvider>
   <MultiAccountProvider>
     <BrowserRouter>
       <Routes>
@@ -104,6 +111,9 @@ root.render(
       </Routes>
     </BrowserRouter>
   </MultiAccountProvider>
+  </AlertProvider>
+  </SidebarProvider>
+  </ThemeProvider>
 );
 
 reportWebVitals();

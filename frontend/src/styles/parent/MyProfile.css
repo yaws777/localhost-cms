@@ -1,11 +1,10 @@
 /* STI Brand Colors */
 :root {
-  --sti-blue: #0055A5;
-  --sti-blue-dark: #003B73;
-  --sti-yellow: #FFC72C;
+  /* --sti-blue/--sti-blue-dark/--sti-yellow now come from the shared
+     frontend/src/styles/theme.css tokens */
   --sti-yellow-hover: #E5B220;
   --sti-gray-bg: #F4F6F9;
-  --sti-text-dark: #1E293B;
+  --sti-text-dark: var(--text-primary);
   --sti-text-muted: #64748B;
   --sti-border: #E2E8F0;
   --sti-success: #16A34A;
@@ -25,7 +24,7 @@
 .sti-contact-card {
   width: 100%;
   max-width: 560px;
-  background: #ffffff;
+  background: var(--bg-card);
   border-radius: 8px;
   border-top: 5px solid var(--sti-blue);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);

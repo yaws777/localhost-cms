@@ -10,6 +10,7 @@ const fs = require('fs');
 const app = express();
 const twilio = require('twilio');
 const crypto = require('crypto');
+const { todayManilaStr, currentMonthManilaStr } = require('../utils/time');
 
 const uploadDir = 'uploads/';
 if (!fs.existsSync(uploadDir)) {
@@ -70,6 +71,14 @@ const pool = mysql.createPool({
         database: "ClinicManagementSystem",
         dateStrings: true,
         charset: 'utf8mb4', // Forces UTF-8 encoding on client connections
+        timezone: '+08:00', // Philippine Standard Time, regardless of host/MySQL server default
+});
+
+// Ensure every pooled connection's session is also pinned to PH time, so
+// MySQL-side NOW()/CURRENT_TIMESTAMP calls are correct even if the MySQL
+// server's own global time_zone is not configured for Asia/Manila.
+pool.on('connection', (connection) => {
+    connection.query("SET time_zone = '+08:00'");
 });
 
 const cron = require('node-cron');
@@ -5049,7 +5058,7 @@ const getAutomaticAdvice = (complaint) => {
 app.get('/api/frequent-complaints', async (req, res) => {
   try {
     // Default to current year-month (e.g., "2026-07") if not provided
-    const targetMonth = req.query.month || new Date().toISOString().slice(0, 7);
+    const targetMonth = req.query.month || currentMonthManilaStr();
 
     // SQL Query without DB recommendations
     const query = `
@@ -5112,7 +5121,7 @@ app.get('/api/frequent-complaints/details', async (req, res) => {
       });
     }
 
-    const targetMonth = month || new Date().toISOString().slice(0, 7);
+    const targetMonth = month || currentMonthManilaStr();
 
     const query = `
       SELECT 
@@ -5182,7 +5191,7 @@ app.delete('/api/frequent-complaints/dismiss', async (req, res) => {
 app.get('/api/parent/frequent-complaints/:parentId', async (req, res) => {
   try {
     const { parentId } = req.params;
-    const targetMonth = req.query.month || new Date().toISOString().slice(0, 7);
+    const targetMonth = req.query.month || currentMonthManilaStr();
 
     if (!parentId) {
       return res.status(400).json({ success: false, message: 'parentId is required.' });
@@ -6834,7 +6843,7 @@ app.get('/api/screenings/:id/students', async (req, res) => {
     if (schedule.length === 0) return res.status(404).json({ error: 'Schedule not found' });
 
     const schDate = schedule[0].scheduled_date ? new Date(schedule[0].scheduled_date).toISOString().split('T')[0] : '';
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = todayManilaStr();
 
     if (schDate < todayStr) {
       await pool.query(

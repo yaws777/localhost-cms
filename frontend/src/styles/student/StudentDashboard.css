@@ -6,21 +6,17 @@
 /* --- CSS Variables --- */
 :root {
   --primary-sd: #2563eb;
-  --primary-hover-sd: #1d4ed8;
   --primary-light-sd: #eff6ff;
   --primary-border-sd: #bfdbfe;
 
-  --success-sd: #10b981;
   --success-hover-sd: #059669;
   --success-light-sd: #ecfdf5;
   --success-border-sd: #a7f3d0;
 
-  --warning-sd: #f59e0b;
   --warning-hover-sd: #d97706;
   --warning-light-sd: #fffbeb;
   --warning-border-sd: #fde68a;
 
-  --danger-sd: #ef4444;
   --danger-hover-sd: #dc2626;
   --danger-light-sd: #fef2f2;
   --danger-border-sd: #fecaca;
@@ -43,7 +39,6 @@
   --radius-full-sd: 9999px;
 
   --shadow-sm-sd: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
-  --shadow-md-sd: 0 3px 6px -1px rgba(0, 0, 0, 0.06);
   --transition-fast-sd: 0.15s ease;
 }
 
@@ -669,7 +664,7 @@
 
 .secondary-doc-btn-sd {
   background-color: #f3f4f6;
-  color: #374151;
+  color: var(--text-secondary);
 }
 
 /* ==========================================================================

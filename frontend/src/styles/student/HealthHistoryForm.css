@@ -1,26 +1,30 @@
-/* --- Global Form Container --- */
+/* --- Global Form Container ---
+   Every selector below is scoped under .form-container so these rules
+   cannot leak onto unrelated pages (CRA bundles all page CSS globally;
+   bare element selectors like `button`/`label`/`select` previously
+   applied app-wide and hijacked buttons/labels on other pages/roles). */
 .form-container {
-    background-color: #ffffff;
+    background-color: var(--bg-card);
     max-width: 650px;
     margin: 40px auto;
     padding: 40px;
     border-radius: 12px;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05); /* Soft drop shadow like the login card */
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    color: #333333;
+    color: var(--text-primary);
 }
 
 /* --- Typography --- */
 .form-container h2 {
     text-align: center;
-    color: #333333;
+    color: var(--text-primary);
     font-size: 28px;
     font-weight: 700;
     margin-top: 0;
     margin-bottom: 24px;
 }
 
-.form-section h3 {
+.form-container .form-section h3 {
     color: #004e9a; /* STI Baliuag Blue */
     font-size: 14px;
     text-transform: uppercase;
@@ -32,17 +36,17 @@
 }
 
 /* --- Input Fields (Text, Number, Date) --- */
-label {
+.form-container label {
     display: block;
     margin-bottom: 6px;
     font-weight: 500;
-    color: #555555;
+    color: var(--text-secondary);
     font-size: 14px;
 }
 
-input[type="text"],
-input[type="number"],
-input[type="date"] {
+.form-container input[type="text"],
+.form-container input[type="number"],
+.form-container input[type="date"] {
     width: 100%;
     padding: 14px 16px;
     margin-bottom: 20px;
@@ -50,26 +54,27 @@ input[type="date"] {
     border-radius: 8px; /* Rounded corners like the login inputs */
     font-size: 15px;
     box-sizing: border-box;
-    background-color: #ffffff;
+    background-color: var(--bg-card);
+    color: var(--text-primary);
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-input[type="text"]:focus,
-input[type="number"]:focus,
-input[type="date"]:focus {
+.form-container input[type="text"]:focus,
+.form-container input[type="number"]:focus,
+.form-container input[type="date"]:focus {
     outline: none;
     border-color: #004e9a;
     box-shadow: 0 0 0 3px rgba(0, 78, 154, 0.1); /* Subtle blue glow on focus */
 }
 
-.form-select{
+.form-container .form-select{
     appearance: none;
     -webkit-appearance: none;
     -moz-appearance: none;
-    
+
     /* Right padding prevents text from running into the arrow */
-    padding-right: 40px; 
-    
+    padding-right: 40px;
+
     /* Clean inline SVG chevron arrow */
     background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
     background-repeat: no-repeat;
@@ -78,7 +83,7 @@ input[type="date"]:focus {
     cursor: pointer;
 }
 
-select{
+.form-container select{
     width: 100%;
     padding: 14px 16px;
     margin-bottom: 20px;
@@ -86,18 +91,19 @@ select{
     border-radius: 8px; /* Rounded corners like the login inputs */
     font-size: 15px;
     box-sizing: border-box;
-    background-color: #ffffff;
+    background-color: var(--bg-card);
+    color: var(--text-primary);
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-select:focus{
+.form-container select:focus{
     outline: none;
     border-color: #004e9a;
     box-shadow: 0 0 0 3px rgba(0, 78, 154, 0.1); /* Subtle blue glow on focus */
 }
 
 /* --- Buttons --- */
-button {
+.form-container button {
     background-color: #004e9a; /* STI Baliuag Blue */
     color: #ffffff;
     border: none;
@@ -112,32 +118,32 @@ button {
     transition: background-color 0.2s ease;
 }
 
-button:hover {
+.form-container button:hover {
     background-color: #003d7a; /* Darker shade on hover */
 }
 
 /* If buttons are stacked next to each other, give them some space */
-button + button {
+.form-container button + button {
     margin-top: 10px;
 }
 
 /* Optional: Make the "Back" button look slightly different (secondary style) */
-button:not(.btn-primary):not(.modal-btn):first-of-type {
+.form-container button:not(.btn-primary):not(.modal-btn):first-of-type {
     background-color: #f0f2f5;
-    color: #333333;
+    color: var(--text-primary);
 }
 
-button:not(.btn-primary):not(.modal-btn):first-of-type:hover {
+.form-container button:not(.btn-primary):not(.modal-btn):first-of-type:hover {
     background-color: #e4e6e9;
 }
 
-button.btn-primary {
+.form-container button.btn-primary {
     background-color: #004e9a;
     color: #ffffff;
 }
 
 /* --- Health Section Specifics --- */
-.health-block {
+.form-container .health-block {
     background-color: #f9fafb; /* Light gray box to separate health conditions */
     padding: 16px 20px;
     border-radius: 8px;
@@ -145,17 +151,17 @@ button.btn-primary {
     margin-bottom: 16px;
 }
 
-.health-block > label {
+.form-container .health-block > label {
     display: flex;
     align-items: center;
     font-weight: 600;
     font-size: 15px;
-    color: #111827;
+    color: var(--text-primary);
     cursor: pointer;
     margin-bottom: 0; /* Reset margin for inline checkboxes */
 }
 
-input[type="checkbox"] {
+.form-container input[type="checkbox"] {
     margin-right: 12px;
     width: 18px;
     height: 18px;
@@ -163,26 +169,26 @@ input[type="checkbox"] {
     accent-color: #004e9a; /* Colors the checkbox to match theme */
 }
 
-.sub-fields {
+.form-container .sub-fields {
     margin-top: 16px;
     padding-left: 30px; /* Indent sub-fields for hierarchy */
     border-top: 1px dashed #d1d5db;
     padding-top: 16px;
 }
 
-.sub-fields label {
+.form-container .sub-fields label {
     font-weight: 500;
     margin-bottom: 4px;
 }
 
-.sub-fields h4 {
+.form-container .sub-fields h4 {
     margin: 16px 0 10px 0;
     font-size: 14px;
-    color: #555555;
+    color: var(--text-secondary);
     font-weight: 600;
 }
 
-.sub-fields label:has(input[type="checkbox"]) {
+.form-container .sub-fields label:has(input[type="checkbox"]) {
     display: flex;
     align-items: center;
     font-weight: normal;
@@ -190,7 +196,7 @@ input[type="checkbox"] {
 }
 
 /* --- Modal Styles --- */
-.modal-overlay {
+.form-container .modal-overlay {
     position: fixed;
     top: 0;
     left: 0;
@@ -204,8 +210,8 @@ input[type="checkbox"] {
     animation: fadeIn 0.2s ease-out;
 }
 
-.modal-card {
-    background: #ffffff;
+.form-container .modal-card {
+    background: var(--bg-card);
     border-radius: 12px;
     width: 90%;
     max-width: 440px;
@@ -214,7 +220,7 @@ input[type="checkbox"] {
     animation: slideUp 0.25s ease-out;
 }
 
-.modal-header {
+.form-container .modal-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -222,32 +228,33 @@ input[type="checkbox"] {
     border-bottom: 1px solid #e5e7eb;
 }
 
-.modal-header h3 {
+.form-container .modal-header h3 {
     margin: 0;
     font-size: 18px;
     font-weight: 700;
     letter-spacing: 0;
     border-bottom: none;
     padding-bottom: 0;
+    color: var(--text-primary);
 }
 
-.modal-error .modal-header h3 {
+.form-container .modal-error .modal-header h3 {
     color: #dc2626;
 }
 
-.modal-success .modal-header h3 {
+.form-container .modal-success .modal-header h3 {
     color: #16a34a;
 }
 
-.modal-confirm .modal-header h3 {
+.form-container .modal-confirm .modal-header h3 {
     color: #004e9a;
 }
 
-.modal-close-btn {
+.form-container .modal-close-btn {
     background: transparent;
     border: none;
     font-size: 24px;
-    color: #6b7280;
+    color: var(--text-secondary);
     cursor: pointer;
     line-height: 1;
     width: auto;
@@ -255,23 +262,23 @@ input[type="checkbox"] {
     padding: 0;
 }
 
-.modal-close-btn:hover {
+.form-container .modal-close-btn:hover {
     background: transparent;
-    color: #111827;
+    color: var(--text-primary);
 }
 
-.modal-body {
+.form-container .modal-body {
     padding: 20px;
     font-size: 15px;
-    color: #374151;
+    color: var(--text-secondary);
     line-height: 1.5;
 }
 
-.modal-body p {
+.form-container .modal-body p {
     margin: 0;
 }
 
-.modal-footer {
+.form-container .modal-footer {
     display: flex;
     justify-content: flex-end;
     gap: 10px;
@@ -280,7 +287,7 @@ input[type="checkbox"] {
     border-top: 1px solid #e5e7eb;
 }
 
-.modal-btn {
+.form-container .modal-btn {
     width: auto;
     padding: 10px 18px;
     font-size: 14px;
@@ -289,21 +296,21 @@ input[type="checkbox"] {
     margin: 0;
 }
 
-.modal-btn-secondary {
+.form-container .modal-btn-secondary {
     background-color: #e5e7eb;
-    color: #374151;
+    color: var(--text-secondary);
 }
 
-.modal-btn-secondary:hover {
+.form-container .modal-btn-secondary:hover {
     background-color: #d1d5db;
 }
 
-.modal-btn-primary {
+.form-container .modal-btn-primary {
     background-color: #004e9a;
     color: #ffffff;
 }
 
-.modal-btn-primary:hover {
+.form-container .modal-btn-primary:hover {
     background-color: #003d7a;
 }
 

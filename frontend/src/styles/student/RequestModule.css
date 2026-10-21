@@ -1,8 +1,7 @@
 /* STI Palette Variables */
 :root {
-  --sti-blue: #004B87;
-  --sti-blue-hover: #003662;
-  --sti-yellow: #FFC72C;
+  /* --sti-blue/--sti-blue-hover/--sti-yellow now come from the shared
+     frontend/src/styles/theme.css tokens */
   --sti-dark: #2C3E50;
   --sti-light-bg: #F4F6F9;
   --sti-white: #FFFFFF;
@@ -91,7 +90,7 @@
 
 .sti-btn-secondary {
   background-color: #CBD5E1;
-  color: #334155;
+  color: var(--text-secondary);
   border: none;
   padding: 10px 18px;
   border-radius: 6px;
@@ -137,8 +136,8 @@
 }
 
 .sti-table th {
-  background-color: #F8FAFC;
-  color: var(--sti-blue);
+  background-color: var(--table-header-bg);
+  color: var(--table-header-text);
   font-weight: 700;
 }
 

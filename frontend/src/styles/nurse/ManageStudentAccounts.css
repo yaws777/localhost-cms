@@ -6,9 +6,9 @@
   --sti-secondary: #6c757d;
   --sti-secondary-hover: #5a6268;
   --sti-bg-light: #f4f6f9;
-  --sti-card-bg: #ffffff;
+  --sti-card-bg: var(--bg-card);
   --sti-border-color: #dee2e6;
-  --sti-text-dark: #212529;
+  --sti-text-dark: var(--text-primary);
   --sti-text-muted: #6c757d;
   --sti-success: #28a745;
   --sti-danger: #dc3545;
@@ -30,7 +30,7 @@
 /* Header Component */
 /* Header Component - Aligned with Insurance Vault Card Theme */
 .student-container-msa .header-msa {
-  background-color: #ffffff;
+  background-color: var(--bg-card);
   padding: 20px 24px;
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
@@ -61,7 +61,7 @@
 .student-container-msa .brand-msa p {
   margin: 4px 0 0 0;
   font-size: 0.9rem;
-  color: #64748b;
+  color: var(--text-secondary);
 }
 
 /* Main Content Layout */
@@ -236,7 +236,8 @@
 }
 
 .student-container-msa .table-msa th {
-  background-color: #f8f9fa;
+  background-color: var(--table-header-bg);
+  color: var(--table-header-text);
   padding: 12px 16px;
   font-weight: 600;
   color: var(--sti-secondary);
@@ -253,7 +254,7 @@
 }
 
 .student-container-msa .table-msa tbody tr:hover {
-  background-color: #f8f9fa;
+  background-color: var(--bg-elevated);
 }
 
 .student-container-msa .font-bold-msa {
@@ -540,7 +541,7 @@
   overflow-y: auto;
   border: 1px solid var(--sti-border-color);
   border-radius: 6px;
-  background-color: #ffffff;
+  background-color: var(--bg-card);
 }
 
 .student-container-msa .search-list-msa li {
@@ -596,7 +597,7 @@
   flex-direction: column;
   gap: 8px;
   font-size: 0.875rem;
-  background-color: #ffffff;
+  background-color: var(--bg-card);
   padding: 14px;
   border-radius: 8px;
   border: 1px solid var(--sti-border-color);
@@ -625,7 +626,8 @@
 .student-container-msa .table-compact-msa th {
   position: sticky;
   top: 0;
-  background: #f8f9fa;
+  background: var(--table-header-bg);
+  color: var(--table-header-text);
   z-index: 2;
   padding: 10px 8px;
   white-space: nowrap;
@@ -833,7 +835,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background-color: #ffffff;
+  background-color: var(--bg-card);
   padding: 20px 24px;
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);

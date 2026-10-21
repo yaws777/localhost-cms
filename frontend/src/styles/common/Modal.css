@@ -1,0 +1,154 @@
+.shared-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background-color: var(--modal-overlay-bg, rgba(15, 23, 42, 0.55));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    z-index: 2000;
+}
+
+.shared-modal-panel {
+    background-color: var(--modal-panel-bg, #ffffff);
+    border: 1px solid var(--modal-border, #e4e7ec);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 480px;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
+    color: var(--text-primary);
+}
+
+.shared-modal-sm { max-width: 360px; }
+.shared-modal-md { max-width: 480px; }
+.shared-modal-lg { max-width: 720px; }
+.shared-modal-xl { max-width: 960px; }
+
+.shared-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--modal-border, #e4e7ec);
+    flex-shrink: 0;
+}
+
+.shared-modal-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.shared-modal-title h2 {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.shared-modal-close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-secondary);
+    display: inline-flex;
+    padding: 4px;
+    border-radius: 6px;
+}
+
+.shared-modal-close:hover {
+    background-color: var(--sti-blue-light);
+    color: var(--sti-blue-primary);
+}
+
+.shared-modal-body {
+    padding: 20px;
+    overflow-y: auto;
+    flex: 1 1 auto;
+}
+
+.shared-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 14px 20px;
+    border-top: 1px solid var(--modal-border, #e4e7ec);
+    flex-shrink: 0;
+}
+
+/* Shared button styles reused by AlertModal / ConfirmModal */
+.shared-btn {
+    padding: 8px 18px;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: background-color 0.15s ease;
+}
+
+.shared-btn-primary {
+    background-color: var(--sti-blue-primary);
+    color: var(--text-on-brand);
+}
+.shared-btn-primary:hover { background-color: var(--sti-blue-hover); }
+
+.shared-btn-secondary {
+    background-color: transparent;
+    color: var(--text-secondary);
+    border-color: var(--card-border);
+}
+.shared-btn-secondary:hover { background-color: var(--bg-page); }
+
+.shared-btn-danger {
+    background-color: var(--status-critical-text);
+    color: var(--text-on-brand);
+}
+.shared-btn-danger:hover { opacity: 0.9; }
+
+.shared-icon-wrapper {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    margin-bottom: 8px;
+}
+
+.shared-icon-success { background-color: var(--status-adequate-bg); color: var(--status-adequate-text); }
+.shared-icon-error { background-color: var(--status-critical-bg); color: var(--status-critical-text); }
+.shared-icon-info { background-color: var(--sti-blue-light); color: var(--sti-blue-primary); }
+.shared-icon-warning { background-color: var(--status-low-bg); color: var(--status-low-text); }
+
+.shared-alert-body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 6px;
+}
+
+.shared-alert-message,
+.shared-modal-message {
+    margin: 0;
+    color: var(--text-primary);
+    line-height: 1.5;
+    white-space: pre-wrap;
+}
+
+@media (max-width: 480px) {
+    .shared-modal-panel {
+        max-width: 100%;
+        max-height: 90vh;
+    }
+    .shared-modal-footer {
+        flex-wrap: wrap;
+    }
+    .shared-btn {
+        flex: 1 1 auto;
+    }
+}

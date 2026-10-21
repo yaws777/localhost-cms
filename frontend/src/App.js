@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import logo from "./assets/sti-logof.png"; // Adjust path if your image is located elsewhere (e.g., ./assets/logo.png)
 import "./styles/App.css";
+import { formatCurrentDate } from "./utils/datetime";
 
 const objectives = [
   {
@@ -135,12 +136,7 @@ const objectives = [
 export default function LandingPage() {
   const navigate = useNavigate();
 
-  const formattedDate = new Date().toLocaleDateString("en-US", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
+  const formattedDate = formatCurrentDate();
 
   return (
     <div className="landing-page">
@@ -170,7 +166,7 @@ export default function LandingPage() {
           <h2 className="hero-heading">
             Student Health Management
             <br className="hero-br" />
-            & Monitoring System
+            {" "}& Monitoring System
           </h2>
           <p className="hero-description">
             A centralized digital platform for managing student health records,

@@ -1,11 +1,10 @@
 :root {
-    --sti-blue: #0056b3;
-    --sti-navy: #00205b;
-    --sti-yellow: #ffc107;
+    /* --sti-blue/--sti-navy/--sti-yellow now come from the shared
+       frontend/src/styles/theme.css tokens */
     --sti-yellow-hover: #e0a800;
     --sti-light-bg: #f8f9fa;
     --sti-border: #e2e8f0;
-    --sti-text-dark: #1e293b;
+    --sti-text-dark: var(--text-primary);
     --sti-text-muted: #64748b;
     --sti-success: #10b981;
     --sti-danger: #ef4444;
@@ -31,7 +30,7 @@
    2. HEADER PANEL & BUTTONS
    ========================================================================== */
 .consultation-header-panel-vlc {
-    background: #ffffff;
+    background: var(--bg-card);
     padding: 20px 24px;
     border-radius: 8px;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
@@ -51,7 +50,7 @@
 
 .header-text-block-vlc h2 {
     margin: 0 0 4px 0;
-    color: var(--sti-navy);
+    color: var(--text-primary);
     font-size: 1.45rem;
     font-weight: 700;
 }
@@ -90,7 +89,7 @@
    3. ENTRY SELECTION CARD & MODE BUTTONS
    ========================================================================== */
 .entry-option-card-vlc {
-    background: #ffffff;
+    background: var(--bg-card);
     padding: 24px;
     border-radius: 8px;
     border: 1px solid var(--sti-border);
@@ -99,7 +98,7 @@
 
 .entry-option-card-vlc h3 {
     margin: 0 0 6px 0;
-    color: var(--sti-navy);
+    color: var(--text-primary);
     font-size: 1.15rem;
 }
 
@@ -155,7 +154,7 @@
    ========================================================================== */
 .search-card-container-vlc {
     position: relative;
-    background: #ffffff;
+    background: var(--bg-card);
     padding: 20px;
     border-radius: 8px;
     border: 1px solid var(--sti-border);
@@ -185,8 +184,8 @@
 }
 
 .back-option-btn-vlc:hover {
-    background-color: #f1f5f9;
-    color: var(--sti-navy);
+    background-color: var(--bg-elevated);
+    color: var(--text-primary);
 }
 
 .search-input-inner-vlc {
@@ -228,7 +227,7 @@
     overflow-y: auto;
     border: 1px solid var(--sti-border);
     border-radius: 6px;
-    background: #ffffff;
+    background: var(--bg-card);
     box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
 }
 
@@ -270,7 +269,7 @@
 .result-name-vlc {
     font-weight: 600;
     font-size: 0.88rem;
-    color: var(--sti-navy);
+    color: var(--text-primary);
 }
 
 .result-meta-vlc {
@@ -382,7 +381,7 @@
 }
 
 .modal-body-container-vlc {
-    background: #ffffff;
+    background: var(--bg-card);
     width: 100%;
     max-width: 720px;
     border-radius: 8px;
@@ -547,13 +546,13 @@
     border: 1px solid var(--sti-border);
     border-radius: 6px;
     padding: 16px;
-    background: #ffffff;
+    background: var(--bg-card);
 }
 
 .section-subtitle-indicator-vlc {
     margin: 0 0 14px 0;
     font-size: 0.92rem;
-    color: var(--sti-navy);
+    color: var(--text-primary);
     display: flex;
     align-items: center;
     gap: 6px;
@@ -584,7 +583,7 @@
 .form-input-element-vlc label {
     font-size: 0.82rem;
     font-weight: 600;
-    color: var(--sti-navy);
+    color: var(--text-primary);
 }
 
 .required-star-vlc {
@@ -607,7 +606,7 @@
     font-size: 0.88rem;
     box-sizing: border-box;
     outline: none;
-    background-color: #ffffff;
+    background-color: var(--bg-card);
 }
 
 .form-input-element-vlc input:focus,
@@ -652,7 +651,7 @@
     padding: 8px 18px;
     border-radius: 6px;
     border: 1px solid var(--sti-border);
-    background-color: #ffffff;
+    background-color: var(--bg-card);
     color: var(--sti-text-dark);
     font-weight: 600;
     font-size: 0.85rem;
@@ -663,7 +662,7 @@
 }
 
 .btn-cancel-action-vlc:hover {
-    background-color: #f1f5f9;
+    background-color: var(--bg-elevated);
 }
 
 .btn-confirm-action-vlc {
@@ -797,7 +796,7 @@
     border-radius: 6px;
     font-size: 0.85rem;
     box-sizing: border-box;
-    background-color: #ffffff;
+    background-color: var(--bg-card);
     outline: none;
 }
 
@@ -812,7 +811,7 @@
     justify-content: center;
     gap: 6px;
     padding: 8px 14px;
-    background-color: #ffffff;
+    background-color: var(--bg-card);
     border: 1px solid var(--sti-border);
     border-radius: 6px;
     font-size: 0.82rem;
@@ -826,7 +825,7 @@
 }
 
 .btn-clear-filters-vlc:hover {
-    background-color: #f1f5f9;
+    background-color: var(--bg-elevated);
     color: var(--sti-danger);
     border-color: #fca5a5;
 }
@@ -849,7 +848,7 @@
    7. HISTORY TABLES & ICON-ONLY ROW ACTIONS
    ========================================================================== */
 .history-table-section-card-vlc {
-    background: #ffffff;
+    background: var(--bg-card);
     border-radius: 8px;
     border: 1px solid var(--sti-border);
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
@@ -886,7 +885,7 @@
     align-items: center;
     gap: 6px;
     padding: 6px 12px;
-    background-color: #ffffff;
+    background-color: var(--bg-card);
     border: 1px solid var(--sti-border);
     border-radius: 6px;
     font-size: 0.82rem;
@@ -898,7 +897,7 @@
 }
 
 .refresh-table-btn-vlc:hover {
-    background-color: #f1f5f9;
+    background-color: var(--bg-elevated);
 }
 
 .table-overflow-scroller-vlc {
@@ -914,8 +913,8 @@
 }
 
 .styled-history-table-vlc th {
-    background: #f8fafc;
-    color: var(--sti-navy);
+    background: var(--table-header-bg);
+    color: var(--table-header-text);
     padding: 12px 14px;
     font-size: 0.78rem;
     text-transform: uppercase;
@@ -936,11 +935,11 @@
 }
 
 .styled-history-table-vlc tr.row-locked-vlc {
-    background-color: #fbfbfb;
+    background-color: var(--table-row-alt-bg);
 }
 
 .styled-history-table-vlc tr.row-active-vlc {
-    background-color: #ffffff;
+    background-color: var(--bg-card);
 }
 
 .empty-table-state-vlc {
@@ -951,7 +950,7 @@
 
 .table-date-cell-vlc span {
     font-weight: 600;
-    color: var(--sti-navy);
+    color: var(--text-primary);
     font-size: 0.85rem;
 }
 
@@ -962,7 +961,7 @@
 
 .table-profile-cell-vlc span {
     font-weight: 600;
-    color: var(--sti-navy);
+    color: var(--text-primary);
 }
 
 .table-profile-cell-vlc small {
@@ -1018,7 +1017,7 @@
     border-radius: 6px;
     font-size: 0.8rem;
     box-sizing: border-box;
-    background-color: #ffffff;
+    background-color: var(--bg-card);
     color: var(--sti-text-dark);
 }
 
@@ -1070,7 +1069,7 @@
     padding: 0;
     border-radius: 6px;
     border: 1px solid var(--sti-border);
-    background-color: #ffffff;
+    background-color: var(--bg-card);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1080,7 +1079,7 @@
 }
 
 .icon-action-btn-vlc.btn-document-vlc {
-    color: var(--sti-navy);
+    color: var(--text-primary);
 }
 
 .icon-action-btn-vlc.btn-document-vlc.needs-doc-vlc {

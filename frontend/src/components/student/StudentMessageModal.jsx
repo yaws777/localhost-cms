@@ -4,8 +4,11 @@ import {
     Square, User, FileText, Trash2, MoreVertical, MoreHorizontal, X, Loader2, ArrowLeft 
 } from 'lucide-react';
 import '../../styles/student/StudentMessagesModal.css';
+import { useAlert } from '../../context/AlertContext';
+import { formatTime } from '../../utils/datetime';
 
 const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
+    const { showAlert, showConfirm } = useAlert();
     const [contacts, setContacts] = useState([]);
     const [conversations, setConversations] = useState([]);
     const [selectedContact, setSelectedContact] = useState(null);
@@ -110,7 +113,8 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
 
     const handleDeleteMessage = async (messageId) => {
         setActiveMenuId(null);
-        if (!window.confirm('Unsend this message?')) return;
+        const confirmed = await showConfirm('Unsend this message?', { danger: true, confirmLabel: 'Unsend' });
+        if (!confirmed) return;
 
         try {
             const res = await fetch(`http://localhost:3001/api/messages/${messageId}`, { method: 'DELETE' });
@@ -120,7 +124,7 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
                 setMessages((prev) => prev.filter((m) => m.message_id !== messageId));
                 fetchConversations();
             } else {
-                alert('Failed to delete message.');
+                showAlert('Failed to delete message.', 'error');
             }
         } catch (err) {
             console.error('Error deleting message:', err);
@@ -130,7 +134,8 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
     const handleDeleteConversation = async (e, contactUserId) => {
         e.stopPropagation();
         setActiveConvMenuId(null);
-        if (!window.confirm('Delete this conversation? This cannot be undone.')) return;
+        const confirmed = await showConfirm('Delete this conversation? This cannot be undone.', { danger: true, confirmLabel: 'Delete' });
+        if (!confirmed) return;
 
         try {
             const res = await fetch(`http://localhost:3001/api/messages/conversations/${userId}/${contactUserId}`, { method: 'DELETE' });
@@ -143,7 +148,7 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
                     setMessages([]);
                 }
             } else {
-                alert('Failed to delete conversation.');
+                showAlert('Failed to delete conversation.', 'error');
             }
         } catch (err) {
             console.error('Error deleting conversation:', err);
@@ -170,7 +175,7 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
             mediaRecorderRef.current.start();
             setIsRecording(true);
         } catch (err) {
-            alert('Microphone permission is required to record voice messages.');
+            showAlert('Microphone permission is required to record voice messages.', 'warning');
         }
     };
 
@@ -211,7 +216,7 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
         if (isSending) return;
 
         if (!userId || !selectedContact?.user_id) {
-            alert('Recipient is missing.');
+            showAlert('Recipient is missing.', 'error');
             return;
         }
 
@@ -243,11 +248,11 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
                 clearAttachment();
                 fetchConversations();
             } else {
-                alert(`Message error: ${data.message || 'Failed to send message.'}`);
+                showAlert(data.message || 'Failed to send message.', 'error', { title: 'Message Error' });
             }
         } catch (err) {
             console.error('Network error sending message:', err);
-            alert('Server unreachable or network connection error.');
+            showAlert("We couldn't reach the server. Please check your connection and try again.", 'error');
         } finally {
             setIsSending(false);
         }
@@ -420,7 +425,7 @@ const StudentMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
 
                                                         <div className="message-footer-info">
                                                             <span className="time-stamp">
-                                                                {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                                {formatTime(msg.created_at)}
                                                             </span>
                                                         </div>
                                                     </div>

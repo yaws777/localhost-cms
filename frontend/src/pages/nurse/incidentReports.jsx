@@ -24,10 +24,12 @@ import jsQR from 'jsqr';
 
 import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/IncidentReports.css';
+import { useAlert } from '../../context/AlertContext';
 
 const IncidentReport = () => {
     // 1. Get nurseId from NurseLayout Outlet context
     const { nurseId } = useOutletContext() || {};
+    const { showAlert, showConfirm } = useAlert();
 
     // Data States
     const [reports, setReports] = useState([]);
@@ -160,7 +162,7 @@ const IncidentReport = () => {
 
         const printWindow = window.open('', '_blank', 'width=950,height=750');
         if (!printWindow) {
-            alert('Please allow popups to preview and print the report.');
+            showAlert('Please allow popups to preview and print the report.', 'warning');
             return;
         }
 
@@ -328,7 +330,7 @@ const IncidentReport = () => {
 
         const printWindow = window.open('', '_blank', 'width=950,height=750');
         if (!printWindow) {
-            alert('Please allow popups to preview and print the report.');
+            showAlert('Please allow popups to preview and print the report.', 'warning');
             return;
         }
 
@@ -530,15 +532,15 @@ const IncidentReport = () => {
                 stopCameraScan();
                 handleSelectStudent(studentList[0]);
             } else {
-                alert(`No student found with QR / Student ID: ${studentId}`);
+                showAlert(`No student found with QR / Student ID: ${studentId}`, 'error');
             }
         } catch (err) {
             console.error("Error reading QR code:", err);
-            alert("Failed to read QR code data.");
+            showAlert('Failed to read QR code data.', 'error');
         } finally {
             isProcessingScan.current = false;
         }
-    }, [stopCameraScan, handleSelectStudent]);
+    }, [stopCameraScan, handleSelectStudent, showAlert]);
 
     // Continuously scan video frames with jsQR
     useEffect(() => {
@@ -623,11 +625,11 @@ const IncidentReport = () => {
         
         const sId = selectedStudent?.student_id || selectedStudent?.id;
         if (!selectedStudent || !sId) {
-            alert('Please search and select a valid student or scan a student QR code.');
+            showAlert('Please search and select a valid student or scan a student QR code.', 'warning');
             return;
         }
         if (!nurseId) {
-            alert('Nurse identity missing. Please re-login.');
+            showAlert('Nurse identity missing. Please re-login.', 'error');
             return;
         }
 
@@ -646,16 +648,16 @@ const IncidentReport = () => {
 
             const data = await res.json();
             if (data.success) {
-                alert('Incident report documented successfully!');
+                showAlert('Incident report documented successfully!', 'success');
                 setShowAddIncidentModal(false);
                 resetIncidentForm();
                 fetchIncidentReports();
             } else {
-                alert(data.message || 'Error saving report');
+                showAlert(data.message || 'Error saving report.', 'error');
             }
         } catch (error) {
             console.error('Save incident error:', error);
-            alert('Failed to connect to the server.');
+            showAlert("We couldn't reach the server. Please try again.", 'error');
         }
     };
 
@@ -692,7 +694,7 @@ const IncidentReport = () => {
                 fetchHotlines();
                 resetHotlineForm();
             } else {
-                alert(data.message);
+                showAlert(data.message || 'Failed to save emergency contact.', 'error');
             }
         } catch (error) {
             console.error(error);
@@ -709,7 +711,8 @@ const IncidentReport = () => {
     };
 
     const handleDeleteHotline = async (hotline_id) => {
-        if (!window.confirm('Are you sure you want to delete this emergency contact?')) return;
+        const confirmed = await showConfirm('Are you sure you want to delete this emergency contact?', { danger: true, confirmLabel: 'Delete' });
+        if (!confirmed) return;
         try {
             const res = await fetch(`http://localhost:3001/api/emergency-hotlines/${hotline_id}`, { method: 'DELETE' });
             const data = await res.json();

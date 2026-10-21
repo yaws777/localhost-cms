@@ -1,12 +1,10 @@
 /* STI Color Variables & Reset */
 :root {
-  --sti-navy: #002b49;
-  --sti-blue: #00529b;
-  --sti-yellow: #ffd100;
-  --sti-blue-hover: #003e75;
-  --sti-bg: #f4f6f9;
-  --sti-card-bg: #ffffff;
-  --sti-text: #1e293b;
+  /* --sti-navy/--sti-blue/--sti-yellow/--sti-blue-hover now come from the
+     shared frontend/src/styles/theme.css tokens */
+  --sti-bg: var(--bg-page);
+  --sti-card-bg: var(--bg-card);
+  --sti-text: var(--text-primary);
   --sti-border: #e2e8f0;
 }
 
@@ -75,7 +73,7 @@ body {
   align-items: flex-start;
   gap: 6px;
   font-size: 13px;
-  color: var(--sti-navy);
+  color: var(--sti-text);
   font-weight: 600;
   width: 100%;
 }
@@ -162,7 +160,7 @@ body {
   border-bottom: 3px solid transparent;
   font-size: 12px;
   font-weight: 600;
-  color: #64748b;
+  color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.2s ease;
   flex: 1 1 calc(50% - 4px);
@@ -175,7 +173,7 @@ body {
 }
 
 .tab-clr.active-clr {
-  color: var(--sti-navy);
+  color: var(--sti-text);
   border-bottom: 3px solid var(--sti-yellow);
   background-color: rgba(255, 209, 0, 0.08);
 }
@@ -205,8 +203,8 @@ body {
 }
 
 .table-clr th {
-  background-color: var(--sti-navy);
-  color: #ffffff;
+  background-color: var(--table-header-bg);
+  color: var(--table-header-text);
   padding: 10px 12px;
   font-weight: 600;
   white-space: nowrap;
@@ -219,7 +217,7 @@ body {
 }
 
 .table-clr tbody tr:hover {
-  background-color: #f8fafc;
+  background-color: var(--bg-elevated);
 }
 
 /* Action Button Style (Icon Only) */
@@ -291,7 +289,7 @@ body {
 .no-data-clr {
   text-align: center;
   padding: 30px 16px;
-  color: #64748b;
+  color: var(--text-secondary);
   font-size: 14px;
 }
 
@@ -308,7 +306,7 @@ body {
 }
 
 .modal-content-clr {
-  background-color: #ffffff;
+  background-color: var(--bg-card);
   border-radius: 8px;
   width: 100%;
   max-width: 600px;
@@ -358,14 +356,14 @@ body {
 .field-key-clr {
   font-weight: 700;
   width: 100%;
-  color: var(--sti-navy);
+  color: var(--sti-text);
   text-transform: capitalize;
   font-size: 13px;
 }
 
 .field-value-clr {
   width: 100%;
-  color: #334155;
+  color: var(--text-secondary);
   word-break: break-word;
   font-size: 14px;
 }

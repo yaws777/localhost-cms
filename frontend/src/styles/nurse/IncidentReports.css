@@ -3,14 +3,12 @@
    ========================================================================== */
 
 :root {
-    --sti-blue-dark: #002f6c;
-    --sti-blue-primary: #0056b3;
-    --sti-blue-hover: #004085;
-    --sti-yellow: #f2a900;
+    /* --sti-blue-dark/--sti-blue-primary/--sti-blue-hover/--sti-yellow now
+       come from the shared frontend/src/styles/theme.css tokens */
     --sti-yellow-hover: #d49400;
     --sti-bg-light: #f8f9fa;
     --sti-card-border: #e3e8ee;
-    --sti-text-dark: #212529;
+    --sti-text-dark: var(--text-primary);
     --sti-text-muted: #6c757d;
     --sti-danger: #dc3545;
     --sti-success: #28a745;
@@ -27,7 +25,7 @@
 
 /* Header Section */
 .incident-header {
-    background-color: #ffffff;
+    background-color: var(--bg-card);
     padding: 20px 24px;
     border-radius: 8px;
     border-left: 6px solid var(--sti-yellow);
@@ -70,7 +68,7 @@
 
 /* Filter Card */
 .filter-card {
-    background: #ffffff;
+    background: var(--bg-card);
     padding: 16px;
     border-radius: 8px;
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
@@ -104,7 +102,7 @@
 
 /* Table Card */
 .table-card {
-    background: #ffffff;
+    background: var(--bg-card);
     border-radius: 8px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
     overflow-x: auto;
@@ -117,8 +115,8 @@
 }
 
 .sti-table th {
-    background-color: var(--sti-blue-dark);
-    color: #ffffff;
+    background-color: var(--table-header-bg);
+    color: var(--table-header-text);
     padding: 12px 16px;
     font-size: 0.88rem;
     font-weight: 600;
@@ -134,7 +132,7 @@
 }
 
 .sti-table tbody tr:hover {
-    background-color: #f1f5f9;
+    background-color: var(--bg-elevated);
 }
 
 /* Form Controls & Buttons */
@@ -233,7 +231,7 @@
 
 /* Set overflow: visible to allow absolute autocomplete dropdown to show */
 .modal-container {
-    background: #ffffff;
+    background: var(--bg-card);
     border-radius: 10px;
     width: 100%;
     max-height: 90vh;
@@ -323,7 +321,7 @@
     top: 100%;
     left: 0;
     right: 0;
-    background: #ffffff;
+    background: var(--bg-card);
     border: 1px solid var(--sti-card-border);
     border-radius: 6px;
     box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
@@ -344,7 +342,7 @@
 }
 
 .autocomplete-dropdown li:hover {
-    background-color: #f0f9ff;
+    background-color: var(--bg-elevated);
     color: var(--sti-blue-primary);
 }
 

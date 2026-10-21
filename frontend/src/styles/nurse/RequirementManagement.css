@@ -33,7 +33,7 @@ svg {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 24px;
-    background-color: #ffffff;
+    background-color: var(--bg-card);
     padding: 20px 24px;
     border-radius: 8px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
@@ -51,7 +51,7 @@ svg {
 
 .req-header-section-rm p { 
     margin: 4px 0 0 0; 
-    color: #64748b; 
+    color: var(--text-secondary); 
     font-size: 0.9rem; 
 }
 
@@ -74,7 +74,7 @@ svg {
     padding: 12px 20px;
     font-size: 15px;
     cursor: pointer;
-    color: #64748b;
+    color: var(--text-secondary);
     font-weight: 500;
     transition: color 0.2s ease, border-color 0.2s ease;
     position: relative;
@@ -109,7 +109,7 @@ svg {
 
 .summary-card-rm {
     flex: 1;
-    background-color: #ffffff;
+    background-color: var(--bg-card);
     border: 1px solid #e5e7eb;
     border-radius: 12px;
     padding: 20px 16px;
@@ -139,7 +139,7 @@ svg {
 
 .summary-card-label-rm {
     font-size: 14px;
-    color: #6b7280;
+    color: var(--text-secondary);
     font-weight: 500;
 }
 
@@ -153,7 +153,7 @@ svg {
     flex-direction: column;
     gap: 16px;
     margin-bottom: 24px;
-    background: #ffffff;
+    background: var(--bg-card);
     padding: 18px;
     border-radius: 8px;
     border: 1px solid #e2e8f0;
@@ -171,7 +171,7 @@ svg {
     left: 14px;
     top: 50%;
     transform: translateY(-50%);
-    color: #94a3b8;
+    color: var(--text-secondary);
     pointer-events: none;
 }
 
@@ -207,7 +207,7 @@ svg {
 .filter-label-rm {
     font-size: 12px;
     font-weight: 600;
-    color: #475569;
+    color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.02em;
 }
@@ -217,9 +217,9 @@ svg {
     padding: 9px 12px;
     border-radius: 6px;
     border: 1px solid #cbd5e1;
-    background: #ffffff;
+    background: var(--bg-card);
     font-size: 14px;
-    color: #334155;
+    color: var(--text-secondary);
     outline: none;
     cursor: pointer;
     transition: border-color 0.2s ease;
@@ -239,7 +239,7 @@ svg {
     border-radius: 6px;
     border: 1px solid #e5e7eb;
     background: #f3f4f6;
-    color: #4b5563;
+    color: var(--text-secondary);
     cursor: pointer;
     font-size: 13px;
     font-weight: 500;
@@ -264,7 +264,7 @@ svg {
 
 .data-table-rm {
     width: 100%;
-    background: white;
+    background: var(--bg-card);
     border-collapse: collapse;
     border: 1px solid #e2e8f0;
 }
@@ -275,14 +275,14 @@ svg {
     border-bottom: 1px solid #e2e8f0;
 }
 
-.data-table-rm th { 
-    background-color: #f1f5f9; 
-    color: #475569; 
+.data-table-rm th {
+    background-color: var(--table-header-bg);
+    color: var(--table-header-text);
     font-weight: 600; 
 }
 
 .data-table-rm td { 
-    color: #334155; 
+    color: var(--text-secondary); 
     font-size: 14px; 
 }
 
@@ -293,15 +293,15 @@ svg {
 
 .student-name-rm {
     font-weight: 600;
-    color: #0f172a;
+    color: var(--text-primary);
 }
 
 .student-id-rm {
     font-size: 12px;
-    color: #64748b;
+    color: var(--text-secondary);
 }
 
-.text-muted-rm { color: #64748b; }
+.text-muted-rm { color: var(--text-secondary); }
 .text-center-rm { text-align: center; }
 
 .stats-overview-rm { display: flex; flex-direction: column; gap: 4px; }
@@ -331,7 +331,7 @@ svg {
 .chip-rejected-rm { color: #dc2626; background-color: #fee2e2; }
 
 .chip-missing-rm { 
-    color: #374151; 
+    color: var(--text-secondary); 
     background-color: #f3f4f6; 
     font-weight: 600; 
     border: 1px solid #d1d5db; 
@@ -342,7 +342,7 @@ svg {
 .empty-table-cell-rm {
     text-align: center;
     padding: 28px;
-    color: #6b7280;
+    color: var(--text-secondary);
     font-style: italic;
 }
 
@@ -378,7 +378,7 @@ svg {
 }
 
 .program-card-rm {
-    background: white;
+    background: var(--bg-card);
     padding: 20px;
     border-radius: 8px;
     border: 1px solid #e2e8f0;
@@ -396,7 +396,7 @@ svg {
     padding-bottom: 10px;
 }
 
-.program-header-rm h3 { margin: 0; font-size: 16px; color: #1e293b; }
+.program-header-rm h3 { margin: 0; font-size: 16px; color: var(--text-primary); }
 
 .btn-edit-toggle-rm {
     display: inline-flex;
@@ -404,7 +404,7 @@ svg {
     gap: 6px;
     background: #f1f5f9;
     border: 1px solid #cbd5e1;
-    color: #475569;
+    color: var(--text-secondary);
     padding: 4px 12px;
     border-radius: 4px;
     font-size: 13px;
@@ -413,7 +413,7 @@ svg {
     max-width: fit-content;
 }
 
-.btn-edit-toggle-rm:hover { background: #e2e8f0; color: #1e293b; }
+.btn-edit-toggle-rm:hover { background: #e2e8f0; color: var(--text-primary); }
 
 /* --- Program Items Lists --- */
 .req-list-rm { list-style: none; padding: 0; margin: 0; }
@@ -433,7 +433,7 @@ svg {
 }
 
 .req-item-details-rm { display: flex; flex-direction: column; gap: 4px; }
-.req-text-rm { display: flex; align-items: center; gap: 6px; font-size: 14px; color: #334155; }
+.req-text-rm { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--text-secondary); }
 .check-icon-rm { color: #16a34a; }
 .year-badge-rm { font-size: 11px; background: #e2e8f0; padding: 2px 6px; border-radius: 10px; margin-left: 6px; }
 
@@ -442,7 +442,7 @@ svg {
     align-items: center;
     gap: 12px;
     font-size: 12px;
-    color: #64748b;
+    color: var(--text-secondary);
 }
 
 .late-badge-rm { padding: 2px 6px; border-radius: 4px; font-weight: 500; }
@@ -459,7 +459,7 @@ svg {
     border-radius: 4px;
     padding: 4px 8px;
     cursor: pointer;
-    color: #475569;
+    color: var(--text-secondary);
     max-width: fit-content;
 }
 .btn-icon-rm:hover { background: #e2e8f0; }
@@ -478,7 +478,7 @@ svg {
     margin-top: 8px;
 }
 
-.add-req-inline-rm h4 { margin: 0; font-size: 13px; display: flex; align-items: center; gap: 4px; color: #0f172a;}
+.add-req-inline-rm h4 { margin: 0; font-size: 13px; display: flex; align-items: center; gap: 4px; color: var(--text-primary);}
 .inline-edit-inputs-rm, .inline-add-inputs-rm { display: flex; gap: 8px; flex-wrap: wrap; }
 .flex-1-rm { flex: 1; min-width: 100px; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px; }
 .flex-2-rm { flex: 2; min-width: 150px; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px; }
@@ -513,7 +513,7 @@ svg {
 }
 
 .modal-content-rm {
-    background: white;
+    background: var(--bg-card);
     width: 100%;
     display: flex;
     flex-direction: column;
@@ -539,21 +539,21 @@ svg {
     flex-shrink: 0;
 }
 
-.modal-header-rm h3 { margin: 0; font-size: 18px; color: #0f172a; }
-.modal-subtitle-rm { font-size: 13px; color: #64748b; margin-top: 2px; }
+.modal-header-rm h3 { margin: 0; font-size: 18px; color: var(--text-primary); }
+.modal-subtitle-rm { font-size: 13px; color: var(--text-secondary); margin-top: 2px; }
 
 .btn-close-rm {
     background: none; border: none; cursor: pointer;
-    color: #94a3b8; padding: 4px; border-radius: 4px;
+    color: var(--text-secondary); padding: 4px; border-radius: 4px;
     display: flex; align-items: center; justify-content: center;
     max-width: fit-content;
 }
-.btn-close-rm:hover { background-color: #f1f5f9; color: #334155; }
+.btn-close-rm:hover { background-color: #f1f5f9; color: var(--text-secondary); }
 
 /* --- Confirmation Modal Styling --- */
 .confirm-message-rm {
     font-size: 14px;
-    color: #334155;
+    color: var(--text-secondary);
     margin: 0 0 20px 0;
     line-height: 1.5;
 }
@@ -607,7 +607,7 @@ svg {
     border: 1px solid #e2e8f0;
     border-radius: 6px;
     padding: 16px;
-    background-color: #fff;
+    background-color: var(--bg-card);
     box-shadow: 0 1px 2px rgba(0,0,0,0.05);
 }
 
@@ -622,7 +622,7 @@ svg {
 .req-card-title-group-rm h4 {
     margin: 0 0 6px 0;
     font-size: 15px;
-    color: #1e293b;
+    color: var(--text-primary);
     display: flex;
     align-items: center;
     flex-wrap: wrap;
@@ -637,17 +637,17 @@ svg {
     margin-top: 4px;
 }
 
-.tag-rm { font-size: 11px; background: #f1f5f9; color: #475569; padding: 2px 6px; border-radius: 4px; font-weight: normal; }
+.tag-rm { font-size: 11px; background: #f1f5f9; color: var(--text-secondary); padding: 2px 6px; border-radius: 4px; font-weight: normal; }
 .status-badge-rm { font-size: 12px; font-weight: 600; padding: 4px 8px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px; }
 
-.deadline-info-rm { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #64748b; margin-top: 8px; }
+.deadline-info-rm { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); margin-top: 8px; }
 .overdue-text-rm { color: #dc2626; font-weight: bold; }
 
 .card-actions-rm { display: flex; gap: 8px; flex-shrink: 0; }
 
 .attachment-section-rm {
     font-size: 13px;
-    color: #334155;
+    color: var(--text-secondary);
     margin-top: 8px;
 }
 
@@ -657,7 +657,7 @@ svg {
 }
 
 .no-file-text-rm {
-    color: #94a3b8;
+    color: var(--text-secondary);
     font-style: italic;
 }
 
@@ -667,7 +667,7 @@ svg {
     background-color: #f8fafc;
     border-left: 3px solid #cbd5e1;
     font-size: 13px;
-    color: #475569;
+    color: var(--text-secondary);
 }
 
 /* Edit Forms Specifics */
@@ -675,7 +675,7 @@ svg {
 .form-grid-2-rm { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
 .form-group-rm { display: flex; flex-direction: column; gap: 6px; }
-.form-group-rm label { font-size: 13px; font-weight: 500; color: #475569; }
+.form-group-rm label { font-size: 13px; font-weight: 500; color: var(--text-secondary); }
 .form-group-rm select, .form-group-rm input, .form-group-rm textarea {
     padding: 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 14px; outline: none; width: 100%;
 }
@@ -686,7 +686,7 @@ svg {
     align-items: center;
     gap: 8px;
     font-size: 13px;
-    color: #475569;
+    color: var(--text-secondary);
     cursor: pointer;
 }
 
@@ -737,7 +737,7 @@ svg {
 .add-med-req-form-rm h4 {
     margin: 0 0 10px 0;
     font-size: 14px;
-    color: #1e293b;
+    color: var(--text-primary);
 }
 
 .inline-add-group-rm {
@@ -782,7 +782,7 @@ svg {
 .med-req-list-section-rm h4 {
     margin: 0 0 12px 0;
     font-size: 14px;
-    color: #1e293b;
+    color: var(--text-primary);
 }
 
 .med-req-list-rm {
@@ -812,7 +812,7 @@ svg {
     align-items: center;
     gap: 8px;
     font-size: 14px;
-    color: #334155;
+    color: var(--text-secondary);
 }
 
 .med-req-actions-rm {

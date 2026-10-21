@@ -13,7 +13,7 @@
     justify-content: space-between;
     align-items: center;
     margin-bottom: 20px;
-    background-color: #ffffff;
+    background-color: var(--bg-card);
     padding: 20px 24px;
     border-radius: 8px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
@@ -28,7 +28,7 @@
 
 .vault-header-iv .subtitle-iv {
     margin: 4px 0 0 0;
-    color: #64748b;
+    color: var(--text-secondary);
     font-size: 0.9rem;
 }
 
@@ -63,7 +63,7 @@
 .search-box-iv, .date-filter-box-iv {
     display: flex;
     align-items: center;
-    background-color: #ffffff;
+    background-color: var(--bg-card);
     border: 1px solid #cbd5e1;
     border-radius: 6px;
     padding: 8px 12px;
@@ -80,7 +80,7 @@
     width: 100%;
     margin-left: 8px;
     font-size: 0.9rem;
-    color: #1e293b;
+    color: var(--text-primary);
 }
 
 .search-icon-iv, .date-icon-iv {
@@ -88,7 +88,7 @@
 }
 
 .clear-icon-iv {
-    color: #94a3b8;
+    color: var(--text-secondary);
     cursor: pointer;
 }
 
@@ -98,7 +98,7 @@
 
 /* Table Alignment Fixes */
 .vault-table-wrapper-iv {
-    background: #ffffff;
+    background: var(--bg-card);
     border-radius: 8px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
     overflow-x: auto;
@@ -107,7 +107,7 @@
 .vault-loading-iv, .vault-empty-iv {
     padding: 24px;
     text-align: center;
-    color: #64748b;
+    color: var(--text-secondary);
 }
 
 .vault-table-iv {
@@ -118,8 +118,8 @@
 }
 
 .vault-table-iv thead {
-    background-color: #002b66;
-    color: #ffffff;
+    background-color: var(--table-header-bg);
+    color: var(--table-header-text);
 }
 
 .vault-table-iv th, .vault-table-iv td {
@@ -129,7 +129,7 @@
 }
 
 .vault-table-iv tbody tr:hover {
-    background-color: #f1f5f9;
+    background-color: var(--bg-elevated);
 }
 
 .font-semibold-iv {
@@ -238,7 +238,7 @@
 }
 
 .modal-card-iv {
-    background-color: #ffffff;
+    background-color: var(--bg-card);
     width: 100%;
     max-width: 520px;
     border-radius: 8px;
@@ -317,7 +317,7 @@
     border: 1px solid #e2e8f0;
     border-radius: 6px;
     margin-bottom: 10px;
-    background-color: #ffffff;
+    background-color: var(--bg-card);
 }
 
 .file-info-iv {
@@ -333,19 +333,19 @@
 
 .file-title-iv {
     font-size: 0.95rem;
-    color: #1e293b;
+    color: var(--text-primary);
 }
 
 .file-meta-iv {
     margin: 2px 0 0 0;
     font-size: 0.75rem;
-    color: #64748b;
+    color: var(--text-secondary);
 }
 
 .file-notes-iv {
     margin: 4px 0 0 0;
     font-size: 0.8rem;
-    color: #334155;
+    color: var(--text-secondary);
 }
 
 .file-actions-iv {
@@ -360,7 +360,7 @@
     top: 100%;
     left: 0;
     right: 0;
-    background-color: #ffffff;
+    background-color: var(--bg-card);
     border: 1px solid #d1d5db;
     border-radius: 6px;
     box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
@@ -389,12 +389,12 @@
 
 .search-item-name-iv {
     font-weight: 600;
-    color: #1f2937;
+    color: var(--text-primary);
 }
 
 .search-item-sub-iv {
     font-size: 0.8rem;
-    color: #6b7280;
+    color: var(--text-secondary);
     margin-top: 2px;
 }
 
@@ -436,7 +436,7 @@
 
 .btn-secondary-iv {
     background-color: #e2e8f0;
-    color: #475569;
+    color: var(--text-secondary);
     border: none;
     padding: 8px 16px;
     border-radius: 6px;
@@ -458,7 +458,7 @@
 .form-group-iv label {
     font-size: 0.85rem;
     font-weight: 600;
-    color: #334155;
+    color: var(--text-secondary);
 }
 
 .form-group-iv input, .form-group-iv textarea {
@@ -542,7 +542,7 @@
     width: 100%;
     max-height: 65vh;
     overflow: auto;
-    background: #ffffff;
+    background: var(--bg-card);
     padding: 14px;
     border: 1px solid #e2e8f0;
     border-radius: 4px;
@@ -554,5 +554,5 @@
 .preview-unsupported-iv {
     text-align: center;
     padding: 30px;
-    color: #475569;
+    color: var(--text-secondary);
 }

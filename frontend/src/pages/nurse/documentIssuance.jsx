@@ -26,6 +26,7 @@ import {
 
 import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/DocumentIssuance.css';
+import { useAlert } from '../../context/AlertContext';
 
 const NURSE_SIGNATURE_SVG = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 100" width="260" height="100">
@@ -62,6 +63,7 @@ const NURSE_SIGNATURE_SVG = `data:image/svg+xml;charset=utf-8,${encodeURICompone
 
 const DocumentIssuance = () => {
     const { nurseId } = useOutletContext();
+    const { showAlert } = useAlert();
 
     const [requests, setRequests] = useState([]);
     const [filteredRequests, setFilteredRequests] = useState([]);
@@ -355,7 +357,7 @@ const DocumentIssuance = () => {
 
         const printWindow = window.open('', '_blank', 'width=950,height=750');
         if (!printWindow) {
-            alert('Please allow popups to preview and print the report.');
+            showAlert('Please allow popups to preview and print the report.', 'warning');
             return;
         }
 
@@ -627,11 +629,11 @@ const DocumentIssuance = () => {
                 setShowFacilityForm(false);
                 fetchFacilities();
             } else {
-                alert(data.message || 'Failed to save facility');
+                showAlert(data.message || 'Failed to save facility.', 'error');
             }
         } catch (err) {
             console.error('Error saving facility:', err);
-            alert('Error connecting to server.');
+            showAlert("We couldn't reach the server. Please try again.", 'error');
         }
     };
 
@@ -658,11 +660,11 @@ const DocumentIssuance = () => {
             if (data.success || res.ok) {
                 fetchFacilities();
             } else {
-                alert(data.message || 'Failed to delete facility.');
+                showAlert(data.message || 'Failed to delete facility.', 'error');
             }
         } catch (err) {
             console.error('Error deleting facility:', err);
-            alert('Error connecting to server.');
+            showAlert("We couldn't reach the server. Please try again.", 'error');
         }
     };
 
@@ -729,18 +731,18 @@ const DocumentIssuance = () => {
                 setActiveFacilityName('');
                 fetchFacilities();
             } else {
-                alert(data.message || 'Failed to save service');
+                showAlert(data.message || 'Failed to save service.', 'error');
             }
         } catch (err) {
             console.error('Error saving service:', err);
-            alert('Error connecting to server.');
+            showAlert("We couldn't reach the server. Please try again.", 'error');
         }
     };
 
     const handleSaveService = (e) => {
         e.preventDefault();
         if (!serviceForm.facility_id || !serviceForm.requirement_name.trim()) {
-            alert('Please select a valid medical requirement.');
+            showAlert('Please select a valid medical requirement.', 'warning');
             return;
         }
 
@@ -752,7 +754,7 @@ const DocumentIssuance = () => {
         );
 
         if (isDuplicate) {
-            alert(`The requirement/service "${serviceForm.requirement_name}" is already connected to ${activeFacilityName}. Please select a different medical requirement.`);
+            showAlert(`The requirement/service "${serviceForm.requirement_name}" is already connected to ${activeFacilityName}. Please select a different medical requirement.`, 'warning');
             return;
         }
 
@@ -775,11 +777,11 @@ const DocumentIssuance = () => {
             if (data.success || res.ok) {
                 fetchFacilities();
             } else {
-                alert(data.message || 'Failed to delete service.');
+                showAlert(data.message || 'Failed to delete service.', 'error');
             }
         } catch (err) {
             console.error('Error deleting service:', err);
-            alert('Error connecting to server.');
+            showAlert("We couldn't reach the server. Please try again.", 'error');
         }
     };
 

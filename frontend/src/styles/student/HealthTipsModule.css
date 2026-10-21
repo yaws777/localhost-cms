@@ -4,7 +4,7 @@
   max-width: 1400px;
   margin: 0 auto;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  color: #1e293b;
+  color: var(--text-primary);
 }
 
 .module-header {
@@ -21,12 +21,12 @@
 .module-header h1 {
   margin: 0 0 6px 0;
   font-size: 1.85rem;
-  color: #0f172a;
+  color: var(--text-primary);
 }
 
 .module-header p {
   margin: 0;
-  color: #64748b;
+  color: var(--text-secondary);
   font-size: 0.95rem;
 }
 
@@ -57,7 +57,7 @@
   transform: translateY(-50%);
   background: none;
   border: none;
-  color: #94a3b8;
+  color: var(--text-secondary);
   cursor: pointer;
   font-size: 1rem;
 }
@@ -66,7 +66,7 @@
   text-align: center;
   padding: 48px;
   font-size: 1.1rem;
-  color: #64748b;
+  color: var(--text-secondary);
   background-color: #f8fafc;
   border-radius: 12px;
   border: 1px dashed #cbd5e1;
@@ -85,7 +85,7 @@
 }
 
 .complaint-card {
-  background: #ffffff;
+  background: var(--bg-card);
   border: 1px solid #e2e8f0;
   border-radius: 14px;
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
@@ -112,13 +112,13 @@
 .card-header h2 {
   margin: 0;
   font-size: 1.2rem;
-  color: #0f172a;
+  color: var(--text-primary);
 }
 
 .complaint-code {
   font-size: 0.725rem;
   font-weight: 700;
-  color: #64748b;
+  color: var(--text-secondary);
   background-color: #e2e8f0;
   padding: 4px 8px;
   border-radius: 6px;

@@ -2,10 +2,9 @@
 /* GLOBAL & BASE STYLES                           */
 /* ============================================== */
 :root {
-  --sti-blue: #004b87;
-  --sti-yellow: #ffd100;
-  --bg-color: #f4f7f6;
-  --text-dark: #333333;
+  /* --sti-blue/--sti-yellow/--text-dark now come from the shared
+     frontend/src/styles/theme.css tokens */
+  --bg-color: var(--bg-page);
   --text-light: #ffffff;
   --sidebar-width: 260px;
 }
@@ -33,7 +32,7 @@ body {
   left: var(--sidebar-width);
   right: 0;
   height: 45px;
-  background-color: #ffffff;
+  background-color: var(--bg-card);
   border-bottom: 1px solid #e0e0e0;
   display: flex;
   align-items: center;
@@ -51,7 +50,7 @@ body {
 
 .current-date {
   font-size: 0.80rem;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 /* ============================================== */

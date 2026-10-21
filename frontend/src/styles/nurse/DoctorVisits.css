@@ -3,13 +3,12 @@
    ========================================================================== */
 
 :root {
-    --sti-blue: #0056b3;
-    --sti-navy: #00205b;
-    --sti-yellow: #ffc107;
+    /* --sti-blue/--sti-navy/--sti-yellow now come from the shared
+       frontend/src/styles/theme.css tokens */
     --sti-yellow-hover: #e0a800;
     --sti-light-bg: #f8f9fa;
     --sti-border: #e2e8f0;
-    --sti-text-dark: #1e293b;
+    --sti-text-dark: var(--text-primary);
     --sti-text-muted: #64748b;
     --sti-success: #10b981;
     --sti-danger: #ef4444;
@@ -29,7 +28,7 @@
     justify-content: space-between;
     align-items: center;
     margin-bottom: 20px;
-    background: #ffffff;
+    background: var(--bg-card);
     padding: 20px;
     border-radius: 8px;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
@@ -38,7 +37,7 @@
 
 .header-dv h2 {
     margin: 0;
-    color: var(--sti-navy);
+    color: var(--text-primary);
     font-size: 1.5rem;
 }
 
@@ -92,7 +91,7 @@
 
 /* Doctors Bar */
 .doctors-bar-dv {
-    background: #ffffff;
+    background: var(--bg-card);
     padding: 12px 16px;
     border-radius: 8px;
     margin-bottom: 20px;
@@ -107,7 +106,7 @@
     align-items: center;
     gap: 6px;
     font-weight: 600;
-    color: var(--sti-navy);
+    color: var(--text-primary);
     font-size: 0.88rem;
     white-space: nowrap;
 }
@@ -155,7 +154,7 @@
 
 .tabs-dv {
     display: flex;
-    background: #ffffff;
+    background: var(--bg-card);
     padding: 4px;
     border-radius: 8px;
     border: 1px solid var(--sti-border);
@@ -185,7 +184,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    background: #ffffff;
+    background: var(--bg-card);
     padding: 8px 14px;
     border-radius: 8px;
     border: 1px solid var(--sti-border);
@@ -201,7 +200,7 @@
 
 /* Table Card */
 .table-card-dv {
-    background: #ffffff;
+    background: var(--bg-card);
     border-radius: 8px;
     border: 1px solid var(--sti-border);
     box-shadow: 0 2px 4px rgba(0,0,0,0.02);
@@ -215,8 +214,8 @@
 }
 
 .sti-table-dv th {
-    background: #f1f5f9;
-    color: var(--sti-navy);
+    background: var(--table-header-bg);
+    color: var(--table-header-text);
     padding: 12px 16px;
     font-size: 0.82rem;
     text-transform: uppercase;
@@ -278,7 +277,7 @@
 
 .badge-pending-dv {
     background: #f1f5f9;
-    color: #64748b;
+    color: var(--text-secondary);
 }
 
 .doc-done-badge-dv {
@@ -309,7 +308,7 @@
     padding: 6px 10px;
     border-radius: 4px;
     border: 1px solid var(--sti-border);
-    background: #ffffff;
+    background: var(--bg-card);
     font-size: 0.78rem;
     font-weight: 600;
     cursor: pointer;
@@ -351,7 +350,7 @@
 }
 
 .modal-content-dv {
-    background: #ffffff;
+    background: var(--bg-card);
     width: 480px;
     max-width: 90%;
     border-radius: 8px;
@@ -377,7 +376,7 @@
 
 .modal-header-dv h3 {
     margin: 0;
-    color: var(--sti-navy);
+    color: var(--text-primary);
 }
 
 .close-btn-dv {
@@ -395,7 +394,7 @@
     display: block;
     font-size: 0.82rem;
     font-weight: 600;
-    color: var(--sti-navy);
+    color: var(--text-primary);
     margin-bottom: 6px;
 }
 

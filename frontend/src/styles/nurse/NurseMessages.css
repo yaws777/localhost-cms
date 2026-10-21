@@ -1,7 +1,7 @@
 .messenger-container {
     display: flex;
     height: calc(100vh - 80px);
-    background: #ffffff;
+    background: var(--bg-card);
     border-radius: 8px;
     box-shadow: 0 2px 10px rgba(0,0,0,0.08);
     overflow: hidden;
@@ -22,7 +22,7 @@
     padding: 12px;
     display: flex;
     align-items: center;
-    background: #fff;
+    background: var(--bg-card);
     border-bottom: 1px solid #eef2f5;
     gap: 8px;
 }
@@ -43,7 +43,7 @@
 .section-title {
     font-size: 0.75rem;
     font-weight: 700;
-    color: #888;
+    color: var(--text-secondary);
     padding: 8px 16px;
     text-transform: uppercase;
 }
@@ -59,7 +59,7 @@
 }
 
 .conversation-item:hover, .conversation-item.active {
-    background: #e6f0fa;
+    background: var(--bg-elevated);
 }
 
 .avatar {
@@ -88,12 +88,12 @@
 .header-row h4 {
     margin: 0;
     font-size: 0.9rem;
-    color: #333;
+    color: var(--text-primary);
 }
 
 .timestamp {
     font-size: 0.7rem;
-    color: #999;
+    color: var(--text-secondary);
 }
 
 .message-preview-row {
@@ -106,7 +106,7 @@
 .preview {
     margin: 0;
     font-size: 0.8rem;
-    color: #666;
+    color: var(--text-secondary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -115,12 +115,12 @@
 
 .preview.unread {
     font-weight: bold;
-    color: #000;
+    color: var(--text-primary);
 }
 
 .role-tag {
     font-size: 0.75rem;
-    color: #666;
+    color: var(--text-secondary);
 }
 
 /* Indicators */
@@ -147,7 +147,7 @@
     gap: 12px;
     padding: 12px 20px;
     border-bottom: 1px solid #eef2f5;
-    background: #fff;
+    background: var(--bg-card);
 }
 
 .chat-header-info {
@@ -207,8 +207,8 @@
 }
 
 .received .message-bubble {
-    background: white;
-    color: #333;
+    background: var(--bg-card);
+    color: var(--text-primary);
     border-bottom-left-radius: 4px;
     box-shadow: 0 1px 3px rgba(0,0,0,0.1);
 }
@@ -238,7 +238,7 @@
 /* Chat Footer Input Area */
 .chat-footer {
     padding: 10px 16px;
-    background: #fff;
+    background: var(--bg-card);
     border-top: 1px solid #eef2f5;
 }
 
@@ -319,7 +319,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    color: #999;
+    color: var(--text-secondary);
     padding: 20px;
     text-align: center;
 }
@@ -344,7 +344,7 @@
 }
 
 .conv-more-btn {
-    background: #ffffff;
+    background: var(--bg-card);
     border: 1px solid #e0e0e0;
     color: #65676b;
     width: 30px;
@@ -360,7 +360,7 @@
 
 .conv-more-btn:hover {
     background: #f0f2f5;
-    color: #050505;
+    color: var(--text-primary);
     transform: scale(1.05);
 }
 
@@ -368,7 +368,7 @@
     position: absolute;
     top: 34px;
     right: 0;
-    background: #ffffff;
+    background: var(--bg-card);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     border-radius: 8px;
     padding: 4px;

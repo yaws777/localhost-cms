@@ -20,11 +20,13 @@ import {
   ResponsiveContainer 
 } from 'recharts';
 import '../../styles/nurse/WeeklyReports.css';
+import { useAlert } from '../../context/AlertContext';
 
 // Import logos and signature images
 import stiLogo from '../../assets/sti-logof.png';
 
 const WeeklyReports = () => {
+  const { showAlert } = useAlert();
   const [weekOffset, setWeekOffset] = useState(0);
   const [reportData, setReportData] = useState({
     overview: {
@@ -316,11 +318,11 @@ const WeeklyReports = () => {
         printWindow.document.write(printHTML);
         printWindow.document.close();
       } else {
-        alert('Please allow pop-ups to export the PDF report.');
+        showAlert('Please allow pop-ups to export the PDF report.', 'warning');
       }
     } catch (err) {
       console.error('Error exporting PDF:', err);
-      alert('Failed to generate PDF report.');
+      showAlert('Failed to generate PDF report.', 'error');
     } finally {
       setExporting(false);
     }

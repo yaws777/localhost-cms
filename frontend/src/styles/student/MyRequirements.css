@@ -96,7 +96,7 @@
 }
 
 .form-section-mr {
-    background-color: #ffffff;
+    background-color: var(--bg-card);
     border-radius: 8px;
     padding: 24px;
     border: 1px solid #e2e8f0;
@@ -117,7 +117,7 @@
 
 .header-desc-mr {
     font-size: 0.9rem;
-    color: #64748b;
+    color: var(--text-secondary);
     margin-top: 6px;
 }
 
@@ -131,7 +131,7 @@
 .empty-state-mr {
     text-align: center;
     padding: 30px 10px;
-    color: #64748b;
+    color: var(--text-secondary);
 }
 
 /* Table Wrapper & Table Structure */
@@ -148,8 +148,8 @@
 }
 
 .table-head-row-mr {
-    background-color: #002B49; /* STI Navy Header */
-    color: #ffffff;
+    background-color: var(--table-header-bg);
+    color: var(--table-header-text);
 }
 
 .table-head-row-mr th {
@@ -161,12 +161,12 @@
 
 .table-row-mr {
     border-bottom: 1px solid #e2e8f0;
-    background-color: #ffffff;
+    background-color: var(--bg-card);
     transition: background-color 0.15s ease;
 }
 
 .table-row-mr:hover {
-    background-color: #f8fafc;
+    background-color: var(--bg-elevated);
 }
 
 .table-row-mr.locked-row-mr {
@@ -188,11 +188,11 @@
 }
 
 .text-dark-mr {
-    color: #0f172a;
+    color: var(--text-primary);
 }
 
 .text-muted-mr {
-    color: #64748b;
+    color: var(--text-secondary);
 }
 
 .file-link-container-mr {
@@ -235,7 +235,7 @@
 
 /* Deadline & Remarks */
 .cell-deadline-mr {
-    color: #334155;
+    color: var(--text-secondary);
     font-size: 0.9rem;
 }
 
@@ -251,14 +251,14 @@
 
 .cell-remarks-mr {
     font-size: 0.88rem;
-    color: #475569;
+    color: var(--text-secondary);
 }
 
 /* Gray Badge Mark for Empty Remarks */
 .no-remarks-mr {
     display: inline-block;
     background-color: #f1f5f9;
-    color: #64748b;
+    color: var(--text-secondary);
     border: 1px solid #cbd5e1;
     padding: 2px 8px;
     border-radius: 4px;
@@ -299,7 +299,7 @@
     border: 1px solid #cbd5e1;
     border-radius: 4px;
     padding: 5px;
-    background: #ffffff;
+    background: var(--bg-card);
     max-width: 100%;
 }
 
@@ -386,7 +386,7 @@
         border-radius: 8px;
         padding: 14px;
         box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
-        background-color: #ffffff;
+        background-color: var(--bg-card);
     }
 
     .table-row-mr.locked-row-mr {
@@ -516,7 +516,7 @@
 }
 
 .modal-container-mr {
-    background-color: #ffffff;
+    background-color: var(--bg-card);
     border-radius: 8px;
     width: 100%;
     max-width: 850px;
@@ -594,7 +594,7 @@
     width: 100%;
     max-height: 65vh;
     overflow: auto;
-    background: #ffffff;
+    background: var(--bg-card);
     padding: 14px;
     border: 1px solid #e2e8f0;
     border-radius: 4px;
@@ -606,7 +606,7 @@
 .preview-unsupported-mr {
     text-align: center;
     padding: 30px;
-    color: #475569;
+    color: var(--text-secondary);
 }
 
 .download-fallback-mr {

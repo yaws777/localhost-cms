@@ -3,12 +3,14 @@ import { useOutletContext, useLocation } from 'react-router-dom';
 import { Eye } from 'lucide-react';
 import { io } from 'socket.io-client';
 import '../../styles/student/RequestModule.css';
+import { useAlert } from '../../context/AlertContext';
 
 const API_BASE = 'http://localhost:3001/api';
 const BASE_URL = 'http://localhost:3001';
 
 export default function RequestModule() {
   const location = useLocation();
+  const { showAlert } = useAlert();
   const { studentId, firstName, lastName } = useOutletContext() || {};
   const student_id = studentId;
 
@@ -250,7 +252,7 @@ export default function RequestModule() {
   // Submit Excuse Slip Request
   const handleExcuseSubmit = async (e) => {
     e.preventDefault();
-    if (!student_id) return alert('Student ID not found. Please log in again.');
+    if (!student_id) { showAlert('Student ID not found. Please log in again.', 'error'); return; }
     setLoading(true);
 
     const formData = new FormData();
@@ -282,13 +284,13 @@ export default function RequestModule() {
   // Submit Referral Slip Request
   const handleReferralSubmit = async (e) => {
     e.preventDefault();
-    if (!student_id) return alert('Student ID not found. Please log in again.');
+    if (!student_id) { showAlert('Student ID not found. Please log in again.', 'error'); return; }
     if (!referralForm.facility_id) {
-      alert('Please select a facility.');
+      showAlert('Please select a facility.', 'warning');
       return;
     }
     if (referralForm.selected_services.length === 0) {
-      alert('Please select at least one service requested from the facility.');
+      showAlert('Please select at least one service requested from the facility.', 'warning');
       return;
     }
     setLoading(true);

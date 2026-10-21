@@ -11,17 +11,25 @@ import {
     Clipboard,
     Bell,
     Download,
-    X,
-    AlertTriangle
+    Sun,
+    Moon,
+    PanelLeftClose,
+    PanelLeftOpen
 } from 'lucide-react';
 import { QRCodeCanvas } from 'qrcode.react';
-import '../styles/student/StudentLayout.css'; 
+import '../styles/student/StudentLayout.css';
 import StudentMessageModal from '../components/student/StudentMessageModal.jsx';
 import { useWebPush } from '../hooks/useWebPush';
+import { useTheme } from '../context/ThemeContext';
+import { useSidebar } from '../context/SidebarContext';
+import ConfirmModal from '../components/common/ConfirmModal';
+import { formatCurrentDate, formatDateTime } from '../utils/datetime';
 
 const StudentLayout = () => {
     const navigate = useNavigate();
     const sidebarQrRef = useRef(null);
+    const { theme, toggleTheme } = useTheme();
+    const { collapsed, toggleCollapsed } = useSidebar();
 
     const [isOpen, setIsOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
@@ -324,12 +332,7 @@ const StudentLayout = () => {
         return (first + last).toUpperCase() || 'ST';
     };
 
-    const currentDate = new Date().toLocaleDateString('en-US', { 
-        weekday: 'long', 
-        year: 'numeric', 
-        month: 'long', 
-        day: 'numeric' 
-    });
+    const currentDate = formatCurrentDate();
 
     return (
         <div className="student-layout">
@@ -339,9 +342,17 @@ const StudentLayout = () => {
 
             {isOpen && <div className="sidebar-overlay" onClick={closeSidebar}></div>}
 
-            <div className={`student-sidebar ${isOpen ? 'open' : ''}`}>
+            <div className={`student-sidebar ${isOpen ? 'open' : ''} ${collapsed ? 'collapsed' : ''}`}>
                 <button className="close-sidebar-btn" onClick={closeSidebar} aria-label="Close Sidebar">
                     &times;
+                </button>
+                <button
+                    className="sidebar-collapse-toggle"
+                    onClick={toggleCollapsed}
+                    title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                    aria-label="Toggle sidebar"
+                >
+                    {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
                 </button>
 
                 <div className="sidebar-header">
@@ -464,14 +475,24 @@ const StudentLayout = () => {
                 </nav>
             </div>
 
-            <div className="student-top-bar">
+            <div className={`student-top-bar ${collapsed ? 'sidebar-collapsed-margin' : ''}`}>
                 <div className="top-bar-left">
                     <span className="system-name">STI Baliuag Clinic Management System</span>
                 </div>
                 <div className="top-bar-right" style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                     <span className="current-date">{currentDate}</span>
 
-                    <button 
+                    <button
+                        onClick={toggleTheme}
+                        className="theme-toggle-btn"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', color: '#333', padding: '4px' }}
+                        title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+                        aria-label="Toggle dark mode"
+                    >
+                        {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+                    </button>
+
+                    <button
                         className="top-bar-message-btn" 
                         title="Messages"
                         onClick={() => setIsMessageOpen(true)}
@@ -503,28 +524,28 @@ const StudentLayout = () => {
                                 top: '40px',
                                 width: '320px',
                                 maxHeight: '380px',
-                                backgroundColor: '#ffffff',
+                                backgroundColor: 'var(--bg-card)',
                                 boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
                                 borderRadius: '8px',
                                 zIndex: 1000,
                                 overflowY: 'auto',
-                                border: '1px solid #e8e8e8',
+                                border: '1px solid var(--card-border)',
                                 textAlign: 'left'
                             }}>
                                 <div style={{
                                     padding: '12px 16px',
-                                    borderBottom: '1px solid #f0f0f0',
+                                    borderBottom: '1px solid var(--card-border)',
                                     fontWeight: 'bold',
                                     display: 'flex',
                                     justifyContent: 'space-between',
                                     alignItems: 'center',
-                                    backgroundColor: '#fafafa',
+                                    backgroundColor: 'var(--bg-elevated)',
                                     borderTopLeftRadius: '8px',
                                     borderTopRightRadius: '8px'
                                 }}>
-                                    <span style={{ color: '#1f1f1f', fontSize: '14px' }}>Notifications</span>
+                                    <span style={{ color: 'var(--text-primary)', fontSize: '14px' }}>Notifications</span>
                                     {unreadNotifCount > 0 && (
-                                        <button 
+                                        <button
                                             onClick={handleMarkAllAsRead}
                                             style={{
                                                 background: 'none',
@@ -542,32 +563,32 @@ const StudentLayout = () => {
                                 </div>
 
                                 {notifications.length === 0 ? (
-                                    <div style={{ padding: '20px', textAlign: 'center', color: '#8c8c8c', fontSize: '13px' }}>
+                                    <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '13px' }}>
                                         No notifications
                                     </div>
                                 ) : (
                                     notifications.map((item) => {
                                         const isItemRead = item.is_read === 1 || item.is_read === '1' || item.is_read === true || item.read === true;
                                         return (
-                                            <div 
+                                            <div
                                                 key={item.notification_id}
                                                 onClick={() => handleNotificationClick(item)}
                                                 style={{
                                                     padding: '12px 16px',
-                                                    borderBottom: '1px solid #f0f0f0',
+                                                    borderBottom: '1px solid var(--card-border)',
                                                     cursor: 'pointer',
                                                     transition: 'background 0.2s',
-                                                    backgroundColor: isItemRead ? '#f9f9f9' : '#ffffff',
+                                                    backgroundColor: isItemRead ? 'var(--bg-elevated)' : 'var(--bg-card)',
                                                     opacity: isItemRead ? 0.75 : 1
                                                 }}
-                                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f0f0f0'}
-                                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = isItemRead ? '#f9f9f9' : '#ffffff'}
+                                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-elevated)'}
+                                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = isItemRead ? 'var(--bg-elevated)' : 'var(--bg-card)'}
                                             >
-                                                <div style={{ 
-                                                    fontWeight: isItemRead ? 'normal' : 'bold', 
-                                                    fontSize: '13px', 
-                                                    marginBottom: '4px', 
-                                                    color: '#1f1f1f',
+                                                <div style={{
+                                                    fontWeight: isItemRead ? 'normal' : 'bold',
+                                                    fontSize: '13px',
+                                                    marginBottom: '4px',
+                                                    color: 'var(--text-primary)',
                                                     display: 'flex',
                                                     alignItems: 'center',
                                                     gap: '6px'
@@ -583,11 +604,11 @@ const StudentLayout = () => {
                                                     )}
                                                     {item.title || 'Notification'}
                                                 </div>
-                                                <div style={{ fontSize: '12px', color: '#595959', marginBottom: '6px', lineHeight: '1.4' }}>
+                                                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', lineHeight: '1.4' }}>
                                                     {item.message}
                                                 </div>
-                                                <div style={{ fontSize: '10px', color: '#bfbfbf', textAlign: 'right' }}>
-                                                    {new Date(item.created_at).toLocaleString()}
+                                                <div style={{ fontSize: '10px', color: 'var(--text-secondary)', textAlign: 'right' }}>
+                                                    {formatDateTime(item.created_at)}
                                                 </div>
                                             </div>
                                         );
@@ -599,7 +620,7 @@ const StudentLayout = () => {
                 </div>
             </div>
 
-            <div className="main-content">
+            <div className={`main-content ${collapsed ? 'sidebar-collapsed-margin' : ''}`}>
                 <div className="page-content">
                     <Outlet context={{ 
                         studentId: studentData?.student_id || '', 
@@ -627,52 +648,15 @@ const StudentLayout = () => {
                 />
             )}
 
-            {showLogoutModal && (
-                <div className="modal-backdrop-sl" onClick={() => setShowLogoutModal(false)}>
-                    <div 
-                        className="modal-content-sl modal-sm-sl" 
-                        onClick={(e) => e.stopPropagation()} 
-                        role="dialog" 
-                        aria-modal="true"
-                    >
-                        <div className="modal-header-sl">
-                            <h2>Confirm Logout</h2>
-                            <button 
-                                type="button" 
-                                className="btn-close-sl" 
-                                onClick={() => setShowLogoutModal(false)}
-                                aria-label="Close modal"
-                            >
-                                <X size={20} />
-                            </button>
-                        </div>
-                        <div className="modal-body-sl flex-center-body-sl">
-                            <div className="icon-wrapper-sl icon-warning-sl">
-                                <AlertTriangle size={36} />
-                            </div>
-                            <p className="modal-message-sl">
-                                Are you sure you want to log out of the STI Baliuag Student Portal?
-                            </p>
-                        </div>
-                        <div className="modal-footer-sl">
-                            <button 
-                                type="button" 
-                                className="btn-secondary-sl" 
-                                onClick={() => setShowLogoutModal(false)}
-                            >
-                                Cancel
-                            </button>
-                            <button 
-                                type="button" 
-                                className="btn-danger-sl" 
-                                onClick={confirmLogout}
-                            >
-                                Logout
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            <ConfirmModal
+                isOpen={showLogoutModal}
+                onCancel={() => setShowLogoutModal(false)}
+                onConfirm={confirmLogout}
+                title="Confirm Logout"
+                message="Are you sure you want to log out of the STI Baliuag Student Portal?"
+                confirmLabel="Logout"
+                danger
+            />
         </div>
     );
 };

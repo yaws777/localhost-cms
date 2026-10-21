@@ -1,12 +1,10 @@
 /* STI Color Variables & Reset */
 :root {
-  --sti-navy: #002b49;
-  --sti-blue: #00529b;
-  --sti-yellow: #ffd100;
-  --sti-blue-hover: #003e75;
-  --sti-bg: #f4f6f9;
-  --sti-card-bg: #ffffff;
-  --sti-text: #1e293b;
+  /* --sti-navy/--sti-blue/--sti-yellow/--sti-blue-hover now come from the
+     shared frontend/src/styles/theme.css tokens */
+  --sti-bg: var(--bg-page);
+  --sti-card-bg: var(--bg-card);
+  --sti-text: var(--text-primary);
   --sti-border: #e2e8f0;
 }
 
@@ -72,7 +70,7 @@ body {
   align-items: flex-start;
   gap: 6px;
   font-size: 13px;
-  color: var(--sti-navy);
+  color: var(--sti-text);
   font-weight: 600;
   width: 100%;
 }
@@ -92,7 +90,7 @@ body {
   border-radius: 4px;
   font-size: 0.85rem;
   color: var(--sti-text);
-  background-color: #ffffff;
+  background-color: var(--bg-card);
 }
 
 /* Button Base Styles (Avoid Overwidth) */
@@ -156,7 +154,7 @@ body {
   border-bottom: 3px solid transparent;
   font-size: 10px;
   font-weight: 600;
-  color: #64748b;
+  color: var(--text-secondary);
   cursor: pointer;
   text-align: center;
   transition: all 0.2s ease;
@@ -174,7 +172,7 @@ body {
 }
 
 .tab-ccr.active-ccr {
-  color: var(--sti-navy);
+  color: var(--sti-text);
   border-bottom: 3px solid var(--sti-yellow);
   background-color: rgba(255, 209, 0, 0.08);
 }
@@ -203,8 +201,8 @@ body {
 }
 
 .table-ccr th {
-  background-color: var(--sti-navy);
-  color: #ffffff;
+  background-color: var(--table-header-bg);
+  color: var(--table-header-text);
   padding: 10px 12px;
   font-weight: 600;
   white-space: nowrap;
@@ -217,7 +215,7 @@ body {
 }
 
 .table-ccr tbody tr:hover {
-  background-color: #f8fafc;
+  background-color: var(--bg-elevated);
 }
 
 .truncate-ccr {
@@ -271,13 +269,13 @@ body {
 .status-cancelled-ccr, .status-rejected-ccr, .status-declined-ccr, .status-missing-ccr, .status-missed-ccr { background-color: #fee2e2; color: #991b1b; }
 .status-resubmit-ccr { background-color: #ffedd5; color: #c2410c; }
 .status-submitted-late-ccr { background-color: #fef08a; color: #854d0e; }
-.status-not-submitted-ccr { background-color: #f3f4f6; color: #4b5563; }
+.status-not-submitted-ccr { background-color: #f3f4f6; color: var(--text-secondary); }
 .status-ongoing-ccr, .status-upcoming-ccr { background-color: #e0f2fe; color: #0284c7; }
 
 .loading-ccr, .no-data-ccr {
   text-align: center;
   padding: 30px 16px;
-  color: #64748b;
+  color: var(--text-secondary);
   font-size: 14px;
 }
 
@@ -294,7 +292,7 @@ body {
 }
 
 .modal-content-ccr {
-  background-color: #ffffff;
+  background-color: var(--bg-card);
   border-radius: 8px;
   width: 100%;
   max-width: 600px;
@@ -345,14 +343,14 @@ body {
 .field-key-ccr {
   font-weight: 700;
   width: 100%;
-  color: var(--sti-navy);
+  color: var(--sti-text);
   text-transform: capitalize;
   font-size: 13px;
 }
 
 .field-value-ccr {
   width: 100%;
-  color: #334155;
+  color: var(--text-secondary);
   word-break: break-word;
   font-size: 13px;
 }

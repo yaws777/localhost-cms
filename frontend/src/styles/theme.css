@@ -1,0 +1,263 @@
+/* =========================================================================
+   Shared STI Clinic theme tokens — single source of truth for color,
+   surface, status and breakpoint values used across every role (nurse,
+   student, parent). Import this once, before any per-page stylesheet.
+   Light values live on :root; dark values override under
+   :root[data-theme="dark"], toggled by ThemeContext.
+   ========================================================================= */
+
+:root {
+  /* STI brand blue family (consolidated from the many near-duplicate
+     shades previously redeclared per page) */
+  --sti-blue-dark: #002f6c;
+  --sti-blue-primary: #004b87;
+  --sti-blue: #004b87;
+  --sti-blue-hover: #003a69;
+  --sti-blue-light: #e6f0fa;
+  --sti-yellow: #ffcc00;
+  --sti-navy: #00205b;
+
+  /* Surfaces */
+  --bg-page: #f8fafc;
+  --bg-main: #f8fafc;
+  --bg-card: #ffffff;
+  --bg-elevated: #ffffff;
+  --card-border: #e4e7ec;
+
+  /* Text */
+  --text-primary: #1d2939;
+  --text-secondary: #667085;
+  --text-dark: #1e293b;
+  --text-on-brand: #ffffff;
+
+  /* Status colors (shared across inventory, requirements, incident severity, etc.) */
+  --status-adequate-bg: #ecfdf3;
+  --status-adequate-text: #027a48;
+  --status-adequate-bar: #34d399;
+
+  --status-low-bg: #fffaeb;
+  --status-low-text: #b54708;
+  --status-low-bar: #fbbf24;
+
+  --status-critical-bg: #fef3f2;
+  --status-critical-text: #b42318;
+  --status-critical-bar: #f87171;
+
+  /* Table header (identical across every table in the app) */
+  --table-header-bg: #004b87;
+  --table-header-text: #ffffff;
+  --table-row-alt-bg: #f8fafc;
+  --table-border: #e4e7ec;
+
+  /* Modal */
+  --modal-overlay-bg: rgba(15, 23, 42, 0.55);
+  --modal-panel-bg: #ffffff;
+  --modal-border: #e4e7ec;
+
+  /* Sidebar — a distinct surface from the page/card background so it still
+     reads as "branded chrome" in both themes rather than blending in */
+  --sidebar-bg: var(--sti-blue-primary);
+  --sidebar-text: #d1e3f8;
+  --sidebar-text-strong: #ffffff;
+  --sidebar-border: rgba(255, 255, 255, 0.1);
+  --sidebar-hover-bg: rgba(255, 255, 255, 0.1);
+  --sidebar-active-bg: var(--sti-yellow);
+  --sidebar-active-text: var(--sti-blue-primary);
+  --sidebar-width: 260px;
+  --sidebar-width-collapsed: 72px;
+}
+
+:root[data-theme="dark"] {
+  --sti-blue-dark: #0a3d75;
+  --sti-blue-primary: #3b82c4;
+  --sti-blue: #3b82c4;
+  --sti-blue-hover: #5c9bd6;
+  --sti-blue-light: #16304a;
+  --sti-yellow: #ffcc00;
+  --sti-navy: #0b1f3a;
+
+  --bg-page: #0f172a;
+  --bg-main: #0f172a;
+  --bg-card: #1e293b;
+  --bg-elevated: #243247;
+  --card-border: #334155;
+
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-dark: #e2e8f0;
+  --text-on-brand: #ffffff;
+
+  --status-adequate-bg: #0b2e21;
+  --status-adequate-text: #4ade80;
+  --status-adequate-bar: #34d399;
+
+  --status-low-bg: #3a2b0c;
+  --status-low-text: #fbbf24;
+  --status-low-bar: #fbbf24;
+
+  --status-critical-bg: #3a1414;
+  --status-critical-text: #f87171;
+  --status-critical-bar: #f87171;
+
+  --table-header-bg: #1e3a5f;
+  --table-header-text: #e2e8f0;
+  --table-row-alt-bg: #1a2638;
+  --table-border: #334155;
+
+  --modal-overlay-bg: rgba(0, 0, 0, 0.7);
+  --modal-panel-bg: #1e293b;
+  --modal-border: #334155;
+
+  --sidebar-bg: #0f2744;
+  --sidebar-text: #b9cde6;
+  --sidebar-text-strong: #ffffff;
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --sidebar-hover-bg: rgba(255, 255, 255, 0.07);
+  --sidebar-active-bg: var(--sti-yellow);
+  --sidebar-active-text: #0f2744;
+}
+
+/* Smooth color-scheme transition when the toggle is used */
+body,
+.student-layout,
+.main-content {
+  background-color: var(--bg-page);
+  color: var(--text-primary);
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* ---- Shared table header (requirement: identical table headers) ---- */
+.data-table thead tr,
+table thead tr {
+  background-color: var(--table-header-bg);
+}
+
+.data-table thead th,
+table thead th {
+  color: var(--table-header-text);
+}
+
+.data-table tbody tr,
+table tbody tr {
+  border-bottom: 1px solid var(--table-border);
+}
+
+.data-table tbody tr:nth-child(even),
+table tbody tr:nth-child(even) {
+  background-color: var(--table-row-alt-bg);
+}
+
+/* ---- Shared status banner classes reused by AlertModal & inline banners ---- */
+.status-banner.success,
+.global-notification-banner.success {
+  background-color: var(--status-adequate-bg);
+  color: var(--status-adequate-text);
+  border: 1px solid var(--status-adequate-bar);
+}
+
+.status-banner.error,
+.global-notification-banner.error {
+  background-color: var(--status-critical-bg);
+  color: var(--status-critical-text);
+  border: 1px solid var(--status-critical-bar);
+}
+
+.status-banner.info,
+.global-notification-banner.info {
+  background-color: var(--sti-blue-light);
+  color: var(--sti-blue-primary);
+  border: 1px solid var(--sti-blue);
+}
+
+/* Hidden by default (mobile uses the hamburger/off-canvas sidebar instead);
+   shown and positioned only at desktop widths below. */
+.sidebar-collapse-toggle {
+  display: none;
+}
+
+/* ---- Collapsible sidebar (desktop only; mobile keeps its own
+   off-canvas/hamburger behavior untouched) ---- */
+@media (min-width: 769px) {
+  .student-sidebar,
+  .parent-sidebar {
+    transition: width 0.2s ease;
+  }
+
+  .student-sidebar.collapsed,
+  .parent-sidebar.collapsed {
+    width: var(--sidebar-width-collapsed) !important;
+  }
+
+  .student-sidebar.collapsed .sidebar-header p,
+  .student-sidebar.collapsed .sidebar-header h2,
+  .student-sidebar.collapsed .profile-details,
+  .student-sidebar.collapsed .nav-link span,
+  .student-sidebar.collapsed .sidebar-qr-box,
+  .parent-sidebar.collapsed .sidebar-header p,
+  .parent-sidebar.collapsed .sidebar-header h2,
+  .parent-sidebar.collapsed .profile-details,
+  .parent-sidebar.collapsed .nav-link span {
+    display: none !important;
+  }
+
+  .student-sidebar.collapsed .sidebar-profile,
+  .student-sidebar.collapsed .nav-link,
+  .parent-sidebar.collapsed .sidebar-profile,
+  .parent-sidebar.collapsed .nav-link {
+    justify-content: center;
+  }
+
+  .student-sidebar.collapsed .profile-avatar,
+  .parent-sidebar.collapsed .profile-avatar {
+    margin: 0 auto;
+  }
+
+  .sidebar-collapse-toggle {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: none;
+    border: none;
+    color: var(--sidebar-text-strong);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px;
+    border-radius: 6px;
+    z-index: 1;
+  }
+
+  .student-sidebar.collapsed .sidebar-collapse-toggle,
+  .parent-sidebar.collapsed .sidebar-collapse-toggle {
+    position: static;
+    margin: 0 auto;
+  }
+
+  .sidebar-collapse-toggle:hover {
+    background-color: var(--sidebar-hover-bg);
+  }
+
+  .main-content.sidebar-collapsed-margin {
+    margin-left: var(--sidebar-width-collapsed) !important;
+  }
+
+  .student-top-bar.sidebar-collapsed-margin,
+  .parent-top-bar.sidebar-collapsed-margin {
+    left: var(--sidebar-width-collapsed) !important;
+    width: calc(100% - var(--sidebar-width-collapsed)) !important;
+  }
+}
+
+/* ---- Shared responsive helpers ---- */
+@media (max-width: 768px) {
+  .hide-on-mobile {
+    display: none !important;
+  }
+}
+
+@media (min-width: 769px) {
+  .hide-on-desktop {
+    display: none !important;
+  }
+}

@@ -5,8 +5,11 @@ import {
     Trash2, MoreVertical, Square, AlertCircle, Loader2, ArrowLeft
 } from 'lucide-react';
 import '../../styles/parent/ParentMessageModal.css';
+import { useAlert } from '../../context/AlertContext';
+import { formatTime } from '../../utils/datetime';
 
 const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, refreshUnreadCount }) => {
+    const { showAlert, showConfirm } = useAlert();
     const [nurseContacts, setNurseContacts] = useState([]);
     const [studentContacts, setStudentContacts] = useState([]);
     const [selectedContact, setSelectedContact] = useState(null);
@@ -278,7 +281,7 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
             mediaRecorderRef.current.start();
             setIsRecording(true);
         } catch (err) {
-            alert('Microphone permission is required to record audio.');
+            showAlert('Microphone permission is required to record audio.', 'warning');
         }
     };
 
@@ -293,7 +296,8 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
     // Unsend Message
     const handleDeleteMessage = async (messageId) => {
         setActiveMenuId(null);
-        if (!window.confirm('Unsend this message?')) return;
+        const confirmed = await showConfirm('Unsend this message?', { danger: true, confirmLabel: 'Unsend' });
+        if (!confirmed) return;
 
         try {
             const res = await fetch(`http://localhost:3001/api/messages/${messageId}`, {
@@ -302,11 +306,11 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
             const data = await res.json();
 
             if (data.success) {
-                setMessages((prev) => prev.map((m) => 
+                setMessages((prev) => prev.map((m) =>
                     m.message_id === messageId ? { ...m, is_deleted: true } : m
                 ));
             } else {
-                alert('Failed to unsend message.');
+                showAlert('Failed to unsend message.', 'error');
             }
         } catch (err) {
             console.error('Error deleting message:', err);
@@ -320,7 +324,7 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
         if (isSendingRef.current || isSending) return;
 
         if (!selectedContact || !selectedContact.contact_user_id) {
-            alert("Cannot send message: Receiver account ID is missing for this contact.");
+            showAlert("Cannot send message: receiver account ID is missing for this contact.", 'error');
             return;
         }
 
@@ -360,14 +364,14 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
                 setInputContent(textContent);
                 setAttachment(currentAttachment);
                 setAttachmentType(currentAttachmentType);
-                alert(data.message || 'Failed to send message.');
+                showAlert(data.message || 'Failed to send message.', 'error', { title: 'Message Error' });
             }
         } catch (err) {
             console.error('Error sending message:', err);
             setInputContent(textContent);
             setAttachment(currentAttachment);
             setAttachmentType(currentAttachmentType);
-            alert('Failed to send message due to a connection delay.');
+            showAlert('Failed to send message due to a connection delay. Please try again.', 'error');
         } finally {
             isSendingRef.current = false;
             setIsSending(false);
@@ -606,7 +610,7 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
 
                                                                 <div className="pmm-msg-footer-info">
                                                                     <span className="pmm-time-stamp">
-                                                                        {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                                        {formatTime(msg.created_at)}
                                                                     </span>
                                                                 </div>
                                                             </>

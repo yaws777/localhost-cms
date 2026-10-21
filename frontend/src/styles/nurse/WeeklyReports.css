@@ -2,16 +2,10 @@
    STI Theme Variables & Reset
    ========================================== */
 :root {
-  --sti-navy: #002B49;
-  --sti-blue: #005691;
-  --sti-blue-hover: #004373;
-  --sti-yellow: #FFC72C;
+  /* --sti-navy/--sti-blue/--sti-blue-hover/--sti-yellow/--bg-main/--text-dark
+     now come from the shared frontend/src/styles/theme.css tokens */
   --sti-yellow-hover: #E0AB1E;
-  
-  --bg-main: #F8FAFC;
-  --card-bg: #FFFFFF;
-  --text-dark: #0F172A;
-  --text-body: #334155;
+  --card-bg: var(--bg-card);
   --text-muted: #64748B;
   --border-color: #E2E8F0;
   
@@ -54,7 +48,7 @@ body {
   align-items: center;
   gap: 16px;
   width: 100%;
-  background-color: #ffffff;
+  background-color: var(--bg-card);
   padding: 20px 24px;
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
@@ -68,13 +62,13 @@ body {
 .reports-title {
   font-size: 1.5rem;
   font-weight: 700;
-  color: #002b66;
+  color: var(--text-primary);
   margin: 0;
 }
 
 .reports-subtitle {
   font-size: 0.9rem;
-  color: #64748b;
+  color: var(--text-secondary);
   margin: 4px 0 0 0;
 }
 
@@ -117,13 +111,13 @@ body {
 
 .secondary-btn {
   background-color: var(--card-bg);
-  color: var(--sti-navy);
+  color: var(--text-primary);
   border: 1px solid var(--border-color);
   box-shadow: var(--shadow-sm);
 }
 
 .secondary-btn:hover {
-  background-color: #F1F5F9;
+  background-color: var(--bg-elevated);
   border-color: #CBD5E1;
 }
 
@@ -174,7 +168,7 @@ body {
 }
 
 .nav-arrow-btn:hover:not(:disabled) {
-  background-color: #F1F5F9;
+  background-color: var(--bg-elevated);
   border-color: var(--sti-blue);
   color: var(--sti-blue);
 }
@@ -195,7 +189,7 @@ body {
 .week-date-range {
   font-weight: 700;
   font-size: 16px;
-  color: var(--sti-navy);
+  color: var(--text-primary);
 }
 
 .week-offset-tag {
@@ -295,7 +289,7 @@ body {
 .chart-title {
   font-size: 16px;
   font-weight: 700;
-  color: var(--sti-navy);
+  color: var(--text-primary);
   margin: 0 0 16px 0;
 }
 

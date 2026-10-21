@@ -2,17 +2,11 @@
    STI Theme Variables - Interactive Student Profile Portal
    ========================================================================== */
 :root {
-    --sti-blue: #004487;
-    --sti-blue-dark: #002b54;
-    --sti-blue-light: #e6f0fa;
-    --sti-blue-hover: #003366;
+    /* --sti-blue / --text-dark / --bg-page / --bg-card now come from the
+       shared frontend/src/styles/theme.css tokens */
     --sti-gold: #f4b223;
-    --sti-gold-light: #fffbeb;
-    --text-dark: #1e293b;
     --text-muted: #64748b;
     --border-color: #cbd5e1;
-    --bg-page: #f8fafc;
-    --bg-card: #ffffff;
 }
 
 /* Base structural scope styling rules */
@@ -207,7 +201,7 @@
     padding: 10px 12px;
     font-size: 0.95rem;
     color: var(--text-dark);
-    background-color: #ffffff;
+    background-color: var(--bg-card);
     border: 1px solid #cbd5e1;
     border-radius: 6px;
     outline: none;
@@ -275,7 +269,7 @@
 .sub-fields input[type="text"],
 .sub-fields input[type="number"],
 .sub-fields input[type="date"] {
-    background-color: #ffffff;
+    background-color: var(--bg-card);
     border: 1px solid #cbd5e1;
     padding: 8px 12px;
     border-radius: 6px;
@@ -295,7 +289,7 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
     gap: 10px;
-    background: #ffffff;
+    background: var(--bg-card);
     padding: 12px;
     border-radius: 6px;
     border: 1px solid #e2e8f0;
@@ -362,8 +356,8 @@
 }
 
 .profile-data-table th {
-    background-color: #f8fafc !important;
-    color: #475569;
+    background-color: var(--table-header-bg) !important;
+    color: var(--table-header-text);
     font-weight: 600;
     padding: 14px 16px !important;
 }

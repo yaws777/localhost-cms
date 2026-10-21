@@ -2,12 +2,9 @@
    STI Theme Variables & Desktop Default Styles (Desktop-First Approach)
    ========================================================================== */
 :root {
-    --sti-blue: #004487;
-    --sti-blue-hover: #003366;
+    /* --sti-blue/--sti-blue-hover/--bg-page/--bg-card/--text-dark now come
+       from the shared frontend/src/styles/theme.css tokens */
     --sti-gold: #f4b223;
-    --bg-page: #f8fafc;
-    --bg-card: #ffffff;
-    --text-dark: #1e293b;
     --text-muted: #64748b;
     --border-color: #cbd5e1;
     --border-focus: #004487;
@@ -33,7 +30,7 @@
     justify-content: space-between;
     align-items: center;
     margin-bottom: 24px;
-    background-color: #ffffff;
+    background-color: var(--bg-card);
     padding: 20px 24px;
     border-radius: 8px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
@@ -96,7 +93,7 @@
 
 .main-search-input:focus {
     border-color: var(--border-focus);
-    background-color: #ffffff;
+    background-color: var(--bg-card);
     box-shadow: 0 0 0 3px rgba(0, 68, 135, 0.12);
 }
 
@@ -127,7 +124,7 @@
     padding: 10px 12px;
     font-size: 0.9rem;
     color: var(--text-dark);
-    background-color: #ffffff;
+    background-color: var(--bg-card);
     border: 1px solid var(--border-color);
     border-radius: 8px;
     outline: none;
@@ -166,7 +163,7 @@
 }
 
 .btn-reset-filter:hover {
-    background-color: #e2e8f0;
+    background-color: var(--bg-elevated);
     color: var(--text-dark);
 }
 
@@ -218,14 +215,14 @@
 }
 
 .profile-data-table thead tr {
-    background-color: #f8fafc;
+    background-color: var(--table-header-bg);
     border-bottom: 2px solid #e2e8f0;
 }
 
 .profile-data-table th {
     padding: 16px 20px;
     font-weight: 600;
-    color: #475569;
+    color: var(--table-header-text);
 }
 
 .profile-data-table td {
@@ -240,7 +237,7 @@
 }
 
 .profile-data-table tbody tr:hover {
-    background-color: #f8fafc;
+    background-color: var(--bg-elevated);
 }
 
 .action-col {

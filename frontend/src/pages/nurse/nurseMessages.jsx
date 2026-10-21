@@ -6,9 +6,12 @@ import {
     GraduationCap
 } from 'lucide-react';
 import '../../styles/nurse/NurseMessages.css';
+import { useAlert } from '../../context/AlertContext';
+import { formatTime } from '../../utils/datetime';
 
 const NurseMessages = () => {
     const { userId, refreshUnreadCount } = useOutletContext();
+    const { showAlert, showConfirm } = useAlert();
     const [conversations, setConversations] = useState([]);
     const [searchResults, setSearchResults] = useState([]);
     const [searchQuery, setSearchQuery] = useState('');
@@ -114,7 +117,8 @@ const NurseMessages = () => {
 
     const handleDeleteMessage = async (messageId) => {
         setActiveMenuId(null);
-        if (!window.confirm('Unsend this message?')) return;
+        const confirmed = await showConfirm('Unsend this message?', { danger: true, confirmLabel: 'Unsend' });
+        if (!confirmed) return;
 
         try {
             const res = await fetch(`http://localhost:3001/api/messages/${messageId}`, {
@@ -123,12 +127,12 @@ const NurseMessages = () => {
             const data = await res.json();
 
             if (data.success) {
-                setMessages((prev) => prev.map((m) => 
+                setMessages((prev) => prev.map((m) =>
                     m.message_id === messageId ? { ...m, is_deleted: true } : m
                 ));
                 fetchConversations();
             } else {
-                alert('Failed to delete message.');
+                showAlert('Failed to delete message.', 'error');
             }
         } catch (err) {
             console.error('Error deleting message:', err);
@@ -138,7 +142,8 @@ const NurseMessages = () => {
     const handleDeleteConversation = async (e, contactUserId) => {
         e.stopPropagation();
         setActiveConvMenuId(null);
-        if (!window.confirm('Delete this conversation? This cannot be undone.')) return;
+        const confirmed = await showConfirm('Delete this conversation? This cannot be undone.', { danger: true, confirmLabel: 'Delete' });
+        if (!confirmed) return;
 
         try {
             const res = await fetch(`http://localhost:3001/api/messages/conversations/${userId}/${contactUserId}`, {
@@ -153,7 +158,7 @@ const NurseMessages = () => {
                     setMessages([]);
                 }
             } else {
-                alert('Failed to delete conversation.');
+                showAlert('Failed to delete conversation.', 'error');
             }
         } catch (err) {
             console.error('Error deleting conversation:', err);
@@ -180,7 +185,7 @@ const NurseMessages = () => {
             mediaRecorderRef.current.start();
             setIsRecording(true);
         } catch (err) {
-            alert('Microphone permission is required to record audio.');
+            showAlert('Microphone permission is required to record audio.', 'warning');
         }
     };
 
@@ -219,7 +224,7 @@ const NurseMessages = () => {
         e.preventDefault();
 
         if (!userId || !selectedContact?.user_id) {
-            alert('Sender or Receiver ID is missing.');
+            showAlert('Sender or Receiver ID is missing.', 'error');
             return;
         }
 
@@ -250,11 +255,11 @@ const NurseMessages = () => {
                 fetchConversations();
             } else {
                 console.error('Server error sending message:', data.message);
-                alert(`Message error: ${data.message || 'Failed to send message.'}`);
+                showAlert(data.message || 'Failed to send message.', 'error', { title: 'Message Error' });
             }
         } catch (err) {
             console.error('Network error sending message:', err);
-            alert('Server unreachable or network connection error.');
+            showAlert("We couldn't reach the server. Please check your connection and try again.", 'error');
         }
     };
 
@@ -333,7 +338,7 @@ const NurseMessages = () => {
                                             <div className="header-row">
                                                 <h4>{conv.first_name} {conv.last_name}</h4>
                                                 <span className="timestamp">
-                                                    {new Date(conv.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                    {formatTime(conv.created_at)}
                                                 </span>
                                             </div>
                                             
@@ -460,7 +465,7 @@ const NurseMessages = () => {
 
                                                     <div className="message-footer-info">
                                                         <span className="time-stamp">
-                                                            {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                            {formatTime(msg.created_at)}
                                                         </span>
                                                     </div>
                                                 </>

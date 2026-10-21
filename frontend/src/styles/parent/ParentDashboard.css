@@ -33,7 +33,7 @@
 }
 
 .pd-card {
-  background: #ffffff;
+  background: var(--bg-card);
   border-radius: 8px;
   border: 1px solid #e2e8f0;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
@@ -60,7 +60,7 @@
 .pd-card-title h2 {
   font-size: 0.875rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-primary);
   margin: 0;
   white-space: nowrap;
   overflow: hidden;
@@ -103,7 +103,7 @@
 .pd-section-subtitle {
   font-size: 0.78rem;
   font-weight: 600;
-  color: #475569;
+  color: var(--text-secondary);
   display: flex;
   align-items: center;
   gap: 4px;
@@ -145,12 +145,12 @@
 .pd-visit-complaint {
   font-weight: 600;
   font-size: 0.8rem;
-  color: #1e293b;
+  color: var(--text-primary);
 }
 
 .pd-visit-date {
   font-size: 0.7rem;
-  color: #64748b;
+  color: var(--text-secondary);
   white-space: nowrap;
 }
 
@@ -158,13 +158,13 @@
   display: flex;
   gap: 10px;
   font-size: 0.73rem;
-  color: #334155;
+  color: var(--text-secondary);
   margin-bottom: 4px;
 }
 
 .pd-visit-detail {
   font-size: 0.75rem;
-  color: #475569;
+  color: var(--text-secondary);
   margin: 2px 0;
 }
 
@@ -178,7 +178,7 @@
 
 .pd-tag-label {
   font-size: 0.7rem;
-  color: #64748b;
+  color: var(--text-secondary);
   display: flex;
   align-items: center;
   gap: 2px;
@@ -215,12 +215,12 @@
 
 .pd-sub-detail {
   font-size: 0.7rem;
-  color: #64748b;
+  color: var(--text-secondary);
 }
 
 .pd-dispense-time {
   font-size: 0.68rem;
-  color: #64748b;
+  color: var(--text-secondary);
 }
 
 /* Medical Requirements Metrics */
@@ -253,7 +253,7 @@
 
 .pd-metric-lbl {
   font-size: 0.68rem;
-  color: #64748b;
+  color: var(--text-secondary);
 }
 
 /* List Items Overview */
@@ -284,18 +284,18 @@
 .pd-item-title {
   font-weight: 600;
   font-size: 0.78rem;
-  color: #1e293b;
+  color: var(--text-primary);
 }
 
 .pd-item-title-sm {
   font-weight: 600;
   font-size: 0.75rem;
-  color: #1e293b;
+  color: var(--text-primary);
 }
 
 .pd-type-badge {
   background-color: #f1f5f9;
-  color: #475569;
+  color: var(--text-secondary);
   font-size: 0.65rem;
   font-weight: 700;
   padding: 1px 4px;
@@ -305,7 +305,7 @@
 
 .pd-item-sub {
   font-size: 0.68rem;
-  color: #64748b;
+  color: var(--text-secondary);
 }
 
 /* Status Badges */
@@ -323,7 +323,7 @@
 .pd-badge-success { background: #dcfce7; color: #15803d; }
 .pd-badge-warning { background: #fef3c7; color: #b45309; }
 .pd-badge-danger { background: #fee2e2; color: #b91c1c; }
-.pd-badge-pending { background: #f1f5f9; color: #475569; }
+.pd-badge-pending { background: #f1f5f9; color: var(--text-secondary); }
 
 /* Schedules & Screenings List */
 .pd-schedule-list {
@@ -383,7 +383,7 @@
 .pd-schedule-title {
   margin: 0;
   font-size: 0.78rem;
-  color: #0f172a;
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -392,7 +392,7 @@
 .pd-schedule-time {
   margin: 1px 0 0 0;
   font-size: 0.68rem;
-  color: #64748b;
+  color: var(--text-secondary);
   display: flex;
   align-items: center;
   gap: 3px;
@@ -401,7 +401,7 @@
 .pd-schedule-announcement {
   margin: 2px 0 0 0;
   font-size: 0.68rem;
-  color: #475569;
+  color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -428,7 +428,7 @@
   align-items: center;
   gap: 3px;
   background-color: #f1f5f9;
-  color: #334155;
+  color: var(--text-secondary);
   border: 1px solid #cbd5e1;
   font-size: 0.65rem;
   font-weight: 600;
@@ -438,7 +438,7 @@
 
 .pd-empty-state {
   font-size: 0.75rem;
-  color: #94a3b8;
+  color: var(--text-secondary);
   font-style: italic;
   margin: 4px 0;
 }
@@ -449,7 +449,7 @@
   align-items: center;
   justify-content: center;
   padding: 40px 0;
-  color: #64748b;
+  color: var(--text-secondary);
   font-size: 0.85rem;
 }
 
@@ -565,7 +565,7 @@
 }
 
 .pd-announcement-alert-item {
-  background: #ffffff;
+  background: var(--bg-card);
   border: 1px solid #fef3c7;
   border-left: 3px solid #f59e0b;
   border-radius: 5px;
@@ -588,7 +588,7 @@
   align-items: center;
   gap: 6px;
   font-size: 0.78rem;
-  color: #1e293b;
+  color: var(--text-primary);
 }
 
 .pd-alert-badge-count {
@@ -614,7 +614,7 @@
   align-items: center;
   gap: 4px;
   font-size: 0.7rem;
-  color: #475569;
+  color: var(--text-secondary);
 }
 
 .pd-announcement-alert-actions {
@@ -644,7 +644,7 @@
 .pd-alert-btn-dismiss {
   background: transparent;
   border: none;
-  color: #94a3b8;
+  color: var(--text-secondary);
   cursor: pointer;
   padding: 3px;
   border-radius: 50%;
@@ -654,8 +654,8 @@
 }
 
 .pd-alert-btn-dismiss:hover {
-  color: #475569;
-  background: #f1f5f9;
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
 }
 
 .pd-text-warning {
@@ -675,7 +675,7 @@
 }
 
 .pd-modal-content {
-  background: #ffffff;
+  background: var(--bg-card);
   border-radius: 8px;
   width: 100%;
   max-width: 620px;
@@ -704,14 +704,14 @@
 .pd-modal-title-group h3 {
   margin: 0;
   font-size: 0.95rem;
-  color: #0f172a;
+  color: var(--text-primary);
 }
 
 .pd-modal-close {
   background: transparent;
   border: none;
   cursor: pointer;
-  color: #64748b;
+  color: var(--text-secondary);
 }
 
 .pd-modal-body {
@@ -766,8 +766,8 @@
 }
 
 .pd-modal-visits-table th {
-  background: #f8fafc;
-  color: #475569;
+  background: var(--table-header-bg);
+  color: var(--table-header-text);
   font-weight: 600;
 }
 
@@ -776,12 +776,12 @@
   flex-direction: column;
   gap: 1px;
   font-size: 0.72rem;
-  color: #334155;
+  color: var(--text-secondary);
 }
 
 .pd-table-sub {
   font-size: 0.68rem;
-  color: #64748b;
+  color: var(--text-secondary);
 }
 
 .pd-modal-footer {
@@ -793,8 +793,8 @@
 }
 
 .pd-btn-secondary {
-  background: #ffffff;
-  color: #475569;
+  background: var(--bg-card);
+  color: var(--text-secondary);
   border: 1px solid #cbd5e1;
   padding: 5px 14px;
   border-radius: 4px;
@@ -803,5 +803,5 @@
 }
 
 .pd-btn-secondary:hover {
-  background: #f1f5f9;
+  background: var(--bg-elevated);
 }

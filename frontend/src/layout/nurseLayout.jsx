@@ -1,19 +1,26 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { 
-    LayoutDashboard, FileBarChart, Stethoscope, FolderHeart, 
-    Pill, Boxes, FileCheck, ClipboardCheck, HeartPulse, 
+import {
+    LayoutDashboard, FileBarChart, Stethoscope, FolderHeart,
+    Pill, Boxes, FileCheck, ClipboardCheck, HeartPulse,
     BriefcaseMedical, AlertTriangle, Vault, LogOut,
-    MessageSquare, Users, UserCheck, Bell, X
+    MessageSquare, Users, UserCheck, Bell, Sun, Moon,
+    PanelLeftClose, PanelLeftOpen
 } from 'lucide-react';
 import '../styles/nurse/NurseLayout.css';
 import NurseMessageModal from '../components/student/NurseMessageModal.jsx';
 import { useWebPush } from '../hooks/useWebPush';
+import { useTheme } from '../context/ThemeContext';
+import { useSidebar } from '../context/SidebarContext';
+import ConfirmModal from '../components/common/ConfirmModal';
+import { formatCurrentDate, formatDateTime } from '../utils/datetime';
 
 const API_BASE_URL = 'http://localhost:3001';
 
 export const NurseLayout = () => {
     const navigate = useNavigate();
+    const { theme, toggleTheme } = useTheme();
+    const { collapsed, toggleCollapsed } = useSidebar();
     const [isOpen, setIsOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [nurseData, setNurseData] = useState(null);
@@ -263,9 +270,7 @@ export const NurseLayout = () => {
         return (first + last).toUpperCase() || 'RN';
     };
 
-    const currentDate = new Date().toLocaleDateString('en-US', { 
-        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' 
-    });
+    const currentDate = formatCurrentDate();
 
     return (
         <div className="student-layout">
@@ -273,8 +278,16 @@ export const NurseLayout = () => {
             {isOpen && <div className="sidebar-overlay" onClick={closeSidebar}></div>}
 
             {/* Sidebar */}
-            <div className={`student-sidebar ${isOpen ? 'open' : ''}`}>
+            <div className={`student-sidebar ${isOpen ? 'open' : ''} ${collapsed ? 'collapsed' : ''}`}>
                 <button className="close-sidebar-btn" onClick={closeSidebar} aria-label="Close Sidebar">&times;</button>
+                <button
+                    className="sidebar-collapse-toggle"
+                    onClick={toggleCollapsed}
+                    title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                    aria-label="Toggle sidebar"
+                >
+                    {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+                </button>
 
                 <div className="sidebar-header">
                     <h2>STI Baliuag</h2>
@@ -444,13 +457,23 @@ export const NurseLayout = () => {
             </div>
             
             {/* Top Bar */}
-            <div className="student-top-bar">
+            <div className={`student-top-bar ${collapsed ? 'sidebar-collapsed-margin' : ''}`}>
                 <div className="top-bar-left">
                     <span className="system-name">STI Baliuag Clinic Management System</span>
                 </div>
                 <div className="top-bar-right" style={{ display: 'flex', alignItems: 'center', gap: '20px', overflow: 'visible' }}>
-                    
-                    <button 
+
+                    <button
+                        onClick={toggleTheme}
+                        className="theme-toggle-btn"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', color: '#333', padding: '4px' }}
+                        title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+                        aria-label="Toggle dark mode"
+                    >
+                        {theme === 'dark' ? <Sun size={22} /> : <Moon size={22} />}
+                    </button>
+
+                    <button
                         onClick={() => setIsMessageOpen(true)}
                         style={{ 
                             background: 'none',
@@ -530,26 +553,26 @@ export const NurseLayout = () => {
                                 top: '35px',
                                 width: '320px',
                                 maxHeight: '400px',
-                                backgroundColor: '#ffffff',
+                                backgroundColor: 'var(--bg-card)',
                                 boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
                                 borderRadius: '8px',
                                 zIndex: 1000,
                                 overflowY: 'auto',
-                                border: '1px solid #e8e8e8'
+                                border: '1px solid var(--card-border)'
                             }}>
                                 <div style={{
                                     padding: '12px 16px',
-                                    borderBottom: '1px solid #f0f0f0',
+                                    borderBottom: '1px solid var(--card-border)',
                                     display: 'flex',
                                     justifyContent: 'space-between',
                                     alignItems: 'center',
-                                    backgroundColor: '#fafafa',
+                                    backgroundColor: 'var(--bg-elevated)',
                                     borderTopLeftRadius: '8px',
                                     borderTopRightRadius: '8px'
                                 }}>
-                                    <span style={{ fontWeight: 'bold' }}>Notifications</span>
+                                    <span style={{ fontWeight: 'bold', color: 'var(--text-primary)' }}>Notifications</span>
                                     {unreadNotifCount > 0 && (
-                                        <button 
+                                        <button
                                             onClick={handleMarkAllAsRead}
                                             style={{
                                                 background: 'none',
@@ -567,32 +590,32 @@ export const NurseLayout = () => {
                                 </div>
 
                                 {notifications.length === 0 ? (
-                                    <div style={{ padding: '20px', textAlign: 'center', color: '#8c8c8c', fontSize: '14px' }}>
+                                    <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '14px' }}>
                                         No notifications
                                     </div>
                                 ) : (
                                     notifications.map((item) => {
                                         const isItemRead = item.is_read === 1 || item.is_read === '1' || item.is_read === true || item.read === true;
                                         return (
-                                            <div 
+                                            <div
                                                 key={item.notification_id}
                                                 onClick={() => handleNotificationClick(item)}
                                                 style={{
                                                     padding: '12px 16px',
-                                                    borderBottom: '1px solid #f0f0f0',
+                                                    borderBottom: '1px solid var(--card-border)',
                                                     cursor: 'pointer',
                                                     transition: 'background 0.2s',
-                                                    backgroundColor: isItemRead ? '#f9f9f9' : '#ffffff',
+                                                    backgroundColor: isItemRead ? 'var(--bg-elevated)' : 'var(--bg-card)',
                                                     opacity: isItemRead ? 0.75 : 1
                                                 }}
-                                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f0f0f0'}
-                                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = isItemRead ? '#f9f9f9' : '#ffffff'}
+                                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-elevated)'}
+                                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = isItemRead ? 'var(--bg-elevated)' : 'var(--bg-card)'}
                                             >
-                                                <div style={{ 
-                                                    fontWeight: isItemRead ? 'normal' : 'bold', 
-                                                    fontSize: '14px', 
-                                                    marginBottom: '4px', 
-                                                    color: '#1f1f1f',
+                                                <div style={{
+                                                    fontWeight: isItemRead ? 'normal' : 'bold',
+                                                    fontSize: '14px',
+                                                    marginBottom: '4px',
+                                                    color: 'var(--text-primary)',
                                                     display: 'flex',
                                                     alignItems: 'center',
                                                     gap: '6px'
@@ -608,11 +631,11 @@ export const NurseLayout = () => {
                                                     )}
                                                     {item.title || 'Notification'}
                                                 </div>
-                                                <div style={{ fontSize: '13px', color: '#595959', marginBottom: '6px', lineHeight: '1.4' }}>
+                                                <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', lineHeight: '1.4' }}>
                                                     {item.message}
                                                 </div>
-                                                <div style={{ fontSize: '11px', color: '#bfbfbf', textAlign: 'right' }}>
-                                                    {new Date(item.created_at).toLocaleString()}
+                                                <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textAlign: 'right' }}>
+                                                    {formatDateTime(item.created_at)}
                                                 </div>
                                             </div>
                                         );
@@ -626,8 +649,8 @@ export const NurseLayout = () => {
                 </div>
             </div>
 
-            <div className="main-content">
-                <Outlet context={{ 
+            <div className={`main-content ${collapsed ? 'sidebar-collapsed-margin' : ''}`}>
+                <Outlet context={{
                     nurseId: nurseData?.nurse_id || '', 
                     userId: nurseData?.user_id || activeUserId || '',
                     user_id: nurseData?.user_id || activeUserId || '',
@@ -647,52 +670,15 @@ export const NurseLayout = () => {
                 />
             )}
 
-            {showLogoutModal && (
-                <div className="modal-backdrop-nl" onClick={() => setShowLogoutModal(false)}>
-                    <div 
-                        className="modal-content-nl" 
-                        onClick={(e) => e.stopPropagation()} 
-                        role="dialog" 
-                        aria-modal="true"
-                    >
-                        <div className="modal-header-nl">
-                            <h2>Confirm Logout</h2>
-                            <button 
-                                type="button" 
-                                className="btn-close-nl" 
-                                onClick={() => setShowLogoutModal(false)}
-                                aria-label="Close modal"
-                            >
-                                <X size={20} />
-                            </button>
-                        </div>
-                        <div className="modal-body-nl">
-                            <div className="icon-wrapper-nl icon-warning-nl">
-                                <AlertTriangle size={36} />
-                            </div>
-                            <p className="modal-message-nl">
-                                Are you sure you want to log out of the STI Baliuag Nurse Portal?
-                            </p>
-                        </div>
-                        <div className="modal-footer-nl">
-                            <button 
-                                type="button" 
-                                className="btn-secondary-nl" 
-                                onClick={() => setShowLogoutModal(false)}
-                            >
-                                Cancel
-                            </button>
-                            <button 
-                                type="button" 
-                                className="btn-danger-nl" 
-                                onClick={confirmLogout}
-                            >
-                                Logout
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            <ConfirmModal
+                isOpen={showLogoutModal}
+                onCancel={() => setShowLogoutModal(false)}
+                onConfirm={confirmLogout}
+                title="Confirm Logout"
+                message="Are you sure you want to log out of the STI Baliuag Nurse Portal?"
+                confirmLabel="Logout"
+                danger
+            />
         </div>
     );
 };

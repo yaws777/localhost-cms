@@ -841,7 +841,7 @@ const VisitLogConsultation = () => {
 
         const printWindow = window.open('', '_blank', 'width=950,height=750');
         if (!printWindow) {
-            alert('Please allow popups to preview and print the report.');
+            showAlertModal('Popup Blocked', 'Please allow popups to preview and print the report.', 'warning');
             return;
         }
 
