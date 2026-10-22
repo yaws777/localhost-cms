@@ -566,8 +566,6 @@ const NurseDashboard = () => {
   const [periodLabel, setPeriodLabel] = useState("");
   const [filterType, setFilterType] = useState("weekly"); 
   const [averageUnit, setAverageUnit] = useState("week");
-  const [topConditions, setTopConditions] = useState([]);
-  const [illnessSummary, setIllnessSummary] = useState(null);
   const [selectedMonth, setSelectedMonth] = useState(maxCurrentMonth); 
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString()); 
   const [isLoading, setIsLoading] = useState(true);
@@ -682,29 +680,6 @@ const NurseDashboard = () => {
     generatePDFReport(
       'Health Trends Summary Report',
       `${periodLabel || ''} ${timelineLabel ? `(${timelineLabel})` : ''}`,
-      headers,
-      rows,
-      (errMsg) => showAlert({ type: 'error', title: 'Export Failed', message: errMsg })
-    );
-  };
-
-  const handleExportIllnessSummary = () => {
-    if (!illnessSummary) return;
-    const headers = ['Rank', 'Illness / Condition', 'Source', 'Cases', '% of All Cases', 'Students', 'Previous 30 Days', 'Change'];
-    const rows = illnessSummary.rows.map((r) => [
-      r.rank,
-      r.name,
-      r.source,
-      r.count,
-      `${r.percent}%`,
-      r.students,
-      r.previousCount,
-      r.trend === 'new' ? 'New' : `${r.delta > 0 ? '+' : ''}${r.delta}${r.changePercent !== null ? ` (${r.changePercent > 0 ? '+' : ''}${r.changePercent}%)` : ''}`
-    ]);
-
-    generatePDFReport(
-      'Illness Summary Report: Past 30 Days',
-      `${illnessSummary.period.start} to ${illnessSummary.period.end} · ${illnessSummary.total} cases (previous 30 days: ${illnessSummary.previousTotal})`,
       headers,
       rows,
       (errMsg) => showAlert({ type: 'error', title: 'Export Failed', message: errMsg })
@@ -941,7 +916,6 @@ const NurseDashboard = () => {
       setAverages(result.averages || null);
       setAveragesLabel(result.averagesLabel || "");
       setAverageUnit(result.averageUnit || "month");
-      setTopConditions(result.topConditions || []);
       setTimelineLabel(result.timelineLabel || "");
       setPeriodLabel(result.periodLabel || "");
     } catch (error) {
@@ -950,17 +924,6 @@ const NurseDashboard = () => {
       setIsLoading(false);
     }
   }, [filterType, selectedMonth, selectedYear]);
-
-  // Fetch the illness summary of the last 30 days
-  const fetchIllnessSummary = useCallback(async () => {
-    try {
-      const response = await fetch('http://localhost:3001/api/illness-summary?days=30');
-      if (!response.ok) throw new Error('Failed to load the illness summary');
-      setIllnessSummary(await response.json());
-    } catch (error) {
-      console.error('Failed to fetch illness summary:', error);
-    }
-  }, []);
 
   // Fetch Medicine Dispensed Overview
   const fetchMedicineDispensed = useCallback(async () => {
@@ -1285,12 +1248,11 @@ const NurseDashboard = () => {
   useEffect(() => {
     fetchNurseDashboard();
     fetchHealthTrends();
-    fetchIllnessSummary();
     fetchMedicineDispensed();
     fetchPredictiveDemand();
     fetchFrequentAlerts();
     fetchAnnouncements();
-  }, [fetchNurseDashboard, fetchHealthTrends, fetchIllnessSummary, fetchMedicineDispensed, fetchPredictiveDemand, fetchFrequentAlerts, fetchAnnouncements]);
+  }, [fetchNurseDashboard, fetchHealthTrends, fetchMedicineDispensed, fetchPredictiveDemand, fetchFrequentAlerts, fetchAnnouncements]);
 
   const activeComplaintsInGraph = complaintsList.filter(complaint => 
     trendData.some(dataPoint => (Number(dataPoint[complaint]) || 0) > 0)
@@ -1440,8 +1402,8 @@ const NurseDashboard = () => {
             className="overview-card-nd stat-card-red-nd"
             role="button"
             tabIndex={0}
-            onClick={() => navigate('/RestockReport')}
-            onKeyDown={(event) => handleOverviewCardKeyDown(event, '/RestockReport')}
+            onClick={() => navigate('/ReportsAnalytics?tab=inventory')}
+            onKeyDown={(event) => handleOverviewCardKeyDown(event, '/ReportsAnalytics?tab=inventory')}
           >
             <div className="stat-card-header-nd">
               <div>
@@ -1663,82 +1625,6 @@ const NurseDashboard = () => {
         </div>
       )}
 
-      {/* Common health issues: every visit counts, with the number of different students */}
-      {!isLoading && topConditions.length > 0 && (
-        <div className="averages-container-nd">
-          <h4 className="averages-title-nd">Common Health Issues ({periodLabel}) - every visit is counted</h4>
-          <div className="table-responsive-nd">
-            <table className="overview-table-nd">
-              <thead>
-                <tr><th>#</th><th>Health Issue</th><th>Source</th><th>Cases</th><th>% of Cases</th><th>Students</th></tr>
-              </thead>
-              <tbody>
-                {topConditions.slice(0, 8).map((c, i) => (
-                  <tr key={`${c.source}-${c.name}`}>
-                    <td>{i + 1}</td>
-                    <td className="font-semibold-nd">{c.name}</td>
-                    <td className="text-xs-nd text-muted-nd">{c.source}</td>
-                    <td><strong>{c.count}</strong></td>
-                    <td>{c.percent}%</td>
-                    <td>{c.students}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      <div className="dashboard-divider-line-nd" />
-
-      {/* Illness summary of the past 30 days */}
-      <div className="dashboard-header-nd">
-        <h2 className="dashboard-title-nd">Illness Summary: Past 30 Days</h2>
-        <div className="filter-group-nd">
-          {illnessSummary && (
-            <span className="filter-label-nd">
-              {illnessSummary.period.start} to {illnessSummary.period.end} · <strong>{illnessSummary.total}</strong> cases
-              {illnessSummary.changePercent !== null && <> ({illnessSummary.changePercent > 0 ? '+' : ''}{illnessSummary.changePercent}% vs the 30 days before)</>}
-            </span>
-          )}
-          <button type="button" className="export-btn-nd" onClick={handleExportIllnessSummary} disabled={!illnessSummary || illnessSummary.rows.length === 0}>
-            <Download size={16} /> Export
-          </button>
-        </div>
-      </div>
-
-      <div className="graph-container-nd">
-        {!illnessSummary ? (
-          <div className="loading-container-nd"><div className="spinner-nd"></div><p className="loading-text-nd">Summarizing the last 30 days...</p></div>
-        ) : illnessSummary.rows.length === 0 ? (
-          <div className="no-data-container-nd"><h3 className="no-data-title-nd">No illnesses recorded in the past 30 days</h3></div>
-        ) : (
-          <div className="table-responsive-nd">
-            <table className="overview-table-nd">
-              <thead>
-                <tr><th>Rank</th><th>Most Common Illnesses</th><th>Source</th><th>Cases</th><th>% of All</th><th>Students</th><th>Previous 30 Days</th><th>Trend</th></tr>
-              </thead>
-              <tbody>
-                {illnessSummary.rows.slice(0, 10).map((r) => (
-                  <tr key={`${r.source}-${r.name}`}>
-                    <td>{r.rank}</td>
-                    <td className="font-semibold-nd">{r.name}</td>
-                    <td className="text-xs-nd text-muted-nd">{r.source}</td>
-                    <td><strong>{r.count}</strong></td>
-                    <td>{r.percent}%</td>
-                    <td>{r.students}</td>
-                    <td>{r.previousCount}</td>
-                    <td className={r.trend === 'up' || r.trend === 'new' ? 'text-red-nd' : r.trend === 'down' ? 'text-green-nd' : 'text-muted-nd'}>
-                      {r.trend === 'new' ? 'New' : r.trend === 'same' ? 'No change' : `${r.delta > 0 ? '▲ +' : '▼ '}${r.delta}${r.changePercent !== null ? ` (${r.changePercent > 0 ? '+' : ''}${r.changePercent}%)` : ''}`}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
       {/* SECTION 2: MEDICINE DISPENSED OVERVIEW */}
       <div className="dashboard-divider-line-nd" />
 
@@ -1892,7 +1778,7 @@ const NurseDashboard = () => {
         <h2 className="dashboard-title-nd">{predictiveTitle}</h2>
         <div className="filter-group-nd">
           {predictivePeriod && <span className="filter-label-nd">Next 30 days: <strong>{predictivePeriod}</strong></span>}
-          <button type="button" className="export-btn-nd" onClick={() => navigate('/RestockReport')}>
+          <button type="button" className="export-btn-nd" onClick={() => navigate('/ReportsAnalytics?tab=inventory')}>
             <Pill size={16} /> Restock Report
           </button>
           <button type="button" className="export-btn-nd" onClick={handleExportPredictiveDemand}>
@@ -2031,7 +1917,7 @@ const NurseDashboard = () => {
                 <span className="count-badge-nd count-badge-red-nd">{nurseDashboardData.medicineStockAlerts.length}</span>
                 <button
                   style={viewAllBtnStyle}
-                  onClick={() => navigate('/RestockReport')}
+                  onClick={() => navigate('/ReportsAnalytics?tab=inventory')}
                   onMouseOver={(e) => e.currentTarget.style.background = '#f0f5fa'}
                   onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
                 >

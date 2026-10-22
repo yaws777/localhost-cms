@@ -658,6 +658,198 @@
     width: auto;
 }
 
+/* Page sections: Visits / Availability / Booking Requests (underline style, so it reads
+   as a level above the Upcoming / Ongoing / Past pills) */
+.section-nav-dv {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 18px;
+    border-bottom: 2px solid var(--sti-border);
+    overflow-x: auto;
+    white-space: nowrap;
+}
+
+.section-tab-dv {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 18px;
+    background: none;
+    border: none;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -2px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--sti-text-muted);
+    cursor: pointer;
+}
+
+.section-tab-dv:hover { color: var(--text-primary); }
+
+.section-tab-dv.active-dv {
+    color: var(--sti-blue);
+    border-bottom-color: var(--sti-yellow);
+}
+
+.section-badge-dv {
+    background: #ef4444;
+    color: #fff;
+    border-radius: 999px;
+    padding: 1px 8px;
+    font-size: 0.72rem;
+    font-weight: 700;
+}
+
+.section-badge-dv.warn-dv {
+    background: #f59e0b;
+}
+
+.cards-grid-dv {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 20px;
+}
+
+/* Visit card */
+.visit-card-dv {
+    background: var(--bg-card);
+    border: 1px solid var(--sti-border);
+    border-radius: 12px;
+    padding: 18px 20px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.visit-tags-dv {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.visit-specialty-dv,
+.visit-type-dv {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.visit-specialty-dv { background: #e0f2fe; color: #0369a1; }
+.visit-type-dv { background: #e2e8f0; color: #334155; }
+.visit-type-dv.type-dental-dv { background: #fef3c7; color: #92400e; }
+.visit-type-dv.type-vision-dv { background: #ede9fe; color: #5b21b6; }
+.visit-type-dv.type-followup-dv { background: #dcfce7; color: #166534; }
+.visit-type-dv.type-referral-dv { background: #fee2e2; color: #991b1b; }
+
+.visit-title-dv {
+    margin: 0 0 10px;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.visit-facts-dv {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    color: var(--sti-text-muted);
+    font-size: 0.88rem;
+}
+
+.visit-facts-dv li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.visit-facts-dv .visit-doctor-dv {
+    font-size: 0.82rem;
+    font-style: italic;
+}
+
+.visit-actions-dv {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-top: 14px;
+    border-top: 1px solid var(--sti-border);
+}
+
+.visit-actions-dv .sti-btn-dv {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 12px;
+}
+
+.visit-actions-dv .visit-main-dv {
+    flex: 1;
+    justify-content: center;
+}
+
+.visit-actions-dv .visit-delete-dv {
+    background: #ef4444;
+    color: #fff;
+    border: none;
+}
+
+/* Past visits: doctor + date range */
+.past-filters-dv {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-top: 15px;
+    padding: 12px 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--sti-border);
+    border-radius: 8px;
+}
+
+.past-filters-dv .filter-title-dv {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--sti-text-muted);
+}
+
+.past-filters-dv label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--sti-text-muted);
+}
+
+.past-filters-dv select,
+.past-filters-dv input[type='date'] {
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--sti-border);
+    background: var(--bg-card);
+    color: var(--text-primary);
+    font-size: 0.82rem;
+}
+
+.past-filters-dv .reset-dv {
+    margin-left: auto;
+    padding: 6px 12px;
+    font-size: 0.78rem;
+}
+
 /* Phones: header buttons, tabs and the search box wrap instead of overflowing */
 @media (max-width: 760px) {
   .header-dv,
@@ -677,3 +869,6 @@
     box-sizing: border-box;
   }
 }
+
+.day-list-dv { margin-top: 15px; }
+

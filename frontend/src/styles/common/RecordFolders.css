@@ -164,6 +164,93 @@
     color: var(--text-primary);
 }
 
+/* Number shown beside a status tab */
+.tab-count-rf {
+    display: inline-block;
+    min-width: 20px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: var(--border-color, #e2e8f0);
+    color: var(--text-primary);
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-align: center;
+    line-height: 1.4;
+}
+
+button.active-hs .tab-count-rf,
+button.active-dv .tab-count-rf {
+    background: rgba(0, 85, 165, 0.14);
+    color: var(--sti-blue, #0055a5);
+}
+
+button.active-dv .tab-count-rf {
+    background: rgba(255, 255, 255, 0.25);
+    color: inherit;
+}
+
+/* Cards cut into one block per day */
+.day-section-rf + .day-section-rf { margin-top: 22px; }
+
+.day-head-rf {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 0 0 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-color, #e2e8f0);
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.day-count-rf {
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
 @media (max-width: 600px) {
     .folder-grid-rf { grid-template-columns: 1fr; }
 }
+
+/* Header "More" menu */
+.more-menu-rf { position: relative; }
+
+.menu-backdrop-rf {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+}
+
+.menu-list-rf {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    z-index: 41;
+    min-width: 200px;
+    background: var(--bg-card);
+    border: 1px solid var(--sti-border);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+}
+
+.menu-list-rf button {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    background: none;
+    border: none;
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 0.88rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+.menu-list-rf button:hover { background: var(--sti-light-bg); }

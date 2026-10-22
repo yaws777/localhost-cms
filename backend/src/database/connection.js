@@ -18,10 +18,8 @@ if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir);
 }
 
-// Helper function to hash passwords (or use bcrypt)
-const hashPassword = (password) => {
-  return crypto.createHash('sha256').update(password).digest('hex');
-};
+// Passwords are stored as bcrypt hashes; chat message content is stored AES-256-GCM encrypted.
+const { hashPassword, verifyPassword, encryptText, decryptMessageRows } = require('../utils/security');
 
 // Initialize Twilio Client
 const twilioClient = twilio(
@@ -158,7 +156,7 @@ async function notifyUsers({ sender_id, recipient_ids, title, message, type, pay
             sender_id || null,
             recipient_id,
             title,
-            message,
+            type === 'MESSAGE' ? 'You have a new message.' : message,
             type || 'SYSTEM',
             0 // is_read = false
         ]);
@@ -474,8 +472,14 @@ app.post('/api/login', async (req, res) => {
         const user = users[0];
 
         // 2. Validate password
-        if (password !== user.password_hash) { 
+        const { ok: passwordOk, needsRehash } = await verifyPassword(password, user.password_hash);
+        if (!passwordOk) {
             return res.status(401).json({ success: false, message: "Invalid username or password." });
+        }
+
+        // Legacy plaintext row: store the hash now that the password is confirmed
+        if (needsRehash) {
+            await pool.execute(`UPDATE users SET password_hash = ? WHERE user_id = ?`, [await hashPassword(password), user.user_id]);
         }
 
         // 3. Check account active status
@@ -484,7 +488,7 @@ app.post('/api/login', async (req, res) => {
         }
 
         // 4. Check if using default password ("123")
-        const isDefaultPassword = (password === "123" || user.password_hash === "123");
+        const isDefaultPassword = (password === "123");
 
         const userData = {
             id: user.user_id,
@@ -589,7 +593,7 @@ app.post('/api/change-password', async (req, res) => {
     try {
         const [result] = await pool.execute(
             `UPDATE users SET password_hash = ? WHERE username = ?`,
-            [newPassword, username]
+            [await hashPassword(newPassword), username]
         );
 
         if (result.affectedRows > 0) {
@@ -768,7 +772,7 @@ app.post('/api/forgot-password', async (req, res) => {
         // Update password hash
         const [updateResult] = await pool.execute(
             `UPDATE users SET password_hash = ? WHERE user_id = ?`,
-            [newPassword, user.user_id]
+            [await hashPassword(newPassword), user.user_id]
         );
 
         if (updateResult.affectedRows > 0) {
@@ -847,43 +851,7 @@ app.get('/api/get-admin/:userId', async (req, res) => {
 
 
 
-// 2. --- FORGOT PASSWORD ENDPOINT ---
-app.post('/api/forgot-password', async (req, res) => {
-    const { username, firstName, lastName } = req.body;
-
-    try {
-        const query = `
-            SELECT u.password_hash
-            FROM users u
-            LEFT JOIN students s ON u.user_id = s.user_id
-            LEFT JOIN parents p ON u.user_id = p.user_id
-            LEFT JOIN nurses n ON u.user_id = n.user_id
-            WHERE u.username = ?
-            AND (
-                (s.first_name = ? AND s.last_name = ?) OR
-                (p.first_name = ? AND p.last_name = ?) OR
-                (n.first_name = ? AND n.last_name = ?)
-            )
-        `;
-
-        const [results] = await pool.execute(query, [
-            username, 
-            firstName, lastName, 
-            firstName, lastName, 
-            firstName, lastName
-        ]);
-
-        if (results.length > 0) {
-            res.json({ success: true, password: results[0].password_hash });
-        } else {
-            res.status(404).json({ success: false, message: "Verification details do not match our records." });
-        }
-
-    } catch (error) {
-        console.error("Forgot Password Error:", error);
-        res.status(500).json({ success: false, message: "Internal server database error." });
-    }
-});
+// (Removed duplicate POST /api/forgot-password that returned the stored password; passwords are hashed and never readable. See the reset route above.)
 
 // 3. Get Student ID based on Logged-in User ID
 // Fix: Converted from callback to async/await to work with mysql2/promise
@@ -5676,10 +5644,11 @@ app.get('/api/parent/frequent-complaints/:parentId', async (req, res) => {
 });
 
 
-// Clinic report for a period (a day, a week or a month): GET /api/weekly-reports?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
-// Returns the summary, the medical condition and medicine breakdowns, and a trend over the period
-// (by hour for one day, by day for up to a month, by month for longer periods) of visits and incidents.
-app.get('/api/weekly-reports', async (req, res) => {
+// Reports & Analytics for a period (a day, a week or a month): GET /api/reports-analytics?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
+// One response feeds every tab of the Reports & Analytics page:
+//   overview (KPIs vs the previous period + trend), health (conditions, programs), medicine (dispensing),
+//   incidents, services (slips, doctor appointments, requirements) and inventory (live stock, not period based).
+app.get('/api/reports-analytics', async (req, res) => {
   const { startDate, endDate } = req.query;
 
   if (!isDateStr(startDate) || !isDateStr(endDate)) {
@@ -5689,100 +5658,228 @@ app.get('/api/weekly-reports', async (req, res) => {
   const lengthDays = Math.round((new Date(`${endDate}T00:00:00Z`) - new Date(`${startDate}T00:00:00Z`)) / 86400000) + 1;
   if (lengthDays > 400) return res.status(400).json({ error: 'The report period is too long (400 days at most).' });
 
-  // Formatting timestamp bounds for TIMESTAMP columns (dispensed_at, incident_datetime)
-  const startTimestamp = `${startDate} 00:00:00`;
-  const endTimestamp = `${endDate} 23:59:59`;
-
   // the same-length period right before this one, for the comparison
   const prevEnd = addDaysStr(startDate, -1);
   const prevStart = addDaysStr(prevEnd, -(lengthDays - 1));
 
+  // TIMESTAMP columns need full bounds
+  const from = `${startDate} 00:00:00`;
+  const to = `${endDate} 23:59:59`;
+  const prevFrom = `${prevStart} 00:00:00`;
+  const prevTo = `${prevEnd} 23:59:59`;
+
+  const DISPENSED_UNION = `(
+    SELECT batch_id, 'direct' AS src, dispensed_at FROM direct_dispensation WHERE dispensed_at >= ? AND dispensed_at <= ?
+    UNION ALL
+    SELECT batch_id, 'consultation' AS src, dispensed_at FROM consultation_dispensation WHERE dispensed_at >= ? AND dispensed_at <= ?
+  )`;
+
   try {
-    const countVisits = async (from, to) => {
-      const [[row]] = await pool.query('SELECT COUNT(*) AS n, COUNT(DISTINCT student_id) AS students FROM clinic_visits WHERE visit_date >= ? AND visit_date <= ?', [from, to]);
+    const countVisits = async (d1, d2) => {
+      const [[row]] = await pool.query('SELECT COUNT(*) AS n, COUNT(DISTINCT student_id) AS students FROM clinic_visits WHERE visit_date >= ? AND visit_date <= ?', [d1, d2]);
       return { visits: Number(row.n), students: Number(row.students) };
     };
-    const countIncidents = async (from, to) => {
-      const [[row]] = await pool.query('SELECT COUNT(*) AS n FROM incident_reports WHERE incident_datetime >= ? AND incident_datetime <= ?', [`${from} 00:00:00`, `${to} 23:59:59`]);
+    const countIncidents = async (t1, t2) => {
+      const [[row]] = await pool.query('SELECT COUNT(*) AS n FROM incident_reports WHERE incident_datetime >= ? AND incident_datetime <= ?', [t1, t2]);
       return Number(row.n);
+    };
+    const countDispensed = async (t1, t2) => {
+      const [[row]] = await pool.query(`SELECT COUNT(*) AS n FROM ${DISPENSED_UNION} d`, [t1, t2, t1, t2]);
+      return Number(row.n);
+    };
+    const complaintRows = async (d1, d2) => {
+      const [rows] = await pool.query(
+        `SELECT cc.complaint_name AS name, COUNT(cv.visit_id) AS total_count, COUNT(DISTINCT cv.student_id) AS students
+         FROM clinic_visits cv JOIN chief_complaints cc ON cv.complaint_id = cc.complaint_id
+         WHERE cv.visit_date >= ? AND cv.visit_date <= ?
+         GROUP BY cc.complaint_id, cc.complaint_name
+         ORDER BY total_count DESC, cc.complaint_name ASC`,
+        [d1, d2]
+      );
+      return rows;
+    };
+    const statusCounts = async (table, col, t1, t2) => {
+      const [rows] = await pool.query(`SELECT COALESCE(status, 'Unknown') AS label, COUNT(*) AS n FROM ${table} WHERE ${col} >= ? AND ${col} <= ? GROUP BY status ORDER BY n DESC`, [t1, t2]);
+      return rows.map((r) => ({ label: r.label, count: Number(r.n) }));
     };
 
     const current = await countVisits(startDate, endDate);
-    const totalIncidents = await countIncidents(startDate, endDate);
-    const previousVisits = (await countVisits(prevStart, prevEnd)).visits;
-    const previousIncidents = await countIncidents(prevStart, prevEnd);
+    const previous = await countVisits(prevStart, prevEnd);
+    const totalIncidents = await countIncidents(from, to);
+    const previousIncidents = await countIncidents(prevFrom, prevTo);
+    const totalDispensed = await countDispensed(from, to);
+    const previousDispensed = await countDispensed(prevFrom, prevTo);
 
-    // 2. Medical conditions (every visit counts)
-    const [complaintsRaw] = await pool.query(
-      `SELECT cc.complaint_name AS name, COUNT(cv.visit_id) AS total_count, COUNT(DISTINCT cv.student_id) AS students
-       FROM clinic_visits cv JOIN chief_complaints cc ON cv.complaint_id = cc.complaint_id
+    // ---- Health: medical conditions (every visit counts) with the change since the previous period
+    const complaintsNow = await complaintRows(startDate, endDate);
+    const previousByName = new Map((await complaintRows(prevStart, prevEnd)).map((r) => [r.name.trim(), Number(r.total_count)]));
+    const complaints = complaintsNow.map((row) => {
+      const name = row.name.trim();
+      const count = Number(row.total_count);
+      const before = previousByName.get(name) || 0;
+      return {
+        name,
+        count,
+        students: Number(row.students),
+        percent: current.visits > 0 ? Math.round((count / current.visits) * 1000) / 10 : 0,
+        previousCount: before,
+        delta: count - before,
+        trend: before === 0 ? 'new' : count > before ? 'up' : count < before ? 'down' : 'same'
+      };
+    });
+
+    const [programRows] = await pool.query(
+      `SELECT COALESCE(ap.program_name, 'Unassigned') AS name, COUNT(*) AS total_count, COUNT(DISTINCT cv.student_id) AS students
+       FROM clinic_visits cv
+       JOIN students s ON cv.student_id = s.student_id
+       LEFT JOIN academic_programs ap ON s.program_id = ap.program_id
        WHERE cv.visit_date >= ? AND cv.visit_date <= ?
-       GROUP BY cc.complaint_id, cc.complaint_name
-       HAVING total_count > 0
-       ORDER BY total_count DESC`,
+       GROUP BY ap.program_id, ap.program_name
+       ORDER BY total_count DESC, name ASC
+       LIMIT 10`,
       [startDate, endDate]
     );
-    const complaints = complaintsRaw.map((row) => ({
-      name: row.name.trim(),
-      count: Number(row.total_count),
-      students: Number(row.students),
-      percent: current.visits > 0 ? Math.round((Number(row.total_count) / current.visits) * 1000) / 10 : 0
+    const programs = programRows.map((r) => ({ name: r.name, count: Number(r.total_count), students: Number(r.students) }));
+
+    const [repeatRows] = await pool.query(
+      `SELECT cv.student_id, CONCAT(s.first_name, ' ', s.last_name) AS name, COUNT(*) AS total_count
+       FROM clinic_visits cv JOIN students s ON cv.student_id = s.student_id
+       WHERE cv.visit_date >= ? AND cv.visit_date <= ?
+       GROUP BY cv.student_id, s.first_name, s.last_name
+       HAVING total_count > 1
+       ORDER BY total_count DESC, name ASC
+       LIMIT 5`,
+      [startDate, endDate]
+    );
+    const frequentVisitors = repeatRows.map((r) => ({ studentId: r.student_id, name: r.name, count: Number(r.total_count) }));
+
+    // ---- Medicine dispensed (direct + consultation)
+    const [medicineRows] = await pool.query(
+      `SELECT CONCAT(m.generic_name, ' (', m.brand_name, ')') AS name,
+              COUNT(*) AS total_count,
+              SUM(d.src = 'direct') AS direct_count,
+              SUM(d.src = 'consultation') AS consultation_count
+       FROM ${DISPENSED_UNION} d
+       JOIN medicine_inventory_batches b ON d.batch_id = b.batch_id
+       JOIN medicines m ON b.medicine_id = m.medicine_id
+       GROUP BY m.medicine_id, m.generic_name, m.brand_name
+       ORDER BY total_count DESC, name ASC`,
+      [from, to, from, to]
+    );
+    const medicines = medicineRows.map((r) => ({
+      name: r.name,
+      count: Number(r.total_count),
+      direct: Number(r.direct_count),
+      consultation: Number(r.consultation_count),
+      percent: totalDispensed > 0 ? Math.round((Number(r.total_count) / totalDispensed) * 1000) / 10 : 0
+    }));
+    const dispenseSplit = {
+      direct: medicines.reduce((sum, m) => sum + m.direct, 0),
+      consultation: medicines.reduce((sum, m) => sum + m.consultation, 0)
+    };
+
+    // ---- Incidents
+    const [locationRows] = await pool.query(
+      `SELECT incident_location AS name, COUNT(*) AS total_count FROM incident_reports
+       WHERE incident_datetime >= ? AND incident_datetime <= ?
+       GROUP BY incident_location ORDER BY total_count DESC, name ASC LIMIT 8`,
+      [from, to]
+    );
+    const incidentLocations = locationRows.map((r) => ({
+      name: r.name,
+      count: Number(r.total_count),
+      percent: totalIncidents > 0 ? Math.round((Number(r.total_count) / totalIncidents) * 1000) / 10 : 0
+    }));
+    const [recentIncidentRows] = await pool.query(
+      `SELECT ir.incident_id, DATE_FORMAT(ir.incident_datetime, '%Y-%m-%d %H:%i') AS happened_at, ir.incident_location,
+              ir.incident_description, ir.first_aid_administered, ir.current_physical_situation,
+              CONCAT(s.first_name, ' ', s.last_name) AS student_name
+       FROM incident_reports ir LEFT JOIN students s ON ir.student_id = s.student_id
+       WHERE ir.incident_datetime >= ? AND ir.incident_datetime <= ?
+       ORDER BY ir.incident_datetime DESC LIMIT 10`,
+      [from, to]
+    );
+    const recentIncidents = recentIncidentRows.map((r) => ({
+      id: r.incident_id,
+      happenedAt: r.happened_at,
+      location: r.incident_location,
+      student: r.student_name || 'Unknown student',
+      description: r.incident_description,
+      firstAid: r.first_aid_administered,
+      situation: r.current_physical_situation
     }));
 
-    // 3. Medicine dispensed (combined direct + consultation dispensation)
-    const [medicinesRaw] = await pool.query(`
-      SELECT CONCAT(m.generic_name, ' (', m.brand_name, ')') AS name, COUNT(*) AS total_count
-      FROM (
-        SELECT batch_id FROM direct_dispensation WHERE dispensed_at >= ? AND dispensed_at <= ?
-        UNION ALL
-        SELECT batch_id FROM consultation_dispensation WHERE dispensed_at >= ? AND dispensed_at <= ?
-      ) combined
-      JOIN medicine_inventory_batches b ON combined.batch_id = b.batch_id
-      JOIN medicines m ON b.medicine_id = m.medicine_id
-      GROUP BY m.medicine_id, m.generic_name, m.brand_name
-      HAVING total_count > 0
-      ORDER BY total_count DESC
-    `, [startTimestamp, endTimestamp, startTimestamp, endTimestamp]);
-    const medicines = medicinesRaw.map((row) => ({ name: row.name, count: Number(row.total_count) }));
+    // ---- Services: slips, doctor appointments, requirement submissions
+    const excuseSlips = await statusCounts('excuse_slip_requests', 'created_at', from, to);
+    const referralSlips = await statusCounts('referral_slip_requests', 'created_at', from, to);
+    const appointments = await statusCounts('doctor_appointments', 'start_time', from, to);
+    const [visitTypeRows] = await pool.query(
+      `SELECT visit_type AS label, COUNT(*) AS n FROM doctor_appointments
+       WHERE start_time >= ? AND start_time <= ? GROUP BY visit_type ORDER BY n DESC`,
+      [from, to]
+    );
+    const appointmentTypes = visitTypeRows.map((r) => ({ label: r.label, count: Number(r.n) }));
+    const [requirementRows] = await pool.query('SELECT status AS label, COUNT(*) AS n FROM student_requirement_submissions GROUP BY status ORDER BY n DESC');
+    const requirements = requirementRows.map((r) => ({ label: r.label, count: Number(r.n) }));
 
-    // 4. Trend of visits and incidents inside the period
+    // ---- Inventory (live: not tied to the period)
+    const stock = await getMedicineStockStatuses();
+    const stockAttention = stock
+      .filter((m) => m.needs_attention)
+      .sort((a, b) => (STOCK_ALERT_RANK[b.status] || 0) - (STOCK_ALERT_RANK[a.status] || 0) || b.expiring_stock - a.expiring_stock || a.name.localeCompare(b.name))
+      .slice(0, 15)
+      .map((m) => ({
+        name: m.name,
+        status: m.status,
+        unit: m.unit_label,
+        stock: m.usable_stock,
+        lowLevel: m.low_stock_level,
+        criticalLevel: m.critical_stock_level,
+        expiringStock: m.expiring_stock,
+        expiredStock: m.expired_stock,
+        nearestExpiry: m.nearest_expiry,
+        forecast30d: m.forecast_30d,
+        suggestedRestock: m.suggested_qty
+      }));
+
+    // ---- Trend of visits, incidents and dispensing inside the period
     let unit = 'day';
     if (lengthDays === 1) unit = 'hour';
     else if (lengthDays > 62) unit = 'month';
 
-    let points = [];
-    if (unit === 'hour') {
-      const [visitRows] = await pool.query('SELECT HOUR(time_in) AS h, COUNT(*) AS n FROM clinic_visits WHERE visit_date = ? GROUP BY HOUR(time_in)', [startDate]);
-      const [incRows] = await pool.query('SELECT HOUR(incident_datetime) AS h, COUNT(*) AS n FROM incident_reports WHERE DATE(incident_datetime) = ? GROUP BY HOUR(incident_datetime)', [startDate]);
-      const byHour = {};
-      visitRows.forEach((r) => { const k = r.h === null ? 'none' : r.h; byHour[k] = byHour[k] || { visits: 0, incidents: 0 }; byHour[k].visits += Number(r.n); });
-      incRows.forEach((r) => { byHour[r.h] = byHour[r.h] || { visits: 0, incidents: 0 }; byHour[r.h].incidents += Number(r.n); });
-      const hourLabel = (h) => `${h % 12 || 12}${h >= 12 ? 'PM' : 'AM'}`;
-      const usedHours = Object.keys(byHour).filter((k) => k !== 'none').map(Number);
-      const from = Math.min(7, ...usedHours);
-      const to = Math.max(17, ...usedHours);
-      for (let h = from; h <= to; h++) points.push({ label: hourLabel(h), visits: byHour[h]?.visits || 0, incidents: byHour[h]?.incidents || 0 });
-      if (byHour.none) points.push({ label: 'No time', visits: byHour.none.visits, incidents: 0 });
-    } else {
-      const bucketKey = unit === 'day' ? '%Y-%m-%d' : '%Y-%m';
-      const [visitRows] = await pool.query(`SELECT DATE_FORMAT(visit_date, '${bucketKey}') AS k, COUNT(*) AS n FROM clinic_visits WHERE visit_date >= ? AND visit_date <= ? GROUP BY k`, [startDate, endDate]);
-      const [incRows] = await pool.query(`SELECT DATE_FORMAT(incident_datetime, '${bucketKey}') AS k, COUNT(*) AS n FROM incident_reports WHERE incident_datetime >= ? AND incident_datetime <= ? GROUP BY k`, [startTimestamp, endTimestamp]);
-      const visitMap = Object.fromEntries(visitRows.map((r) => [r.k, Number(r.n)]));
-      const incMap = Object.fromEntries(incRows.map((r) => [r.k, Number(r.n)]));
+    const keyOf = (col) => (unit === 'hour' ? `HOUR(${col})` : `DATE_FORMAT(${col}, '${unit === 'day' ? '%Y-%m-%d' : '%Y-%m'}')`);
+    const [visitSeries] = await pool.query(`SELECT ${keyOf(unit === 'hour' ? 'time_in' : 'visit_date')} AS k, COUNT(*) AS n FROM clinic_visits WHERE visit_date >= ? AND visit_date <= ? GROUP BY k`, [startDate, endDate]);
+    const [incidentSeries] = await pool.query(`SELECT ${keyOf('incident_datetime')} AS k, COUNT(*) AS n FROM incident_reports WHERE incident_datetime >= ? AND incident_datetime <= ? GROUP BY k`, [from, to]);
+    const [dispensedSeries] = await pool.query(`SELECT ${keyOf('dispensed_at')} AS k, COUNT(*) AS n FROM ${DISPENSED_UNION} d GROUP BY k`, [from, to, from, to]);
 
-      if (unit === 'day') {
-        for (let d = startDate; d <= endDate; d = addDaysStr(d, 1)) {
-          const [, m, dd] = d.split('-');
-          points.push({ label: `${TREND_MONTHS[Number(m) - 1]} ${Number(dd)}`, weekday: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dayOfWeekOf(d)], visits: visitMap[d] || 0, incidents: incMap[d] || 0 });
-        }
-      } else {
-        for (let k = startDate.slice(0, 7); k <= endDate.slice(0, 7);) {
-          const [y, m] = k.split('-').map(Number);
-          points.push({ label: `${TREND_MONTHS[m - 1]} ${y}`, visits: visitMap[k] || 0, incidents: incMap[k] || 0 });
-          k = m === 12 ? `${y + 1}-01` : `${y}-${pad2(m + 1)}`;
-        }
+    const toMap = (rows) => Object.fromEntries(rows.map((r) => [r.k === null ? 'none' : r.k, Number(r.n)]));
+    const visitMap = toMap(visitSeries);
+    const incidentMap = toMap(incidentSeries);
+    const dispensedMap = toMap(dispensedSeries);
+    const pointAt = (key) => ({ visits: visitMap[key] || 0, incidents: incidentMap[key] || 0, dispensed: dispensedMap[key] || 0 });
+
+    const points = [];
+    if (unit === 'hour') {
+      const hourLabel = (h) => `${h % 12 || 12}${h >= 12 ? 'PM' : 'AM'}`;
+      const usedHours = [visitMap, incidentMap, dispensedMap].flatMap((m) => Object.keys(m)).filter((k) => k !== 'none').map(Number);
+      const firstHour = Math.min(7, ...usedHours);
+      const lastHour = Math.max(17, ...usedHours);
+      for (let h = firstHour; h <= lastHour; h++) points.push({ label: hourLabel(h), ...pointAt(h) });
+      if (visitMap.none) points.push({ label: 'No time', visits: visitMap.none, incidents: 0, dispensed: 0 });
+    } else if (unit === 'day') {
+      for (let d = startDate; d <= endDate; d = addDaysStr(d, 1)) {
+        const [, m, dd] = d.split('-');
+        points.push({ label: `${TREND_MONTHS[Number(m) - 1]} ${Number(dd)}`, weekday: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dayOfWeekOf(d)], ...pointAt(d) });
+      }
+    } else {
+      for (let k = startDate.slice(0, 7); k <= endDate.slice(0, 7);) {
+        const [y, m] = k.split('-').map(Number);
+        points.push({ label: `${TREND_MONTHS[m - 1]} ${y}`, ...pointAt(k) });
+        k = m === 12 ? `${y + 1}-01` : `${y}-${pad2(m + 1)}`;
       }
     }
+
+    const changePercent = (now, before) => (before > 0 ? Math.round(((now - before) / before) * 100) : null);
 
     res.json({
       period: { startDate, endDate, days: lengthDays },
@@ -5790,18 +5887,26 @@ app.get('/api/weekly-reports', async (req, res) => {
         totalVisits: current.visits,
         distinctStudents: current.students,
         totalIncidents,
+        totalDispensed,
+        previousVisits: previous.visits,
+        previousIncidents,
+        previousDispensed,
+        visitsChangePercent: changePercent(current.visits, previous.visits),
+        incidentsChangePercent: changePercent(totalIncidents, previousIncidents),
+        dispensedChangePercent: changePercent(totalDispensed, previousDispensed),
         topComplaint: complaints.length > 0 ? complaints[0].name : 'None',
         topMedicine: medicines.length > 0 ? medicines[0].name : 'None',
-        previousVisits,
-        previousIncidents,
-        visitsChangePercent: previousVisits > 0 ? Math.round(((current.visits - previousVisits) / previousVisits) * 100) : null
+        topIncidentLocation: incidentLocations.length > 0 ? incidentLocations[0].name : 'None'
       },
-      complaintsBreakdown: complaints,
-      medicineDispensed: medicines,
-      trend: { unit, points }
+      trend: { unit, points },
+      health: { conditions: complaints, programs, frequentVisitors },
+      medicine: { items: medicines, split: dispenseSplit },
+      incidents: { locations: incidentLocations, recent: recentIncidents },
+      services: { excuseSlips, referralSlips, appointments, appointmentTypes, requirements },
+      inventory: { summary: summarizeStockStatuses(stock), attention: stockAttention }
     });
   } catch (error) {
-    console.error('Error fetching weekly reports:', error);
+    console.error('Error building the reports and analytics:', error);
     res.status(500).json({ error: 'Internal Server Error', details: error.message });
   }
 });
@@ -9152,7 +9257,7 @@ app.get('/api/doctor-bookings', async (req, res) => {
     try {
         const pendingOnly = req.query.status !== 'all';
         const [rows] = await pool.query(
-            `SELECT da.appointment_id, da.title, da.visit_type, da.start_time, da.end_time, da.status, da.booking_reason, da.decline_reason, da.schedule_id,
+            `SELECT da.appointment_id, da.doctor_id, da.title, da.visit_type, da.start_time, da.end_time, da.status, da.booking_reason, da.decline_reason, da.schedule_id,
                     das.student_id, s.first_name AS student_first_name, s.last_name AS student_last_name, s.year_level, s.section, p.program_name,
                     d.first_name AS doc_first_name, d.last_name AS doc_last_name, d.specialization, ds.location
              FROM doctor_appointments da
@@ -10235,6 +10340,28 @@ app.delete('/api/doctor-visits/batch/:batch_id', async (req, res) => {
         await connection.rollback();
         console.error('Error deleting batch schedule:', error);
         res.status(500).json({ success: false, message: 'Failed to delete batch schedule' });
+    } finally {
+        connection.release();
+    }
+});
+
+// Hard delete individual (non-batch) visits, e.g. a past booking, walk-in or follow-up
+app.delete('/api/doctor-visits/appointments', async (req, res) => {
+    const ids = Array.isArray(req.body?.appointment_ids) ? req.body.appointment_ids.filter(Boolean) : [];
+    if (ids.length === 0) return res.status(400).json({ success: false, message: 'No appointments selected.' });
+    const connection = await pool.getConnection();
+
+    try {
+        await connection.beginTransaction();
+        await connection.query(`DELETE FROM doctor_assessments WHERE appointment_id IN (?)`, [ids]);
+        await connection.query(`DELETE FROM doctor_appointment_students WHERE appointment_id IN (?)`, [ids]);
+        await connection.query(`DELETE FROM doctor_appointments WHERE appointment_id IN (?)`, [ids]);
+        await connection.commit();
+        res.json({ success: true, message: 'Doctor visit deleted successfully.' });
+    } catch (error) {
+        await connection.rollback();
+        console.error('Error deleting doctor visits:', error);
+        res.status(500).json({ success: false, message: 'Failed to delete doctor visit' });
     } finally {
         connection.release();
     }
@@ -11516,7 +11643,7 @@ app.post('/api/students/manageStudentAccounts', async (req, res) => {
     await connection.beginTransaction();
 
     const studentUserId = crypto.randomUUID();
-    const studentPasswordHash = password;
+    const studentPasswordHash = await hashPassword(password);
 
     const [studentRoles] = await connection.query("SELECT role_id FROM roles WHERE role_name = 'Student' LIMIT 1");
     const studentRoleId = studentRoles.length > 0 ? studentRoles[0].role_id : 'ROLE_STUDENT';
@@ -11537,7 +11664,7 @@ app.post('/api/students/manageStudentAccounts', async (req, res) => {
       finalParentId = selected_parent_id;
     } else if (parent_option === 'new' && new_parent) {
       const parentUserId = crypto.randomUUID();
-      const parentPasswordHash = new_parent.password;
+      const parentPasswordHash = await hashPassword(new_parent.password);
       const formattedParentUsername = formatUsername(new_parent.username);
 
       const [parentRoles] = await connection.query("SELECT role_id FROM roles WHERE role_name = 'Parent' LIMIT 1");
@@ -11597,7 +11724,7 @@ app.post('/api/students/import/manageStudentAccounts', async (req, res) => {
       const studentUserId = crypto.randomUUID();
       
       const generatedUsername = formatUsername(item.student_id);
-      const defaultPassword = '123456';
+      const defaultPassword = await hashPassword('123456');
 
       await connection.query(
         `INSERT INTO users (user_id, username, password_hash, role_id, is_active, created_at) VALUES (?, ?, ?, ?, 1, NOW())`,
@@ -11668,8 +11795,8 @@ app.put('/api/students/:student_id/manageStudentAccounts', async (req, res) => {
 
     if (reset_password) {
       await connection.query(
-        `UPDATE users SET username = ?, is_active = ?, password_hash = '123' WHERE user_id = ?`,
-        [formattedStudentUsername, is_active ? 1 : 0, userId]
+        `UPDATE users SET username = ?, is_active = ?, password_hash = ? WHERE user_id = ?`,
+        [formattedStudentUsername, is_active ? 1 : 0, await hashPassword('123'), userId]
       );
     } else {
       await connection.query(
@@ -11688,7 +11815,7 @@ app.put('/api/students/:student_id/manageStudentAccounts', async (req, res) => {
       );
     } else if (parent_action === 'new' && new_parent) {
       const parentUserId = crypto.randomUUID();
-      const parentPasswordHash = new_parent.password;
+      const parentPasswordHash = await hashPassword(new_parent.password);
       const formattedParentUsername = formatUsername(new_parent.username);
 
       const [parentRoles] = await connection.query("SELECT role_id FROM roles WHERE role_name = 'Parent' LIMIT 1");
@@ -11826,7 +11953,7 @@ app.put('/manageParentAccount', async (req, res) => {
 
     let targetPassword = resetToDefault ? '123' : password;
     if (targetPassword) {
-      const hashedPassword = await bcrypt.hash(targetPassword, 10);
+      const hashedPassword = await hashPassword(targetPassword);
       await connection.query(
         `UPDATE users SET password_hash = ? WHERE user_id = ?`,
         [hashedPassword, user_id]
@@ -12018,7 +12145,7 @@ app.get('/api/messages/conversations/:userId', async (req, res) => {
 
     try {
         const [rows] = await pool.query(sql, [userId, userId, userId, userId, userId, userId]);
-        res.json({ success: true, conversations: rows });
+        res.json({ success: true, conversations: decryptMessageRows(rows) });
     } catch (error) {
         console.error('Error fetching conversations:', error);
         res.status(500).json({ success: false, message: 'Error fetching conversations' });
@@ -12072,7 +12199,7 @@ app.get('/api/messages/history/:userId/:contactId', async (req, res) => {
 
     try {
         const [rows] = await pool.query(sql, [userId, contactId, contactId, userId]);
-        res.json({ success: true, messages: rows });
+        res.json({ success: true, messages: decryptMessageRows(rows) });
     } catch (error) {
         console.error('Error fetching chat history:', error);
         res.status(500).json({ success: false, message: 'Error fetching chat history' });
@@ -12125,7 +12252,7 @@ app.post('/api/messages/send', upload.single('media'), async (req, res) => {
             sender_id,
             receiver_id,
             message_type || 'text',
-            safeContent,
+            encryptText(safeContent),
             media_url
         ]);
 
@@ -12166,7 +12293,7 @@ app.post('/api/messages/send', upload.single('media'), async (req, res) => {
             });
         }
 
-        res.json({ success: true, message: newMessage[0] });
+        res.json({ success: true, message: decryptMessageRows(newMessage[0]) });
     } catch (error) {
         console.error('Database Error in /api/messages/send:', error);
         res.status(500).json({ success: false, message: 'Database failed to store message.', error: error.message });
@@ -12322,7 +12449,7 @@ app.get('/api/messages/conversations/:userId', async (req, res) => {
 
     try {
         const [rows] = await pool.query(sql, [userId, userId, userId, userId, userId, userId]);
-        res.json({ success: true, conversations: rows });
+        res.json({ success: true, conversations: decryptMessageRows(rows) });
     } catch (error) {
         console.error('Error fetching conversations:', error);
         res.status(500).json({ success: false, message: 'Error fetching conversations' });
@@ -12365,7 +12492,7 @@ app.get('/api/messages/history/:userId/:contactId', async (req, res) => {
 
     try {
         const [rows] = await pool.query(sql, [userId, contactId, contactId, userId]);
-        res.json({ success: true, messages: rows });
+        res.json({ success: true, messages: decryptMessageRows(rows) });
     } catch (error) {
         console.error('Error fetching chat history:', error);
         res.status(500).json({ success: false, message: 'Error fetching chat history' });
@@ -12416,7 +12543,7 @@ app.post('/api/messages/send', upload.single('media'), async (req, res) => {
             sender_id,
             receiver_id,
             message_type || 'text',
-            safeContent,
+            encryptText(safeContent),
             media_url
         ]);
 
@@ -12454,7 +12581,7 @@ app.post('/api/messages/send', upload.single('media'), async (req, res) => {
             });
         }
 
-        res.json({ success: true, message: newMessage[0] });
+        res.json({ success: true, message: decryptMessageRows(newMessage[0]) });
     } catch (error) {
         console.error('Database Error in /api/messages/send:', error);
         res.status(500).json({ success: false, message: 'Database failed to store message.', error: error.message });
@@ -13553,7 +13680,7 @@ app.post('/api/messages/send', async (req, res) => {
             String(sender_id), 
             String(receiver_id), 
             String(message_type), 
-            String(content)
+            encryptText(String(content))
         ]);
 
         res.json({ success: true, message_id: result.insertId });
@@ -13584,7 +13711,7 @@ app.get('/api/messages/:userId/:contactUserId', async (req, res) => {
         const strContactUserId = String(contactUserId);
         const [messages] = await pool.query(query, [strUserId, strContactUserId, strContactUserId, strUserId]);
 
-        res.json({ success: true, messages });
+        res.json({ success: true, messages: decryptMessageRows(messages) });
     } catch (err) {
         console.error('Error fetching chat messages:', err);
         res.status(500).json({ success: false, message: 'Failed to fetch messages' });
@@ -13703,7 +13830,7 @@ app.post('/api/messages/send', upload.single('media'), async (req, res) => {
             String(sender_id),
             String(receiver_id),
             message_type || 'text',
-            safeContent,
+            encryptText(safeContent),
             media_url
         ]);
 
@@ -13741,7 +13868,7 @@ app.post('/api/messages/send', upload.single('media'), async (req, res) => {
             });
         }
 
-        res.json({ success: true, message: newMessage[0], message_id: result.insertId });
+        res.json({ success: true, message: decryptMessageRows(newMessage[0]), message_id: result.insertId });
     } catch (error) {
         console.error('Database error in /api/messages/send:', error);
         res.status(500).json({ success: false, message: 'Database failed to store message.', error: error.message });
@@ -13761,7 +13888,7 @@ app.get('/api/messages/:userId/:contactUserId', async (req, res) => {
             ORDER BY created_at ASC;
         `;
         const [messages] = await pool.query(query, [userId, contactUserId, contactUserId, userId]);
-        res.json({ success: true, messages });
+        res.json({ success: true, messages: decryptMessageRows(messages) });
     } catch (err) {
         console.error('Error fetching chat messages:', err);
         res.status(500).json({ success: false, message: 'Failed to fetch messages' });

@@ -2,8 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
     LayoutDashboard, FileBarChart, Stethoscope, FolderHeart,
-    Pill, Boxes, PackageCheck, FileCheck, ClipboardCheck, HeartPulse,
-    BriefcaseMedical, CalendarClock, AlertTriangle, Vault, LogOut,
+    Pill, Boxes, FileCheck, ClipboardCheck, HeartPulse,
+    BriefcaseMedical, AlertTriangle, Vault, LogOut,
     MessageSquare, Users, UserCheck, Bell, Sun, Moon,
     PanelLeftClose, PanelLeftOpen
 } from 'lucide-react';
@@ -169,8 +169,8 @@ export const NurseLayout = () => {
         const msg = (notification.message || '').toLowerCase();
 
         // Doctor schedule / booking / appointment notifications must be matched before the generic 'request' and 'visit' rules
-        if (type.includes('restock')) return '/RestockReport';
-        if (type.includes('booking')) return '/DoctorSchedule';
+        if (type.includes('restock')) return '/ReportsAnalytics?tab=inventory';
+        if (type.includes('booking')) return '/DoctorVisit?section=requests';
         if (type.includes('appointment') || type.includes('batch') || type.includes('assessment') || type.includes('doctor_visit')) return '/DoctorVisit';
         if (type.includes('requirement') || msg.includes('requirement') || title.includes('submission')) return '/RequirementManagement';
         if (type.includes('visit') || type.includes('consultation') || msg.includes('clinic visit')) return '/VisitLogConsultation';
@@ -188,7 +188,7 @@ export const NurseLayout = () => {
             setIsMessageOpen(true);
             return null;
         }
-        if (type.includes('report')) return '/WeeklyReports';
+        if (type.includes('report')) return '/ReportsAnalytics';
         if (type.includes('setting')) return '/NurseNotificationSettings';
 
         return '/NurseDashboard';
@@ -325,11 +325,11 @@ export const NurseLayout = () => {
                         )}
                     </NavLink>
 
-                    <NavLink to="/WeeklyReports" className="nav-link" onClick={closeSidebar}>
+                    <NavLink to="/ReportsAnalytics" className="nav-link" onClick={closeSidebar}>
                         {({ isActive }) => (
                             <>
                                 <FileBarChart className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
-                                <span>Weekly Reports</span>
+                                <span>Reports &amp; Analytics</span>
                             </>
                         )}
                     </NavLink>
@@ -370,15 +370,6 @@ export const NurseLayout = () => {
                         )}
                     </NavLink>
 
-                    <NavLink to="/RestockReport" className="nav-link" onClick={closeSidebar}>
-                        {({ isActive }) => (
-                            <>
-                                <PackageCheck className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
-                                <span>Restock Report</span>
-                            </>
-                        )}
-                    </NavLink>
-
                     <NavLink to="/DocumentIssuance" className="nav-link" onClick={closeSidebar}>
                         {({ isActive }) => (
                             <>
@@ -411,15 +402,6 @@ export const NurseLayout = () => {
                             <>
                                 <BriefcaseMedical className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
                                 <span>Doctor Visit</span>
-                            </>
-                        )}
-                    </NavLink>
-
-                    <NavLink to="/DoctorSchedule" className="nav-link" onClick={closeSidebar}>
-                        {({ isActive }) => (
-                            <>
-                                <CalendarClock className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
-                                <span>Doctor Schedule</span>
                             </>
                         )}
                     </NavLink>

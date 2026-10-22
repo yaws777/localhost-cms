@@ -4,7 +4,7 @@ import './styles/theme.css';
 import './index.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 
 // 1. Import your session context provider
 import { MultiAccountProvider } from './context/MultiAccountContext';
@@ -23,8 +23,6 @@ import RequestModule from './pages/student/requestModule';
 import StudentLayout from './layout/studentLayout';
 import NurseLayout from './layout/nurseLayout';
 import DoctorVisit from './pages/nurse/doctorVisits';
-import DoctorSchedule from './pages/nurse/doctorSchedule';
-import RestockReport from './pages/nurse/restockReport';
 import BookCheckup from './pages/student/bookCheckup';
 import DocumentIssuance from './pages/nurse/documentIssuance';
 import HealthRecords from './pages/nurse/healthRecords';  
@@ -34,7 +32,7 @@ import InsuranceVault from './pages/nurse/insuranceVault';
 import MedicineInventory from './pages/nurse/medicineInventory';  
 import RequirementManagement from './pages/nurse/requirementManagement';
 import VisitLogConsultation from './pages/nurse/visitLogConsultation';
-import WeeklyReports from './pages/nurse/weeklyReports';
+import ReportsAnalytics from './pages/nurse/reportsAnalytics';
 import DispensedMedicine from './pages/nurse/dispensedMedicine';
 import ChildProfile from './pages/parent/childProfile';
 import ChildClinicRecords from './pages/parent/childClinicRecords';
@@ -53,6 +51,15 @@ import ParentNotificationSettings from './pages/parent/parentNotificationSetting
 import StudentNotificationSettings from './pages/student/studentNotificationSettings'; 
 import ParentMessages from './components/student/ParentMessageModal';
 import NurseMessages from './components/student/NurseMessageModal'
+
+// The Doctor Schedule page is now the Availability / Booking Requests sections of Doctor Visits.
+// Old links and bookmarks (/DoctorSchedule, ?tab=requests, ?doctor=..&new=1) land on the right section.
+const DoctorScheduleRedirect = () => {
+  const params = new URLSearchParams(useLocation().search);
+  params.set('section', params.get('tab') === 'requests' ? 'requests' : 'availability');
+  params.delete('tab');
+  return <Navigate to={`/DoctorVisit?${params.toString()}`} replace />;
+};
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
@@ -82,17 +89,18 @@ root.render(
         <Route element={<NurseLayout />}>
             <Route path="/NurseDashboard" element={<NurseDashboard />} />
             <Route path="/DoctorVisit" element={<DoctorVisit />} />
-            <Route path="/DoctorSchedule" element={<DoctorSchedule />} />
+            <Route path="/DoctorSchedule" element={<DoctorScheduleRedirect />} />
             <Route path="/DocumentIssuance" element={<DocumentIssuance />} />
             <Route path="/HealthRecords" element={<HealthRecords />} />
             <Route path="/HealthScreening" element={<HealthScreening />} />
             <Route path="/IncidentReport" element={<IncidentReport />} />
             <Route path="/InsuranceVault" element={<InsuranceVault />} />
             <Route path="/MedicineInventory" element={<MedicineInventory />} />
-            <Route path="/RestockReport" element={<RestockReport />} />
+            <Route path="/RestockReport" element={<Navigate to="/ReportsAnalytics?tab=inventory" replace />} />
             <Route path="/RequirementManagement" element={<RequirementManagement />} />
             <Route path="/VisitLogConsultation" element={<VisitLogConsultation />} />
-            <Route path="/WeeklyReports" element={<WeeklyReports />} />
+            <Route path="/ReportsAnalytics" element={<ReportsAnalytics />} />
+            <Route path="/WeeklyReports" element={<Navigate to="/ReportsAnalytics" replace />} />
             <Route path="/DispensedMedicine" element={<DispensedMedicine />} />
             <Route path="/ManageStudentAccounts" element={<ManageStudentAccounts />} />
             <Route path="/ManageParentAccounts" element={<ManageParentAccounts />} />

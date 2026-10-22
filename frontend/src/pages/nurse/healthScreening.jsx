@@ -8,10 +8,11 @@ import {
 } from 'lucide-react';
 import jsQR from 'jsqr';
 
+import { openReportWindow, writeReport, escapeHtml } from '../../utils/printReport';
 import stiLogo from '../../assets/sti-logof.png';
 import { formatDate, formatTime } from '../../utils/datetime';
 import '../../styles/nurse/HealthScreening.css';
-import { FolderCrumbs, FolderGrid, Pager, sectionLabel, paginate } from '../../components/common/RecordFolders';
+import { FolderCrumbs, FolderGrid, Pager, MoreMenu, sectionLabel, paginate, scopeCounts, TabCount, groupByDay, dayKey, dayHeading, DaySection } from '../../components/common/RecordFolders';
 
 // Dental / Vision moved to Doctor Visits. Old schedules still show up (read-only) as legacy.
 const SCREENING_TYPES = [
@@ -42,8 +43,6 @@ const vitalFlag = (kind, a, b) => {
   return '';
 };
 const flagColor = (flag) => (flag === 'Normal' ? '#15803d' : flag ? '#b91c1c' : '#64748b');
-
-const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const time12 = (t) => {
   if (!t) return '';
@@ -285,233 +284,69 @@ export default function HealthScreening() {
     setFilterEndDate('');
   };
 
-  // EXPORT REPORT FOR ALL HEALTH SCREENINGS
+  // Print the screenings of the open folder / tab as a summary report
   const handleExportAllReport = async () => {
-    const printWindow = window.open('', '_blank', 'width=950,height=750');
-    if (!printWindow) {
-      showAlert('Please allow popups in your browser to preview and print the report.', 'Popup Blocked', 'warning');
-      return;
-    }
+    const win = openReportWindow(() => showAlert('Please allow popups in your browser to preview and print the report.', 'Popup Blocked', 'warning'));
+    if (!win) return;
 
     const rowsToExport = await fetchAllScheduleRows();
     if (!rowsToExport) {
-      printWindow.close();
+      win.close();
       showAlert('Could not load the screenings for the report.', 'Error', 'error');
       return;
     }
 
-    const reportDate = formatDate(new Date());
-
-    const tableRowsHtml = rowsToExport.map(sch => {
-      const dateStr = sch.scheduled_date ? formatDate(sch.scheduled_date.split('T')[0]) : 'N/A';
-      const timeStr = `${formatTime(sch.start_time)} - ${formatTime(sch.end_time)}`;
-      const presentCount = sch.present_count ?? sch.present_students ?? 0;
-      const totalCount = sch.total_students || 0;
-
-      return `
-        <tr>
-          <td><strong>${sch.title || 'N/A'}</strong></td>
-          <td>${sch.screening_type || 'N/A'}</td>
-          <td>${dateStr}</td>
-          <td>${timeStr}</td>
-          <td>${presentCount} / ${totalCount} Present</td>
-        </tr>
-      `;
-    }).join('');
-
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Health Screening Report</title>
-        <style>
-          body { font-family: Arial, Helvetica, sans-serif; margin: 25px; color: #0f172a; }
-          .report-header { display: flex; align-items: center; border-bottom: 2px solid #0056b3; padding-bottom: 12px; margin-bottom: 16px; }
-          .report-header img { height: 60px; margin-right: 20px; }
-          .report-title h2 { margin: 0; font-size: 20px; color: #1e3a8a; }
-          .report-title p { margin: 4px 0 0; font-size: 13px; color: #475569; }
-          .meta-info { display: flex; justify-content: space-between; font-size: 13px; color: #475569; margin-bottom: 16px; font-weight: 500; }
-          table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 35px; }
-          th { background-color: #f1f5f9; color: #0f172a; text-align: left; padding: 9px 10px; border: 1px solid #cbd5e1; font-weight: bold; }
-          td { padding: 8px 10px; border: 1px solid #e2e8f0; }
-          tr:nth-child(even) { background-color: #f8fafc; }
-          .signature-section { margin-top: 40px; font-size: 13px; }
-          .signature-title { color: #475569; margin-bottom: 35px; }
-          .signature-name { font-weight: bold; font-size: 14px; color: #0f172a; }
-          .signature-role { font-style: italic; color: #64748b; }
-          @media print { body { margin: 0; } }
-        </style>
-      </head>
-      <body>
-        <div class="report-header">
-          <img src="${stiLogo}" alt="STI Logo" />
-          <div class="report-title">
-            <h2>STI COLLEGE BALIUAG</h2>
-            <p>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan</p>
-          </div>
-        </div>
-
-        <div class="meta-info">
-          <span><strong>HEALTH SCREENING SUMMARY REPORT</strong></span>
-          <span>Date Generated: ${reportDate}</span>
-        </div>
-
-        <table>
-          <thead>
-            <tr>
-              <th>Screening Title</th>
-              <th>Type</th>
-              <th>Date</th>
-              <th>Time</th>
-              <th>Attendance (Present / Total)</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${tableRowsHtml || '<tr><td colspan="5">No health screenings found.</td></tr>'}
-          </tbody>
-        </table>
-
-        <div class="signature-section">
-          <div class="signature-title">Prepared by:</div>
-          <div class="signature-name">Marilou H. Balarao</div>
-          <div class="signature-role">School Nurse</div>
-        </div>
-
-        <script>
-          window.onload = function() { window.print(); };
-        </script>
-      </body>
-      </html>
-    `;
-
-    printWindow.document.open();
-    printWindow.document.write(htmlContent);
-    printWindow.document.close();
+    writeReport(win, {
+      title: 'Health Screening Summary Report',
+      columns: ['Screening Title', 'Type', 'Date', 'Time', 'Attendance (Present / Total)'],
+      rows: rowsToExport.map(sch => [
+        sch.title || 'N/A',
+        sch.screening_type || 'N/A',
+        sch.scheduled_date ? formatDate(sch.scheduled_date.split('T')[0]) : 'N/A',
+        `${formatTime(sch.start_time)} - ${formatTime(sch.end_time)}`,
+        `${sch.present_count ?? sch.present_students ?? 0} / ${sch.total_students || 0} Present`
+      ]),
+      emptyText: 'No health screenings found.'
+    });
   };
 
-  // EXPORT REPORT FOR SINGLE HEALTH SCREENING
+  // Print the participants of the open screening
   const handleExportSingleReport = () => {
     if (!activeSchedule) return;
+    const win = openReportWindow(() => showAlert('Please allow popups in your browser to preview and print the report.', 'Popup Blocked', 'warning'));
+    if (!win) return;
 
-    const printWindow = window.open('', '_blank', 'width=950,height=750');
-    if (!printWindow) {
-      showAlert('Please allow popups in your browser to preview and print the report.', 'Popup Blocked', 'warning');
-      return;
-    }
-
-    const reportDate = formatDate(new Date());
-
-    const dateStr = activeSchedule.scheduled_date ? formatDate(activeSchedule.scheduled_date.split('T')[0]) : 'N/A';
-    const timeStr = `${formatTime(activeSchedule.start_time)} - ${formatTime(activeSchedule.end_time)}`;
+    const endDt = getScheduleDateTime(activeSchedule.scheduled_date, activeSchedule.end_time);
+    const isScheduleEnded = endDt ? new Date() > endDt : false;
 
     let presentCount = 0;
-    const tableRowsHtml = scheduleStudents.map(st => {
-      const studentName = `${st.first_name || ''} ${st.last_name || ''}`.trim();
-      const progYrSec = `${st.program_name || ''} (Yr ${st.year_level || ''} - ${st.section || ''})`;
-      
-      const activeEndDt = getScheduleDateTime(activeSchedule.scheduled_date, activeSchedule.end_time);
-      const isScheduleEnded = activeEndDt ? now > activeEndDt : false;
+    const rows = scheduleStudents.map(st => {
+      let attendance = st.attendance_status || 'PENDING';
+      if (isScheduleEnded && attendance === 'PENDING') attendance = 'ABSENT';
+      if (attendance === 'PRESENT') presentCount++;
 
-      let effectiveAttendanceStatus = st.attendance_status || 'PENDING';
-      if (isScheduleEnded && effectiveAttendanceStatus === 'PENDING') {
-        effectiveAttendanceStatus = 'ABSENT';
-      }
+      return [
+        st.student_id || '',
+        `${st.first_name || ''} ${st.last_name || ''}`.trim(),
+        `${st.program_name || ''} (Yr ${st.year_level || ''} - ${st.section || ''})`,
+        attendance,
+        hasResult(st) ? 'Documented' : 'Pending'
+      ];
+    });
 
-      if (effectiveAttendanceStatus === 'PRESENT') {
-        presentCount++;
-      }
-
-      const isDocumented = hasResult(st);
-      const recordStatusStr = isDocumented ? 'Documented' : 'Pending';
-
-      return `
-        <tr>
-          <td>${st.student_id || ''}</td>
-          <td><strong>${studentName}</strong></td>
-          <td>${progYrSec}</td>
-          <td>${effectiveAttendanceStatus}</td>
-          <td>${recordStatusStr}</td>
-        </tr>
-      `;
-    }).join('');
-
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Health Screening Participant Report</title>
-        <style>
-          body { font-family: Arial, Helvetica, sans-serif; margin: 25px; color: #0f172a; }
-          .report-header { display: flex; align-items: center; border-bottom: 2px solid #0056b3; padding-bottom: 12px; margin-bottom: 16px; }
-          .report-header img { height: 60px; margin-right: 20px; }
-          .report-title h2 { margin: 0; font-size: 20px; color: #1e3a8a; }
-          .report-title p { margin: 4px 0 0; font-size: 13px; color: #475569; }
-          .meta-info { display: flex; justify-content: space-between; font-size: 13px; color: #475569; margin-bottom: 16px; font-weight: 500; }
-          .details-card { background-color: #f8fafc; border: 1px solid #cbd5e1; padding: 12px 16px; border-radius: 6px; margin-bottom: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 13px; }
-          table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 35px; }
-          th { background-color: #f1f5f9; color: #0f172a; text-align: left; padding: 9px 10px; border: 1px solid #cbd5e1; font-weight: bold; }
-          td { padding: 8px 10px; border: 1px solid #e2e8f0; }
-          tr:nth-child(even) { background-color: #f8fafc; }
-          .signature-section { margin-top: 40px; font-size: 13px; }
-          .signature-title { color: #475569; margin-bottom: 35px; }
-          .signature-name { font-weight: bold; font-size: 14px; color: #0f172a; }
-          .signature-role { font-style: italic; color: #64748b; }
-          @media print { body { margin: 0; } }
-        </style>
-      </head>
-      <body>
-        <div class="report-header">
-          <img src="${stiLogo}" alt="STI Logo" />
-          <div class="report-title">
-            <h2>STI COLLEGE BALIUAG</h2>
-            <p>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan</p>
-          </div>
-        </div>
-
-        <div class="meta-info">
-          <span><strong>INDIVIDUAL SCREENING PARTICIPANT REPORT</strong></span>
-          <span>Date Generated: ${reportDate}</span>
-        </div>
-
-        <div class="details-card">
-          <div><strong>Screening Title:</strong> ${activeSchedule.title || 'N/A'}</div>
-          <div><strong>Screening Type:</strong> ${activeSchedule.screening_type || 'N/A'}</div>
-          <div><strong>Scheduled Date:</strong> ${dateStr}</div>
-          <div><strong>Time:</strong> ${timeStr}</div>
-          <div><strong>Attendance Rate:</strong> ${presentCount} / ${scheduleStudents.length} Present</div>
-        </div>
-
-        <table>
-          <thead>
-            <tr>
-              <th>Student ID</th>
-              <th>Student Name</th>
-              <th>Program & Year/Section</th>
-              <th>Attendance Status</th>
-              <th>Record Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${tableRowsHtml || '<tr><td colspan="5">No participants found.</td></tr>'}
-          </tbody>
-        </table>
-
-        <div class="signature-section">
-          <div class="signature-title">Prepared by:</div>
-          <div class="signature-name">Marilou H. Balarao</div>
-          <div class="signature-role">School Nurse</div>
-        </div>
-
-        <script>
-          window.onload = function() { window.print(); };
-        </script>
-      </body>
-      </html>
-    `;
-
-    printWindow.document.open();
-    printWindow.document.write(htmlContent);
-    printWindow.document.close();
+    writeReport(win, {
+      title: 'Individual Screening Participant Report',
+      details: [
+        ['Screening Title', activeSchedule.title || 'N/A'],
+        ['Screening Type', activeSchedule.screening_type || 'N/A'],
+        ['Scheduled Date', activeSchedule.scheduled_date ? formatDate(activeSchedule.scheduled_date.split('T')[0]) : 'N/A'],
+        ['Time', `${formatTime(activeSchedule.start_time)} - ${formatTime(activeSchedule.end_time)}`],
+        ['Attendance Rate', `${presentCount} / ${scheduleStudents.length} Present`]
+      ],
+      columns: ['Student ID', 'Student Name', 'Program & Year/Section', 'Attendance Status', 'Record Status'],
+      rows,
+      emptyText: 'No participants found.'
+    });
   };
 
   // Centralized scan handler for both JSQR and manual entry
@@ -1389,7 +1224,9 @@ export default function HealthScreening() {
 
   const now = new Date();
 
-  const filteredSchedules = schedules;
+  // numbers on the status tabs (from the folder summary) and the cards of this page cut into days
+  const tabCounts = scopeCounts(folders, view, searching);
+  const screeningDays = groupByDay(schedules, (sch) => dayKey(sch.scheduled_date));
 
   return (
     <div className="container-hs">
@@ -1400,17 +1237,13 @@ export default function HealthScreening() {
           <p>Schedule, manage, and document student health assessments</p>
         </div>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <button 
-            type="button" 
-            className="btn-hs btn-secondary-hs" 
-            onClick={handleExportAllReport}
-            style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-          >
-            <Printer size={18} /> export
-          </button>
-          <button type="button" className="btn-hs btn-secondary-hs" onClick={handleSendReminders} style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-            <Bell size={18} /> Reminders
-          </button>
+          <MoreMenu
+            buttonClassName="btn-hs btn-secondary-hs"
+            items={[
+              { icon: <Printer size={16} />, label: 'Print screening summary', onClick: handleExportAllReport },
+              { icon: <Bell size={16} />, label: 'Send reminders', onClick: handleSendReminders }
+            ]}
+          />
           <button type="button" className="btn-hs btn-primary-hs" onClick={() => setShowScheduleModal(true)}>
             <Plus size={18} /> Schedule Screening
           </button>
@@ -1457,114 +1290,71 @@ export default function HealthScreening() {
             onChange={e => setSearchTerm(e.target.value)}
           />
         </div>
-        {activeTab !== 'past' && (
-          <select value={filterType} onChange={e => setFilterType(e.target.value)} aria-label="Screening type">
-            <option value="ALL">All types</option>
-            {SCREENING_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-          </select>
-        )}
+        <select value={filterType} onChange={e => setFilterType(e.target.value)} aria-label="Screening type">
+          <option value="ALL">All types</option>
+          {SCREENING_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+        </select>
       </div>
 
       {/* Tabs */}
       <div className="tabs-hs">
-        <button 
+        <button
           type="button"
           className={`tab-btn-hs ${activeTab === 'upcoming' ? 'active-hs' : ''}`}
           onClick={() => setActiveTab('upcoming')}
         >
-          <Calendar size={16} /> Upcoming Screenings
+          <Calendar size={16} /> Upcoming Screenings <TabCount value={tabCounts?.upcoming} />
         </button>
-        <button 
+        <button
           type="button"
           className={`tab-btn-hs ${activeTab === 'ongoing' ? 'active-hs' : ''}`}
           onClick={() => setActiveTab('ongoing')}
         >
-          <Clock size={16} /> Ongoing Screenings
+          <Clock size={16} /> Ongoing Screenings <TabCount value={tabCounts?.ongoing} />
         </button>
-        <button 
+        <button
           type="button"
           className={`tab-btn-hs ${activeTab === 'past' ? 'active-hs' : ''}`}
           onClick={() => setActiveTab('past')}
         >
-          <CheckCircle size={16} /> Past Screenings
+          <CheckCircle size={16} /> Past Screenings <TabCount value={tabCounts?.past} />
         </button>
       </div>
 
-      {/* Filters Toolbar - Only appears on Past Screenings tab */}
+      {/* Date range: only past screenings need one (the type filter lives in the toolbar above) */}
       {activeTab === 'past' && (
-        <div className="filter-bar-hs" style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: '15px',
-          alignItems: 'center',
-          padding: '12px 16px',
-          backgroundColor: '#f8fafc',
-          borderRadius: '8px',
-          border: '1px solid #e2e8f0',
-          marginBottom: '20px'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Filter size={16} color="#64748b" />
-            <label style={{ fontSize: '13px', fontWeight: '600', color: '#475569' }}>
-              Screening Type:
-            </label>
-            <select
-              value={filterType}
-              onChange={e => setFilterType(e.target.value)}
-              style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}
-            >
-              <option value="ALL">All Types</option>
-              {SCREENING_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </select>
-          </div>
+        <div className="filter-bar-hs">
+          <span className="filter-title-hs"><Filter size={16} /> Date range</span>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <label style={{ fontSize: '13px', fontWeight: '600', color: '#475569' }}>
-              Start Date:
-            </label>
-            <input
-              type="date"
-              value={filterStartDate}
-              max={filterEndDate || undefined}
-              onChange={handleStartDateChange}
-              style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}
-            />
-          </div>
+          <label>
+            From
+            <input type="date" value={filterStartDate} max={filterEndDate || undefined} onChange={handleStartDateChange} />
+          </label>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <label style={{ fontSize: '13px', fontWeight: '600', color: '#475569' }}>
-              End Date:
-            </label>
-            <input
-              type="date"
-              value={filterEndDate}
-              min={filterStartDate || undefined}
-              onChange={handleEndDateChange}
-              style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}
-            />
-          </div>
+          <label>
+            To
+            <input type="date" value={filterEndDate} min={filterStartDate || undefined} onChange={handleEndDateChange} />
+          </label>
 
           {(filterType !== 'ALL' || filterStartDate || filterEndDate) && (
-            <button
-              type="button"
-              onClick={handleResetFilters}
-              className="btn-hs btn-secondary-hs"
-              style={{ padding: '6px 12px', fontSize: '13px', marginLeft: 'auto' }}
-            >
-              Reset Filters
+            <button type="button" onClick={handleResetFilters} className="btn-hs btn-secondary-hs reset-hs">
+              Reset filters
             </button>
           )}
         </div>
       )}
 
-      {/* Card Grid */}
-      <div className="card-grid-hs">
-        {filteredSchedules.length === 0 ? (
+      {/* Cards, one block per day */}
+      {schedules.length === 0 ? (
+        <div className="card-grid-hs">
           <div className="no-records-hs">
             <p>No screening schedules found for this status or date range.</p>
           </div>
-        ) : (
-          filteredSchedules.map(sch => {
+        </div>
+      ) : screeningDays.map(day => (
+        <DaySection key={day.key || 'no-date'} heading={dayHeading(day.key, formatDate)} count={day.items.length} noun="screenings">
+        <div className="card-grid-hs">
+          {day.items.map(sch => {
             const presentCount = sch.present_count ?? sch.present_students ?? 0;
             const totalCount = sch.total_students || 0;
 
@@ -1666,9 +1456,10 @@ export default function HealthScreening() {
                 </div>
               </div>
             );
-          })
-        )}
-      </div>
+          })}
+        </div>
+        </DaySection>
+      ))}
 
       <Pager page={page} pageCount={pageInfo.pageCount} total={pageInfo.total} pageSize={pageInfo.pageSize} onPage={setPage} noun="screenings" />
       </>

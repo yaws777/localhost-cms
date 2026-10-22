@@ -12,7 +12,8 @@
 - Single ~9000-line file: search by `app.get|app.post|app.put|app.delete` section headers (login, profile, requirements, clinic-visits, incident-reports, inventory, notifications, push-subscriptions, messages). Add new endpoints inline there.
 - Uploads: multer `diskStorage` to `backend/uploads/`, served at `/uploads`; file URLs built as `http://localhost:3001/uploads/...`.
 - SMS: Twilio client initialized but visit/incident alerts send via iProg (`sendIprogSms`, form-urlencoded, PH numbers normalized to `09XXXXXXXXX`). Web push via `web-push` + `push_subscriptions` table; note codebase mixes `webpush.sendNotification` (correct) and `webpush.sendPushNotification` (broken) — use `sendNotification`.
-- Passwords stored/compared as plaintext `password_hash`; default password is `"123"` (login returns `isDefaultPassword`). Do not "fix" to bcrypt without a migration plan.
+- Passwords are bcrypt hashes in `users.password_hash` (`backend/src/utils/security.js`: `hashPassword` / `verifyPassword`; login still upgrades any leftover plaintext row). Default password is `"123"` (login returns `isDefaultPassword` from the typed password). Always `await hashPassword()` before writing `password_hash`.
+- `messages.content` is AES-256-GCM encrypted (`enc:v1:` prefix) via `encryptText` on insert and `decryptMessageRows` on every read. Key is `MESSAGE_ENCRYPTION_KEY` in untracked `backend/.env.local` (losing it makes stored messages unreadable; back it up). `notifyUsers` stores a generic text for `MESSAGE` notifications. One-time migration: `node backend/scripts/encryptExistingData.js` (idempotent).
 
 ## Frontend (`frontend/`, CRA + React 18 + react-router-dom v6)
 - Run: `cd frontend && npm start` (CRA dev server, port 3000). `npm run dev` / `vite` scripts exist but repo is CRA (`react-scripts`, `src/index.js`, `App.js`); prefer `npm start` and `npm run build` / `npm test` (react-scripts).

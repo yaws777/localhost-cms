@@ -1,22 +1,19 @@
 // doctorVisits.jsx
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { useOutletContext, useNavigate } from 'react-router-dom';
+import { useOutletContext, useSearchParams } from 'react-router-dom';
 import jsQR from 'jsqr';
 import { 
-    UserPlus, 
-    Calendar, 
+    Calendar,
     Clock, 
     FileText, 
     Edit, 
     XCircle, 
     CheckCircle, 
-    Stethoscope, 
-    UserCheck, 
+    UserCheck,
     Search,
     X,
     AlertCircle,
     QrCode,
-    Users,
     Trash2,
     Printer,
     Filter,
@@ -25,17 +22,24 @@ import {
     History,
     MoreVertical,
     Send,
-    Play,
     Footprints,
     RotateCcw,
     FileCheck,
-    ClipboardList
+    ClipboardList,
+    Inbox
 } from 'lucide-react';
 
-import stiLogo from '../../assets/sti-logof.png';
 import { formatTime, formatDate } from '../../utils/datetime';
+import { openReportWindow, writeReport } from '../../utils/printReport';
+import { printDocument, visitDocumentHtml } from '../../utils/doctorVisitDocuments';
 import '../../styles/nurse/DoctorVisits.css';
-import { FolderCrumbs, FolderGrid, Pager, sectionLabel, paginate } from '../../components/common/RecordFolders';
+import { FolderCrumbs, FolderGrid, Pager, MoreMenu, sectionLabel, paginate, scopeCounts, TabCount, groupByDay, dayKey, dayHeading, DaySection } from '../../components/common/RecordFolders';
+import { DoctorAvailability, BookingRequests } from '../../components/nurse/DoctorAvailability';
+import VisitCard from '../../components/nurse/VisitCard';
+import PastVisitsTable from '../../components/nurse/PastVisitsTable';
+
+// The page has three sections; the open one is kept in the URL (?section=) so a link or a notification can land on it
+const SECTIONS = ['visits', 'availability', 'requests'];
 
 const VISIT_TYPES = ['General Checkup', 'Dental Examination', 'Vision Examination', 'Follow-up', 'Referral'];
 
@@ -53,13 +57,6 @@ const VISIT_TYPE_HINTS = {
     'Referral': 'e.g. Specialist Referral Consultation'
 };
 
-const VISIT_TYPE_STYLE = {
-    'Dental Examination': { background: '#fef3c7', color: '#92400e' },
-    'Vision Examination': { background: '#ede9fe', color: '#5b21b6' },
-    'Follow-up': { background: '#dcfce7', color: '#166534' },
-    'Referral': { background: '#fee2e2', color: '#991b1b' }
-};
-
 const EMPTY_DENTAL = {
     oral_hygiene: '', caries_count: 0, missing_count: 0, filled_count: 0, gum_condition: '',
     malocclusion: false, tooth_notes: '', treatment_done: '', treatment_needed: '',
@@ -72,125 +69,13 @@ const EMPTY_VISION = {
     recommended_action: 'No action', remarks: ''
 };
 
-// Pending requests and declined bookings are handled on the Doctor Schedule page, not in this list
+// Pending requests and declined bookings are handled in the Booking Requests section, not in this list
 const HIDDEN_APPT_STATUSES = ['Pending Approval', 'Declined'];
 
 const time12 = (t) => {
     if (!t) return '';
     const [h, m] = String(t).split(':').map(Number);
     return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
-};
-
-const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-
-const printDocument = (title, bodyHtml, onBlocked) => {
-    const w = window.open('', '_blank', 'width=900,height=800');
-    if (!w) {
-        if (onBlocked) onBlocked();
-        return;
-    }
-    w.document.write(`<!doctype html><html><head><title>${escapeHtml(title)}</title><style>
-        body { font-family: 'Segoe UI', Arial, sans-serif; color: #1e293b; margin: 32px; }
-        .head { display: flex; align-items: center; gap: 16px; border-bottom: 3px solid #004b87; padding-bottom: 12px; margin-bottom: 20px; }
-        .head img { height: 56px; }
-        .head h1 { margin: 0; font-size: 20px; color: #004b87; }
-        .head p { margin: 2px 0 0; font-size: 12px; color: #64748b; }
-        h2 { text-align: center; letter-spacing: 1px; margin: 18px 0; }
-        p { font-size: 14px; line-height: 1.6; }
-        table { width: 100%; border-collapse: collapse; margin: 12px 0; }
-        td, th { border: 1px solid #cbd5e1; padding: 8px 10px; font-size: 13px; text-align: left; vertical-align: top; }
-        th { background: #f1f5f9; width: 30%; }
-        .sign { margin-top: 70px; display: flex; justify-content: space-between; }
-        .sign div { width: 40%; text-align: center; border-top: 1px solid #1e293b; padding-top: 6px; font-size: 13px; }
-        .flag { color: #b91c1c; font-weight: 600; }
-        .note { font-size: 11px; color: #64748b; margin-top: 24px; }
-    </style></head><body>
-        <div class="head"><img src="${stiLogo}" alt="STI Logo" /><div><h1>STI College Baliuag - School Clinic</h1><p>Clinic Management System</p></div></div>
-        ${bodyHtml}
-        <p class="note">Printed on ${escapeHtml(formatDate(new Date()))}</p>
-        <script>window.onload = function () { window.print(); };</script>
-    </body></html>`);
-    w.document.close();
-};
-
-// Rows shown in the visit summary for the visit type that was done
-const visitDetailRows = (a) => {
-    const yn = (v) => (v ? 'Yes' : 'No');
-    const rows = [
-        ['Visit type', a.visit_type || 'General Checkup'],
-        ['Date and time', `${formatDate(a.start_time)}, ${formatTime(a.start_time)} - ${formatTime(a.end_time)}`],
-        ['Doctor', `Dr. ${a.doc_first_name || ''} ${a.doc_last_name || ''} (${a.specialization || 'General Physician'})`],
-        ['Attendance', a.attendance_status || 'Pending']
-    ];
-    if (a.visit_type === 'Dental Examination' && a.oral_hygiene) {
-        const dmft = (Number(a.caries_count) || 0) + (Number(a.missing_count) || 0) + (Number(a.filled_count) || 0);
-        rows.push(['Oral hygiene', a.oral_hygiene]);
-        rows.push(['Decayed / Missing / Filled (DMFT)', `${a.caries_count || 0} / ${a.missing_count || 0} / ${a.filled_count || 0} (DMFT ${dmft})`]);
-        rows.push(['Gums', a.gum_condition || 'Not noted']);
-        rows.push(['Malocclusion', yn(a.malocclusion)]);
-        if (a.tooth_notes) rows.push(['Tooth / area notes', a.tooth_notes]);
-        if (a.treatment_done) rows.push(['Treatment done', a.treatment_done]);
-        if (a.treatment_needed) rows.push(['Treatment needed', a.treatment_needed]);
-        if (a.referral_needed) rows.push(['Dental referral', a.referral_to || 'Yes']);
-        if (a.next_visit_recommendation) rows.push(['Next visit', a.next_visit_recommendation]);
-    } else if (a.visit_type === 'Vision Examination' && a.visual_acuity_left) {
-        rows.push(['Visual acuity (uncorrected)', `Left ${a.visual_acuity_left} / Right ${a.visual_acuity_right}`]);
-        if (a.va_left_corrected || a.va_right_corrected) rows.push(['Visual acuity (corrected)', `Left ${a.va_left_corrected || '-'} / Right ${a.va_right_corrected || '-'}`]);
-        rows.push(['Eyeglasses / contacts', `${yn(a.wears_eyeglasses)} / ${yn(a.wears_contacts)}`]);
-        rows.push(['Color vision', a.color_vision || 'Not tested']);
-        if (a.eye_findings) rows.push(['Eye findings', a.eye_findings]);
-        rows.push(['Recommended action', a.recommended_action || 'No action']);
-    } else {
-        rows.push(['Clinical findings', a.clinical_findings || '-']);
-    }
-    rows.push(['Diagnosis', a.diagnosis || '-']);
-    rows.push(['Treatment / recommendations', a.treatment_recommendations || '-']);
-    if (a.is_abnormal) rows.push(['Result', '<span class="flag">Abnormal finding</span>']);
-    if (a.follow_up_needed) rows.push(['Follow-up', '<span class="flag">Follow-up needed</span>']);
-    if (a.referral_facility) rows.push(['Referral', `${a.referral_facility} - ${a.referral_reason || ''}`]);
-    return rows;
-};
-
-const visitDocumentHtml = (kind, a, issuedBy) => {
-    const name = `${a.student_first_name || ''} ${a.student_last_name || ''}`.trim();
-    const section = a.program_id ? `${a.program_id} ${a.year_level || ''}${a.section || ''}` : '';
-    const doctor = `Dr. ${a.doc_first_name || ''} ${a.doc_last_name || ''}`.trim();
-    const visitDate = formatDate(a.start_time);
-    const studentLine = `<strong>${escapeHtml(name)}</strong> (Student ID: ${escapeHtml(a.student_id)}${section ? `, ${escapeHtml(section)}` : ''})`;
-
-    const rowsHtml = (rows) => `<table>${rows.map(([k, v]) =>
-        `<tr><th>${escapeHtml(k)}</th><td>${String(v).startsWith('<span class="flag">') ? v : escapeHtml(v)}</td></tr>`).join('')}</table>`;
-
-    if (kind === 'certificate') {
-        return `<h2>MEDICAL CERTIFICATE</h2>
-            <p>This is to certify that ${studentLine} was seen and examined at the school clinic by <strong>${escapeHtml(doctor)}</strong> on <strong>${escapeHtml(visitDate)}</strong> for a <strong>${escapeHtml(a.visit_type || 'General Checkup')}</strong>.</p>
-            <table>
-                <tr><th>Diagnosis</th><td>${escapeHtml(a.diagnosis || '-')}</td></tr>
-                <tr><th>Recommendations</th><td>${escapeHtml(a.treatment_recommendations || '-')}</td></tr>
-                ${a.follow_up_needed ? '<tr><th>Remarks</th><td>Follow-up visit is needed.</td></tr>' : ''}
-            </table>
-            <p>This certificate is issued upon the request of the student for whatever legal purpose it may serve.</p>
-            <div class="sign"><div>${escapeHtml(doctor)}<br/>Attending Doctor</div><div>${escapeHtml(issuedBy || 'School Nurse')}<br/>School Nurse</div></div>`;
-    }
-
-    if (kind === 'referral') {
-        return `<h2>REFERRAL SLIP</h2>
-            <p>Referred to: <strong>${escapeHtml(a.referral_facility || '')}</strong></p>
-            <p>Patient: ${studentLine}</p>
-            <table>
-                <tr><th>Reason for referral</th><td>${escapeHtml(a.referral_reason || '')}</td></tr>
-                <tr><th>Visit</th><td>${escapeHtml(a.visit_type || 'General Checkup')} on ${escapeHtml(visitDate)}</td></tr>
-                <tr><th>Diagnosis</th><td>${escapeHtml(a.diagnosis || '-')}</td></tr>
-                <tr><th>Findings</th><td>${escapeHtml(a.clinical_findings || '-')}</td></tr>
-            </table>
-            <p>Kindly evaluate and manage the patient. Thank you.</p>
-            <div class="sign"><div>${escapeHtml(doctor)}<br/>Referring Doctor</div><div>${escapeHtml(issuedBy || 'School Nurse')}<br/>School Nurse</div></div>`;
-    }
-
-    return `<h2>DOCTOR VISIT SUMMARY</h2>
-        <p>Patient: ${studentLine}</p>
-        ${rowsHtml(visitDetailRows(a))}
-        <div class="sign"><div>${escapeHtml(doctor)}<br/>Attending Doctor</div><div>${escapeHtml(issuedBy || 'School Nurse')}<br/>School Nurse</div></div>`;
 };
 
 const formatLocalToSQL = (date) => {
@@ -666,383 +551,71 @@ const DoctorVisit = () => {
         return paginate(list, participantPage, PARTICIPANTS_PER_PAGE);
     }, [selectedGroup, participantSearch, participantPage]);
 
-    // EXPORT REPORT FOR ALL DOCTOR APPOINTMENTS
+    // Print the visits of the open folder / tab as a summary report
     const handleExportAllReport = async () => {
-        const printWindow = window.open('', '_blank', 'width=950,height=750');
-        if (!printWindow) {
-            showError('Please allow popups to preview and print the report.', 'Popup Blocked');
-            return;
-        }
+        const win = openReportWindow(() => showError('Please allow popups to preview and print the report.', 'Popup Blocked'));
+        if (!win) return;
 
         const allRows = await fetchAllGroupRows();
         if (!allRows) {
-            printWindow.close();
+            win.close();
             showError('Could not load the visits for the report.', 'Server Error');
             return;
         }
-        const rowsToExport = buildVisitGroups(allRows, activeTab);
 
-        const reportDate = formatDate(new Date());
-
-        const tableRowsHtml = rowsToExport.map(group => {
-            const dateFormatted = group.apptStart ? formatLocalDateOnly(group.apptStart) : 'N/A';
-            const startTimeFormatted = group.apptStart ? formatTime(group.apptStart) : '';
-            const endTimeFormatted = group.apptEnd ? formatTime(group.apptEnd) : '';
-            const timeStr = `${startTimeFormatted} - ${endTimeFormatted}`;
-            const docStr = `${group.doctorName || 'N/A'} (${group.specialization || 'General'})`;
-
-            const totalCount = group.appointments ? group.appointments.length : 0;
-            const presentCount = group.appointments ? group.appointments.filter(a => (a.attendance_status || '').toLowerCase() === 'present').length : 0;
-
-            return `
-                <tr>
-                    <td><strong>${group.title || 'N/A'}</strong></td>
-                    <td>${docStr}</td>
-                    <td>${dateFormatted}</td>
-                    <td>${timeStr}</td>
-                    <td>${presentCount} / ${totalCount} Present</td>
-                </tr>
-            `;
-        }).join('');
-
-        const htmlContent = `
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>Doctor Visit Summary Report</title>
-                <style>
-                    body {
-                        font-family: Arial, Helvetica, sans-serif;
-                        margin: 25px;
-                        color: #0f172a;
-                    }
-                    .report-header {
-                        display: flex;
-                        align-items: center;
-                        border-bottom: 2px solid #0056b3;
-                        padding-bottom: 12px;
-                        margin-bottom: 16px;
-                    }
-                    .report-header img {
-                        height: 60px;
-                        margin-right: 20px;
-                    }
-                    .report-title h2 {
-                        margin: 0;
-                        font-size: 20px;
-                        color: #1e3a8a;
-                    }
-                    .report-title p {
-                        margin: 4px 0 0;
-                        font-size: 13px;
-                        color: #475569;
-                    }
-                    .meta-info {
-                        display: flex;
-                        justify-content: space-between;
-                        font-size: 13px;
-                        color: #475569;
-                        margin-bottom: 16px;
-                        font-weight: 500;
-                    }
-                    table {
-                        width: 100%;
-                        border-collapse: collapse;
-                        font-size: 12px;
-                        margin-bottom: 35px;
-                    }
-                    th {
-                        background-color: #f1f5f9;
-                        color: #0f172a;
-                        text-align: left;
-                        padding: 9px 10px;
-                        border: 1px solid #cbd5e1;
-                        font-weight: bold;
-                    }
-                    td {
-                        padding: 8px 10px;
-                        border: 1px solid #e2e8f0;
-                    }
-                    tr:nth-child(even) {
-                        background-color: #f8fafc;
-                    }
-                    .signature-section {
-                        margin-top: 40px;
-                        font-size: 13px;
-                    }
-                    .signature-title {
-                        color: #475569;
-                        margin-bottom: 35px;
-                    }
-                    .signature-name {
-                        font-weight: bold;
-                        font-size: 14px;
-                        color: #0f172a;
-                    }
-                    .signature-role {
-                        font-style: italic;
-                        color: #64748b;
-                    }
-                    @media print {
-                        body { margin: 0; }
-                    }
-                </style>
-            </head>
-            <body>
-                <div class="report-header">
-                    <img src="${stiLogo}" alt="STI Logo" />
-                    <div class="report-title">
-                        <h2>STI COLLEGE BALIUAG</h2>
-                        <p>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan</p>
-                    </div>
-                </div>
-
-                <div class="meta-info">
-                    <span><strong>DOCTOR VISIT SUMMARY REPORT</strong></span>
-                    <span>Date Generated: ${reportDate}</span>
-                </div>
-
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Visit Title</th>
-                            <th>Doctor & Specialization</th>
-                            <th>Date</th>
-                            <th>Time Window</th>
-                            <th>Attendance (Present / Total)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${tableRowsHtml || '<tr><td colspan="5">No doctor visit records found.</td></tr>'}
-                    </tbody>
-                </table>
-
-                <div class="signature-section">
-                    <div class="signature-title">Prepared by:</div>
-                    <div class="signature-name">Marilou H. Balarao</div>
-                    <div class="signature-role">School Nurse</div>
-                </div>
-
-                <script>
-                    window.onload = function() {
-                        window.print();
-                    };
-                </script>
-            </body>
-            </html>
-        `;
-
-        printWindow.document.open();
-        printWindow.document.write(htmlContent);
-        printWindow.document.close();
+        writeReport(win, {
+            title: 'Doctor Visit Summary Report',
+            columns: ['Visit Title', 'Doctor & Specialization', 'Date', 'Time Window', 'Attendance (Present / Total)'],
+            rows: buildVisitGroups(allRows, activeTab).map(group => [
+                group.title || 'N/A',
+                `${group.doctorName || 'N/A'} (${group.specialization || 'General'})`,
+                group.apptStart ? formatLocalDateOnly(group.apptStart) : 'N/A',
+                `${group.apptStart ? formatTime(group.apptStart) : ''} - ${group.apptEnd ? formatTime(group.apptEnd) : ''}`,
+                `${group.appointments.filter(a => (a.attendance_status || '').toLowerCase() === 'present').length} / ${group.appointments.length} Present`
+            ]),
+            emptyText: 'No doctor visit records found.'
+        });
     };
 
-    // EXPORT REPORT FOR SINGLE DOCTOR APPOINTMENT BATCH
+    // Print the participants of the open batch
     const handleExportSingleReport = () => {
         if (!selectedGroup) return;
-
-        const printWindow = window.open('', '_blank', 'width=950,height=750');
-        if (!printWindow) {
-            showError('Please allow popups to preview and print the report.', 'Popup Blocked');
-            return;
-        }
-
-        const reportDate = formatDate(new Date());
-
-        const dateFormatted = selectedGroup.apptStart ? formatLocalDateOnly(selectedGroup.apptStart) : 'N/A';
-        const startTimeFormatted = selectedGroup.apptStart ? formatTime(selectedGroup.apptStart) : '';
-        const endTimeFormatted = selectedGroup.apptEnd ? formatTime(selectedGroup.apptEnd) : '';
-        const timeStr = `${startTimeFormatted} - ${endTimeFormatted}`;
+        const win = openReportWindow(() => showError('Please allow popups to preview and print the report.', 'Popup Blocked'));
+        if (!win) return;
 
         const now = new Date();
-
-        const totalCount = selectedGroup.appointments.length;
         let presentCount = 0;
+        const rows = selectedGroup.appointments.map(appt => {
+            const start = parseSQLDate(appt.start_time || appt.scheduled_date) || selectedGroup.apptStart;
+            const end = parseSQLDate(appt.end_time) || selectedGroup.apptEnd;
 
-        const tableRowsHtml = selectedGroup.appointments.map(appt => {
-            const studentName = `${appt.student_first_name || ''} ${appt.student_last_name || ''}`.trim();
-            const progSec = appt.program_id ? `${appt.program_id} - ${appt.year_level || ''}${appt.section || ''}` : 'N/A';
+            let attendance = appt.attendance_status || 'Pending';
+            if (end < now && attendance.toLowerCase() === 'pending') attendance = 'Absent';
+            if (attendance.toLowerCase() === 'present') presentCount++;
 
-            const rawStart = appt.start_time || appt.scheduled_date;
-            const rawEnd = appt.end_time;
-            const studentStart = parseSQLDate(rawStart) || selectedGroup.apptStart;
-            const studentEnd = parseSQLDate(rawEnd) || selectedGroup.apptEnd;
+            return [
+                appt.student_id || '',
+                `${appt.student_first_name || ''} ${appt.student_last_name || ''}`.trim(),
+                appt.program_id ? `${appt.program_id} - ${appt.year_level || ''}${appt.section || ''}` : 'N/A',
+                `${start ? formatTime(start) : ''} - ${end ? formatTime(end) : ''}`,
+                attendance,
+                appt.assessment_id ? 'Documented' : 'Pending'
+            ];
+        });
 
-            const slotStr = `${studentStart ? formatTime(studentStart) : ''} - ${studentEnd ? formatTime(studentEnd) : ''}`;
-
-            let currentAttendance = appt.attendance_status || 'Pending';
-            if (studentEnd < now && currentAttendance.toLowerCase() === 'pending') {
-                currentAttendance = 'Absent';
-            }
-
-            if (currentAttendance.toLowerCase() === 'present') {
-                presentCount++;
-            }
-
-            const assessmentStr = appt.assessment_id ? 'Documented' : 'Pending';
-
-            return `
-                <tr>
-                    <td>${appt.student_id || ''}</td>
-                    <td><strong>${studentName}</strong></td>
-                    <td>${progSec}</td>
-                    <td>${slotStr}</td>
-                    <td>${currentAttendance}</td>
-                    <td>${assessmentStr}</td>
-                </tr>
-            `;
-        }).join('');
-
-        const htmlContent = `
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>Individual Doctor Visit Participant Report</title>
-                <style>
-                    body {
-                        font-family: Arial, Helvetica, sans-serif;
-                        margin: 25px;
-                        color: #0f172a;
-                    }
-                    .report-header {
-                        display: flex;
-                        align-items: center;
-                        border-bottom: 2px solid #0056b3;
-                        padding-bottom: 12px;
-                        margin-bottom: 16px;
-                    }
-                    .report-header img {
-                        height: 60px;
-                        margin-right: 20px;
-                    }
-                    .report-title h2 {
-                        margin: 0;
-                        font-size: 20px;
-                        color: #1e3a8a;
-                    }
-                    .report-title p {
-                        margin: 4px 0 0;
-                        font-size: 13px;
-                        color: #475569;
-                    }
-                    .meta-info {
-                        display: flex;
-                        justify-content: space-between;
-                        font-size: 13px;
-                        color: #475569;
-                        margin-bottom: 16px;
-                        font-weight: 500;
-                    }
-                    .details-card {
-                        background-color: #f8fafc;
-                        border: 1px solid #cbd5e1;
-                        padding: 12px 16px;
-                        border-radius: 6px;
-                        margin-bottom: 20px;
-                        display: grid;
-                        grid-template-columns: 1fr 1fr;
-                        gap: 10px;
-                        font-size: 13px;
-                    }
-                    table {
-                        width: 100%;
-                        border-collapse: collapse;
-                        font-size: 12px;
-                        margin-bottom: 35px;
-                    }
-                    th {
-                        background-color: #f1f5f9;
-                        color: #0f172a;
-                        text-align: left;
-                        padding: 9px 10px;
-                        border: 1px solid #cbd5e1;
-                        font-weight: bold;
-                    }
-                    td {
-                        padding: 8px 10px;
-                        border: 1px solid #e2e8f0;
-                    }
-                    tr:nth-child(even) {
-                        background-color: #f8fafc;
-                    }
-                    .signature-section {
-                        margin-top: 40px;
-                        font-size: 13px;
-                    }
-                    .signature-title {
-                        color: #475569;
-                        margin-bottom: 35px;
-                    }
-                    .signature-name {
-                        font-weight: bold;
-                        font-size: 14px;
-                        color: #0f172a;
-                    }
-                    .signature-role {
-                        font-style: italic;
-                        color: #64748b;
-                    }
-                    @media print {
-                        body { margin: 0; }
-                    }
-                </style>
-            </head>
-            <body>
-                <div class="report-header">
-                    <img src="${stiLogo}" alt="STI Logo" />
-                    <div class="report-title">
-                        <h2>STI COLLEGE BALIUAG</h2>
-                        <p>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan</p>
-                    </div>
-                </div>
-
-                <div class="meta-info">
-                    <span><strong>INDIVIDUAL DOCTOR VISIT PARTICIPANT REPORT</strong></span>
-                    <span>Date Generated: ${reportDate}</span>
-                </div>
-
-                <div class="details-card">
-                    <div><strong>Visit Title:</strong> ${selectedGroup.title || 'N/A'}</div>
-                    <div><strong>Assigned Doctor:</strong> ${selectedGroup.doctorName || 'N/A'} (${selectedGroup.specialization || 'General'})</div>
-                    <div><strong>Scheduled Date:</strong> ${dateFormatted}</div>
-                    <div><strong>Time Window:</strong> ${timeStr}</div>
-                    <div><strong>Attendance Rate:</strong> ${presentCount} / ${totalCount} Present</div>
-                </div>
-
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Student ID</th>
-                            <th>Student Name</th>
-                            <th>Program & Section</th>
-                            <th>Time Slot</th>
-                            <th>Attendance</th>
-                            <th>Assessment Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${tableRowsHtml || '<tr><td colspan="6">No participating students found.</td></tr>'}
-                    </tbody>
-                </table>
-
-                <div class="signature-section">
-                    <div class="signature-title">Prepared by:</div>
-                    <div class="signature-name">Marilou H. Balarao</div>
-                    <div class="signature-role">School Nurse</div>
-                </div>
-
-                <script>
-                    window.onload = function() {
-                        window.print();
-                    };
-                </script>
-            </body>
-            </html>
-        `;
-
-        printWindow.document.open();
-        printWindow.document.write(htmlContent);
-        printWindow.document.close();
+        writeReport(win, {
+            title: 'Individual Doctor Visit Participant Report',
+            details: [
+                ['Visit Title', selectedGroup.title || 'N/A'],
+                ['Assigned Doctor', `${selectedGroup.doctorName || 'N/A'} (${selectedGroup.specialization || 'General'})`],
+                ['Scheduled Date', selectedGroup.apptStart ? formatLocalDateOnly(selectedGroup.apptStart) : 'N/A'],
+                ['Time Window', `${selectedGroup.apptStart ? formatTime(selectedGroup.apptStart) : ''} - ${selectedGroup.apptEnd ? formatTime(selectedGroup.apptEnd) : ''}`],
+                ['Attendance Rate', `${presentCount} / ${rows.length} Present`]
+            ],
+            columns: ['Student ID', 'Student Name', 'Program & Section', 'Time Slot', 'Attendance', 'Assessment Status'],
+            rows,
+            emptyText: 'No participating students found.'
+        });
     };
 
     const updateAppointmentStatus = useCallback(async (appointmentId, studentId, newStatus, reason) => {
@@ -1495,7 +1068,15 @@ const DoctorVisit = () => {
     // walk-in, history, reminders and printable documents
     // ======================================================================
     const API = 'http://localhost:3001';
-    const navigate = useNavigate();
+
+    const [searchParams, setSearchParams] = useSearchParams();
+    const section = SECTIONS.includes(searchParams.get('section')) ? searchParams.get('section') : 'visits';
+    const goSection = (name) => setSearchParams(name === 'visits' ? {} : { section: name });    // "Set up schedule" links inside the visit forms: close the form, then open the schedule form for that doctor
+    const goSetupSchedule = (doctorId) => {
+        setShowScheduleModal(false);
+        setFollowUpModal(null);
+        setSearchParams({ section: 'availability', doctor: doctorId, new: '1' });
+    };
 
     const [reasonModal, setReasonModal] = useState(null);
     const [reasonText, setReasonText] = useState('');
@@ -1527,6 +1108,21 @@ const DoctorVisit = () => {
     }, []);
 
     useEffect(() => { fetchDoctorsWithSchedule(); }, [fetchDoctorsWithSchedule]);
+
+    // A schedule or booking changed in the Availability / Booking Requests sections: the visit lists,
+    // the folder counts and the numbers on the section tabs follow.
+    const refreshAfterScheduleChange = useCallback(() => {
+        fetchDoctorsWithSchedule();
+        fetchAppointments();
+    }, [fetchDoctorsWithSchedule, fetchAppointments]);
+
+    const doctorsWithoutSchedule = doctorsWithSchedule ? doctors.filter(d => !doctorsWithSchedule.has(d.doctor_id)).length : 0;
+
+    const openAddDoctor = () => {
+        setDoctorForm({ doctor_id: '', first_name: '', last_name: '', specialization: '', contact_number: '' });
+        setIsEditDoctor(false);
+        setShowDoctorModal(true);
+    };
 
     // Open schedule windows of the chosen doctor/date, shown in the mass-schedule form
     useEffect(() => {
@@ -1654,19 +1250,26 @@ const DoctorVisit = () => {
 
     const handleDeleteBatch = (group) => {
         if (!group) return;
-        if (!group.batchId) {
+        // individual bookings, walk-ins and follow-ups can only be deleted from the Past Visits table
+        if (!group.batchId && activeTab !== 'past') {
             showError('Individual bookings, walk-ins and follow-ups are not batches. Cancel them per student instead.', 'Not a Batch');
             return;
         }
         showConfirm(
             `Are you sure you want to permanently DELETE "${group.title}" and all ${group.appointments.length} associated appointment records? This action CANNOT be undone.`,
-            'Delete Batch Schedule',
+            group.batchId ? 'Delete Batch Schedule' : 'Delete Visit',
             async () => {
                 try {
-                    const res = await fetch(`${API}/api/doctor-visits/batch/${group.batchId}`, { method: 'DELETE' });
+                    const res = group.batchId
+                        ? await fetch(`${API}/api/doctor-visits/batch/${group.batchId}`, { method: 'DELETE' })
+                        : await fetch(`${API}/api/doctor-visits/appointments`, {
+                            method: 'DELETE',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ appointment_ids: group.appointments.map(a => a.appointment_id) })
+                        });
                     const data = await res.json();
                     if (data.success) {
-                        showSuccess('Batch schedule permanently deleted.', 'Batch Deleted');
+                        showSuccess(group.batchId ? 'Batch schedule permanently deleted.' : 'Doctor visit permanently deleted.', group.batchId ? 'Batch Deleted' : 'Visit Deleted');
                         if (selectedGroup?.groupKey === group.groupKey) setSelectedGroup(null);
                         fetchAppointments();
                     } else {
@@ -2000,6 +1603,10 @@ const DoctorVisit = () => {
 
     const groupedVisits = useMemo(() => buildVisitGroups(appointments, activeTab), [appointments, activeTab]);
 
+    // numbers on the status tabs (from the folder summary) and the visit cards cut into days
+    const tabCounts = scopeCounts(folders, view, searching);
+    const visitDays = useMemo(() => groupByDay(groupedVisits, (g) => dayKey(g.apptStart)), [groupedVisits]);
+
     useEffect(() => {
         if (selectedGroup) {
             const updated = groupedVisits.find(g => g.groupKey === selectedGroup.groupKey);
@@ -2013,67 +1620,66 @@ const DoctorVisit = () => {
             <div className="header-dv">
                 <div>
                     <h2>Doctor Visit Management</h2>
-                    <p className="subtitle-dv">Schedule, track, and document student doctor visits.</p>
+                    <p className="subtitle-dv">Schedule, track, and document student doctor visits, and set when each doctor is available.</p>
                 </div>
+                {section === 'visits' && (
                 <div className="header-actions-dv">
-                    <button 
-                        type="button"
-                        className="sti-btn-dv sti-btn-secondary-dv" 
-                        onClick={handleExportAllReport}
-                        style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                    >
-                        <Printer size={18} /> export
-                    </button>
-                    <button className="sti-btn-dv sti-btn-secondary-dv" onClick={() => navigate('/DoctorSchedule')}>
-                        <CalendarClock size={18} /> Doctor Schedule
-                    </button>
-                    <button className="sti-btn-dv sti-btn-secondary-dv" onClick={openWalkIn}>
+                    <button type="button" className="sti-btn-dv sti-btn-secondary-dv" onClick={openWalkIn}>
                         <Footprints size={18} /> Walk-in
                     </button>
-                    <button className="sti-btn-dv sti-btn-secondary-dv" onClick={handleSendReminders}>
-                        <Bell size={18} /> Reminders
-                    </button>
-                    <button className="sti-btn-dv sti-btn-secondary-dv" onClick={() => { setIsEditDoctor(false); setShowDoctorModal(true); }}>
-                        <UserPlus size={18} /> Manage Doctor Profile
-                    </button>
-                    <button className="sti-btn-dv sti-btn-primary-dv" onClick={() => setShowScheduleModal(true)}>
+                    <MoreMenu
+                        buttonClassName="sti-btn-dv sti-btn-secondary-dv"
+                        items={[
+                            { icon: <Printer size={16} />, label: 'Print visit summary', onClick: handleExportAllReport },
+                            { icon: <Bell size={16} />, label: 'Send reminders', onClick: handleSendReminders }
+                        ]}
+                    />
+                    <button type="button" className="sti-btn-dv sti-btn-primary-dv" onClick={() => setShowScheduleModal(true)}>
                         <Calendar size={18} /> Schedule Doctor Visit
                     </button>
                 </div>
+                )}
             </div>
 
-            {/* Doctors Bar */}
-            {doctors.length > 0 && (
-                <div className="doctors-bar-dv">
-                    <span className="doctors-bar-title-dv"><Stethoscope size={16} /> Available Doctors:</span>
-                    <div className="doctors-chip-list-dv">
-                        {doctors.map(doc => (
-                            <div key={doc.doctor_id} className="doctor-chip-dv">
-                                <span>Dr. {doc.first_name} {doc.last_name} ({doc.specialization})</span>
-                                {doctorsWithSchedule && !doctorsWithSchedule.has(doc.doctor_id) && (
-                                    <button
-                                        type="button"
-                                        className="no-schedule-chip-dv"
-                                        title="This doctor has no open schedule, so nothing can be booked yet"
-                                        onClick={() => navigate(`/DoctorSchedule?doctor=${doc.doctor_id}&new=1`)}
-                                    >
-                                        No schedule yet - Set up
-                                    </button>
-                                )}
-                                <button onClick={() => openEditDoctor(doc)} className="chip-edit-btn-dv" title="Edit Doctor Profile">
-                                    <Edit size={13} />
-                                </button>
-                            </div>
-                        ))}
-                    </div>
-                </div>
+            {/* Sections: the visits themselves, when each doctor is available, and the students' booking requests */}
+            <nav className="section-nav-dv" aria-label="Doctor visit sections">
+                <button type="button" className={`section-tab-dv ${section === 'visits' ? 'active-dv' : ''}`} onClick={() => goSection('visits')}>
+                    <ClipboardList size={16} /> Visits
+                </button>
+                <button type="button" className={`section-tab-dv ${section === 'availability' ? 'active-dv' : ''}`} onClick={() => goSection('availability')}>
+                    <CalendarClock size={16} /> Availability
+                    {doctorsWithoutSchedule > 0 && (
+                        <span className="section-badge-dv warn-dv" title={`${doctorsWithoutSchedule} doctor(s) have no open schedule, so nothing can be booked with them`}>{doctorsWithoutSchedule}</span>
+                    )}
+                </button>
+                <button type="button" className={`section-tab-dv ${section === 'requests' ? 'active-dv' : ''}`} onClick={() => goSection('requests')}>
+                    <Inbox size={16} /> Booking Requests
+                    {pendingBookingCount > 0 && <span className="section-badge-dv">{pendingBookingCount}</span>}
+                </button>
+            </nav>
+
+            {section === 'availability' && (
+                <DoctorAvailability
+                    doctors={doctors}
+                    nurseId={nurseId}
+                    userId={userId}
+                    onChanged={refreshAfterScheduleChange}
+                    onAddDoctor={openAddDoctor}
+                    onEditDoctor={openEditDoctor}
+                />
             )}
 
+            {section === 'requests' && (
+                <BookingRequests doctors={doctors} userId={userId} onChanged={refreshAfterScheduleChange} />
+            )}
+
+            {section === 'visits' && (
+            <>
             {pendingBookingCount > 0 && (
                 <div className="pending-banner-dv">
                     <Bell size={16} />
                     <span><strong>{pendingBookingCount}</strong> student booking request{pendingBookingCount > 1 ? 's are' : ' is'} waiting for approval.</span>
-                    <button type="button" className="sti-btn-dv sti-btn-primary-dv" onClick={() => navigate('/DoctorSchedule?tab=requests')}>Review requests</button>
+                    <button type="button" className="sti-btn-dv sti-btn-primary-dv" onClick={() => goSection('requests')}>Review requests</button>
                 </div>
             )}
 
@@ -2105,13 +1711,13 @@ const DoctorVisit = () => {
             <div className="tabs-container-dv">
                 <div className="tabs-dv">
                     <button className={`tab-btn-dv ${activeTab === 'upcoming' ? 'active-dv' : ''}`} onClick={() => setActiveTab('upcoming')}>
-                        <Clock size={16} /> Upcoming Visits
+                        <Clock size={16} /> Upcoming Visits <TabCount value={tabCounts?.upcoming} />
                     </button>
                     <button className={`tab-btn-dv ${activeTab === 'ongoing' ? 'active-dv' : ''}`} onClick={() => setActiveTab('ongoing')}>
-                        <UserCheck size={16} /> Ongoing Visits
+                        <UserCheck size={16} /> Ongoing Visits <TabCount value={tabCounts?.ongoing} />
                     </button>
                     <button className={`tab-btn-dv ${activeTab === 'past' ? 'active-dv' : ''}`} onClick={() => setActiveTab('past')}>
-                        <CheckCircle size={16} /> Past Visits
+                        <CheckCircle size={16} /> Past Visits <TabCount value={tabCounts?.past} />
                     </button>
                 </div>
 
@@ -2126,65 +1732,49 @@ const DoctorVisit = () => {
                 </div>
             </div>
 
-            {/* Past Visits Date & Assigned Doctor Filter Bar */}
+            {/* Past visits: filter by doctor and date range */}
             {activeTab === 'past' && (
-                <div className="past-filters-dv" style={{ display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap', marginTop: '15px', background: '#f8fafc', padding: '12px 16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                    <span style={{ fontSize: '13px', fontWeight: '600', color: '#475569', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <Filter size={16} /> Filter Past Visits:
-                    </span>
+                <div className="past-filters-dv">
+                    <span className="filter-title-dv"><Filter size={16} /> Filter past visits</span>
 
-                    {/* Filter by Doctor */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <label style={{ fontSize: '12px', fontWeight: '600', color: '#64748b' }}>Assigned Doctor:</label>
-                        <select
-                            value={pastDoctorFilter}
-                            onChange={(e) => setPastDoctorFilter(e.target.value)}
-                            style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}
-                        >
-                            <option value="">All Doctors</option>
+                    <label>
+                        Doctor
+                        <select value={pastDoctorFilter} onChange={(e) => setPastDoctorFilter(e.target.value)}>
+                            <option value="">All doctors</option>
                             {doctors.map(doc => (
                                 <option key={doc.doctor_id} value={doc.doctor_id}>
                                     Dr. {doc.first_name} {doc.last_name} ({doc.specialization})
                                 </option>
                             ))}
                         </select>
-                    </div>
+                    </label>
 
-                    {/* Filter by Date Range */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <label style={{ fontSize: '12px', fontWeight: '600', color: '#64748b' }}>Start Date:</label>
-                        <input 
-                            type="date" 
+                    <label>
+                        From
+                        <input
+                            type="date"
                             max={pastEndDate || undefined}
-                            value={pastStartDate} 
+                            value={pastStartDate}
                             onChange={(e) => {
                                 const newStart = e.target.value;
                                 setPastStartDate(newStart);
-                                if (pastEndDate && newStart > pastEndDate) {
-                                    setPastEndDate('');
-                                }
+                                if (pastEndDate && newStart > pastEndDate) setPastEndDate('');
                             }}
-                            style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}
                         />
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <label style={{ fontSize: '12px', fontWeight: '600', color: '#64748b' }}>End Date:</label>
-                        <input 
-                            type="date" 
-                            min={pastStartDate || undefined}
-                            value={pastEndDate} 
-                            onChange={(e) => setPastEndDate(e.target.value)}
-                            style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}
-                        />
-                    </div>
+                    </label>
+
+                    <label>
+                        To
+                        <input type="date" min={pastStartDate || undefined} value={pastEndDate} onChange={(e) => setPastEndDate(e.target.value)} />
+                    </label>
+
                     {(pastStartDate || pastEndDate || pastDoctorFilter) && (
-                        <button 
-                            type="button" 
-                            className="sti-btn-dv sti-btn-light-dv"
+                        <button
+                            type="button"
+                            className="sti-btn-dv sti-btn-light-dv reset-dv"
                             onClick={() => { setPastStartDate(''); setPastEndDate(''); setPastDoctorFilter(''); }}
-                            style={{ padding: '6px 12px', fontSize: '12px', marginLeft: 'auto' }}
                         >
-                            Reset Filters
+                            Reset filters
                         </button>
                     )}
                 </div>
@@ -2198,114 +1788,39 @@ const DoctorVisit = () => {
                     <AlertCircle size={36} />
                     <p>No {activeTab} doctor visit schedules found.</p>
                 </div>
+            ) : activeTab === 'past' ? (
+                <PastVisitsTable
+                    groups={groupedVisits}
+                    onView={setSelectedGroup}
+                    onUpdate={openBatchRescheduleModal}
+                    onDelete={handleDeleteBatch}
+                />
             ) : (
-                <div className="cards-grid-dv" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px', marginTop: '15px' }}>
-                    {groupedVisits.map((group) => {
-                        const dateFormatted = group.apptStart ? formatLocalDateOnly(group.apptStart) : 'N/A';
-                        const startTimeFormatted = group.apptStart ? formatTime(group.apptStart) : '';
-                        const endTimeFormatted = group.apptEnd ? formatTime(group.apptEnd) : '';
-
-                        const totalCount = group.appointments.length;
-                        const presentCount = group.appointments.filter(a => (a.attendance_status || '').toLowerCase() === 'present').length;
-
-                        return (
-                            <div key={group.groupKey} className="card-dv" style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.04)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                                <div>
-                                    <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#e0f2fe', color: '#0369a1', padding: '4px 12px', borderRadius: '20px', fontSize: '13px', fontWeight: '600' }}>
-                                            <Stethoscope size={14} /> {group.specialization}
-                                        </span>
-                                        {group.batchId && (
-                                            <span style={{ fontSize: '11px', color: '#64748b', fontWeight: '500' }}>
-                                                Batch #{group.batchId}
-                                            </span>
-                                        )}
-                                    </div>
-                                    <div style={{ marginBottom: '8px' }}>
-                                        <span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '600', background: '#e2e8f0', color: '#334155', ...(VISIT_TYPE_STYLE[group.visitType] || {}) }}>
-                                            {group.visitType}
-                                        </span>
-                                    </div>
-
-                                    <h3 style={{ margin: '0 0 12px 0', fontSize: '18px', fontWeight: '700', color: '#0f172a' }}>
-                                        {group.title}
-                                    </h3>
-
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', color: '#64748b', fontSize: '14px', marginBottom: '20px' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <Calendar size={16} />
-                                            <span>{dateFormatted}</span>
-                                        </div>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <Clock size={16} />
-                                            <span>{startTimeFormatted} - {endTimeFormatted}</span>
-                                        </div>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <Users size={16} />
-                                            <span><strong>{presentCount} / {totalCount}</strong> Present Students</span>
-                                        </div>
-                                        <div style={{ fontSize: '13px', color: '#475569', fontStyle: 'italic', marginTop: '2px' }}>
-                                            Assigned Doctor: {group.doctorName}
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '15px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                    <button 
-                                        className="sti-btn-dv sti-btn-primary-dv" 
-                                        style={{ flex: 1, justifyContent: 'center', display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 12px' }}
-                                        onClick={() => setSelectedGroup(group)}
-                                    >
-                                        <Users size={16} /> Participants
-                                    </button>
-                                    {activeTab === 'ongoing' && (
-                                        <button 
-                                            className="sti-btn-dv sti-btn-secondary-dv" 
-                                            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 12px' }}
-                                            onClick={() => openScannerForBatch(group)}
-                                            title="Scan QR Attendance for this batch"
-                                        >
-                                            <QrCode size={16} /> Scan QR
-                                        </button>
-                                    )}
-                                    {activeTab === 'ongoing' && group.batchId && (
-                                        <button
-                                            className="sti-btn-dv sti-btn-secondary-dv"
-                                            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 12px' }}
-                                            onClick={() => handleStartBatch(group)}
-                                            title="Notify the students that this batch is starting"
-                                        >
-                                            <Play size={16} /> Start
-                                        </button>
-                                    )}
-                                    {activeTab === 'upcoming' && group.batchId && (
-                                        <>
-                                            <button
-                                                className="sti-btn-dv sti-btn-secondary-dv"
-                                                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 12px' }}
-                                                onClick={() => openBatchRescheduleModal(group)}
-                                                title="Edit Batch Date & Start/End Time"
-                                            >
-                                                <Edit size={16} /> Edit
-                                            </button>
-                                            <button 
-                                                className="sti-btn-dv" 
-                                                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 12px', background: '#ef4444', color: '#ffffff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
-                                                onClick={() => handleDeleteBatch(group)}
-                                                title="Delete Batch Schedule Permanently"
-                                            >
-                                                <Trash2 size={16} /> Delete
-                                            </button>
-                                        </>
-                                    )}
-                                </div>
-                            </div>
-                        );
-                    })}
+                <div className="day-list-dv">
+                {visitDays.map((day) => (
+                    <DaySection key={day.key || 'no-date'} heading={dayHeading(day.key, formatDate)} count={day.items.length} noun="visits">
+                        <div className="cards-grid-dv">
+                            {day.items.map((group) => (
+                                <VisitCard
+                                    key={group.groupKey}
+                                    group={group}
+                                    tab={activeTab}
+                                    onParticipants={setSelectedGroup}
+                                    onScan={openScannerForBatch}
+                                    onStart={handleStartBatch}
+                                    onEdit={openBatchRescheduleModal}
+                                    onDelete={handleDeleteBatch}
+                                />
+                            ))}
+                        </div>
+                    </DaySection>
+                ))}
                 </div>
             )}
 
             <Pager page={page} pageCount={pageInfo.pageCount} total={pageInfo.total} pageSize={pageInfo.pageSize} onPage={setPage} noun="visits" />
+            </>
+            )}
             </>
             )}
 
@@ -2546,7 +2061,7 @@ const DoctorVisit = () => {
                                     {followUpSlotsLoading ? <div className="hint-dv">Loading slots...</div> : followUpSlots.length === 0 ? (
                                         <div className="avail-warn-dv">
                                             No open schedule for this doctor on that date.{' '}
-                                            <button type="button" className="link-btn-dv" onClick={() => navigate(`/DoctorSchedule?doctor=${followUpModal.appt.doctor_id}&new=1`)}>Set up schedule</button>
+                                            <button type="button" className="link-btn-dv" onClick={() => goSetupSchedule(followUpModal.appt.doctor_id)}>Set up schedule</button>
                                         </div>
                                     ) : (
                                         <div className="slot-list-dv">
@@ -2867,7 +2382,7 @@ const DoctorVisit = () => {
                                 ) : (
                                     <div className="avail-warn-dv">
                                         This doctor has no open {scheduleForm.visit_type} schedule on that date, so the batch cannot be saved.{' '}
-                                        <button type="button" className="link-btn-dv" onClick={() => navigate(`/DoctorSchedule?doctor=${scheduleForm.doctor_id}&new=1`)}>Set up schedule</button>
+                                        <button type="button" className="link-btn-dv" onClick={() => goSetupSchedule(scheduleForm.doctor_id)}>Set up schedule</button>
                                     </div>
                                 )
                             )}
@@ -3273,30 +2788,30 @@ const DoctorVisit = () => {
                                 <label>Batch Appointment Scheduled Date</label>
                                 <input 
                                     type="date" 
-                                    min={todayStr} 
-                                    required 
-                                    value={batchRescheduleData.scheduled_date} 
+                                    min={activeTab === 'past' ? undefined : todayStr}
+                                    required
+                                    value={batchRescheduleData.scheduled_date}
                                     onChange={e => {
                                         const newDate = e.target.value;
                                         setBatchRescheduleData(prev => {
                                             const minStart = getMinStartTime(newDate);
                                             let updatedStart = prev.batch_start_time;
-                                            if (minStart && updatedStart && updatedStart < minStart) {
+                                            if (activeTab !== 'past' && minStart && updatedStart && updatedStart < minStart) {
                                                 updatedStart = '';
                                             }
                                             return { ...prev, scheduled_date: newDate, batch_start_time: updatedStart };
                                         });
-                                    }} 
+                                    }}
                                 />
                             </div>
 
                             <div className="form-group-dv">
                                 <label>Batch Start Time</label>
-                                <input 
-                                    type="time" 
-                                    required 
-                                    min={getMinStartTime(batchRescheduleData.scheduled_date)}
-                                    value={batchRescheduleData.batch_start_time} 
+                                <input
+                                    type="time"
+                                    required
+                                    min={activeTab === 'past' ? undefined : getMinStartTime(batchRescheduleData.scheduled_date)}
+                                    value={batchRescheduleData.batch_start_time}
                                     onChange={e => {
                                         const newStart = e.target.value;
                                         setBatchRescheduleData(prev => {
@@ -3314,7 +2829,7 @@ const DoctorVisit = () => {
                                 <label>Batch End Time</label>
                                 <input 
                                     type="time" 
-                                    min={batchRescheduleData.batch_start_time || getMinStartTime(batchRescheduleData.scheduled_date)} 
+                                    min={batchRescheduleData.batch_start_time || (activeTab === 'past' ? undefined : getMinStartTime(batchRescheduleData.scheduled_date))}
                                     required 
                                     value={batchRescheduleData.batch_end_time} 
                                     onChange={e => setBatchRescheduleData({...batchRescheduleData, batch_end_time: e.target.value})} 
