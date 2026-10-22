@@ -41,6 +41,7 @@ import {
   Plus
 } from 'lucide-react';
 import stiLogo from '../../assets/sti-logof.png';
+import { formatMonthDay, formatTime as formatTimeBase, formatDate as formatDateBase, formatDateTime as formatDateTimeBase } from '../../utils/datetime';
 import '../../styles/nurse/NurseDashboard.css';
 
 const COLORS = ['#0250A3', '#F59E0B', '#EF4444', '#10B981', '#8B5CF6', '#EC4899', '#3B82F6', '#14B8A6', '#6366F1'];
@@ -74,16 +75,6 @@ const formatCeilAvg = (val) => {
     );
   }
   return <strong>{ceilVal}</strong>;
-};
-
-const getNextMonthString = (fromMonthStr) => {
-  const base = fromMonthStr
-    ? new Date(Number(fromMonthStr.split('-')[0]), Number(fromMonthStr.split('-')[1]) - 1, 1)
-    : new Date();
-  const nextMonth = new Date(base.getFullYear(), base.getMonth() + 1, 1);
-  const year = nextMonth.getFullYear();
-  const month = String(nextMonth.getMonth() + 1).padStart(2, '0');
-  return `${year}-${month}`;
 };
 
 const getCurrentMonthString = () => {
@@ -123,21 +114,14 @@ const formatDate = (dateString) => {
   if (!dateString) return 'N/A';
   const date = parseSafeDate(dateString);
   if (isNaN(date.getTime())) return dateString;
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return formatDateBase(date);
 };
 
 const formatDateTime = (dateTimeString) => {
   if (!dateTimeString) return 'N/A';
   const date = parseSafeDate(dateTimeString);
   if (isNaN(date.getTime())) return dateTimeString;
-  return date.toLocaleString('en-US', { 
-    month: 'short', 
-    day: 'numeric', 
-    year: 'numeric',
-    hour: '2-digit', 
-    minute: '2-digit', 
-    hour12: true 
-  });
+  return formatDateTimeBase(date);
 };
 
 const formatTime = (timeString) => {
@@ -145,7 +129,7 @@ const formatTime = (timeString) => {
   if (timeString.includes('T') || timeString.includes('-')) {
     const date = parseSafeDate(timeString);
     if (!isNaN(date.getTime())) {
-      return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+      return formatTimeBase(date);
     }
   }
   const parts = timeString.split(':');
@@ -208,11 +192,7 @@ const generatePDFReport = (title, periodText, tableHeaders, tableRows, onError) 
     return;
   }
 
-  const currentDateStr = new Date().toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric'
-  });
+  const currentDateStr = formatDate(new Date());
 
   const htmlContent = `
     <!DOCTYPE html>
@@ -392,35 +372,38 @@ const generatePDFReport = (title, periodText, tableHeaders, tableRows, onError) 
 };
 
 /* --- CUSTOM CHART TOOLTIPS --- */
-const PredictiveTooltip = ({ active, payload, label }) => {
-  if (active && payload && payload.length) {
-    const itemData = payload[0]?.payload;
-    const dosageUnit = itemData?.dosageForm || 'Unit';
+// Shows both phases of the rolling forecast for the hovered target day
+const ForecastTooltip = ({ active, payload }) => {
+  if (!active || !payload || !payload.length) return null;
+  const day = payload[0].payload;
+  const p1 = day.phase1_prediction;
+  const p2 = day.phase2_windowShift;
+  const fmt = (n) => parseFloat(Number(n).toFixed(2));
+  // Window for target day t+k is the 30 days before it (t+k-30 .. t+k-1); after the shift it is t+k-29 .. t+k.
+  const shiftDate = (dateStr, days) => {
+    const [y, m, d] = String(dateStr).slice(0, 10).split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+  };
+  const oldestDate = shiftDate(day.targetDate, -30);
+  const activeWindowRange = `${formatDateBase(oldestDate)} – ${formatDateBase(shiftDate(day.targetDate, -1))}`;
+  const newWindowRange = `${formatDateBase(shiftDate(day.targetDate, -29))} – ${formatDateBase(day.targetDate)}`;
 
-    return (
-      <div className="custom-chart-tooltip-nd predictive-tooltip-width-nd">
-        <h4 className="tooltip-header-nd">{label}</h4>
-        <ul className="tooltip-items-list-standard-nd">
-          {payload.map((entry, index) => {
-            const displayUnit = pluralize(dosageUnit, entry.value);
-
-            return (
-              <li key={index} className="tooltip-item-nd">
-                <div className="tooltip-item-left-nd">
-                  <span className="tooltip-marker-nd" style={{ backgroundColor: entry.color }} />
-                  <span className="tooltip-item-name-nd">{entry.name}</span>
-                </div>
-                <span className="tooltip-item-value-nd" style={{ color: entry.color }}>
-                  {formatCeilAvg(entry.value)} {displayUnit}
-                </span>
-              </li>
-            );
-          })}
-        </ul>
-      </div>
-    );
-  }
-  return null;
+  return (
+    <div className="custom-chart-tooltip-nd predictive-tooltip-width-nd">
+      <h4 className="tooltip-header-nd">Day +{day.dayOffset} · {formatDateBase(day.targetDate)} ({day.dayOfWeek})</h4>
+      <ul className="tooltip-items-list-standard-nd">
+        <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Predicted demand</span><span className="tooltip-item-value-nd" style={{ color: '#F97316' }}>{p1.predictedDemand} {day.unit}</span></li>
+        <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Window sum</span><span className="tooltip-item-value-nd">{fmt(p1.activeWindowSum)} {day.unit}</span></li>
+        <li className="tooltip-item-nd tooltip-item-note-nd"><span className="tooltip-item-name-nd">Dates covered</span><span className="tooltip-item-value-nd">{activeWindowRange}</span></li>
+        <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Avg daily demand</span><span className="tooltip-item-value-nd">{fmt(p1.activeADD)} {day.unit}/day</span></li>
+        <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Day-of-week index</span><span className="tooltip-item-value-nd">×{p1.seasonalityIndex}</span></li>
+        <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Dropped oldest</span><span className="tooltip-item-value-nd">{fmt(p2.droppedOldestValue)} {day.unit}</span></li>
+        <li className="tooltip-item-nd tooltip-item-note-nd"><span className="tooltip-item-name-nd">Date dropped</span><span className="tooltip-item-value-nd">{formatDateBase(oldestDate)}</span></li>
+        <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">New window sum</span><span className="tooltip-item-value-nd">{fmt(p2.newWindowSum)} {day.unit}</span></li>
+        <li className="tooltip-item-nd tooltip-item-note-nd"><span className="tooltip-item-name-nd">Dates covered</span><span className="tooltip-item-value-nd">{newWindowRange}</span></li>
+      </ul>
+    </div>
+  );
 };
 
 const CustomTooltip = ({ active, payload, label, unitLabel = "cases", medicinesUnitsMap = {}, showBrandOnly = false }) => {
@@ -465,7 +448,7 @@ const CustomTooltip = ({ active, payload, label, unitLabel = "cases", medicinesU
 };
 
 const CustomXAxisTick = ({ x, y, payload, filterType, isCurrentYearSelected, currentMonthName }) => {
-  const isCurrentMonth = filterType === 'yearly' && isCurrentYearSelected && payload.value === currentMonthName;
+  const isCurrentMonth = filterType === 'monthly' && isCurrentYearSelected && payload.value === currentMonthName;
   return (
     <g transform={`translate(${x},${y})`}>
       {isCurrentMonth && (
@@ -581,7 +564,10 @@ const NurseDashboard = () => {
   const [averagesLabel, setAveragesLabel] = useState(""); 
   const [timelineLabel, setTimelineLabel] = useState("");
   const [periodLabel, setPeriodLabel] = useState("");
-  const [filterType, setFilterType] = useState("current"); 
+  const [filterType, setFilterType] = useState("weekly"); 
+  const [averageUnit, setAverageUnit] = useState("week");
+  const [topConditions, setTopConditions] = useState([]);
+  const [illnessSummary, setIllnessSummary] = useState(null);
   const [selectedMonth, setSelectedMonth] = useState(maxCurrentMonth); 
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString()); 
   const [isLoading, setIsLoading] = useState(true);
@@ -602,9 +588,10 @@ const NurseDashboard = () => {
   // 3. Predictive Demand State
   const [predictiveData, setPredictiveData] = useState([]);
   const [predictiveTitle, setPredictiveTitle] = useState("");
-  const [predictiveMonth, setPredictiveMonth] = useState(maxCurrentMonth);
-  const [predictiveTargetMonth, setPredictiveTargetMonth] = useState("");
+  const [predictivePeriod, setPredictivePeriod] = useState("");
   const [isPredictiveLoading, setIsPredictiveLoading] = useState(true);
+  const [selectedForecastMedicineId, setSelectedForecastMedicineId] = useState("");
+  const [forecastStartDate, setForecastStartDate] = useState("");
 
   // 4. Frequent Complaint Alerts State
   const [alerts, setAlerts] = useState([]);
@@ -642,7 +629,6 @@ const NurseDashboard = () => {
   // Expand / Collapse UI States
   const [isAveragesExpanded, setIsAveragesExpanded] = useState(false);
   const [isDispensedAveragesExpanded, setIsDispensedAveragesExpanded] = useState(false);
-  const [isPredictiveExpanded, setIsPredictiveExpanded] = useState(false);
 
   const realTimeDate = new Date();
   const currentMonthNamesShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -679,7 +665,7 @@ const NurseDashboard = () => {
 
   // EXPORT HANDLERS FOR REPORTS
   const handleExportHealthTrends = () => {
-    const headers = ['No.', 'Medical Condition', 'Total Cases Recorded', 'Average Cases / Month'];
+    const headers = ['No.', 'Medical Condition', 'Total Cases Recorded', `Average Cases / ${averageUnit}`];
     const rows = complaintsList.map((complaint, index) => {
       const totalCases = trendData.reduce((sum, item) => sum + (Number(item[complaint]) || 0), 0);
       const avgVal = averages && averages[complaint] !== undefined ? averages[complaint] : 0;
@@ -689,13 +675,36 @@ const NurseDashboard = () => {
         index + 1,
         complaint,
         totalCases,
-        `${ceilAvg} avg/mo`
+        `${ceilAvg} avg/${averageUnit}`
       ];
     });
 
     generatePDFReport(
       'Health Trends Summary Report',
       `${periodLabel || ''} ${timelineLabel ? `(${timelineLabel})` : ''}`,
+      headers,
+      rows,
+      (errMsg) => showAlert({ type: 'error', title: 'Export Failed', message: errMsg })
+    );
+  };
+
+  const handleExportIllnessSummary = () => {
+    if (!illnessSummary) return;
+    const headers = ['Rank', 'Illness / Condition', 'Source', 'Cases', '% of All Cases', 'Students', 'Previous 30 Days', 'Change'];
+    const rows = illnessSummary.rows.map((r) => [
+      r.rank,
+      r.name,
+      r.source,
+      r.count,
+      `${r.percent}%`,
+      r.students,
+      r.previousCount,
+      r.trend === 'new' ? 'New' : `${r.delta > 0 ? '+' : ''}${r.delta}${r.changePercent !== null ? ` (${r.changePercent > 0 ? '+' : ''}${r.changePercent}%)` : ''}`
+    ]);
+
+    generatePDFReport(
+      'Illness Summary Report: Past 30 Days',
+      `${illnessSummary.period.start} to ${illnessSummary.period.end} · ${illnessSummary.total} cases (previous 30 days: ${illnessSummary.previousTotal})`,
       headers,
       rows,
       (errMsg) => showAlert({ type: 'error', title: 'Export Failed', message: errMsg })
@@ -738,33 +747,35 @@ const NurseDashboard = () => {
 
   const handleExportPredictiveDemand = () => {
     const headers = [
-      'No.', 
-      'Medicine Name', 
-      'Package Strength / Form', 
-      'Avg Monthly Dispense (Container Demand)', 
-      'Current Stock', 
-      'Predicted Need'
+      'No.',
+      'Medicine Name',
+      'Package Strength / Form',
+      'Current Stock',
+      'Forecast: Next 30 Days',
+      'Suggested Restock',
+      'Status'
     ];
 
     const rows = predictiveData.map((med, index) => {
-      const avgMonthlyContainer = Math.ceil(Number(med.avgMonthlyDispensed) || 0);
       const currStock = Number(med.currentStock) || 0;
-      const predNeed = Math.ceil(Number(med.predictedNeed) || 0);
       const formLabel = med.dosageForm || 'unit';
+      const next30 = Math.ceil(Number(med.forecast30d) || 0);
+      const restock = Number(med.suggestedRestock) || 0;
 
       return [
         index + 1,
         med.name,
         `${med.packageStrength || 'N/A'} (${med.dosageForm || 'Unit'})`,
-        `${avgMonthlyContainer} ${pluralize(formLabel, avgMonthlyContainer)}`,
         `${currStock} ${pluralize(formLabel, currStock)}`,
-        `${predNeed} ${pluralize(formLabel, predNeed)}`
+        `${next30} ${pluralize(formLabel, next30)}`,
+        `${restock} ${pluralize(formLabel, restock)}`,
+        med.status || 'N/A'
       ];
     });
 
     generatePDFReport(
-      'Predictive Medicine Demand Forecast Report',
-      `Forecast Target Month: ${predictiveTargetMonth || getNextMonthString(predictiveMonth)}`,
+      'Next 30 Days Predictive Medicine Demand Forecast Report',
+      `Forecast period: ${predictivePeriod || 'next 30 days'} (rolling 30-day forecast). Suggested restock = forecast + critical level - usable stock.`,
       headers,
       rows,
       (errMsg) => showAlert({ type: 'error', title: 'Export Failed', message: errMsg })
@@ -861,34 +872,26 @@ const NurseDashboard = () => {
       const result = await response.json();
       const dashData = result.success && result.data ? result.data : {};
 
+      // Per-medicine stock (all batches added together, expired stock left out): the same numbers as the Restock Report
       let medicineStockAlerts = [];
       try {
-        const invResponse = await fetch('http://localhost:3001/api/inventory');
-        if (invResponse.ok) {
-          const inventoryBatches = await invResponse.json();
-
-          medicineStockAlerts = inventoryBatches
-            .filter(batch => Number(batch.current_stock) <= Number(batch.low_stock_level))
-            .map(batch => {
-              const stock = Number(batch.current_stock);
-              const crit = Number(batch.critical_stock_level);
-              const low = Number(batch.low_stock_level);
-
-              let stock_status = 'ADEQUATE';
-              if (stock <= crit) {
-                stock_status = 'CRITICAL';
-              } else if (stock <= low) {
-                stock_status = 'LOW';
-              }
-
-              return {
-                ...batch,
-                stock_status
-              };
-            });
+        const stockResponse = await fetch('http://localhost:3001/api/medicine-stock-status?alerts=1');
+        if (stockResponse.ok) {
+          const stock = await stockResponse.json();
+          medicineStockAlerts = (stock.medicines || []).map(m => ({
+            medicine_id: m.medicine_id,
+            generic_name: m.generic_name,
+            brand_name: m.brand_name,
+            dosage_form: m.dosage_form,
+            current_stock: m.usable_stock,
+            low_stock_level: m.low_stock_level,
+            critical_stock_level: m.critical_stock_level,
+            suggested_qty: m.suggested_qty,
+            stock_status: m.status === 'Out of stock' ? 'OUT' : m.status.toUpperCase()
+          }));
         }
       } catch (invErr) {
-        console.error("Error fetching batch inventory stock alerts:", invErr);
+        console.error("Error fetching medicine stock alerts:", invErr);
       }
 
       const rawScreenings = dashData.upcomingHealthScreenings || [];
@@ -925,20 +928,20 @@ const NurseDashboard = () => {
   const fetchHealthTrends = useCallback(async () => {
     setIsLoading(true);
     try {
-      let apiDate = filterType === 'weekly' 
-        ? `${selectedMonth}-01` 
-        : filterType === 'yearly' 
-        ? `${selectedYear}-01-01` 
-        : new Date().toISOString().split('T')[0];
+      // daily and weekly show one month, monthly shows one year
+      const apiDate = filterType === 'monthly' ? `${selectedYear}-01-01` : `${selectedMonth}-01`;
 
-      const params = new URLSearchParams({ filterType, date: apiDate });
+      const params = new URLSearchParams({ granularity: filterType, date: apiDate });
       const response = await fetch(`http://localhost:3001/api/health-trends?${params.toString()}`);
       const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Failed to load health trends');
 
       setTrendData(result.data || []);
       setComplaintsList(result.complaintsList || []);
       setAverages(result.averages || null);
-      setAveragesLabel(result.averagesLabel || ""); 
+      setAveragesLabel(result.averagesLabel || "");
+      setAverageUnit(result.averageUnit || "month");
+      setTopConditions(result.topConditions || []);
       setTimelineLabel(result.timelineLabel || "");
       setPeriodLabel(result.periodLabel || "");
     } catch (error) {
@@ -947,6 +950,17 @@ const NurseDashboard = () => {
       setIsLoading(false);
     }
   }, [filterType, selectedMonth, selectedYear]);
+
+  // Fetch the illness summary of the last 30 days
+  const fetchIllnessSummary = useCallback(async () => {
+    try {
+      const response = await fetch('http://localhost:3001/api/illness-summary?days=30');
+      if (!response.ok) throw new Error('Failed to load the illness summary');
+      setIllnessSummary(await response.json());
+    } catch (error) {
+      console.error('Failed to fetch illness summary:', error);
+    }
+  }, []);
 
   // Fetch Medicine Dispensed Overview
   const fetchMedicineDispensed = useCallback(async () => {
@@ -981,19 +995,19 @@ const NurseDashboard = () => {
   const fetchPredictiveDemand = useCallback(async () => {
     setIsPredictiveLoading(true);
     try {
-      const targetMonth = getNextMonthString(predictiveMonth);
-      const response = await fetch(`http://localhost:3001/api/predictive-medicine?month=${targetMonth}`);
+      const response = await fetch('http://localhost:3001/api/predictive-medicine');
       if (!response.ok) throw new Error("Network issue fetching predictive calculation");
       const result = await response.json();
       setPredictiveData(result.data || []);
-      setPredictiveTitle(result.graphTitle || "Predictive Medicine Demand");
-      setPredictiveTargetMonth(result.selectedMonth || targetMonth);
+      setPredictiveTitle(result.graphTitle || "Next 30 Days Predictive Medicine Demand Forecast");
+      setPredictivePeriod(result.periodLabel || "");
+      setForecastStartDate(result.forecastStartDate || "");
     } catch (error) {
       console.error("Failed to fetch predictive demand:", error);
     } finally {
       setIsPredictiveLoading(false);
     }
-  }, [predictiveMonth]);
+  }, []);
 
   // Fetch Frequent Complaint Alerts
   const fetchFrequentAlerts = useCallback(async () => {
@@ -1271,11 +1285,12 @@ const NurseDashboard = () => {
   useEffect(() => {
     fetchNurseDashboard();
     fetchHealthTrends();
+    fetchIllnessSummary();
     fetchMedicineDispensed();
     fetchPredictiveDemand();
     fetchFrequentAlerts();
     fetchAnnouncements();
-  }, [fetchNurseDashboard, fetchHealthTrends, fetchMedicineDispensed, fetchPredictiveDemand, fetchFrequentAlerts, fetchAnnouncements]);
+  }, [fetchNurseDashboard, fetchHealthTrends, fetchIllnessSummary, fetchMedicineDispensed, fetchPredictiveDemand, fetchFrequentAlerts, fetchAnnouncements]);
 
   const activeComplaintsInGraph = complaintsList.filter(complaint => 
     trendData.some(dataPoint => (Number(dataPoint[complaint]) || 0) > 0)
@@ -1295,13 +1310,30 @@ const NurseDashboard = () => {
     return !isStandardUnit(unit);
   });
 
-  const activePredictiveData = predictiveData.filter(med => 
-    (Number(med.predictedNeed) || 0) > 0 || 
-    (Number(med.currentStock) || 0) > 0 || 
-    (Number(med.avgMonthlyDispensed) || 0) > 0
+  // Dispense units such as g / L produce fractional totals, so the axis must allow decimals
+  const dispensedHasDecimals = dispensedData.some(dataPoint =>
+    activeMedicinesInGraph.some(medicine => !Number.isInteger(Number(dataPoint[medicine]) || 0))
   );
 
-  const predictiveChartMinWidth = Math.max(activePredictiveData.length * 140, 800);
+  // 30-day rolling forecast: only medicines dispensed in the trailing 30 days can be forecast
+  const forecastMedicines = predictiveData.filter(med =>
+    Array.isArray(med.forecast) && (med.history || []).some(v => Number(v) > 0)
+  );
+  const selectedForecastMedicine =
+    forecastMedicines.find(med => String(med.id) === String(selectedForecastMedicineId)) || forecastMedicines[0];
+  const forecastChartData = (selectedForecastMedicine?.forecast || []).map(day => ({
+    ...day,
+    label: `${formatMonthDay(day.targetDate)} ${day.dayOfWeek}`,
+    predictedDemand: day.phase1_prediction.predictedDemand,
+    unit: selectedForecastMedicine.unitOfMeasure,
+    dosageForm: selectedForecastMedicine.dosageForm || 'unit',
+    packageStrength: selectedForecastMedicine.packageStrength
+  }));
+  // Total is ceiled once on the summed dispense units (not per day) so small daily amounts don't inflate it
+  const forecastTotalBase = parseFloat(forecastChartData.reduce((sum, day) => sum + day.predictedDemand, 0).toFixed(3));
+  const forecastTotalRaw = forecastTotalBase / (selectedForecastMedicine?.containerStrength || 1);
+  const forecastTotal = Math.ceil(parseFloat(forecastTotalRaw.toFixed(6)));
+  const forecastDosageForm = selectedForecastMedicine?.dosageForm || 'unit';
   const yearOptions = Array.from({ length: 6 }, (_, i) => (new Date().getFullYear() - i).toString());
 
   const viewAllBtnStyle = {
@@ -1408,14 +1440,14 @@ const NurseDashboard = () => {
             className="overview-card-nd stat-card-red-nd"
             role="button"
             tabIndex={0}
-            onClick={() => navigate('/MedicineInventory')}
-            onKeyDown={(event) => handleOverviewCardKeyDown(event, '/MedicineInventory')}
+            onClick={() => navigate('/RestockReport')}
+            onKeyDown={(event) => handleOverviewCardKeyDown(event, '/RestockReport')}
           >
             <div className="stat-card-header-nd">
               <div>
                 <span className="stat-card-label-nd">Medicine Stock Alerts</span>
                 <h3 className="stat-card-number-nd">{nurseDashboardData.medicineStockAlerts.length}</h3>
-                <p className="stat-card-subtext-nd">Batches Requiring Action</p>
+                <p className="stat-card-subtext-nd">Medicines to Restock</p>
               </div>
               <div className="stat-icon-wrapper-nd bg-red-light-nd">
                 <ShieldAlert size={24} color="#EF4444" />
@@ -1423,7 +1455,7 @@ const NurseDashboard = () => {
             </div>
             <div className="stat-card-footer-nd">
               <div className="stat-pill-nd danger-pill-nd">
-                <span>Critical: <strong>{nurseDashboardData.medicineStockAlerts.filter(m => m.stock_status === 'CRITICAL').length}</strong></span>
+                <span>Critical / Out: <strong>{nurseDashboardData.medicineStockAlerts.filter(m => ['CRITICAL', 'OUT'].includes(m.stock_status)).length}</strong></span>
               </div>
               <div className="stat-pill-nd warning-pill-nd">
                 <span>Low Stock: <strong>{nurseDashboardData.medicineStockAlerts.filter(m => m.stock_status === 'LOW').length}</strong></span>
@@ -1540,12 +1572,12 @@ const NurseDashboard = () => {
       <div className="dashboard-header-nd">
         <h2 className="dashboard-title-nd">Health Trend Overview</h2>
         <div className="filter-group-nd">
-          <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="filter-input-nd filter-select-nd">
-            <option value="current">Current Health Trends (Default)</option>
-            <option value="weekly">Weekly Overview (By Month)</option>
-            <option value="yearly">Yearly Overview</option>
+          <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="filter-input-nd filter-select-nd" aria-label="Trend period">
+            <option value="daily">Daily (day by day of a month)</option>
+            <option value="weekly">Weekly (week by week of a month)</option>
+            <option value="monthly">Monthly (month by month of a year)</option>
           </select>
-          {filterType === 'weekly' && (
+          {(filterType === 'daily' || filterType === 'weekly') && (
             <input 
               type="month" 
               value={selectedMonth} 
@@ -1557,7 +1589,7 @@ const NurseDashboard = () => {
               className="filter-input-nd date-picker-nd" 
             />
           )}
-          {filterType === 'yearly' && (
+          {filterType === 'monthly' && (
             <select value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)} className="filter-input-nd filter-select-year-nd">
               {yearOptions.map(year => <option key={year} value={year}>{year}</option>)}
             </select>
@@ -1586,7 +1618,7 @@ const NurseDashboard = () => {
             <ResponsiveContainer width="100%" height={380}>
               <BarChart data={trendData} margin={{ top: 20, right: 30, left: 10, bottom: 20 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
-                {filterType === 'yearly' && isCurrentYearSelected && (
+                {filterType === 'monthly' && isCurrentYearSelected && (
                   <ReferenceArea x1={currentRealTimeMonthName} x2={currentRealTimeMonthName} fill="#0250A3" fillOpacity={0.04} stroke="#0250A3" strokeOpacity={0.1} strokeDasharray="3 3" />
                 )}
                 <XAxis dataKey="name" tickLine={false} tick={(props) => <CustomXAxisTick {...props} filterType={filterType} isCurrentYearSelected={isCurrentYearSelected} currentMonthName={currentRealTimeMonthName} />} />
@@ -1595,7 +1627,7 @@ const NurseDashboard = () => {
                 <Legend verticalAlign="bottom" height={36} iconType="rect" iconSize={14} wrapperStyle={{ paddingTop: '15px' }} />
                 
                 {activeComplaintsInGraph.map((complaint) => (
-                  <Bar key={complaint} dataKey={complaint} name={complaint} fill={getComplaintColor(complaint)} radius={[4, 4, 0, 0]} />
+                  <Bar key={complaint} dataKey={complaint} name={complaint} fill={getComplaintColor(complaint)} radius={filterType === 'daily' ? 0 : [4, 4, 0, 0]} stackId={filterType === 'daily' ? 'cases' : undefined} />
                 ))}
               </BarChart>
             </ResponsiveContainer>
@@ -1614,9 +1646,9 @@ const NurseDashboard = () => {
                   <span className="badge-name-nd">{complaint}</span>
                   <span className="badge-value-nd">
                     {averages[complaint] !== undefined ? (
-                      <>{formatCeilAvg(averages[complaint])} avg/mo</>
+                      <>{formatCeilAvg(averages[complaint])} avg/{averageUnit}</>
                     ) : (
-                      '0 avg/mo'
+                      `0 avg/${averageUnit}`
                     )}
                   </span>
                 </div>
@@ -1630,6 +1662,82 @@ const NurseDashboard = () => {
           )}
         </div>
       )}
+
+      {/* Common health issues: every visit counts, with the number of different students */}
+      {!isLoading && topConditions.length > 0 && (
+        <div className="averages-container-nd">
+          <h4 className="averages-title-nd">Common Health Issues ({periodLabel}) - every visit is counted</h4>
+          <div className="table-responsive-nd">
+            <table className="overview-table-nd">
+              <thead>
+                <tr><th>#</th><th>Health Issue</th><th>Source</th><th>Cases</th><th>% of Cases</th><th>Students</th></tr>
+              </thead>
+              <tbody>
+                {topConditions.slice(0, 8).map((c, i) => (
+                  <tr key={`${c.source}-${c.name}`}>
+                    <td>{i + 1}</td>
+                    <td className="font-semibold-nd">{c.name}</td>
+                    <td className="text-xs-nd text-muted-nd">{c.source}</td>
+                    <td><strong>{c.count}</strong></td>
+                    <td>{c.percent}%</td>
+                    <td>{c.students}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <div className="dashboard-divider-line-nd" />
+
+      {/* Illness summary of the past 30 days */}
+      <div className="dashboard-header-nd">
+        <h2 className="dashboard-title-nd">Illness Summary: Past 30 Days</h2>
+        <div className="filter-group-nd">
+          {illnessSummary && (
+            <span className="filter-label-nd">
+              {illnessSummary.period.start} to {illnessSummary.period.end} · <strong>{illnessSummary.total}</strong> cases
+              {illnessSummary.changePercent !== null && <> ({illnessSummary.changePercent > 0 ? '+' : ''}{illnessSummary.changePercent}% vs the 30 days before)</>}
+            </span>
+          )}
+          <button type="button" className="export-btn-nd" onClick={handleExportIllnessSummary} disabled={!illnessSummary || illnessSummary.rows.length === 0}>
+            <Download size={16} /> Export
+          </button>
+        </div>
+      </div>
+
+      <div className="graph-container-nd">
+        {!illnessSummary ? (
+          <div className="loading-container-nd"><div className="spinner-nd"></div><p className="loading-text-nd">Summarizing the last 30 days...</p></div>
+        ) : illnessSummary.rows.length === 0 ? (
+          <div className="no-data-container-nd"><h3 className="no-data-title-nd">No illnesses recorded in the past 30 days</h3></div>
+        ) : (
+          <div className="table-responsive-nd">
+            <table className="overview-table-nd">
+              <thead>
+                <tr><th>Rank</th><th>Most Common Illnesses</th><th>Source</th><th>Cases</th><th>% of All</th><th>Students</th><th>Previous 30 Days</th><th>Trend</th></tr>
+              </thead>
+              <tbody>
+                {illnessSummary.rows.slice(0, 10).map((r) => (
+                  <tr key={`${r.source}-${r.name}`}>
+                    <td>{r.rank}</td>
+                    <td className="font-semibold-nd">{r.name}</td>
+                    <td className="text-xs-nd text-muted-nd">{r.source}</td>
+                    <td><strong>{r.count}</strong></td>
+                    <td>{r.percent}%</td>
+                    <td>{r.students}</td>
+                    <td>{r.previousCount}</td>
+                    <td className={r.trend === 'up' || r.trend === 'new' ? 'text-red-nd' : r.trend === 'down' ? 'text-green-nd' : 'text-muted-nd'}>
+                      {r.trend === 'new' ? 'New' : r.trend === 'same' ? 'No change' : `${r.delta > 0 ? '▲ +' : '▼ '}${r.delta}${r.changePercent !== null ? ` (${r.changePercent > 0 ? '+' : ''}${r.changePercent}%)` : ''}`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {/* SECTION 2: MEDICINE DISPENSED OVERVIEW */}
       <div className="dashboard-divider-line-nd" />
@@ -1681,10 +1789,10 @@ const NurseDashboard = () => {
         <>
           {/* GRAPH 1: STANDARD DOSAGE UNITS */}
           <div className="graph-container-nd">
-            <h3 className="chart-subtitle-nd">Standard Dosage Units (mg, g, mcg, mL, L)</h3>
+            <h3 className="chart-subtitle-nd">Liquid Based</h3>
             {standardMedicinesInGraph.length === 0 ? (
               <div className="no-data-container-nd" style={{ padding: '20px' }}>
-                <p className="no-data-title-nd" style={{ fontSize: '14px' }}>No records found for standard dosage units.</p>
+                <p className="no-data-title-nd" style={{ fontSize: '14px' }}>No records found for liquid-based medicines.</p>
               </div>
             ) : (
               <div className="chart-wrapper-nd">
@@ -1695,7 +1803,7 @@ const NurseDashboard = () => {
                       <ReferenceArea x1={currentRealTimeMonthName} x2={currentRealTimeMonthName} fill="#0250A3" fillOpacity={0.04} stroke="#0250A3" strokeOpacity={0.1} strokeDasharray="3 3" />
                     )}
                     <XAxis dataKey="name" tickLine={false} tick={(props) => <CustomXAxisTick {...props} filterType={dispensedFilterType} isCurrentYearSelected={isDispensedCurrentYearSelected} currentMonthName={currentRealTimeMonthName} />} />
-                    <YAxis allowDecimals={false} tick={{ fill: '#4B5563', fontSize: 12 }} axisLine={false} tickLine={false} />
+                    <YAxis allowDecimals={dispensedHasDecimals} tick={{ fill: '#4B5563', fontSize: 12 }} axisLine={false} tickLine={false} />
                     <Tooltip content={<CustomTooltip unitLabel="dispensed" medicinesUnitsMap={combinedUnitsMap} showBrandOnly={true} />} cursor={{ fill: '#F3F4F6', opacity: 0.4 }} />
                     <Legend verticalAlign="bottom" height={36} iconType="rect" iconSize={14} wrapperStyle={{ paddingTop: '15px' }} />
                     
@@ -1724,7 +1832,7 @@ const NurseDashboard = () => {
                       <ReferenceArea x1={currentRealTimeMonthName} x2={currentRealTimeMonthName} fill="#0250A3" fillOpacity={0.04} stroke="#0250A3" strokeOpacity={0.1} strokeDasharray="3 3" />
                     )}
                     <XAxis dataKey="name" tickLine={false} tick={(props) => <CustomXAxisTick {...props} filterType={dispensedFilterType} isCurrentYearSelected={isDispensedCurrentYearSelected} currentMonthName={currentRealTimeMonthName} />} />
-                    <YAxis allowDecimals={false} tick={{ fill: '#4B5563', fontSize: 12 }} axisLine={false} tickLine={false} />
+                    <YAxis allowDecimals={dispensedHasDecimals} tick={{ fill: '#4B5563', fontSize: 12 }} axisLine={false} tickLine={false} />
                     <Tooltip content={<CustomTooltip unitLabel="dispensed" medicinesUnitsMap={combinedUnitsMap} showBrandOnly={true} />} cursor={{ fill: '#F3F4F6', opacity: 0.4 }} />
                     <Legend verticalAlign="bottom" height={36} iconType="rect" iconSize={14} wrapperStyle={{ paddingTop: '15px' }} />
                     
@@ -1783,19 +1891,10 @@ const NurseDashboard = () => {
       <div className="dashboard-header-nd">
         <h2 className="dashboard-title-nd">{predictiveTitle}</h2>
         <div className="filter-group-nd">
-          <label className="filter-label-nd">Select Month: </label>
-          <input 
-            type="month" 
-            value={predictiveMonth}
-            max={maxCurrentMonth}
-            onChange={(e) => {
-              const selectedValue = e.target.value;
-              if (!selectedValue || selectedValue <= maxCurrentMonth) {
-                setPredictiveMonth(selectedValue);
-              }
-            }}
-            className="filter-input-nd date-picker-nd" 
-          />
+          {predictivePeriod && <span className="filter-label-nd">Next 30 days: <strong>{predictivePeriod}</strong></span>}
+          <button type="button" className="export-btn-nd" onClick={() => navigate('/RestockReport')}>
+            <Pill size={16} /> Restock Report
+          </button>
           <button type="button" className="export-btn-nd" onClick={handleExportPredictiveDemand}>
             <Download size={16} /> Export
           </button>
@@ -1808,63 +1907,44 @@ const NurseDashboard = () => {
             <div className="spinner-nd"></div>
             <p className="loading-text-nd">Calculating predictive medicine demand stock requirements...</p>
           </div>
-        ) : activePredictiveData.length === 0 ? (
-          <div className="no-data-container-nd"><h3 className="no-data-title-nd">No Predictive Demand Records Found</h3></div>
+        ) : !selectedForecastMedicine ? (
+          <div className="no-data-container-nd"><h3 className="no-data-title-nd">No Dispensing Records In The Last 30 Days To Forecast From</h3></div>
         ) : (
-          <div className="chart-wrapper-nd scrollable-chart-nd">
-            <div style={{ width: '100%', maxWidth: predictiveChartMinWidth, minWidth: Math.min(predictiveChartMinWidth, 800), margin: '0 auto', height: 420 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={activePredictiveData} margin={{ top: 20, right: 30, left: 10, bottom: 60 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
-                  <XAxis dataKey="name" interval={0} angle={-20} textAnchor="end" height={60} tick={{ fontSize: 12, fill: '#4B5563', fontWeight: 500 }} tickLine={false} />
-                  <YAxis tick={{ fill: '#4B5563', fontSize: 12 }} axisLine={false} tickLine={false} />
-                  <Tooltip content={<PredictiveTooltip />} cursor={{ fill: '#F3F4F6', opacity: 0.4 }} />
-                  <Legend verticalAlign="bottom" height={36} iconType="rect" iconSize={14} wrapperStyle={{ paddingTop: '20px' }} />
-                  
-                  {/* Tower 1: Average Per Month Dispense */}
-                  <Bar dataKey="avgMonthlyDispensed" name="Average Per Month Dispense" fill="#3B82F6" radius={[4, 4, 0, 0]} />
-                  
-                  {/* Tower 2: Current Stock */}
-                  <Bar dataKey="currentStock" name="Current Stock" fill="#10B981" radius={[4, 4, 0, 0]} />
-                  
-                  {/* Tower 3: Predicted Need */}
-                  <Bar dataKey="predictedNeed" name="Predicted Need" fill="#F97316" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+          <>
+            <div className="filter-group-nd" style={{ justifyContent: 'center', marginBottom: 12 }}>
+              <label className="filter-label-nd">Medicine: </label>
+              <select
+                className="filter-input-nd"
+                value={selectedForecastMedicine.id}
+                onChange={(e) => setSelectedForecastMedicineId(e.target.value)}
+              >
+                {forecastMedicines.map(med => (
+                  <option key={med.id} value={med.id}>{med.name}</option>
+                ))}
+              </select>
+              <span className="filter-label-nd">
+                30-day total: <strong>{forecastTotalBase} {selectedForecastMedicine.unitOfMeasure}</strong> = {forecastTotal} {pluralize(forecastDosageForm, forecastTotal)} ({selectedForecastMedicine.packageStrength} per {forecastDosageForm})
+                {forecastStartDate && <> · from {formatDateBase(forecastStartDate)}</>}
+                {' '}· In stock: <strong>{selectedForecastMedicine.currentStock}</strong> · Suggested restock: <strong>{selectedForecastMedicine.suggestedRestock}</strong> {pluralize(forecastDosageForm, selectedForecastMedicine.suggestedRestock)}
+              </span>
             </div>
-          </div>
+            <div className="chart-wrapper-nd scrollable-chart-nd">
+              <div style={{ width: '100%', minWidth: 800, margin: '0 auto', height: 420 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={forecastChartData} margin={{ top: 20, right: 30, left: 10, bottom: 60 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
+                    <XAxis dataKey="label" interval={0} angle={-45} textAnchor="end" height={70} tick={{ fontSize: 11, fill: '#4B5563', fontWeight: 500 }} tickLine={false} />
+                    <YAxis allowDecimals={forecastChartData.some(day => !Number.isInteger(day.predictedDemand))} tick={{ fill: '#4B5563', fontSize: 12 }} axisLine={false} tickLine={false} />
+                    <Tooltip content={<ForecastTooltip />} cursor={{ fill: '#F3F4F6', opacity: 0.4 }} />
+                    <Legend verticalAlign="bottom" height={36} iconType="rect" iconSize={14} wrapperStyle={{ paddingTop: '20px' }} />
+                    <Bar dataKey="predictedDemand" name={`Predicted Daily Demand (${selectedForecastMedicine.unitOfMeasure})`} fill="#F97316" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </>
         )}
       </div>
-
-      {!isPredictiveLoading && predictiveData.length > 0 && (
-        <div className="averages-container-nd">
-          <h4 className="averages-title-nd">Predictive Calculation Breakdown (Avg Monthly Dispense - Current Stock)</h4>
-          <div className={`collapsible-container-nd card-collapsible-nd ${isPredictiveExpanded ? 'expanded-nd' : ''}`}>
-            <div className="predictive-mapping-grid-nd">
-              {predictiveData.map((med, index) => {
-                const dosageLabel = med.dosageForm || 'unit';
-                return (
-                  <div key={index} className="predictive-mapping-card-nd">
-                    <div className="predictive-card-title-nd">{med.name}</div>
-                    <div className="predictive-card-text-nd">
-                      <strong>Package Strength: </strong>{med.packageStrength} ({med.dosageForm})<br />
-                      <strong>Monthly Avg Dispense: </strong>{formatCeilAvg(med.avgMonthlyDispensedBase)} {med.unitOfMeasure}<br />
-                      <strong>Monthly Avg Dispense (Container Demand): </strong>{formatCeilAvg(med.avgMonthlyDispensed)} {pluralize(dosageLabel, med.avgMonthlyDispensed)}<br />
-                      <strong>Current Stock: </strong>{med.currentStock} {pluralize(dosageLabel, med.currentStock)}<br />
-                      <strong>Predicted Need: </strong>{formatCeilAvg(med.predictedNeed)} {pluralize(dosageLabel, med.predictedNeed)}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-          {predictiveData.length > 2 && (
-            <button className="view-more-toggle-btn-nd" onClick={() => setIsPredictiveExpanded(!isPredictiveExpanded)}>
-              {isPredictiveExpanded ? <>View Less <ChevronUp size={14} /></> : <>View More <ChevronDown size={14} /></>}
-            </button>
-          )}
-        </div>
-      )}
 
       {/* SECTION 4: DETAILED PANELS GRID */}
       <div className="dashboard-divider-line-nd" />
@@ -1949,9 +2029,9 @@ const NurseDashboard = () => {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <span className="count-badge-nd count-badge-red-nd">{nurseDashboardData.medicineStockAlerts.length}</span>
-                <button 
-                  style={viewAllBtnStyle} 
-                  onClick={() => navigate('/MedicineInventory')}
+                <button
+                  style={viewAllBtnStyle}
+                  onClick={() => navigate('/RestockReport')}
                   onMouseOver={(e) => e.currentTarget.style.background = '#f0f5fa'}
                   onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
                 >
@@ -1963,7 +2043,7 @@ const NurseDashboard = () => {
               {nurseDashboardData.medicineStockAlerts.length === 0 ? (
                 <div className="panel-empty-nd panel-empty-success-nd">
                   <CheckCircle2 size={18} color="#10B981" />
-                  <span>All medicine batch stock levels are currently adequate.</span>
+                  <span>All medicines are currently adequately stocked.</span>
                 </div>
               ) : (
                 <div className="table-responsive-nd">
@@ -1974,28 +2054,30 @@ const NurseDashboard = () => {
                         <th>Form</th>
                         <th>Current Stock</th>
                         <th>Thresholds (Low / Crit)</th>
+                        <th>Suggested restock</th>
                         <th>Status</th>
                       </tr>
                     </thead>
                     <tbody>
                       {nurseDashboardData.medicineStockAlerts.map((med) => (
-                        <tr key={med.batch_id || med.medicine_id}>
+                        <tr key={med.medicine_id}>
                           <td>
                             <div className="font-semibold-nd">{med.generic_name}</div>
                             {med.brand_name && <div className="text-xs-nd text-muted-nd">({med.brand_name})</div>}
                           </td>
                           <td>{med.dosage_form || 'N/A'}</td>
                           <td>
-                            <strong className={med.stock_status === 'CRITICAL' ? 'text-red-nd' : 'text-orange-nd'}>
+                            <strong className={['CRITICAL', 'OUT'].includes(med.stock_status) ? 'text-red-nd' : 'text-orange-nd'}>
                               {med.current_stock}
                             </strong>
                           </td>
                           <td className="text-xs-nd text-muted-nd">
                             Low: {med.low_stock_level} | Crit: {med.critical_stock_level}
                           </td>
+                          <td><strong>+{med.suggested_qty}</strong></td>
                           <td>
-                            <span className={`status-badge-nd ${med.stock_status === 'CRITICAL' ? 'badge-critical-nd' : 'badge-low-nd'}`}>
-                              {med.stock_status}
+                            <span className={`status-badge-nd ${['CRITICAL', 'OUT'].includes(med.stock_status) ? 'badge-critical-nd' : 'badge-low-nd'}`}>
+                              {med.stock_status === 'OUT' ? 'OUT OF STOCK' : med.stock_status}
                             </span>
                           </td>
                         </tr>

@@ -543,7 +543,22 @@
 }
 
 .predictive-tooltip-width-nd {
-  width: 240px;
+  width: 340px;
+}
+
+/* Date-coverage sub-line shown directly under a window value */
+.tooltip-item-note-nd {
+  margin-top: -4px;
+  font-size: 11.5px;
+}
+
+.tooltip-item-note-nd .tooltip-item-name-nd {
+  color: #9CA3AF;
+}
+
+.tooltip-item-note-nd .tooltip-item-value-nd {
+  color: var(--text-secondary);
+  font-weight: 500;
 }
 
 .tooltip-header-nd {
@@ -1614,3 +1629,4 @@ body.modal-open-nd {
     padding: 12px;
   }
 }
+.text-green-nd { color: #059669; }
