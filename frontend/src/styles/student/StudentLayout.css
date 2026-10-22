@@ -477,3 +477,7 @@ body {
 .btn-secondary-sl:hover {
     background-color: #cbd5e1;
 }
+/* lets wide pages shrink to the screen instead of pushing the page sideways on phones */
+.main-content {
+  min-width: 0;
+}
