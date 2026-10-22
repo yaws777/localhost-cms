@@ -23,6 +23,9 @@ import RequestModule from './pages/student/requestModule';
 import StudentLayout from './layout/studentLayout';
 import NurseLayout from './layout/nurseLayout';
 import DoctorVisit from './pages/nurse/doctorVisits';
+import DoctorSchedule from './pages/nurse/doctorSchedule';
+import RestockReport from './pages/nurse/restockReport';
+import BookCheckup from './pages/student/bookCheckup';
 import DocumentIssuance from './pages/nurse/documentIssuance';
 import HealthRecords from './pages/nurse/healthRecords';  
 import HealthScreening from './pages/nurse/healthScreening';  
@@ -79,12 +82,14 @@ root.render(
         <Route element={<NurseLayout />}>
             <Route path="/NurseDashboard" element={<NurseDashboard />} />
             <Route path="/DoctorVisit" element={<DoctorVisit />} />
+            <Route path="/DoctorSchedule" element={<DoctorSchedule />} />
             <Route path="/DocumentIssuance" element={<DocumentIssuance />} />
             <Route path="/HealthRecords" element={<HealthRecords />} />
             <Route path="/HealthScreening" element={<HealthScreening />} />
             <Route path="/IncidentReport" element={<IncidentReport />} />
             <Route path="/InsuranceVault" element={<InsuranceVault />} />
             <Route path="/MedicineInventory" element={<MedicineInventory />} />
+            <Route path="/RestockReport" element={<RestockReport />} />
             <Route path="/RequirementManagement" element={<RequirementManagement />} />
             <Route path="/VisitLogConsultation" element={<VisitLogConsultation />} />
             <Route path="/WeeklyReports" element={<WeeklyReports />} />
@@ -105,6 +110,7 @@ root.render(
             <Route path="/HealthTips" element={<HealthTips />} />
             <Route path="/StudentMessages" element={<StudentMessages />} />
             <Route path="/MyRequirements" element={<MyRequirements />} />
+            <Route path="/BookCheckup" element={<BookCheckup />} />
             <Route path="/StudentNotificationSettings" element={<StudentNotificationSettings />} />
             <Route path="/notification-settings" element={<NotificationSettings />} />
         </Route>

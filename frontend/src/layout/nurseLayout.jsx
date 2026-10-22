@@ -2,8 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
     LayoutDashboard, FileBarChart, Stethoscope, FolderHeart,
-    Pill, Boxes, FileCheck, ClipboardCheck, HeartPulse,
-    BriefcaseMedical, AlertTriangle, Vault, LogOut,
+    Pill, Boxes, PackageCheck, FileCheck, ClipboardCheck, HeartPulse,
+    BriefcaseMedical, CalendarClock, AlertTriangle, Vault, LogOut,
     MessageSquare, Users, UserCheck, Bell, Sun, Moon,
     PanelLeftClose, PanelLeftOpen
 } from 'lucide-react';
@@ -168,6 +168,10 @@ export const NurseLayout = () => {
         const title = (notification.title || '').toLowerCase();
         const msg = (notification.message || '').toLowerCase();
 
+        // Doctor schedule / booking / appointment notifications must be matched before the generic 'request' and 'visit' rules
+        if (type.includes('restock')) return '/RestockReport';
+        if (type.includes('booking')) return '/DoctorSchedule';
+        if (type.includes('appointment') || type.includes('batch') || type.includes('assessment') || type.includes('doctor_visit')) return '/DoctorVisit';
         if (type.includes('requirement') || msg.includes('requirement') || title.includes('submission')) return '/RequirementManagement';
         if (type.includes('visit') || type.includes('consultation') || msg.includes('clinic visit')) return '/VisitLogConsultation';
         if (type.includes('health_record') || type.includes('record')) return '/HealthRecords';
@@ -366,6 +370,15 @@ export const NurseLayout = () => {
                         )}
                     </NavLink>
 
+                    <NavLink to="/RestockReport" className="nav-link" onClick={closeSidebar}>
+                        {({ isActive }) => (
+                            <>
+                                <PackageCheck className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
+                                <span>Restock Report</span>
+                            </>
+                        )}
+                    </NavLink>
+
                     <NavLink to="/DocumentIssuance" className="nav-link" onClick={closeSidebar}>
                         {({ isActive }) => (
                             <>
@@ -398,6 +411,15 @@ export const NurseLayout = () => {
                             <>
                                 <BriefcaseMedical className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
                                 <span>Doctor Visit</span>
+                            </>
+                        )}
+                    </NavLink>
+
+                    <NavLink to="/DoctorSchedule" className="nav-link" onClick={closeSidebar}>
+                        {({ isActive }) => (
+                            <>
+                                <CalendarClock className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
+                                <span>Doctor Schedule</span>
                             </>
                         )}
                     </NavLink>

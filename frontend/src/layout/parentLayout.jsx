@@ -320,6 +320,8 @@ const ParentLayout = () => {
 
         if (notifType.includes('message') || notifMsg.includes('message')) {
             setIsMessageOpen(true);
+        } else if (notifType.includes('booking') || notifType.includes('appointment') || notifType.includes('assessment') || notifType.includes('doctor_visit')) {
+            navigate('/ChildClinicRecords');
         } else if (notifType.includes('clinic') || notifMsg.includes('clinic') || notifMsg.includes('medical')) {
             navigate('/ChildClinicRecords');
         } else if (notifType.includes('profile') || notifMsg.includes('profile')) {

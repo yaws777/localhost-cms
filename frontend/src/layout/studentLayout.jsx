@@ -9,6 +9,7 @@ import {
     Lightbulb,
     MessageSquare,
     Clipboard,
+    CalendarPlus,
     Bell,
     Download,
     Sun,
@@ -273,6 +274,8 @@ const StudentLayout = () => {
 
         if (type.includes('message') || msg.includes('message') || title.includes('message')) {
             setIsMessageOpen(true);
+        } else if (type.includes('booking') || type.includes('appointment')) {
+            navigate('/BookCheckup');
         } else if (type.includes('requirement') || msg.includes('requirement') || title.includes('requirement')) {
             navigate('/MyRequirements'); 
         } else if (type.includes('Doctor','Incident','Visit') || type.includes('record') || msg.includes('clinic','Incident','Doctor') || msg.includes('consultation') || msg.includes('visit')) {
@@ -439,6 +442,11 @@ const StudentLayout = () => {
                     <NavLink to="/MyRequirements" className="nav-link" onClick={closeSidebar}>
                         <Clipboard className="nav-icon" size={16} />
                         <span>My Requirements</span>
+                    </NavLink>
+
+                    <NavLink to="/BookCheckup" className="nav-link" onClick={closeSidebar}>
+                        <CalendarPlus className="nav-icon" size={16} />
+                        <span>Book a Check-up</span>
                     </NavLink>
 
                     <NavLink to="/ClinicLogsAndRecords" className="nav-link" onClick={closeSidebar}>
