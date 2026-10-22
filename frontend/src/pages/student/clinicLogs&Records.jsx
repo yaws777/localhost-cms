@@ -10,7 +10,8 @@ import {
   Eye, 
   X, 
   Filter
-} from 'lucide-react';
+} from 'lucide-react';
+import { formatTime, formatDate as formatDateBase, formatDateTime } from '../../utils/datetime';
 import '../../styles/student/ClinicLogs&Records.css';
 
 const API_BASE = 'http://localhost:3001';
@@ -19,10 +20,9 @@ const API_BASE = 'http://localhost:3001';
 const formatDate = (dateStr) => {
   if (!dateStr) return 'N/A';
   if (typeof dateStr === 'string' && /^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
-    const [year, month, day] = dateStr.split('T')[0].split('-');
-    return new Date(year, month - 1, day).toLocaleDateString();
+    return formatDateBase(dateStr.split('T')[0]);
   }
-  return new Date(dateStr).toLocaleDateString();
+  return formatDateBase(dateStr);
 };
 
 const formatKeyLabel = (key) => {
@@ -298,7 +298,7 @@ function renderTableRow(tab, item, index, onViewDetails) {
               : item.nurse_id || 'N/A'}
           </td>
           <td>{formatDate(item.visit_date)}</td>
-          <td>{item.time_in} - {item.time_out || 'N/A'}</td>
+          <td>{formatTime(item.time_in)} - {item.time_out ? formatTime(item.time_out) : 'N/A'}</td>
           <td>BP: {item.blood_pressure || 'N/A'} | Temp: {item.temperature || 'N/A'}°C</td>
           <td>
             <button className="btn-icon-clr" onClick={onViewDetails} title="View Details" aria-label="View Details">
@@ -321,7 +321,7 @@ function renderTableRow(tab, item, index, onViewDetails) {
           <td>{item.brand_name || 'N/A'}</td>
           <td>{item.generic_name || 'N/A'}</td>
           <td>{item.quantity_dispensed}</td>
-          <td>{item.dispensed_at ? new Date(item.dispensed_at).toLocaleString() : 'N/A'}</td>
+          <td>{item.dispensed_at ? formatDateTime(new Date(item.dispensed_at)) : 'N/A'}</td>
           <td>
             <button className="btn-icon-clr" onClick={onViewDetails} title="View Details" aria-label="View Details">
               <Eye size={18} />
@@ -341,7 +341,7 @@ function renderTableRow(tab, item, index, onViewDetails) {
               : item.nurse_id || 'N/A'}
           </td>
           <td>{item.incident_location}</td>
-          <td>{item.incident_datetime ? new Date(item.incident_datetime).toLocaleString() : 'N/A'}</td>
+          <td>{item.incident_datetime ? formatDateTime(new Date(item.incident_datetime)) : 'N/A'}</td>
           <td>
             <button className="btn-icon-clr" onClick={onViewDetails} title="View Details" aria-label="View Details">
               <Eye size={18} />
@@ -360,7 +360,7 @@ function renderTableRow(tab, item, index, onViewDetails) {
           <td>{item.student_id}</td>
           <td>{formatDate(item.record_date || item.date)}</td>
           <td>
-            <span className={`badge-clr status-${(item.status || 'pending').toLowerCase()}-clr`}>
+            <span className={`badge-clr status-${(item.status || 'pending').toLowerCase().replace(/\s+/g, '-')}-clr`}>
               {item.status}
             </span>
           </td>
@@ -383,11 +383,11 @@ function renderTableRow(tab, item, index, onViewDetails) {
               : item.doctor_id || 'N/A'}
           </td>
           <td>
-            {item.start_time ? new Date(item.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''} - 
-            {item.end_time ? new Date(item.end_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''}
+            {item.start_time ? formatTime(new Date(item.start_time)) : ''} - 
+            {item.end_time ? formatTime(new Date(item.end_time)) : ''}
           </td>
           <td>
-            <span className={`badge-clr status-${(item.status || 'pending').toLowerCase()}-clr`}>
+            <span className={`badge-clr status-${(item.status || 'pending').toLowerCase().replace(/\s+/g, '-')}-clr`}>
               {item.status}
             </span>
           </td>

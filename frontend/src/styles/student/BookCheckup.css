@@ -1,0 +1,334 @@
+/* ==========================================================================
+   BOOK A CHECK-UP (student) - -bc scoped. Colors come from the shared theme tokens.
+   ========================================================================== */
+
+.container-bc {
+    padding: 24px;
+    min-height: 100vh;
+    box-sizing: border-box;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: var(--text-primary);
+}
+
+.header-bc {
+    background: var(--bg-card);
+    border-left: 5px solid var(--sti-blue);
+    border-radius: 8px;
+    padding: 18px 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.header-bc h2 {
+    margin: 0 0 6px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text-primary);
+}
+
+.header-bc p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.section-bc {
+    background: var(--bg-card);
+    border-radius: 8px;
+    padding: 18px 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.section-bc h3 {
+    margin: 0 0 14px;
+    font-size: 1.05rem;
+    color: var(--text-primary);
+}
+
+.muted-bc {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.empty-bc {
+    text-align: center;
+    padding: 22px 12px;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.filters-bc {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+}
+
+.filters-bc select,
+.field-bc select,
+.field-bc textarea {
+    padding: 9px 12px;
+    border: 1px solid var(--border-color, #cbd5e1);
+    border-radius: 6px;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    box-sizing: border-box;
+    max-width: 100%;
+}
+
+.field-bc {
+    margin-bottom: 14px;
+}
+
+.field-bc label {
+    display: block;
+    font-size: 0.82rem;
+    font-weight: 600;
+    margin-bottom: 6px;
+}
+
+.field-bc select,
+.field-bc textarea {
+    width: 100%;
+}
+
+/* Buttons */
+.btn-bc {
+    border: none;
+    border-radius: 6px;
+    padding: 9px 16px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.btn-bc:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-primary-bc { background: var(--sti-blue); color: #fff; }
+.btn-primary-bc:hover:not(:disabled) { background: var(--sti-blue-hover); }
+.btn-light-bc { background: transparent; color: var(--text-primary); border: 1px solid var(--border-color, #cbd5e1); }
+.btn-danger-bc { background: #fee2e2; color: #991b1b; }
+
+/* Bookings */
+.booking-grid-bc,
+.occurrence-grid-bc {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 14px;
+}
+
+.booking-card-bc,
+.occurrence-card-bc {
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 10px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    background: var(--bg-card);
+}
+
+.booking-top-bc {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+
+.booking-line-bc,
+.occurrence-meta-bc,
+.occurrence-doc-bc {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.88rem;
+}
+
+.booking-reason-bc {
+    font-size: 0.84rem;
+    color: var(--text-secondary);
+}
+
+.booking-note-bc {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    font-size: 0.82rem;
+    background: #fef3c7;
+    color: #92400e;
+    border-radius: 6px;
+    padding: 6px 8px;
+}
+
+.booking-actions-bc {
+    display: flex;
+    gap: 8px;
+    margin-top: 6px;
+}
+
+.status-pill-bc {
+    font-size: 0.74rem;
+    font-weight: 700;
+    border-radius: 999px;
+    padding: 3px 10px;
+    white-space: nowrap;
+}
+
+.status-scheduled-bc { background: #dcfce7; color: #166534; }
+.status-completed-bc { background: #dbeafe; color: #1e40af; }
+.status-pending-approval-bc { background: #fef3c7; color: #92400e; }
+.status-declined-bc,
+.status-cancelled-bc,
+.status-no-show-bc { background: #fee2e2; color: #991b1b; }
+
+.history-bc {
+    margin-top: 16px;
+}
+
+.history-bc summary {
+    cursor: pointer;
+    font-size: 0.88rem;
+    font-weight: 600;
+    margin-bottom: 12px;
+    color: var(--text-secondary);
+}
+
+/* Available schedules */
+.occurrence-date-bc {
+    font-weight: 700;
+    font-size: 1rem;
+    color: var(--sti-blue);
+}
+
+.occurrence-tags-bc {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 4px 0;
+}
+
+.tag-bc {
+    font-size: 0.72rem;
+    font-weight: 600;
+    border-radius: 999px;
+    padding: 3px 9px;
+    background: var(--sti-blue-light);
+    color: var(--sti-blue);
+}
+
+.tag-soft-bc {
+    background: #f1f5f9;
+    color: #475569;
+}
+
+.occurrence-card-bc .btn-bc {
+    margin-top: auto;
+}
+
+/* Slot picker modal */
+.modal-overlay-bc {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 12px;
+}
+
+.modal-bc {
+    background: var(--bg-card);
+    color: var(--text-primary);
+    width: 520px;
+    max-width: 100%;
+    max-height: 92vh;
+    overflow-y: auto;
+    border-radius: 10px;
+    padding: 20px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+}
+
+.modal-header-bc {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.modal-header-bc h3 { margin: 0; }
+
+.close-bc {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-secondary);
+}
+
+.picker-summary-bc {
+    font-size: 0.9rem;
+    margin-bottom: 12px;
+}
+
+.slot-grid-bc {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.slot-bc {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 8px 6px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color, #cbd5e1);
+    background: var(--bg-card);
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.slot-bc small {
+    font-weight: 500;
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+}
+
+.slot-bc:disabled {
+    background: #f1f5f9;
+    color: #94a3b8;
+    cursor: not-allowed;
+}
+
+.slot-bc:disabled small { color: #94a3b8; }
+
+.slot-selected-bc {
+    background: var(--sti-blue);
+    color: #fff;
+    border-color: var(--sti-blue);
+}
+
+.slot-selected-bc small { color: #e2e8f0; }
+
+.modal-footer-bc {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 8px;
+}
+
+@media (max-width: 600px) {
+    .container-bc { padding: 14px; }
+    .booking-grid-bc,
+    .occurrence-grid-bc { grid-template-columns: 1fr; }
+}

@@ -275,12 +275,14 @@ body {
 }
 
 .status-pending-clr, 
+.status-pending-approval-clr, 
 .status-scheduled-clr {
   background-color: #fef9c3;
   color: #a16207;
 }
 
-.status-cancelled-clr {
+.status-cancelled-clr,
+.status-declined-clr {
   background-color: #fee2e2;
   color: #b91c1c;
 }
