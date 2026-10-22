@@ -26,7 +26,8 @@ import {
   XCircle
 } from 'lucide-react';
 
-import stiLogo from '../../assets/sti-logof.png';
+import stiLogo from '../../assets/sti-logof.png';
+import { formatDate } from '../../utils/datetime';
 import '../../styles/nurse/ManageStudentAccounts.css';
 
 const API_BASE = 'http://localhost:3001/api';
@@ -243,11 +244,7 @@ export default function ManageStudentAccounts() {
       return;
     }
 
-    const reportDate = new Date().toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric' 
-    });
+    const reportDate = formatDate(new Date());
 
     const tableRowsHtml = rowsToExport.map(s => {
       const fullName = `${s.first_name || ''} ${s.last_name || ''}`.trim();
@@ -351,11 +348,7 @@ export default function ManageStudentAccounts() {
       return;
     }
 
-    const reportDate = new Date().toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric' 
-    });
+    const reportDate = formatDate(new Date());
 
     const studentName = `${selectedStudentView.first_name || ''} ${selectedStudentView.last_name || ''}`.trim();
     const studentStatus = Number(selectedStudentView.is_active) === 1 ? 'Active' : 'Inactive';

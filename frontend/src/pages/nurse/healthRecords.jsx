@@ -4,7 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { Eye, RotateCcw, Printer } from 'lucide-react'; 
 import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/HealthRecords.css';
-import { useAlert } from '../../context/AlertContext';
+import { useAlert } from '../../context/AlertContext';
+import { formatDate } from '../../utils/datetime';
 
 export default function HealthRecord() {
     const navigate = useNavigate();
@@ -257,11 +258,7 @@ export default function HealthRecord() {
             return;
         }
 
-        const reportDate = new Date().toLocaleDateString('en-US', { 
-            year: 'numeric', 
-            month: 'long', 
-            day: 'numeric' 
-        });
+        const reportDate = formatDate(new Date());
 
         // 1. Calculate frequency/count of students per Course/Strand (program_id)
         const programCounts = rowsToExport.reduce((acc, student) => {

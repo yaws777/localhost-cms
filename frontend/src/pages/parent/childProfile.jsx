@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useOutletContext, useNavigate } from 'react-router-dom';
+import { useOutletContext, useNavigate } from 'react-router-dom';
+import { formatDate } from '../../utils/datetime';
 import '../../styles/parent/ChildProfile.css';
 
 export default function ChildProfile() {
@@ -222,7 +223,7 @@ export default function ChildProfile() {
                                 <input type="text" value={personalInfo.gender || 'N/A'} readOnly disabled />
                             </label>
                             <label>Date of Birth
-                                <input type="text" value={personalInfo.birth_date || 'N/A'} readOnly disabled />
+                                <input type="text" value={personalInfo.birth_date ? formatDate(personalInfo.birth_date) : 'N/A'} readOnly disabled />
                             </label>
                             <label>Age
                                 <input type="text" value={personalInfo.age || 'N/A'} readOnly disabled />
@@ -400,7 +401,7 @@ export default function ChildProfile() {
                             <label className="main-checkbox"><input type="checkbox" checked={healthInfo.has_seizure_episode || false} disabled /> Seizure Episode</label>
                             {healthInfo.has_seizure_episode && (
                                 <div className="sub-fields">
-                                    <label>Last Episode Date: <input type="text" value={healthInfo.seizure_last_episode_date || 'N/A'} readOnly disabled /></label>
+                                    <label>Last Episode Date: <input type="text" value={healthInfo.seizure_last_episode_date ? formatDate(healthInfo.seizure_last_episode_date) : 'N/A'} readOnly disabled /></label>
                                     <label>Medication: <input type="text" value={healthInfo.seizure_medication_taken || 'None'} readOnly disabled /></label>
                                 </div>
                             )}
@@ -412,7 +413,7 @@ export default function ChildProfile() {
                             {healthInfo.has_surgery && (
                                 <div className="sub-fields">
                                     <label>Specify: <input type="text" value={healthInfo.surgery_specify || 'None'} readOnly disabled /></label>
-                                    <label>Date: <input type="text" value={healthInfo.surgery_date || 'N/A'} readOnly disabled /></label>
+                                    <label>Date: <input type="text" value={healthInfo.surgery_date ? formatDate(healthInfo.surgery_date) : 'N/A'} readOnly disabled /></label>
                                 </div>
                             )}
                         </div>
@@ -526,7 +527,7 @@ export default function ChildProfile() {
                                                     </td>
                                                     <td style={{ padding: '12px' }}>
                                                         {deadlineDate 
-                                                            ? deadlineDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) 
+                                                            ? formatDate(deadlineDate) 
                                                             : 'No Deadline'}
                                                     </td>
                                                     <td style={{ padding: '12px' }}>

@@ -16,6 +16,7 @@ import {
   Megaphone
 } from 'lucide-react';
 import HealthTipsModal from '../../components/student/HealthTips';
+import { formatDate as formatDateBase, formatDateTime as formatDateTimeBase, formatTime as formatTimeBase } from '../../utils/datetime';
 import '../../styles/student/StudentDashboard.css';
 
 const API_BASE = 'http://localhost:3001/api';
@@ -171,21 +172,12 @@ const StudentDashboard = () => {
 
   const formatDate = (dateStr) => {
     if (!dateStr) return 'N/A';
-    return new Date(dateStr).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
+    return formatDateBase(new Date(dateStr));
   };
 
   const formatDateTime = (dateStr) => {
     if (!dateStr) return 'N/A';
-    return new Date(dateStr).toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    return formatDateTimeBase(new Date(dateStr));
   };
 
   if (loading || !studentId) {
@@ -324,7 +316,7 @@ const StudentDashboard = () => {
                 <div key={visit.visit_id} className="visit-item-sd">
                   <div className="visit-item-header-sd">
                     <span className="visit-date-sd">
-                      📅 Date: {formatDate(visit.visit_date)} ({visit.time_in || 'N/A'} - {visit.time_out || 'N/A'})
+                      📅 Date: {formatDate(visit.visit_date)} ({visit.time_in ? formatTimeBase(visit.time_in) : 'N/A'} - {visit.time_out ? formatTimeBase(visit.time_out) : 'N/A'})
                     </span>
                   </div>
 
@@ -560,7 +552,7 @@ const StudentDashboard = () => {
 
                   <div className="item-subtext-sd">
                     <p>📅 {formatDate(screening.scheduled_date)}</p>
-                    <p>⏰ {screening.start_time} - {screening.end_time}</p>
+                    <p>⏰ {formatTimeBase(screening.start_time)} - {formatTimeBase(screening.end_time)}</p>
                   </div>
 
                   {screening.announcement && (

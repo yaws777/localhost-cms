@@ -3,7 +3,8 @@ import { useOutletContext, useLocation } from 'react-router-dom';
 import { Eye } from 'lucide-react';
 import { io } from 'socket.io-client';
 import '../../styles/student/RequestModule.css';
-import { useAlert } from '../../context/AlertContext';
+import { useAlert } from '../../context/AlertContext';
+import { formatTime, formatDate, formatDateTime } from '../../utils/datetime';
 
 const API_BASE = 'http://localhost:3001/api';
 const BASE_URL = 'http://localhost:3001';
@@ -410,7 +411,7 @@ export default function RequestModule() {
                       ? req.reason_for_excuse
                       : `${req.reason_for_referral} [Facility: ${req.partner_facility_name || 'N/A'}]`}
                   </td>
-                  <td>{new Date(req.created_at).toLocaleDateString()}</td>
+                  <td>{formatDate(new Date(req.created_at))}</td>
                   <td>
                     <span className={`sti-status status-${req.status ? req.status.toLowerCase() : 'pending'}`}>
                       {req.status || 'Pending'}
@@ -634,7 +635,7 @@ export default function RequestModule() {
               <div className="sti-details-grid">
                 <p><strong>Type:</strong> {selectedRequest.request_type}</p>
                 <p><strong>Status:</strong> {selectedRequest.status || 'Pending'}</p>
-                <p><strong>Requested On:</strong> {new Date(selectedRequest.created_at).toLocaleString()}</p>
+                <p><strong>Requested On:</strong> {formatDateTime(new Date(selectedRequest.created_at))}</p>
                 
                 {selectedRequest.request_type === 'Excuse Slip' ? (
                   <>
@@ -683,7 +684,7 @@ export default function RequestModule() {
                       className={`sti-chat-bubble ${n.sender_type === 'Student' ? 'bubble-student' : 'bubble-nurse'}`}
                     >
                       <div className="sti-chat-meta">
-                        <strong>{n.sender_type}</strong> • {new Date(n.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        <strong>{n.sender_type}</strong> • {formatTime(new Date(n.created_at))}
                       </div>
                       <div className="sti-chat-msg">{n.message}</div>
                     </div>

@@ -10,7 +10,8 @@ import {
     Lock, 
     X, 
     FileText 
-} from 'lucide-react';
+} from 'lucide-react';
+import { formatDate } from '../../utils/datetime';
 import '../../styles/student/MyRequirements.css';
 
 export default function MyRequirements() {
@@ -312,7 +313,7 @@ export default function MyRequirements() {
                                                 </td>
                                                 <td className={`cell-deadline-mr ${isPastDeadline ? 'deadline-past-mr' : ''}`} data-label="Deadline">
                                                     {deadlineDate 
-                                                        ? deadlineDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) 
+                                                        ? formatDate(deadlineDate) 
                                                         : 'No Specified Deadline'}
                                                 </td>
                                                 <td className="cell-status-mr" data-label="Status">

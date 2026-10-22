@@ -14,7 +14,8 @@ import {
   Filter,
   ExternalLink,
   User 
-} from 'lucide-react';
+} from 'lucide-react';
+import { formatTime, formatDate as formatDateBase, formatDateTime } from '../../utils/datetime';
 import '../../styles/parent/ChildClinicRecords.css';
 
 const API_BASE = 'http://localhost:3001';
@@ -32,7 +33,7 @@ const formatDate = (dateStr) => {
 
   if (isNaN(dateObj.getTime())) return 'N/A';
 
-  return dateObj.toLocaleDateString();
+  return formatDateBase(dateObj);
 };
 
 const getFileUrl = (path) => {
@@ -442,7 +443,7 @@ function renderTableRow(tab, item, index, onViewDetails) {
           <td>{item.student_id}</td>
           <td>{nurseName}</td>
           <td>{formatDate(item.visit_date)}</td>
-          <td>{item.time_in} - {item.time_out || 'N/A'}</td>
+          <td>{formatTime(item.time_in)} - {item.time_out ? formatTime(item.time_out) : 'N/A'}</td>
           <td>BP: {item.blood_pressure || 'N/A'} | Temp: {item.temperature || 'N/A'}°C</td>
           <td>
             <button className="btn-icon-ccr" onClick={onViewDetails} title="View Details" aria-label="View Details">
@@ -466,7 +467,7 @@ function renderTableRow(tab, item, index, onViewDetails) {
           <td>{item.brand_name || 'N/A'}</td>
           <td>{item.generic_name || 'N/A'}</td>
           <td>{item.quantity_dispensed}</td>
-          <td>{item.dispensed_at ? new Date(item.dispensed_at).toLocaleString() : 'N/A'}</td>
+          <td>{item.dispensed_at ? formatDateTime(new Date(item.dispensed_at)) : 'N/A'}</td>
           <td>
             <button className="btn-icon-ccr" onClick={onViewDetails} title="View Details" aria-label="View Details">
               <Eye size={18} />
@@ -486,7 +487,7 @@ function renderTableRow(tab, item, index, onViewDetails) {
           <td>{item.student_id}</td>
           <td>{nurseName}</td>
           <td>{item.incident_location}</td>
-          <td>{item.incident_datetime ? new Date(item.incident_datetime).toLocaleString() : 'N/A'}</td>
+          <td>{item.incident_datetime ? formatDateTime(new Date(item.incident_datetime)) : 'N/A'}</td>
           <td>
             <button className="btn-icon-ccr" onClick={onViewDetails} title="View Details" aria-label="View Details">
               <Eye size={18} />
@@ -523,8 +524,8 @@ function renderTableRow(tab, item, index, onViewDetails) {
           <td>{item.student_id}</td>
           <td>{doctorName}</td>
           <td>
-            {item.start_time ? new Date(item.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''} - 
-            {item.end_time ? new Date(item.end_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''}
+            {item.start_time ? formatTime(new Date(item.start_time)) : ''} - 
+            {item.end_time ? formatTime(new Date(item.end_time)) : ''}
           </td>
           <td><span className={`badge-ccr status-${statusClass}-ccr`}>{item.status}</span></td>
           <td>

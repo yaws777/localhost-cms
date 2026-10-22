@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 
 import stiLogo from '../../assets/sti-logof.png';
+import { formatDate } from '../../utils/datetime';
 import '../../styles/nurse/RequirementManagement.css';
 
 export const RequirementManagement = () => {
@@ -325,11 +326,7 @@ export const RequirementManagement = () => {
             return;
         }
 
-        const reportDate = new Date().toLocaleDateString('en-US', { 
-            year: 'numeric', 
-            month: 'long', 
-            day: 'numeric' 
-        });
+        const reportDate = formatDate(new Date());
 
         // 1. Calculate Complete vs Incomplete student and requirement counts per Course/Strand
         const programCounts = rowsToExport.reduce((acc, student) => {
@@ -562,11 +559,7 @@ export const RequirementManagement = () => {
             return;
         }
 
-        const reportDate = new Date().toLocaleDateString('en-US', { 
-            year: 'numeric', 
-            month: 'long', 
-            day: 'numeric' 
-        });
+        const reportDate = formatDate(new Date());
 
         const studentName = `${selectedStudent.first_name || ''} ${selectedStudent.last_name || ''}`.trim();
         const yearLevelStr = selectedStudent.year_level ? `${selectedStudent.year_level}${Number(selectedStudent.year_level) === 1 ? 'st' : Number(selectedStudent.year_level) === 2 ? 'nd' : Number(selectedStudent.year_level) === 3 ? 'rd' : 'th'} Year` : 'N/A';
@@ -576,7 +569,7 @@ export const RequirementManagement = () => {
             const displayStatus = (normalizedStatus === 'submitted' || normalizedStatus === 'submitted late' || normalizedStatus === 'late')
                 ? 'Waiting for approval' 
                 : (normalizedStatus === 'not submitted' ? 'Missed' : (req.status || 'Pending'));
-            const deadline = req.submission_deadline ? formatDeadlineDate(req.submission_deadline) : 'N/A';
+            const deadline = req.submission_deadline ? formatDate(req.submission_deadline) : 'N/A';
             const remarks = req.nurse_remarks || 'None';
 
             return `
@@ -1538,7 +1531,7 @@ export const RequirementManagement = () => {
                                 <ul className="req-list-rm">
                                     {assignedConfigs.map((req, index) => {
                                         const isThisRowBeingEdited = inlineEditingConfigId === req.config_id;
-                                        const formattedDeadline = req.submission_deadline ? formatDeadlineDate(req.submission_deadline) : 'No Target Set';
+                                        const formattedDeadline = req.submission_deadline ? formatDate(req.submission_deadline) : 'No Target Set';
                                         
                                         return (
                                             <li key={req.config_id || index} className="req-item-rm">
@@ -1910,7 +1903,7 @@ export const RequirementManagement = () => {
                                                             
                                                             {req.submission_deadline && (
                                                                 <div className="deadline-info-rm">
-                                                                    <Calendar size={13}/> Deadline: {formatDeadlineDate(req.submission_deadline)} 
+                                                                    <Calendar size={13}/> Deadline: {formatDate(req.submission_deadline)} 
                                                                     {overdueDays && <span className="overdue-text-rm"> ({overdueDays}d overdue)</span>}
                                                                 </div>
                                                             )}

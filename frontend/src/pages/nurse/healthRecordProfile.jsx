@@ -4,7 +4,8 @@ import {
     ArrowLeft, Folder, Lock, FileText, Download, AlertCircle, 
     User, X, ShieldCheck, CheckCircle, XCircle 
 } from 'lucide-react';
-import stiLogo from '../../assets/sti-logof.png';
+import stiLogo from '../../assets/sti-logof.png';
+import { formatDate } from '../../utils/datetime';
 import '../../styles/nurse/HealthRecordProfile.css';
 
 export default function HealthRecordsProfile() {
@@ -651,7 +652,7 @@ export default function HealthRecordsProfile() {
                                                         </span>
                                                     </td>
                                                     <td>
-                                                        {deadlineDate ? deadlineDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : 'No Deadline'}
+                                                        {deadlineDate ? formatDate(deadlineDate) : 'No Deadline'}
                                                     </td>
                                                     <td>
                                                         <span className={`submission-status-label ${statusClass}`}>
@@ -767,7 +768,7 @@ export default function HealthRecordsProfile() {
                     <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Student ID:</strong> {studentId} {isInactive ? '(Inactive Account)' : ''}</p>
                     <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Name:</strong> {studentHeader?.first_name} {studentHeader?.last_name}</p>
                     <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Program & Year:</strong> {studentHeader?.program_id} - {studentHeader?.year_level} Year</p>
-                    <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Gender:</strong> {personalInfo.gender || 'N/A'} | <strong>Age:</strong> {personalInfo.age || 'N/A'} | <strong>Date of Birth:</strong> {personalInfo.birth_date || 'N/A'}</p>
+                    <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Gender:</strong> {personalInfo.gender || 'N/A'} | <strong>Age:</strong> {personalInfo.age || 'N/A'} | <strong>Date of Birth:</strong> {personalInfo.birth_date ? formatDate(personalInfo.birth_date) : 'N/A'}</p>
                     <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Contact No.:</strong> {personalInfo.contact_number || 'N/A'}</p>
                     <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Address:</strong> {personalInfo.address || 'N/A'}</p>
                 </div>
@@ -796,7 +797,7 @@ export default function HealthRecordsProfile() {
                         {healthInfo.has_digestive_disorders && <li>Digestive Conditions noted</li>}
                         {healthInfo.has_heart_problems && <li>Heart Problems ({healthInfo.heart_problems_specify || 'Specified'})</li>}
                         {healthInfo.has_kidney_bladder_problems && <li>Kidney/Bladder Issues ({healthInfo.kidney_bladder_specify || 'Specified'})</li>}
-                        {healthInfo.has_seizure_episode && <li>Seizure Episodes (Last: {healthInfo.seizure_last_episode_date || 'N/A'})</li>}
+                        {healthInfo.has_seizure_episode && <li>Seizure Episodes (Last: {healthInfo.seizure_last_episode_date ? formatDate(healthInfo.seizure_last_episode_date) : 'N/A'})</li>}
                         {healthInfo.has_surgery && <li>History of Surgery ({healthInfo.surgery_specify || 'Specified'})</li>}
                         {healthInfo.has_vision_problem && <li>Vision Problem ({healthInfo.vision_specify || 'Specified'})</li>}
                         {!healthInfo.has_allergies && !healthInfo.has_asthma && !healthInfo.has_other_respiratory && !healthInfo.has_blood_disorders && !healthInfo.has_digestive_disorders && !healthInfo.has_heart_problems && !healthInfo.has_kidney_bladder_problems && !healthInfo.has_seizure_episode && !healthInfo.has_surgery && !healthInfo.has_vision_problem && (

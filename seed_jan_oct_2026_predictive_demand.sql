@@ -1,3 +1,5 @@
+-- SUPERSEDED by seed_jan2025_oct2026_dispensing.sql (new dispense-limit / dispense-unit model).
+-- Do not run this file on a migrated database: it records quantities in the strength unit (mg).
 -- =====================================================================================
 -- Seed script: Jan-Oct 2026 clinic visits + medicine dispensation + monthly stock
 -- snapshots, for exercising the "Predictive Medicine Demand" chart on the nurse

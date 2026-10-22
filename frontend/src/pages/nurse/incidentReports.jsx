@@ -24,7 +24,8 @@ import jsQR from 'jsqr';
 
 import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/IncidentReports.css';
-import { useAlert } from '../../context/AlertContext';
+import { useAlert } from '../../context/AlertContext';
+import { formatDate, formatDateTime } from '../../utils/datetime';
 
 const IncidentReport = () => {
     // 1. Get nurseId from NurseLayout Outlet context
@@ -166,16 +167,12 @@ const IncidentReport = () => {
             return;
         }
 
-        const reportDate = new Date().toLocaleDateString('en-US', { 
-            year: 'numeric', 
-            month: 'long', 
-            day: 'numeric' 
-        });
+        const reportDate = formatDate(new Date());
 
         const tableRowsHtml = rowsToExport.map(r => {
             const studentName = `${r.student_first_name || ''} ${r.student_last_name || ''}`.trim();
             const progYrSec = `${r.program_name || 'N/A'} - ${r.year_level || ''}${r.section || ''}`.trim();
-            const incidentDate = r.incident_datetime ? new Date(r.incident_datetime).toLocaleString() : 'N/A';
+            const incidentDate = r.incident_datetime ? formatDateTime(new Date(r.incident_datetime)) : 'N/A';
 
             return `
                 <tr>
@@ -334,15 +331,11 @@ const IncidentReport = () => {
             return;
         }
 
-        const reportDate = new Date().toLocaleDateString('en-US', { 
-            year: 'numeric', 
-            month: 'long', 
-            day: 'numeric' 
-        });
+        const reportDate = formatDate(new Date());
 
         const studentName = `${selectedReport.student_first_name || ''} ${selectedReport.student_last_name || ''}`.trim();
         const progYrSec = `${selectedReport.program_name || 'N/A'} - ${selectedReport.year_level || ''}${selectedReport.section || ''}`.trim();
-        const incidentDate = selectedReport.incident_datetime ? new Date(selectedReport.incident_datetime).toLocaleString() : 'N/A';
+        const incidentDate = selectedReport.incident_datetime ? formatDateTime(new Date(selectedReport.incident_datetime)) : 'N/A';
 
         const htmlContent = `
             <!DOCTYPE html>
@@ -808,7 +801,7 @@ const IncidentReport = () => {
                         <tbody>
                             {reports.map((report) => (
                                 <tr key={report.incident_id}>
-                                    <td>{new Date(report.incident_datetime).toLocaleString()}</td>
+                                    <td>{formatDateTime(new Date(report.incident_datetime))}</td>
                                     <td>
                                         <strong>{report.student_first_name || 'Unknown'} {report.student_last_name || 'Student'}</strong>
                                         <br />
@@ -1036,7 +1029,7 @@ const IncidentReport = () => {
                             <div className="detail-grid">
                                 <div>
                                     <label>Date & Time</label>
-                                    <p>{new Date(selectedReport.incident_datetime).toLocaleString()}</p>
+                                    <p>{formatDateTime(new Date(selectedReport.incident_datetime))}</p>
                                 </div>
                                 <div>
                                     <label>Location</label>

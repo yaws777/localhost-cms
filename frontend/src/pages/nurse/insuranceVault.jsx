@@ -18,7 +18,8 @@ import {
 
 import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/InsuranceVault.css';
-import { useAlert } from '../../context/AlertContext';
+import { useAlert } from '../../context/AlertContext';
+import { formatDate } from '../../utils/datetime';
 
 const InsuranceVault = () => {
     const { nurseId } = useOutletContext();
@@ -187,16 +188,12 @@ const InsuranceVault = () => {
             return;
         }
 
-        const reportDate = new Date().toLocaleDateString('en-US', { 
-            year: 'numeric', 
-            month: 'long', 
-            day: 'numeric' 
-        });
+        const reportDate = formatDate(new Date());
 
         const tableRowsHtml = rowsToExport.map(folder => {
             const studentName = `${folder.student_first_name || ''} ${folder.student_last_name || ''}`.trim();
             const progYrSec = `${folder.program_name || 'N/A'} ${folder.year_level ? `- Yr ${folder.year_level}` : ''} (${folder.section || 'N/A'})`.trim();
-            const lastUpdated = folder.last_updated ? new Date(folder.last_updated).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : 'N/A';
+            const lastUpdated = folder.last_updated ? formatDate(new Date(folder.last_updated)) : 'N/A';
 
             return `
                 <tr>
@@ -291,17 +288,13 @@ const InsuranceVault = () => {
             return;
         }
 
-        const reportDate = new Date().toLocaleDateString('en-US', { 
-            year: 'numeric', 
-            month: 'long', 
-            day: 'numeric' 
-        });
+        const reportDate = formatDate(new Date());
 
         const studentName = `${selectedFolder.student_first_name || ''} ${selectedFolder.student_last_name || ''}`.trim();
         const progYrSec = `${selectedFolder.program_name || 'N/A'} (${selectedFolder.section || 'N/A'})`.trim();
 
         const tableRowsHtml = vaultFiles.map(file => {
-            const uploadedDate = file.uploaded_at ? new Date(file.uploaded_at).toLocaleDateString() : 'N/A';
+            const uploadedDate = file.uploaded_at ? formatDate(new Date(file.uploaded_at)) : 'N/A';
             const manager = file.nurse_name || file.managed_by_nurse_id || 'N/A';
 
             return `
@@ -670,7 +663,7 @@ const InsuranceVault = () => {
                                             {folder.total_files} File(s)
                                         </span>
                                     </td>
-                                    <td>{folder.last_updated ? new Date(folder.last_updated).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : 'N/A'}</td>
+                                    <td>{folder.last_updated ? formatDate(new Date(folder.last_updated)) : 'N/A'}</td>
                                     <td>{folder.nurse_name || folder.managed_by_nurse_id}</td>
                                     <td>
                                         <div className="action-buttons-iv">
@@ -858,7 +851,7 @@ const InsuranceVault = () => {
                                                 <div>
                                                     <strong className="file-title-iv">{file.document_name}</strong>
                                                     <p className="file-meta-iv">
-                                                        Uploaded: {new Date(file.uploaded_at).toLocaleDateString()} | By: {file.nurse_name || file.managed_by_nurse_id}
+                                                        Uploaded: {formatDate(new Date(file.uploaded_at))} | By: {file.nurse_name || file.managed_by_nurse_id}
                                                     </p>
                                                     {file.description_notes && <p className="file-notes-iv">{file.description_notes}</p>}
                                                 </div>

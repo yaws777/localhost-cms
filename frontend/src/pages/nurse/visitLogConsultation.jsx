@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import jsQR from 'jsqr';
 import stiLogo from '../../assets/sti-logof.png';
+import { formatTime, formatDate } from '../../utils/datetime';
 import '../../styles/nurse/VisitLogConsultation.css';
 
 const MEASURED_UNITS = ['mg', 'g', 'mcg', 'mL', 'L'];
@@ -39,6 +40,13 @@ const isDiscreteUnit = (unit) => {
     return DISCRETE_UNITS.some(d => d.toLowerCase() === lowerUnit) || !MEASURED_UNITS.includes(lowerUnit);
 };
 
+// A batch is dispensable for a medical condition only if its medicine is linked to it
+// through medicine_indications (the API returns the linked ids as `complaint_ids`).
+const isBatchLinkedToComplaint = (batch, complaintId) => {
+    if (!batch || !complaintId) return false;
+    return String(batch.complaint_ids || '').split(',').includes(String(complaintId));
+};
+
 const formatDosageForm = (dosageForm, count = 1) => {
     if (!dosageForm) return count === 1 ? 'unit' : 'units';
     if (count === 1) return dosageForm;
@@ -52,7 +60,7 @@ const formatDosageFormWithStrength = (batch) => {
     if (!batch) return '';
     const dosageForm = batch.dosage_form || 'Unit';
     const strengthVal = batch.strength_unit_value;
-    const strengthUnit = batch.strength_unit_of_measure || batch.avg_dosage_consumption_unit_of_measure || '';
+    const strengthUnit = batch.strength_unit_of_measure || batch.dispense_unit_of_measure || '';
     
     if (strengthVal && strengthUnit) {
         return `${dosageForm}(${strengthVal} ${strengthUnit} per ${dosageForm.toLowerCase()})`;
@@ -64,39 +72,17 @@ const formatExpirationDate = (dateString) => {
     if (!dateString) return '';
     const date = new Date(dateString);
     if (isNaN(date.getTime())) return dateString;
-    return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    return formatDate(date);
 };
 
 const formatDateDisplay = (dateString) => {
     if (!dateString) return '';
-    const date = new Date(dateString);
-    if (isNaN(date.getTime())) return dateString;
-    
-    const month = date.toLocaleDateString('en-US', { month: 'short' });
-    const day = date.getDate();
-    const year = date.getFullYear();
-    
-    const formattedMonth = month.endsWith('.') ? month : `${month}.`;
-    return `${formattedMonth} ${day}, ${year}`;
+    return formatDate(dateString) || dateString;
 };
 
 const formatTimeDisplay = (timeStr) => {
     if (!timeStr) return '--:--';
-    if (timeStr.includes('T')) {
-        const dateObj = new Date(timeStr);
-        if (!isNaN(dateObj.getTime())) {
-            return dateObj.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-        }
-    }
-    const parts = timeStr.split(':');
-    if (parts.length < 2) return timeStr;
-    let hours = parseInt(parts[0], 10);
-    const minutes = parts[1];
-    if (isNaN(hours)) return timeStr;
-    const ampm = hours >= 12 ? 'PM' : 'AM';
-    hours = hours % 12;
-    hours = hours ? hours : 12;
-    return `${hours}:${minutes} ${ampm}`;
+    return formatTime(timeStr) || timeStr;
 };
 
 const VisitLogConsultation = () => {
@@ -641,12 +627,13 @@ const VisitLogConsultation = () => {
     const handleBatchChange = (batchId) => {
         const selected = batches.find(b => b.batch_id === batchId);
         if (selected) {
-            const medicineUnit = selected.avg_dosage_consumption_unit_of_measure 
+            const medicineUnit = selected.dispense_unit_of_measure 
                 || selected.strength_unit_of_measure 
                 || 'pcs.';
 
-            let rawValue = selected.avg_dosage_consumption_value;
-            let initialValue = (rawValue && parseFloat(rawValue) > 0) 
+            // dispense_limit / dispense_unit_of_measure is the medicine's dispense limit / dispense unit of measure
+            let rawValue = selected.dispense_limit;
+            let initialValue = (rawValue && parseFloat(rawValue) > 0)
                 ? String(Math.max(1, Math.round(parseFloat(rawValue)))) 
                 : '1';
 
@@ -672,7 +659,7 @@ const VisitLogConsultation = () => {
 
     const getTotalAvailableStock = (batch) => {
         if (!batch) return 0;
-        const unit = batch.avg_dosage_consumption_unit_of_measure || batch.strength_unit_of_measure;
+        const unit = batch.dispense_unit_of_measure || batch.strength_unit_of_measure;
         const isVol = VOLUME_UNITS.includes(unit);
         
         if (isVol) {
@@ -686,8 +673,10 @@ const VisitLogConsultation = () => {
     };
 
     const activeBatchInfo = batches.find(b => b.batch_id === formData.batch_id);
-    const activeBatchUnit = activeBatchInfo 
-        ? (activeBatchInfo.avg_dosage_consumption_unit_of_measure || activeBatchInfo.strength_unit_of_measure)
+    const eligibleBatches = batches.filter(b => isBatchLinkedToComplaint(b, formData.complaint_id));
+    const dispenseLimit = parseFloat(activeBatchInfo?.dispense_limit) || 0;
+    const activeBatchUnit = activeBatchInfo
+        ? (activeBatchInfo.dispense_unit_of_measure || activeBatchInfo.strength_unit_of_measure)
         : formData.dosage_consumption_unit_of_measure;
 
     const isDiscreteQuantity = isDiscreteUnit(formData.dosage_consumption_unit_of_measure) || isDiscreteUnit(activeBatchUnit);
@@ -731,7 +720,21 @@ const VisitLogConsultation = () => {
                     showAlertModal('Expired Medicine', 'Cannot dispense medicine from an expired batch.', 'error');
                     return;
                 }
-                
+
+                if (!isBatchLinkedToComplaint(activeBatchInfo, formData.complaint_id)) {
+                    showAlertModal('Medicine Not Indicated', 'The selected medicine is not linked to the selected medical condition.', 'warning');
+                    return;
+                }
+
+                if (dispenseLimit > 0 && val > dispenseLimit) {
+                    showAlertModal(
+                        'Dispense Limit Exceeded',
+                        `This medicine can only be dispensed up to ${dispenseLimit} ${formData.dosage_consumption_unit_of_measure} per dispensation.`,
+                        'warning'
+                    );
+                    return;
+                }
+
                 if (isVolumeUnit && val > calculatedTotalAvailableVolume) {
                     showAlertModal('Stock Deficit', `Requested quantity (${val} ${formData.dosage_consumption_unit_of_measure}) exceeds available stock.`, 'error');
                     return;
@@ -845,11 +848,7 @@ const VisitLogConsultation = () => {
             return;
         }
 
-        const reportDate = new Date().toLocaleDateString('en-US', { 
-            year: 'numeric', 
-            month: 'long', 
-            day: 'numeric' 
-        });
+        const reportDate = formatDate(new Date());
 
         const complaintCounts = rowsToExport.reduce((acc, visit) => {
             const name = visit.complaint_name ? visit.complaint_name.trim() : 'General Checkup';
@@ -1624,11 +1623,21 @@ const VisitLogConsultation = () => {
                                         <select 
                                             required 
                                             value={formData.complaint_id} 
-                                            onChange={e => setFormData({
-                                                ...formData, 
-                                                complaint_id: e.target.value,
-                                                specify_complaint_text: ''
-                                            })}
+                                            onChange={e => {
+                                                const nextComplaintId = e.target.value;
+                                                // Changing the condition clears a medicine that is not indicated for it
+                                                const keepBatch = isAlreadyDispensed || isBatchLinkedToComplaint(activeBatchInfo, nextComplaintId);
+                                                setFormData({
+                                                    ...formData,
+                                                    complaint_id: nextComplaintId,
+                                                    specify_complaint_text: '',
+                                                    ...(keepBatch ? {} : {
+                                                        batch_id: '',
+                                                        dosage_consumption_unit_value: '',
+                                                        dosage_consumption_unit_of_measure: ''
+                                                    })
+                                                });
+                                            }}
                                         >
                                             <option value="">-- Choose matching medical condition --</option>
                                             {complaints.map(c => (
@@ -1751,12 +1760,20 @@ const VisitLogConsultation = () => {
                                                 } 
                                             />
                                         ) : (
-                                            <select value={formData.batch_id} onChange={e => handleBatchChange(e.target.value)}>
-                                                <option value="">-- No medication needed --</option>
-                                                {batches.map(b => {
+                                            <select
+                                                value={formData.batch_id}
+                                                onChange={e => handleBatchChange(e.target.value)}
+                                                disabled={!formData.complaint_id}
+                                            >
+                                                <option value="">
+                                                    {formData.complaint_id
+                                                        ? (eligibleBatches.length ? '-- No medication needed --' : '-- No medicine linked to this medical condition --')
+                                                        : '-- Select a medical condition first --'}
+                                                </option>
+                                                {eligibleBatches.map(b => {
                                                     const isExpired = new Date(b.expiration_date) < new Date();
                                                     const formattedExp = formatExpirationDate(b.expiration_date);
-                                                    const unit = b.avg_dosage_consumption_unit_of_measure || b.strength_unit_of_measure || 'pcs.';
+                                                    const unit = b.dispense_unit_of_measure || b.strength_unit_of_measure || 'pcs.';
                                                     const totalAvailable = getTotalAvailableStock(b);
                                                     const isVol = VOLUME_UNITS.includes(unit);
                                                     
@@ -1787,11 +1804,17 @@ const VisitLogConsultation = () => {
                                     {(formData.batch_id || isAlreadyDispensed) && (
                                         <>
                                             <div className="form-input-element-vlc">
-                                                <label>Dosage / Quantity {!isAlreadyDispensed && <span className="required-star-vlc">*</span>}</label>
-                                                <input 
-                                                    type="number" 
-                                                    step={isDiscreteQuantity ? "1" : "1"} 
-                                                    min="1" 
+                                                <label>
+                                                    Dosage / Quantity {!isAlreadyDispensed && <span className="required-star-vlc">*</span>}
+                                                    {!isAlreadyDispensed && dispenseLimit > 0 && (
+                                                        <span className="label-optional-vlc"> (max {dispenseLimit} {formData.dosage_consumption_unit_of_measure})</span>
+                                                    )}
+                                                </label>
+                                                <input
+                                                    type="number"
+                                                    step={isDiscreteQuantity ? "1" : "1"}
+                                                    min="1"
+                                                    max={!isAlreadyDispensed && dispenseLimit > 0 ? dispenseLimit : undefined}
                                                     required={!isAlreadyDispensed} 
                                                     readOnly={isAlreadyDispensed}
                                                     disabled={isAlreadyDispensed}
@@ -1832,7 +1855,7 @@ const VisitLogConsultation = () => {
                 <div className="section-title-wrapper-vlc">
                     <div className="title-left-vlc">
                         <Clock size={18} className="title-icon-accent-vlc" />
-                        <h3>Today's Clinic Visits ({todayStr})</h3>
+                        <h3>Today's Clinic Visits ({formatDate(todayStr)})</h3>
                     </div>
                     <button className="refresh-table-btn-vlc" onClick={fetchTodayVisits}>
                         <RefreshCw size={14} /> 

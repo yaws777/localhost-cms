@@ -19,7 +19,8 @@ import {
   AlertCircle
 } from 'lucide-react';
 
-import stiLogo from '../../assets/sti-logof.png';
+import stiLogo from '../../assets/sti-logof.png';
+import { formatDate } from '../../utils/datetime';
 import '../../styles/nurse/ManageParentAccounts.css';
 
 const API_BASE = 'http://localhost:3001/manageParentAccount';
@@ -121,11 +122,7 @@ export default function ManageParentAccount() {
       return;
     }
 
-    const reportDate = new Date().toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric' 
-    });
+    const reportDate = formatDate(new Date());
 
     const tableRowsHtml = rowsToExport.map(p => {
       const fullName = `${p.first_name || ''} ${p.last_name || ''}`.trim();
@@ -287,11 +284,7 @@ export default function ManageParentAccount() {
       return;
     }
 
-    const reportDate = new Date().toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric' 
-    });
+    const reportDate = formatDate(new Date());
 
     const parentName = `${viewModalData.first_name || ''} ${viewModalData.last_name || ''}`.trim();
     const parentStatus = viewModalData.is_active ? 'Active' : 'Inactive';

@@ -26,7 +26,8 @@ import {
 
 import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/DocumentIssuance.css';
-import { useAlert } from '../../context/AlertContext';
+import { useAlert } from '../../context/AlertContext';
+import { formatDate, formatDateTime } from '../../utils/datetime';
 
 const NURSE_SIGNATURE_SVG = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 100" width="260" height="100">
@@ -118,7 +119,7 @@ const DocumentIssuance = () => {
 
     // Auto-Generated Slip Editable State
     const [slipDetails, setSlipDetails] = useState({
-        date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+        date: formatDate(new Date()),
         studentName: '',
         courseYearSection: '',
         reason: '',
@@ -317,11 +318,7 @@ const DocumentIssuance = () => {
         setModalError('');
         setReferralMode('autogen');
 
-        const todayFormatted = new Date().toLocaleDateString('en-US', { 
-            year: 'numeric', 
-            month: 'long', 
-            day: 'numeric' 
-        });
+        const todayFormatted = formatDate(new Date());
 
         const initialStart = formatDateForInput(reqItem.valid_absence_start || reqItem.validity_start);
         const initialEnd = formatDateForInput(reqItem.valid_absence_end || reqItem.validity_end);
@@ -361,11 +358,7 @@ const DocumentIssuance = () => {
             return;
         }
 
-        const reportDate = new Date().toLocaleDateString('en-US', { 
-            year: 'numeric', 
-            month: 'long', 
-            day: 'numeric' 
-        });
+        const reportDate = formatDate(new Date());
 
         // 1. Calculate status totals from the exported dataset
         const reportSummary = {
@@ -379,7 +372,7 @@ const DocumentIssuance = () => {
             const reasonFacility = req.request_type === 'Excuse Slip' 
                 ? (req.reason || req.reason_for_excuse || 'N/A') 
                 : (req.partner_facility_name || req.reason || 'N/A');
-            const reqDate = req.created_at ? new Date(req.created_at).toLocaleDateString() : 'N/A';
+            const reqDate = req.created_at ? formatDate(new Date(req.created_at)) : 'N/A';
             const statusStr = (req.status || '').toLowerCase() === 'pending' ? 'Waiting for Approval' : req.status;
 
             return `
@@ -905,8 +898,8 @@ const DocumentIssuance = () => {
                     let currentY = 370;
 
                     if (slipDetails.validityStart || slipDetails.validityEnd) {
-                        const startFmt = slipDetails.validityStart ? new Date(slipDetails.validityStart).toLocaleDateString() : '';
-                        const endFmt = slipDetails.validityEnd ? new Date(slipDetails.validityEnd).toLocaleDateString() : '';
+                        const startFmt = slipDetails.validityStart ? formatDate(new Date(slipDetails.validityStart)) : '';
+                        const endFmt = slipDetails.validityEnd ? formatDate(new Date(slipDetails.validityEnd)) : '';
                         const validityStr = `${startFmt} to ${endFmt}`.trim();
 
                         ctx.font = '18px "Times New Roman", Serif';
@@ -1261,7 +1254,7 @@ const DocumentIssuance = () => {
                                     <td className="truncate-cell-di">
                                         {req.request_type === 'Excuse Slip' ? (req.reason || req.reason_for_excuse) : req.partner_facility_name || req.reason}
                                     </td>
-                                    <td>{new Date(req.created_at).toLocaleDateString()}</td>
+                                    <td>{formatDate(new Date(req.created_at))}</td>
                                     <td>
                                         <span className={`badge-status-di status-${(req.status || '').toLowerCase() === 'pending' ? 'pending-di' : (req.status || '').toLowerCase() + '-di'}`}>
                                             {(req.status || '').toLowerCase() === 'pending' ? 'Waiting for Approval' : req.status}
@@ -1327,10 +1320,10 @@ const DocumentIssuance = () => {
                                         <p>
                                             <strong>Validity Period:</strong> {' '}
                                             {selectedRequest.valid_absence_start || slipDetails.validityStart ? 
-                                                new Date(slipDetails.validityStart || selectedRequest.valid_absence_start).toLocaleDateString() : 'N/A'} 
+                                                formatDate(new Date(slipDetails.validityStart || selectedRequest.valid_absence_start)) : 'N/A'} 
                                             {' to '} 
                                             {selectedRequest.valid_absence_end || slipDetails.validityEnd ? 
-                                                new Date(slipDetails.validityEnd || selectedRequest.valid_absence_end).toLocaleDateString() : 'N/A'}
+                                                formatDate(new Date(slipDetails.validityEnd || selectedRequest.valid_absence_end)) : 'N/A'}
                                         </p>
                                         {selectedRequest.student_proof_url && (
                                             <div className="file-attachment-di">
@@ -1360,7 +1353,7 @@ const DocumentIssuance = () => {
                                             <div key={note.note_id} className={`note-bubble-di ${note.sender_type === 'Nurse' ? 'note-nurse-di' : 'note-student-di'}`}>
                                                 <div className="note-header-di">
                                                     <strong>{note.sender_type} ({note.sender_id})</strong>
-                                                    <span>{new Date(note.created_at).toLocaleString()}</span>
+                                                    <span>{formatDateTime(new Date(note.created_at))}</span>
                                                 </div>
                                                 <p>{note.message}</p>
                                             </div>
@@ -1397,7 +1390,7 @@ const DocumentIssuance = () => {
                             {!['pending', 'waiting for approval'].includes((selectedRequest.status || '').toLowerCase()) && (
                                 <div className="issued-info-box-di">
                                     <p><strong>Processed By Nurse ID:</strong> {selectedRequest.issued_by || 'N/A'}</p>
-                                    <p><strong>Processed At:</strong> {selectedRequest.issued_at ? new Date(selectedRequest.issued_at).toLocaleString() : 'N/A'}</p>
+                                    <p><strong>Processed At:</strong> {selectedRequest.issued_at ? formatDateTime(new Date(selectedRequest.issued_at)) : 'N/A'}</p>
                                     {selectedRequest.issued_slip_url && (
                                         <div className="file-attachment-di mt-2-di">
                                             <FileText size={16} />
@@ -1593,7 +1586,7 @@ const DocumentIssuance = () => {
                                                         <div className="slip-row-di">
                                                             <span>VALIDITY PERIOD:</span>
                                                             <span className="slip-underlined-di full-di">
-                                                                {slipDetails.validityStart ? new Date(slipDetails.validityStart).toLocaleDateString() : ''} to {slipDetails.validityEnd ? new Date(slipDetails.validityEnd).toLocaleDateString() : ''}
+                                                                {slipDetails.validityStart ? formatDate(new Date(slipDetails.validityStart)) : ''} to {slipDetails.validityEnd ? formatDate(new Date(slipDetails.validityEnd)) : ''}
                                                             </span>
                                                         </div>
                                                     )}

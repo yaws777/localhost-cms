@@ -1,6 +1,7 @@
 // MyProfile.jsx
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { formatDate } from '../../utils/datetime';
 import '../../styles/student/MyProfile.css'; 
 
 export default function MyProfile() {
@@ -546,7 +547,7 @@ export default function MyProfile() {
                                                     </td>
                                                     <td style={{ padding: '12px', color: isPastDeadline ? '#ff4d4f' : '#333' }}>
                                                         {deadlineDate 
-                                                            ? deadlineDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) 
+                                                            ? formatDate(deadlineDate) 
                                                             : 'No Specified Deadline'}
                                                     </td>
                                                     <td style={{ padding: '12px' }}>

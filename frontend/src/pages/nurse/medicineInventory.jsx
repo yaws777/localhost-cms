@@ -18,6 +18,7 @@ import {
 import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/MedicineInventory.css';
 import { useAlert } from '../../context/AlertContext';
+import { formatDate } from '../../utils/datetime';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
 
@@ -40,23 +41,55 @@ const REQUIRES_SPECIFY_COMPLAINTS = [
   'body pain'
 ];
 
-const DOSAGE_FORM_UNITS = {
-  'Tablet': ['mg', 'g', 'mcg', 'Tablet/s'],
-  'Capsule': ['mg', 'g', 'mcg', 'Capsule/s'],
-  'Sachet': ['mg', 'g', 'mcg', 'Sachet'],
-  'Patch': ['mg', 'mcg', 'Patch/es'],
-  'Inhaler': ['mg', 'mcg', 'Inhaler'],
+// Strength describes the package only (e.g. 500 mg per tablet, 60 mL per bottle).
+const DOSAGE_FORM_STRENGTH_UNITS = {
+  'Tablet': ['mg', 'g', 'mcg'],
+  'Capsule': ['mg', 'g', 'mcg'],
+  'Sachet': ['mg', 'g', 'mcg'],
+  'Patch': ['mg', 'mcg'],
+  'Inhaler': ['mg', 'mcg'],
   'Syrup': ['mL', 'L', 'mg', 'mcg'],
   'Suspension': ['mL', 'L', 'mg', 'mcg'],
   'Drops': ['mL', 'L', 'mg', 'mcg'],
   'Bottle': ['mL', 'L', 'mg', 'mcg'],
-  'Vial': ['mL', 'L', 'mg', 'mcg', 'Vial'],
-  'Prefilled Syringe': ['mL', 'mg', 'Prefilled Syringe'],
+  'Vial': ['mL', 'L', 'mg', 'mcg'],
+  'Prefilled Syringe': ['mL', 'mg'],
   'Ointment': ['g', 'mg', 'mL'],
   'Cream': ['g', 'mg', 'mL'],
   'Gel': ['g', 'mg', 'mL'],
-  'Spray': ['mg', 'mcg', 'mL', 'Spray/s'],
-  'Box': [ 'Box/es', 'pcs.']
+  'Spray': ['mg', 'mcg', 'mL'],
+  'Box': ['pcs.']
+};
+
+// The dispense unit is chosen by dosage form: a piece unit (Tablet/s, Capsule/s, ...) and/or a
+// measured unit convertible from the strength unit (mL, g, ...).
+const PIECE_DISPENSE_UNIT_BY_FORM = {
+  'Tablet': 'Tablet/s',
+  'Capsule': 'Capsule/s',
+  'Sachet': 'Sachet',
+  'Patch': 'Patch/es',
+  'Inhaler': 'Inhaler',
+  'Vial': 'Vial',
+  'Prefilled Syringe': 'Prefilled Syringe',
+  'Spray': 'Spray/s',
+  'Box': 'Box/es'
+};
+
+const VOLUME_ONLY_MEASURED_FORMS = ['Vial', 'Prefilled Syringe', 'Spray'];
+const ANY_MEASURED_FORMS = ['Syrup', 'Suspension', 'Drops', 'Bottle', 'Ointment', 'Cream', 'Gel', 'Box'];
+
+const getDispenseUnitOptions = (dosageForm, strengthUnit) => {
+  const options = [];
+  const pieceUnit = PIECE_DISPENSE_UNIT_BY_FORM[dosageForm];
+  if (pieceUnit) options.push(pieceUnit);
+
+  const measured = getConsumptionUnitOptions(strengthUnit);
+  if (ANY_MEASURED_FORMS.includes(dosageForm)) {
+    options.push(...measured);
+  } else if (VOLUME_ONLY_MEASURED_FORMS.includes(dosageForm)) {
+    options.push(...measured.filter(u => u === 'mL' || u === 'L'));
+  }
+  return [...new Set(options)];
 };
 
 const getConsumptionUnitOptions = (strengthUnit) => {
@@ -156,8 +189,9 @@ export default function MedicineInventory() {
     dosage_form: 'Tablet',
     strength_unit_value: '',
     strength_unit_of_measure: 'mg',
-    avg_dosage_consumption_value: '',
-    avg_dosage_consumption_unit_of_measure: 'mg',
+    // Dispense limit (max quantity per dispensation) and dispense unit of measure
+    dispense_limit: '1',
+    dispense_unit_of_measure: 'Tablet/s',
     low_stock_level: 10,
     critical_stock_level: 5,
     adequate_stock_level: 20,
@@ -201,32 +235,57 @@ export default function MedicineInventory() {
   }, [fetchData]);
 
   const handleDosageFormChange = (form) => {
-    const validStrengthUnits = DOSAGE_FORM_UNITS[form] || [];
-    const defaultStrengthUnit = validStrengthUnits[0] || '';
-    const isDiscrete = DISCRETE_UNITS.includes(defaultStrengthUnit);
-    const validConsumptionUnits = getConsumptionUnitOptions(defaultStrengthUnit);
-    
+    const defaultStrengthUnit = (DOSAGE_FORM_STRENGTH_UNITS[form] || [])[0] || '';
+    const defaultDispenseUnit = getDispenseUnitOptions(form, defaultStrengthUnit)[0] || defaultStrengthUnit;
+
     setMedForm(prev => ({
       ...prev,
       dosage_form: form,
       strength_unit_of_measure: defaultStrengthUnit,
-      strength_unit_value: isDiscrete ? '1' : prev.strength_unit_value,
-      avg_dosage_consumption_value: isDiscrete ? '1' : prev.avg_dosage_consumption_value,
-      avg_dosage_consumption_unit_of_measure: isDiscrete ? defaultStrengthUnit : (validConsumptionUnits[0] || defaultStrengthUnit)
+      dispense_unit_of_measure: defaultDispenseUnit,
+      dispense_limit: DISCRETE_UNITS.includes(defaultDispenseUnit)
+        ? '1'
+        : (prev.dispense_limit || '1')
     }));
   };
 
+  // Strength is package-only: changing it keeps the dispense unit when it is still valid.
   const handleStrengthUnitChange = (unit) => {
-    const isDiscrete = DISCRETE_UNITS.includes(unit);
-    const validConsumptionUnits = getConsumptionUnitOptions(unit);
+    setMedForm(prev => {
+      const dispenseOptions = getDispenseUnitOptions(prev.dosage_form, unit);
+      const keepDispenseUnit = dispenseOptions.includes(prev.dispense_unit_of_measure);
+      const nextDispenseUnit = keepDispenseUnit
+        ? prev.dispense_unit_of_measure
+        : (dispenseOptions[0] || unit);
 
+      return {
+        ...prev,
+        strength_unit_of_measure: unit,
+        strength_unit_value: DISCRETE_UNITS.includes(unit) ? '1' : prev.strength_unit_value,
+        dispense_unit_of_measure: nextDispenseUnit,
+        dispense_limit: !keepDispenseUnit && DISCRETE_UNITS.includes(nextDispenseUnit)
+          ? '1'
+          : prev.dispense_limit
+      };
+    });
+  };
+
+  const handleDispenseUnitChange = (unit) => {
     setMedForm(prev => ({
       ...prev,
-      strength_unit_of_measure: unit,
-      strength_unit_value: isDiscrete ? '1' : prev.strength_unit_value,
-      avg_dosage_consumption_value: isDiscrete ? '1' : prev.avg_dosage_consumption_value,
-      avg_dosage_consumption_unit_of_measure: isDiscrete ? unit : (validConsumptionUnits[0] || unit)
+      dispense_unit_of_measure: unit,
+      dispense_limit: DISCRETE_UNITS.includes(unit)
+        ? String(Math.max(1, Math.round(parseFloat(prev.dispense_limit) || 1)))
+        : prev.dispense_limit
     }));
+  };
+
+  const handleDispenseLimitChange = (rawValue) => {
+    if (DISCRETE_UNITS.includes(medForm.dispense_unit_of_measure) && rawValue.includes('.')) {
+      setMedForm(prev => ({ ...prev, dispense_limit: rawValue.split('.')[0] }));
+      return;
+    }
+    setMedForm(prev => ({ ...prev, dispense_limit: rawValue }));
   };
 
   const getStockStatus = (stock, lowThreshold = 10, criticalThreshold = 5) => {
@@ -249,7 +308,7 @@ export default function MedicineInventory() {
     } else if (diffDays <= 7) {
       return { msg: `⚠️ Alert (${diffDays} days left)`, style: { color: '#B54708', fontWeight: '600' } };
     }
-    return { msg: expiryDate, style: { color: 'inherit' } };
+    return { msg: formatDate(expiryDate), style: { color: 'inherit' } };
   };
 
   const requiresSpecifyText = (complaintName) => {
@@ -286,12 +345,19 @@ export default function MedicineInventory() {
     e.preventDefault();
     if (!medForm.generic_name.trim() || !medForm.brand_name.trim()) return;
 
-    const isDiscrete = DISCRETE_UNITS.includes(medForm.strength_unit_of_measure);
+    const isLegacyDiscreteStrength = DISCRETE_UNITS.includes(medForm.strength_unit_of_measure);
+    const isDiscreteDispense = DISCRETE_UNITS.includes(medForm.dispense_unit_of_measure);
+    const dispenseLimit = parseFloat(medForm.dispense_limit);
+
+    if (!(dispenseLimit > 0)) {
+      showAlert('Dispense limit must be greater than 0.', 'error');
+      return;
+    }
+
     const payload = {
       ...medForm,
-      strength_unit_value: isDiscrete ? 1 : (parseFloat(medForm.strength_unit_value) || 1),
-      avg_dosage_consumption_value: isDiscrete ? 1 : (parseFloat(medForm.avg_dosage_consumption_value) || 1),
-      avg_dosage_consumption_unit_of_measure: isDiscrete ? medForm.strength_unit_of_measure : medForm.avg_dosage_consumption_unit_of_measure,
+      strength_unit_value: isLegacyDiscreteStrength ? 1 : (parseFloat(medForm.strength_unit_value) || 1),
+      dispense_limit: isDiscreteDispense ? Math.max(1, Math.round(dispenseLimit)) : dispenseLimit,
       indications: medForm.indications
     };
 
@@ -327,7 +393,7 @@ export default function MedicineInventory() {
   const handleAddBatch = async (e) => {
     e.preventDefault();
     const selectedMed = medicinesList.find(m => m.medicine_id === batchForm.medicine_id);
-    const isDiscrete = selectedMed && DISCRETE_UNITS.includes(selectedMed.strength_unit_of_measure);
+    const isDiscrete = selectedMed && DISCRETE_UNITS.includes(selectedMed.dispense_unit_of_measure);
     const maxVal = selectedMed ? parseFloat(selectedMed.strength_unit_value) : 0;
     
     let volumeInput;
@@ -411,17 +477,13 @@ export default function MedicineInventory() {
       return;
     }
 
-    const reportDate = new Date().toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric' 
-    });
+    const reportDate = formatDate(new Date());
 
     const tableRowsHtml = filteredInventory.map(item => {
       const statusEval = getStockStatus(item.current_stock, item.low_stock_level, item.critical_stock_level);
       const stockUnitLabel = getStockLabel(item);
       const formattedDate = item.expiration_date 
-        ? new Date(item.expiration_date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) 
+        ? formatDate(new Date(item.expiration_date)) 
         : 'N/A';
       const medName = `<strong>${item.generic_name}</strong><br/><span style="color: #64748b; font-size: 11px;">(${item.brand_name})</span>`;
       const dosageFormText = item.dosage_form || '';
@@ -574,12 +636,21 @@ export default function MedicineInventory() {
   };
 
   const selectedMedForBatch = medicinesList.find(m => m.medicine_id === batchForm.medicine_id);
-  const isBatchDiscreteUnit = selectedMedForBatch && DISCRETE_UNITS.includes(selectedMedForBatch.strength_unit_of_measure);
+  const isBatchDiscreteUnit = selectedMedForBatch && DISCRETE_UNITS.includes(selectedMedForBatch.dispense_unit_of_measure);
   const batchUnitMeasure = selectedMedForBatch ? selectedMedForBatch.strength_unit_of_measure : '';
   const maxBatchVolume = selectedMedForBatch ? selectedMedForBatch.strength_unit_value : null;
 
   const batchDosageForm = selectedMedForBatch?.dosage_form || editingBatch?.dosage_form || editingBatch?.form_type;
-  const isCurrentMedDiscrete = DISCRETE_UNITS.includes(medForm.strength_unit_of_measure);
+  const isLegacyDiscreteStrength = DISCRETE_UNITS.includes(medForm.strength_unit_of_measure);
+  const isDispenseUnitDiscrete = DISCRETE_UNITS.includes(medForm.dispense_unit_of_measure);
+  const strengthUnitOptions = [...new Set([
+    ...(DOSAGE_FORM_STRENGTH_UNITS[medForm.dosage_form] || []),
+    medForm.strength_unit_of_measure
+  ].filter(Boolean))];
+  const dispenseUnitOptions = [...new Set([
+    ...getDispenseUnitOptions(medForm.dosage_form, medForm.strength_unit_of_measure),
+    medForm.dispense_unit_of_measure
+  ].filter(Boolean))];
 
   const filteredComplaints = complaints
     .filter(comp => 
@@ -689,7 +760,7 @@ export default function MedicineInventory() {
             }).map(item => {
               const statusEval = getStockStatus(item.current_stock, item.low_stock_level, item.critical_stock_level);
               const expiryDetails = getExpirationAlert(item.expiration_date);
-              const isDiscreteItem = DISCRETE_UNITS.includes(item.strength_unit_of_measure);
+              const isDiscreteItem = DISCRETE_UNITS.includes(item.dispense_unit_of_measure);
               const stockUnitLabel = getStockLabel(item);
 
               return (
@@ -788,13 +859,15 @@ export default function MedicineInventory() {
                         return medName.includes(query) || complaintsText.includes(query);
                       })
                       .map(med => {
-                        const isDiscreteMed = DISCRETE_UNITS.includes(med.strength_unit_of_measure);
+                        const isLegacyDiscreteMed = DISCRETE_UNITS.includes(med.strength_unit_of_measure);
+                        const isDiscreteDispenseMed = DISCRETE_UNITS.includes(med.dispense_unit_of_measure);
                         return (
                           <tr key={med.medicine_id}>
                             <td style={{ fontWeight: '500' }}>
                               {med.generic_name} ({med.brand_name})
                               <div className="med-sub-details">
                                 {med.dosage_form} | {med.display_strength_value} {med.display_strength_unit}
+                                {' | '}Dispense limit: {isDiscreteDispenseMed ? Math.round(parseFloat(med.dispense_limit) || 0) : med.display_avg_value} {med.dispense_unit_of_measure}
                               </div>
                               <div className="med-indications-text">
                                 <em>Indications: {med.connected_complaints || 'None'}</em>
@@ -811,10 +884,12 @@ export default function MedicineInventory() {
                                     generic_name: med.generic_name,
                                     brand_name: med.brand_name,
                                     dosage_form: med.dosage_form,
-                                    strength_unit_value: isDiscreteMed ? '1' : med.strength_unit_value,
+                                    strength_unit_value: isLegacyDiscreteMed ? '1' : med.strength_unit_value,
                                     strength_unit_of_measure: med.strength_unit_of_measure,
-                                    avg_dosage_consumption_value: isDiscreteMed ? '1' : med.avg_dosage_consumption_value,
-                                    avg_dosage_consumption_unit_of_measure: isDiscreteMed ? med.strength_unit_of_measure : med.avg_dosage_consumption_unit_of_measure,
+                                    dispense_limit: isDiscreteDispenseMed
+                                      ? String(Math.max(1, Math.round(parseFloat(med.dispense_limit) || 1)))
+                                      : med.dispense_limit,
+                                    dispense_unit_of_measure: med.dispense_unit_of_measure,
                                     low_stock_level: med.low_stock_level,
                                     critical_stock_level: med.critical_stock_level,
                                     adequate_stock_level: med.adequate_stock_level,
@@ -905,11 +980,11 @@ export default function MedicineInventory() {
                     <input
                       type="number"
                       step="0.01"
-                      min="1"
+                      min="0.01"
                       className="modal-input-field"
                       value={medForm.strength_unit_value}
                       onChange={e => setMedForm({ ...medForm, strength_unit_value: e.target.value })}
-                      disabled={isCurrentMedDiscrete}
+                      disabled={isLegacyDiscreteStrength}
                       required
                     />
                   </div>
@@ -921,39 +996,49 @@ export default function MedicineInventory() {
                       onChange={e => handleStrengthUnitChange(e.target.value)}
                       required
                     >
-                      {(DOSAGE_FORM_UNITS[medForm.dosage_form] || []).map(u => (
+                      {strengthUnitOptions.map(u => (
                         <option key={u} value={u}>{u}</option>
                       ))}
                     </select>
                   </div>
                 </div>
+                <small className="field-help-text" style={{ display: 'block', marginTop: '-6px', marginBottom: '12px' }}>
+                  Strength is the package strength only (e.g. 500 mg per tablet, 60 mL per bottle).
+                </small>
 
-                {!isCurrentMedDiscrete && (
-                  <div className="modal-form-row">
-                    <div className="modal-form-group">
-                      <label>Avg Dosage Value</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        className="modal-input-field"
-                        value={medForm.avg_dosage_consumption_value}
-                        onChange={e => setMedForm({ ...medForm, avg_dosage_consumption_value: e.target.value })}
-                      />
-                    </div>
-                    <div className="modal-form-group">
-                      <label>Avg Dosage Unit of Measure</label>
-                      <select
-                        className="modal-select-dropdown"
-                        value={medForm.avg_dosage_consumption_unit_of_measure}
-                        onChange={e => setMedForm({ ...medForm, avg_dosage_consumption_unit_of_measure: e.target.value })}
-                      >
-                        {getConsumptionUnitOptions(medForm.strength_unit_of_measure).map(u => (
-                          <option key={u} value={u}>{u}</option>
-                        ))}
-                      </select>
-                    </div>
+                <div className="modal-form-row">
+                  <div className="modal-form-group">
+                    <label>Dispense Limit</label>
+                    <input
+                      type="number"
+                      step={isDispenseUnitDiscrete ? '1' : '0.01'}
+                      min={isDispenseUnitDiscrete ? '1' : '0.01'}
+                      className="modal-input-field"
+                      value={medForm.dispense_limit}
+                      onChange={e => handleDispenseLimitChange(e.target.value)}
+                      onKeyDown={e => {
+                        if (isDispenseUnitDiscrete && ['.', 'e', 'E', '+', '-'].includes(e.key)) e.preventDefault();
+                      }}
+                      required
+                    />
                   </div>
-                )}
+                  <div className="modal-form-group">
+                    <label>Dispense Unit of Measure</label>
+                    <select
+                      className="modal-select-dropdown"
+                      value={medForm.dispense_unit_of_measure}
+                      onChange={e => handleDispenseUnitChange(e.target.value)}
+                      required
+                    >
+                      {dispenseUnitOptions.map(u => (
+                        <option key={u} value={u}>{u}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <small className="field-help-text" style={{ display: 'block', marginTop: '-6px', marginBottom: '12px' }}>
+                  Maximum quantity that can be dispensed at once (e.g. a limit of 1 {medForm.dispense_unit_of_measure || 'Tablet/s'} per dispensation).
+                </small>
 
                 <div className="modal-form-row">
                   <div className="modal-form-group">
@@ -1073,8 +1158,8 @@ export default function MedicineInventory() {
                     value={batchForm.medicine_id}
                     onChange={e => {
                       const selected = medicinesList.find(m => m.medicine_id === e.target.value);
-                      const isDiscrete = selected && DISCRETE_UNITS.includes(selected.strength_unit_of_measure);
-                      setBatchForm({ 
+                      const isDiscrete = selected && DISCRETE_UNITS.includes(selected.dispense_unit_of_measure);
+                      setBatchForm({
                         ...batchForm, 
                         medicine_id: e.target.value,
                         remaining_volume: isDiscrete ? 1 : (selected ? selected.strength_unit_value : '')
@@ -1086,7 +1171,7 @@ export default function MedicineInventory() {
                     <option value="">-- Select Medicine --</option>
                     {medicinesList.map(med => (
                       <option key={med.medicine_id} value={med.medicine_id}>
-                        {med.generic_name} ({med.brand_name}) - {med.strength_unit_of_measure}
+                        {med.generic_name} ({med.brand_name}) - {med.display_strength_value} {med.display_strength_unit}
                       </option>
                     ))}
                   </select>

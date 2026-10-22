@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import jsQR from 'jsqr';
 import stiLogo from '../../assets/sti-logof.png';
+import { formatDate, formatDateTime } from '../../utils/datetime';
 import '../../styles/nurse/DispensedMedicine.css';
 
 // Measured units allow continuous decimal values (liquids, weights, volumes)
@@ -78,7 +79,7 @@ const isBoxUnit = (item) => {
     item.package_type,
     item.strength_unit_of_measure,
     item.dosage_unit,
-    item.avg_dosage_consumption_unit_of_measure
+    item.dispense_unit_of_measure
   ];
   return fields.some(field => typeof field === 'string' && field.toLowerCase().includes('box'));
 };
@@ -179,7 +180,7 @@ const getStockLabel = (item) => {
   const dosageForm = item.dosage_form || item.form_type;
   const dosageUnit = item.dosage_unit;
   const strengthUnit = item.strength_unit_of_measure;
-  const avgDosageUnit = item.avg_dosage_consumption_unit_of_measure;
+  const avgDosageUnit = item.dispense_unit_of_measure;
   const packaging = item.packaging || item.package_type;
   
   let unit = dosageForm || dosageUnit || strengthUnit || avgDosageUnit || packaging || 'unit';
@@ -209,6 +210,13 @@ const formatCurrentStock = (item) => {
   const stockUnit = getStockLabel(item);
   const strengthInfo = getStrengthPerDosageForm(item);
   return `${item.current_stock} ${stockUnit}${strengthInfo ? ` ${strengthInfo}` : ''}`;
+};
+
+// A batch is dispensable for a medical condition only if its medicine is linked to it
+// through medicine_indications (the API returns the linked ids as `complaint_ids`).
+const isBatchLinkedToComplaint = (batch, complaintId) => {
+  if (!batch || !complaintId) return false;
+  return String(batch.complaint_ids || '').split(',').includes(String(complaintId));
 };
 
 const getStockStatus = (stock, lowThreshold = 10, criticalThreshold = 5) => {
@@ -244,6 +252,8 @@ const DispensedMedicine = () => {
   const streamRef = useRef(null);
 
   const [inventory, setInventory] = useState([]);
+  const [complaints, setComplaints] = useState([]);
+  const [selectedComplaintId, setSelectedComplaintId] = useState('');
   const [selectedMedicineId, setSelectedMedicineId] = useState('');
   const [availableBatches, setAvailableBatches] = useState([]);
   const [selectedBatchId, setSelectedBatchId] = useState('');
@@ -410,6 +420,18 @@ const DispensedMedicine = () => {
     }
   }, []);
 
+  const fetchComplaints = useCallback(async () => {
+    try {
+      const res = await fetch('http://localhost:3001/api/complaints');
+      if (!res.ok) throw new Error(`HTTP status ${res.status}`);
+      const data = await res.json();
+      setComplaints(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Error loading medical conditions:", err);
+      setComplaints([]);
+    }
+  }, []);
+
   const fetchHistory = useCallback(async (customParams = {}) => {
     try {
       const fDate = customParams.fromDate !== undefined ? customParams.fromDate : fromDate;
@@ -439,6 +461,10 @@ const DispensedMedicine = () => {
   }, [fetchInventory, fetchHistory]);
 
   useEffect(() => {
+    fetchComplaints();
+  }, [fetchComplaints]);
+
+  useEffect(() => {
     if (searchStudent.trim().length > 1 && !selectedStudent) {
       fetch(`http://localhost:3001/api/students/direct?search=${encodeURIComponent(searchStudent)}`)
         .then((res) => {
@@ -456,21 +482,26 @@ const DispensedMedicine = () => {
   }, [searchStudent, selectedStudent]);
 
   useEffect(() => {
-    if (selectedMedicineId && Array.isArray(inventory)) {
-      const batches = inventory.filter(b => b.medicine_id === selectedMedicineId && b.current_stock > 0);
+    if (selectedMedicineId && selectedComplaintId && Array.isArray(inventory)) {
+      const batches = inventory.filter(b =>
+        b.medicine_id === selectedMedicineId &&
+        b.current_stock > 0 &&
+        isBatchLinkedToComplaint(b, selectedComplaintId)
+      );
       setAvailableBatches(batches);
       setSelectedBatchId('');
       
+      // Dispense unit and dispense limit come from the medicine (dispense_limit / dispense_unit_of_measure columns)
       const sample = inventory.find(i => i.medicine_id === selectedMedicineId);
       if (sample) {
-        const unit = sample.avg_dosage_consumption_unit_of_measure || sample.strength_unit_of_measure || '';
-        const rawVal = sample.avg_dosage_consumption_value || '';
+        const unit = sample.dispense_unit_of_measure || sample.strength_unit_of_measure || '';
+        const limit = parseFloat(sample.dispense_limit);
         const isMeasured = isMeasuredUnitFn(unit);
 
-        if (!isMeasured && rawVal) {
-          setDosageValue(Math.max(1, Math.round(parseFloat(rawVal))).toString());
+        if (!isMeasured && limit > 0) {
+          setDosageValue(Math.max(1, Math.round(limit)).toString());
         } else {
-          setDosageValue((rawVal && parseFloat(rawVal) > 0) ? rawVal : '1');
+          setDosageValue(limit > 0 ? String(limit) : '1');
         }
         setDosageUnit(unit);
       }
@@ -480,7 +511,7 @@ const DispensedMedicine = () => {
       setDosageValue('');
       setDosageUnit('');
     }
-  }, [selectedMedicineId, inventory]);
+  }, [selectedMedicineId, selectedComplaintId, inventory]);
 
   const handleFromDateChange = (e) => {
     const newFromDate = e.target.value;
@@ -522,6 +553,7 @@ const DispensedMedicine = () => {
           student_id: selectedStudent.student_id,
           nurse_id: nurseId,
           batch_id: selectedBatchId,
+          complaint_id: selectedComplaintId,
           dosage_consumption_unit_value: parseFloat(dosageValue),
           dosage_consumption_unit_of_measure: dosageUnit
         })
@@ -534,11 +566,12 @@ const DispensedMedicine = () => {
         
         setSelectedStudent(null);
         setSearchStudent('');
+        setSelectedComplaintId('');
         setSelectedMedicineId('');
         setSelectedBatchId('');
         setDosageValue('');
         setDosageUnit('');
-        
+
         fetchInventory();
         fetchHistory();
       } else {
@@ -563,6 +596,11 @@ const DispensedMedicine = () => {
       return;
     }
 
+    if (!selectedComplaintId) {
+      showAlertModal('Validation Error', 'Please select the medical condition the medicine is dispensed for.', 'warning');
+      return;
+    }
+
     if (!selectedBatchId) {
       showAlertModal('Validation Error', 'Please select a valid medicine batch expiration date.', 'warning');
       return;
@@ -574,6 +612,16 @@ const DispensedMedicine = () => {
 
     if (isNaN(numericValue) || numericValue <= 0) {
       showAlertModal('Validation Error', 'Dosage value must be greater than 0.', 'warning');
+      return;
+    }
+
+    const dispenseLimit = parseFloat(selectedBatch?.dispense_limit);
+    if (dispenseLimit > 0 && numericValue > dispenseLimit) {
+      showAlertModal(
+        'Dispense Limit Exceeded',
+        `This medicine can only be dispensed up to ${formatUnitValue(dispenseLimit, dosageUnit)} ${dosageUnit} per dispensation.`,
+        'warning'
+      );
       return;
     }
 
@@ -630,11 +678,7 @@ const DispensedMedicine = () => {
       return;
     }
 
-    const reportDate = new Date().toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric' 
-    });
+    const reportDate = formatDate(new Date());
 
     // 1. Calculate aggregated total quantity/volume and dispensation count per medicine
     const medicineTotals = rowsToExport.reduce((acc, log) => {
@@ -668,7 +712,7 @@ const DispensedMedicine = () => {
       : '<span style="font-size: 12px; color: #64748b;">No medicine dispensation records found in current selection.</span>';
 
     const tableRowsHtml = rowsToExport.map(log => {
-      const dateTime = new Date(log.dispensed_at).toLocaleString();
+      const dateTime = formatDateTime(new Date(log.dispensed_at));
       const stId = log.student_id || 'N/A';
       const stName = `${log.first_name || ''} ${log.last_name || ''}`.trim() || 'N/A';
       const medName = log.medicine_name || 'N/A';
@@ -681,6 +725,7 @@ const DispensedMedicine = () => {
           <td>${stId}</td>
           <td><strong>${stName}</strong></td>
           <td>${medName}</td>
+          <td>${log.complaint_name || '—'}</td>
           <td>${qty}</td>
           <td>${dispType}</td>
         </tr>
@@ -841,12 +886,13 @@ const DispensedMedicine = () => {
                       <th>Student ID</th>
                       <th>Student Name</th>
                       <th>Medicine Dispensed</th>
+                      <th>Medical Condition</th>
                       <th>Qty / Volume</th>
                       <th>Dispensation Type</th>
                   </tr>
               </thead>
               <tbody>
-                  ${tableRowsHtml || '<tr><td colspan="6">No dispensed medicine records found.</td></tr>'}
+                  ${tableRowsHtml || '<tr><td colspan="7">No dispensed medicine records found.</td></tr>'}
               </tbody>
           </table>
 
@@ -872,15 +918,17 @@ const DispensedMedicine = () => {
 
   const todaysDispensedLogs = useMemo(() => {
     if (!Array.isArray(history)) return [];
-    const today = new Date().toLocaleDateString();
+    const today = formatDate(new Date());
     return history.filter(log => {
       if (!log.dispensed_at) return false;
-      return new Date(log.dispensed_at).toLocaleDateString() === today;
+      return formatDate(new Date(log.dispensed_at)) === today;
     });
   }, [history]);
 
   const activeBatch = inventory.find(b => b.batch_id === selectedBatchId);
   const isMeasured = isMeasuredUnitFn(dosageUnit);
+  const activeMedicine = inventory.find(b => b.medicine_id === selectedMedicineId);
+  const dispenseLimit = parseFloat(activeMedicine?.dispense_limit) || 0;
 
   return (
     <div className="dispense-container-dm">
@@ -1097,18 +1145,40 @@ const DispensedMedicine = () => {
             </div>
 
             <div className="form-group-dm">
-              <label htmlFor="medicine-select">Select Medicine</label>
-              <select 
-                id="medicine-select"
-                value={selectedMedicineId} 
-                onChange={(e) => setSelectedMedicineId(e.target.value)}
+              <label htmlFor="complaint-select">Medical Condition</label>
+              <select
+                id="complaint-select"
+                value={selectedComplaintId}
+                onChange={(e) => {
+                  setSelectedComplaintId(e.target.value);
+                  setSelectedMedicineId('');
+                  setSelectedBatchId('');
+                }}
                 required
               >
-                <option value="">-- Choose Medicine --</option>
+                <option value="">-- Choose Medical Condition --</option>
+                {complaints.map((c) => (
+                  <option key={c.complaint_id} value={c.complaint_id}>{c.complaint_name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="form-group-dm">
+              <label htmlFor="medicine-select">Select Medicine</label>
+              <select
+                id="medicine-select"
+                value={selectedMedicineId}
+                onChange={(e) => setSelectedMedicineId(e.target.value)}
+                disabled={!selectedComplaintId}
+                required
+              >
+                <option value="">
+                  {selectedComplaintId ? '-- Choose Medicine --' : '-- Select a medical condition first --'}
+                </option>
                 {Array.isArray(inventory) && Array.from(
                   new Set(
                     inventory
-                      .filter(item => Number(item.current_stock) >= 1)
+                      .filter(item => Number(item.current_stock) >= 1 && isBatchLinkedToComplaint(item, selectedComplaintId))
                       .map(item => item.medicine_id)
                   )
                 ).map(medId => {
@@ -1116,6 +1186,10 @@ const DispensedMedicine = () => {
                   return <option key={medId} value={medId}>{med?.medicine_name}</option>;
                 })}
               </select>
+              {selectedComplaintId && Array.isArray(inventory) &&
+                !inventory.some(item => Number(item.current_stock) >= 1 && isBatchLinkedToComplaint(item, selectedComplaintId)) && (
+                <small className="field-help-text-dm">No medicine in stock is linked to this medical condition.</small>
+              )}
             </div>
 
             <div className="form-group-dm">
@@ -1129,7 +1203,7 @@ const DispensedMedicine = () => {
               >
                 <option value="">-- Choose Expiration Date --</option>
                 {availableBatches.map((batch) => {
-                  const batchIsMeasured = isMeasuredUnitFn(batch.strength_unit_of_measure);
+                  const batchIsMeasured = isMeasuredUnitFn(batch.dispense_unit_of_measure);
                   const stockLabel = formatCurrentStock(batch);
 
                   const stockInfo = batchIsMeasured
@@ -1138,7 +1212,7 @@ const DispensedMedicine = () => {
 
                   return (
                     <option key={batch.batch_id} value={batch.batch_id}>
-                      {new Date(batch.expiration_date).toLocaleDateString()} ({stockInfo})
+                      {formatDate(new Date(batch.expiration_date))} ({stockInfo})
                     </option>
                   );
                 })}
@@ -1153,16 +1227,19 @@ const DispensedMedicine = () => {
                     {formatCurrentStock(activeBatch)}
                   </span>
                 </p>
-                {isMeasuredUnitFn(activeBatch.strength_unit_of_measure) && (
+                {isMeasuredUnitFn(activeBatch.dispense_unit_of_measure) && (
                   <p><strong>Remaining Volume:</strong> {activeBatch.remaining_volume} {activeBatch.strength_unit_of_measure}</p>
                 )}
-                <p><strong>Expiration:</strong> {new Date(activeBatch.expiration_date).toLocaleDateString()}</p>
+                <p><strong>Expiration:</strong> {formatDate(new Date(activeBatch.expiration_date))}</p>
               </div>
             )}
 
             <div className="form-group-dm">
               <label htmlFor="dosage-input">
                 {isMeasured ? `Dosage Value (${dosageUnit})` : 'Quantity Dispensed'}
+                {dispenseLimit > 0 && (
+                  <span> (max {formatUnitValue(dispenseLimit, dosageUnit)} {dosageUnit})</span>
+                )}
               </label>
               <div className="dosage-input-group-dm">
                 <input
@@ -1170,6 +1247,7 @@ const DispensedMedicine = () => {
                   type="number"
                   step={isMeasured ? "any" : "1"}
                   min={isMeasured ? "0.01" : "1"}
+                  max={dispenseLimit > 0 ? dispenseLimit : undefined}
                   placeholder={isMeasured ? "0.00" : "1"}
                   value={dosageValue}
                   onKeyDown={(e) => {
@@ -1232,7 +1310,7 @@ const DispensedMedicine = () => {
                 ) : (
                   inventory.map((item) => {
                     const status = getStockStatus(item.current_stock, item.low_stock_level, item.critical_stock_level);
-                    const showVolume = isMeasuredUnitFn(item.strength_unit_of_measure);
+                    const showVolume = isMeasuredUnitFn(item.dispense_unit_of_measure);
                     const isBox = isBoxUnit(item);
 
                     return (
@@ -1244,7 +1322,7 @@ const DispensedMedicine = () => {
                           </span>
                         </td>
                         <td>{showVolume ? `${item.remaining_volume} ${item.strength_unit_of_measure}` : 'N/A'}</td>
-                        <td>{new Date(item.expiration_date).toLocaleDateString()}</td>
+                        <td>{formatDate(new Date(item.expiration_date))}</td>
                         <td><span className={`status-tag-dm ${status.class}`}>{status.label}</span></td>
                       </tr>
                     );
@@ -1260,7 +1338,7 @@ const DispensedMedicine = () => {
       <div className="card-dm history-section-wrapper-dm">
         <div className="section-title-row-dm">
           <h2><Clock size={20} className="icon-blue-dm" /> Today's Dispensed</h2>
-          <span className="todays-badge-dm">{new Date().toLocaleDateString()}</span>
+          <span className="todays-badge-dm">{formatDate(new Date())}</span>
         </div>
 
         <div className="table-responsive-dm">
@@ -1272,6 +1350,7 @@ const DispensedMedicine = () => {
                 <th>Student ID</th>
                 <th>Student Name</th>
                 <th>Medicine Dispensed</th>
+                <th>Medical Condition</th>
                 <th>Qty./Volume</th>
                 <th className="action-column-dm">Action</th>
               </tr>
@@ -1279,14 +1358,14 @@ const DispensedMedicine = () => {
             <tbody>
               {todaysDispensedLogs.length === 0 ? (
                 <tr>
-                  <td colSpan="7" className="text-center-empty-dm">
+                  <td colSpan="8" className="text-center-empty-dm">
                     No medicine dispensations recorded for today yet.
                   </td>
                 </tr>
               ) : (
                 todaysDispensedLogs.map((log) => (
                   <tr key={log.id}>
-                    <td>{new Date(log.dispensed_at).toLocaleString()}</td>
+                    <td>{formatDateTime(new Date(log.dispensed_at))}</td>
                     <td>
                       <span className={`status-tag-dm ${log.dispensation_type === 'Direct Dispensation' ? 'status-ok-dm' : 'status-low-dm'}`}>
                         {log.dispensation_type}
@@ -1295,10 +1374,11 @@ const DispensedMedicine = () => {
                     <td><code>{log.student_id}</code></td>
                     <td>{log.first_name} {log.last_name}</td>
                     <td>{log.medicine_name}</td>
+                    <td>{log.complaint_name || '—'}</td>
                     <td><strong>{formatUnitValue(log.dosage_consumption_unit_value, log.dosage_consumption_unit_of_measure)} {log.dosage_consumption_unit_of_measure}</strong></td>
                     <td className="action-column-dm">
-                      <button 
-                        type="button" 
+                      <button
+                        type="button"
                         className="btn-icon-row-dm"
                         onClick={() => setSelectedLogDetail(log)}
                         title="View Dispensation Record Details"
@@ -1407,6 +1487,7 @@ const DispensedMedicine = () => {
                       <th>Student ID</th>
                       <th>Student Name</th>
                       <th>Medicine Dispensed</th>
+                      <th>Medical Condition</th>
                       <th>Qty./Volume</th>
                       <th className="action-column-dm">Action</th>
                     </tr>
@@ -1414,14 +1495,14 @@ const DispensedMedicine = () => {
                   <tbody>
                     {!Array.isArray(history) || history.length === 0 ? (
                       <tr>
-                        <td colSpan="7" className="text-center-empty-dm">
+                        <td colSpan="8" className="text-center-empty-dm">
                           No transaction history logs matched your parameters.
                         </td>
                       </tr>
                     ) : (
                       history.map((log) => (
                         <tr key={log.id}>
-                          <td>{new Date(log.dispensed_at).toLocaleString()}</td>
+                          <td>{formatDateTime(new Date(log.dispensed_at))}</td>
                           <td>
                             <span className={`status-tag-dm ${log.dispensation_type === 'Direct Dispensation' ? 'status-ok-dm' : 'status-low-dm'}`}>
                               {log.dispensation_type}
@@ -1430,6 +1511,7 @@ const DispensedMedicine = () => {
                           <td><code>{log.student_id}</code></td>
                           <td>{log.first_name} {log.last_name}</td>
                           <td>{log.medicine_name}</td>
+                          <td>{log.complaint_name || '—'}</td>
                           <td><strong>{formatUnitValue(log.dosage_consumption_unit_value, log.dosage_consumption_unit_of_measure)} {log.dosage_consumption_unit_of_measure}</strong></td>
                           <td className="action-column-dm">
                             <button 
@@ -1485,7 +1567,7 @@ const DispensedMedicine = () => {
               </div>
               <div className="detail-item-dm">
                 <span className="detail-label-dm">Date & Time:</span>
-                <span className="detail-value-dm">{new Date(selectedLogDetail.dispensed_at).toLocaleString()}</span>
+                <span className="detail-value-dm">{formatDateTime(new Date(selectedLogDetail.dispensed_at))}</span>
               </div>
               <div className="detail-item-dm">
                 <span className="detail-label-dm">Student Name:</span>
@@ -1498,6 +1580,10 @@ const DispensedMedicine = () => {
               <div className="detail-item-dm">
                 <span className="detail-label-dm">Medicine Name:</span>
                 <span className="detail-value-dm">{selectedLogDetail.medicine_name}</span>
+              </div>
+              <div className="detail-item-dm">
+                <span className="detail-label-dm">Medical Condition:</span>
+                <span className="detail-value-dm">{selectedLogDetail.complaint_name || '—'}</span>
               </div>
               <div className="detail-item-dm">
                 <span className="detail-label-dm">Dispensed Amount:</span>

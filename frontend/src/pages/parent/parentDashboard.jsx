@@ -19,7 +19,8 @@ import {
   X,
   Info,
   ShieldAlert
-} from 'lucide-react';
+} from 'lucide-react';
+import { formatDate as formatDateBase, formatDateTime as formatDateTimeBase, formatMonthShort, formatTime as formatTimeBase } from '../../utils/datetime';
 import '../../styles/parent/ParentDashboard.css';
 
 const ParentDashboard = () => {
@@ -226,22 +227,12 @@ const ParentDashboard = () => {
   // Formatters
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    });
+    return formatDateBase(new Date(dateString));
   };
 
   const formatDateTime = (dateString) => {
     if (!dateString) return 'N/A';
-    return new Date(dateString).toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true
-    });
+    return formatDateTimeBase(new Date(dateString));
   };
 
   const renderStatusBadge = (status) => {
@@ -413,7 +404,7 @@ const ParentDashboard = () => {
                         </span>
                         {renderStudentBadge(visit.studentName)}
                       </div>
-                      <span className="pd-visit-date">{formatDate(visit.visit_date)} ({visit.time_in || '--'})</span>
+                      <span className="pd-visit-date">{formatDate(visit.visit_date)} ({visit.time_in ? formatTimeBase(visit.time_in) : '--'})</span>
                     </div>
 
                     <div className="pd-vitals-row">
@@ -571,7 +562,7 @@ const ParentDashboard = () => {
                         {new Date(screening.scheduled_date).getDate()}
                       </span>
                       <span className="pd-date-month">
-                        {new Date(screening.scheduled_date).toLocaleString('en-US', { month: 'short' })}
+                        {formatMonthShort(new Date(screening.scheduled_date))}
                       </span>
                     </div>
 
@@ -581,7 +572,7 @@ const ParentDashboard = () => {
                         {renderStudentBadge(screening.studentName)}
                       </div>
                       <p className="pd-schedule-time">
-                        <Clock size={11} /> {screening.start_time} - {screening.end_time}
+                        <Clock size={11} /> {formatTimeBase(screening.start_time)} - {formatTimeBase(screening.end_time)}
                       </p>
                       {screening.announcement && (
                         <p className="pd-schedule-announcement">{screening.announcement}</p>
@@ -618,7 +609,7 @@ const ParentDashboard = () => {
                         {new Date(appt.start_time).getDate()}
                       </span>
                       <span className="pd-date-month">
-                        {new Date(appt.start_time).toLocaleString('en-US', { month: 'short' })}
+                        {formatMonthShort(new Date(appt.start_time))}
                       </span>
                     </div>
 
