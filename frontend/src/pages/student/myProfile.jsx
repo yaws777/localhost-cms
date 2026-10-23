@@ -1,7 +1,8 @@
 // MyProfile.jsx
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { formatDate } from '../../utils/datetime';
+import HealthProofList from '../../components/common/HealthProofList';
 import '../../styles/student/MyProfile.css'; 
 
 export default function MyProfile() {
@@ -16,7 +17,7 @@ export default function MyProfile() {
 
     const [personalInfo, setPersonalInfo] = useState({});
     const [healthInfo, setHealthInfo] = useState({});
-    const [emergencyContact, setEmergencyContact] = useState({});
+    const [healthProofs, setHealthProofs] = useState({});
 
     const [requirementsList, setRequirementsList] = useState([]);
     const [reqLoading, setReqLoading] = useState(false);
@@ -69,7 +70,7 @@ export default function MyProfile() {
                         
                         setPersonalInfo(profileData.personalInfo || {});
                         setHealthInfo(parsedHealth || {});
-                        setEmergencyContact(profileData.emergencyContact || {});
+                        setHealthProofs(profileData.healthProofs || {});
                     }
                 } else {
                     setErrorMsg("Student record not found.");
@@ -110,7 +111,6 @@ export default function MyProfile() {
 
     const handlePersonalChange = (e) => setPersonalInfo({ ...personalInfo, [e.target.name]: e.target.value });
     const handleHealthChange = (e) => setHealthInfo({ ...healthInfo, [e.target.name]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
-    const handleEmergencyChange = (e) => setEmergencyContact({ ...emergencyContact, [e.target.name]: e.target.value });
 
     const handleFileChange = (reqName, file) => {
         setUploadFiles(prev => ({ ...prev, [reqName]: file }));
@@ -166,8 +166,7 @@ export default function MyProfile() {
                 body: JSON.stringify({
                     student_id: studentId,
                     personalInfo,
-                    healthInfo,
-                    emergencyContact
+                    healthInfo
                 })
             });
             const data = await response.json();
@@ -217,7 +216,6 @@ export default function MyProfile() {
             <div className="profile-tabs">
                 <button className={activeTab === 'personal' ? 'active' : ''} onClick={() => setActiveTab('personal')}>Personal Info</button>
                 <button className={activeTab === 'health' ? 'active' : ''} onClick={() => setActiveTab('health')}>Health Information</button>
-                <button className={activeTab === 'emergency' ? 'active' : ''} onClick={() => setActiveTab('emergency')}>Emergency Contact</button>
                 <button className={activeTab === 'requirements' ? 'active' : ''} onClick={() => setActiveTab('requirements')}>Requirements</button>
             </div>
 
@@ -268,6 +266,7 @@ export default function MyProfile() {
                 {activeTab === 'health' && (
                     <form onSubmit={handleSaveChanges} className="profile-form health-form-scroll">
                         <h3>Health Information<span className='instruction'> (leave unchecked if none)</span></h3>
+                        <HealthProofList proofs={healthProofs} />
                         
                         <div className="health-block">
                             <label className="main-checkbox"><input type="checkbox" name="has_allergies" checked={healthInfo.has_allergies || false} onChange={handleHealthChange} /> History of Allergies</label>
@@ -449,27 +448,6 @@ export default function MyProfile() {
                         </div>
 
                         <button type="submit" className="btn-primary-save">Save Health Changes</button>
-                    </form>
-                )}
-
-                {activeTab === 'emergency' && (
-                    <form onSubmit={handleSaveChanges} className="profile-form">
-                        <h3>Emergency Contact</h3>
-                        <div className="form-grid">
-                            <label>Contact Name *
-                                <input type="text" name="contact_name" value={emergencyContact.contact_name || ''} onChange={handleEmergencyChange} required />
-                            </label>
-                            <label>Relationship *
-                                <input type="text" name="relationship" value={emergencyContact.relationship || ''} onChange={handleEmergencyChange} required />
-                            </label>
-                            <label>Contact Number *
-                                <input type="text" name="contact_number" value={emergencyContact.contact_number || ''} onChange={handleEmergencyChange} required />
-                            </label>
-                            <label className="full-width">Address *
-                                <input type="text" name="address" value={emergencyContact.address || ''} onChange={handleEmergencyChange} required />
-                            </label>
-                        </div>
-                        <button type="submit" className="btn-primary-save">Save Changes</button>
                     </form>
                 )}
 

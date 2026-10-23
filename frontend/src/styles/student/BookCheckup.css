@@ -67,6 +67,7 @@
 }
 
 .filters-bc select,
+.field-bc input,
 .field-bc select,
 .field-bc textarea {
     padding: 9px 12px;
@@ -90,6 +91,7 @@
     margin-bottom: 6px;
 }
 
+.field-bc input,
 .field-bc select,
 .field-bc textarea {
     width: 100%;

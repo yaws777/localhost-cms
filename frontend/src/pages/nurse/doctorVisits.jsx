@@ -23,6 +23,7 @@ import {
     MoreVertical,
     Send,
     Footprints,
+    CalendarPlus,
     RotateCcw,
     FileCheck,
     ClipboardList,
@@ -37,22 +38,28 @@ import { FolderCrumbs, FolderGrid, Pager, MoreMenu, sectionLabel, paginate, scop
 import { DoctorAvailability, BookingRequests } from '../../components/nurse/DoctorAvailability';
 import VisitCard from '../../components/nurse/VisitCard';
 import PastVisitsTable from '../../components/nurse/PastVisitsTable';
+import { DirectAppointmentModal } from '../../components/doctor/AppointmentModals';
+import UnavailableDates from '../../components/doctor/UnavailableDates';
+import { PURPOSES, visitLabel } from '../../utils/visitPurpose';
+import { useDpAutoLabels } from '../../utils/autoLabels';
 
 // The page has three sections; the open one is kept in the URL (?section=) so a link or a notification can land on it
 const SECTIONS = ['visits', 'availability', 'requests'];
 
-const VISIT_TYPES = ['General Checkup', 'Dental Examination', 'Vision Examination', 'Follow-up', 'Referral'];
+// the purpose of a visit: General Check Up, Dental, Vision or Other (and the purpose is specified)
+const VISIT_TYPES = PURPOSES;
 
 // Dental / Vision visits are done by a matching specialist; other visit types accept any doctor.
 const SPECIALIZATION_MATCH = {
-    'Dental Examination': /dent/i,
-    'Vision Examination': /optom|ophthal|eye|vision/i
+    'Dental': /dent/i,
+    'Vision': /optom|ophthal|eye|vision/i
 };
 
 const VISIT_TYPE_HINTS = {
-    'General Checkup': 'e.g. Annual Physical Examination',
-    'Dental Examination': 'e.g. Annual Dental Examination',
-    'Vision Examination': 'e.g. Annual Vision & Eye Examination',
+    'General Check Up': 'e.g. Annual Physical Examination',
+    'Dental': 'e.g. Annual Dental Examination',
+    'Vision': 'e.g. Annual Vision & Eye Examination',
+    'Other': 'e.g. Counselling Referral Consultation',
     'Follow-up': 'e.g. Follow-up Consultation',
     'Referral': 'e.g. Specialist Referral Consultation'
 };
@@ -163,7 +170,8 @@ const buildVisitGroups = (rows, tab) => {
                 batchId: batchId || null,
                 title,
                 specialization,
-                visitType: appt.visit_type || 'General Checkup',
+                visitType: appt.visit_type || 'General Check Up',
+                purposeOther: appt.purpose_other || '',
                 doctorId: appt.doctor_id,
                 doctorName,
                 apptStart,
@@ -193,6 +201,7 @@ const VISITS_PER_PAGE = 20;
 
 const DoctorVisit = () => {
     const { nurseId, userId, firstName, lastName } = useOutletContext() || {};
+    useDpAutoLabels();
 
     const todayStr = formatLocalDateOnly(new Date());
 
@@ -284,7 +293,7 @@ const DoctorVisit = () => {
     const [isEditDoctor, setIsEditDoctor] = useState(false);
 
     const [scheduleForm, setScheduleForm] = useState({
-        visit_type: 'General Checkup',
+        visit_type: 'General Check Up',
         doctor_id: '',
         title: '',
         announcement: '',
@@ -294,7 +303,8 @@ const DoctorVisit = () => {
         scheduled_date: '',
         batch_start_time: '',
         batch_end_time: '',
-        slot_duration: '15'
+        slot_duration: '15',
+        purpose_other: ''
     });
     const [selectedStudentIds, setSelectedStudentIds] = useState([]);
     const [timeSlotCollisions, setTimeSlotCollisions] = useState('');
@@ -851,6 +861,7 @@ const DoctorVisit = () => {
         const payload = {
             assigned_by_nurse_id: nurseId,
             visit_type: scheduleForm.visit_type,
+            purpose_other: scheduleForm.visit_type === 'Other' ? scheduleForm.purpose_other : undefined,
             doctor_id: scheduleForm.doctor_id,
             title: scheduleForm.title,
             announcement: scheduleForm.announcement,
@@ -874,7 +885,7 @@ const DoctorVisit = () => {
                 setShowScheduleModal(false);
                 setSelectedStudentIds([]);
                 setScheduleForm({
-                    visit_type: 'General Checkup',
+                    visit_type: 'General Check Up',
                     doctor_id: '',
                     title: '',
                     announcement: '',
@@ -884,7 +895,8 @@ const DoctorVisit = () => {
                     scheduled_date: '',
                     batch_start_time: '',
                     batch_end_time: '',
-                    slot_duration: '15'
+                    slot_duration: '15',
+                    purpose_other: ''
                 });
                 fetchAppointments();
             } else {
@@ -955,8 +967,8 @@ const DoctorVisit = () => {
                     sender_id: userId,
                     ...assessmentForm,
                     // Only the form that matches the visit type is sent
-                    dental: selectedAppt.visit_type === 'Dental Examination' ? assessmentForm.dental : undefined,
-                    vision: selectedAppt.visit_type === 'Vision Examination' ? assessmentForm.vision : undefined
+                    dental: selectedAppt.visit_type === 'Dental' ? assessmentForm.dental : undefined,
+                    vision: selectedAppt.visit_type === 'Vision' ? assessmentForm.vision : undefined
                 })
             });
             const data = await res.json();
@@ -1089,6 +1101,7 @@ const DoctorVisit = () => {
     const [referralModal, setReferralModal] = useState(null);
     const [historyModal, setHistoryModal] = useState(null);
     const [walkInModal, setWalkInModal] = useState(null);
+    const [showDirect, setShowDirect] = useState(false);
     const [openMenuKey, setOpenMenuKey] = useState(null);
     const [doctorsWithSchedule, setDoctorsWithSchedule] = useState(null);
     const [availability, setAvailability] = useState({ loading: false, windows: [] });
@@ -1225,8 +1238,8 @@ const DoctorVisit = () => {
     const handleCancelAppointment = (appt) => askReason({
         title: 'Cancel Appointment',
         message: `Cancel the doctor visit of ${studentFullName(appt)}? The student and parents will be notified.`,
-        label: 'Reason (optional)',
-        required: false,
+        label: 'Reason (required)',
+        required: true,
         confirmText: 'Cancel Appointment',
         onSubmit: async (reason) => {
             try {
@@ -1330,19 +1343,21 @@ const DoctorVisit = () => {
         setRescheduleModal({
             appt,
             date: start ? formatLocalDateOnly(start) : '',
-            time: start ? `${pad(start.getHours())}:${pad(start.getMinutes())}` : ''
+            time: start ? `${pad(start.getHours())}:${pad(start.getMinutes())}` : '',
+            reason: ''
         });
     };
 
     const submitReschedule = async (e) => {
         e.preventDefault();
-        const { appt, date, time } = rescheduleModal;
+        const { appt, date, time, reason } = rescheduleModal;
         if (!date || !time) { showError('Pick the new date and time.', 'Missing Details'); return; }
+        if (!reason || !reason.trim()) { showError('Please give a reason for rescheduling.', 'Missing Reason'); return; }
         try {
             const res = await fetch(`${API}/api/doctor-visits/reschedule/${appt.appointment_id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ start_time: `${date} ${time.slice(0, 5)}:00`, sender_id: userId })
+                body: JSON.stringify({ start_time: `${date} ${time.slice(0, 5)}:00`, sender_id: userId, reason: reason.trim() })
             });
             const data = await res.json();
             if (data.success) {
@@ -1454,7 +1469,7 @@ const DoctorVisit = () => {
     };
 
     // ---------- walk-in ----------
-    const openWalkIn = () => setWalkInModal({ student_id: '', studentFilter: '', doctor_id: '', visit_type: 'General Checkup', reason: '', duration_min: 15 });
+    const openWalkIn = () => setWalkInModal({ student_id: '', studentFilter: '', doctor_id: '', visit_type: 'General Check Up', purpose_other: '', reason: '', duration_min: 15 });
 
     const walkInDoctors = useMemo(() => {
         const matcher = SPECIALIZATION_MATCH[walkInModal?.visit_type];
@@ -1477,7 +1492,7 @@ const DoctorVisit = () => {
             const res = await fetch(`${API}/api/doctor-visits/walk-in`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ nurse_id: nurseId, student_id: f.student_id, doctor_id: f.doctor_id, visit_type: f.visit_type, reason: f.reason, duration_min: f.duration_min })
+                body: JSON.stringify({ nurse_id: nurseId, student_id: f.student_id, doctor_id: f.doctor_id, visit_type: f.visit_type, purpose_other: f.visit_type === 'Other' ? f.purpose_other : undefined, reason: f.reason, duration_min: f.duration_min, sender_id: userId })
             });
             const data = await res.json();
             if (data.success) {
@@ -1624,6 +1639,9 @@ const DoctorVisit = () => {
                 </div>
                 {section === 'visits' && (
                 <div className="header-actions-dv">
+                    <button type="button" className="sti-btn-dv sti-btn-secondary-dv" onClick={() => setShowDirect(true)}>
+                        <CalendarPlus size={18} /> Direct Appointment
+                    </button>
                     <button type="button" className="sti-btn-dv sti-btn-secondary-dv" onClick={openWalkIn}>
                         <Footprints size={18} /> Walk-in
                     </button>
@@ -1659,14 +1677,19 @@ const DoctorVisit = () => {
             </nav>
 
             {section === 'availability' && (
-                <DoctorAvailability
-                    doctors={doctors}
-                    nurseId={nurseId}
-                    userId={userId}
-                    onChanged={refreshAfterScheduleChange}
-                    onAddDoctor={openAddDoctor}
-                    onEditDoctor={openEditDoctor}
-                />
+                <>
+                    <DoctorAvailability
+                        doctors={doctors}
+                        nurseId={nurseId}
+                        userId={userId}
+                        onChanged={refreshAfterScheduleChange}
+                        onAddDoctor={openAddDoctor}
+                        onEditDoctor={openEditDoctor}
+                    />
+                    <div style={{ marginTop: 18 }}>
+                        <UnavailableDates doctors={doctors} userId={userId} onChanged={refreshAfterScheduleChange} />
+                    </div>
+                </>
             )}
 
             {section === 'requests' && (
@@ -2010,7 +2033,7 @@ const DoctorVisit = () => {
                         <form onSubmit={submitReschedule}>
                             <div className="appt-info-card-dv">
                                 <strong>{studentFullName(rescheduleModal.appt)}</strong>
-                                <div>{rescheduleModal.appt.visit_type} with Dr. {rescheduleModal.appt.doc_first_name} {rescheduleModal.appt.doc_last_name}</div>
+                                <div>{visitLabel(rescheduleModal.appt.visit_type, rescheduleModal.appt.purpose_other)} with Dr. {rescheduleModal.appt.doc_first_name} {rescheduleModal.appt.doc_last_name}</div>
                                 <div>Now: {formatDate(rescheduleModal.appt.start_time)}, {formatTime(rescheduleModal.appt.start_time)} - {formatTime(rescheduleModal.appt.end_time)}</div>
                             </div>
                             <div className="form-row-dv">
@@ -2022,6 +2045,10 @@ const DoctorVisit = () => {
                                     <label>New Start Time</label>
                                     <input type="time" required value={rescheduleModal.time} onChange={e => setRescheduleModal({ ...rescheduleModal, time: e.target.value })} />
                                 </div>
+                            </div>
+                            <div className="form-group-dv">
+                                <label>Reason (the student and parents are told)</label>
+                                <textarea rows="2" required maxLength={255} value={rescheduleModal.reason} onChange={e => setRescheduleModal({ ...rescheduleModal, reason: e.target.value })} placeholder="e.g. The doctor has an emergency consultation at that time" />
                             </div>
                             {rescheduleModal.date && (
                                 rescheduleWindows.length > 0
@@ -2048,7 +2075,7 @@ const DoctorVisit = () => {
                         <form onSubmit={submitFollowUp}>
                             <div className="appt-info-card-dv">
                                 <strong>{studentFullName(followUpModal.appt)}</strong>
-                                <div>Follow-up of: {followUpModal.appt.visit_type} on {formatDate(followUpModal.appt.start_time)}</div>
+                                <div>Follow-up of: {visitLabel(followUpModal.appt.visit_type, followUpModal.appt.purpose_other)} on {formatDate(followUpModal.appt.start_time)}</div>
                                 <div>Doctor: Dr. {followUpModal.appt.doc_first_name} {followUpModal.appt.doc_last_name}</div>
                             </div>
                             <div className="form-group-dv">
@@ -2142,7 +2169,7 @@ const DoctorVisit = () => {
                                     {historyModal.rows.map(r => (
                                         <tr key={r.appointment_id}>
                                             <td>{formatDate(r.start_time)}<div className="sub-text-dv">{formatTime(r.start_time)}</div></td>
-                                            <td>{r.visit_type || 'General Checkup'}</td>
+                                            <td>{visitLabel(r.visit_type, r.purpose_other)}</td>
                                             <td>Dr. {r.doctor_first_name} {r.doctor_last_name}</td>
                                             <td>{r.status}{r.attendance_status && r.attendance_status !== 'Pending' ? <div className="sub-text-dv">{r.attendance_status}</div> : null}</td>
                                             <td>{r.diagnosis || '-'}</td>
@@ -2158,6 +2185,16 @@ const DoctorVisit = () => {
                     </div>
                 </div>
             )}
+
+            {/* MODAL: DIRECT APPOINTMENT (pick a student, set a custom time block) */}
+            <DirectAppointmentModal
+                isOpen={showDirect}
+                doctors={doctors}
+                creator={{ nurseId }}
+                userId={userId}
+                onClose={() => setShowDirect(false)}
+                onCreated={() => { fetchAppointments(); }}
+            />
 
             {/* MODAL: WALK-IN VISIT */}
             {walkInModal && (
@@ -2193,6 +2230,12 @@ const DoctorVisit = () => {
                                     </select>
                                 </div>
                             </div>
+                            {walkInModal.visit_type === 'Other' && (
+                                <div className="form-group-dv">
+                                    <label>Please specify the purpose</label>
+                                    <input type="text" required maxLength={150} placeholder="e.g. Counselling referral" value={walkInModal.purpose_other} onChange={e => setWalkInModal({ ...walkInModal, purpose_other: e.target.value })} />
+                                </div>
+                            )}
                             <div className="form-group-dv">
                                 <label>Reason for the visit</label>
                                 <textarea rows="2" required maxLength={255} value={walkInModal.reason} onChange={e => setWalkInModal({ ...walkInModal, reason: e.target.value })} />
@@ -2316,6 +2359,13 @@ const DoctorVisit = () => {
                                 </select>
                             </div>
 
+                            {scheduleForm.visit_type === 'Other' && (
+                                <div className="form-group-dv">
+                                    <label>Please specify the purpose</label>
+                                    <input type="text" required maxLength={150} placeholder="e.g. Counselling referral" value={scheduleForm.purpose_other} onChange={e => setScheduleForm({ ...scheduleForm, purpose_other: e.target.value })} />
+                                </div>
+                            )}
+
                             <div className="form-group-dv">
                                 <label>Visit Title</label>
                                 <input
@@ -2348,7 +2398,7 @@ const DoctorVisit = () => {
                                     </select>
                                     {SPECIALIZATION_MATCH[scheduleForm.visit_type] && eligibleDoctors.length === 0 && (
                                         <small style={{ color: '#b45309', display: 'block', marginTop: '4px' }}>
-                                            No {scheduleForm.visit_type === 'Dental Examination' ? 'dentist' : 'optometrist / ophthalmologist'} on file. Add one under Manage Doctor Profile first (set the specialization to {scheduleForm.visit_type === 'Dental Examination' ? 'Dentist' : 'Optometrist'}).
+                                            No {scheduleForm.visit_type === 'Dental' ? 'dentist' : 'optometrist / ophthalmologist'} on file. Add one under Manage Doctor Profile first (set the specialization to {scheduleForm.visit_type === 'Dental' ? 'Dentist' : 'Optometrist'}).
                                         </small>
                                     )}
                                 </div>
@@ -2560,7 +2610,7 @@ const DoctorVisit = () => {
                         <form onSubmit={handleSaveAssessment}>
                             <div className="appt-info-card-dv">
                                 <strong>Student: {selectedAppt.student_first_name} {selectedAppt.student_last_name}</strong>
-                                <div>Visit: {selectedAppt.title || 'Doctor Visit'} <em>({selectedAppt.visit_type || 'General Checkup'})</em></div>
+                                <div>Visit: {selectedAppt.title || 'Doctor Visit'} <em>({visitLabel(selectedAppt.visit_type, selectedAppt.purpose_other)})</em></div>
                                 <div>Doctor: Dr. {selectedAppt.doc_first_name} {selectedAppt.doc_last_name}</div>
                                 <div>Attendance Status: <strong>{selectedAppt.attendance_status || 'Pending'}</strong></div>
                             </div>
@@ -2576,7 +2626,7 @@ const DoctorVisit = () => {
                                 </label>
                             </div>
 
-                            {selectedAppt.visit_type === 'Dental Examination' && (
+                            {selectedAppt.visit_type === 'Dental' && (
                                 <>
                                     <div className="form-row-dv">
                                         <div className="form-group-dv">
@@ -2666,7 +2716,7 @@ const DoctorVisit = () => {
                                 </>
                             )}
 
-                            {selectedAppt.visit_type === 'Vision Examination' && (
+                            {selectedAppt.visit_type === 'Vision' && (
                                 <>
                                     <div className="form-row-dv">
                                         <div className="form-group-dv">
@@ -2732,7 +2782,7 @@ const DoctorVisit = () => {
                                 </>
                             )}
 
-                            {selectedAppt.visit_type !== 'Dental Examination' && selectedAppt.visit_type !== 'Vision Examination' && (
+                            {selectedAppt.visit_type !== 'Dental' && selectedAppt.visit_type !== 'Vision' && (
                                 <>
                                     <div className="form-group-dv">
                                         <label>Clinical Findings</label>

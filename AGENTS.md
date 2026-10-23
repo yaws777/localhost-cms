@@ -6,6 +6,13 @@
 - DB schema source: `cms schema (1).sql`. MySQL database `ClinicManagementSystem` required locally; no migrations, no ORM, raw `mysql2/promise` queries.
 - No monorepo tooling, no tests in backend (`npm test` just errors), no lint/typecheck config, no CI.
 
+## Doctor portal
+- Role `DCTR` (`roles`), accounts are created by the nurse (`/ManageDoctorAccounts`, `POST /api/doctor-accounts`): default password `"123"`, `doctors.user_id` links the login. On first login `DoctorLayout` blocks the portal until the doctor saves a phone number (`PUT /api/doctor/phone` sets `phone_confirmed_at`); that number is the forgot-password identifier for doctors.
+- Routes `/DoctorDashboard`, `/DoctorAppointments`, `/DoctorMySchedule` (not `/DoctorSchedule`, that is a nurse redirect), `/DoctorConsultations`, `/DoctorPatients`, `/DoctorTemplates`, `/DoctorProfile` under `frontend/src/layout/doctorLayout.jsx`; pages in `frontend/src/pages/doctor`, shared pieces in `frontend/src/components/doctor`.
+- Visit purposes are `General Check Up | Dental | Vision | Other` (+ system `Follow-up`, `Referral`); `Other` needs `purpose_other`. Use `frontend/src/utils/visitPurpose.js` (`visitLabel`) to display them.
+- Scheduling types: direct appointment (`POST /api/doctor-appointments/direct`, custom time block), open time block (`doctor_schedules`, `auto_confirm` decides whether bookings need approval), walk-in. Cancel / decline / reschedule require a reason and every change is written to `doctor_appointment_logs` (`logAppointment`). `doctor_unavailable_dates` blocks booking.
+- DB changes live in `migration_doctor_role_portal.sql` (run after `migration_doctor_schedule_booking.sql`, idempotent, use `--default-character-set=utf8mb4`).
+
 ## Backend (`backend/`, CommonJS)
 - Run: `cd backend && npm start` → `nodemon src/database/connection.js`, serves on port **3001** (`app.listen(3001)` at file end).
 - Needs `backend/.env` (gitignored-ish, exists locally): `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `IPROG_API_TOKEN`, `IPROG_SMS_ENDPOINT`, `DEFAULT_COUNTRY_CODE`. Never commit real values; code has hardcoded MySQL creds (`root` / `Yahweh0512` @ `localhost`) — keep local-only.

@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatTime } from '../../utils/datetime';
+import { visitLabel } from '../../utils/visitPurpose';
 import { Pager, paginate } from '../common/RecordFolders';
 import '../../styles/nurse/DoctorVisits.css';
 import '../../styles/nurse/DoctorSchedule.css';
@@ -16,7 +17,7 @@ import '../../styles/nurse/DoctorSchedule.css';
 const API = 'http://localhost:3001';
 const HISTORY_PER_PAGE = 15;
 
-const VISIT_TYPES = ['Any', 'General Checkup', 'Dental Examination', 'Vision Examination', 'Follow-up', 'Referral'];
+const VISIT_TYPES = ['Any', 'General Check Up', 'Dental', 'Vision', 'Other'];
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 const STATUS_FILTERS = [
@@ -68,7 +69,8 @@ const StateBadge = ({ s }) => {
 // ---------------------------------------------------------------------------
 // Availability: every doctor with their own schedules underneath
 // ---------------------------------------------------------------------------
-export const DoctorAvailability = ({ doctors, nurseId, userId, onChanged, onAddDoctor, onEditDoctor }) => {
+// creatorDoctorId: the doctor portal posts the doctor's own blocks (no nurse involved)
+export const DoctorAvailability = ({ doctors, nurseId, userId, onChanged, onAddDoctor, onEditDoctor, creatorDoctorId }) => {
     const { showAlert, showConfirm } = useAlert();
     const [searchParams, setSearchParams] = useSearchParams();
 
@@ -89,7 +91,8 @@ export const DoctorAvailability = ({ doctors, nurseId, userId, onChanged, onAddD
 
     const fetchSchedules = useCallback(async () => {
         try {
-            const res = await fetch(`${API}/api/doctor-schedules`);
+            // the doctor portal only ever sees the doctor's own schedules
+            const res = await fetch(`${API}/api/doctor-schedules${creatorDoctorId ? `?doctor_id=${encodeURIComponent(creatorDoctorId)}` : ''}`);
             const data = await res.json();
             if (data.success) setSchedules(data.schedules);
         } catch (e) {
@@ -97,7 +100,7 @@ export const DoctorAvailability = ({ doctors, nurseId, userId, onChanged, onAddD
         } finally {
             setLoading(false);
         }
-    }, [showAlert]);
+    }, [showAlert, creatorDoctorId]);
 
     useEffect(() => { fetchSchedules(); }, [fetchSchedules]);
 
@@ -142,7 +145,7 @@ export const DoctorAvailability = ({ doctors, nurseId, userId, onChanged, onAddD
         setFormError('');
         setSaving(true);
         try {
-            const payload = { ...form, nurse_id: nurseId };
+            const payload = creatorDoctorId ? { ...form, created_by_doctor_id: creatorDoctorId } : { ...form, nurse_id: nurseId };
             const res = await fetch(editingId ? `${API}/api/doctor-schedules/${editingId}` : `${API}/api/doctor-schedules`, {
                 method: editingId ? 'PUT' : 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -272,11 +275,13 @@ export const DoctorAvailability = ({ doctors, nurseId, userId, onChanged, onAddD
                         <button key={value} type="button" className={statusFilter === value ? 'active-ds' : ''} onClick={() => setStatusFilter(value)}>{label}</button>
                     ))}
                 </div>
-                <div className="filters-actions-ds">
-                    <button type="button" className="sti-btn-dv sti-btn-primary-dv" onClick={onAddDoctor}>
-                        <UserPlus size={16} /> Add Doctor
-                    </button>
-                </div>
+                {onAddDoctor && (
+                    <div className="filters-actions-ds">
+                        <button type="button" className="sti-btn-dv sti-btn-primary-dv" onClick={onAddDoctor}>
+                            <UserPlus size={16} /> Add Doctor
+                        </button>
+                    </div>
+                )}
             </div>
 
             {loading ? (
@@ -307,7 +312,7 @@ export const DoctorAvailability = ({ doctors, nurseId, userId, onChanged, onAddD
                                 {g.pending > 0 && <span className="badge-ds badge-pending-ds">{g.pending} awaiting approval</span>}
                             </div>
                             <div className="group-actions-ds">
-                                {!g.removed && (
+                                {!g.removed && onEditDoctor && (
                                     <button type="button" className="icon-btn-ds" title="Edit doctor profile" onClick={() => onEditDoctor(g.doctor)}><Edit size={16} /></button>
                                 )}
                                 {!g.removed && (
@@ -385,9 +390,9 @@ export const DoctorAvailability = ({ doctors, nurseId, userId, onChanged, onAddD
                             <div className="form-group-dv">
                                 <label>Visit Type</label>
                                 <select value={form.visit_type} onChange={e => setForm({ ...form, visit_type: e.target.value })}>
-                                    {VISIT_TYPES.map(t => <option key={t} value={t}>{t === 'Any' ? 'Any (student picks)' : t}</option>)}
+                                    {(VISIT_TYPES.includes(form.visit_type) ? VISIT_TYPES : [...VISIT_TYPES, form.visit_type]).map(t => <option key={t} value={t}>{t === 'Any' ? 'Any (student picks)' : t}</option>)}
                                 </select>
-                                {selectedDoctor && (form.visit_type === 'Dental Examination' || form.visit_type === 'Vision Examination') && (
+                                {selectedDoctor && (form.visit_type === 'Dental' || form.visit_type === 'Vision') && (
                                     <small className="hint-ds">Dental needs a Dentist and Vision needs an Optometrist/Ophthalmologist on the doctor profile.</small>
                                 )}
                             </div>
@@ -461,7 +466,7 @@ export const DoctorAvailability = ({ doctors, nurseId, userId, onChanged, onAddD
                             <div className="form-group-dv">
                                 <label className="check-ds">
                                     <input type="checkbox" checked={form.auto_confirm} onChange={e => setForm({ ...form, auto_confirm: e.target.checked })} />
-                                    Confirm student bookings automatically (no nurse approval)
+                                    Confirm student bookings automatically (no approval needed)
                                 </label>
                             </div>
 
@@ -597,7 +602,7 @@ export const BookingRequests = ({ doctors, userId, onChanged }) => {
         <tr key={r.appointment_id}>
             <td>{studentLine(r)}</td>
             <td>Dr. {r.doc_first_name} {r.doc_last_name}</td>
-            <td>{r.visit_type}</td>
+            <td>{visitLabel(r.visit_type, r.purpose_other)}</td>
             <td>{formatDate(r.start_time)}<div className="muted-ds">{formatTime(r.start_time)} - {formatTime(r.end_time)}{r.location ? ` - ${r.location}` : ''}</div></td>
             <td className="reason-ds">{r.booking_reason || '-'}</td>
             <td>{requestStatusBadge(r.status)}{r.decline_reason ? <div className="muted-ds">{r.decline_reason}</div> : null}</td>

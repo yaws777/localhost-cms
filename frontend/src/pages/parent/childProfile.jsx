@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useOutletContext, useNavigate } from 'react-router-dom';
+import { useOutletContext, useNavigate } from 'react-router-dom';
 import { formatDate } from '../../utils/datetime';
+import HealthProofList from '../../components/common/HealthProofList';
 import '../../styles/parent/ChildProfile.css';
 
 export default function ChildProfile() {
@@ -37,7 +38,7 @@ export default function ChildProfile() {
     const [studentHeader, setStudentHeader] = useState(null);
     const [personalInfo, setPersonalInfo] = useState({});
     const [healthInfo, setHealthInfo] = useState({});
-    const [emergencyContact, setEmergencyContact] = useState({});
+    const [healthProofs, setHealthProofs] = useState({});
 
     const [requirementsList, setRequirementsList] = useState([]);
     const [reqLoading, setReqLoading] = useState(false);
@@ -107,7 +108,7 @@ export default function ChildProfile() {
 
                         setPersonalInfo(profileData.personalInfo || {});
                         setHealthInfo(parsedHealth || {});
-                        setEmergencyContact(profileData.emergencyContact || {});
+                        setHealthProofs(profileData.healthProofs || {});
                     }
                 } else {
                     setErrorMsg("Child record not found.");
@@ -206,7 +207,6 @@ export default function ChildProfile() {
             <div className="profile-tabs">
                 <button className={activeTab === 'personal' ? 'active' : ''} onClick={() => setActiveTab('personal')}>Personal Info</button>
                 <button className={activeTab === 'health' ? 'active' : ''} onClick={() => setActiveTab('health')}>Health Information</button>
-                <button className={activeTab === 'emergency' ? 'active' : ''} onClick={() => setActiveTab('emergency')}>Emergency Contact</button>
                 <button className={activeTab === 'requirements' ? 'active' : ''} onClick={() => setActiveTab('requirements')}>Requirements</button>
             </div>
 
@@ -254,6 +254,7 @@ export default function ChildProfile() {
                 {activeTab === 'health' && (
                     <div className="profile-form health-form-scroll">
                         <h3>Health Information <span className="instruction">(View Only)</span></h3>
+                        <HealthProofList proofs={healthProofs} />
 
                         {/* Allergies */}
                         <div className="health-block">
@@ -454,28 +455,7 @@ export default function ChildProfile() {
                     </div>
                 )}
 
-                {/* 3. EMERGENCY CONTACT TAB (READ ONLY) */}
-                {activeTab === 'emergency' && (
-                    <div className="profile-form">
-                        <h3>Emergency Contact <span className="instruction">(View Only)</span></h3>
-                        <div className="form-grid">
-                            <label>Contact Name
-                                <input type="text" value={emergencyContact.contact_name || 'N/A'} readOnly disabled />
-                            </label>
-                            <label>Relationship
-                                <input type="text" value={emergencyContact.relationship || 'N/A'} readOnly disabled />
-                            </label>
-                            <label>Contact Number
-                                <input type="text" value={emergencyContact.contact_number || 'N/A'} readOnly disabled />
-                            </label>
-                            <label className="full-width">Address
-                                <input type="text" value={emergencyContact.address || 'N/A'} readOnly disabled />
-                            </label>
-                        </div>
-                    </div>
-                )}
-
-                {/* 4. REQUIREMENTS TAB (READ ONLY VIEW) */}
+                {/* 3. REQUIREMENTS TAB (READ ONLY VIEW) */}
                 {activeTab === 'requirements' && (
                     <div className="profile-form requirements-tab-section">
                         <div className="requirements-header-block" style={{ marginBottom: '20px' }}>

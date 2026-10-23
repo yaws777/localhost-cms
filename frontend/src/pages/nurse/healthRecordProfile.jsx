@@ -4,9 +4,15 @@ import {
     ArrowLeft, Folder, Lock, FileText, Download, AlertCircle, 
     User, X, ShieldCheck, CheckCircle, XCircle 
 } from 'lucide-react';
-import stiLogo from '../../assets/sti-logof.png';
+import stiLogo from '../../assets/sti-logof.png';
 import { formatDate } from '../../utils/datetime';
+import HealthProofList from '../../components/common/HealthProofList';
 import '../../styles/nurse/HealthRecordProfile.css';
+
+// doctors open this page from their Patient Records, so "back" returns there
+const viewerIsDoctor = () => {
+    try { return JSON.parse(sessionStorage.getItem('user') || 'null')?.role === 'doctor'; } catch (e) { return false; }
+};
 
 export default function HealthRecordsProfile() {
     const { studentId } = useParams(); 
@@ -20,7 +26,7 @@ export default function HealthRecordsProfile() {
     const [studentHeader, setStudentHeader] = useState(null);
     const [personalInfo, setPersonalInfo] = useState({});
     const [healthInfo, setHealthInfo] = useState({});
-    const [emergencyContact, setEmergencyContact] = useState({});
+    const [healthProofs, setHealthProofs] = useState({});
     const [requirementsList, setRequirementsList] = useState([]);
 
     // Modal state for viewing Parent Profile
@@ -61,7 +67,7 @@ export default function HealthRecordsProfile() {
 
                         setPersonalInfo(profileData.personalInfo || {});
                         setHealthInfo(parsedHealth || {});
-                        setEmergencyContact(profileData.emergencyContact || {});
+                        setHealthProofs(profileData.healthProofs || {});
                     }
                 } else {
                     setErrorMsg("Target student system database metadata master row missing.");
@@ -327,7 +333,7 @@ export default function HealthRecordsProfile() {
             `}</style>
 
             <div className="navigation-action-bar no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <button onClick={() => navigate('/HealthRecords')} className="btn-back-link">
+                <button onClick={() => navigate(viewerIsDoctor() ? '/DoctorPatients' : '/HealthRecords')} className="btn-back-link">
                     <ArrowLeft size={16} /> Back to Records Directory
                 </button>
                 <button 
@@ -376,7 +382,6 @@ export default function HealthRecordsProfile() {
             <div className="profile-segment-tabs no-print">
                 <button className={activeTab === 'personal' ? 'active' : ''} onClick={() => setActiveTab('personal')}>Personal Info</button>
                 <button className={activeTab === 'health' ? 'active' : ''} onClick={() => setActiveTab('health')}>Health Information</button>
-                <button className={activeTab === 'emergency' ? 'active' : ''} onClick={() => setActiveTab('emergency')}>Emergency Contact</button>
                 <button className={activeTab === 'requirements' ? 'active' : ''} onClick={() => setActiveTab('requirements')}>Requirements Checklist</button>
             </div>
 
@@ -451,6 +456,7 @@ export default function HealthRecordsProfile() {
                 {activeTab === 'health' && (
                     <div className="profile-details-form-card scrollable-health-history">
                         <h3>Health History Index</h3>
+                        <HealthProofList proofs={healthProofs} />
                         
                         <div className="medical-condition-block">
                             <label className="condition-main-checkbox"><input type="checkbox" name="has_allergies" checked={healthInfo.has_allergies || false} disabled={true} /> History of Allergies</label>
@@ -587,28 +593,7 @@ export default function HealthRecordsProfile() {
                     </div>
                 )}
 
-                {/* 3. EMERGENCY CONTACT TAB */}
-                {activeTab === 'emergency' && (
-                    <div className="profile-details-form-card">
-                        <h3>Emergency Contact</h3>
-                        <div className="form-grid-blueprint">
-                            <label>Contact Name
-                                <input type="text" value={emergencyContact.contact_name || ''} disabled={true} />
-                            </label>
-                            <label>Relationship
-                                <input type="text" value={emergencyContact.relationship || ''} disabled={true} />
-                            </label>
-                            <label>Contact Number
-                                <input type="text" value={emergencyContact.contact_number || ''} disabled={true} />
-                            </label>
-                            <label className="column-full-width">Address
-                                <input type="text" value={emergencyContact.address || ''} disabled={true} />
-                            </label>
-                        </div>
-                    </div>
-                )}
-
-                {/* 4. REQUIREMENTS TAB CHECKLIST */}
+                {/* 3. REQUIREMENTS TAB CHECKLIST */}
                 {activeTab === 'requirements' && (
                     <div className="profile-details-form-card requirements-tab-layout">
                         <div>
@@ -777,14 +762,6 @@ export default function HealthRecordsProfile() {
                     <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px' }}>Connected Parent Information</h4>
                     <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Parent Name:</strong> {studentHeader?.parent_first_name ? `${studentHeader.parent_first_name} ${studentHeader.parent_last_name}` : 'N/A'}</p>
                     <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Parent Contact No.:</strong> {studentHeader?.parent_phone || 'N/A'}</p>
-                </div>
-
-                <div style={{ marginBottom: '20px' }}>
-                    <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px' }}>Emergency Contact Details</h4>
-                    <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Contact Name:</strong> {emergencyContact.contact_name || 'N/A'}</p>
-                    <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Relationship:</strong> {emergencyContact.relationship || 'N/A'}</p>
-                    <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Contact No.:</strong> {emergencyContact.contact_number || 'N/A'}</p>
-                    <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Address:</strong> {emergencyContact.address || 'N/A'}</p>
                 </div>
 
                 <div style={{ marginBottom: '30px' }}>

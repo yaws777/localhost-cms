@@ -3,6 +3,7 @@
 import React from 'react';
 import { Eye, Edit, Trash2 } from 'lucide-react';
 import { formatDate, formatTime } from '../../utils/datetime';
+import { visitLabel } from '../../utils/visitPurpose';
 
 const PastVisitsTable = ({ groups, onView, onUpdate, onDelete }) => (
     <div style={{ overflowX: 'auto' }}>
@@ -34,7 +35,7 @@ const PastVisitsTable = ({ groups, onView, onUpdate, onDelete }) => (
                                 {group.doctorName}
                                 <div className="sub-text-dv">{group.specialization}</div>
                             </td>
-                            <td>{group.visitType}</td>
+                            <td>{visitLabel(group.visitType, group.purposeOther)}</td>
                             <td><strong>{present} / {total}</strong></td>
                             <td>
                                 <div className="table-actions-dv">

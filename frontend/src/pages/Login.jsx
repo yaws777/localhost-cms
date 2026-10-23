@@ -132,6 +132,9 @@ export default function Login() {
             }
         } else if (data.user.role === 'nurse') {
             navigate('/NurseDashboard');
+        } else if (data.user.role === 'doctor') {
+            // a new doctor account is asked for the phone number first thing inside the portal (DoctorLayout)
+            navigate('/DoctorDashboard');
         } else if (data.user.role === 'parent') {
             sessionStorage.setItem('parent_id', data.user.parent_id);
 
@@ -370,6 +373,12 @@ export default function Login() {
                     label: 'Nurse ID Number', 
                     placeholder: 'Enter Nurse ID (e.g., NRS-1001)',
                     helpText: 'Enter your staff/nurse ID number assigned by administrative staff.'
+                };
+            case 'DCTR':
+                return {
+                    label: 'Registered Phone Number',
+                    placeholder: 'Enter Mobile Number (e.g., 09171234567)',
+                    helpText: 'Enter the mobile number you added when you first logged in to your doctor account.'
                 };
             default:
                 return { 

@@ -22,6 +22,15 @@ import ClinicLogsAndRecords from './pages/student/clinicLogs&Records';
 import RequestModule from './pages/student/requestModule';
 import StudentLayout from './layout/studentLayout';
 import NurseLayout from './layout/nurseLayout';
+import DoctorLayout from './layout/doctorLayout';
+import DoctorDashboard from './pages/doctor/doctorDashboard';
+import DoctorAppointments from './pages/doctor/doctorAppointments';
+import DoctorSchedule from './pages/doctor/doctorSchedule';
+import DoctorConsultations from './pages/doctor/doctorConsultations';
+import DoctorPatients from './pages/doctor/doctorPatients';
+import DoctorTemplates from './pages/doctor/doctorTemplates';
+import DoctorProfile from './pages/doctor/doctorProfile';
+import ManageDoctorAccounts from './pages/nurse/manageDoctorAccounts';
 import DoctorVisit from './pages/nurse/doctorVisits';
 import BookCheckup from './pages/student/bookCheckup';
 import DocumentIssuance from './pages/nurse/documentIssuance';
@@ -86,6 +95,16 @@ root.render(
             <Route path="/ParentMessages" element={<ParentMessages />} />
         </Route>
 
+        <Route element={<DoctorLayout />}>
+            <Route path="/DoctorDashboard" element={<DoctorDashboard />} />
+            <Route path="/DoctorAppointments" element={<DoctorAppointments />} />
+            <Route path="/DoctorMySchedule" element={<DoctorSchedule />} />
+            <Route path="/DoctorConsultations" element={<DoctorConsultations />} />
+            <Route path="/DoctorPatients" element={<DoctorPatients />} />
+            <Route path="/DoctorTemplates" element={<DoctorTemplates />} />
+            <Route path="/DoctorProfile" element={<DoctorProfile />} />
+        </Route>
+
         <Route element={<NurseLayout />}>
             <Route path="/NurseDashboard" element={<NurseDashboard />} />
             <Route path="/DoctorVisit" element={<DoctorVisit />} />
@@ -104,6 +123,7 @@ root.render(
             <Route path="/DispensedMedicine" element={<DispensedMedicine />} />
             <Route path="/ManageStudentAccounts" element={<ManageStudentAccounts />} />
             <Route path="/ManageParentAccounts" element={<ManageParentAccounts />} />
+            <Route path="/ManageDoctorAccounts" element={<ManageDoctorAccounts />} />
             <Route path="/NurseNotificationSettings" element={<NurseNotificationSettings />} />
             <Route path="/notification-settings" element={<NotificationSettings />} />
             <Route path="/NurseMessages" element={<NurseMessages />} />

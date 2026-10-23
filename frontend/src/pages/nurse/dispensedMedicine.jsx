@@ -1309,7 +1309,8 @@ const DispensedMedicine = () => {
                   </tr>
                 ) : (
                   inventory.map((item) => {
-                    const status = getStockStatus(item.current_stock, item.low_stock_level, item.critical_stock_level);
+                    // judged on the medicine's total stock across its batches, not this batch alone
+                    const status = getStockStatus(Number(item.medicine_total_stock ?? item.current_stock), item.low_stock_level, item.critical_stock_level);
                     const showVolume = isMeasuredUnitFn(item.dispense_unit_of_measure);
                     const isBox = isBoxUnit(item);
 

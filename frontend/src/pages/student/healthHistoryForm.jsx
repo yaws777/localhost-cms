@@ -2,6 +2,51 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../../styles/student/HealthHistoryForm.css';
 
+// Optional proof file input with a live preview (image thumbnail, or file name for PDFs)
+function ProofUpload({ file, onChange }) {
+    const [previewUrl, setPreviewUrl] = useState(null);
+    // Bumped on Remove so the native file input is remounted and clears its filename
+    const [inputKey, setInputKey] = useState(0);
+
+    useEffect(() => {
+        if (!file || !file.type.startsWith('image/')) {
+            setPreviewUrl(null);
+            return undefined;
+        }
+        const objectUrl = URL.createObjectURL(file);
+        setPreviewUrl(objectUrl);
+        return () => URL.revokeObjectURL(objectUrl);
+    }, [file]);
+
+    return (
+        <div className="proof-upload">
+            <label>Upload Proof (Optional):
+                <input
+                    key={inputKey}
+                    type="file"
+                    accept="image/*,application/pdf"
+                    onChange={(e) => onChange(e.target.files[0] || null)}
+                />
+            </label>
+            {file && (
+                <div style={{ marginTop: '8px', padding: '8px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#f8fafc' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', fontSize: '0.85rem' }}>
+                        <span>📎 {file.name} ({Math.round(file.size / 1024)} KB)</span>
+                        <button type="button" onClick={() => { onChange(null); setInputKey(k => k + 1); }} style={{ cursor: 'pointer' }}>Remove</button>
+                    </div>
+                    {previewUrl && (
+                        <img
+                            src={previewUrl}
+                            alt="Proof preview"
+                            style={{ marginTop: '8px', maxWidth: '100%', maxHeight: '220px', borderRadius: '6px', objectFit: 'contain' }}
+                        />
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
+
 export default function HealthHistoryForm() {
     const navigate = useNavigate();
     const [step, setStep] = useState(1);
@@ -89,9 +134,14 @@ export default function HealthHistoryForm() {
         has_other_condition: false, other_condition_specify: ''
     });
 
-    const [emergencyContact, setEmergencyContact] = useState({
-        contact_name: '', relationship: '', address: '', contact_number: ''
-    });
+    // Optional proof file per condition, keyed by its has_* flag
+    const [proofFiles, setProofFiles] = useState({});
+
+    const handleProofChange = (key, file) => setProofFiles(prev => ({ ...prev, [key]: file }));
+
+    const renderProofInput = (key) => (
+        <ProofUpload file={proofFiles[key]} onChange={(file) => handleProofChange(key, file)} />
+    );
 
     useEffect(() => {
         // Read from both sessionStorage and localStorage
@@ -163,7 +213,6 @@ export default function HealthHistoryForm() {
 
     const handleHealthTextChange = (e) => setHealthInfo({ ...healthInfo, [e.target.name]: e.target.value });
     const handleHealthCheckboxChange = (e) => setHealthInfo({ ...healthInfo, [e.target.name]: e.target.checked });
-    const handleEmergencyChange = (e) => setEmergencyContact({ ...emergencyContact, [e.target.name]: e.target.value });
 
     const handleNextToHealth = () => {
         const isComplete = Object.values(personalInfo).every(val => String(val).trim() !== '');
@@ -180,12 +229,6 @@ export default function HealthHistoryForm() {
             return;
         }
 
-        const isEmergencyComplete = Object.values(emergencyContact).every(val => String(val).trim() !== '');
-        if (!isEmergencyComplete) {
-            showError('Please complete all Emergency Contact fields before submitting.');
-            return;
-        }
-
         showConfirm(
             'Are you sure you want to submit this Health History record?',
             executeSubmit
@@ -194,10 +237,18 @@ export default function HealthHistoryForm() {
 
     const executeSubmit = async () => {
         try {
+            // student_id first: the upload filename prefix reads it from the body
+            const formData = new FormData();
+            formData.append('student_id', studentId);
+            formData.append('personalInfo', JSON.stringify(personalInfo));
+            formData.append('healthInfo', JSON.stringify(healthInfo));
+            Object.entries(proofFiles).forEach(([key, file]) => {
+                if (file && healthInfo[key]) formData.append(`proof_${key}`, file);
+            });
+
             const response = await fetch('http://localhost:3001/api/submit-health-form', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ student_id: studentId, personalInfo, healthInfo, emergencyContact })
+                body: formData
             });
             const data = await response.json();
             if (data.success) {
@@ -296,7 +347,7 @@ export default function HealthHistoryForm() {
                     <div className="health-block">
                         <label><input type="checkbox" name="has_allergies" checked={healthInfo.has_allergies} onChange={handleHealthCheckboxChange} /> History of Allergies</label>
                         {healthInfo.has_allergies && (
-                            <div className="sub-fields" style={{marginLeft: '20px'}}>
+                            <div className="sub-fields" style={{marginLeft: '20px'}}>{renderProofInput('has_allergies')}
                                 <label>Food: <input type="text" name="allergy_food" value={healthInfo.allergy_food} onChange={handleHealthTextChange} /></label>
                                 <label>Medicine: <input type="text" name="allergy_medicine" value={healthInfo.allergy_medicine} onChange={handleHealthTextChange} /></label>
                                 <label>Insect Sting: <input type="text" name="allergy_insect_sting" value={healthInfo.allergy_insect_sting} onChange={handleHealthTextChange} /></label>
@@ -319,7 +370,7 @@ export default function HealthHistoryForm() {
                     <div className="health-block">
                         <label><input type="checkbox" name="has_asthma" checked={healthInfo.has_asthma} onChange={handleHealthCheckboxChange} /> Asthma</label>
                         {healthInfo.has_asthma && (
-                            <div className="sub-fields" style={{marginLeft: '20px'}}>
+                            <div className="sub-fields" style={{marginLeft: '20px'}}>{renderProofInput('has_asthma')}
                                 <label>Triggers: <input type="text" name="asthma_triggers" value={healthInfo.asthma_triggers} onChange={handleHealthTextChange} /></label>
                                 <label>Medication Taken: <input type="text" name="asthma_medication_taken" value={healthInfo.asthma_medication_taken} onChange={handleHealthTextChange} /></label>
                             </div>
@@ -329,7 +380,7 @@ export default function HealthHistoryForm() {
                     <div className="health-block">
                         <label><input type="checkbox" name="has_other_respiratory" checked={healthInfo.has_other_respiratory} onChange={handleHealthCheckboxChange} /> Other Respiratory Illness</label>
                         {healthInfo.has_other_respiratory && (
-                            <div className="sub-fields" style={{marginLeft: '20px'}}>
+                            <div className="sub-fields" style={{marginLeft: '20px'}}>{renderProofInput('has_other_respiratory')}
                                 <label>Specify: <input type="text" name="other_respiratory_specify" value={healthInfo.other_respiratory_specify} onChange={handleHealthTextChange} /></label>
                                 <label>Medication Taken: <input type="text" name="other_respiratory_medication" value={healthInfo.other_respiratory_medication} onChange={handleHealthTextChange} /></label>
                             </div>
@@ -339,7 +390,7 @@ export default function HealthHistoryForm() {
                     <div className="health-block">
                         <label><input type="checkbox" name="has_blood_disorders" checked={healthInfo.has_blood_disorders} onChange={handleHealthCheckboxChange} /> Blood Disorders</label>
                         {healthInfo.has_blood_disorders && (
-                            <div className="sub-fields" style={{marginLeft: '20px'}}>
+                            <div className="sub-fields" style={{marginLeft: '20px'}}>{renderProofInput('has_blood_disorders')}
                                 <label><input type="checkbox" name="blood_disorder_anemia" checked={healthInfo.blood_disorder_anemia} onChange={handleHealthCheckboxChange}/> Anemia</label>
                                 <label><input type="checkbox" name="blood_disorder_leukopenia" checked={healthInfo.blood_disorder_leukopenia} onChange={handleHealthCheckboxChange}/> Leukopenia</label>
                                 <label><input type="checkbox" name="blood_disorder_thrombocytopenia" checked={healthInfo.blood_disorder_thrombocytopenia} onChange={handleHealthCheckboxChange}/> Thrombocytopenia</label>
@@ -350,7 +401,7 @@ export default function HealthHistoryForm() {
                     <div className="health-block">
                         <label><input type="checkbox" name="has_chicken_pox" checked={healthInfo.has_chicken_pox} onChange={handleHealthCheckboxChange} /> Chicken Pox / Bulutong</label>
                         {healthInfo.has_chicken_pox && (
-                            <div className="sub-fields" style={{marginLeft: '20px'}}>
+                            <div className="sub-fields" style={{marginLeft: '20px'}}>{renderProofInput('has_chicken_pox')}
                                 <label>Age: <input type="number" name="chicken_pox_age" value={healthInfo.chicken_pox_age} onChange={handleHealthTextChange} /></label>
                             </div>
                         )}
@@ -359,7 +410,7 @@ export default function HealthHistoryForm() {
                     <div className="health-block">
                         <label><input type="checkbox" name="has_digestive_disorders" checked={healthInfo.has_digestive_disorders} onChange={handleHealthCheckboxChange} /> Digestive Disorders</label>
                         {healthInfo.has_digestive_disorders && (
-                            <div className="sub-fields" style={{marginLeft: '20px'}}>
+                            <div className="sub-fields" style={{marginLeft: '20px'}}>{renderProofInput('has_digestive_disorders')}
                                 <label><input type="checkbox" name="digestive_ulcer" checked={healthInfo.digestive_ulcer} onChange={handleHealthCheckboxChange}/> Ulcer</label>
                                 <label><input type="checkbox" name="digestive_appendicitis" checked={healthInfo.digestive_appendicitis} onChange={handleHealthCheckboxChange}/> Appendicitis</label>
                                 <label><input type="checkbox" name="digestive_gastritis" checked={healthInfo.digestive_gastritis} onChange={handleHealthCheckboxChange}/> Gastritis</label>
@@ -372,80 +423,65 @@ export default function HealthHistoryForm() {
                     <div className="health-block">
                         <label><input type="checkbox" name="has_heart_problems" checked={healthInfo.has_heart_problems} onChange={handleHealthCheckboxChange} /> Heart Problems</label>
                         {healthInfo.has_heart_problems && (
-                            <div className="sub-fields" style={{marginLeft: '20px'}}><label>Specify: <input type="text" name="heart_problems_specify" onChange={handleHealthTextChange} /></label><label>Medication: <input type="text" name="heart_problems_medication" onChange={handleHealthTextChange} /></label></div>
+                            <div className="sub-fields" style={{marginLeft: '20px'}}>{renderProofInput('has_heart_problems')}<label>Specify: <input type="text" name="heart_problems_specify" onChange={handleHealthTextChange} /></label><label>Medication: <input type="text" name="heart_problems_medication" onChange={handleHealthTextChange} /></label></div>
                         )}
                     </div>
                     <div className="health-block">
                         <label><input type="checkbox" name="has_kidney_bladder_problems" checked={healthInfo.has_kidney_bladder_problems} onChange={handleHealthCheckboxChange} /> Kidney or Bladder Problems</label>
                         {healthInfo.has_kidney_bladder_problems && (
-                            <div className="sub-fields" style={{marginLeft: '20px'}}><label>Specify: <input type="text" name="kidney_bladder_specify" onChange={handleHealthTextChange} /></label><label>Medication: <input type="text" name="kidney_bladder_medication" onChange={handleHealthTextChange} /></label></div>
+                            <div className="sub-fields" style={{marginLeft: '20px'}}>{renderProofInput('has_kidney_bladder_problems')}<label>Specify: <input type="text" name="kidney_bladder_specify" onChange={handleHealthTextChange} /></label><label>Medication: <input type="text" name="kidney_bladder_medication" onChange={handleHealthTextChange} /></label></div>
                         )}
                     </div>
                     <div className="health-block">
                         <label><input type="checkbox" name="has_measles" checked={healthInfo.has_measles} onChange={handleHealthCheckboxChange} /> Measles / Tigdas</label>
                         {healthInfo.has_measles && (
-                            <div className="sub-fields" style={{marginLeft: '20px'}}><label>Age: <input type="number" name="measles_age" onChange={handleHealthTextChange} /></label></div>
+                            <div className="sub-fields" style={{marginLeft: '20px'}}>{renderProofInput('has_measles')}<label>Age: <input type="number" name="measles_age" onChange={handleHealthTextChange} /></label></div>
                         )}
                     </div>
                     <div className="health-block">
                         <label><input type="checkbox" name="has_metabolic_diseases" checked={healthInfo.has_metabolic_diseases} onChange={handleHealthCheckboxChange} /> Metabolic Diseases</label>
                         {healthInfo.has_metabolic_diseases && (
-                            <div className="sub-fields" style={{marginLeft: '20px'}}><label><input type="checkbox" name="metabolic_hyperglycemia" onChange={handleHealthCheckboxChange}/> Hyperglycemia</label><label><input type="checkbox" name="metabolic_hypoglycemia" onChange={handleHealthCheckboxChange}/> Hypoglycemia</label></div>
+                            <div className="sub-fields" style={{marginLeft: '20px'}}>{renderProofInput('has_metabolic_diseases')}<label><input type="checkbox" name="metabolic_hyperglycemia" onChange={handleHealthCheckboxChange}/> Hyperglycemia</label><label><input type="checkbox" name="metabolic_hypoglycemia" onChange={handleHealthCheckboxChange}/> Hypoglycemia</label></div>
                         )}
                     </div>
                     <div className="health-block">
                         <label><input type="checkbox" name="has_muscle_bone_disorder" checked={healthInfo.has_muscle_bone_disorder} onChange={handleHealthCheckboxChange} /> Muscle/Bone/Mobility Disorder</label>
                         {healthInfo.has_muscle_bone_disorder && (
-                            <div className="sub-fields" style={{marginLeft: '20px'}}><label>Specify: <input type="text" name="muscle_bone_specify" onChange={handleHealthTextChange} /></label></div>
+                            <div className="sub-fields" style={{marginLeft: '20px'}}>{renderProofInput('has_muscle_bone_disorder')}<label>Specify: <input type="text" name="muscle_bone_specify" onChange={handleHealthTextChange} /></label></div>
                         )}
                     </div>
                     <div className="health-block">
                         <label><input type="checkbox" name="has_seizure_episode" checked={healthInfo.has_seizure_episode} onChange={handleHealthCheckboxChange} /> Seizure Episode</label>
                         {healthInfo.has_seizure_episode && (
-                            <div className="sub-fields" style={{marginLeft: '20px'}}><label>Date of last episode: <input type="date" name="seizure_last_episode_date" onChange={handleHealthTextChange} /></label><label>Medication: <input type="text" name="seizure_medication_taken" onChange={handleHealthTextChange} /></label></div>
+                            <div className="sub-fields" style={{marginLeft: '20px'}}>{renderProofInput('has_seizure_episode')}<label>Date of last episode: <input type="date" name="seizure_last_episode_date" onChange={handleHealthTextChange} /></label><label>Medication: <input type="text" name="seizure_medication_taken" onChange={handleHealthTextChange} /></label></div>
                         )}
                     </div>
                     <div className="health-block">
                         <label><input type="checkbox" name="has_surgery" checked={healthInfo.has_surgery} onChange={handleHealthCheckboxChange} /> Surgery</label>
                         {healthInfo.has_surgery && (
-                            <div className="sub-fields" style={{marginLeft: '20px'}}><label>Specify: <input type="text" name="surgery_specify" onChange={handleHealthTextChange} /></label><label>Date: <input type="date" name="surgery_date" onChange={handleHealthTextChange} /></label></div>
+                            <div className="sub-fields" style={{marginLeft: '20px'}}>{renderProofInput('has_surgery')}<label>Specify: <input type="text" name="surgery_specify" onChange={handleHealthTextChange} /></label><label>Date: <input type="date" name="surgery_date" onChange={handleHealthTextChange} /></label></div>
                         )}
                     </div>
                     <div className="health-block">
                         <label><input type="checkbox" name="has_vision_problem" checked={healthInfo.has_vision_problem} onChange={handleHealthCheckboxChange} /> Vision Problem</label>
                         {healthInfo.has_vision_problem && (
-                            <div className="sub-fields" style={{marginLeft: '20px'}}><label>Specify: <input type="text" name="vision_specify" onChange={handleHealthTextChange} /></label><label><input type="checkbox" name="vision_with_eyeglasses" onChange={handleHealthCheckboxChange}/> with eyeglasses</label><label><input type="checkbox" name="vision_with_contact_lens" onChange={handleHealthCheckboxChange}/> with contact lens</label></div>
+                            <div className="sub-fields" style={{marginLeft: '20px'}}>{renderProofInput('has_vision_problem')}<label>Specify: <input type="text" name="vision_specify" onChange={handleHealthTextChange} /></label><label><input type="checkbox" name="vision_with_eyeglasses" onChange={handleHealthCheckboxChange}/> with eyeglasses</label><label><input type="checkbox" name="vision_with_contact_lens" onChange={handleHealthCheckboxChange}/> with contact lens</label></div>
                         )}
                     </div>
                     <div className="health-block">
                         <label><input type="checkbox" name="has_hearing_problem" checked={healthInfo.has_hearing_problem} onChange={handleHealthCheckboxChange} /> Hearing Problem</label>
                         {healthInfo.has_hearing_problem && (
-                            <div className="sub-fields" style={{marginLeft: '20px'}}><label>Specify: <input type="text" name="hearing_specify" onChange={handleHealthTextChange} /></label></div>
+                            <div className="sub-fields" style={{marginLeft: '20px'}}>{renderProofInput('has_hearing_problem')}<label>Specify: <input type="text" name="hearing_specify" onChange={handleHealthTextChange} /></label></div>
                         )}
                     </div>
                     <div className="health-block">
                         <label><input type="checkbox" name="has_other_condition" checked={healthInfo.has_other_condition} onChange={handleHealthCheckboxChange} /> Other health condition not listed</label>
                         {healthInfo.has_other_condition && (
-                            <div className="sub-fields" style={{marginLeft: '20px'}}><label>Specify: <input type="text" name="other_condition_specify" onChange={handleHealthTextChange} /></label></div>
+                            <div className="sub-fields" style={{marginLeft: '20px'}}>{renderProofInput('has_other_condition')}<label>Specify: <input type="text" name="other_condition_specify" onChange={handleHealthTextChange} /></label></div>
                         )}
                     </div>
 
                     <button onClick={() => setStep(1)}>Back</button>
-                    <button onClick={() => setStep(3)}>Next</button>
-                </div>
-            )}
-
-            {/* PAGE 3: EMERGENCY CONTACT */}
-            {step === 3 && (
-                <div className="form-section">
-                    <h3>C. Emergency Contact Information</h3>
-                    
-                    <label>Name: <input type="text" name="contact_name" value={emergencyContact.contact_name} onChange={handleEmergencyChange} /></label>
-                    <label>Relationship: <input type="text" name="relationship" value={emergencyContact.relationship} onChange={handleEmergencyChange} /></label>
-                    <label>Address: <input type="text" name="address" value={emergencyContact.address} onChange={handleEmergencyChange} /></label>
-                    <label>Contact #: <input type="text" name="contact_number" value={emergencyContact.contact_number} onChange={handleEmergencyChange} /></label>
-
-                    <button onClick={() => setStep(2)}>Back</button>
                     <button onClick={handleSubmitPrompt} className="btn-primary">Submit Form</button>
                 </div>
             )}

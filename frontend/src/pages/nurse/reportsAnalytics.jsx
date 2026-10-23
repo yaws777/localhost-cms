@@ -396,7 +396,7 @@ const ReportsAnalytics = () => {
           },
           {
             heading: `Predictive medicine demand${forecast.periodLabel ? ` (${forecast.periodLabel})` : ' (next 30 days)'}`,
-            columns: ['#', 'Medicine', 'Current stock', 'Status', 'Used last 30 days', 'Forecast next 30 days', 'Suggested restock'],
+            columns: ['#', 'Medicine', 'Current stock', 'Status', 'Used last 30 days', 'Forecast next 30 days', 'Predicted Need'],
             rows: forecast.items.map((m, i) => [i + 1, m.name, `${m.stock} ${m.unit}`, m.status, m.last30d, m.forecast30d, m.suggestedRestock]),
             emptyText: forecastError || 'No predictive medicine demand available.'
           }
@@ -434,7 +434,7 @@ const ReportsAnalytics = () => {
         sections: [
           {
             heading: 'Medicines needing attention',
-            columns: ['Medicine', 'Status', 'Usable stock', 'Expiring soon', 'Expired', 'Nearest expiry', '30-day forecast', 'Suggested restock'],
+            columns: ['Medicine', 'Status', 'Current stock', 'Expiring soon', 'Expired', 'Nearest expiry', '30-day forecast', 'Predicted Need'],
             rows: inventory.attention.map((m) => [m.name, m.status, `${m.stock} ${m.unit}`, m.expiringStock, m.expiredStock, m.nearestExpiry ? formatDate(m.nearestExpiry) : '—', m.forecast30d, m.suggestedRestock]),
             emptyText: 'Every medicine is adequately stocked and in date.'
           }
@@ -465,7 +465,7 @@ const ReportsAnalytics = () => {
               <Bar dataKey="forecast30d" name="Forecast next 30 days" fill={COLORS.consultation} barSize={12} radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
-          <Table columns={['#', 'Medicine', 'Current stock', 'Status', 'Used last 30 days', 'Forecast next 30 days', 'Suggested restock']} isEmpty={false}>
+          <Table columns={['#', 'Medicine', 'Current stock', 'Status', 'Used last 30 days', 'Forecast next 30 days', 'Predicted Need']} isEmpty={false}>
             {forecast.items.map((m, i) => (
               <tr key={m.name}>
                 <td>{i + 1}</td>
@@ -683,7 +683,7 @@ const ReportsAnalytics = () => {
 
       <Panel title="Medicines needing attention" note="Out of stock, low, expiring or expired">
         <Table
-          columns={['Medicine', 'Status', 'Usable stock', 'Expiring soon', 'Expired', 'Nearest expiry', '30-day forecast', 'Suggested restock']}
+          columns={['Medicine', 'Status', 'Current stock', 'Expiring soon', 'Expired', 'Nearest expiry', '30-day forecast', 'Predicted Need']}
           isEmpty={inventory.attention.length === 0}
           empty="Every medicine is adequately stocked and in date."
         >

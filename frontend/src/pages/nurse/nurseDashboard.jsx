@@ -9,7 +9,9 @@ import {
   Tooltip,
   Legend,
   ReferenceArea,
-  ResponsiveContainer
+  ResponsiveContainer,
+  ComposedChart,
+  Line
 } from 'recharts';
 import { 
   Eye, 
@@ -55,8 +57,17 @@ const isStandardUnit = (unit) => {
 /* --- HELPER FUNCTIONS --- */
 const pluralize = (word, count) => {
   if (!word) return '';
+  // Stored labels such as "Tablet/s" or "Patch/es": singular is the base, plural adds the suffix
+  const slashForm = /^(.+?)\s*[/(]\s*(e?s)\)?$/i.exec(String(word).trim());
+  if (slashForm) return count <= 1 ? slashForm[1] : `${slashForm[1]}${slashForm[2]}`;
   if (count <= 1) return word;
   return /(x|s|ch|sh|z)$/i.test(word) ? `${word}es` : `${word}s`;
+};
+
+// Same rule for unit labels, but measurement symbols (mg, ml, ...) and non-nouns ("dispensed") stay as they are
+const pluralizeUnit = (unit, count) => {
+  if (!unit || isStandardUnit(unit) || unit === 'dispensed') return unit;
+  return pluralize(unit, count);
 };
 
 const formatCeilAvg = (val) => {
@@ -77,11 +88,32 @@ const formatCeilAvg = (val) => {
   return <strong>{ceilVal}</strong>;
 };
 
+// Rounded-up value with the exact one in brackets, e.g. "2(1.1)"; just "2" when the exact value is already whole
+const formatCeilWithRaw = (ceilVal, rawVal) => {
+  const raw = Number(rawVal);
+  if (!Number.isFinite(raw) || Number.isInteger(raw)) return String(ceilVal);
+  let shown = parseFloat(raw.toFixed(2));
+  if (Number.isInteger(shown)) shown = parseFloat(raw.toFixed(3));
+  return `${ceilVal}(${shown})`;
+};
+
 const getCurrentMonthString = () => {
   const now = new Date();
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, '0');
   return `${year}-${month}`;
+};
+
+const getTodayString = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+};
+
+// A custom range of up to 31 days is charted one bar per day (stacked), anything longer one bar per month
+const isDailyRange = (from, to) => {
+  if (!from || !to) return true;
+  const days = Math.round((new Date(`${to}T00:00:00`) - new Date(`${from}T00:00:00`)) / 86400000) + 1;
+  return days <= 31;
 };
 
 // Normalize MySQL date strings (YYYY-MM-DD HH:mm:ss) to standard ISO format for safe JS Date parsing
@@ -387,33 +419,48 @@ const ForecastTooltip = ({ active, payload }) => {
   const oldestDate = shiftDate(day.targetDate, -30);
   const activeWindowRange = `${formatDateBase(oldestDate)} – ${formatDateBase(shiftDate(day.targetDate, -1))}`;
   const newWindowRange = `${formatDateBase(shiftDate(day.targetDate, -29))} – ${formatDateBase(day.targetDate)}`;
+  // e.g. "20 − 1 = 19"; when the day's demand exceeds the stock left, the result is floored at 0 ("4 − 7 = −3 → 0")
+  const stockDiff = parseFloat((day.stockBefore - p1.predictedDemand).toFixed(3));
+  const stockLeftComputation = stockDiff < 0
+    ? `${fmt(day.stockBefore)} − ${fmt(p1.predictedDemand)} = −${fmt(Math.abs(stockDiff))} → 0`
+    : `${fmt(day.stockBefore)} − ${fmt(p1.predictedDemand)} = ${fmt(stockDiff)}`;
 
   return (
     <div className="custom-chart-tooltip-nd predictive-tooltip-width-nd">
       <h4 className="tooltip-header-nd">Day +{day.dayOffset} · {formatDateBase(day.targetDate)} ({day.dayOfWeek})</h4>
       <ul className="tooltip-items-list-standard-nd">
-        <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Predicted demand</span><span className="tooltip-item-value-nd" style={{ color: '#F97316' }}>{p1.predictedDemand} {day.unit}</span></li>
-        <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Window sum</span><span className="tooltip-item-value-nd">{fmt(p1.activeWindowSum)} {day.unit}</span></li>
+        <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Predicted demand</span><span className="tooltip-item-value-nd" style={{ color: '#F97316' }}>{formatCeilWithRaw(p1.predictedDemand, p1.rawDemand)} {pluralizeUnit(day.unit, p1.predictedDemand)}</span></li>
+        <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Stock left after this day</span><span className="tooltip-item-value-nd" style={{ color: '#0250A3' }}>{day.remainingStock} {pluralizeUnit(day.unit, day.remainingStock)}</span></li>
+        <li className="tooltip-item-nd tooltip-item-note-nd"><span className="tooltip-item-name-nd">Stock − predicted demand</span><span className="tooltip-item-value-nd">{stockLeftComputation}</span></li>
+        <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Window sum</span><span className="tooltip-item-value-nd">{fmt(p1.activeWindowSum)} {pluralizeUnit(day.unit, fmt(p1.activeWindowSum))}</span></li>
         <li className="tooltip-item-nd tooltip-item-note-nd"><span className="tooltip-item-name-nd">Dates covered</span><span className="tooltip-item-value-nd">{activeWindowRange}</span></li>
-        <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Avg daily demand</span><span className="tooltip-item-value-nd">{fmt(p1.activeADD)} {day.unit}/day</span></li>
+        <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Avg daily demand</span><span className="tooltip-item-value-nd">{fmt(p1.activeADD)} {pluralizeUnit(day.unit, fmt(p1.activeADD))}/day</span></li>
         <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Day-of-week index</span><span className="tooltip-item-value-nd">×{p1.seasonalityIndex}</span></li>
-        <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Dropped oldest</span><span className="tooltip-item-value-nd">{fmt(p2.droppedOldestValue)} {day.unit}</span></li>
+        <li className="tooltip-item-nd tooltip-item-note-nd"><span className="tooltip-item-name-nd">Rounded up from</span><span className="tooltip-item-value-nd">{fmt(p1.activeADD)} × {p1.seasonalityIndex} = {parseFloat(Number(p1.rawDemand).toFixed(3))}</span></li>
+        <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Dropped oldest</span><span className="tooltip-item-value-nd">{fmt(p2.droppedOldestValue)} {pluralizeUnit(day.unit, fmt(p2.droppedOldestValue))}</span></li>
         <li className="tooltip-item-nd tooltip-item-note-nd"><span className="tooltip-item-name-nd">Date dropped</span><span className="tooltip-item-value-nd">{formatDateBase(oldestDate)}</span></li>
-        <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">New window sum</span><span className="tooltip-item-value-nd">{fmt(p2.newWindowSum)} {day.unit}</span></li>
+        <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">New window sum</span><span className="tooltip-item-value-nd">{fmt(p2.newWindowSum)} {pluralizeUnit(day.unit, fmt(p2.newWindowSum))}</span></li>
         <li className="tooltip-item-nd tooltip-item-note-nd"><span className="tooltip-item-name-nd">Dates covered</span><span className="tooltip-item-value-nd">{newWindowRange}</span></li>
+        <li className="tooltip-item-nd tooltip-item-note-nd"><span className="tooltip-item-name-nd">Window sum − dropped + predicted</span><span className="tooltip-item-value-nd">{fmt(p1.activeWindowSum)} − {fmt(p2.droppedOldestValue)} + {fmt(p2.appendedPrediction)} = {fmt(p2.newWindowSum)}</span></li>
       </ul>
     </div>
   );
 };
 
-const CustomTooltip = ({ active, payload, label, unitLabel = "cases", medicinesUnitsMap = {}, showBrandOnly = false }) => {
+const CustomTooltip = ({ active, payload, label, unitLabel = "case", medicinesUnitsMap = {}, showBrandOnly = false }) => {
   if (active && payload && payload.length) {
     const totalCases = payload.reduce((sum, entry) => sum + (Number(entry.value) || 0), 0);
     const activePayload = payload.filter((entry) => (Number(entry.value) || 0) > 0);
 
+    // One day -> "Oct. 23, 2026"; a week or month bucket -> "Oct. 1, 2026 – Oct. 7, 2026"
+    const { start, end } = payload[0].payload || {};
+    const dateHeader = start
+      ? (!end || start === end ? formatDateBase(start) : `${formatDateBase(start)} – ${formatDateBase(end)}`)
+      : label;
+
     return (
       <div className="custom-chart-tooltip-nd trend-tooltip-widen-nd">
-        <h4 className="tooltip-header-nd">{label}</h4>
+        <h4 className="tooltip-header-nd">{dateHeader}</h4>
         {activePayload.length === 0 ? (
           <div className="tooltip-no-records-nd">No records found</div>
         ) : (
@@ -429,7 +476,7 @@ const CustomTooltip = ({ active, payload, label, unitLabel = "cases", medicinesU
                     <span className="tooltip-item-name-nd">{displayName}</span>
                   </div>
                   <span className="tooltip-item-value-nd" style={{ color: entry.color }}>
-                    {entry.value} {specificUnit}
+                    {entry.value} {pluralizeUnit(specificUnit, entry.value)}
                   </span>
                 </li>
               );
@@ -439,7 +486,7 @@ const CustomTooltip = ({ active, payload, label, unitLabel = "cases", medicinesU
         <div className="tooltip-divider-nd" />
         <div className="tooltip-footer-nd">
           <span className="tooltip-total-label-nd">Total</span>
-          <span className="tooltip-total-value-nd">{Math.round(totalCases)} {unitLabel}</span>
+          <span className="tooltip-total-value-nd">{Math.round(totalCases)} {pluralizeUnit(unitLabel, Math.round(totalCases))}</span>
         </div>
       </div>
     );
@@ -564,23 +611,27 @@ const NurseDashboard = () => {
   const [averagesLabel, setAveragesLabel] = useState(""); 
   const [timelineLabel, setTimelineLabel] = useState("");
   const [periodLabel, setPeriodLabel] = useState("");
-  const [filterType, setFilterType] = useState("weekly"); 
-  const [averageUnit, setAverageUnit] = useState("week");
-  const [selectedMonth, setSelectedMonth] = useState(maxCurrentMonth); 
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString()); 
+  const [filterType, setFilterType] = useState("daily");
+  const [averageUnit, setAverageUnit] = useState("day");
+  const [selectedMonth, setSelectedMonth] = useState(maxCurrentMonth);
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
+  const [trendFromDate, setTrendFromDate] = useState(`${maxCurrentMonth}-01`);
+  const [trendToDate, setTrendToDate] = useState(getTodayString);
+  const [trendComplaintFilter, setTrendComplaintFilter] = useState(""); // "" = all medical conditions
   const [isLoading, setIsLoading] = useState(true);
 
   // 2. Medicine Dispensed Overview State
   const [dispensedData, setDispensedData] = useState([]);
   const [medicinesList, setMedicinesList] = useState([]);
   const [medicinesUnitsMap, setMedicinesUnitsMap] = useState({});
-  const [dispensedAverages, setDispensedAverages] = useState(null);
-  const [dispensedAveragesLabel, setDispensedAveragesLabel] = useState("");
   const [dispensedTimelineLabel, setDispensedTimelineLabel] = useState("");
   const [dispensedPeriodLabel, setDispensedPeriodLabel] = useState("");
-  const [dispensedFilterType, setDispensedFilterType] = useState("current");
+  const [dispensedFilterType, setDispensedFilterType] = useState("daily");
   const [dispensedSelectedMonth, setDispensedSelectedMonth] = useState(maxCurrentMonth);
   const [dispensedSelectedYear, setDispensedSelectedYear] = useState(new Date().getFullYear().toString());
+  const [dispensedMedicineFilter, setDispensedMedicineFilter] = useState(""); // "" = all medicines
+  const [dispensedFromDate, setDispensedFromDate] = useState(`${maxCurrentMonth}-01`);
+  const [dispensedToDate, setDispensedToDate] = useState(getTodayString);
   const [isDispensedLoading, setIsDispensedLoading] = useState(true);
 
   // 3. Predictive Demand State
@@ -626,7 +677,6 @@ const NurseDashboard = () => {
 
   // Expand / Collapse UI States
   const [isAveragesExpanded, setIsAveragesExpanded] = useState(false);
-  const [isDispensedAveragesExpanded, setIsDispensedAveragesExpanded] = useState(false);
 
   const realTimeDate = new Date();
   const currentMonthNamesShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -652,6 +702,26 @@ const NurseDashboard = () => {
     ...medicinesUnitsMap
   };
 
+  const visibleComplaints = trendComplaintFilter
+    ? complaintsList.filter((complaint) => complaint === trendComplaintFilter)
+    : complaintsList;
+
+  // Daily-style (stacked) bars: day-by-day views and custom ranges of up to 31 days
+  const isTrendStacked = filterType === 'daily' || (filterType === 'range' && isDailyRange(trendFromDate, trendToDate));
+  const isDispensedStacked = dispensedFilterType === 'daily' || (dispensedFilterType === 'range' && isDailyRange(dispensedFromDate, dispensedToDate));
+
+  // Sum of every bar in the selected window, per medicine (zero totals left out)
+  const visibleDispensedMedicines = dispensedMedicineFilter
+    ? medicinesList.filter((medicine) => medicine === dispensedMedicineFilter)
+    : medicinesList;
+
+  const dispensedWindowTotals = visibleDispensedMedicines
+    .map((medicine) => ({
+      medicine,
+      total: parseFloat(dispensedData.reduce((sum, item) => sum + (Number(item[medicine]) || 0), 0).toFixed(3))
+    }))
+    .filter((entry) => entry.total > 0);
+
   // Dynamically Filtered Upcoming Schedules
   const upcomingHealthScreenings = (nurseDashboardData.upcomingHealthScreenings || []).filter((screen) =>
     isScheduleUpcoming(screen.scheduled_date, screen.start_time)
@@ -664,7 +734,7 @@ const NurseDashboard = () => {
   // EXPORT HANDLERS FOR REPORTS
   const handleExportHealthTrends = () => {
     const headers = ['No.', 'Medical Condition', 'Total Cases Recorded', `Average Cases / ${averageUnit}`];
-    const rows = complaintsList.map((complaint, index) => {
+    const rows = visibleComplaints.map((complaint, index) => {
       const totalCases = trendData.reduce((sum, item) => sum + (Number(item[complaint]) || 0), 0);
       const avgVal = averages && averages[complaint] !== undefined ? averages[complaint] : 0;
       const ceilAvg = Math.ceil(Number(avgVal) || 0);
@@ -687,27 +757,16 @@ const NurseDashboard = () => {
   };
 
   const handleExportMedicineDispensed = () => {
-    const headers = ['No.', 'Medicine / Item Name', 'Unit of Measure', 'Total Dispensed', 'Monthly Average Dispensed'];
-    const rows = medicinesList.map((medicine, index) => {
-      const unit = combinedUnitsMap[medicine] || 'units';
+    const headers = ['No.', 'Medicine / Item Name', 'Unit of Measure', 'Total Dispensed'];
+    const rows = visibleDispensedMedicines.map((medicine, index) => {
+      const unit = pluralizeUnit(combinedUnitsMap[medicine] || 'unit', 1);
       const totalDispensed = dispensedData.reduce((sum, item) => sum + (Number(item[medicine]) || 0), 0);
-
-      let avgValue = dispensedAverages?.[medicine];
-      if (avgValue === undefined || avgValue === null) {
-        if (dispensedData.length > 0) {
-          avgValue = totalDispensed / dispensedData.length;
-        } else {
-          avgValue = 0;
-        }
-      }
-      const ceilAvg = Math.ceil(Number(avgValue) || 0);
 
       return [
         index + 1,
         medicine,
         unit,
-        totalDispensed,
-        `${ceilAvg} ${unit}/mo`
+        parseFloat(totalDispensed.toFixed(3))
       ];
     });
 
@@ -727,7 +786,7 @@ const NurseDashboard = () => {
       'Package Strength / Form',
       'Current Stock',
       'Forecast: Next 30 Days',
-      'Suggested Restock',
+      'Predicted Need',
       'Status'
     ];
 
@@ -750,7 +809,7 @@ const NurseDashboard = () => {
 
     generatePDFReport(
       'Next 30 Days Predictive Medicine Demand Forecast Report',
-      `Forecast period: ${predictivePeriod || 'next 30 days'} (rolling 30-day forecast). Suggested restock = forecast + critical level - usable stock.`,
+      `Forecast period: ${predictivePeriod || 'next 30 days'} (rolling 30-day forecast). Predicted need = 30-day forecast - current stock.`,
       headers,
       rows,
       (errMsg) => showAlert({ type: 'error', title: 'Export Failed', message: errMsg })
@@ -765,7 +824,7 @@ const NurseDashboard = () => {
       alert.studentName || 'N/A',
       alert.studentId || 'N/A',
       alert.complaint || 'N/A',
-      `${alert.visitCount || 0} visits`,
+      `${alert.visitCount || 0} ${pluralize('visit', alert.visitCount || 0)}`,
       alert.advice || 'N/A'
     ]);
 
@@ -812,7 +871,7 @@ const NurseDashboard = () => {
 
     generatePDFReport(
       `Recurring Medical Condition Logs - ${selectedAlertHeader.studentName}`,
-      `Student ID: ${selectedAlertHeader.studentId} | Program/Yr: ${selectedAlertHeader.gradeSection || 'N/A'} | Medical Conditions: ${selectedAlertHeader.complaint} (${detailVisits.length} Visits Recorded)`,
+      `Student ID: ${selectedAlertHeader.studentId} | Program/Yr: ${selectedAlertHeader.gradeSection || 'N/A'} | Medical Conditions: ${selectedAlertHeader.complaint} (${detailVisits.length} ${pluralize('Visit', detailVisits.length)} Recorded)`,
       headers,
       rows,
       (errMsg) => showAlert({ type: 'error', title: 'Export Failed', message: errMsg })
@@ -903,10 +962,14 @@ const NurseDashboard = () => {
   const fetchHealthTrends = useCallback(async () => {
     setIsLoading(true);
     try {
-      // daily and weekly show one month, monthly shows one year
+      // daily and weekly show one month, monthly shows one year, range shows the chosen From -> To dates
       const apiDate = filterType === 'monthly' ? `${selectedYear}-01-01` : `${selectedMonth}-01`;
 
       const params = new URLSearchParams({ granularity: filterType, date: apiDate });
+      if (filterType === 'range') {
+        params.set('from', trendFromDate);
+        params.set('to', trendToDate);
+      }
       const response = await fetch(`http://localhost:3001/api/health-trends?${params.toString()}`);
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Failed to load health trends');
@@ -923,19 +986,23 @@ const NurseDashboard = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [filterType, selectedMonth, selectedYear]);
+  }, [filterType, selectedMonth, selectedYear, trendFromDate, trendToDate]);
 
   // Fetch Medicine Dispensed Overview
   const fetchMedicineDispensed = useCallback(async () => {
     setIsDispensedLoading(true);
     try {
-      let apiDate = dispensedFilterType === 'weekly' 
-        ? `${dispensedSelectedMonth}-01` 
-        : dispensedFilterType === 'yearly' 
-        ? `${dispensedSelectedYear}-01-01` 
-        : new Date().toISOString().split('T')[0];
+      const apiDate = dispensedFilterType === 'monthly'
+        ? `${dispensedSelectedYear}-01-01`
+        : dispensedFilterType === 'range'
+        ? getTodayString()
+        : `${dispensedSelectedMonth}-01`;
 
       const params = new URLSearchParams({ filterType: dispensedFilterType, date: apiDate });
+      if (dispensedFilterType === 'range') {
+        params.set('from', dispensedFromDate);
+        params.set('to', dispensedToDate);
+      }
       const response = await fetch(`http://localhost:3001/api/medicine-dispensed-overview?${params.toString()}`);
       const result = await response.json();
 
@@ -943,8 +1010,6 @@ const NurseDashboard = () => {
       setMedicinesList(result.medicinesList || []);
       setMedicinesUnitsMap(result.medicinesUnitsMap || result.medicineUnits || result.unitsMap || {});
 
-      setDispensedAverages(result.averages || result.dispensedAverages || null);
-      setDispensedAveragesLabel(result.averagesLabel || "Average Medicine Dispensed per Month");
       setDispensedTimelineLabel(result.timelineLabel || "");
       setDispensedPeriodLabel(result.periodLabel || "");
     } catch (error) {
@@ -952,7 +1017,7 @@ const NurseDashboard = () => {
     } finally {
       setIsDispensedLoading(false);
     }
-  }, [dispensedFilterType, dispensedSelectedMonth, dispensedSelectedYear]);
+  }, [dispensedFilterType, dispensedSelectedMonth, dispensedSelectedYear, dispensedFromDate, dispensedToDate]);
 
   // Fetch Predictive Medicine Demand
   const fetchPredictiveDemand = useCallback(async () => {
@@ -1254,11 +1319,11 @@ const NurseDashboard = () => {
     fetchAnnouncements();
   }, [fetchNurseDashboard, fetchHealthTrends, fetchMedicineDispensed, fetchPredictiveDemand, fetchFrequentAlerts, fetchAnnouncements]);
 
-  const activeComplaintsInGraph = complaintsList.filter(complaint => 
+  const activeComplaintsInGraph = visibleComplaints.filter(complaint =>
     trendData.some(dataPoint => (Number(dataPoint[complaint]) || 0) > 0)
   );
 
-  const activeMedicinesInGraph = medicinesList.filter(medicine => 
+  const activeMedicinesInGraph = visibleDispensedMedicines.filter(medicine =>
     dispensedData.some(dataPoint => (Number(dataPoint[medicine]) || 0) > 0)
   );
 
@@ -1283,19 +1348,54 @@ const NurseDashboard = () => {
   );
   const selectedForecastMedicine =
     forecastMedicines.find(med => String(med.id) === String(selectedForecastMedicineId)) || forecastMedicines[0];
-  const forecastChartData = (selectedForecastMedicine?.forecast || []).map(day => ({
-    ...day,
-    label: `${formatMonthDay(day.targetDate)} ${day.dayOfWeek}`,
-    predictedDemand: day.phase1_prediction.predictedDemand,
-    unit: selectedForecastMedicine.unitOfMeasure,
-    dosageForm: selectedForecastMedicine.dosageForm || 'unit',
-    packageStrength: selectedForecastMedicine.packageStrength
-  }));
+  // Current stock is counted in containers of the dosage form; demand is in dispense units, so convert stock to dispense units
+  const forecastContainerStrength = selectedForecastMedicine?.containerStrength || 1;
+  const forecastStockBase = parseFloat(((Number(selectedForecastMedicine?.currentStock) || 0) * forecastContainerStrength).toFixed(3));
+  let forecastRunningStock = forecastStockBase;
+  const forecastChartData = (selectedForecastMedicine?.forecast || []).map(day => {
+    const stockBefore = Math.max(0, parseFloat(forecastRunningStock.toFixed(3)));
+    forecastRunningStock -= day.phase1_prediction.predictedDemand;
+    return {
+      ...day,
+      stockBefore,
+      label: `${formatMonthDay(day.targetDate)} ${day.dayOfWeek}`,
+      predictedDemand: day.phase1_prediction.predictedDemand,
+      remainingStock: Math.max(0, parseFloat(forecastRunningStock.toFixed(3))),
+      unit: selectedForecastMedicine.unitOfMeasure,
+      dosageForm: selectedForecastMedicine.dosageForm || 'unit',
+      packageStrength: selectedForecastMedicine.packageStrength
+    };
+  });
   // Total is ceiled once on the summed dispense units (not per day) so small daily amounts don't inflate it
   const forecastTotalBase = parseFloat(forecastChartData.reduce((sum, day) => sum + day.predictedDemand, 0).toFixed(3));
-  const forecastTotalRaw = forecastTotalBase / (selectedForecastMedicine?.containerStrength || 1);
+  const forecastTotalRaw = forecastTotalBase / forecastContainerStrength;
   const forecastTotal = Math.ceil(parseFloat(forecastTotalRaw.toFixed(6)));
   const forecastDosageForm = selectedForecastMedicine?.dosageForm || 'unit';
+  // Stock vs demand: difference = stock - 30-day demand (negative = shortfall)
+  // Average daily demand is shown exact (total / days) so that average x days always equals the 30-day total on the card
+  const forecastAvgDaily = forecastTotalBase / (forecastChartData.length || 1);
+  const forecastDifference = parseFloat((forecastStockBase - forecastTotalBase).toFixed(3));
+  const forecastStockOutDay = forecastChartData.find(day => day.remainingStock <= 0);
+  // Days of stock left: walk the daily forecast until the stock is used up. On the stock-out day (day k) the stock
+  // left before it covers only a fraction of that day's demand, so days = (k - 1) + stockLeft / demandOfDayK.
+  // null = no forecast demand; forecastCoversFull = stock outlasts the 30 forecast days (shown as "30+").
+  let forecastDaysCovered = null;
+  let forecastCoversFull = false;
+  if (forecastTotalBase > 0) {
+    let stockLeft = forecastStockBase;
+    forecastDaysCovered = 0;
+    for (let i = 0; i < forecastChartData.length; i++) {
+      const demand = forecastChartData[i].predictedDemand;
+      if (demand > 0 && stockLeft <= demand) {
+        forecastDaysCovered = i + stockLeft / demand;
+        break;
+      }
+      stockLeft -= demand;
+      forecastDaysCovered = i + 1;
+    }
+    forecastCoversFull = !forecastStockOutDay;
+    forecastDaysCovered = forecastCoversFull ? forecastChartData.length : parseFloat(forecastDaysCovered.toFixed(1));
+  }
   const yearOptions = Array.from({ length: 6 }, (_, i) => (new Date().getFullYear() - i).toString());
 
   const viewAllBtnStyle = {
@@ -1362,7 +1462,7 @@ const NurseDashboard = () => {
               </div>
               <div className="stat-pill-nd danger-pill-nd">
                 <AlertCircle size={12} />
-                <span><strong>{nurseDashboardData.requirementsOverview.incompleteCount || 0}</strong> Incomplete Requirements</span>
+                <span><strong>{nurseDashboardData.requirementsOverview.incompleteCount || 0}</strong> Incomplete {pluralize('Requirement', nurseDashboardData.requirementsOverview.incompleteCount || 0)}</span>
               </div>
             </div>
             <span className="overview-card-view-all-nd">View All <ChevronRight size={14} /></span>
@@ -1538,7 +1638,39 @@ const NurseDashboard = () => {
             <option value="daily">Daily (day by day of a month)</option>
             <option value="weekly">Weekly (week by week of a month)</option>
             <option value="monthly">Monthly (month by month of a year)</option>
+            <option value="range">Custom Date Range</option>
           </select>
+          <select
+            value={trendComplaintFilter}
+            onChange={(e) => setTrendComplaintFilter(e.target.value)}
+            className="filter-input-nd filter-select-nd"
+            aria-label="Filter by medical condition"
+          >
+            <option value="">All Medical Conditions</option>
+            {complaintsList.map((complaint) => (
+              <option key={complaint} value={complaint}>{complaint}</option>
+            ))}
+          </select>
+          {filterType === 'range' && (
+            <>
+              <label className="filter-label-nd">From</label>
+              <input
+                type="date"
+                value={trendFromDate}
+                max={trendToDate || undefined}
+                onChange={(e) => e.target.value && setTrendFromDate(e.target.value)}
+                className="filter-input-nd date-picker-nd"
+              />
+              <label className="filter-label-nd">To</label>
+              <input
+                type="date"
+                value={trendToDate}
+                min={trendFromDate || undefined}
+                onChange={(e) => e.target.value && setTrendToDate(e.target.value)}
+                className="filter-input-nd date-picker-nd"
+              />
+            </>
+          )}
           {(filterType === 'daily' || filterType === 'weekly') && (
             <input 
               type="month" 
@@ -1585,11 +1717,11 @@ const NurseDashboard = () => {
                 )}
                 <XAxis dataKey="name" tickLine={false} tick={(props) => <CustomXAxisTick {...props} filterType={filterType} isCurrentYearSelected={isCurrentYearSelected} currentMonthName={currentRealTimeMonthName} />} />
                 <YAxis allowDecimals={false} tick={{ fill: '#4B5563', fontSize: 12 }} axisLine={false} tickLine={false} />
-                <Tooltip content={<CustomTooltip unitLabel="cases" />} cursor={{ fill: '#F3F4F6', opacity: 0.4 }} />
+                <Tooltip content={<CustomTooltip unitLabel="case" />} cursor={{ fill: '#F3F4F6', opacity: 0.4 }} />
                 <Legend verticalAlign="bottom" height={36} iconType="rect" iconSize={14} wrapperStyle={{ paddingTop: '15px' }} />
                 
                 {activeComplaintsInGraph.map((complaint) => (
-                  <Bar key={complaint} dataKey={complaint} name={complaint} fill={getComplaintColor(complaint)} radius={filterType === 'daily' ? 0 : [4, 4, 0, 0]} stackId={filterType === 'daily' ? 'cases' : undefined} />
+                  <Bar key={complaint} dataKey={complaint} name={complaint} fill={getComplaintColor(complaint)} radius={isTrendStacked ? 0 : [4, 4, 0, 0]} stackId={isTrendStacked ? 'cases' : undefined} />
                 ))}
               </BarChart>
             </ResponsiveContainer>
@@ -1602,7 +1734,7 @@ const NurseDashboard = () => {
           <h4 className="averages-title-nd">{averagesLabel}</h4>
           <div className={`collapsible-container-nd badge-collapsible-nd ${isAveragesExpanded ? 'expanded-nd' : ''}`}>
             <div className="averages-badges-wrapper-nd">
-              {complaintsList.map((complaint) => (
+              {visibleComplaints.map((complaint) => (
                 <div key={complaint} className="average-badge-card-nd">
                   <span className="badge-dot-nd" style={{ backgroundColor: getComplaintColor(complaint) }} />
                   <span className="badge-name-nd">{complaint}</span>
@@ -1617,7 +1749,7 @@ const NurseDashboard = () => {
               ))}
             </div>
           </div>
-          {complaintsList.length > 3 && (
+          {visibleComplaints.length > 3 && (
             <button className="view-more-toggle-btn-nd" onClick={() => setIsAveragesExpanded(!isAveragesExpanded)}>
               {isAveragesExpanded ? <>View Less <ChevronUp size={14} /></> : <>View More <ChevronDown size={14} /></>}
             </button>
@@ -1632,12 +1764,44 @@ const NurseDashboard = () => {
         <h2 className="dashboard-title-nd">Medicine Dispensed Overview</h2>
         <div className="filter-group-nd">
           <select value={dispensedFilterType} onChange={(e) => setDispensedFilterType(e.target.value)} className="filter-input-nd filter-select-nd">
-            <option value="current">Current Medicine Dispensed (Default)</option>
-            <option value="weekly">Weekly Overview (By Month)</option>
-            <option value="yearly">Yearly Overview</option>
+            <option value="daily">Daily (day by day of a month)</option>
+            <option value="weekly">Weekly (week by week of a month)</option>
+            <option value="monthly">Monthly (month by month of a year)</option>
+            <option value="range">Custom Date Range</option>
           </select>
-          {dispensedFilterType === 'weekly' && (
-            <input 
+          <select
+            value={dispensedMedicineFilter}
+            onChange={(e) => setDispensedMedicineFilter(e.target.value)}
+            className="filter-input-nd filter-select-nd"
+            aria-label="Filter by medicine"
+          >
+            <option value="">All Medicines</option>
+            {medicinesList.map((medicine) => (
+              <option key={medicine} value={medicine}>{medicine}</option>
+            ))}
+          </select>
+          {dispensedFilterType === 'range' && (
+            <>
+              <label className="filter-label-nd">From</label>
+              <input
+                type="date"
+                value={dispensedFromDate}
+                max={dispensedToDate || undefined}
+                onChange={(e) => e.target.value && setDispensedFromDate(e.target.value)}
+                className="filter-input-nd date-picker-nd"
+              />
+              <label className="filter-label-nd">To</label>
+              <input
+                type="date"
+                value={dispensedToDate}
+                min={dispensedFromDate || undefined}
+                onChange={(e) => e.target.value && setDispensedToDate(e.target.value)}
+                className="filter-input-nd date-picker-nd"
+              />
+            </>
+          )}
+          {(dispensedFilterType === 'daily' || dispensedFilterType === 'weekly') && (
+            <input
               type="month" 
               value={dispensedSelectedMonth} 
               max={maxCurrentMonth} 
@@ -1648,7 +1812,7 @@ const NurseDashboard = () => {
               className="filter-input-nd date-picker-nd" 
             />
           )}
-          {dispensedFilterType === 'yearly' && (
+          {dispensedFilterType === 'monthly' && (
             <select value={dispensedSelectedYear} onChange={(e) => setDispensedSelectedYear(e.target.value)} className="filter-input-nd filter-select-year-nd">
               {yearOptions.map(year => <option key={year} value={year}>{year}</option>)}
             </select>
@@ -1673,6 +1837,7 @@ const NurseDashboard = () => {
         <div className="no-data-container-nd"><h3 className="no-data-title-nd">No Dispensation Records Found</h3></div>
       ) : (
         <>
+          <div className="dispensed-graphs-row-nd">
           {/* GRAPH 1: STANDARD DOSAGE UNITS */}
           <div className="graph-container-nd">
             <h3 className="chart-subtitle-nd">Liquid Based</h3>
@@ -1685,19 +1850,25 @@ const NurseDashboard = () => {
                 <ResponsiveContainer width="100%" height={380}>
                   <BarChart data={dispensedData} margin={{ top: 20, right: 30, left: 10, bottom: 20 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
-                    {dispensedFilterType === 'yearly' && isDispensedCurrentYearSelected && (
+                    {dispensedFilterType === 'monthly' && isDispensedCurrentYearSelected && (
                       <ReferenceArea x1={currentRealTimeMonthName} x2={currentRealTimeMonthName} fill="#0250A3" fillOpacity={0.04} stroke="#0250A3" strokeOpacity={0.1} strokeDasharray="3 3" />
                     )}
                     <XAxis dataKey="name" tickLine={false} tick={(props) => <CustomXAxisTick {...props} filterType={dispensedFilterType} isCurrentYearSelected={isDispensedCurrentYearSelected} currentMonthName={currentRealTimeMonthName} />} />
                     <YAxis allowDecimals={dispensedHasDecimals} tick={{ fill: '#4B5563', fontSize: 12 }} axisLine={false} tickLine={false} />
                     <Tooltip content={<CustomTooltip unitLabel="dispensed" medicinesUnitsMap={combinedUnitsMap} showBrandOnly={true} />} cursor={{ fill: '#F3F4F6', opacity: 0.4 }} />
-                    <Legend verticalAlign="bottom" height={36} iconType="rect" iconSize={14} wrapperStyle={{ paddingTop: '15px' }} />
-                    
                     {standardMedicinesInGraph.map((medicine) => (
-                      <Bar key={medicine} dataKey={medicine} name={medicine} fill={getMedicineColor(medicine)} radius={[4, 4, 0, 0]} />
+                      <Bar key={medicine} dataKey={medicine} name={medicine} fill={getMedicineColor(medicine)} radius={isDispensedStacked ? 0 : [4, 4, 0, 0]} stackId={isDispensedStacked ? 'dispensed' : undefined} />
                     ))}
                   </BarChart>
                 </ResponsiveContainer>
+                <div className="chart-legend-nd">
+                  {standardMedicinesInGraph.map((medicine) => (
+                    <span key={medicine} className="chart-legend-item-nd" style={{ color: getMedicineColor(medicine) }}>
+                      <span className="chart-legend-swatch-nd" style={{ backgroundColor: getMedicineColor(medicine) }} />
+                      {medicine}
+                    </span>
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -1714,60 +1885,46 @@ const NurseDashboard = () => {
                 <ResponsiveContainer width="100%" height={380}>
                   <BarChart data={dispensedData} margin={{ top: 20, right: 30, left: 10, bottom: 20 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
-                    {dispensedFilterType === 'yearly' && isDispensedCurrentYearSelected && (
+                    {dispensedFilterType === 'monthly' && isDispensedCurrentYearSelected && (
                       <ReferenceArea x1={currentRealTimeMonthName} x2={currentRealTimeMonthName} fill="#0250A3" fillOpacity={0.04} stroke="#0250A3" strokeOpacity={0.1} strokeDasharray="3 3" />
                     )}
                     <XAxis dataKey="name" tickLine={false} tick={(props) => <CustomXAxisTick {...props} filterType={dispensedFilterType} isCurrentYearSelected={isDispensedCurrentYearSelected} currentMonthName={currentRealTimeMonthName} />} />
                     <YAxis allowDecimals={dispensedHasDecimals} tick={{ fill: '#4B5563', fontSize: 12 }} axisLine={false} tickLine={false} />
                     <Tooltip content={<CustomTooltip unitLabel="dispensed" medicinesUnitsMap={combinedUnitsMap} showBrandOnly={true} />} cursor={{ fill: '#F3F4F6', opacity: 0.4 }} />
-                    <Legend verticalAlign="bottom" height={36} iconType="rect" iconSize={14} wrapperStyle={{ paddingTop: '15px' }} />
-                    
                     {otherMedicinesInGraph.map((medicine) => (
-                      <Bar key={medicine} dataKey={medicine} name={medicine} fill={getMedicineColor(medicine)} radius={[4, 4, 0, 0]} />
+                      <Bar key={medicine} dataKey={medicine} name={medicine} fill={getMedicineColor(medicine)} radius={isDispensedStacked ? 0 : [4, 4, 0, 0]} stackId={isDispensedStacked ? 'dispensed' : undefined} />
                     ))}
                   </BarChart>
                 </ResponsiveContainer>
+                <div className="chart-legend-nd">
+                  {otherMedicinesInGraph.map((medicine) => (
+                    <span key={medicine} className="chart-legend-item-nd" style={{ color: getMedicineColor(medicine) }}>
+                      <span className="chart-legend-swatch-nd" style={{ backgroundColor: getMedicineColor(medicine) }} />
+                      {medicine}
+                    </span>
+                  ))}
+                </div>
               </div>
             )}
+          </div>
           </div>
         </>
       )}
 
-      {!isDispensedLoading && (dispensedAverages || dispensedData.length > 0) && (
+      {!isDispensedLoading && dispensedWindowTotals.length > 0 && (
         <div className="averages-container-nd">
-          <h4 className="averages-title-nd">{dispensedAveragesLabel || "Average Medicine Dispensed per Month"}</h4>
-          <div className={`collapsible-container-nd badge-collapsible-nd ${isDispensedAveragesExpanded ? 'expanded-nd' : ''}`}>
-            <div className="averages-badges-wrapper-nd">
-              {medicinesList.map((medicine) => {
-                const unit = combinedUnitsMap[medicine] || 'dispensed';
-                let avgValue = dispensedAverages?.[medicine];
-
-                if (avgValue === undefined || avgValue === null) {
-                  if (dispensedData.length > 0) {
-                    const total = dispensedData.reduce((sum, item) => sum + (Number(item[medicine]) || 0), 0);
-                    avgValue = total > 0 ? (total / dispensedData.length) : 0;
-                  } else {
-                    avgValue = 0;
-                  }
-                }
-
-                return (
-                  <div key={medicine} className="average-badge-card-nd">
-                    <span className="badge-dot-nd" style={{ backgroundColor: getMedicineColor(medicine) }} />
-                    <span className="badge-name-nd">{medicine}</span>
-                    <span className="badge-value-nd">
-                      {formatCeilAvg(avgValue)} {unit}/mo
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
+          <h4 className="averages-title-nd">
+            Total Dispensed in Window{dispensedFilterType === 'range' ? ` (${dispensedFromDate} to ${dispensedToDate})` : ''}
+          </h4>
+          <div className="averages-badges-wrapper-nd">
+            {dispensedWindowTotals.map(({ medicine, total }) => (
+              <div key={medicine} className="average-badge-card-nd">
+                <span className="badge-dot-nd" style={{ backgroundColor: getMedicineColor(medicine) }} />
+                <span className="badge-name-nd">{medicine}</span>
+                <span className="badge-value-nd">{total} {pluralizeUnit(combinedUnitsMap[medicine] || 'dispensed', total)}</span>
+              </div>
+            ))}
           </div>
-          {medicinesList.length > 3 && (
-            <button className="view-more-toggle-btn-nd" onClick={() => setIsDispensedAveragesExpanded(!isDispensedAveragesExpanded)}>
-              {isDispensedAveragesExpanded ? <>View Less <ChevronUp size={14} /></> : <>View More <ChevronDown size={14} /></>}
-            </button>
-          )}
         </div>
       )}
 
@@ -1811,21 +1968,62 @@ const NurseDashboard = () => {
               <span className="filter-label-nd">
                 30-day total: <strong>{forecastTotalBase} {selectedForecastMedicine.unitOfMeasure}</strong> = {forecastTotal} {pluralize(forecastDosageForm, forecastTotal)} ({selectedForecastMedicine.packageStrength} per {forecastDosageForm})
                 {forecastStartDate && <> · from {formatDateBase(forecastStartDate)}</>}
-                {' '}· In stock: <strong>{selectedForecastMedicine.currentStock}</strong> · Suggested restock: <strong>{selectedForecastMedicine.suggestedRestock}</strong> {pluralize(forecastDosageForm, selectedForecastMedicine.suggestedRestock)}
               </span>
             </div>
             <div className="chart-wrapper-nd scrollable-chart-nd">
-              <div style={{ width: '100%', minWidth: 800, margin: '0 auto', height: 420 }}>
+              {/* Tall enough that the hover tooltip (~350px) pinned to the top never reaches the axis labels or legend */}
+              <div style={{ width: '100%', minWidth: 800, margin: '0 auto', height: 550 }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={forecastChartData} margin={{ top: 20, right: 30, left: 10, bottom: 60 }}>
+                  <ComposedChart data={forecastChartData} margin={{ top: 20, right: 10, left: 10, bottom: 60 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
                     <XAxis dataKey="label" interval={0} angle={-45} textAnchor="end" height={70} tick={{ fontSize: 11, fill: '#4B5563', fontWeight: 500 }} tickLine={false} />
-                    <YAxis allowDecimals={forecastChartData.some(day => !Number.isInteger(day.predictedDemand))} tick={{ fill: '#4B5563', fontSize: 12 }} axisLine={false} tickLine={false} />
-                    <Tooltip content={<ForecastTooltip />} cursor={{ fill: '#F3F4F6', opacity: 0.4 }} />
+                    <YAxis yAxisId="demand" allowDecimals={forecastChartData.some(day => !Number.isInteger(day.predictedDemand))} tick={{ fill: '#F97316', fontSize: 12 }} axisLine={false} tickLine={false} />
+                    <YAxis yAxisId="stock" orientation="right" allowDecimals={false} tick={{ fill: '#0250A3', fontSize: 12 }} axisLine={false} tickLine={false} />
+                    <Tooltip content={<ForecastTooltip />} position={{ y: 10 }} cursor={{ fill: '#F3F4F6', opacity: 0.4 }} />
                     <Legend verticalAlign="bottom" height={36} iconType="rect" iconSize={14} wrapperStyle={{ paddingTop: '20px' }} />
-                    <Bar dataKey="predictedDemand" name={`Predicted Daily Demand (${selectedForecastMedicine.unitOfMeasure})`} fill="#F97316" radius={[4, 4, 0, 0]} />
-                  </BarChart>
+                    <Bar yAxisId="demand" dataKey="predictedDemand" name={`Predicted Daily Demand (${selectedForecastMedicine.unitOfMeasure})`} fill="#F97316" radius={[4, 4, 0, 0]} />
+                    <Line yAxisId="stock" type="monotone" dataKey="remainingStock" name={`Remaining Stock (${selectedForecastMedicine.unitOfMeasure})`} stroke="#0250A3" strokeWidth={2.5} dot={false} />
+                  </ComposedChart>
                 </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div className="forecast-compare-nd">
+              <div className="forecast-compare-item-nd">
+                <span className="forecast-compare-label-nd">Current stock</span>
+                <strong>{forecastStockBase} {pluralizeUnit(selectedForecastMedicine.unitOfMeasure, forecastStockBase)}</strong>
+                <span className="forecast-compare-sub-nd">{selectedForecastMedicine.currentStock} {pluralize(forecastDosageForm, selectedForecastMedicine.currentStock)}</span>
+              </div>
+              <div className="forecast-compare-item-nd">
+                <span className="forecast-compare-label-nd">Total predicted demand</span>
+                <strong>{forecastTotalBase} {pluralizeUnit(selectedForecastMedicine.unitOfMeasure, forecastTotalBase)}</strong>
+                <span className="forecast-compare-sub-nd">Sum of the next {forecastChartData.length} {pluralize('day', forecastChartData.length)}</span>
+              </div>
+              <div className="forecast-compare-item-nd">
+                <span className="forecast-compare-label-nd">Average daily demand</span>
+                <strong>{parseFloat(forecastAvgDaily.toFixed(2))} {pluralizeUnit(selectedForecastMedicine.unitOfMeasure, forecastAvgDaily)}/day</strong>
+                <span className="forecast-compare-sub-nd">{forecastTotalBase} {pluralizeUnit(selectedForecastMedicine.unitOfMeasure, forecastTotalBase)} ÷ {forecastChartData.length} {pluralize('day', forecastChartData.length)}</span>
+              </div>
+              <div className="forecast-compare-item-nd">
+                <span className="forecast-compare-label-nd">Stock minus 30-day demand</span>
+                <strong style={{ color: forecastDifference < 0 ? '#DC2626' : '#059669' }}>
+                  {forecastDifference > 0 ? '+' : ''}{forecastDifference} {pluralizeUnit(selectedForecastMedicine.unitOfMeasure, Math.abs(forecastDifference))}
+                </strong>
+                <span className="forecast-compare-sub-nd">{forecastDifference < 0 ? 'Shortfall' : 'Surplus'}</span>
+              </div>
+              <div className="forecast-compare-item-nd">
+                <span className="forecast-compare-label-nd">Days of stock left</span>
+                <strong>{forecastDaysCovered === null ? 'No demand' : forecastCoversFull ? `${forecastDaysCovered}+ days` : `${forecastDaysCovered} ${forecastDaysCovered === 1 ? 'day' : 'days'}`}</strong>
+                <span className="forecast-compare-sub-nd">{forecastStockOutDay ? `Runs out ${forecastStockOutDay.label}` : 'Lasts the full 30 days'}</span>
+              </div>
+              <div className="forecast-compare-item-nd forecast-compare-need-nd">
+                <span className="forecast-compare-label-nd">Predicted need</span>
+                <strong>{selectedForecastMedicine.suggestedRestock} {pluralize(forecastDosageForm, selectedForecastMedicine.suggestedRestock)}</strong>
+                <span className="forecast-compare-sub-nd">
+                  {selectedForecastMedicine.suggestedRestock > 0
+                    ? `${forecastTotal} needed − ${selectedForecastMedicine.currentStock} in stock`
+                    : 'Current stock covers the forecast'}
+                </span>
               </div>
             </div>
           </>
@@ -1940,7 +2138,7 @@ const NurseDashboard = () => {
                         <th>Form</th>
                         <th>Current Stock</th>
                         <th>Thresholds (Low / Crit)</th>
-                        <th>Suggested restock</th>
+                        <th>Predicted Need</th>
                         <th>Status</th>
                       </tr>
                     </thead>
@@ -1954,13 +2152,13 @@ const NurseDashboard = () => {
                           <td>{med.dosage_form || 'N/A'}</td>
                           <td>
                             <strong className={['CRITICAL', 'OUT'].includes(med.stock_status) ? 'text-red-nd' : 'text-orange-nd'}>
-                              {med.current_stock}
+                              {med.current_stock} {pluralize(med.dosage_form || 'unit', med.current_stock)}
                             </strong>
                           </td>
                           <td className="text-xs-nd text-muted-nd">
                             Low: {med.low_stock_level} | Crit: {med.critical_stock_level}
                           </td>
-                          <td><strong>+{med.suggested_qty}</strong></td>
+                          <td><strong>+{med.suggested_qty} {pluralize(med.dosage_form || 'unit', med.suggested_qty)}</strong></td>
                           <td>
                             <span className={`status-badge-nd ${['CRITICAL', 'OUT'].includes(med.stock_status) ? 'badge-critical-nd' : 'badge-low-nd'}`}>
                               {med.stock_status === 'OUT' ? 'OUT OF STOCK' : med.stock_status}
@@ -2131,7 +2329,7 @@ const NurseDashboard = () => {
                     <h4 className="alert-student-name-nd">{alert.studentName}</h4>
                     <span className="alert-student-id-nd">ID: {alert.studentId}</span>
                   </div>
-                  <span className="visit-badge-nd">{alert.visitCount} Visits in 1 Month</span>
+                  <span className="visit-badge-nd">{alert.visitCount} {pluralize('Visit', alert.visitCount)} in 1 Month</span>
                 </div>
                 <div className="complaint-chip-nd">
                   <strong>illness:</strong> {alert.complaint}
@@ -2569,7 +2767,7 @@ const NurseDashboard = () => {
                             <span className="complaint-tag-nd">{alert.complaint}</span>
                           </td>
                           <td>
-                            <span className="visit-badge-table-nd">{alert.visitCount} visits</span>
+                            <span className="visit-badge-table-nd">{alert.visitCount} {pluralize('visit', alert.visitCount)}</span>
                           </td>
                           <td>
                             <div className="table-advice-cell-nd">{alert.advice}</div>

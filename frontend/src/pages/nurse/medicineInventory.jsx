@@ -294,6 +294,18 @@ export default function MedicineInventory() {
     return { label: 'Adequate', class: 'adequate' };
   };
 
+  // Status is judged on the medicine's total stock across all its batches, not on a single batch
+  const getMedicineStatus = (item) =>
+    getStockStatus(Number(item.medicine_total_stock ?? item.current_stock), item.low_stock_level, item.critical_stock_level);
+
+  // One entry per medicine (batches with the same medicine_id are merged) for the Low / Critical counters
+  const medicineStatusCounts = (() => {
+    const perMedicine = new Map();
+    inventory.forEach(i => { if (!perMedicine.has(i.medicine_id)) perMedicine.set(i.medicine_id, getMedicineStatus(i).class); });
+    const classes = [...perMedicine.values()];
+    return { low: classes.filter(c => c === 'low').length, critical: classes.filter(c => c === 'critical').length };
+  })();
+
   const getExpirationAlert = (expiryDate) => {
     const today = new Date();
     today.setHours(0,0,0,0);
@@ -480,7 +492,7 @@ export default function MedicineInventory() {
     const reportDate = formatDate(new Date());
 
     const tableRowsHtml = filteredInventory.map(item => {
-      const statusEval = getStockStatus(item.current_stock, item.low_stock_level, item.critical_stock_level);
+      const statusEval = getMedicineStatus(item);
       const stockUnitLabel = getStockLabel(item);
       const formattedDate = item.expiration_date 
         ? formatDate(new Date(item.expiration_date)) 
@@ -713,14 +725,14 @@ export default function MedicineInventory() {
         <div className="centered-metric-card">
           <div className="metric-card-icon low"><AlertTriangle size={22} /></div>
           <div className="metric-card-value">
-            {inventory.filter(i => i.current_stock > i.critical_stock_level && i.current_stock <= i.low_stock_level).length}
+            {medicineStatusCounts.low}
           </div>
           <div className="metric-card-label">Low Stock</div>
         </div>
         <div className="centered-metric-card">
           <div className="metric-card-icon critical"><Activity size={22} /></div>
           <div className="metric-card-value">
-            {inventory.filter(i => i.current_stock <= i.critical_stock_level).length}
+            {medicineStatusCounts.critical}
           </div>
           <div className="metric-card-label">Critical</div>
         </div>
@@ -758,7 +770,8 @@ export default function MedicineInventory() {
               const complaintsText = (item.connected_complaints || '').toLowerCase();
               return medName.includes(query) || complaintsText.includes(query);
             }).map(item => {
-              const statusEval = getStockStatus(item.current_stock, item.low_stock_level, item.critical_stock_level);
+              const statusEval = getMedicineStatus(item);
+              const medicineTotal = Number(item.medicine_total_stock ?? item.current_stock);
               const expiryDetails = getExpirationAlert(item.expiration_date);
               const isDiscreteItem = DISCRETE_UNITS.includes(item.dispense_unit_of_measure);
               const stockUnitLabel = getStockLabel(item);
@@ -774,11 +787,12 @@ export default function MedicineInventory() {
                     <div className="stock-visualization-wrapper">
                       <span className="stock-count-number">{item.current_stock} {stockUnitLabel}</span>
                       <div className="stock-progress-track">
-                        <div 
+                        <div
                           className={`stock-progress-bar ${statusEval.class}`}
-                          style={{ width: `${Math.min((item.current_stock / (item.adequate_stock_level || 30)) * 100, 100)}%` }}
+                          style={{ width: `${Math.min((medicineTotal / (item.adequate_stock_level || 30)) * 100, 100)}%` }}
                         />
                       </div>
+                      <small className="med-sub-details">Total (all batches): {medicineTotal}</small>
                     </div>
                   </td>
                   <td>

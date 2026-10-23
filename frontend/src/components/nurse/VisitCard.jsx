@@ -3,10 +3,11 @@
 import React from 'react';
 import { Stethoscope, Clock, Users, QrCode, Play, Edit, Trash2 } from 'lucide-react';
 import { formatTime } from '../../utils/datetime';
+import { visitLabel } from '../../utils/visitPurpose';
 
 const TYPE_CLASS = {
-    'Dental Examination': 'type-dental-dv',
-    'Vision Examination': 'type-vision-dv',
+    'Dental': 'type-dental-dv',
+    'Vision': 'type-vision-dv',
     'Follow-up': 'type-followup-dv',
     'Referral': 'type-referral-dv'
 };
@@ -21,7 +22,7 @@ const VisitCard = ({ group, tab, onParticipants, onScan, onStart, onEdit, onDele
             <div className="visit-body-dv">
                 <div className="visit-tags-dv">
                     <span className="visit-specialty-dv"><Stethoscope size={14} /> {group.specialization}</span>
-                    <span className={`visit-type-dv ${TYPE_CLASS[group.visitType] || ''}`}>{group.visitType}</span>
+                    <span className={`visit-type-dv ${TYPE_CLASS[group.visitType] || ''}`}>{visitLabel(group.visitType, group.purposeOther)}</span>
                 </div>
 
                 <h3 className="visit-title-dv">{group.title}</h3>

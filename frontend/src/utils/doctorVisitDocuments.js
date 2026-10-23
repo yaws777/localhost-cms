@@ -3,6 +3,7 @@
 import stiLogo from '../assets/sti-logof.png';
 import { formatTime, formatDate } from './datetime';
 import { escapeHtml } from './printReport';
+import { visitLabel } from './visitPurpose';
 
 export const printDocument = (title, bodyHtml, onBlocked) => {
     const w = window.open('', '_blank', 'width=900,height=800');
@@ -21,6 +22,7 @@ export const printDocument = (title, bodyHtml, onBlocked) => {
         table { width: 100%; border-collapse: collapse; margin: 12px 0; }
         td, th { border: 1px solid #cbd5e1; padding: 8px 10px; font-size: 13px; text-align: left; vertical-align: top; }
         th { background: #f1f5f9; width: 30%; }
+        td { white-space: pre-line; }
         .sign { margin-top: 70px; display: flex; justify-content: space-between; }
         .sign div { width: 40%; text-align: center; border-top: 1px solid #1e293b; padding-top: 6px; font-size: 13px; }
         .flag { color: #b91c1c; font-weight: 600; }
@@ -34,16 +36,19 @@ export const printDocument = (title, bodyHtml, onBlocked) => {
     w.document.close();
 };
 
+const prescriptionLine = (p) => [p.medicine, p.dosage, p.frequency, p.duration ? `for ${p.duration}` : '', p.instructions ? `(${p.instructions})` : '']
+    .filter(Boolean).join(' - ');
+
 // Rows shown in the visit summary for the visit type that was done
 const visitDetailRows = (a) => {
     const yn = (v) => (v ? 'Yes' : 'No');
     const rows = [
-        ['Visit type', a.visit_type || 'General Checkup'],
+        ['Visit purpose', visitLabel(a.visit_type, a.purpose_other)],
         ['Date and time', `${formatDate(a.start_time)}, ${formatTime(a.start_time)} - ${formatTime(a.end_time)}`],
         ['Doctor', `Dr. ${a.doc_first_name || ''} ${a.doc_last_name || ''} (${a.specialization || 'General Physician'})`],
         ['Attendance', a.attendance_status || 'Pending']
     ];
-    if (a.visit_type === 'Dental Examination' && a.oral_hygiene) {
+    if (a.visit_type === 'Dental' && a.oral_hygiene) {
         const dmft = (Number(a.caries_count) || 0) + (Number(a.missing_count) || 0) + (Number(a.filled_count) || 0);
         rows.push(['Oral hygiene', a.oral_hygiene]);
         rows.push(['Decayed / Missing / Filled (DMFT)', `${a.caries_count || 0} / ${a.missing_count || 0} / ${a.filled_count || 0} (DMFT ${dmft})`]);
@@ -54,7 +59,7 @@ const visitDetailRows = (a) => {
         if (a.treatment_needed) rows.push(['Treatment needed', a.treatment_needed]);
         if (a.referral_needed) rows.push(['Dental referral', a.referral_to || 'Yes']);
         if (a.next_visit_recommendation) rows.push(['Next visit', a.next_visit_recommendation]);
-    } else if (a.visit_type === 'Vision Examination' && a.visual_acuity_left) {
+    } else if (a.visit_type === 'Vision' && a.visual_acuity_left) {
         rows.push(['Visual acuity (uncorrected)', `Left ${a.visual_acuity_left} / Right ${a.visual_acuity_right}`]);
         if (a.va_left_corrected || a.va_right_corrected) rows.push(['Visual acuity (corrected)', `Left ${a.va_left_corrected || '-'} / Right ${a.va_right_corrected || '-'}`]);
         rows.push(['Eyeglasses / contacts', `${yn(a.wears_eyeglasses)} / ${yn(a.wears_contacts)}`]);
@@ -66,6 +71,12 @@ const visitDetailRows = (a) => {
     }
     rows.push(['Diagnosis', a.diagnosis || '-']);
     rows.push(['Treatment / recommendations', a.treatment_recommendations || '-']);
+    const rx = Array.isArray(a.prescriptions) ? a.prescriptions : [];
+    if (rx.length > 0) rows.push(['Prescription', rx.map(prescriptionLine).join('\n')]);
+    const answers = Array.isArray(a.template_responses) ? a.template_responses : [];
+    answers.forEach((r) => rows.push([r.label, Array.isArray(r.value) ? r.value.join(', ') : r.value]));
+    if (a.follow_up_date) rows.push(['Follow-up date', formatDate(a.follow_up_date)]);
+    if (a.follow_up_notes) rows.push(['Follow-up notes', a.follow_up_notes]);
     if (a.is_abnormal) rows.push(['Result', '<span class="flag">Abnormal finding</span>']);
     if (a.follow_up_needed) rows.push(['Follow-up', '<span class="flag">Follow-up needed</span>']);
     if (a.referral_facility) rows.push(['Referral', `${a.referral_facility} - ${a.referral_reason || ''}`]);
@@ -84,7 +95,7 @@ export const visitDocumentHtml = (kind, a, issuedBy) => {
 
     if (kind === 'certificate') {
         return `<h2>MEDICAL CERTIFICATE</h2>
-            <p>This is to certify that ${studentLine} was seen and examined at the school clinic by <strong>${escapeHtml(doctor)}</strong> on <strong>${escapeHtml(visitDate)}</strong> for a <strong>${escapeHtml(a.visit_type || 'General Checkup')}</strong>.</p>
+            <p>This is to certify that ${studentLine} was seen and examined at the school clinic by <strong>${escapeHtml(doctor)}</strong> on <strong>${escapeHtml(visitDate)}</strong> for a <strong>${escapeHtml(visitLabel(a.visit_type, a.purpose_other))}</strong>.</p>
             <table>
                 <tr><th>Diagnosis</th><td>${escapeHtml(a.diagnosis || '-')}</td></tr>
                 <tr><th>Recommendations</th><td>${escapeHtml(a.treatment_recommendations || '-')}</td></tr>
@@ -100,12 +111,25 @@ export const visitDocumentHtml = (kind, a, issuedBy) => {
             <p>Patient: ${studentLine}</p>
             <table>
                 <tr><th>Reason for referral</th><td>${escapeHtml(a.referral_reason || '')}</td></tr>
-                <tr><th>Visit</th><td>${escapeHtml(a.visit_type || 'General Checkup')} on ${escapeHtml(visitDate)}</td></tr>
+                <tr><th>Visit</th><td>${escapeHtml(visitLabel(a.visit_type, a.purpose_other))} on ${escapeHtml(visitDate)}</td></tr>
                 <tr><th>Diagnosis</th><td>${escapeHtml(a.diagnosis || '-')}</td></tr>
                 <tr><th>Findings</th><td>${escapeHtml(a.clinical_findings || '-')}</td></tr>
             </table>
             <p>Kindly evaluate and manage the patient. Thank you.</p>
             <div class="sign"><div>${escapeHtml(doctor)}<br/>Referring Doctor</div><div>${escapeHtml(issuedBy || 'School Nurse')}<br/>School Nurse</div></div>`;
+    }
+
+    if (kind === 'prescription') {
+        const rx = Array.isArray(a.prescriptions) ? a.prescriptions : [];
+        return `<h2>PRESCRIPTION</h2>
+            <p>Patient: ${studentLine}</p>
+            <p>Date: ${escapeHtml(visitDate)}</p>
+            <table>
+                <tr><th>Diagnosis</th><td>${escapeHtml(a.diagnosis || '-')}</td></tr>
+                ${rx.map((p, i) => `<tr><th>Rx ${i + 1}</th><td><strong>${escapeHtml(p.medicine)}</strong><br/>${escapeHtml([p.dosage, p.frequency, p.duration ? `for ${p.duration}` : ''].filter(Boolean).join(', '))}${p.instructions ? `<br/><em>${escapeHtml(p.instructions)}</em>` : ''}</td></tr>`).join('')}
+                ${a.follow_up_notes || a.follow_up_date ? `<tr><th>Follow-up</th><td>${escapeHtml([a.follow_up_date ? formatDate(a.follow_up_date) : '', a.follow_up_notes || ''].filter(Boolean).join(' - '))}</td></tr>` : ''}
+            </table>
+            <div class="sign"><div></div><div>${escapeHtml(doctor)}<br/>Attending Doctor</div></div>`;
     }
 
     return `<h2>DOCTOR VISIT SUMMARY</h2>

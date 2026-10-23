@@ -13,7 +13,8 @@ const DEFAULT_SEASONALITY = { 0: 0.20, 1: 1.30, 2: 1.10, 3: 1.10, 4: 1.00, 5: 0.
  * @property {number} activeWindowSum   Sum of the 30 values currently in the active window.
  * @property {number} activeADD         Average daily demand = activeWindowSum / 30.
  * @property {number} seasonalityIndex  Day-of-week weight applied to the target day.
- * @property {number} predictedDemand   Final prediction D_hat (integer, never negative).
+ * @property {number} rawDemand         activeADD x seasonalityIndex x trend, before rounding up.
+ * @property {number} predictedDemand   Final prediction D_hat = ceiling of rawDemand at the unit's precision (never negative).
  *
  * @typedef {Object} Phase2WindowShift
  * @property {number} droppedOldestValue  Value removed from the back of the window.
@@ -97,7 +98,10 @@ function forecastMedicineDemand(history, { seasonality, trendFactor = 0, startDa
     }
     const trendMultiplier = Math.pow(1 + trendFactor, k);
     const precision = Math.pow(10, decimals);
-    const predictedDemand = Math.max(0, Math.round(activeADD * seasonalityIndex * trendMultiplier * precision) / precision);
+    // Exact value first (e.g. 1.1), then rounded UP to the unit's precision (e.g. 2). The toFixed(6) pass strips
+    // floating-point noise so 1.0000000002 does not ceil to 2.
+    const rawDemand = Math.max(0, activeADD * seasonalityIndex * trendMultiplier);
+    const predictedDemand = Math.ceil(parseFloat((rawDemand * precision).toFixed(6))) / precision;
 
     // PHASE 2: slide the window forward so step k + 1 sees the prediction as history.
     const droppedOldestValue = window.pop();
@@ -108,7 +112,7 @@ function forecastMedicineDemand(history, { seasonality, trendFactor = 0, startDa
       dayOffset: k,
       targetDate: target.toISOString().slice(0, 10),
       dayOfWeek: DAY_LABELS[dow],
-      phase1_prediction: { activeWindowSum, activeADD, seasonalityIndex, predictedDemand },
+      phase1_prediction: { activeWindowSum, activeADD, seasonalityIndex, rawDemand: parseFloat(rawDemand.toFixed(4)), predictedDemand },
       phase2_windowShift: { droppedOldestValue, appendedPrediction: predictedDemand, newWindowSum: windowSum }
     });
   }

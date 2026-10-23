@@ -4,11 +4,12 @@ import { useOutletContext } from 'react-router-dom';
 import { CalendarPlus, CalendarClock, MapPin, Stethoscope, X, Clock, Info } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatTime } from '../../utils/datetime';
+import { PURPOSES, visitLabel } from '../../utils/visitPurpose';
 import '../../styles/student/BookCheckup.css';
 
 const API = 'http://localhost:3001';
 
-const BOOKABLE_TYPES = ['General Checkup', 'Dental Examination', 'Vision Examination'];
+const BOOKABLE_TYPES = PURPOSES;
 
 const to12h = (t) => {
     if (!t) return '';
@@ -40,7 +41,8 @@ const BookCheckup = () => {
     const [slotsLoading, setSlotsLoading] = useState(false);
     const [selectedSlot, setSelectedSlot] = useState('');
     const [reason, setReason] = useState('');
-    const [bookVisitType, setBookVisitType] = useState('General Checkup');
+    const [bookVisitType, setBookVisitType] = useState('General Check Up');
+    const [purposeOther, setPurposeOther] = useState('');
     const [submitting, setSubmitting] = useState(false);
 
     const fetchBookings = useCallback(async () => {
@@ -105,7 +107,8 @@ const BookCheckup = () => {
     const openBook = (occurrence) => {
         setPicker({ mode: 'book', occurrence });
         setReason('');
-        setBookVisitType(occurrence.visit_type === 'Any' ? 'General Checkup' : occurrence.visit_type);
+        setBookVisitType(occurrence.visit_type === 'Any' ? 'General Check Up' : occurrence.visit_type);
+        setPurposeOther('');
         loadSlots(occurrence);
     };
 
@@ -125,13 +128,14 @@ const BookCheckup = () => {
     const submit = async () => {
         if (!selectedSlot) { showAlert('Please pick a time slot.', 'warning'); return; }
         if (picker.mode === 'book' && !reason.trim()) { showAlert('Please tell the clinic why you need a check-up.', 'warning'); return; }
+        if (picker.mode === 'book' && bookVisitType === 'Other' && !purposeOther.trim()) { showAlert('Please specify the purpose of your visit.', 'warning'); return; }
         setSubmitting(true);
         try {
             let res;
             if (picker.mode === 'book') {
                 res = await fetch(`${API}/api/student/doctor-bookings`, {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ student_id: studentId, schedule_id: picker.occurrence.schedule_id, slot_start: selectedSlot, reason, visit_type: bookVisitType })
+                    body: JSON.stringify({ student_id: studentId, schedule_id: picker.occurrence.schedule_id, slot_start: selectedSlot, reason, visit_type: bookVisitType, purpose_other: bookVisitType === 'Other' ? purposeOther : undefined })
                 });
             } else {
                 res = await fetch(`${API}/api/student/doctor-bookings/${picker.booking.appointment_id}/reschedule`, {
@@ -157,7 +161,7 @@ const BookCheckup = () => {
     };
 
     const cancelBooking = async (b) => {
-        const ok = await showConfirm(`Cancel your ${b.visit_type} on ${formatDate(b.start_time)} at ${formatTime(b.start_time)}?`, { danger: true, confirmLabel: 'Cancel booking', cancelLabel: 'Keep it', title: 'Cancel booking' });
+        const ok = await showConfirm(`Cancel your ${visitLabel(b.visit_type, b.purpose_other)} on ${formatDate(b.start_time)} at ${formatTime(b.start_time)}?`, { danger: true, confirmLabel: 'Cancel booking', cancelLabel: 'Keep it', title: 'Cancel booking' });
         if (!ok) return;
         try {
             const res = await fetch(`${API}/api/student/doctor-bookings/${b.appointment_id}/cancel`, {
@@ -174,7 +178,7 @@ const BookCheckup = () => {
     const renderBooking = (b) => (
         <div key={b.appointment_id} className="booking-card-bc">
             <div className="booking-top-bc">
-                <strong>{b.visit_type}</strong>
+                <strong>{visitLabel(b.visit_type, b.purpose_other)}</strong>
                 <span className={`status-pill-bc ${statusClass(b.status)}`}>{statusLabel(b)}</span>
             </div>
             <div className="booking-line-bc"><Stethoscope size={14} /> Dr. {b.doc_first_name} {b.doc_last_name} ({b.specialization})</div>
@@ -310,10 +314,16 @@ const BookCheckup = () => {
                             <>
                                 {picker.occurrence.visit_type === 'Any' && (
                                     <div className="field-bc">
-                                        <label>Visit type</label>
+                                        <label>Purpose of the visit</label>
                                         <select value={bookVisitType} onChange={e => setBookVisitType(e.target.value)}>
                                             {BOOKABLE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                                         </select>
+                                    </div>
+                                )}
+                                {bookVisitType === 'Other' && (
+                                    <div className="field-bc">
+                                        <label>Please specify</label>
+                                        <input type="text" maxLength={150} value={purposeOther} onChange={e => setPurposeOther(e.target.value)} placeholder="e.g. Counselling, wound check" />
                                     </div>
                                 )}
                                 <div className="field-bc">

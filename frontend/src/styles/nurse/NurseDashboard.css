@@ -505,6 +505,48 @@
   margin-bottom: 20px;
 }
 
+/* HTML legend under a chart: grows with the number of items instead of overflowing a fixed-height box */
+.chart-legend-nd {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 16px;
+  margin-top: 8px;
+  padding: 0 4px;
+}
+
+.chart-legend-item-nd {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.chart-legend-swatch-nd {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+}
+
+/* Medicine dispensed: the two unit graphs sit side by side in one row (stacked on narrow screens) */
+.dispensed-graphs-row-nd {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  align-items: stretch;
+}
+
+.dispensed-graphs-row-nd > .graph-container-nd {
+  min-width: 0;
+}
+
+@media (max-width: 1024px) {
+  .dispensed-graphs-row-nd {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .chart-subtitle-nd {
   margin-bottom: 12px;
   font-size: 15px;
@@ -543,7 +585,23 @@
 }
 
 .predictive-tooltip-width-nd {
-  width: 340px;
+  width: 360px;
+  /* chart tooltips ignore the mouse, so a scrollbar is unreachable: show every row instead */
+  max-height: none;
+  overflow: visible;
+  padding: 12px 14px;
+}
+
+.predictive-tooltip-width-nd .tooltip-header-nd {
+  margin-bottom: 8px;
+}
+
+.predictive-tooltip-width-nd .tooltip-items-list-standard-nd {
+  gap: 5px;
+}
+
+.predictive-tooltip-width-nd .tooltip-item-note-nd {
+  margin-top: -2px;
 }
 
 /* Date-coverage sub-line shown directly under a window value */
@@ -1630,3 +1688,41 @@ body.modal-open-nd {
   }
 }
 .text-green-nd { color: #059669; }
+
+/* Predictive demand: stock vs demand comparison */
+.forecast-compare-nd {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.forecast-compare-item-nd {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  background-color: #F9FAFB;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  font-size: 14px;
+  color: var(--text-primary, #111827);
+}
+
+.forecast-compare-need-nd {
+  background-color: #EFF6FF;
+  border-color: #BFDBFE;
+}
+
+.forecast-compare-label-nd {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6B7280;
+}
+
+.forecast-compare-sub-nd {
+  font-size: 12px;
+  color: #6B7280;
+}

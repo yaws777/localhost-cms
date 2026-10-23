@@ -5,7 +5,7 @@ import {
     Pill, Boxes, FileCheck, ClipboardCheck, HeartPulse,
     BriefcaseMedical, AlertTriangle, Vault, LogOut,
     MessageSquare, Users, UserCheck, Bell, Sun, Moon,
-    PanelLeftClose, PanelLeftOpen
+    PanelLeftClose, PanelLeftOpen, UserCog
 } from 'lucide-react';
 import '../styles/nurse/NurseLayout.css';
 import NurseMessageModal from '../components/student/NurseMessageModal.jsx';
@@ -182,6 +182,7 @@ export const NurseLayout = () => {
         if (type.includes('doctor')) return '/DoctorVisit';
         if (type.includes('incident')) return '/IncidentReport';
         if (type.includes('insurance') || type.includes('vault')) return '/InsuranceVault';
+        if (type.includes('doctor_account')) return '/ManageDoctorAccounts';
         if (type.includes('student_account')) return '/ManageStudentAccounts';
         if (type.includes('parent_account')) return '/ManageParentAccounts';
         if (type.includes('message') || type.includes('chat')) {
@@ -438,6 +439,15 @@ export const NurseLayout = () => {
                             <>
                                 <UserCheck className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
                                 <span>Manage Parent Account</span>
+                            </>
+                        )}
+                    </NavLink>
+
+                    <NavLink to="/ManageDoctorAccounts" className="nav-link" onClick={closeSidebar}>
+                        {({ isActive }) => (
+                            <>
+                                <UserCog className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
+                                <span>Manage Doctor Account</span>
                             </>
                         )}
                     </NavLink>
