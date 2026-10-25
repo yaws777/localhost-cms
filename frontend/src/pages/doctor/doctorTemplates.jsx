@@ -5,7 +5,7 @@ import { useOutletContext } from 'react-router-dom';
 import { LayoutTemplate, Plus, Trash2, Copy, Edit, ArrowUp, ArrowDown, Eye } from 'lucide-react';
 import Modal from '../../components/common/Modal';
 import { useAlert } from '../../context/AlertContext';
-import { PURPOSES } from '../../utils/visitPurpose';
+import { useSpecializations } from '../../hooks/useSpecializations';
 import { TemplateFields, FIELD_TYPES } from '../../components/doctor/TemplateFields';
 import '../../styles/doctor/DoctorLayout.css';
 
@@ -49,7 +49,7 @@ const SAMPLES = [
     },
     {
         name: 'Counselling referral',
-        visit_type: 'Other',
+        visit_type: '',
         fields: [
             { type: 'textarea', label: 'Presenting concern' },
             { type: 'radio', label: 'Urgency', optionsText: 'Routine\nSoon\nUrgent' },
@@ -64,6 +64,7 @@ const EMPTY = { template_id: null, template_name: '', visit_type: '', descriptio
 const DoctorTemplates = () => {
     const { doctorId } = useOutletContext();
     const { showAlert, showConfirm } = useAlert();
+    const { visitTypes } = useSpecializations();
 
     const [templates, setTemplates] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -216,7 +217,7 @@ const DoctorTemplates = () => {
                                 <label htmlFor="tpl-purpose">Used for</label>
                                 <select id="tpl-purpose" className="dp-select" value={form.visit_type} onChange={(e) => setForm({ ...form, visit_type: e.target.value })}>
                                     <option value="">Any purpose</option>
-                                    {PURPOSES.map((p) => <option key={p} value={p}>{p}</option>)}
+                                    {visitTypes.map((p) => <option key={p} value={p}>{p}</option>)}
                                 </select>
                             </div>
                         </div>

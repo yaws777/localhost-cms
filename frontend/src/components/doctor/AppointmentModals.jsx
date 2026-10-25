@@ -7,8 +7,9 @@ import { History, CalendarPlus, Footprints, Search, X } from 'lucide-react';
 import Modal from '../common/Modal';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatDateTime, formatTime } from '../../utils/datetime';
-import { PURPOSES, visitLabel, localDateStr, fullName } from '../../utils/visitPurpose';
-import { eligibleDoctors, visitRefusal } from '../../utils/scheduling';
+import { visitLabel, localDateStr, fullName } from '../../utils/visitPurpose';
+import { eligibleDoctors, visitRefusal, coveredTypes } from '../../utils/scheduling';
+import { useSpecializations } from '../../hooks/useSpecializations';
 import '../../styles/doctor/DoctorLayout.css';
 
 const API = 'http://localhost:3001';
@@ -186,24 +187,20 @@ export const LogModal = ({ appt, onClose }) => {
 };
 
 // ---------------------------------------------------------------------------
-// Visit purpose: General Check Up | Dental | Vision | Other (please specify)
+// Purpose of the consultation: one of the visit types the specializations add (limited to what the chosen doctor covers)
 // ---------------------------------------------------------------------------
-export const PurposeFields = ({ visitType, purposeOther, onChange, idPrefix = 'purpose' }) => (
-    <>
+export const PurposeFields = ({ visitType, doctor, onChange, idPrefix = 'purpose' }) => {
+    const { visitTypes } = useSpecializations();
+    const options = doctor ? visitTypes.filter((t) => coveredTypes(doctor).includes(t)) : visitTypes;
+    return (
         <div className="dp-field">
-            <label htmlFor={`${idPrefix}-type`}>Purpose of the visit</label>
-            <select id={`${idPrefix}-type`} className="dp-select" value={visitType} onChange={(e) => onChange({ visit_type: e.target.value, purpose_other: e.target.value === 'Other' ? purposeOther : '' })}>
-                {PURPOSES.map((p) => <option key={p} value={p}>{p}</option>)}
+            <label htmlFor={`${idPrefix}-type`}>Purpose of the consultation</label>
+            <select id={`${idPrefix}-type`} className="dp-select" value={visitType} onChange={(e) => onChange(e.target.value)}>
+                {options.map((p) => <option key={p} value={p}>{p}</option>)}
             </select>
         </div>
-        {visitType === 'Other' && (
-            <div className="dp-field">
-                <label htmlFor={`${idPrefix}-other`}>Please specify</label>
-                <input id={`${idPrefix}-other`} className="dp-input" type="text" required maxLength={150} value={purposeOther} onChange={(e) => onChange({ visit_type: 'Other', purpose_other: e.target.value })} placeholder="e.g. Counselling referral, wound check" />
-            </div>
-        )}
-    </>
-);
+    );
+};
 
 // ---------------------------------------------------------------------------
 // Pick one student (type a name or ID)
@@ -273,7 +270,7 @@ export const DirectAppointmentModal = ({ isOpen, doctors, fixedDoctorId, creator
     const { showAlert } = useAlert();
     const [doctorId, setDoctorId] = useState('');
     const [student, setStudent] = useState(null);
-    const [purpose, setPurpose] = useState({ visit_type: 'General Check Up', purpose_other: '' });
+    const [visitType, setVisitType] = useState('General Check Up');
     const [date, setDate] = useState('');
     const [from, setFrom] = useState('09:00');
     const [to, setTo] = useState('09:30');
@@ -285,7 +282,7 @@ export const DirectAppointmentModal = ({ isOpen, doctors, fixedDoctorId, creator
         if (!isOpen) return;
         setDoctorId(fixedDoctorId || '');
         setStudent(presetStudent || null);
-        setPurpose({ visit_type: 'General Check Up', purpose_other: '' });
+        setVisitType('General Check Up');
         setDate(localDateStr());
         setFrom('09:00');
         setTo('09:30');
@@ -294,12 +291,12 @@ export const DirectAppointmentModal = ({ isOpen, doctors, fixedDoctorId, creator
         setBusy(false);
     }, [isOpen, fixedDoctorId, presetStudent]);
 
-    // Dental lists only dentists, Vision only optometrists, and only doctors who offer the check-up
+    // only doctors who cover the purpose are listed
     const chosenDoctor = (doctors || []).find((d) => d.doctor_id === doctorId);
-    const refusal = chosenDoctor ? visitRefusal(chosenDoctor, purpose.visit_type) : '';
+    const refusal = chosenDoctor ? visitRefusal(chosenDoctor, visitType) : '';
     const changePurpose = (next) => {
-        setPurpose(next);
-        if (!fixedDoctorId && doctorId && !eligibleDoctors(doctors || [], next.visit_type).some((d) => d.doctor_id === doctorId)) setDoctorId('');
+        setVisitType(next);
+        if (!fixedDoctorId && doctorId && !eligibleDoctors(doctors || [], next).some((d) => d.doctor_id === doctorId)) setDoctorId('');
     };
 
     const submit = async (e) => {
@@ -313,7 +310,7 @@ export const DirectAppointmentModal = ({ isOpen, doctors, fixedDoctorId, creator
         try {
             const data = await postJson('/api/doctor-appointments/direct', 'POST', {
                 ...creatorBody(creator), sender_id: userId, doctor_id: doctorId, student_id: student.student_id,
-                visit_type: purpose.visit_type, purpose_other: purpose.purpose_other, reason,
+                visit_type: visitType, reason,
                 start_time: `${date} ${from}:00`, end_time: `${date} ${to}:00`
             });
             if (data.success) {
@@ -341,13 +338,13 @@ export const DirectAppointmentModal = ({ isOpen, doctors, fixedDoctorId, creator
                         <label>Doctor</label>
                         <select className="dp-select" required value={doctorId} onChange={(e) => setDoctorId(e.target.value)}>
                             <option value="">-- Select doctor --</option>
-                            {eligibleDoctors(doctors || [], purpose.visit_type).map((d) => <option key={d.doctor_id} value={d.doctor_id}>Dr. {d.first_name} {d.last_name}{d.specialization ? ` (${d.specialization})` : ''}</option>)}
+                            {eligibleDoctors(doctors || [], visitType).map((d) => <option key={d.doctor_id} value={d.doctor_id}>Dr. {d.first_name} {d.last_name}{d.specialization ? ` (${d.specialization})` : ''}</option>)}
                         </select>
                     </div>
                 )}
 
                 <StudentPicker value={student} onChange={setStudent} />
-                <PurposeFields visitType={purpose.visit_type} purposeOther={purpose.purpose_other} onChange={changePurpose} idPrefix="direct" />
+                <PurposeFields visitType={visitType} doctor={chosenDoctor} onChange={changePurpose} idPrefix="direct" />
                 {refusal && <div className="dp-error">{refusal}</div>}
 
                 <div className="dp-row">
@@ -386,7 +383,7 @@ export const WalkInModal = ({ isOpen, doctors, fixedDoctorId, creator, userId, o
     const { showAlert } = useAlert();
     const [doctorId, setDoctorId] = useState('');
     const [student, setStudent] = useState(null);
-    const [purpose, setPurpose] = useState({ visit_type: 'General Check Up', purpose_other: '' });
+    const [visitType, setVisitType] = useState('General Check Up');
     const [reason, setReason] = useState('');
     const [duration, setDuration] = useState(15);
     const [busy, setBusy] = useState(false);
@@ -396,7 +393,7 @@ export const WalkInModal = ({ isOpen, doctors, fixedDoctorId, creator, userId, o
         if (!isOpen) return;
         setDoctorId(fixedDoctorId || '');
         setStudent(null);
-        setPurpose({ visit_type: 'General Check Up', purpose_other: '' });
+        setVisitType('General Check Up');
         setReason('');
         setDuration(15);
         setError('');
@@ -404,10 +401,10 @@ export const WalkInModal = ({ isOpen, doctors, fixedDoctorId, creator, userId, o
     }, [isOpen, fixedDoctorId]);
 
     const chosenDoctor = (doctors || []).find((d) => d.doctor_id === doctorId);
-    const refusal = chosenDoctor ? visitRefusal(chosenDoctor, purpose.visit_type) : '';
+    const refusal = chosenDoctor ? visitRefusal(chosenDoctor, visitType) : '';
     const changePurpose = (next) => {
-        setPurpose(next);
-        if (!fixedDoctorId && doctorId && !eligibleDoctors(doctors || [], next.visit_type).some((d) => d.doctor_id === doctorId)) setDoctorId('');
+        setVisitType(next);
+        if (!fixedDoctorId && doctorId && !eligibleDoctors(doctors || [], next).some((d) => d.doctor_id === doctorId)) setDoctorId('');
     };
 
     const submit = async (e) => {
@@ -420,7 +417,7 @@ export const WalkInModal = ({ isOpen, doctors, fixedDoctorId, creator, userId, o
         try {
             const data = await postJson('/api/doctor-visits/walk-in', 'POST', {
                 ...creatorBody(creator), sender_id: userId, doctor_id: doctorId, student_id: student.student_id,
-                visit_type: purpose.visit_type, purpose_other: purpose.purpose_other, reason, duration_min: duration
+                visit_type: visitType, reason, duration_min: duration
             });
             if (data.success) {
                 showAlert(data.message, 'success');
@@ -447,13 +444,13 @@ export const WalkInModal = ({ isOpen, doctors, fixedDoctorId, creator, userId, o
                         <label>Doctor</label>
                         <select className="dp-select" required value={doctorId} onChange={(e) => setDoctorId(e.target.value)}>
                             <option value="">-- Select doctor --</option>
-                            {eligibleDoctors(doctors || [], purpose.visit_type).map((d) => <option key={d.doctor_id} value={d.doctor_id}>Dr. {d.first_name} {d.last_name}{d.specialization ? ` (${d.specialization})` : ''}</option>)}
+                            {eligibleDoctors(doctors || [], visitType).map((d) => <option key={d.doctor_id} value={d.doctor_id}>Dr. {d.first_name} {d.last_name}{d.specialization ? ` (${d.specialization})` : ''}</option>)}
                         </select>
                     </div>
                 )}
 
                 <StudentPicker value={student} onChange={setStudent} />
-                <PurposeFields visitType={purpose.visit_type} purposeOther={purpose.purpose_other} onChange={changePurpose} idPrefix="walkin" />
+                <PurposeFields visitType={visitType} doctor={chosenDoctor} onChange={changePurpose} idPrefix="walkin" />
                 {refusal && <div className="dp-error">{refusal}</div>}
 
                 <div className="dp-row">

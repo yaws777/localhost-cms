@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
     LayoutDashboard, CalendarClock, CalendarDays, ClipboardPlus, FolderHeart, LayoutTemplate,
-    UserRound, LogOut, Bell, Sun, Moon, Search, Menu, Phone
+    UserRound, LogOut, Bell, Sun, Moon, Search, Menu, Phone, MessagesSquare
 } from 'lucide-react';
 import '../styles/doctor/DoctorLayout.css';
 import stiLogo from '../assets/sti-logof.png';
@@ -20,6 +20,7 @@ const PAGE_TITLES = {
     '/DoctorDashboard': 'Dashboard',
     '/DoctorAppointments': 'Appointments',
     '/DoctorMySchedule': 'My Schedule',
+    '/DoctorChat': 'Chat with the Nurse',
     '/DoctorConsultations': 'Consultations',
     '/DoctorPatients': 'Patient Records',
     '/DoctorTemplates': 'Assessment Templates',
@@ -30,6 +31,7 @@ const NAV = [
     { to: '/DoctorDashboard', label: 'Dashboard', Icon: LayoutDashboard },
     { to: '/DoctorAppointments', label: 'Appointments', Icon: CalendarClock, badge: 'requests' },
     { to: '/DoctorMySchedule', label: 'My Schedule', Icon: CalendarDays },
+    { to: '/DoctorChat', label: 'Chat', Icon: MessagesSquare, badge: 'chat' },
     { to: '/DoctorConsultations', label: 'Consultations', Icon: ClipboardPlus },
     { to: '/DoctorPatients', label: 'Patient Records', Icon: FolderHeart },
     { to: '/DoctorTemplates', label: 'Templates', Icon: LayoutTemplate },
@@ -49,6 +51,7 @@ const isUnread = (n) => !(n.is_read === 1 || n.is_read === '1' || n.is_read === 
 
 const notificationRoute = (n) => {
     const type = String(n.type || '').toUpperCase();
+    if (type === 'MESSAGE') return '/DoctorChat';
     if (type === 'CONSULTATION_REQUEST' || type === 'CONSULTATION_RECONFIRMED') return '/DoctorMySchedule?tab=waiting';
     if (type === 'SCHEDULE_UPDATE') return '/DoctorMySchedule';
     if (type.includes('BOOKING_REQUEST')) return '/DoctorAppointments?tab=requests';
@@ -76,6 +79,7 @@ export const DoctorLayout = () => {
     const [notifications, setNotifications] = useState([]);
     const [showNotif, setShowNotif] = useState(false);
     const [pendingRequests, setPendingRequests] = useState(0);
+    const [chatUnread, setChatUnread] = useState(0);
     const notifRef = useRef(null);
 
     // first login: the phone number is required before the dashboard opens
@@ -134,15 +138,25 @@ export const DoctorLayout = () => {
         } catch (e) { /* ignore */ }
     }, [doctor?.doctor_id]);
 
+    const fetchChatUnread = useCallback(async () => {
+        if (!userId) return;
+        try {
+            const res = await fetch(`${API}/api/staff-chat/unread/${encodeURIComponent(userId)}`);
+            const data = await res.json();
+            if (data.success) setChatUnread(data.unreadCount);
+        } catch (e) { /* ignore */ }
+    }, [userId]);
+
     const phoneReady = !!doctor?.phone_confirmed;
 
     useEffect(() => {
         if (!phoneReady) return undefined;
         fetchNotifications();
         fetchPending();
-        const timer = setInterval(() => { fetchNotifications(); fetchPending(); }, 15000);
+        fetchChatUnread();
+        const timer = setInterval(() => { fetchNotifications(); fetchPending(); fetchChatUnread(); }, 15000);
         return () => clearInterval(timer);
-    }, [phoneReady, fetchNotifications, fetchPending]);
+    }, [phoneReady, fetchNotifications, fetchPending, fetchChatUnread]);
 
     useEffect(() => { setSidebarOpen(false); setShowNotif(false); }, [location.pathname]);
 
@@ -239,6 +253,7 @@ export const DoctorLayout = () => {
                             <Icon size={19} />
                             <span>{label}</span>
                             {badge === 'requests' && pendingRequests > 0 && <span className="dl-nav-count">{pendingRequests}</span>}
+                            {badge === 'chat' && chatUnread > 0 && <span className="dl-nav-count">{chatUnread}</span>}
                         </NavLink>
                     ))}
                 </nav>
@@ -312,7 +327,8 @@ export const DoctorLayout = () => {
                             lastName: doctor.last_name,
                             refreshDoctor: loadDoctor,
                             refreshNotifications: fetchNotifications,
-                            refreshPending: fetchPending
+                            refreshPending: fetchPending,
+                            setChatUnread
                         }} />
                     ) : (
                         <div className="dl-loading">Please add your phone number to continue.</div>

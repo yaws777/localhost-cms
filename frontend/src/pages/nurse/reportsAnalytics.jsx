@@ -347,8 +347,8 @@ const ReportsAnalytics = () => {
     };
     const conditionsSection = (list, heading) => ({
       heading,
-      columns: ['#', 'Medical condition', 'Cases', 'Share', 'Students', `Previous ${unit}`],
-      rows: list.map((c, i) => [i + 1, c.name, c.count, `${c.percent}%`, c.students, c.previousCount]),
+      columns: ['#', 'Medical condition', 'Cases', 'Students', `Previous ${unit}`],
+      rows: list.map((c, i) => [i + 1, c.name, c.count, c.students, c.previousCount]),
       emptyText: 'No medical condition records for this period.'
     });
 
@@ -390,8 +390,8 @@ const ReportsAnalytics = () => {
         sections: [
           {
             heading: 'Medicine dispensed',
-            columns: ['#', 'Medicine', 'Total', 'Direct', 'During consultation', 'Share'],
-            rows: medicine.items.map((m, i) => [i + 1, m.name, m.count, m.direct, m.consultation, `${m.percent}%`]),
+            columns: ['#', 'Medicine', 'Total', 'Direct', 'During consultation'],
+            rows: medicine.items.map((m, i) => [i + 1, m.name, m.count, m.direct, m.consultation]),
             emptyText: 'No medicine dispensations for this period.'
           },
           {
@@ -530,7 +530,7 @@ const ReportsAnalytics = () => {
 
       <div className="ra-grid-2">
         <Panel title="Top medical conditions" note="Open Health Trends for the full list">
-          <BarList items={health.conditions.slice(0, 5).map((c) => ({ label: c.name, value: c.count, note: `${c.percent}%` }))} emptyText={`No medical condition records for this ${unit}`} />
+          <BarList items={health.conditions.slice(0, 5).map((c) => ({ label: c.name, value: c.count }))} emptyText={`No medical condition records for this ${unit}`} />
         </Panel>
         <Panel title="Top medicines dispensed" note="Open Medicine Dispensed for the full list">
           <BarList items={medicine.items.slice(0, 5).map((m) => ({ label: m.name, value: m.count }))} color={COLORS.dispensed} emptyText={`No medicine dispensations for this ${unit}`} />
@@ -541,9 +541,9 @@ const ReportsAnalytics = () => {
 
   const healthTab = (
     <>
-      <Panel title="Medical conditions" note={`Cases this ${unit} compared with the previous ${unit}`}>
+      <Panel title="Medical conditions" note={`Each student counts once per condition per month · this ${unit} vs the previous ${unit}`}>
         <Table
-          columns={['#', 'Medical condition', 'Cases', 'Share', 'Students', `vs previous ${unit}`]}
+          columns={['#', 'Medical condition', 'Cases', 'Students', `vs previous ${unit}`]}
           isEmpty={health.conditions.length === 0}
           empty={`No medical condition records for this ${unit}`}
         >
@@ -552,7 +552,6 @@ const ReportsAnalytics = () => {
               <td>{i + 1}</td>
               <td>{c.name}</td>
               <td><strong>{c.count}</strong></td>
-              <td>{c.percent}%</td>
               <td>{c.students}</td>
               <td><ChangeBadge row={c} /></td>
             </tr>
@@ -598,9 +597,9 @@ const ReportsAnalytics = () => {
       </Panel>
 
       <Panel title="All medicines dispensed">
-        <Table columns={['#', 'Medicine', 'Total', 'Direct', 'Consultation', 'Share']} isEmpty={medicine.items.length === 0} empty={`No medicine dispensations for this ${unit}`}>
+        <Table columns={['#', 'Medicine', 'Total', 'Direct', 'Consultation']} isEmpty={medicine.items.length === 0} empty={`No medicine dispensations for this ${unit}`}>
           {medicine.items.map((m, i) => (
-            <tr key={m.name}><td>{i + 1}</td><td>{m.name}</td><td><strong>{m.count}</strong></td><td>{m.direct}</td><td>{m.consultation}</td><td>{m.percent}%</td></tr>
+            <tr key={m.name}><td>{i + 1}</td><td>{m.name}</td><td><strong>{m.count}</strong></td><td>{m.direct}</td><td>{m.consultation}</td></tr>
           ))}
         </Table>
       </Panel>

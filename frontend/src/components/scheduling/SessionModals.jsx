@@ -7,8 +7,9 @@ import Modal from '../common/Modal';
 import { useAlert } from '../../context/AlertContext';
 import { formatTime } from '../../utils/datetime';
 import { visitLabel, fullName } from '../../utils/visitPurpose';
-import { API, dayLabel, to12h, upcomingDates, typeLabel } from '../../utils/scheduling';
-import { StudentPicker, PurposeFields } from '../doctor/AppointmentModals';
+import { API, dayLabel, to12h, upcomingDates, sessionEnded } from '../../utils/scheduling';
+import { useSpecializations } from '../../hooks/useSpecializations';
+import { StudentPicker } from '../doctor/AppointmentModals';
 import '../../styles/doctor/DoctorLayout.css';
 import '../../styles/scheduling/Scheduling.css';
 
@@ -27,6 +28,7 @@ export const creatorBody = (creator) => (creator.nurseId ? { nurse_id: creator.n
 // ---------------------------------------------------------------------------
 export const AppointModal = ({ isOpen, schedule, request, fixedDate, creator, userId, onClose, onDone }) => {
     const { showAlert } = useAlert();
+    const { visitTypes } = useSpecializations();
     const [student, setStudent] = useState(null);
     const [dates, setDates] = useState([]);
     const [date, setDate] = useState('');
@@ -34,7 +36,7 @@ export const AppointModal = ({ isOpen, schedule, request, fixedDate, creator, us
     const [slotsLoading, setSlotsLoading] = useState(false);
     const [slot, setSlot] = useState('');
     const [duration, setDuration] = useState(15);
-    const [purpose, setPurpose] = useState({ visit_type: 'General Check Up', purpose_other: '' });
+    const [visitType, setVisitType] = useState('');
     const [reason, setReason] = useState('');
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
@@ -57,7 +59,8 @@ export const AppointModal = ({ isOpen, schedule, request, fixedDate, creator, us
 
     useEffect(() => {
         if (!isOpen || !schedule) return;
-        const list = fixedDate ? [fixedDate] : upcomingDates(schedule, 10);
+        // a session that is already over is closed for appointments: only days that still have time left are offered
+        const list = (fixedDate ? [fixedDate] : upcomingDates(schedule, 10)).filter((d) => !sessionEnded(schedule, d));
         const preferred = request && request.notified_schedule_id === schedule.schedule_id && request.notified_date && list.includes(String(request.notified_date).slice(0, 10))
             ? String(request.notified_date).slice(0, 10) : list[0] || '';
         setDates(list);
@@ -67,14 +70,13 @@ export const AppointModal = ({ isOpen, schedule, request, fixedDate, creator, us
             program_name: request.program_name, year_level: request.year_level, section: request.section
         } : null);
         setDuration(schedule.slot_duration_min || 15);
-        setPurpose(request
-            ? { visit_type: request.visit_type, purpose_other: request.purpose_other || '' }
-            : { visit_type: schedule.visit_type === 'Any' ? 'General Check Up' : schedule.visit_type, purpose_other: '' });
+        // the purpose of the consultation is never guessed: it is the student's request, the session's own purpose, or picked by the staff
+        setVisitType(request ? request.visit_type : visitTypes.includes(schedule.visit_type) ? schedule.visit_type : '');
         setReason(request ? request.reason : '');
         setError('');
         setBusy(false);
         loadSlots(preferred, request ? request.student_id : null);
-    }, [isOpen, schedule, request, fixedDate, loadSlots]);
+    }, [isOpen, schedule, request, fixedDate, loadSlots, visitTypes]);
 
     const pickStudent = (s) => { setStudent(s); loadSlots(date, s ? s.student_id : null); };
     const pickDate = (d) => { setDate(d); loadSlots(d, student ? student.student_id : null); };
@@ -83,12 +85,16 @@ export const AppointModal = ({ isOpen, schedule, request, fixedDate, creator, us
         e.preventDefault();
         setError('');
         if (!student) { setError('Choose the student.'); return; }
+        if (!visitType) { setError('Select the purpose of the consultation.'); return; }
+        if (schedule.visit_type !== 'Any' && visitTypes.includes(schedule.visit_type) && visitType !== schedule.visit_type) {
+            setError(`This session is for ${schedule.visit_type} consultations, so the purpose has to be ${schedule.visit_type}.`); return;
+        }
         if (!date || !slot) { setError('Pick the day and a time.'); return; }
         setBusy(true);
         try {
             const data = await send(`/api/doctor-schedules/${schedule.schedule_id}/appoint`, 'POST', {
                 ...creatorBody(creator), sender_id: userId, student_id: student.student_id, request_id: request ? request.request_id : undefined,
-                date, start_time: slot, duration_min: duration, visit_type: purpose.visit_type, purpose_other: purpose.purpose_other, reason
+                date, start_time: slot, duration_min: duration, visit_type: visitType, reason
             });
             if (data.success) {
                 showAlert(data.message, 'success');
@@ -112,8 +118,8 @@ export const AppointModal = ({ isOpen, schedule, request, fixedDate, creator, us
         <Modal isOpen={isOpen} onClose={onClose} title="Appoint a student" icon={<CalendarPlus size={20} />} size="lg">
             <form className="dp-form" onSubmit={submit}>
                 <div className="dp-notice">
-                    {docName} - {typeLabel(schedule.schedule_type)} - {to12h(schedule.start_time)} to {to12h(schedule.end_time)}{schedule.location ? ` - ${schedule.location}` : ''}.
-                    The student and parents are notified, and {creator.doctorId ? 'the nurses' : 'the doctor'} can see it right away.
+                    {docName} - {to12h(schedule.start_time)} to {to12h(schedule.end_time)}{schedule.location ? ` - ${schedule.location}` : ''}.
+                    {schedule.covered_visit_types && <> Covers: <strong>{schedule.covered_visit_types.join(', ')}</strong>.</>}
                 </div>
                 {error && <div className="dp-error">{error}</div>}
 
@@ -124,15 +130,25 @@ export const AppointModal = ({ isOpen, schedule, request, fixedDate, creator, us
                     </div>
                 ) : <StudentPicker value={student} onChange={pickStudent} />}
 
-                {!request && schedule.visit_type === 'Any' && (
-                    <PurposeFields visitType={purpose.visit_type} purposeOther={purpose.purpose_other} onChange={setPurpose} idPrefix="appoint" />
+                {request ? (
+                    <div className="dp-hint">The purpose follows the student's request: <strong>{visitLabel(request.visit_type, request.purpose_other)}</strong>.</div>
+                ) : schedule.visit_type !== 'Any' && visitTypes.includes(schedule.visit_type) ? (
+                    <div className="dp-hint">Purpose of the consultation: <strong>{schedule.visit_type}</strong> (the purpose of this session).</div>
+                ) : (
+                    <div className="dp-field">
+                        <label htmlFor="appoint-type">Purpose of the consultation</label>
+                        <select id="appoint-type" className="dp-select" required value={visitType} onChange={(e) => setVisitType(e.target.value)}>
+                            <option value="">-- Select the purpose --</option>
+                            {visitTypes.filter((p) => !schedule.covered_visit_types || schedule.covered_visit_types.includes(p)).map((p) => <option key={p} value={p}>{p}</option>)}
+                        </select>
+                    </div>
                 )}
 
                 <div className="dp-row">
                     <div className="dp-field">
                         <label>Day of the session</label>
                         <select className="dp-select" required value={date} onChange={(e) => pickDate(e.target.value)}>
-                            {dates.length === 0 && <option value="">No upcoming day</option>}
+                            {dates.length === 0 && <option value="">No day left: the session is over</option>}
                             {dates.map((d) => <option key={d} value={d}>{dayLabel(d, { weekday: 'long', month: 'long', day: 'numeric' })}</option>)}
                         </select>
                     </div>
@@ -170,7 +186,7 @@ export const AppointModal = ({ isOpen, schedule, request, fixedDate, creator, us
 
                 <div className="dp-modal-foot">
                     <button type="button" className="dp-btn dp-btn-ghost" onClick={onClose}>Cancel</button>
-                    <button type="submit" className="dp-btn dp-btn-primary" disabled={busy || !slot || !student}>{busy ? 'Appointing...' : 'Appoint student'}</button>
+                    <button type="submit" className="dp-btn dp-btn-primary" disabled={busy || !slot || !student || !visitType}>{busy ? 'Appointing...' : 'Appoint student'}</button>
                 </div>
             </form>
         </Modal>
@@ -213,7 +229,7 @@ export const ExtendSessionModal = ({ schedule, creator, userId, onClose, onDone 
             {schedule && (
                 <form className="dp-form" onSubmit={submit}>
                     <div className="dp-notice">
-                        {typeLabel(schedule.schedule_type)} - now {to12h(schedule.start_time)} to {to12h(schedule.end_time)}.
+                        Now {to12h(schedule.start_time)} to {to12h(schedule.end_time)}.
                         {schedule.extended_minutes > 0 ? ` Already extended by ${schedule.extended_minutes} min.` : ''}
                         {' '}Appointments, open slots and walk-ins can all use the extra time.
                     </div>

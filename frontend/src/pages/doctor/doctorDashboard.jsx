@@ -92,6 +92,13 @@ const MonthCalendar = ({ month, selected, calendar, absences, onSelect, onMonth 
     );
 };
 
+// which list of My Appointments a visit is in: past (over or closed), ongoing (happening now) or upcoming
+const visitTab = (a) => {
+    const ms = (v) => new Date(String(v).replace(' ', 'T')).getTime();
+    if (ms(a.end_time) <= Date.now() || ['Cancelled', 'Declined', 'No-Show'].includes(a.status)) return 'past';
+    return ms(a.start_time) <= Date.now() ? 'ongoing' : 'upcoming';
+};
+
 const DoctorDashboard = () => {
     const { doctor, doctorId } = useOutletContext();
     const { showAlert } = useAlert();
@@ -179,7 +186,7 @@ const DoctorDashboard = () => {
                             <span className="num">{totals.pending_requests ?? '-'}</span>
                             <span className="sub">waiting for approval</span>
                         </button>
-                        <button type="button" className="dd-stat green" onClick={() => navigate('/DoctorAppointments?tab=today')}>
+                        <button type="button" className="dd-stat green" onClick={() => navigate('/DoctorAppointments?tab=upcoming')}>
                             <span className="lbl"><CalendarCheck size={16} /> Today</span>
                             <span className="num">{totals.today_total ?? '-'}</span>
                             <span className="sub">{totals.today_remaining ?? 0} remaining</span>
@@ -263,7 +270,7 @@ const DoctorDashboard = () => {
                                     <strong>{fullName(a.student_first_name, a.student_last_name)}</strong>
                                     <span>{time12(a.start_time)} - {time12(a.end_time)} - {visitLabel(a.visit_type, a.purpose_other)}{a.status === 'Waiting for Approval' ? ' (pending)' : ''}</span>
                                 </div>
-                                <button type="button" className="go" onClick={() => navigate(`/DoctorAppointments?tab=all&focus=${a.appointment_id}`)} aria-label={`Open the appointment of ${a.student_first_name}`}><ChevronRight size={16} /></button>
+                                <button type="button" className="go" onClick={() => navigate(`/DoctorAppointments?tab=${visitTab(a)}&focus=${a.appointment_id}`)} aria-label={`Open the appointment of ${a.student_first_name}`}><ChevronRight size={16} /></button>
                             </div>
                         ))}
                     </div>

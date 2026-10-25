@@ -1,14 +1,17 @@
 // SchedulingHub.jsx
 // The one consultation scheduling screen. The nurse (every doctor) and the doctor (their own schedule) get the same
 // tabs and the same data, so whatever one of them posts, appoints or approves is what the other sees:
-//   Calendar | Schedules | Waiting list | Booking approvals | Assistant
+//   Calendar | Schedules | Waiting list | Follow-ups | Booking approvals | Assistant | Chat (nurse <-> doctor)
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { CalendarDays, ListChecks, Users, Inbox, Lightbulb } from 'lucide-react';
+import { CalendarDays, ListChecks, Users, Inbox, Lightbulb, CalendarClock, MessagesSquare, CalendarPlus, Footprints } from 'lucide-react';
 import { DoctorAvailability, BookingRequests } from '../nurse/DoctorAvailability';
 import UnavailableDates from '../doctor/UnavailableDates';
+import { DirectAppointmentModal, WalkInModal } from '../doctor/AppointmentModals';
 import ScheduleCalendar from './ScheduleCalendar';
 import WaitingList from './WaitingList';
+import FollowUps from './FollowUps';
+import StaffChat from './StaffChat';
 import SchedulingAssistant from './SchedulingAssistant';
 import { API } from '../../utils/scheduling';
 import '../../styles/scheduling/Scheduling.css';
@@ -17,18 +20,23 @@ const TABS = [
     ['calendar', 'Calendar', CalendarDays],
     ['schedules', 'Schedules', ListChecks],
     ['waiting', 'Waiting list', Users],
+    ['followups', 'Follow-ups', CalendarClock],
     ['approvals', 'Booking approvals', Inbox],
-    ['assistant', 'Assistant', Lightbulb]
+    ['assistant', 'Assistant', Lightbulb],
+    ['chat', 'Chat', MessagesSquare]
 ];
 
 // role: 'nurse' | 'doctor'. The doctor portal passes fixedDoctorId (their own doctor id).
-const SchedulingHub = ({ role, doctors, fixedDoctorId, nurseId, userId, initialTab = 'calendar', onChanged, onAddDoctor, onEditDoctor }) => {
+const SchedulingHub = ({ role, doctors, fixedDoctorId, nurseId, userId, initialTab = 'calendar', onChanged }) => {
     const [tab, setTab] = useState(initialTab);
     const [waitingGroup, setWaitingGroup] = useState(null);
     const [refreshKey, setRefreshKey] = useState(0);
     const [prefill, setPrefill] = useState(null);
     const [focusSchedule, setFocusSchedule] = useState(null);
-    const [counts, setCounts] = useState({ review: 0, approvals: 0 });
+    const [counts, setCounts] = useState({ review: 0, approvals: 0, followups: 0 });
+    const [chatUnread, setChatUnread] = useState(0);
+    const [showDirect, setShowDirect] = useState(false);
+    const [showWalkIn, setShowWalkIn] = useState(false);
 
     const creator = useMemo(() => (role === 'doctor' ? { doctorId: fixedDoctorId } : { nurseId }), [role, fixedDoctorId, nurseId]);
     const doctorList = useMemo(() => (fixedDoctorId ? doctors.filter((d) => d.doctor_id === fixedDoctorId) : doctors), [doctors, fixedDoctorId]);
@@ -44,20 +52,39 @@ const SchedulingHub = ({ role, doctors, fixedDoctorId, nurseId, userId, initialT
     const loadCounts = useCallback(async () => {
         try {
             const doctorQs = fixedDoctorId ? `&doctor_id=${encodeURIComponent(fixedDoctorId)}` : '';
-            const [reqRes, bookRes] = await Promise.all([
+            const [reqRes, bookRes, fuRes] = await Promise.all([
                 fetch(`${API}/api/consultation-requests?status=Waiting%20for%20Approval${doctorQs}`),
-                fetch(`${API}/api/doctor-bookings?status=pending${doctorQs}`)
+                fetch(`${API}/api/doctor-bookings?status=pending${doctorQs}`),
+                fetch(`${API}/api/follow-ups?state=needs_time${doctorQs}`)
             ]);
             const reqData = await reqRes.json();
             const bookData = await bookRes.json();
+            const fuData = await fuRes.json();
             setCounts({
                 review: reqData.success ? reqData.requests.length : 0,
-                approvals: bookData.success ? bookData.bookings.length : 0
+                approvals: bookData.success ? bookData.bookings.length : 0,
+                followups: fuData.success ? fuData.follow_ups.length : 0
             });
         } catch (e) { /* the badges are a convenience */ }
     }, [fixedDoctorId]);
 
     useEffect(() => { loadCounts(); }, [loadCounts, refreshKey]);
+
+    // the chat tab badge keeps counting while another tab is open (StaffChat reports it itself while it is open)
+    useEffect(() => {
+        if (!userId || tab === 'chat') return undefined;
+        let live = true;
+        const poll = async () => {
+            try {
+                const res = await fetch(`${API}/api/staff-chat/unread/${encodeURIComponent(userId)}`);
+                const data = await res.json();
+                if (live && data.success) setChatUnread(data.unreadCount);
+            } catch (e) { /* the badge is a convenience */ }
+        };
+        poll();
+        const timer = setInterval(poll, 10000);
+        return () => { live = false; clearInterval(timer); };
+    }, [userId, tab]);
 
     // every change refreshes all the tabs and tells the page around the hub (tab numbers, visit lists)
     const changed = useCallback(() => {
@@ -71,10 +98,15 @@ const SchedulingHub = ({ role, doctors, fixedDoctorId, nurseId, userId, initialT
     const prefillUsed = useCallback(() => setPrefill(null), []);
     const focusUsed = useCallback(() => setFocusSchedule(null), []);
 
-    const badgeFor = (key) => (key === 'waiting' ? counts.review : key === 'approvals' ? counts.approvals : 0);
+    const badgeFor = (key) => (key === 'waiting' ? counts.review : key === 'approvals' ? counts.approvals : key === 'followups' ? counts.followups : key === 'chat' ? chatUnread : 0);
 
     return (
         <div className="hub-sc">
+            <div className="toolbar-hub-sc">
+                <button type="button" className="sti-btn-dv sti-btn-secondary-dv" onClick={() => setShowDirect(true)}><CalendarPlus size={16} /> Direct appointment</button>
+                <button type="button" className="sti-btn-dv sti-btn-secondary-dv" onClick={() => setShowWalkIn(true)}><Footprints size={16} /> Walk-in</button>
+            </div>
+
             <nav className="hub-tabs-sc" aria-label="Scheduling sections">
                 {TABS.map(([key, label, Icon]) => (
                     <button key={key} type="button" className={`hub-tab-sc ${tab === key ? 'active-sc' : ''}`} onClick={() => goTab(key)}>
@@ -94,8 +126,7 @@ const SchedulingHub = ({ role, doctors, fixedDoctorId, nurseId, userId, initialT
             {tab === 'schedules' && (
                 <>
                     <DoctorAvailability
-                        doctors={doctorList} nurseId={nurseId} userId={userId} creatorDoctorId={role === 'doctor' ? fixedDoctorId : undefined}
-                        refreshKey={refreshKey} onChanged={changed} onAddDoctor={onAddDoctor} onEditDoctor={onEditDoctor}
+                        doctors={doctorList} creator={creator} userId={userId} refreshKey={refreshKey} onChanged={changed}
                         prefill={prefill} onPrefillUsed={prefillUsed} onRemind={remind}
                     />
                     <div style={{ marginTop: 18 }}>
@@ -111,6 +142,10 @@ const SchedulingHub = ({ role, doctors, fixedDoctorId, nurseId, userId, initialT
                 />
             )}
 
+            {tab === 'followups' && (
+                <FollowUps doctors={doctorList} fixedDoctorId={fixedDoctorId} creator={creator} userId={userId} refreshKey={refreshKey} onChanged={changed} />
+            )}
+
             {tab === 'approvals' && (
                 <BookingRequests doctors={doctorList} fixedDoctorId={fixedDoctorId} userId={userId} refreshKey={refreshKey} onChanged={changed} />
             )}
@@ -118,6 +153,11 @@ const SchedulingHub = ({ role, doctors, fixedDoctorId, nurseId, userId, initialT
             {tab === 'assistant' && (
                 <SchedulingAssistant fixedDoctorId={fixedDoctorId} refreshKey={refreshKey} onUseSuggestion={useSuggestion} onGoTab={goTab} />
             )}
+
+            {tab === 'chat' && <StaffChat userId={userId} onUnreadChange={setChatUnread} />}
+
+            <DirectAppointmentModal isOpen={showDirect} doctors={doctorList} fixedDoctorId={fixedDoctorId} creator={creator} userId={userId} onClose={() => setShowDirect(false)} onCreated={changed} />
+            <WalkInModal isOpen={showWalkIn} doctors={doctorList} fixedDoctorId={fixedDoctorId} creator={creator} userId={userId} onClose={() => setShowWalkIn(false)} onCreated={changed} />
         </div>
     );
 };

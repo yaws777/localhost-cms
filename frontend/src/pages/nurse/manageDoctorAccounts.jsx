@@ -9,13 +9,13 @@ import { useAlert } from '../../context/AlertContext';
 import { formatDate } from '../../utils/datetime';
 import { fullName, initials } from '../../utils/visitPurpose';
 import { coverageLabel } from '../../utils/scheduling';
+import { useSpecializations } from '../../hooks/useSpecializations';
 import DoctorServices from '../../components/scheduling/DoctorServices';
 import { useDpAutoLabels } from '../../utils/autoLabels';
 import '../../styles/doctor/DoctorLayout.css';
 
 const API = 'http://localhost:3001';
 const DOMAIN = '@baliuag.sti.edu.ph';
-const SPECIALIZATIONS = ['General Physician', 'Dentist', 'Optometrist', 'Ophthalmologist', 'Pediatrician'];
 
 const suggestUsername = (first, last) => {
     const clean = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
@@ -27,6 +27,65 @@ const call = async (path, method, body) => {
     let data = {};
     try { data = await res.json(); } catch (e) { /* not json */ }
     return data;
+};
+
+// Pick a specialization from the list or add a new one. Every specialization adds its own visit type, which students then see as a purpose of consultation.
+const ADD_NEW = '__add__';
+
+const SpecializationPicker = ({ id, value, onChange }) => {
+    const { specializations, reload } = useSpecializations();
+    const { showAlert } = useAlert();
+    const [adding, setAdding] = useState(false);
+    const [name, setName] = useState('');
+    const [visitType, setVisitType] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState('');
+
+    const chosen = specializations.find((x) => x.name === value);
+
+    const add = async () => {
+        setError('');
+        setBusy(true);
+        try {
+            const data = await call('/api/specializations', 'POST', { name, visit_type: visitType });
+            if (data.success) {
+                await reload();
+                onChange(data.specialization.name);
+                setAdding(false);
+                setName('');
+                setVisitType('');
+                showAlert(data.message, 'success');
+            } else setError(data.message || 'Could not add the specialization.');
+        } catch (err) {
+            setError('Could not reach the server.');
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    return (
+        <div className="dp-field">
+            <label htmlFor={id}>Specialization</label>
+            <select id={id} className="dp-select" required={!adding} value={adding ? ADD_NEW : value || ''} onChange={(e) => (e.target.value === ADD_NEW ? setAdding(true) : (setAdding(false), onChange(e.target.value)))}>
+                <option value="">-- Select the specialization --</option>
+                {specializations.map((x) => <option key={x.specialization_id} value={x.name}>{x.name}</option>)}
+                <option value={ADD_NEW}>+ Add a new specialization</option>
+            </select>
+            {!adding && chosen && <small>Takes {chosen.visit_type === 'General Check Up' ? 'General Check Up' : `General Check Up and ${chosen.visit_type}`} consultations.</small>}
+            {adding && (
+                <div className="dp-form" style={{ marginTop: 8 }}>
+                    {error && <div className="dp-error" role="alert">{error}</div>}
+                    <input className="dp-input" maxLength={80} value={name} onChange={(e) => setName(e.target.value)} placeholder="Specialization, e.g. Pediatrician" aria-label="New specialization" />
+                    <input className="dp-input" maxLength={30} value={visitType} onChange={(e) => setVisitType(e.target.value)} placeholder={`Visit type it adds (default: ${name.trim() || 'Specialization'} Consultation)`} aria-label="Visit type" />
+                    <small>Students will see this visit type when they pick the purpose of their consultation.</small>
+                    <div className="dp-modal-foot">
+                        <button type="button" className="dp-btn dp-btn-ghost" onClick={() => { setAdding(false); setError(''); }}>Cancel</button>
+                        <button type="button" className="dp-btn dp-btn-primary" disabled={busy || !name.trim()} onClick={add}>{busy ? 'Adding...' : 'Add specialization'}</button>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
 };
 
 const ManageDoctorAccounts = () => {
@@ -175,7 +234,7 @@ const ManageDoctorAccounts = () => {
                             <div className="dp-appt-main">
                                 <h4>Dr. {fullName(d.first_name, d.last_name)} <span className="dp-hint">{d.doctor_id}</span></h4>
                                 <div className="dp-appt-sub">{d.specialization || 'No specialization'}{d.has_account ? ` - ${d.username}` : ''}</div>
-                                <div className="dp-appt-sub">Offers: {coverageLabel(d)}{d.services_notes ? ` - ${d.services_notes}` : ''}</div>
+                                <div className="dp-appt-sub">Covers: {coverageLabel(d)}</div>
                                 <div className="dp-appt-chips">
                                     {!d.has_account ? <span className="dp-chip st-pending-approval">No login yet</span>
                                         : d.is_active ? <span className="dp-chip st-completed">Account active</span> : <span className="dp-chip st-cancelled">Account inactive</span>}
@@ -213,12 +272,7 @@ const ManageDoctorAccounts = () => {
                             <div className="dp-field"><label htmlFor="da-first">First name</label><input id="da-first" className="dp-input" required maxLength={100} value={form.first_name} onChange={(e) => setName({ first_name: e.target.value })} /></div>
                             <div className="dp-field"><label htmlFor="da-last">Last name</label><input id="da-last" className="dp-input" required maxLength={100} value={form.last_name} onChange={(e) => setName({ last_name: e.target.value })} /></div>
                         </div>
-                        <div className="dp-field">
-                            <label htmlFor="da-spec">Specialization</label>
-                            <input id="da-spec" className="dp-input" required maxLength={100} list="da-spec-list" value={form.specialization} onChange={(e) => setForm({ ...form, specialization: e.target.value })} placeholder="e.g. General Physician, Dentist" />
-                            <datalist id="da-spec-list">{SPECIALIZATIONS.map((s) => <option key={s} value={s} />)}</datalist>
-                            <small>Dental visits need a Dentist and Vision visits need an Optometrist or Ophthalmologist.</small>
-                        </div>
+                        <SpecializationPicker id="da-spec" value={form.specialization} onChange={(specialization) => setForm({ ...form, specialization })} />
                         <div className="dp-field">
                             <label htmlFor="da-user">Username</label>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -260,11 +314,7 @@ const ManageDoctorAccounts = () => {
                             <div className="dp-field"><label>First name</label><input className="dp-input" required maxLength={100} value={editing.first_name} onChange={(e) => setEditing({ ...editing, first_name: e.target.value })} /></div>
                             <div className="dp-field"><label>Last name</label><input className="dp-input" required maxLength={100} value={editing.last_name} onChange={(e) => setEditing({ ...editing, last_name: e.target.value })} /></div>
                         </div>
-                        <div className="dp-field">
-                            <label>Specialization</label>
-                            <input className="dp-input" required maxLength={100} list="da-spec-list-edit" value={editing.specialization || ''} onChange={(e) => setEditing({ ...editing, specialization: e.target.value })} />
-                            <datalist id="da-spec-list-edit">{SPECIALIZATIONS.map((s) => <option key={s} value={s} />)}</datalist>
-                        </div>
+                        <SpecializationPicker id="da-spec-edit" value={editing.specialization || ''} onChange={(specialization) => setEditing({ ...editing, specialization })} />
                         <div className="dp-modal-foot">
                             <button type="button" className="dp-btn dp-btn-ghost" onClick={() => setEditing(null)}>Cancel</button>
                             <button type="submit" className="dp-btn dp-btn-primary" disabled={busy}>{busy ? 'Saving...' : 'Save'}</button>
@@ -273,8 +323,8 @@ const ManageDoctorAccounts = () => {
                 )}
                 {editing && (
                     <div style={{ borderTop: '1px solid var(--card-border)', marginTop: 16, paddingTop: 14 }}>
-                        <h4 style={{ margin: '0 0 8px' }}>Check-ups offered</h4>
-                        <p className="dp-hint" style={{ marginTop: 0 }}>Save the name and specialization first. Dental needs a dentist and Vision needs an optometrist or ophthalmologist.</p>
+                        <h4 style={{ margin: '0 0 8px' }}>Consultations covered</h4>
+                        <p className="dp-hint" style={{ marginTop: 0 }}>The choices follow the saved specialization. Save a changed specialization first.</p>
                         <DoctorServices doctor={editing} compact onSaved={() => load()} />
                     </div>
                 )}

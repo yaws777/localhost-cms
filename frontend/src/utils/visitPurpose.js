@@ -1,9 +1,8 @@
 // visitPurpose.js
-// The purpose of a doctor visit: General Check Up, Dental, Vision or Other (and the purpose has to be specified).
-// Follow-up and Referral are created by the system from an earlier visit.
+// The purpose of a doctor visit. The list comes from the specializations (hooks/useSpecializations): every specialization adds its own
+// visit type. Follow-up and Referral are created by the system from an earlier visit.
 
-export const PURPOSES = ['General Check Up', 'Dental', 'Vision', 'Other'];
-
+// Visits saved as "Other: ..." before Other was removed still read the same in the history
 export const visitLabel = (type, other) => {
     const t = type || 'General Check Up';
     return t === 'Other' && other ? `Other: ${other}` : t;
@@ -11,9 +10,9 @@ export const visitLabel = (type, other) => {
 
 // How an appointment came to be, in the words the clinic uses
 export const sourceLabel = (source) => {
-    if (source === 'Student') return 'Open time block';
+    if (source === 'Student') return 'By open time slot';
     if (source === 'Walk-in') return 'Walk-in';
-    return 'Direct appointment';
+    return 'By appointment';
 };
 
 export const statusLabel = (status) => status || '';

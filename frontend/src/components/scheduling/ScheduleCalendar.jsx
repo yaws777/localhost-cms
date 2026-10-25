@@ -1,32 +1,47 @@
 // ScheduleCalendar.jsx
 // The schedule as a calendar. The nurse sees every doctor, the doctor sees their own; both read the same data
 // (GET /api/schedule-calendar), so what one posts shows up for the other right away.
+// A day's sessions follow the visit rules:
+//   upcoming : add / edit / delete the schedule, appoint students, remind the waiting list; appointments can be rescheduled or cancelled
+//   ongoing  : appoint into what is left, extend the session or an appointment (the dates and hours are locked)
+//   past     : closed, nothing can be booked, appointed or changed any more
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, UserPlus, TimerReset, Bell, Inbox, CalendarX } from 'lucide-react';
+import { ChevronLeft, ChevronRight, UserPlus, TimerReset, Bell, Inbox, CalendarX, CalendarPlus, Edit, Trash2, CalendarClock, Ban } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
 import { visitLabel, statusClass } from '../../utils/visitPurpose';
 import {
-    API, SCHEDULE_TYPES, SCHEDULE_TYPE_KEYS, MONTHS, WEEKDAYS, dateKey, todayKey, parseDay, dayLabel, to12h, timeRange, typeLabel
+    API, SCHEDULING_WAYS, SCHEDULING_WAY_KEYS, wayOf, MONTHS, WEEKDAYS, dateKey, todayKey, parseDay, dayLabel, to12h, timeRange, hasWalkIn, coverageLabel
 } from '../../utils/scheduling';
 import { AppointModal, ExtendSessionModal, ExtendAppointmentModal } from './SessionModals';
+import ScheduleFormModal from './ScheduleFormModal';
+import { ReasonModal, RescheduleModal } from '../doctor/AppointmentModals';
 import '../../styles/scheduling/Scheduling.css';
 
 const CHIP_LIMIT = 2;
-const TYPE_CHIP = { 'Appointment': 'type-appointment-sc', 'Open Slot': 'type-open-sc', 'Walk-in': 'type-walkin-sc' };
-const TYPE_SHORT = { 'Appointment': 'Appt', 'Open Slot': 'Open', 'Walk-in': 'Walk-in' };
+const STATE_LABEL = { upcoming: 'Upcoming', ongoing: 'In session now', past: 'Past - closed' };
+
+const putJson = async (path, body) => {
+    const res = await fetch(`${API}${path}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    let data = {};
+    try { data = await res.json(); } catch (e) { /* not json */ }
+    return data;
+};
 
 const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey, onChanged, onRemind, onGoTab }) => {
-    const { showAlert } = useAlert();
+    const { showAlert, showConfirm } = useAlert();
     const [cursor, setCursor] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
     const [selected, setSelected] = useState(todayKey());
     const [doctorFilter, setDoctorFilter] = useState(fixedDoctorId || '');
-    const [typeFilter, setTypeFilter] = useState('');
+    const [wayFilter, setWayFilter] = useState('');
     const [data, setData] = useState({ sessions: [], appointments: [], absences: [] });
     const [loading, setLoading] = useState(true);
 
+    const [form, setForm] = useState(null); // { schedule, preset }
     const [appointFor, setAppointFor] = useState(null);
     const [extendSession, setExtendSession] = useState(null);
     const [extendAppt, setExtendAppt] = useState(null);
+    const [moveAppt, setMoveAppt] = useState(null);
+    const [cancelAppt, setCancelAppt] = useState(null);
 
     // the month grid always starts on a Sunday and shows six weeks
     const gridDays = useMemo(() => {
@@ -56,15 +71,15 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
 
     const sessionsByDay = useMemo(() => {
         const map = {};
-        data.sessions.filter((s) => !typeFilter || s.schedule_type === typeFilter).forEach((s) => { (map[s.date] = map[s.date] || []).push(s); });
+        data.sessions.forEach((s) => { (map[s.date] = map[s.date] || []).push(s); });
         return map;
-    }, [data.sessions, typeFilter]);
+    }, [data.sessions]);
 
     const apptsByDay = useMemo(() => {
         const map = {};
-        data.appointments.forEach((a) => { (map[a.date] = map[a.date] || []).push(a); });
+        data.appointments.filter((a) => !wayFilter || wayOf(a.booking_source) === wayFilter).forEach((a) => { (map[a.date] = map[a.date] || []).push(a); });
         return map;
-    }, [data.appointments]);
+    }, [data.appointments, wayFilter]);
 
     const absentOn = (day) => data.absences.filter((u) => u.start_date <= day && u.end_date >= day);
 
@@ -80,10 +95,61 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
     const isPast = selected < today;
 
     const sessionStatus = (s) => {
-        if (s.schedule_type === 'Walk-in') return null;
         const used = s.booked + s.waiting_for_approval;
         return { used, pct: s.capacity ? Math.min(100, Math.round((used / s.capacity) * 100)) : 0, full: s.capacity ? used >= s.capacity : false };
     };
+
+    // ---- schedule CRUD from the calendar ----
+    const addSchedule = () => {
+        const doctorId = fixedDoctorId || doctorFilter || '';
+        setForm({ schedule: null, preset: { doctor_id: doctorId, schedule_date: selected, valid_from: selected, valid_until: selected } });
+    };
+
+    // the form needs the whole schedule (dates, slots, booking counts), which the calendar day does not carry
+    const editSchedule = async (s) => {
+        try {
+            const res = await fetch(`${API}/api/doctor-schedules?doctor_id=${encodeURIComponent(s.doctor_id)}`);
+            const json = await res.json();
+            const full = json.success ? json.schedules.find((x) => x.schedule_id === s.schedule_id) : null;
+            if (full) setForm({ schedule: full, preset: null });
+            else showAlert('Could not load this schedule.', 'error');
+        } catch (e) {
+            showAlert('Could not load this schedule.', 'error');
+        }
+    };
+
+    const deleteSchedule = async (s) => {
+        const series = s.recurrence === 'Weekly';
+        const ok = await showConfirm(
+            `Delete the ${series ? 'weekly schedule this session belongs to (every day of it)' : 'schedule'} of ${s.doctor_name} on ${dayLabel(s.date)}? This cannot be undone.`,
+            { danger: true, confirmLabel: 'Delete', title: 'Delete schedule' }
+        );
+        if (!ok) return;
+        try {
+            const res = await fetch(`${API}/api/doctor-schedules/${s.schedule_id}`, { method: 'DELETE' });
+            const json = await res.json();
+            if (json.success) { showAlert(json.message, 'success'); changed(); }
+            else showAlert(json.message || 'Could not delete the schedule.', 'error');
+        } catch (e) {
+            showAlert('Server error deleting the schedule.', 'error');
+        }
+    };
+
+    // ---- appointment actions ----
+    const rescheduleAppt = async ({ start_time, end_time, reason }) => {
+        const json = await putJson(`/api/doctor-visits/reschedule/${moveAppt.appointment_id}`, { sender_id: userId, start_time, end_time, reason });
+        if (json.success) { setMoveAppt(null); showAlert('Appointment rescheduled. The student and parents were notified.', 'success'); changed(); return ''; }
+        return json.message || 'Could not reschedule the appointment.';
+    };
+
+    const cancelAppointment = async (reason) => {
+        const json = await putJson(`/api/doctor-visits/cancel/${cancelAppt.appointment_id}`, { sender_id: userId, reason });
+        if (json.success) { setCancelAppt(null); showAlert('Appointment cancelled. The student and parents were notified.', 'success'); changed(); }
+        else showAlert(json.message || 'Could not cancel the appointment.', 'error');
+    };
+
+    const apptName = (a) => (a ? a.student_name : '');
+    const forModal = (a) => (a ? { ...a, student_first_name: a.student_name, student_last_name: '' } : null);
 
     return (
         <div className="cal-layout-sc">
@@ -96,9 +162,9 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
                             {doctors.map((d) => <option key={d.doctor_id} value={d.doctor_id}>Dr. {d.first_name} {d.last_name}</option>)}
                         </select>
                     )}
-                    <select className="dp-select" style={{ maxWidth: 190 }} value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} aria-label="Schedule type">
-                        <option value="">All schedule types</option>
-                        {SCHEDULE_TYPE_KEYS.map((k) => <option key={k} value={k}>{SCHEDULE_TYPES[k].label}</option>)}
+                    <select className="dp-select" style={{ maxWidth: 190 }} value={wayFilter} onChange={(e) => setWayFilter(e.target.value)} aria-label="How students were scheduled">
+                        <option value="">Scheduled: any way</option>
+                        {SCHEDULING_WAY_KEYS.map((k) => <option key={k} value={k}>{SCHEDULING_WAYS[k].label}</option>)}
                     </select>
                     <div className="cal-nav-sc">
                         <button type="button" className="icon-btn-ds" onClick={() => goMonth(-1)} aria-label="Previous month"><ChevronLeft size={16} /></button>
@@ -121,7 +187,7 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
                             <button key={day} type="button" className={classes.join(' ')} onClick={() => setSelected(day)} aria-label={dayLabel(day, { weekday: 'long', month: 'long', day: 'numeric' })}>
                                 <span className="cal-num-sc">{parseDay(day).getDate()}</span>
                                 {list.slice(0, CHIP_LIMIT).map((s) => (
-                                    <span key={`${s.schedule_id}`} className={`cal-chip-sc ${TYPE_CHIP[s.schedule_type]}`}>{to12h(s.start_time).replace(':00', '')} {TYPE_SHORT[s.schedule_type]}</span>
+                                    <span key={`${s.schedule_id}`} className={`cal-chip-sc type-open-sc ${s.state === 'past' ? 'past-sc' : ''}`}>{to12h(s.start_time).replace(':00', '')} Session</span>
                                 ))}
                                 {list.length > CHIP_LIMIT && <span className="cal-chip-sc" style={{ color: 'var(--sti-text-muted)' }}>+{list.length - CHIP_LIMIT} more</span>}
                                 {apptCount > 0 && <span className="cal-chip-sc" style={{ color: 'var(--sti-text-muted)' }}>{apptCount} appt{apptCount > 1 ? 's' : ''}</span>}
@@ -131,13 +197,18 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
                 </div>
 
                 <div className="cal-legend-sc">
-                    {SCHEDULE_TYPE_KEYS.map((k) => <span key={k}><i className={`type-badge-sc ${SCHEDULE_TYPES[k].cls}`}>{SCHEDULE_TYPES[k].label}</i></span>)}
+                    {SCHEDULING_WAY_KEYS.map((k) => <span key={k}><i className={`type-badge-sc ${SCHEDULING_WAYS[k].cls}`}>{SCHEDULING_WAYS[k].label}</i></span>)}
                     <span><CalendarX size={14} /> Doctor unavailable</span>
                 </div>
             </section>
 
             <aside className="cal-card-sc day-panel-sc" aria-label="Selected day">
-                <h3>{dayLabel(selected, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}{selected === today ? ' (today)' : ''}</h3>
+                <div className="day-head-sc">
+                    <h3>{dayLabel(selected, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}{selected === today ? ' (today)' : ''}</h3>
+                    {!isPast && (
+                        <button type="button" className="sti-btn-dv sti-btn-primary-dv btn-sm-sc" onClick={addSchedule}><CalendarPlus size={14} /> Add schedule</button>
+                    )}
+                </div>
 
                 {loading && <div className="empty-sc">Loading...</div>}
 
@@ -148,25 +219,36 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
                 ))}
 
                 {!loading && daySessions.length === 0 && dayAppts.length === 0 && dayAbsences.length === 0 && (
-                    <div className="empty-sc">Nothing scheduled this day.</div>
+                    <div className="empty-sc">{isPast ? 'Nothing was scheduled this day.' : 'Nothing scheduled this day.'}</div>
                 )}
 
                 {daySessions.map((s) => {
                     const st = sessionStatus(s);
+                    const doctor = doctors.find((d) => d.doctor_id === s.doctor_id);
                     return (
-                        <div key={s.schedule_id} className={`session-card-sc ${s.schedule_type === 'Appointment' ? 'appointment-sc' : s.schedule_type === 'Open Slot' ? 'open-sc' : 'walkin-sc'}`}>
+                        <div key={s.schedule_id} className={`session-card-sc ${s.state === 'past' ? 'closed-sc' : 'open-sc'}`}>
                             <div className="session-top-sc">
                                 <strong>{timeRange(s.start_time, s.end_time)}</strong>
-                                <span className={`type-badge-sc ${TYPE_CHIP[s.schedule_type]}`}>{typeLabel(s.schedule_type)}</span>
+                                <span className={`type-badge-sc ${s.state === 'past' ? 'type-closed-sc' : 'type-open-sc'}`}>{STATE_LABEL[s.state]}</span>
                             </div>
                             <div className="session-meta-sc">
                                 {!fixedDoctorId && <span>{s.doctor_name}</span>}
-                                <span>{s.visit_type === 'Any' ? 'Any visit' : s.visit_type}</span>
+                                <span>{s.visit_type === 'Any' ? 'Any purpose' : s.visit_type}</span>
                                 {s.location && <span>{s.location}</span>}
                                 {s.extended_minutes > 0 && <span>Extended +{s.extended_minutes} min</span>}
                             </div>
-                            {s.schedule_type === 'Walk-in' && <div className="session-meta-sc">{s.announcement || 'Students walk in, no booking needed.'}</div>}
-                            {s.schedule_type === 'Open Slot' && <div className="session-meta-sc">{s.auto_confirm ? 'Bookings are confirmed automatically' : 'Bookings wait for approval'}</div>}
+                            {doctor && <div className="session-meta-sc"><span>Covers: {coverageLabel(doctor)}</span></div>}
+                            <div className="session-meta-sc">
+                                <span>{s.auto_confirm ? 'Bookings auto-confirmed' : 'Bookings need approval'}</span>
+                                <span>{hasWalkIn(s) ? 'Walk-ins allowed' : 'No walk-ins'}</span>
+                            </div>
+                            <div className="session-meta-sc">
+                                {SCHEDULING_WAY_KEYS.map((k) => {
+                                    const n = k === 'appointment' ? s.by_appointment : k === 'open_slot' ? s.by_open_slot : s.by_walk_in;
+                                    return <span key={k} className={`type-badge-sc ${SCHEDULING_WAYS[k].cls}`}>{n || 0} {SCHEDULING_WAYS[k].short.toLowerCase()}</span>;
+                                })}
+                            </div>
+                            {hasWalkIn(s) && s.announcement && <div className="session-meta-sc">{s.announcement}</div>}
                             {st && (
                                 <>
                                     <div className={`load-bar-sc ${st.full ? 'full-sc' : ''}`}><div style={{ width: `${st.pct}%` }} /></div>
@@ -176,13 +258,19 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
                                     </div>
                                 </>
                             )}
-                            {!isPast && (
+                            {s.state !== 'past' && (
                                 <div className="session-actions-sc">
-                                    {s.schedule_type !== 'Walk-in' && (
-                                        <button type="button" className="sti-btn-dv sti-btn-primary-dv btn-sm-sc" onClick={() => setAppointFor(s)}><UserPlus size={14} /> Appoint</button>
+                                    <button type="button" className="sti-btn-dv sti-btn-primary-dv btn-sm-sc" onClick={() => setAppointFor(s)}><UserPlus size={14} /> Appoint</button>
+                                    {s.state === 'upcoming' && (
+                                        <button type="button" className="sti-btn-dv sti-btn-secondary-dv btn-sm-sc" onClick={() => onRemind && onRemind(s.schedule_id, s.date)}><Bell size={14} /> Remind waiting list</button>
                                     )}
-                                    <button type="button" className="sti-btn-dv sti-btn-secondary-dv btn-sm-sc" onClick={() => onRemind && onRemind(s.schedule_id, s.date)}><Bell size={14} /> Remind waiting list</button>
-                                    <button type="button" className="sti-btn-dv sti-btn-light-dv btn-sm-sc" onClick={() => setExtendSession(s)}><TimerReset size={14} /> Extend</button>
+                                    {s.state === 'ongoing' && (
+                                        <button type="button" className="sti-btn-dv sti-btn-light-dv btn-sm-sc" onClick={() => setExtendSession(s)}><TimerReset size={14} /> Extend</button>
+                                    )}
+                                    <button type="button" className="sti-btn-dv sti-btn-light-dv btn-sm-sc" onClick={() => editSchedule(s)}><Edit size={14} /> {s.recurrence === 'Weekly' ? 'Edit series' : 'Edit'}</button>
+                                    {s.state === 'upcoming' && (
+                                        <button type="button" className="sti-btn-dv sti-btn-light-dv btn-sm-sc" onClick={() => deleteSchedule(s)}><Trash2 size={14} /> Delete</button>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -198,18 +286,24 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
                                     <strong>{to12h(a.start_time)} - {to12h(a.end_time)}</strong> {a.student_name}
                                     <small>
                                         {!fixedDoctorId ? `${a.doctor_name} - ` : ''}{visitLabel(a.visit_type, a.purpose_other)}
-                                        {a.booking_source === 'Walk-in' ? ' - walk-in' : a.booking_source === 'Student' ? ' - booked by the student' : ''}
                                         {a.extended_minutes > 0 ? ` - extended +${a.extended_minutes} min` : ''}
                                     </small>
                                     {a.booking_reason && <small>Reason: {a.booking_reason}</small>}
                                 </div>
                                 <div className="row-actions-sc">
+                                    <span className={`type-badge-sc ${SCHEDULING_WAYS[wayOf(a.booking_source)].cls}`}>{SCHEDULING_WAYS[wayOf(a.booking_source)].label}</span>
                                     <span className={`dp-chip ${statusClass(a.status)}`}>{a.status}</span>
-                                    {a.status === 'Waiting for Approval' && onGoTab && (
+                                    {a.status === 'Waiting for Approval' && a.state === 'upcoming' && onGoTab && (
                                         <button type="button" className="sti-btn-dv sti-btn-light-dv btn-sm-sc" onClick={() => onGoTab('approvals')}><Inbox size={13} /> Review</button>
                                     )}
-                                    {a.status === 'Scheduled' && !isPast && (
-                                        <button type="button" className="icon-btn-ds" title="Extend this appointment" onClick={() => setExtendAppt(a)}><TimerReset size={15} /></button>
+                                    {a.status === 'Scheduled' && a.state === 'upcoming' && (
+                                        <>
+                                            <button type="button" className="icon-btn-ds" title="Reschedule this appointment" onClick={() => setMoveAppt(forModal(a))}><CalendarClock size={15} /></button>
+                                            <button type="button" className="icon-btn-ds" title="Cancel this appointment" onClick={() => setCancelAppt(a)}><Ban size={15} /></button>
+                                        </>
+                                    )}
+                                    {a.status === 'Scheduled' && a.state === 'ongoing' && (
+                                        <button type="button" className="icon-btn-ds" title="Extend this appointment (it is happening now)" onClick={() => setExtendAppt(a)}><TimerReset size={15} /></button>
                                     )}
                                 </div>
                             </div>
@@ -218,12 +312,28 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
                 )}
             </aside>
 
+            <ScheduleFormModal
+                isOpen={!!form} schedule={form ? form.schedule : null} preset={form ? form.preset : null} doctors={doctors}
+                creator={creator} userId={userId} onClose={() => setForm(null)} onSaved={changed}
+            />
             <AppointModal
                 isOpen={!!appointFor} schedule={appointFor} fixedDate={appointFor ? appointFor.date : null} creator={creator} userId={userId}
                 onClose={() => setAppointFor(null)} onDone={changed}
             />
             <ExtendSessionModal schedule={extendSession} creator={creator} userId={userId} onClose={() => setExtendSession(null)} onDone={changed} />
             <ExtendAppointmentModal appt={extendAppt} creator={creator} userId={userId} onClose={() => setExtendAppt(null)} onDone={changed} />
+            {moveAppt && <RescheduleModal key={moveAppt.appointment_id} appt={moveAppt} onSubmit={rescheduleAppt} onClose={() => setMoveAppt(null)} />}
+            <ReasonModal
+                isOpen={!!cancelAppt}
+                title="Cancel appointment"
+                message={cancelAppt && `${apptName(cancelAppt)} - ${dayLabel(cancelAppt.date)}, ${to12h(cancelAppt.start_time)}. The student and parents are notified.`}
+                label="Reason (shown to the student)"
+                placeholder="e.g. The doctor is unavailable, please rebook"
+                confirmLabel="Cancel appointment"
+                danger
+                onSubmit={cancelAppointment}
+                onClose={() => setCancelAppt(null)}
+            />
         </div>
     );
 };

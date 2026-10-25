@@ -55,10 +55,14 @@
 .type-appointment-sc { background: #dbeafe; color: #1e40af; }
 .type-open-sc { background: #dcfce7; color: #166534; }
 .type-walkin-sc { background: #fef3c7; color: #92400e; }
+.type-hybrid-sc { background: #ede9fe; color: #5b21b6; }
 
 :root[data-theme="dark"] .type-appointment-sc { background: #1e3a8a; color: #bfdbfe; }
 :root[data-theme="dark"] .type-open-sc { background: #14532d; color: #bbf7d0; }
 :root[data-theme="dark"] .type-walkin-sc { background: #78350f; color: #fde68a; }
+:root[data-theme="dark"] .type-hybrid-sc { background: #4c1d95; color: #ddd6fe; }
+
+.icon-btn-ds:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* ---- schedule type picker in the schedule form ---- */
 .type-picker-sc { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
@@ -372,3 +376,102 @@
 
 .service-option-sc.disabled-sc { opacity: 0.5; cursor: not-allowed; }
 .service-option-sc input { width: auto; }
+
+/* ---- nurse <-> doctor chat ---- */
+.chat-layout-sc {
+    display: grid;
+    grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+    min-height: 460px;
+    height: min(640px, 70vh);
+    border: 1px solid var(--sti-border);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--bg-card);
+}
+
+.chat-list-sc { border-right: 1px solid var(--sti-border); overflow-y: auto; display: flex; flex-direction: column; }
+.chat-list-head-sc { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--sti-border); }
+
+.chat-contact-sc {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border: 0;
+    border-bottom: 1px solid var(--sti-border);
+    background: transparent;
+    color: var(--text-primary);
+    text-align: left;
+    cursor: pointer;
+}
+
+.chat-contact-sc:hover, .chat-contact-sc.active-sc { background: var(--sti-light-bg); }
+
+.chat-avatar-sc {
+    flex: 0 0 auto;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--sti-blue);
+    color: #fff;
+    display: grid;
+    place-items: center;
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.chat-contact-text-sc { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.chat-contact-text-sc strong { font-size: 0.9rem; }
+.chat-contact-text-sc small { color: var(--sti-text-muted); font-size: 0.76rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.chat-panel-sc { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.chat-head-sc { padding: 12px 16px; border-bottom: 1px solid var(--sti-border); display: flex; flex-direction: column; }
+.chat-head-sc small { color: var(--sti-text-muted); font-size: 0.78rem; }
+.chat-empty-sc { flex: 1; display: grid; place-content: center; justify-items: center; gap: 8px; color: var(--sti-text-muted); }
+
+.chat-messages-sc { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+.chat-row-sc { display: flex; align-items: center; gap: 6px; }
+.chat-row-sc.mine-sc { flex-direction: row-reverse; }
+
+.chat-bubble-sc {
+    max-width: 72%;
+    padding: 8px 12px;
+    border-radius: 14px;
+    background: var(--sti-light-bg);
+    color: var(--text-primary);
+    overflow-wrap: anywhere;
+}
+
+.chat-row-sc.mine-sc .chat-bubble-sc { background: var(--sti-blue); color: #fff; }
+.chat-bubble-sc p { margin: 0; white-space: pre-wrap; }
+.chat-bubble-sc small { display: block; margin-top: 2px; font-size: 0.68rem; opacity: 0.7; }
+.chat-bubble-sc a { color: inherit; text-decoration: underline; }
+.chat-unsend-sc { opacity: 0; }
+.chat-row-sc:hover .chat-unsend-sc { opacity: 1; }
+
+.chat-compose-sc { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--sti-border); }
+.chat-compose-sc input {
+    flex: 1;
+    min-width: 0;
+    padding: 9px 12px;
+    border: 1px solid var(--sti-border);
+    border-radius: 10px;
+    background: var(--bg-card);
+    color: var(--text-primary);
+}
+
+@media (max-width: 760px) {
+    .chat-layout-sc { grid-template-columns: 1fr; height: auto; }
+    .chat-list-sc { max-height: 180px; border-right: 0; border-bottom: 1px solid var(--sti-border); }
+    .chat-panel-sc { height: 420px; }
+    .chat-bubble-sc { max-width: 86%; }
+}
+
+/* a session that is over is closed: dimmed and without actions */
+.type-closed-sc { background: #e5e7eb; color: #4b5563; }
+:root[data-theme="dark"] .type-closed-sc { background: #374151; color: #d1d5db; }
+.session-card-sc.closed-sc { border-left-color: #9ca3af; opacity: 0.8; }
+.cal-chip-sc.past-sc { opacity: 0.55; text-decoration: line-through; }
+.day-head-sc { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.toolbar-hub-sc { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }

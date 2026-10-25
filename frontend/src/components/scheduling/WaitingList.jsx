@@ -7,9 +7,10 @@ import Modal from '../common/Modal';
 import { ReasonModal } from '../doctor/AppointmentModals';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatDateTime } from '../../utils/datetime';
-import { PURPOSES, visitLabel, fullName } from '../../utils/visitPurpose';
+import { visitLabel, fullName } from '../../utils/visitPurpose';
+import { useSpecializations } from '../../hooks/useSpecializations';
 import {
-    API, REQUEST_STATUS_CLASS, typeLabel, upcomingDates, dayLabel, timeRange, doctorOffers
+    API, REQUEST_STATUS_CLASS, upcomingDates, dayLabel, timeRange, doctorOffers, sessionEnded
 } from '../../utils/scheduling';
 import { AppointModal, creatorBody } from './SessionModals';
 import '../../styles/nurse/DoctorVisits.css';
@@ -38,6 +39,7 @@ const post = async (path, method, body) => {
 
 const WaitingList = ({ doctors, fixedDoctorId, creator, userId, refreshKey, initialGroup, focusSchedule, onFocusConsumed, onChanged }) => {
     const { showAlert } = useAlert();
+    const { visitTypes } = useSpecializations();
     const [requests, setRequests] = useState([]);
     const [schedules, setSchedules] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -120,7 +122,7 @@ const WaitingList = ({ doctors, fixedDoctorId, creator, userId, refreshKey, init
     }, [requests, group, search, purpose]);
 
     const session = schedules.find((s) => s.schedule_id === sessionId) || null;
-    const sessionDates = useMemo(() => (session ? upcomingDates(session, 10) : []), [session]);
+    const sessionDates = useMemo(() => (session ? upcomingDates(session, 10).filter((d) => !sessionEnded(session, d)) : []), [session]);
     useEffect(() => {
         if (!session) { setSessionDate(''); return; }
         if (!sessionDates.includes(sessionDate)) setSessionDate(sessionDates[0] || '');
@@ -137,7 +139,7 @@ const WaitingList = ({ doctors, fixedDoctorId, creator, userId, refreshKey, init
     }, [session, doctors]);
 
     const eligibleCount = useMemo(() => requests.filter((r) => fitsSession(r) && (!r.preferred_doctor_id || r.preferred_doctor_id === session.doctor_id)).length, [requests, fitsSession, session]);
-    const noticeVerb = session && session.schedule_type === 'Appointment' ? 'Ask to reconfirm' : 'Remind';
+    const noticeVerb = 'Remind';
 
     const toggle = (id) => setSelected((prev) => {
         const next = new Set(prev);
@@ -211,13 +213,15 @@ const WaitingList = ({ doctors, fixedDoctorId, creator, userId, refreshKey, init
         } catch (e) { setHistory([]); }
     };
 
-    // sessions where this request could be appointed
-    const appointableSessions = (r) => schedules.filter((s) => s.schedule_type !== 'Walk-in' && (s.visit_type === 'Any' || s.visit_type === r.visit_type)
-        && doctorOffers(doctors.find((d) => d.doctor_id === s.doctor_id) || { specialization: s.specialization }, r.visit_type));
+    // sessions where this request could be appointed or moved to: any session with time slots whose purpose matches the student's purpose
+    const appointableSessions = (r) => schedules.filter((s) => (s.visit_type === 'Any' || s.visit_type === r.visit_type)
+        && (!fixedDoctorId || s.doctor_id === fixedDoctorId)
+        && doctorOffers(doctors.find((d) => d.doctor_id === s.doctor_id) || { specialization: s.specialization, allowed_visit_types: s.covered_visit_types, covered_visit_types: s.covered_visit_types }, r.visit_type))
+        .sort((a, b) => String(a.next_date || '').localeCompare(String(b.next_date || '')));
 
     const startAppoint = (r) => {
         const options = appointableSessions(r);
-        if (options.length === 0) { showAlert('There is no open session for this kind of visit. Post one first.', 'warning'); return; }
+        if (options.length === 0) { showAlert(`There is no open session for ${visitLabel(r.visit_type, r.purpose_other)} consultations. Post one first.`, 'warning'); return; }
         const preferred = options.find((s) => s.schedule_id === r.notified_schedule_id) || options[0];
         if (options.length === 1 || (r.notified_schedule_id && preferred.schedule_id === r.notified_schedule_id)) setAppointTarget({ request: r, schedule: preferred });
         else { setPickSession({ request: r, options }); setPickedSessionId(preferred.schedule_id); }
@@ -238,7 +242,7 @@ const WaitingList = ({ doctors, fixedDoctorId, creator, userId, refreshKey, init
                 </div>
                 <select value={purpose} onChange={(e) => setPurpose(e.target.value)} aria-label="Purpose">
                     <option value="">All purposes</option>
-                    {PURPOSES.map((p) => <option key={p} value={p}>{p}</option>)}
+                    {visitTypes.map((p) => <option key={p} value={p}>{p}</option>)}
                 </select>
                 <button type="button" className="icon-btn-ds" title="Refresh" onClick={load}><RefreshCw size={15} /></button>
             </div>
@@ -258,7 +262,7 @@ const WaitingList = ({ doctors, fixedDoctorId, creator, userId, refreshKey, init
                         <option value="">-- Pick a posted session --</option>
                         {compatibleSessions.map((s) => (
                             <option key={s.schedule_id} value={s.schedule_id}>
-                                {typeLabel(s.schedule_type)} - Dr. {s.doc_last_name} - {s.visit_type === 'Any' ? 'Any visit' : s.visit_type} - {s.next_date ? dayLabel(s.next_date) : ''} {timeRange(s.start_time, s.end_time)}
+                                Dr. {s.doc_last_name} - {s.visit_type === 'Any' ? 'Any visit' : s.visit_type} - {s.next_date ? dayLabel(s.next_date) : ''} {timeRange(s.start_time, s.end_time)}
                             </option>
                         ))}
                     </select>
@@ -269,21 +273,18 @@ const WaitingList = ({ doctors, fixedDoctorId, creator, userId, refreshKey, init
                     )}
                     {session && (
                         <>
-                            <span className={`type-badge-sc ${session.schedule_type === 'Appointment' ? 'type-appointment-sc' : session.schedule_type === 'Open Slot' ? 'type-open-sc' : 'type-walkin-sc'}`}>{typeLabel(session.schedule_type)}</span>
                             <button type="button" className="sti-btn-dv sti-btn-primary-dv btn-sm-sc" disabled={busy || selectedFit.length === 0} onClick={() => notify(selectedFit, false)}>
                                 <Bell size={14} /> {noticeVerb} selected ({selectedFit.length})
                             </button>
                             <button type="button" className="sti-btn-dv sti-btn-secondary-dv btn-sm-sc" disabled={busy || eligibleCount === 0} onClick={() => notify([], true)}>
                                 <Bell size={14} /> {noticeVerb} all eligible ({eligibleCount})
                             </button>
-                            {session.schedule_type !== 'Walk-in' && (
-                                <button type="button" className="sti-btn-dv sti-btn-light-dv btn-sm-sc" disabled={busy || !(session.reconfirmed_count > 0)} onClick={autoAppoint} title="Gives every reconfirmed student the earliest free slot, priority students first">
-                                    <Wand2 size={14} /> Auto-appoint reconfirmed
-                                </button>
-                            )}
+                            <button type="button" className="sti-btn-dv sti-btn-light-dv btn-sm-sc" disabled={busy || !(session.reconfirmed_count > 0)} onClick={autoAppoint} title="Gives every reconfirmed student the earliest free slot, priority students first">
+                                <Wand2 size={14} /> Auto-appoint reconfirmed
+                            </button>
                         </>
                     )}
-                    {!session && <span className="muted-ds">Pick a posted session to remind the students about it. For an appointment session they are asked to reconfirm; for open slots and walk-in sessions they are reminded.</span>}
+                    {!session && <span className="muted-ds">Pick a posted session to remind the students about it. They are reminded and can book an open time slot. Use Appoint / move on a student to place them in a session yourself.</span>}
                 </div>
             )}
 
@@ -350,15 +351,20 @@ const WaitingList = ({ doctors, fixedDoctorId, creator, userId, refreshKey, init
                                                         type="button" className="sti-btn-dv sti-btn-secondary-dv btn-sm-sc" disabled={busy || !fitsSession(r)}
                                                         title={session ? '' : 'Pick a session above first'} onClick={() => notify([r.request_id], false)}
                                                     >
-                                                        <Bell size={13} /> {r.status === 'Awaiting Reconfirmation' ? 'Remind again' : (session && session.schedule_type === 'Appointment' ? 'Reconfirm' : 'Remind')}
+                                                        <Bell size={13} /> {r.status === 'Awaiting Reconfirmation' ? 'Remind again' : 'Remind'}
                                                     </button>
                                                     <button type="button" className="icon-btn-ds" title={r.is_priority ? 'Remove priority' : 'Make priority'} onClick={() => togglePriority(r)}>
                                                         <Star size={14} className={r.is_priority ? 'priority-star-sc' : ''} fill={r.is_priority ? 'currentColor' : 'none'} />
                                                     </button>
                                                 </>
                                             )}
-                                            {r.status === 'Reconfirmed' && (
-                                                <button type="button" className="sti-btn-dv sti-btn-primary-dv btn-sm-sc" onClick={() => startAppoint(r)}><UserPlus size={13} /> Appoint</button>
+                                            {(NOTIFIABLE.includes(r.status) || r.status === 'Reconfirmed') && (
+                                                <button
+                                                    type="button" className="sti-btn-dv sti-btn-primary-dv btn-sm-sc" onClick={() => startAppoint(r)}
+                                                    title={`Give this student a time in a session for ${visitLabel(r.visit_type, r.purpose_other)}: an appointment session, an open booking time block or a hybrid session`}
+                                                >
+                                                    <UserPlus size={13} /> Appoint / move
+                                                </button>
                                             )}
                                             <button type="button" className="icon-btn-ds" title="History" onClick={() => openHistory(r)}><History size={14} /></button>
                                         </div>
@@ -399,15 +405,19 @@ const WaitingList = ({ doctors, fixedDoctorId, creator, userId, refreshKey, init
             />
 
             {/* pick which session to appoint into */}
-            <Modal isOpen={!!pickSession} onClose={() => setPickSession(null)} title="Appoint into which session?" size="md">
+            <Modal isOpen={!!pickSession} onClose={() => setPickSession(null)} title="Appoint or move to which session?" size="md">
                 {pickSession && (
                     <div className="dp-form">
+                        <div className="dp-notice">
+                            {fullName(pickSession.request.student_first_name, pickSession.request.student_last_name)} - {visitLabel(pickSession.request.visit_type, pickSession.request.purpose_other)}.
+                            Only sessions whose purpose matches this consultation are listed.
+                        </div>
                         <div className="dp-field">
                             <label>Session</label>
                             <select className="dp-select" value={pickedSessionId} onChange={(e) => setPickedSessionId(e.target.value)}>
                                 {pickSession.options.map((s) => (
                                     <option key={s.schedule_id} value={s.schedule_id}>
-                                        {typeLabel(s.schedule_type)} - Dr. {s.doc_first_name} {s.doc_last_name} - {s.next_date ? dayLabel(s.next_date) : ''} {timeRange(s.start_time, s.end_time)}
+                                        Dr. {s.doc_first_name} {s.doc_last_name} - {s.next_date ? dayLabel(s.next_date) : ''} {timeRange(s.start_time, s.end_time)}
                                     </option>
                                 ))}
                             </select>

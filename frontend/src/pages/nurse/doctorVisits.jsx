@@ -37,31 +37,23 @@ import { FolderCrumbs, FolderGrid, Pager, MoreMenu, sectionLabel, paginate, scop
 import SchedulingHub from '../../components/scheduling/SchedulingHub';
 import VisitCard from '../../components/nurse/VisitCard';
 import PastVisitsTable from '../../components/nurse/PastVisitsTable';
-import { DirectAppointmentModal } from '../../components/doctor/AppointmentModals';
-import { PURPOSES, visitLabel } from '../../utils/visitPurpose';
+import { DirectAppointmentModal, WalkInModal } from '../../components/doctor/AppointmentModals';
+import { visitLabel, sourceLabel } from '../../utils/visitPurpose';
+import { eligibleDoctors as doctorsFor } from '../../utils/scheduling';
+import { useSpecializations } from '../../hooks/useSpecializations';
 import { useDpAutoLabels } from '../../utils/autoLabels';
 
 // The page has three sections; the open one is kept in the URL (?section=) so a link or a notification can land on it
-const SECTIONS = ['visits', 'availability', 'requests', 'waiting'];
-const HUB_TAB_FOR_SECTION = { availability: 'calendar', requests: 'approvals', waiting: 'waiting' };
+const SECTIONS = ['visits', 'availability', 'requests', 'waiting', 'followups', 'chat'];
+const HUB_TAB_FOR_SECTION = { availability: 'calendar', requests: 'approvals', waiting: 'waiting', followups: 'followups', chat: 'chat' };
 
-// the purpose of a visit: General Check Up, Dental, Vision or Other (and the purpose is specified)
-const VISIT_TYPES = PURPOSES;
-
-// Dental / Vision visits are done by a matching specialist; other visit types accept any doctor.
-const SPECIALIZATION_MATCH = {
-    'Dental': /dent/i,
-    'Vision': /optom|ophthal|eye|vision/i
-};
-
+// a hint for the title of a visit; the purposes themselves come from the specializations (every specialization adds its own visit type)
 const VISIT_TYPE_HINTS = {
     'General Check Up': 'e.g. Annual Physical Examination',
     'Dental': 'e.g. Annual Dental Examination',
-    'Vision': 'e.g. Annual Vision & Eye Examination',
-    'Other': 'e.g. Counselling Referral Consultation',
-    'Follow-up': 'e.g. Follow-up Consultation',
-    'Referral': 'e.g. Specialist Referral Consultation'
+    'Vision': 'e.g. Annual Vision & Eye Examination'
 };
+const titleHint = (visitType) => VISIT_TYPE_HINTS[visitType] || `e.g. ${visitType} Consultation`;
 
 const EMPTY_DENTAL = {
     oral_hygiene: '', caries_count: 0, missing_count: 0, filled_count: 0, gum_condition: '',
@@ -204,6 +196,7 @@ const DoctorVisit = () => {
 
     const todayStr = formatLocalDateOnly(new Date());
 
+    const { visitTypes } = useSpecializations();
     const [activeTab, setActiveTab] = useState('upcoming');
     const [doctors, setDoctors] = useState([]);
     const [students, setStudents] = useState([]);
@@ -279,7 +272,6 @@ const DoctorVisit = () => {
     };
 
     // Modals
-    const [showDoctorModal, setShowDoctorModal] = useState(false);
     const [showScheduleModal, setShowScheduleModal] = useState(false);
     const [showAssessmentModal, setShowAssessmentModal] = useState(false);
     const [showBatchRescheduleModal, setShowBatchRescheduleModal] = useState(false);
@@ -288,9 +280,6 @@ const DoctorVisit = () => {
     const [activeScanGroup, setActiveScanGroup] = useState(null);
 
     // Forms
-    const [doctorForm, setDoctorForm] = useState({ doctor_id: '', first_name: '', last_name: '', specialization: '', contact_number: '' });
-    const [isEditDoctor, setIsEditDoctor] = useState(false);
-
     const [scheduleForm, setScheduleForm] = useState({
         visit_type: 'General Check Up',
         doctor_id: '',
@@ -302,8 +291,7 @@ const DoctorVisit = () => {
         scheduled_date: '',
         batch_start_time: '',
         batch_end_time: '',
-        slot_duration: '15',
-        purpose_other: ''
+        slot_duration: '15'
     });
     const [selectedStudentIds, setSelectedStudentIds] = useState([]);
     const [timeSlotCollisions, setTimeSlotCollisions] = useState('');
@@ -762,39 +750,6 @@ const DoctorVisit = () => {
         return matchProgram && matchYear && matchSection;
     });
 
-    const handleSaveDoctor = async (e) => {
-        e.preventDefault();
-        const url = isEditDoctor 
-            ? `http://localhost:3001/api/doctors/${doctorForm.doctor_id}`
-            : 'http://localhost:3001/api/doctors';
-        const method = isEditDoctor ? 'PUT' : 'POST';
-
-        try {
-            const res = await fetch(url, {
-                method,
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(doctorForm)
-            });
-            const data = await res.json();
-            if (data.success) {
-                showSuccess(data.message || 'Doctor profile saved successfully!', isEditDoctor ? 'Doctor Updated' : 'Doctor Added');
-                setShowDoctorModal(false);
-                fetchDoctors();
-                setDoctorForm({ doctor_id: '', first_name: '', last_name: '', specialization: '', contact_number: '' });
-            } else {
-                showError(data.message || 'Failed to save doctor details.', 'Save Failed');
-            }
-        } catch (err) {
-            showError('Error saving doctor details.', 'Save Error');
-        }
-    };
-
-    const openEditDoctor = (doc) => {
-        setDoctorForm(doc);
-        setIsEditDoctor(true);
-        setShowDoctorModal(true);
-    };
-
     const handleStudentToggle = (studentId) => {
         if (selectedStudentIds.includes(studentId)) {
             setSelectedStudentIds(selectedStudentIds.filter(id => id !== studentId));
@@ -860,7 +815,6 @@ const DoctorVisit = () => {
         const payload = {
             assigned_by_nurse_id: nurseId,
             visit_type: scheduleForm.visit_type,
-            purpose_other: scheduleForm.visit_type === 'Other' ? scheduleForm.purpose_other : undefined,
             doctor_id: scheduleForm.doctor_id,
             title: scheduleForm.title,
             announcement: scheduleForm.announcement,
@@ -894,8 +848,7 @@ const DoctorVisit = () => {
                     scheduled_date: '',
                     batch_start_time: '',
                     batch_end_time: '',
-                    slot_duration: '15',
-                    purpose_other: ''
+                    slot_duration: '15'
                 });
                 fetchAppointments();
             } else {
@@ -1099,7 +1052,7 @@ const DoctorVisit = () => {
     const [followUpSlot, setFollowUpSlot] = useState(null);
     const [referralModal, setReferralModal] = useState(null);
     const [historyModal, setHistoryModal] = useState(null);
-    const [walkInModal, setWalkInModal] = useState(null);
+    const [showWalkIn, setShowWalkIn] = useState(false);
     const [showDirect, setShowDirect] = useState(false);
     const [openMenuKey, setOpenMenuKey] = useState(null);
     const [doctorsWithSchedule, setDoctorsWithSchedule] = useState(null);
@@ -1129,12 +1082,6 @@ const DoctorVisit = () => {
     }, [fetchDoctorsWithSchedule, fetchAppointments]);
 
     const doctorsWithoutSchedule = doctorsWithSchedule ? doctors.filter(d => !doctorsWithSchedule.has(d.doctor_id)).length : 0;
-
-    const openAddDoctor = () => {
-        setDoctorForm({ doctor_id: '', first_name: '', last_name: '', specialization: '', contact_number: '' });
-        setIsEditDoctor(false);
-        setShowDoctorModal(true);
-    };
 
     // Open schedule windows of the chosen doctor/date, shown in the mass-schedule form
     useEffect(() => {
@@ -1391,6 +1338,7 @@ const DoctorVisit = () => {
                     sender_id: userId,
                     start_time: followUpSlot.start_time,
                     duration_min: followUpSlot.slot_minutes,
+                    schedule_id: followUpSlot.schedule_id,
                     notes: followUpModal.notes
                 })
             });
@@ -1467,48 +1415,15 @@ const DoctorVisit = () => {
         }
     };
 
-    // ---------- walk-in ----------
-    const openWalkIn = () => setWalkInModal({ student_id: '', studentFilter: '', doctor_id: '', visit_type: 'General Check Up', purpose_other: '', reason: '', duration_min: 15 });
-
-    const walkInDoctors = useMemo(() => {
-        const matcher = SPECIALIZATION_MATCH[walkInModal?.visit_type];
-        return matcher ? doctors.filter(d => matcher.test(d.specialization || '')) : doctors;
-    }, [doctors, walkInModal?.visit_type]);
-
-    const walkInStudents = useMemo(() => {
-        const q = (walkInModal?.studentFilter || '').trim().toLowerCase();
-        const list = q
-            ? students.filter(s => `${s.first_name} ${s.last_name} ${s.student_id}`.toLowerCase().includes(q))
-            : students;
-        return list.slice(0, 60);
-    }, [students, walkInModal?.studentFilter]);
-
-    const submitWalkIn = async (e) => {
-        e.preventDefault();
-        const f = walkInModal;
-        if (!f.student_id || !f.doctor_id || !f.reason.trim()) { showError('Student, doctor and reason are required.', 'Missing Details'); return; }
-        try {
-            const res = await fetch(`${API}/api/doctor-visits/walk-in`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ nurse_id: nurseId, student_id: f.student_id, doctor_id: f.doctor_id, visit_type: f.visit_type, purpose_other: f.visit_type === 'Other' ? f.purpose_other : undefined, reason: f.reason, duration_min: f.duration_min, sender_id: userId })
-            });
-            const data = await res.json();
-            if (data.success) {
-                setWalkInModal(null);
-                setActiveTab('ongoing');
-                setView({ kind: 'individual' });
-                setSearchTerm('');
-                const rows = await fetchRowsOfAppointment(data.appointment_id);
-                const row = rows.find(a => a.appointment_id === data.appointment_id);
-                if (row) openAssessmentModal(row);
-                else showSuccess(data.message, 'Walk-in Registered');
-            } else {
-                showError(data.message || 'Failed to register walk-in.', 'Walk-in Failed');
-            }
-        } catch (err) {
-            showError('Server error registering the walk-in.', 'Server Error');
-        }
+    // ---------- walk-in (the same dialog the doctor uses) ----------
+    const afterWalkIn = async (data) => {
+        setActiveTab('ongoing');
+        setView({ kind: 'individual' });
+        setSearchTerm('');
+        const rows = await fetchRowsOfAppointment(data.appointment_id);
+        const row = rows.find(a => a.appointment_id === data.appointment_id);
+        if (row) openAssessmentModal(row);
+        else fetchAppointments();
     };
 
     // ---------- printable documents ----------
@@ -1610,10 +1525,8 @@ const DoctorVisit = () => {
 
     const pendingBookingCount = folders.pending_requests || 0;
 
-    const eligibleDoctors = useMemo(() => {
-        const matcher = SPECIALIZATION_MATCH[scheduleForm.visit_type];
-        return matcher ? doctors.filter(d => matcher.test(d.specialization || '')) : doctors;
-    }, [doctors, scheduleForm.visit_type]);
+    // only the doctors who cover the purpose are listed
+    const eligibleDoctors = useMemo(() => doctorsFor(doctors, scheduleForm.visit_type), [doctors, scheduleForm.visit_type]);
 
     const groupedVisits = useMemo(() => buildVisitGroups(appointments, activeTab), [appointments, activeTab]);
 
@@ -1641,7 +1554,7 @@ const DoctorVisit = () => {
                     <button type="button" className="sti-btn-dv sti-btn-secondary-dv" onClick={() => setShowDirect(true)}>
                         <CalendarPlus size={18} /> Direct Appointment
                     </button>
-                    <button type="button" className="sti-btn-dv sti-btn-secondary-dv" onClick={openWalkIn}>
+                    <button type="button" className="sti-btn-dv sti-btn-secondary-dv" onClick={() => setShowWalkIn(true)}>
                         <Footprints size={18} /> Walk-in
                     </button>
                     <MoreMenu
@@ -1681,8 +1594,6 @@ const DoctorVisit = () => {
                     userId={userId}
                     initialTab={HUB_TAB_FOR_SECTION[section] || 'calendar'}
                     onChanged={refreshAfterScheduleChange}
-                    onAddDoctor={openAddDoctor}
-                    onEditDoctor={openEditDoctor}
                 />
             )}
 
@@ -1915,9 +1826,7 @@ const DoctorVisit = () => {
                                                 <td>
                                                     <strong>{appt.student_first_name} {appt.student_last_name}</strong>
                                                     <div className="sub-text-dv">ID: {appt.student_id}</div>
-                                                    {appt.booking_source && appt.booking_source !== 'Nurse' && (
-                                                        <div className="sub-text-dv">{appt.booking_source === 'Student' ? 'Booked by student' : 'Walk-in'}{appt.booking_reason ? ` - ${appt.booking_reason}` : ''}</div>
-                                                    )}
+                                                    <div className="sub-text-dv">{sourceLabel(appt.booking_source)}{appt.booking_reason ? ` - ${appt.booking_reason}` : ''}</div>
                                                     {appt.parent_appointment_id && <div className="sub-text-dv">Follow-up visit</div>}
                                                 </td>
                                                 <td>
@@ -2186,62 +2095,14 @@ const DoctorVisit = () => {
                 onCreated={() => { fetchAppointments(); }}
             />
 
-            {/* MODAL: WALK-IN VISIT */}
-            {walkInModal && (
-                <div className="modal-overlay-dv">
-                    <div className="modal-content-dv">
-                        <div className="modal-header-dv">
-                            <h3>Register Walk-in Visit</h3>
-                            <button className="close-btn-dv" onClick={() => setWalkInModal(null)}><X size={20} /></button>
-                        </div>
-                        <form onSubmit={submitWalkIn}>
-                            <p className="hint-dv">For a student who comes to the clinic without an appointment. The visit starts now and the student is checked in right away.</p>
-                            <div className="form-group-dv">
-                                <label>Student</label>
-                                <input type="text" placeholder="Search by name or student ID..." value={walkInModal.studentFilter} onChange={e => setWalkInModal({ ...walkInModal, studentFilter: e.target.value })} />
-                                <select required size={5} value={walkInModal.student_id} onChange={e => setWalkInModal({ ...walkInModal, student_id: e.target.value })} style={{ marginTop: '6px' }}>
-                                    {walkInStudents.map(s => (
-                                        <option key={s.student_id} value={s.student_id}>{s.last_name}, {s.first_name} ({s.student_id}) - {s.program_id || ''} {s.year_level || ''}{s.section || ''}</option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div className="form-row-dv">
-                                <div className="form-group-dv">
-                                    <label>Visit Type</label>
-                                    <select value={walkInModal.visit_type} onChange={e => setWalkInModal({ ...walkInModal, visit_type: e.target.value, doctor_id: '' })}>
-                                        {VISIT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                                    </select>
-                                </div>
-                                <div className="form-group-dv">
-                                    <label>Doctor</label>
-                                    <select required value={walkInModal.doctor_id} onChange={e => setWalkInModal({ ...walkInModal, doctor_id: e.target.value })}>
-                                        <option value="">-- Select Doctor --</option>
-                                        {walkInDoctors.map(d => <option key={d.doctor_id} value={d.doctor_id}>Dr. {d.first_name} {d.last_name} ({d.specialization})</option>)}
-                                    </select>
-                                </div>
-                            </div>
-                            {walkInModal.visit_type === 'Other' && (
-                                <div className="form-group-dv">
-                                    <label>Please specify the purpose</label>
-                                    <input type="text" required maxLength={150} placeholder="e.g. Counselling referral" value={walkInModal.purpose_other} onChange={e => setWalkInModal({ ...walkInModal, purpose_other: e.target.value })} />
-                                </div>
-                            )}
-                            <div className="form-group-dv">
-                                <label>Reason for the visit</label>
-                                <textarea rows="2" required maxLength={255} value={walkInModal.reason} onChange={e => setWalkInModal({ ...walkInModal, reason: e.target.value })} />
-                            </div>
-                            <div className="form-group-dv">
-                                <label>Expected length (minutes)</label>
-                                <input type="number" min="5" max="240" step="5" value={walkInModal.duration_min} onChange={e => setWalkInModal({ ...walkInModal, duration_min: e.target.value })} />
-                            </div>
-                            <div className="modal-footer-dv">
-                                <button type="button" className="sti-btn-dv sti-btn-light-dv" onClick={() => setWalkInModal(null)}>Cancel</button>
-                                <button type="submit" className="sti-btn-dv sti-btn-primary-dv">Register &amp; Document</button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            )}
+            <WalkInModal
+                isOpen={showWalkIn}
+                doctors={doctors}
+                creator={{ nurseId }}
+                userId={userId}
+                onClose={() => setShowWalkIn(false)}
+                onCreated={afterWalkIn}
+            />
 
             {/* MODAL: JSQR SCANNER WITH MANUAL ENTRY */}
 {showScannerModal && (
@@ -2283,40 +2144,6 @@ const DoctorVisit = () => {
     </div>
 )}
 
-            {/* MODAL 1: ADD / EDIT DOCTOR */}
-            {showDoctorModal && (
-                <div className="modal-overlay-dv">
-                    <div className="modal-content-dv">
-                        <div className="modal-header-dv">
-                            <h3>{isEditDoctor ? 'Edit Doctor Profile' : 'Add New Doctor Profile'}</h3>
-                            <button className="close-btn-dv" onClick={() => setShowDoctorModal(false)}><X size={20} /></button>
-                        </div>
-                        <form onSubmit={handleSaveDoctor}>
-                            <div className="form-group-dv">
-                                <label>First Name</label>
-                                <input type="text" required value={doctorForm.first_name} onChange={e => setDoctorForm({...doctorForm, first_name: e.target.value})} />
-                            </div>
-                            <div className="form-group-dv">
-                                <label>Last Name</label>
-                                <input type="text" required value={doctorForm.last_name} onChange={e => setDoctorForm({...doctorForm, last_name: e.target.value})} />
-                            </div>
-                            <div className="form-group-dv">
-                                <label>Specialization</label>
-                                <input type="text" placeholder="e.g. General Physician, Dentist" required value={doctorForm.specialization} onChange={e => setDoctorForm({...doctorForm, specialization: e.target.value})} />
-                            </div>
-                            <div className="form-group-dv">
-                                <label>Contact Number</label>
-                                <input type="text" required value={doctorForm.contact_number} onChange={e => setDoctorForm({...doctorForm, contact_number: e.target.value})} />
-                            </div>
-                            <div className="modal-footer-dv">
-                                <button type="button" className="sti-btn-dv sti-btn-light-dv" onClick={() => setShowDoctorModal(false)}>Cancel</button>
-                                <button type="submit" className="sti-btn-dv sti-btn-primary-dv">Save Doctor Profile</button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            )}
-
             {/* MODAL 2: BATCH SCHEDULE & APPOINTMENTS WITH TIME BLOCK ESTIMATIONS */}
             {showScheduleModal && (
                 <div className="modal-overlay-dv">
@@ -2337,31 +2164,22 @@ const DoctorVisit = () => {
                                     value={scheduleForm.visit_type}
                                     onChange={e => {
                                         const nextType = e.target.value;
-                                        const matcher = SPECIALIZATION_MATCH[nextType];
                                         setScheduleForm(prev => {
-                                            const currentDoctor = doctors.find(d => d.doctor_id === prev.doctor_id);
-                                            const keepDoctor = !matcher || (currentDoctor && matcher.test(currentDoctor.specialization || ''));
+                                            const keepDoctor = !prev.doctor_id || doctorsFor(doctors, nextType).some(d => d.doctor_id === prev.doctor_id);
                                             return { ...prev, visit_type: nextType, doctor_id: keepDoctor ? prev.doctor_id : '' };
                                         });
                                     }}
                                 >
-                                    {VISIT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                                    {visitTypes.map(t => <option key={t} value={t}>{t}</option>)}
                                 </select>
                             </div>
-
-                            {scheduleForm.visit_type === 'Other' && (
-                                <div className="form-group-dv">
-                                    <label>Please specify the purpose</label>
-                                    <input type="text" required maxLength={150} placeholder="e.g. Counselling referral" value={scheduleForm.purpose_other} onChange={e => setScheduleForm({ ...scheduleForm, purpose_other: e.target.value })} />
-                                </div>
-                            )}
 
                             <div className="form-group-dv">
                                 <label>Visit Title</label>
                                 <input
                                     type="text"
                                     required
-                                    placeholder={VISIT_TYPE_HINTS[scheduleForm.visit_type]}
+                                    placeholder={titleHint(scheduleForm.visit_type)}
                                     value={scheduleForm.title} 
                                     onChange={e => setScheduleForm({...scheduleForm, title: e.target.value})} 
                                 />
@@ -2386,9 +2204,9 @@ const DoctorVisit = () => {
                                             <option key={d.doctor_id} value={d.doctor_id}>Dr. {d.first_name} {d.last_name} ({d.specialization})</option>
                                         ))}
                                     </select>
-                                    {SPECIALIZATION_MATCH[scheduleForm.visit_type] && eligibleDoctors.length === 0 && (
+                                    {eligibleDoctors.length === 0 && (
                                         <small style={{ color: '#b45309', display: 'block', marginTop: '4px' }}>
-                                            No {scheduleForm.visit_type === 'Dental' ? 'dentist' : 'optometrist / ophthalmologist'} on file. Add one under Manage Doctor Profile first (set the specialization to {scheduleForm.visit_type === 'Dental' ? 'Dentist' : 'Optometrist'}).
+                                            No doctor covers {scheduleForm.visit_type}. Create a doctor account with the matching specialization under Manage Doctor Accounts first.
                                         </small>
                                     )}
                                 </div>

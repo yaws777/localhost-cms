@@ -4,12 +4,11 @@ import { useOutletContext } from 'react-router-dom';
 import { CalendarPlus, CalendarClock, MapPin, Stethoscope, X, Clock, Info, Megaphone, ClipboardPlus } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatTime, formatDateTime } from '../../utils/datetime';
-import { PURPOSES, visitLabel } from '../../utils/visitPurpose';
+import { visitLabel, sourceLabel } from '../../utils/visitPurpose';
+import { useSpecializations } from '../../hooks/useSpecializations';
 import '../../styles/student/BookCheckup.css';
 
 const API = 'http://localhost:3001';
-
-const BOOKABLE_TYPES = PURPOSES;
 
 const to12h = (t) => {
     if (!t) return '';
@@ -22,13 +21,15 @@ const statusLabel = (b) => {
     return b.status;
 };
 
-const EMPTY_REQUEST = { visit_type: 'General Check Up', purpose_other: '', reason: '', preferred_note: '' };
+const EMPTY_REQUEST = { visit_type: 'General Check Up', reason: '', preferred_note: '' };
 
 const statusClass = (status) => `status-${String(status).toLowerCase().replace(/\s+/g, '-')}-bc`;
 
 const BookCheckup = () => {
     const { studentId } = useOutletContext() || {};
     const { showAlert, showConfirm } = useAlert();
+    // the purposes come from the specializations: every specialization adds its own visit type
+    const { visitTypes } = useSpecializations();
 
     const [bookings, setBookings] = useState([]);
     const [occurrences, setOccurrences] = useState([]);
@@ -43,7 +44,6 @@ const BookCheckup = () => {
     const [selectedSlot, setSelectedSlot] = useState('');
     const [reason, setReason] = useState('');
     const [bookVisitType, setBookVisitType] = useState('General Check Up');
-    const [purposeOther, setPurposeOther] = useState('');
     const [submitting, setSubmitting] = useState(false);
 
     // consultation requests (waiting list) and the clinic's announcements
@@ -76,12 +76,11 @@ const BookCheckup = () => {
     const sendRequest = async (e) => {
         e.preventDefault();
         if (!requestForm.reason.trim()) { showAlert('Please tell the clinic why you need a consultation.', 'warning'); return; }
-        if (requestForm.visit_type === 'Other' && !requestForm.purpose_other.trim()) { showAlert('Please specify the purpose of your consultation.', 'warning'); return; }
         setSubmitting(true);
         try {
             const res = await fetch(`${API}/api/student/consultation-requests`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ student_id: studentId, ...requestForm, purpose_other: requestForm.visit_type === 'Other' ? requestForm.purpose_other : undefined })
+                body: JSON.stringify({ student_id: studentId, ...requestForm })
             });
             const data = await res.json();
             if (data.success) { showAlert(data.message, 'success'); setShowRequest(false); setRequestForm(EMPTY_REQUEST); fetchRequests(); }
@@ -130,7 +129,7 @@ const BookCheckup = () => {
         if (r.status === 'Denied') return r.review_reason ? `Denied: ${r.review_reason}` : 'The clinic denied this request.';
         if (r.status === 'Waiting List') {
             return r.notified_schedule_id && r.last_notified_at
-                ? `You are on the waiting list. Last notice: Dr. ${r.notified_doc_first_name} ${r.notified_doc_last_name}, ${formatDate(r.notified_date)}, ${to12h(r.notified_start_time)} - ${to12h(r.notified_end_time)}${r.notified_schedule_type === 'Walk-in' ? ' (walk-in, no booking needed)' : r.notified_schedule_type === 'Open Slot' ? ' (book a time below)' : ''}.`
+                ? `You are on the waiting list. Last notice: Dr. ${r.notified_doc_first_name} ${r.notified_doc_last_name}, ${formatDate(r.notified_date)}, ${to12h(r.notified_start_time)} - ${to12h(r.notified_end_time)} (book an open time slot below, or the clinic may appoint you a time).`
                 : 'Approved. You are on the waiting list and will be notified when a doctor has a schedule.';
         }
         if (r.status === 'Awaiting Reconfirmation') {
@@ -209,8 +208,8 @@ const BookCheckup = () => {
     const openBook = (occurrence) => {
         setPicker({ mode: 'book', occurrence });
         setReason('');
-        setBookVisitType(occurrence.visit_type === 'Any' ? 'General Check Up' : occurrence.visit_type);
-        setPurposeOther('');
+        // the student states the purpose; a block that is for one purpose only already fixes it, otherwise nothing is pre-selected
+        setBookVisitType(visitTypes.includes(occurrence.visit_type) ? occurrence.visit_type : '');
         loadSlots(occurrence);
     };
 
@@ -229,15 +228,15 @@ const BookCheckup = () => {
 
     const submit = async () => {
         if (!selectedSlot) { showAlert('Please pick a time slot.', 'warning'); return; }
+        if (picker.mode === 'book' && !bookVisitType) { showAlert('Please select the purpose of your consultation.', 'warning'); return; }
         if (picker.mode === 'book' && !reason.trim()) { showAlert('Please tell the clinic why you need a check-up.', 'warning'); return; }
-        if (picker.mode === 'book' && bookVisitType === 'Other' && !purposeOther.trim()) { showAlert('Please specify the purpose of your visit.', 'warning'); return; }
         setSubmitting(true);
         try {
             let res;
             if (picker.mode === 'book') {
                 res = await fetch(`${API}/api/student/doctor-bookings`, {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ student_id: studentId, schedule_id: picker.occurrence.schedule_id, slot_start: selectedSlot, reason, visit_type: bookVisitType, purpose_other: bookVisitType === 'Other' ? purposeOther : undefined })
+                    body: JSON.stringify({ student_id: studentId, schedule_id: picker.occurrence.schedule_id, slot_start: selectedSlot, reason, visit_type: bookVisitType })
                 });
             } else {
                 res = await fetch(`${API}/api/student/doctor-bookings/${picker.booking.appointment_id}/reschedule`, {
@@ -285,6 +284,7 @@ const BookCheckup = () => {
                 <span className={`status-pill-bc ${statusClass(b.status)}`}>{statusLabel(b)}</span>
             </div>
             <div className="booking-line-bc"><Stethoscope size={14} /> Dr. {b.doc_first_name} {b.doc_last_name} ({b.specialization})</div>
+            <div className="booking-line-bc"><Info size={14} /> {sourceLabel(b.booking_source)}</div>
             <div className="booking-line-bc"><Clock size={14} /> {formatDate(b.start_time)}, {formatTime(b.start_time)} - {formatTime(b.end_time)}</div>
             {b.location && <div className="booking-line-bc"><MapPin size={14} /> {b.location}</div>}
             {b.booking_reason && <div className="booking-reason-bc">Reason: {b.booking_reason}</div>}
@@ -366,16 +366,17 @@ const BookCheckup = () => {
                     <h3><Megaphone size={18} style={{ verticalAlign: 'middle' }} /> Clinic announcements</h3>
                     <div className="booking-grid-bc">
                         {announcements.slice(0, 8).map(a => (
-                            <div key={`${a.schedule_id}-${a.date}`} className={`booking-card-bc announce-bc ${a.schedule_type === 'Appointment' ? 'appointment-bc' : ''}`}>
+                            <div key={`${a.schedule_id}-${a.date}`} className="booking-card-bc announce-bc">
                                 <div className="booking-top-bc">
-                                    <strong>{a.schedule_type === 'Walk-in' ? 'Walk-in consultation' : 'Consultation by appointment'}</strong>
+                                    <strong>Walk-in consultation</strong>
                                     <span className="tag-bc">{a.visit_type === 'Any' ? 'Any visit' : a.visit_type}</span>
                                 </div>
                                 <div className="booking-line-bc"><Stethoscope size={14} /> {a.doctor_name} ({a.specialization})</div>
+                                {a.covered_visit_types && <div className="booking-line-bc"><Info size={14} /> Covers: {a.covered_visit_types.join(', ')}</div>}
                                 <div className="booking-line-bc"><Clock size={14} /> {formatDate(a.date)}, {to12h(a.start_time)} - {to12h(a.end_time)}</div>
                                 {a.location && <div className="booking-line-bc"><MapPin size={14} /> {a.location}</div>}
                                 <p className="request-help-bc">
-                                    {a.announcement || (a.schedule_type === 'Walk-in' ? 'No booking needed. Just come to the clinic during these hours.' : 'Send a consultation request. The clinic will appoint you a time.')}
+                                    {a.announcement || 'Walk-ins are accepted during these hours. Booked and appointed students are seen first, and you can also book an open time slot below.'}
                                 </p>
                                 {a.notes && <div className="muted-bc">{a.notes}</div>}
                             </div>
@@ -404,7 +405,7 @@ const BookCheckup = () => {
                 <div className="filters-bc">
                     <select value={visitType} onChange={e => setVisitType(e.target.value)} aria-label="Visit type">
                         <option value="">All visit types</option>
-                        {BOOKABLE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                        {visitTypes.map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
                     <select value={doctorFilter} onChange={e => setDoctorFilter(e.target.value)} aria-label="Doctor">
                         <option value="">All doctors</option>
@@ -426,6 +427,7 @@ const BookCheckup = () => {
                                 <div className="occurrence-date-bc">{formatDate(o.date)}</div>
                                 <div className="occurrence-doc-bc"><Stethoscope size={14} /> {o.doctor_name}</div>
                                 <div className="muted-bc">{o.specialization}</div>
+                                {o.covered_visit_types && <div className="muted-bc">Covers: {o.covered_visit_types.join(', ')}</div>}
                                 <div className="occurrence-meta-bc"><Clock size={14} /> {to12h(o.start_time)} - {to12h(o.end_time)}</div>
                                 {o.location && <div className="occurrence-meta-bc"><MapPin size={14} /> {o.location}</div>}
                                 <div className="occurrence-tags-bc">
@@ -454,15 +456,9 @@ const BookCheckup = () => {
                         <div className="field-bc">
                             <label>Purpose of the consultation</label>
                             <select value={requestForm.visit_type} onChange={e => setRequestForm({ ...requestForm, visit_type: e.target.value })}>
-                                {BOOKABLE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                                {visitTypes.map(t => <option key={t} value={t}>{t}</option>)}
                             </select>
                         </div>
-                        {requestForm.visit_type === 'Other' && (
-                            <div className="field-bc">
-                                <label>Please specify</label>
-                                <input type="text" maxLength={150} value={requestForm.purpose_other} onChange={e => setRequestForm({ ...requestForm, purpose_other: e.target.value })} placeholder="e.g. Counselling, wound check" />
-                            </div>
-                        )}
                         <div className="field-bc">
                             <label>Reason for the consultation</label>
                             <textarea rows="3" maxLength={255} required value={requestForm.reason} onChange={e => setRequestForm({ ...requestForm, reason: e.target.value })} placeholder="e.g. Toothache for 2 days, or I need a yearly check-up" />
@@ -530,20 +526,22 @@ const BookCheckup = () => {
 
                         {picker.mode === 'book' && (
                             <>
-                                {picker.occurrence.visit_type === 'Any' && (
-                                    <div className="field-bc">
-                                        <label>Purpose of the visit</label>
-                                        <select value={bookVisitType} onChange={e => setBookVisitType(e.target.value)}>
-                                            {BOOKABLE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                                        </select>
-                                    </div>
-                                )}
-                                {bookVisitType === 'Other' && (
-                                    <div className="field-bc">
-                                        <label>Please specify</label>
-                                        <input type="text" maxLength={150} value={purposeOther} onChange={e => setPurposeOther(e.target.value)} placeholder="e.g. Counselling, wound check" />
-                                    </div>
-                                )}
+                                <div className="field-bc">
+                                    <label>Purpose of the consultation</label>
+                                    <select
+                                        value={bookVisitType} required onChange={e => setBookVisitType(e.target.value)}
+                                        disabled={visitTypes.includes(picker.occurrence.visit_type)}
+                                    >
+                                        <option value="">-- Select the purpose --</option>
+                                        {visitTypes.filter(t => !picker.occurrence.covered_visit_types || picker.occurrence.covered_visit_types.includes(t)).map(t => <option key={t} value={t}>{t}</option>)}
+                                    </select>
+                                    {visitTypes.includes(picker.occurrence.visit_type) && (
+                                        <small className="muted-bc">This time block is for {picker.occurrence.visit_type} consultations only.</small>
+                                    )}
+                                </div>
+                                {picker.occurrence.allow_appointment ? (
+                                    <p className="request-help-bc">This session is also used by the clinic to appoint students from the waiting list.</p>
+                                ) : null}
                                 <div className="field-bc">
                                     <label>Reason for the check-up</label>
                                     <textarea rows="3" maxLength={255} value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. Toothache for 2 days, or yearly check-up" />
@@ -553,7 +551,7 @@ const BookCheckup = () => {
 
                         <div className="modal-footer-bc">
                             <button className="btn-bc btn-light-bc" onClick={closePicker}>Close</button>
-                            <button className="btn-bc btn-primary-bc" disabled={submitting || !selectedSlot} onClick={submit}>
+                            <button className="btn-bc btn-primary-bc" disabled={submitting || !selectedSlot || (picker.mode === 'book' && !bookVisitType)} onClick={submit}>
                                 {submitting ? 'Saving...' : picker.mode === 'book' ? (picker.occurrence.auto_confirm ? 'Book now' : 'Send request') : 'Move booking'}
                             </button>
                         </div>

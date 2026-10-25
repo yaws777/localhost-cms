@@ -5,7 +5,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Lightbulb, AlertTriangle, Info, CalendarPlus, RefreshCw, Users } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate } from '../../utils/datetime';
-import { API, dayLabel, to12h, typeLabel, SCHEDULE_TYPES } from '../../utils/scheduling';
+import { API, dayLabel, to12h } from '../../utils/scheduling';
 import '../../styles/nurse/DoctorVisits.css';
 import '../../styles/nurse/DoctorSchedule.css';
 import '../../styles/scheduling/Scheduling.css';
@@ -89,7 +89,6 @@ const SchedulingAssistant = ({ fixedDoctorId, refreshKey, onUseSuggestion, onGoT
                     <div>
                         <h4>
                             {s.visit_type} - {s.doctor_name}
-                            <span className={`type-badge-sc ${SCHEDULE_TYPES[s.schedule_type].cls}`}>{typeLabel(s.schedule_type)}</span>
                         </h4>
                         <strong style={{ fontSize: '0.88rem' }}>{dayLabel(s.date, { weekday: 'long', month: 'long', day: 'numeric' })}, {to12h(s.start_time)} - {to12h(s.end_time)}</strong>
                         <p>{s.reason}</p>

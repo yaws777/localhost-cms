@@ -1,14 +1,17 @@
 // doctorAppointments.jsx
-// The doctor's appointment lifecycle: review incoming requests, confirm / decline, reschedule, cancel (each with a reason),
-// check in and document the consultation, and see the reason log of every appointment.
+// The doctor's visits in three lists - upcoming (not started: reschedule / cancel), ongoing (happening now: document, extend, no-show)
+// and past (over: closed, only the consultation can still be documented) - plus the booking requests waiting for an answer.
+// Confirm / decline / reschedule / cancel each need a reason, and every appointment keeps its reason log.
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router-dom';
 import {
-    CalendarPlus, Footprints, Search, Check, X, CalendarClock, History, ClipboardPlus, UserX, Ban, CalendarX, Stethoscope
+    CalendarPlus, Footprints, Search, Check, X, CalendarClock, History, ClipboardPlus, UserX, Ban, CalendarX, Stethoscope, TimerReset
 } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatTime } from '../../utils/datetime';
-import { PURPOSES, visitLabel, sourceLabel, statusLabel, statusClass, localDateStr, fullName } from '../../utils/visitPurpose';
+import { visitLabel, sourceLabel, statusLabel, statusClass, fullName } from '../../utils/visitPurpose';
+import { useSpecializations } from '../../hooks/useSpecializations';
+import { ExtendAppointmentModal } from '../../components/scheduling/SessionModals';
 import {
     ReasonModal, RescheduleModal, LogModal, DirectAppointmentModal, WalkInModal
 } from '../../components/doctor/AppointmentModals';
@@ -20,11 +23,18 @@ const PAGE_SIZE = 10;
 
 const TABS = [
     ['requests', 'Requests'],
-    ['today', 'Today'],
-    ['upcoming', 'Upcoming'],
-    ['past', 'Past'],
-    ['all', 'All']
+    ['upcoming', 'Upcoming visits'],
+    ['ongoing', 'Ongoing visits'],
+    ['past', 'Past visits']
 ];
+
+const toMs = (value) => new Date(String(value).replace(' ', 'T')).getTime();
+// every visit is in exactly one of three phases
+const phaseOf = (a) => {
+    const now = Date.now();
+    if (toMs(a.end_time) <= now || ['Cancelled', 'Declined', 'No-Show'].includes(a.status)) return 'past';
+    return toMs(a.start_time) <= now ? 'ongoing' : 'upcoming';
+};
 
 const put = async (path, body) => {
     const res = await fetch(`${API}${path}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -36,6 +46,7 @@ const put = async (path, body) => {
 const DoctorAppointments = () => {
     const { doctorId, userId, refreshPending } = useOutletContext();
     const { showAlert } = useAlert();
+    const { visitTypes } = useSpecializations();
     const [params, setParams] = useSearchParams();
 
     const tab = TABS.some(([k]) => k === params.get('tab')) ? params.get('tab') : 'upcoming';
@@ -45,7 +56,7 @@ const DoctorAppointments = () => {
     const [total, setTotal] = useState(0);
     const [page, setPage] = useState(1);
     const [loading, setLoading] = useState(true);
-    const [counts, setCounts] = useState({ requests: 0, today: 0 });
+    const [counts, setCounts] = useState({ requests: 0, upcoming: 0, ongoing: 0, past: 0 });
     const [search, setSearch] = useState('');
     const [query, setQuery] = useState('');
     const [purpose, setPurpose] = useState('');
@@ -59,6 +70,7 @@ const DoctorAppointments = () => {
     const [consultTarget, setConsultTarget] = useState(null);
     const [showDirect, setShowDirect] = useState(false);
     const [showWalkIn, setShowWalkIn] = useState(false);
+    const [extendTarget, setExtendTarget] = useState(null);
     const reqSeq = useRef(0);
 
     const setTab = (key) => { const next = new URLSearchParams(params); next.set('tab', key); next.delete('focus'); setParams(next, { replace: true }); setPage(1); };
@@ -67,11 +79,9 @@ const DoctorAppointments = () => {
 
     const fetchCounts = useCallback(async () => {
         try {
-            const [r, t] = await Promise.all([
-                fetch(`${API}/api/doctor/${doctorId}/appointments?scope=requests&pageSize=1`).then((x) => x.json()),
-                fetch(`${API}/api/doctor/${doctorId}/appointments?scope=today&pageSize=1`).then((x) => x.json())
-            ]);
-            setCounts({ requests: r.success ? r.total : 0, today: t.success ? t.total : 0 });
+            const scopes = ['requests', 'upcoming', 'ongoing', 'past'];
+            const results = await Promise.all(scopes.map((scope) => fetch(`${API}/api/doctor/${doctorId}/appointments?scope=${scope}&pageSize=1`).then((x) => x.json())));
+            setCounts(Object.fromEntries(scopes.map((scope, i) => [scope, results[i].success ? results[i].total : 0])));
         } catch (e) { /* counts are cosmetic */ }
     }, [doctorId]);
 
@@ -132,9 +142,9 @@ const DoctorAppointments = () => {
     };
 
     const afterWalkIn = async (created) => {
-        setTab('today');
+        setTab('ongoing');
         try {
-            const res = await fetch(`${API}/api/doctor/${doctorId}/appointments?scope=today&pageSize=50`);
+            const res = await fetch(`${API}/api/doctor/${doctorId}/appointments?scope=ongoing&pageSize=50`);
             const data = await res.json();
             const row = data.appointments?.find((a) => a.appointment_id === created.appointment_id);
             if (row) setConsultTarget(row);
@@ -142,29 +152,33 @@ const DoctorAppointments = () => {
         refresh();
     };
 
-    const today = localDateStr();
-    const startedOrToday = (a) => String(a.start_time).slice(0, 10) <= today;
-
     const renderActions = (a) => {
         const buttons = [];
         const documented = !!a.assessment_id;
+        const phase = phaseOf(a);
 
         if (a.status === 'Waiting for Approval') {
-            buttons.push(<button key="ok" className="dp-btn dp-btn-success dp-btn-sm" onClick={() => setConfirmTarget(a)}><Check size={15} /> Confirm</button>);
-            buttons.push(<button key="mv" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => setMoveTarget(a)}><CalendarClock size={15} /> Reschedule</button>);
-            buttons.push(<button key="no" className="dp-btn dp-btn-danger dp-btn-sm" onClick={() => setDeclineTarget(a)}><X size={15} /> Decline</button>);
+            // an unanswered request closes when its slot starts, so only upcoming ones can still be answered
+            if (phase === 'upcoming') {
+                buttons.push(<button key="ok" className="dp-btn dp-btn-success dp-btn-sm" onClick={() => setConfirmTarget(a)}><Check size={15} /> Confirm</button>);
+                buttons.push(<button key="mv" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => setMoveTarget(a)}><CalendarClock size={15} /> Reschedule</button>);
+                buttons.push(<button key="no" className="dp-btn dp-btn-danger dp-btn-sm" onClick={() => setDeclineTarget(a)}><X size={15} /> Decline</button>);
+            }
         } else if (a.status === 'Scheduled') {
             if (['Absent', 'Excused'].includes(a.attendance_status)) {
                 buttons.push(<span key="att" className="dp-chip st-no-show">{a.attendance_status === 'Absent' ? 'No-show' : 'Excused'}</span>);
             } else if (documented) {
                 buttons.push(<button key="doc" className="dp-btn dp-btn-primary dp-btn-sm" onClick={() => setConsultTarget(a)}><ClipboardPlus size={15} /> View / edit consultation</button>);
-            } else if (startedOrToday(a)) {
+            } else if (phase === 'ongoing' || (phase === 'past' && a.attendance_status === 'Present')) {
                 buttons.push(<button key="doc" className="dp-btn dp-btn-primary dp-btn-sm" onClick={() => setConsultTarget(a)}><Stethoscope size={15} /> {a.attendance_status === 'Present' ? 'Document' : 'Start consultation'}</button>);
             }
-            if (a.attendance_status === 'Pending' && !documented) {
+            if (phase === 'upcoming') {
                 buttons.push(<button key="mv" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => setMoveTarget(a)}><CalendarClock size={15} /> Reschedule</button>);
-                if (startedOrToday(a)) buttons.push(<button key="ns" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => markNoShow(a)}><UserX size={15} /> No-show</button>);
                 buttons.push(<button key="cx" className="dp-btn dp-btn-danger dp-btn-sm" onClick={() => setCancelTarget(a)}><Ban size={15} /> Cancel</button>);
+            }
+            if (phase === 'ongoing' && !documented) {
+                if (a.attendance_status === 'Pending') buttons.push(<button key="ns" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => markNoShow(a)}><UserX size={15} /> No-show</button>);
+                buttons.push(<button key="ex" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => setExtendTarget({ ...a, student_name: fullName(a.student_first_name, a.student_last_name) })}><TimerReset size={15} /> Extend</button>);
             }
         } else if (a.status === 'Completed' && documented) {
             buttons.push(<button key="doc" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => setConsultTarget(a)}><ClipboardPlus size={15} /> View / edit consultation</button>);
@@ -180,7 +194,7 @@ const DoctorAppointments = () => {
             <div className="dp-page-head">
                 <div>
                     <h2>Appointments</h2>
-                    <p>Review requests, confirm, reschedule or cancel with a reason, and document each consultation.</p>
+                    <p>Your upcoming, ongoing and past visits. Past visits are closed: they can no longer be booked, rescheduled or cancelled.</p>
                 </div>
                 <div className="dp-actions">
                     <button className="dp-btn dp-btn-primary" onClick={() => setShowDirect(true)}><CalendarPlus size={17} /> Direct appointment</button>
@@ -192,7 +206,7 @@ const DoctorAppointments = () => {
                 {TABS.map(([key, label]) => (
                     <button key={key} role="tab" aria-selected={tab === key} className={`dp-tab ${tab === key ? 'active' : ''}`} onClick={() => setTab(key)}>
                         {label}
-                        {(key === 'requests' || key === 'today') && counts[key] > 0 && <span className="n">{counts[key]}</span>}
+                        {counts[key] > 0 && <span className="n">{counts[key]}</span>}
                     </button>
                 ))}
             </div>
@@ -204,7 +218,7 @@ const DoctorAppointments = () => {
                 </div>
                 <select className="dp-select" style={{ width: 'auto', minWidth: 170 }} value={purpose} onChange={(e) => { setPurpose(e.target.value); setPage(1); }} aria-label="Purpose">
                     <option value="">All purposes</option>
-                    {PURPOSES.map((p) => <option key={p} value={p}>{p}</option>)}
+                    {visitTypes.map((p) => <option key={p} value={p}>{p}</option>)}
                     <option value="Follow-up">Follow-up</option>
                 </select>
                 <input className="dp-input" style={{ width: 'auto' }} type="date" value={day} onChange={(e) => { setDay(e.target.value); setPage(1); }} aria-label="Date" />
@@ -216,7 +230,7 @@ const DoctorAppointments = () => {
             ) : items.length === 0 ? (
                 <div className="dp-card dp-empty">
                     <CalendarX size={36} />
-                    <p>{tab === 'requests' ? 'No booking requests are waiting for you.' : 'No appointments to show here.'}</p>
+                    <p>{tab === 'requests' ? 'No booking requests are waiting for you.' : `No ${tab} visits to show here.`}</p>
                 </div>
             ) : (
                 <div className="dp-list">
@@ -290,6 +304,7 @@ const DoctorAppointments = () => {
             />
             {moveTarget && <RescheduleModal key={moveTarget.appointment_id} appt={moveTarget} onSubmit={reschedule} onClose={() => setMoveTarget(null)} />}
             <LogModal appt={logTarget} onClose={() => setLogTarget(null)} />
+            <ExtendAppointmentModal appt={extendTarget} creator={{ doctorId }} userId={userId} onClose={() => setExtendTarget(null)} onDone={refresh} />
             {consultTarget && <ConsultationModal key={consultTarget.appointment_id} appt={consultTarget} doctorId={doctorId} userId={userId} onClose={() => setConsultTarget(null)} onSaved={refresh} />}
 
             <DirectAppointmentModal isOpen={showDirect} fixedDoctorId={doctorId} creator={{ doctorId }} userId={userId} onClose={() => setShowDirect(false)} onCreated={refresh} />

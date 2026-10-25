@@ -88,15 +88,6 @@ const formatCeilAvg = (val) => {
   return <strong>{ceilVal}</strong>;
 };
 
-// Rounded-up value with the exact one in brackets, e.g. "2(1.1)"; just "2" when the exact value is already whole
-const formatCeilWithRaw = (ceilVal, rawVal) => {
-  const raw = Number(rawVal);
-  if (!Number.isFinite(raw) || Number.isInteger(raw)) return String(ceilVal);
-  let shown = parseFloat(raw.toFixed(2));
-  if (Number.isInteger(shown)) shown = parseFloat(raw.toFixed(3));
-  return `${ceilVal}(${shown})`;
-};
-
 const getCurrentMonthString = () => {
   const now = new Date();
   const year = now.getFullYear();
@@ -429,14 +420,15 @@ const ForecastTooltip = ({ active, payload }) => {
     <div className="custom-chart-tooltip-nd predictive-tooltip-width-nd">
       <h4 className="tooltip-header-nd">Day +{day.dayOffset} · {formatDateBase(day.targetDate)} ({day.dayOfWeek})</h4>
       <ul className="tooltip-items-list-standard-nd">
-        <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Predicted demand</span><span className="tooltip-item-value-nd" style={{ color: '#F97316' }}>{formatCeilWithRaw(p1.predictedDemand, p1.rawDemand)} {pluralizeUnit(day.unit, p1.predictedDemand)}</span></li>
+        <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Predicted demand</span><span className="tooltip-item-value-nd" style={{ color: '#F97316' }}>{fmt(p1.predictedDemand)} {pluralizeUnit(day.unit, fmt(p1.predictedDemand))}</span></li>
         <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Stock left after this day</span><span className="tooltip-item-value-nd" style={{ color: '#0250A3' }}>{day.remainingStock} {pluralizeUnit(day.unit, day.remainingStock)}</span></li>
         <li className="tooltip-item-nd tooltip-item-note-nd"><span className="tooltip-item-name-nd">Stock − predicted demand</span><span className="tooltip-item-value-nd">{stockLeftComputation}</span></li>
         <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Window sum</span><span className="tooltip-item-value-nd">{fmt(p1.activeWindowSum)} {pluralizeUnit(day.unit, fmt(p1.activeWindowSum))}</span></li>
         <li className="tooltip-item-nd tooltip-item-note-nd"><span className="tooltip-item-name-nd">Dates covered</span><span className="tooltip-item-value-nd">{activeWindowRange}</span></li>
         <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Avg daily demand</span><span className="tooltip-item-value-nd">{fmt(p1.activeADD)} {pluralizeUnit(day.unit, fmt(p1.activeADD))}/day</span></li>
-        <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Day-of-week index</span><span className="tooltip-item-value-nd">×{p1.seasonalityIndex}</span></li>
-        <li className="tooltip-item-nd tooltip-item-note-nd"><span className="tooltip-item-name-nd">Rounded up from</span><span className="tooltip-item-value-nd">{fmt(p1.activeADD)} × {p1.seasonalityIndex} = {parseFloat(Number(p1.rawDemand).toFixed(3))}</span></li>
+        <li className="tooltip-item-nd tooltip-item-note-nd"><span className="tooltip-item-name-nd">Sundays excluded</span><span className="tooltip-item-value-nd">{fmt(p1.activeWindowSum)} ÷ {p1.activeDays} days</span></li>
+        <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Day-of-week index</span><span className="tooltip-item-value-nd">×{parseFloat(Number(p1.seasonalityIndex).toFixed(2))}</span></li>
+        <li className="tooltip-item-nd tooltip-item-note-nd"><span className="tooltip-item-name-nd">Avg daily demand × index</span><span className="tooltip-item-value-nd">{fmt(p1.activeADD)} × {parseFloat(Number(p1.seasonalityIndex).toFixed(2))} = {parseFloat(Number(p1.rawDemand).toFixed(3))}</span></li>
         <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Dropped oldest</span><span className="tooltip-item-value-nd">{fmt(p2.droppedOldestValue)} {pluralizeUnit(day.unit, fmt(p2.droppedOldestValue))}</span></li>
         <li className="tooltip-item-nd tooltip-item-note-nd"><span className="tooltip-item-name-nd">Date dropped</span><span className="tooltip-item-value-nd">{formatDateBase(oldestDate)}</span></li>
         <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">New window sum</span><span className="tooltip-item-value-nd">{fmt(p2.newWindowSum)} {pluralizeUnit(day.unit, fmt(p2.newWindowSum))}</span></li>
@@ -1366,14 +1358,18 @@ const NurseDashboard = () => {
       packageStrength: selectedForecastMedicine.packageStrength
     };
   });
-  // Total is ceiled once on the summed dispense units (not per day) so small daily amounts don't inflate it
-  const forecastTotalBase = parseFloat(forecastChartData.reduce((sum, day) => sum + day.predictedDemand, 0).toFixed(3));
+  // Daily demand stays fractional; the total is rounded up once on the summed dispense units (done by the backend,
+  // at the unit's precision) so small daily amounts don't inflate it
+  const forecastDailySum = parseFloat(forecastChartData.reduce((sum, day) => sum + day.predictedDemand, 0).toFixed(3));
+  const forecastTotalBase = selectedForecastMedicine?.forecastTotalUnits ?? forecastDailySum;
   const forecastTotalRaw = forecastTotalBase / forecastContainerStrength;
   const forecastTotal = Math.ceil(parseFloat(forecastTotalRaw.toFixed(6)));
   const forecastDosageForm = selectedForecastMedicine?.dosageForm || 'unit';
   // Stock vs demand: difference = stock - 30-day demand (negative = shortfall)
-  // Average daily demand is shown exact (total / days) so that average x days always equals the 30-day total on the card
-  const forecastAvgDaily = forecastTotalBase / (forecastChartData.length || 1);
+  // Average daily demand is shown exact (total / open days) so that average x open days always equals the 30-day total on the card.
+  // Sundays are closed (forecast 0), so they are left out of the divisor.
+  const forecastOpenDays = forecastChartData.filter(day => day.dayOfWeek !== 'Sun').length;
+  const forecastAvgDaily = forecastTotalBase / (forecastOpenDays || 1);
   const forecastDifference = parseFloat((forecastStockBase - forecastTotalBase).toFixed(3));
   const forecastStockOutDay = forecastChartData.find(day => day.remainingStock <= 0);
   // Days of stock left: walk the daily forecast until the stock is used up. On the stock-out day (day k) the stock
@@ -2002,7 +1998,7 @@ const NurseDashboard = () => {
               <div className="forecast-compare-item-nd">
                 <span className="forecast-compare-label-nd">Average daily demand</span>
                 <strong>{parseFloat(forecastAvgDaily.toFixed(2))} {pluralizeUnit(selectedForecastMedicine.unitOfMeasure, forecastAvgDaily)}/day</strong>
-                <span className="forecast-compare-sub-nd">{forecastTotalBase} {pluralizeUnit(selectedForecastMedicine.unitOfMeasure, forecastTotalBase)} ÷ {forecastChartData.length} {pluralize('day', forecastChartData.length)}</span>
+                <span className="forecast-compare-sub-nd">{forecastTotalBase} {pluralizeUnit(selectedForecastMedicine.unitOfMeasure, forecastTotalBase)} ÷ {forecastOpenDays} {pluralize('day', forecastOpenDays)} (Sundays excluded)</span>
               </div>
               <div className="forecast-compare-item-nd">
                 <span className="forecast-compare-label-nd">Stock minus 30-day demand</span>

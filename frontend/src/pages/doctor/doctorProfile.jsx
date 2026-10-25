@@ -80,7 +80,7 @@ const DoctorProfile = () => {
             <div className="dp-page-head">
                 <div>
                     <h2>My Profile</h2>
-                    <p>Your account details and the check-ups you offer. The nurse manages your name and specialization.</p>
+                    <p>Your account details and the consultations you cover. The nurse manages your name and specialization.</p>
                 </div>
             </div>
 
@@ -96,12 +96,13 @@ const DoctorProfile = () => {
                     <dl className="dp-kv">
                         <dt>Username</dt><dd>{doctor.username}</dd>
                         <dt>Doctor ID</dt><dd>{doctor.doctor_id}</dd>
+                        <dt>Specialization</dt><dd>{doctor.specialization || '-'}</dd>
                         <dt>Phone</dt><dd>{doctor.contact_number || '-'}</dd>
                     </dl>
                 </section>
 
                 <section className="dp-card" style={{ margin: 0, gridColumn: '1 / -1' }}>
-                    <h3 className="dp-card-title"><span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Stethoscope size={18} /> Check-ups I offer</span></h3>
+                    <h3 className="dp-card-title"><span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Stethoscope size={18} /> Consultations I cover</span></h3>
                     <DoctorServices doctor={doctor} onSaved={() => refreshDoctor()} />
                 </section>
 

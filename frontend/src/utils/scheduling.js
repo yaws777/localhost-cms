@@ -3,78 +3,47 @@
 
 export const API = 'http://localhost:3001';
 
-// The three ways a consultation session can be scheduled
-export const SCHEDULE_TYPES = {
-    'Appointment': {
-        label: 'Appointment',
-        short: 'Staff appoint students',
-        text: 'The nurse or doctor picks the students (usually from the waiting list) and gives each a time. Walk-ins are still accepted, but appointments come first.',
-        cls: 'type-appointment-sc'
-    },
-    'Open Slot': {
-        label: 'Open slot booking',
-        short: 'Students book a time block',
-        text: 'Students pick a time block themselves. A booking waits for approval from the nurse or doctor, unless you turn on auto-confirm. Walk-ins are still accepted.',
-        cls: 'type-open-sc'
-    },
-    'Walk-in': {
-        label: 'Pure walk-in',
-        short: 'Announcement only',
-        text: 'Just an announcement that the doctor is available. Students come in without a booking and the time can still be extended.',
-        cls: 'type-walkin-sc'
-    }
+// No schedule type is picked: every schedule is a hybrid (staff can appoint into it, students can book its open time slots).
+// The only switch is allow_walk_in. What is categorized is HOW A STUDENT GOT SCHEDULED, from doctor_appointments.booking_source:
+//   Nurse | Doctor -> by appointment, Student -> by open time slot, Walk-in -> walk-in.
+export const SCHEDULING_WAYS = {
+    appointment: { label: 'By appointment', short: 'Appointment', cls: 'type-appointment-sc' },
+    open_slot: { label: 'By open time slot', short: 'Open slot', cls: 'type-open-sc' },
+    walk_in: { label: 'Walk-in', short: 'Walk-in', cls: 'type-walkin-sc' }
 };
-export const SCHEDULE_TYPE_KEYS = Object.keys(SCHEDULE_TYPES);
-export const typeLabel = (type) => (SCHEDULE_TYPES[type] ? SCHEDULE_TYPES[type].label : type || 'Open slot booking');
+export const SCHEDULING_WAY_KEYS = Object.keys(SCHEDULING_WAYS);
+export const wayOf = (bookingSource) => (bookingSource === 'Student' ? 'open_slot' : bookingSource === 'Walk-in' ? 'walk_in' : 'appointment');
+
+const on = (v) => v === true || Number(v) === 1;
+export const hasWalkIn = (s) => on(s && s.allow_walk_in);
+// every schedule has time slots now; kept so older call sites read the same
+export const hasSlots = () => true;
 
 export const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 export const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
-// ---- who can take which check-up (mirrors the server; the server is the one that enforces it) ----
-const SPECIALIZATION_RULES = {
-    Dental: /dent/i,
-    Vision: /optom|ophthal|eye|vision/i
-};
+// ---- who covers which consultation (the server sends allowed_visit_types / covered_visit_types and is the one that enforces it) ----
+// allowed: what the doctor's specialization can take (General Check Up + the visit type the specialization adds)
+// covered: what the doctor chose to take from that (everything allowed until they narrow it down in My Profile)
+export const GENERAL_VISIT_TYPE = 'General Check Up';
+const SYSTEM_VISIT_TYPES = ['Follow-up', 'Referral'];
 
-const parseServices = (value) => {
-    if (Array.isArray(value)) return value;
-    if (typeof value === 'string') {
-        try { const list = JSON.parse(value); return Array.isArray(list) ? list : null; } catch (e) { return null; }
-    }
-    return null;
-};
-
-export const servicesOf = (doctor) => parseServices(doctor && doctor.services_offered);
-
-export const specializationFits = (doctor, visitType) => {
-    const rule = SPECIALIZATION_RULES[visitType];
-    return !rule || rule.test((doctor && doctor.specialization) || '');
-};
+export const allowedTypes = (doctor) => (doctor && doctor.allowed_visit_types) || [GENERAL_VISIT_TYPE];
+export const coveredTypes = (doctor) => (doctor && doctor.covered_visit_types) || [GENERAL_VISIT_TYPE];
 
 // Why a doctor cannot take a visit type, or '' when they can
 export const visitRefusal = (doctor, visitType) => {
-    if (!doctor || !visitType || visitType === 'Any') return '';
-    if (!specializationFits(doctor, visitType)) {
-        return visitType === 'Dental' ? 'Only a dentist can take Dental visits.' : 'Only an optometrist or ophthalmologist can take Vision visits.';
-    }
-    if (visitType === 'Follow-up' || visitType === 'Referral') return '';
-    const services = servicesOf(doctor);
-    if (services && services.length > 0 && !services.includes(visitType)) return `This doctor does not offer ${visitType} check-ups.`;
+    if (!doctor || !visitType || visitType === 'Any' || SYSTEM_VISIT_TYPES.includes(visitType)) return '';
+    if (!allowedTypes(doctor).includes(visitType)) return `${doctor.specialization || 'This doctor'} cannot take ${visitType} consultations.`;
+    if (!coveredTypes(doctor).includes(visitType)) return `This doctor does not cover ${visitType} consultations.`;
     return '';
 };
 
 export const doctorOffers = (doctor, visitType) => !visitRefusal(doctor, visitType);
 export const eligibleDoctors = (doctors, visitType) => doctors.filter((d) => doctorOffers(d, visitType));
 
-// What a doctor covers, in words (the services list, or what the specialization allows)
-export const coverageLabel = (doctor) => {
-    const services = servicesOf(doctor);
-    if (services && services.length > 0) return services.join(', ');
-    const parts = ['General Check Up', 'Other'];
-    if (specializationFits(doctor, 'Dental')) parts.splice(1, 0, 'Dental');
-    if (specializationFits(doctor, 'Vision')) parts.splice(parts.length - 1, 0, 'Vision');
-    return parts.join(', ');
-};
+// What a doctor covers, in words
+export const coverageLabel = (doctor) => coveredTypes(doctor).join(', ');
 
 // ---- consultation request statuses ----
 export const REQUEST_STATUS_CLASS = {
@@ -127,4 +96,12 @@ export const upcomingDates = (schedule, count = 8) => {
         if (dayOfWeek(d) === Number(schedule.day_of_week)) dates.push(d);
     }
     return dates;
+};
+
+// Has this session day already finished? Past sessions are closed for booking, appointing and walk-ins.
+export const sessionEnded = (schedule, dateStr) => {
+    if (dateStr < todayKey()) return true;
+    if (dateStr > todayKey()) return false;
+    const now = new Date();
+    return `${pad2(now.getHours())}:${pad2(now.getMinutes())}` >= hhmm(schedule.end_time);
 };

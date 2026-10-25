@@ -349,6 +349,9 @@ export default function HealthScreening() {
     });
   };
 
+  // the list refresh helpers are defined further down; the scan handler reaches them through this ref
+  const scanActionsRef = useRef({});
+
   // Centralized scan handler for both JSQR and manual entry
   const processScannedStudentId = useCallback(async (studentId, force = false) => {
     if (!studentId || !activeSchedule) return;
@@ -363,8 +366,8 @@ export default function HealthScreening() {
 
       if (res.ok) {
         setScanFeedback({ message: data.message || `Scanned Student ID: ${studentId}`, type: 'success' });
-        openViewModal(activeSchedule);
-        fetchSchedules();
+        scanActionsRef.current.openViewModal(activeSchedule);
+        scanActionsRef.current.fetchSchedules();
       } else if (res.status === 409 && data.outside_window) {
         // outside the scheduled time: the nurse decides
         showConfirm(
@@ -1138,6 +1141,8 @@ export default function HealthScreening() {
       showAlert(err.message || 'Could not load the participant list.', 'Error', 'error');
     }
   };
+
+  scanActionsRef.current = { fetchSchedules, openViewModal };
 
   const handleManualScanSubmit = (e) => {
     e.preventDefault();

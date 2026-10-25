@@ -26,6 +26,7 @@ import DoctorLayout from './layout/doctorLayout';
 import DoctorDashboard from './pages/doctor/doctorDashboard';
 import DoctorAppointments from './pages/doctor/doctorAppointments';
 import DoctorSchedule from './pages/doctor/doctorSchedule';
+import DoctorChat from './pages/doctor/doctorChat';
 import DoctorConsultations from './pages/doctor/doctorConsultations';
 import DoctorPatients from './pages/doctor/doctorPatients';
 import DoctorTemplates from './pages/doctor/doctorTemplates';
@@ -99,6 +100,7 @@ root.render(
             <Route path="/DoctorDashboard" element={<DoctorDashboard />} />
             <Route path="/DoctorAppointments" element={<DoctorAppointments />} />
             <Route path="/DoctorMySchedule" element={<DoctorSchedule />} />
+            <Route path="/DoctorChat" element={<DoctorChat />} />
             <Route path="/DoctorConsultations" element={<DoctorConsultations />} />
             <Route path="/DoctorPatients" element={<DoctorPatients />} />
             <Route path="/DoctorTemplates" element={<DoctorTemplates />} />
