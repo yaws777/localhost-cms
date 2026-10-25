@@ -265,7 +265,7 @@ body {
 
 .status-completed-ccr, .status-done-ccr, .status-approved-ccr, .status-issued-ccr { background-color: #d1fae5; color: #065f46; }
 .status-submitted-ccr { background-color: #e0f2fe; color: #075985; }
-.status-pending-ccr, .status-scheduled-ccr, .status-under-review-ccr, .status-pending-approval-ccr { background-color: #fef3c7; color: #92400e; }
+.status-pending-ccr, .status-scheduled-ccr, .status-under-review-ccr, .status-pending-approval-ccr, .status-waiting-for-approval-ccr { background-color: #fef3c7; color: #92400e; }
 .status-cancelled-ccr, .status-rejected-ccr, .status-declined-ccr, .status-missing-ccr, .status-missed-ccr { background-color: #fee2e2; color: #991b1b; }
 .status-resubmit-ccr { background-color: #ffedd5; color: #c2410c; }
 .status-submitted-late-ccr { background-color: #fef08a; color: #854d0e; }

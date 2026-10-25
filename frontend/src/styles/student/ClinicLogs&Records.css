@@ -275,7 +275,7 @@ body {
 }
 
 .status-pending-clr, 
-.status-pending-approval-clr, 
+.status-pending-approval-clr, .status-waiting-for-approval-clr,
 .status-scheduled-clr {
   background-color: #fef9c3;
   color: #a16207;

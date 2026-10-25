@@ -49,6 +49,8 @@ const isUnread = (n) => !(n.is_read === 1 || n.is_read === '1' || n.is_read === 
 
 const notificationRoute = (n) => {
     const type = String(n.type || '').toUpperCase();
+    if (type === 'CONSULTATION_REQUEST' || type === 'CONSULTATION_RECONFIRMED') return '/DoctorMySchedule?tab=waiting';
+    if (type === 'SCHEDULE_UPDATE') return '/DoctorMySchedule';
     if (type.includes('BOOKING_REQUEST')) return '/DoctorAppointments?tab=requests';
     if (type.includes('ASSESSMENT')) return '/DoctorConsultations';
     if (type.includes('BOOKING') || type.includes('APPOINTMENT') || type.includes('BATCH')) return '/DoctorAppointments';

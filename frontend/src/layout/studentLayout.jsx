@@ -274,7 +274,7 @@ const StudentLayout = () => {
 
         if (type.includes('message') || msg.includes('message') || title.includes('message')) {
             setIsMessageOpen(true);
-        } else if (type.includes('booking') || type.includes('appointment')) {
+        } else if (type.includes('booking') || type.includes('appointment') || type.startsWith('consultation_')) {
             navigate('/BookCheckup');
         } else if (type.includes('requirement') || msg.includes('requirement') || title.includes('requirement')) {
             navigate('/MyRequirements'); 

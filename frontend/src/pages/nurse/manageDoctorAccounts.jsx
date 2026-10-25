@@ -8,6 +8,8 @@ import Modal from '../../components/common/Modal';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate } from '../../utils/datetime';
 import { fullName, initials } from '../../utils/visitPurpose';
+import { coverageLabel } from '../../utils/scheduling';
+import DoctorServices from '../../components/scheduling/DoctorServices';
 import { useDpAutoLabels } from '../../utils/autoLabels';
 import '../../styles/doctor/DoctorLayout.css';
 
@@ -173,6 +175,7 @@ const ManageDoctorAccounts = () => {
                             <div className="dp-appt-main">
                                 <h4>Dr. {fullName(d.first_name, d.last_name)} <span className="dp-hint">{d.doctor_id}</span></h4>
                                 <div className="dp-appt-sub">{d.specialization || 'No specialization'}{d.has_account ? ` - ${d.username}` : ''}</div>
+                                <div className="dp-appt-sub">Offers: {coverageLabel(d)}{d.services_notes ? ` - ${d.services_notes}` : ''}</div>
                                 <div className="dp-appt-chips">
                                     {!d.has_account ? <span className="dp-chip st-pending-approval">No login yet</span>
                                         : d.is_active ? <span className="dp-chip st-completed">Account active</span> : <span className="dp-chip st-cancelled">Account inactive</span>}
@@ -267,6 +270,13 @@ const ManageDoctorAccounts = () => {
                             <button type="submit" className="dp-btn dp-btn-primary" disabled={busy}>{busy ? 'Saving...' : 'Save'}</button>
                         </div>
                     </form>
+                )}
+                {editing && (
+                    <div style={{ borderTop: '1px solid var(--card-border)', marginTop: 16, paddingTop: 14 }}>
+                        <h4 style={{ margin: '0 0 8px' }}>Check-ups offered</h4>
+                        <p className="dp-hint" style={{ marginTop: 0 }}>Save the name and specialization first. Dental needs a dentist and Vision needs an optometrist or ophthalmologist.</p>
+                        <DoctorServices doctor={editing} compact onSaved={() => load()} />
+                    </div>
                 )}
             </Modal>
 

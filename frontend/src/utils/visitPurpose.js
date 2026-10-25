@@ -16,7 +16,7 @@ export const sourceLabel = (source) => {
     return 'Direct appointment';
 };
 
-export const statusLabel = (status) => (status === 'Pending Approval' ? 'Awaiting approval' : status);
+export const statusLabel = (status) => status || '';
 
 export const statusClass = (status) => `st-${String(status || '').toLowerCase().replace(/[^a-z]+/g, '-')}`;
 

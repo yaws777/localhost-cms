@@ -1,0 +1,374 @@
+/* ==========================================================================
+   CONSULTATION SCHEDULING (-sc): the one scheduling screen the nurse and the doctor share
+   (calendar, schedules, waiting list, assistant). Builds on the -dv / -ds styles.
+   ========================================================================== */
+
+.hub-sc { display: flex; flex-direction: column; gap: 16px; }
+
+.hub-tabs-sc {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    border-bottom: 1px solid var(--sti-border);
+    padding-bottom: 0;
+}
+
+.hub-tab-sc {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border: none;
+    background: transparent;
+    color: var(--sti-text-muted);
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -1px;
+}
+
+.hub-tab-sc:hover { color: var(--text-primary); }
+.hub-tab-sc.active-sc { color: var(--sti-blue); border-bottom-color: var(--sti-blue); }
+
+.tab-badge-sc {
+    background: #ef4444;
+    color: #fff;
+    border-radius: 999px;
+    padding: 1px 7px;
+    font-size: 0.7rem;
+    font-weight: 700;
+}
+
+.tab-badge-sc.soft-sc { background: var(--sti-border); color: var(--text-primary); }
+
+/* ---- schedule type badges ---- */
+.type-badge-sc {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 0.74rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.type-appointment-sc { background: #dbeafe; color: #1e40af; }
+.type-open-sc { background: #dcfce7; color: #166534; }
+.type-walkin-sc { background: #fef3c7; color: #92400e; }
+
+:root[data-theme="dark"] .type-appointment-sc { background: #1e3a8a; color: #bfdbfe; }
+:root[data-theme="dark"] .type-open-sc { background: #14532d; color: #bbf7d0; }
+:root[data-theme="dark"] .type-walkin-sc { background: #78350f; color: #fde68a; }
+
+/* ---- schedule type picker in the schedule form ---- */
+.type-picker-sc { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+
+.type-option-sc {
+    text-align: left;
+    padding: 10px 12px;
+    border: 2px solid var(--sti-border);
+    border-radius: 10px;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.type-option-sc strong { font-size: 0.88rem; }
+.type-option-sc small { font-size: 0.74rem; color: var(--sti-text-muted); line-height: 1.3; }
+.type-option-sc.selected-sc { border-color: var(--sti-blue); background: var(--sti-light-bg); }
+
+@media (max-width: 640px) {
+    .type-picker-sc { grid-template-columns: 1fr; }
+}
+
+/* ---- calendar ---- */
+.cal-layout-sc { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr); gap: 16px; align-items: start; }
+
+@media (max-width: 960px) {
+    .cal-layout-sc { grid-template-columns: 1fr; }
+}
+
+.cal-card-sc {
+    background: var(--bg-card);
+    border: 1px solid var(--sti-border);
+    border-radius: 10px;
+    padding: 14px;
+}
+
+.cal-head-sc { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+.cal-head-sc h3 { margin: 0; font-size: 1.05rem; flex: 1; min-width: 140px; }
+.cal-nav-sc { display: inline-flex; gap: 6px; }
+
+.cal-grid-sc { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+
+.cal-dow-sc {
+    text-align: center;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--sti-text-muted);
+    padding: 4px 0;
+    text-transform: uppercase;
+}
+
+.cal-day-sc {
+    min-height: 74px;
+    border: 1px solid var(--sti-border);
+    border-radius: 8px;
+    padding: 4px 5px;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    text-align: left;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    overflow: hidden;
+}
+
+.cal-day-sc:hover { border-color: var(--sti-blue); }
+.cal-day-sc.outside-sc { opacity: 0.4; }
+.cal-day-sc.today-sc .cal-num-sc { background: var(--sti-blue); color: #fff; }
+.cal-day-sc.selected-sc { border: 2px solid var(--sti-blue); background: var(--sti-light-bg); }
+.cal-day-sc.absent-sc { background: repeating-linear-gradient(45deg, transparent, transparent 6px, rgba(239, 68, 68, 0.1) 6px, rgba(239, 68, 68, 0.1) 12px); }
+
+.cal-num-sc {
+    font-size: 0.78rem;
+    font-weight: 700;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.cal-chip-sc {
+    font-size: 0.66rem;
+    font-weight: 700;
+    border-radius: 4px;
+    padding: 1px 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cal-legend-sc { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; font-size: 0.78rem; color: var(--sti-text-muted); }
+.cal-legend-sc span { display: inline-flex; align-items: center; gap: 6px; }
+
+@media (max-width: 640px) {
+    .cal-day-sc { min-height: 54px; padding: 2px; }
+    .cal-chip-sc { font-size: 0.6rem; }
+}
+
+/* ---- day panel ---- */
+.day-panel-sc { display: flex; flex-direction: column; gap: 12px; }
+.day-panel-sc h3 { margin: 0; font-size: 1rem; }
+
+.session-card-sc {
+    border: 1px solid var(--sti-border);
+    border-left: 4px solid var(--sti-blue);
+    border-radius: 8px;
+    padding: 10px 12px;
+    background: var(--bg-card);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.session-card-sc.appointment-sc { border-left-color: #2563eb; }
+.session-card-sc.open-sc { border-left-color: #16a34a; }
+.session-card-sc.walkin-sc { border-left-color: #d97706; }
+
+.session-top-sc { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
+.session-top-sc strong { font-size: 0.92rem; }
+.session-meta-sc { font-size: 0.8rem; color: var(--sti-text-muted); display: flex; gap: 10px; flex-wrap: wrap; }
+.session-actions-sc { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.load-bar-sc { height: 6px; background: var(--sti-border); border-radius: 999px; overflow: hidden; }
+.load-bar-sc > div { height: 100%; background: var(--sti-blue); }
+.load-bar-sc.full-sc > div { background: #ef4444; }
+
+.appt-row-sc {
+    display: flex;
+    gap: 10px;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 10px;
+    border: 1px solid var(--sti-border);
+    border-radius: 8px;
+    font-size: 0.85rem;
+    flex-wrap: wrap;
+}
+
+.appt-row-sc small { display: block; color: var(--sti-text-muted); font-size: 0.76rem; }
+.appt-row-sc.waiting-sc { background: #fffbeb; border-color: #fde68a; }
+:root[data-theme="dark"] .appt-row-sc.waiting-sc { background: #3d3411; border-color: #78350f; }
+
+.absence-sc {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #991b1b;
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 0.82rem;
+}
+
+:root[data-theme="dark"] .absence-sc { background: #450a0a; border-color: #7f1d1d; color: #fecaca; }
+
+.empty-sc { color: var(--sti-text-muted); font-size: 0.86rem; padding: 12px; text-align: center; }
+
+/* ---- waiting list ---- */
+.toolbar-sc { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+.toolbar-sc select, .toolbar-sc input[type='text'] {
+    padding: 8px 12px;
+    border: 1px solid var(--sti-border);
+    border-radius: 6px;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    font-size: 0.88rem;
+}
+
+.status-chips-sc { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.status-chip-sc {
+    border: 1px solid var(--sti-border);
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border-radius: 999px;
+    padding: 5px 12px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.status-chip-sc.active-sc { background: var(--sti-blue); color: #fff; border-color: var(--sti-blue); }
+.status-chip-sc em { font-style: normal; opacity: 0.8; }
+
+.notify-bar-sc {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+    padding: 12px 14px;
+    background: var(--sti-light-bg);
+    border: 1px solid var(--sti-border);
+    border-radius: 10px;
+    margin-bottom: 14px;
+}
+
+.notify-bar-sc select {
+    padding: 8px 12px;
+    border: 1px solid var(--sti-border);
+    border-radius: 6px;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    font-size: 0.86rem;
+    max-width: 100%;
+}
+
+.priority-star-sc { color: #d97706; }
+.reason-cell-sc { max-width: 260px; white-space: normal; }
+.row-actions-sc { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.btn-sm-sc { padding: 6px 10px; font-size: 0.8rem; }
+
+.timeline-sc { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.timeline-sc li { border-left: 3px solid var(--sti-border); padding-left: 10px; font-size: 0.86rem; }
+.timeline-sc small { display: block; color: var(--sti-text-muted); font-size: 0.76rem; }
+
+/* ---- assistant ---- */
+.assist-grid-sc { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-bottom: 18px; }
+
+.demand-card-sc {
+    background: var(--bg-card);
+    border: 1px solid var(--sti-border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.demand-card-sc h4 { margin: 0; font-size: 0.9rem; }
+.demand-card-sc .big-sc { font-size: 1.7rem; font-weight: 800; color: var(--text-primary); line-height: 1.1; }
+.demand-card-sc small { color: var(--sti-text-muted); font-size: 0.78rem; }
+
+.alert-sc {
+    display: flex;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    border: 1px solid;
+    margin-bottom: 8px;
+    font-size: 0.86rem;
+}
+
+.alert-sc strong { display: block; }
+.alert-sc.info-sc { background: #eff6ff; border-color: #bfdbfe; color: #1e3a8a; }
+.alert-sc.warning-sc { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+.alert-sc.danger-sc { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+
+:root[data-theme="dark"] .alert-sc.info-sc { background: #172554; border-color: #1e3a8a; color: #bfdbfe; }
+:root[data-theme="dark"] .alert-sc.warning-sc { background: #3d3411; border-color: #78350f; color: #fde68a; }
+:root[data-theme="dark"] .alert-sc.danger-sc { background: #450a0a; border-color: #7f1d1d; color: #fecaca; }
+
+.suggestion-sc {
+    background: var(--bg-card);
+    border: 1px solid var(--sti-border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex;
+    gap: 14px;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+
+.suggestion-sc p { margin: 4px 0 0; font-size: 0.82rem; color: var(--sti-text-muted); max-width: 640px; }
+.suggestion-sc h4 { margin: 0; font-size: 0.95rem; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* slot picker used when appointing */
+.slot-grid-sc { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 6px; }
+
+.slot-sc {
+    border: 1px solid var(--sti-border);
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border-radius: 8px;
+    padding: 6px 4px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.slot-sc small { font-size: 0.66rem; font-weight: 500; color: var(--sti-text-muted); }
+.slot-sc:disabled { opacity: 0.45; cursor: not-allowed; }
+.slot-sc.selected-sc { background: var(--sti-blue); color: #fff; border-color: var(--sti-blue); }
+.slot-sc.selected-sc small { color: #fff; }
+
+/* services the doctor offers */
+.service-grid-sc { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
+
+.service-option-sc {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid var(--card-border, var(--sti-border));
+    border-radius: 10px;
+    padding: 9px 12px;
+    font-size: 0.88rem;
+    cursor: pointer;
+}
+
+.service-option-sc.disabled-sc { opacity: 0.5; cursor: not-allowed; }
+.service-option-sc input { width: auto; }

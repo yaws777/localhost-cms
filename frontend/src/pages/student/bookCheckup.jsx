@@ -1,9 +1,9 @@
 // bookCheckup.jsx
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { CalendarPlus, CalendarClock, MapPin, Stethoscope, X, Clock, Info } from 'lucide-react';
+import { CalendarPlus, CalendarClock, MapPin, Stethoscope, X, Clock, Info, Megaphone, ClipboardPlus } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
-import { formatDate, formatTime } from '../../utils/datetime';
+import { formatDate, formatTime, formatDateTime } from '../../utils/datetime';
 import { PURPOSES, visitLabel } from '../../utils/visitPurpose';
 import '../../styles/student/BookCheckup.css';
 
@@ -18,10 +18,11 @@ const to12h = (t) => {
 };
 
 const statusLabel = (b) => {
-    if (b.status === 'Pending Approval') return 'Waiting for approval';
     if (b.status === 'Scheduled') return b.booking_source === 'Student' ? 'Confirmed' : 'Scheduled';
     return b.status;
 };
+
+const EMPTY_REQUEST = { visit_type: 'General Check Up', purpose_other: '', reason: '', preferred_note: '' };
 
 const statusClass = (status) => `status-${String(status).toLowerCase().replace(/\s+/g, '-')}-bc`;
 
@@ -44,6 +45,107 @@ const BookCheckup = () => {
     const [bookVisitType, setBookVisitType] = useState('General Check Up');
     const [purposeOther, setPurposeOther] = useState('');
     const [submitting, setSubmitting] = useState(false);
+
+    // consultation requests (waiting list) and the clinic's announcements
+    const [requests, setRequests] = useState([]);
+    const [announcements, setAnnouncements] = useState([]);
+    const [showRequest, setShowRequest] = useState(false);
+    const [requestForm, setRequestForm] = useState(EMPTY_REQUEST);
+
+    const fetchRequests = useCallback(async () => {
+        if (!studentId) return;
+        try {
+            const res = await fetch(`${API}/api/student/${studentId}/consultation-requests`);
+            const data = await res.json();
+            if (data.success) setRequests(data.requests);
+        } catch (e) {
+            showAlert('Could not load your consultation requests.', 'error');
+        }
+    }, [studentId, showAlert]);
+
+    const fetchAnnouncements = useCallback(async () => {
+        try {
+            const res = await fetch(`${API}/api/doctor-schedules/announcements`);
+            const data = await res.json();
+            if (data.success) setAnnouncements(data.announcements);
+        } catch (e) { /* announcements are optional */ }
+    }, []);
+
+    useEffect(() => { fetchRequests(); fetchAnnouncements(); }, [fetchRequests, fetchAnnouncements]);
+
+    const sendRequest = async (e) => {
+        e.preventDefault();
+        if (!requestForm.reason.trim()) { showAlert('Please tell the clinic why you need a consultation.', 'warning'); return; }
+        if (requestForm.visit_type === 'Other' && !requestForm.purpose_other.trim()) { showAlert('Please specify the purpose of your consultation.', 'warning'); return; }
+        setSubmitting(true);
+        try {
+            const res = await fetch(`${API}/api/student/consultation-requests`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ student_id: studentId, ...requestForm, purpose_other: requestForm.visit_type === 'Other' ? requestForm.purpose_other : undefined })
+            });
+            const data = await res.json();
+            if (data.success) { showAlert(data.message, 'success'); setShowRequest(false); setRequestForm(EMPTY_REQUEST); fetchRequests(); }
+            else showAlert(data.message || 'Could not send the request.', 'error');
+        } catch (err) {
+            showAlert('Server error. Please try again.', 'error');
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const answerReconfirm = async (r, response) => {
+        if (response === 'No') {
+            const ok = await showConfirm('Tell the clinic you are no longer interested? Your request will be withdrawn.', { danger: true, confirmLabel: 'Not interested', cancelLabel: 'Back', title: 'Withdraw request' });
+            if (!ok) return;
+        }
+        try {
+            const res = await fetch(`${API}/api/student/consultation-requests/${r.request_id}/reconfirm`, {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ student_id: studentId, response })
+            });
+            const data = await res.json();
+            if (data.success) { showAlert(data.message, 'success'); fetchRequests(); }
+            else showAlert(data.message || 'Could not send your answer.', 'error');
+        } catch (err) {
+            showAlert('Server error. Please try again.', 'error');
+        }
+    };
+
+    const withdrawRequest = async (r) => {
+        const ok = await showConfirm(`Withdraw your ${visitLabel(r.visit_type, r.purpose_other)} consultation request?`, { danger: true, confirmLabel: 'Withdraw', cancelLabel: 'Keep it', title: 'Withdraw request' });
+        if (!ok) return;
+        try {
+            const res = await fetch(`${API}/api/student/consultation-requests/${r.request_id}/withdraw`, {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ student_id: studentId })
+            });
+            const data = await res.json();
+            if (data.success) { showAlert(data.message, 'success'); fetchRequests(); }
+            else showAlert(data.message || 'Could not withdraw the request.', 'error');
+        } catch (err) {
+            showAlert('Server error. Please try again.', 'error');
+        }
+    };
+
+    const requestHelp = (r) => {
+        if (r.status === 'Waiting for Approval') return 'The nurse or doctor is reviewing your request.';
+        if (r.status === 'Denied') return r.review_reason ? `Denied: ${r.review_reason}` : 'The clinic denied this request.';
+        if (r.status === 'Waiting List') {
+            return r.notified_schedule_id && r.last_notified_at
+                ? `You are on the waiting list. Last notice: Dr. ${r.notified_doc_first_name} ${r.notified_doc_last_name}, ${formatDate(r.notified_date)}, ${to12h(r.notified_start_time)} - ${to12h(r.notified_end_time)}${r.notified_schedule_type === 'Walk-in' ? ' (walk-in, no booking needed)' : r.notified_schedule_type === 'Open Slot' ? ' (book a time below)' : ''}.`
+                : 'Approved. You are on the waiting list and will be notified when a doctor has a schedule.';
+        }
+        if (r.status === 'Awaiting Reconfirmation') {
+            return `Dr. ${r.notified_doc_first_name} ${r.notified_doc_last_name} will hold appointments on ${formatDate(r.notified_date)}, ${to12h(r.notified_start_time)} - ${to12h(r.notified_end_time)}${r.notified_location ? ` (${r.notified_location})` : ''}. Are you still interested?`;
+        }
+        if (r.status === 'Reconfirmed') return 'Thanks for confirming. The clinic will appoint you a time and notify you.';
+        if (['Appointed', 'Booked', 'Fulfilled'].includes(r.status) && r.appointment_start) {
+            return `${r.status === 'Fulfilled' ? 'Seen' : r.status}: ${formatDateTime(r.appointment_start)} with Dr. ${r.appt_doc_first_name} ${r.appt_doc_last_name}.`;
+        }
+        if (r.status === 'Withdrawn') return 'You withdrew this request.';
+        return '';
+    };
+
+    const openRequests = requests.filter((r) => !['Denied', 'Withdrawn', 'Appointed', 'Booked', 'Fulfilled'].includes(r.status) || (['Appointed', 'Booked'].includes(r.status) && r.appointment_start && new Date(String(r.appointment_end).replace(' ', 'T')) >= new Date()));
+    const pastRequests = requests.filter((r) => !openRequests.includes(r));
 
     const fetchBookings = useCallback(async () => {
         if (!studentId) return;
@@ -86,7 +188,7 @@ const BookCheckup = () => {
         [occurrences, doctorFilter]
     );
 
-    const upcoming = bookings.filter(b => new Date(b.end_time.replace(' ', 'T')) >= new Date() && ['Scheduled', 'Pending Approval'].includes(b.status));
+    const upcoming = bookings.filter(b => new Date(b.end_time.replace(' ', 'T')) >= new Date() && ['Scheduled', 'Waiting for Approval'].includes(b.status));
     const history = bookings.filter(b => !upcoming.includes(b));
 
     const loadSlots = useCallback(async (occurrence) => {
@@ -149,6 +251,7 @@ const BookCheckup = () => {
                 closePicker();
                 fetchBookings();
                 fetchOccurrences();
+                fetchRequests();
             } else {
                 showAlert(data.message || 'Could not complete the booking.', 'error');
                 if (res.status === 409) loadSlots(picker.occurrence);
@@ -200,9 +303,86 @@ const BookCheckup = () => {
             <div className="header-bc">
                 <div>
                     <h2><CalendarPlus size={22} /> Book a Check-up</h2>
-                    <p>Pick a doctor schedule that the clinic has opened and reserve a time slot. The nurse may need to approve your request.</p>
+                    <p>Reserve a time slot in a schedule the clinic has opened, or send a consultation request if there is no schedule yet. The nurse or doctor reviews every request.</p>
+                    <div className="header-actions-bc">
+                        <button type="button" className="btn-bc btn-primary-bc" onClick={() => { setRequestForm(EMPTY_REQUEST); setShowRequest(true); }}>
+                            <ClipboardPlus size={16} /> Request a consultation
+                        </button>
+                    </div>
                 </div>
             </div>
+
+            <section className="section-bc">
+                <h3>My Consultation Requests</h3>
+                {openRequests.length === 0 ? (
+                    <div className="empty-bc">You have no open consultation request. If no schedule suits you, send a request and the clinic will put you on the waiting list.</div>
+                ) : (
+                    <div className="booking-grid-bc">
+                        {openRequests.map(r => (
+                            <div key={r.request_id} className={`booking-card-bc request-card-bc ${r.status === 'Awaiting Reconfirmation' ? 'attention-bc' : ''}`}>
+                                <div className="booking-top-bc">
+                                    <strong>{visitLabel(r.visit_type, r.purpose_other)}</strong>
+                                    <span className={`status-pill-bc ${statusClass(r.status)}`}>{r.status}</span>
+                                </div>
+                                <div className="booking-reason-bc">Reason: {r.reason}</div>
+                                <div className="booking-line-bc"><Clock size={14} /> Sent {formatDate(r.created_at)}</div>
+                                <p className="request-help-bc">{requestHelp(r)}</p>
+                                <div className="booking-actions-bc">
+                                    {r.status === 'Awaiting Reconfirmation' && (
+                                        <>
+                                            <button className="btn-bc btn-primary-bc" onClick={() => answerReconfirm(r, 'Yes')}>Yes, I'm still interested</button>
+                                            <button className="btn-bc btn-light-bc" onClick={() => answerReconfirm(r, 'No')}>Not anymore</button>
+                                        </>
+                                    )}
+                                    {Number(r.can_withdraw) === 1 && r.status !== 'Awaiting Reconfirmation' && (
+                                        <button className="btn-bc btn-danger-bc" onClick={() => withdrawRequest(r)}>Withdraw</button>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+                {pastRequests.length > 0 && (
+                    <details className="history-bc">
+                        <summary>Earlier requests ({pastRequests.length})</summary>
+                        <div className="booking-grid-bc">
+                            {pastRequests.map(r => (
+                                <div key={r.request_id} className="booking-card-bc request-card-bc">
+                                    <div className="booking-top-bc">
+                                        <strong>{visitLabel(r.visit_type, r.purpose_other)}</strong>
+                                        <span className={`status-pill-bc ${statusClass(r.status)}`}>{r.status}</span>
+                                    </div>
+                                    <div className="booking-reason-bc">Reason: {r.reason}</div>
+                                    <p className="request-help-bc">{requestHelp(r)}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </details>
+                )}
+            </section>
+
+            {announcements.length > 0 && (
+                <section className="section-bc">
+                    <h3><Megaphone size={18} style={{ verticalAlign: 'middle' }} /> Clinic announcements</h3>
+                    <div className="booking-grid-bc">
+                        {announcements.slice(0, 8).map(a => (
+                            <div key={`${a.schedule_id}-${a.date}`} className={`booking-card-bc announce-bc ${a.schedule_type === 'Appointment' ? 'appointment-bc' : ''}`}>
+                                <div className="booking-top-bc">
+                                    <strong>{a.schedule_type === 'Walk-in' ? 'Walk-in consultation' : 'Consultation by appointment'}</strong>
+                                    <span className="tag-bc">{a.visit_type === 'Any' ? 'Any visit' : a.visit_type}</span>
+                                </div>
+                                <div className="booking-line-bc"><Stethoscope size={14} /> {a.doctor_name} ({a.specialization})</div>
+                                <div className="booking-line-bc"><Clock size={14} /> {formatDate(a.date)}, {to12h(a.start_time)} - {to12h(a.end_time)}</div>
+                                {a.location && <div className="booking-line-bc"><MapPin size={14} /> {a.location}</div>}
+                                <p className="request-help-bc">
+                                    {a.announcement || (a.schedule_type === 'Walk-in' ? 'No booking needed. Just come to the clinic during these hours.' : 'Send a consultation request. The clinic will appoint you a time.')}
+                                </p>
+                                {a.notes && <div className="muted-bc">{a.notes}</div>}
+                            </div>
+                        ))}
+                    </div>
+                </section>
+            )}
 
             <section className="section-bc">
                 <h3>My Bookings</h3>
@@ -260,6 +440,44 @@ const BookCheckup = () => {
                     </div>
                 )}
             </section>
+
+            {showRequest && (
+                <div className="modal-overlay-bc" role="dialog" aria-modal="true">
+                    <form className="modal-bc" onSubmit={sendRequest}>
+                        <div className="modal-header-bc">
+                            <h3>Request a consultation</h3>
+                            <button type="button" className="close-bc" onClick={() => setShowRequest(false)} aria-label="Close"><X size={20} /></button>
+                        </div>
+                        <p className="request-help-bc" style={{ marginBottom: 12 }}>
+                            Use this when no schedule fits you. The nurse or doctor reviews your request. If approved, you join the waiting list and are notified when a doctor has a schedule.
+                        </p>
+                        <div className="field-bc">
+                            <label>Purpose of the consultation</label>
+                            <select value={requestForm.visit_type} onChange={e => setRequestForm({ ...requestForm, visit_type: e.target.value })}>
+                                {BOOKABLE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                            </select>
+                        </div>
+                        {requestForm.visit_type === 'Other' && (
+                            <div className="field-bc">
+                                <label>Please specify</label>
+                                <input type="text" maxLength={150} value={requestForm.purpose_other} onChange={e => setRequestForm({ ...requestForm, purpose_other: e.target.value })} placeholder="e.g. Counselling, wound check" />
+                            </div>
+                        )}
+                        <div className="field-bc">
+                            <label>Reason for the consultation</label>
+                            <textarea rows="3" maxLength={255} required value={requestForm.reason} onChange={e => setRequestForm({ ...requestForm, reason: e.target.value })} placeholder="e.g. Toothache for 2 days, or I need a yearly check-up" />
+                        </div>
+                        <div className="field-bc">
+                            <label>Preferred days or times (optional)</label>
+                            <input type="text" maxLength={255} value={requestForm.preferred_note} onChange={e => setRequestForm({ ...requestForm, preferred_note: e.target.value })} placeholder="e.g. Free on Tuesday and Thursday mornings" />
+                        </div>
+                        <div className="modal-footer-bc">
+                            <button type="button" className="btn-bc btn-light-bc" onClick={() => setShowRequest(false)}>Close</button>
+                            <button type="submit" className="btn-bc btn-primary-bc" disabled={submitting}>{submitting ? 'Sending...' : 'Send request'}</button>
+                        </div>
+                    </form>
+                </div>
+            )}
 
             {picker && (
                 <div className="modal-overlay-bc" role="dialog" aria-modal="true">

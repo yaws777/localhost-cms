@@ -1891,7 +1891,7 @@ export default function HealthScreening() {
                               {isDocumented ? 'Documented' : 'Pending'}
                             </span>
                             {isDocumented && Number(st.is_abnormal) === 1 && <span className="badge-hs badge-status-absent-hs" style={{ marginLeft: '6px' }}>Abnormal</span>}
-                            {st.referral_appointment_id && ['Scheduled', 'Pending Approval', 'Completed'].includes(st.referral_status) && (
+                            {st.referral_appointment_id && ['Scheduled', 'Waiting for Approval', 'Completed'].includes(st.referral_status) && (
                               <div className="sub-note-hs">Referred to doctor ({st.referral_status}{st.referral_start_time ? ', ' + formatDate(String(st.referral_start_time).slice(0, 10)) : ''})</div>
                             )}
                           </td>
@@ -1899,7 +1899,7 @@ export default function HealthScreening() {
                             {(() => {
                               const cancelled = activeSchedule.status === 'Cancelled';
                               const key = st.student_id;
-                              const activeReferral = st.referral_appointment_id && ['Scheduled', 'Pending Approval'].includes(st.referral_status);
+                              const activeReferral = st.referral_appointment_id && ['Scheduled', 'Waiting for Approval'].includes(st.referral_status);
                               const items = [];
                               if (!cancelled) {
                                 if (effectiveAttendanceStatus !== 'PRESENT') items.push({ label: 'Mark Present (override)', onClick: () => overrideAttendance(st, 'PRESENT') });

@@ -8,6 +8,7 @@ import Modal from '../common/Modal';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatDateTime, formatTime } from '../../utils/datetime';
 import { PURPOSES, visitLabel, localDateStr, fullName } from '../../utils/visitPurpose';
+import { eligibleDoctors, visitRefusal } from '../../utils/scheduling';
 import '../../styles/doctor/DoctorLayout.css';
 
 const API = 'http://localhost:3001';
@@ -293,11 +294,20 @@ export const DirectAppointmentModal = ({ isOpen, doctors, fixedDoctorId, creator
         setBusy(false);
     }, [isOpen, fixedDoctorId, presetStudent]);
 
+    // Dental lists only dentists, Vision only optometrists, and only doctors who offer the check-up
+    const chosenDoctor = (doctors || []).find((d) => d.doctor_id === doctorId);
+    const refusal = chosenDoctor ? visitRefusal(chosenDoctor, purpose.visit_type) : '';
+    const changePurpose = (next) => {
+        setPurpose(next);
+        if (!fixedDoctorId && doctorId && !eligibleDoctors(doctors || [], next.visit_type).some((d) => d.doctor_id === doctorId)) setDoctorId('');
+    };
+
     const submit = async (e) => {
         e.preventDefault();
         setError('');
         if (!doctorId) { setError('Choose the doctor.'); return; }
         if (!student) { setError('Choose the student.'); return; }
+        if (refusal) { setError(refusal); return; }
         if (to <= from) { setError('The end time must be after the start time.'); return; }
         setBusy(true);
         try {
@@ -331,13 +341,14 @@ export const DirectAppointmentModal = ({ isOpen, doctors, fixedDoctorId, creator
                         <label>Doctor</label>
                         <select className="dp-select" required value={doctorId} onChange={(e) => setDoctorId(e.target.value)}>
                             <option value="">-- Select doctor --</option>
-                            {(doctors || []).map((d) => <option key={d.doctor_id} value={d.doctor_id}>Dr. {d.first_name} {d.last_name}{d.specialization ? ` (${d.specialization})` : ''}</option>)}
+                            {eligibleDoctors(doctors || [], purpose.visit_type).map((d) => <option key={d.doctor_id} value={d.doctor_id}>Dr. {d.first_name} {d.last_name}{d.specialization ? ` (${d.specialization})` : ''}</option>)}
                         </select>
                     </div>
                 )}
 
                 <StudentPicker value={student} onChange={setStudent} />
-                <PurposeFields visitType={purpose.visit_type} purposeOther={purpose.purpose_other} onChange={setPurpose} idPrefix="direct" />
+                <PurposeFields visitType={purpose.visit_type} purposeOther={purpose.purpose_other} onChange={changePurpose} idPrefix="direct" />
+                {refusal && <div className="dp-error">{refusal}</div>}
 
                 <div className="dp-row">
                     <div className="dp-field">
@@ -392,11 +403,19 @@ export const WalkInModal = ({ isOpen, doctors, fixedDoctorId, creator, userId, o
         setBusy(false);
     }, [isOpen, fixedDoctorId]);
 
+    const chosenDoctor = (doctors || []).find((d) => d.doctor_id === doctorId);
+    const refusal = chosenDoctor ? visitRefusal(chosenDoctor, purpose.visit_type) : '';
+    const changePurpose = (next) => {
+        setPurpose(next);
+        if (!fixedDoctorId && doctorId && !eligibleDoctors(doctors || [], next.visit_type).some((d) => d.doctor_id === doctorId)) setDoctorId('');
+    };
+
     const submit = async (e) => {
         e.preventDefault();
         setError('');
         if (!doctorId) { setError('Choose the doctor.'); return; }
         if (!student) { setError('Choose the student.'); return; }
+        if (refusal) { setError(refusal); return; }
         setBusy(true);
         try {
             const data = await postJson('/api/doctor-visits/walk-in', 'POST', {
@@ -428,13 +447,14 @@ export const WalkInModal = ({ isOpen, doctors, fixedDoctorId, creator, userId, o
                         <label>Doctor</label>
                         <select className="dp-select" required value={doctorId} onChange={(e) => setDoctorId(e.target.value)}>
                             <option value="">-- Select doctor --</option>
-                            {(doctors || []).map((d) => <option key={d.doctor_id} value={d.doctor_id}>Dr. {d.first_name} {d.last_name}{d.specialization ? ` (${d.specialization})` : ''}</option>)}
+                            {eligibleDoctors(doctors || [], purpose.visit_type).map((d) => <option key={d.doctor_id} value={d.doctor_id}>Dr. {d.first_name} {d.last_name}{d.specialization ? ` (${d.specialization})` : ''}</option>)}
                         </select>
                     </div>
                 )}
 
                 <StudentPicker value={student} onChange={setStudent} />
-                <PurposeFields visitType={purpose.visit_type} purposeOther={purpose.purpose_other} onChange={setPurpose} idPrefix="walkin" />
+                <PurposeFields visitType={purpose.visit_type} purposeOther={purpose.purpose_other} onChange={changePurpose} idPrefix="walkin" />
+                {refusal && <div className="dp-error">{refusal}</div>}
 
                 <div className="dp-row">
                     <div className="dp-field" style={{ gridColumn: 'span 2' }}>

@@ -261,7 +261,7 @@ const DoctorDashboard = () => {
                                 <span className="av">{initials(a.student_first_name, a.student_last_name)}</span>
                                 <div className="who">
                                     <strong>{fullName(a.student_first_name, a.student_last_name)}</strong>
-                                    <span>{time12(a.start_time)} - {time12(a.end_time)} - {visitLabel(a.visit_type, a.purpose_other)}{a.status === 'Pending Approval' ? ' (pending)' : ''}</span>
+                                    <span>{time12(a.start_time)} - {time12(a.end_time)} - {visitLabel(a.visit_type, a.purpose_other)}{a.status === 'Waiting for Approval' ? ' (pending)' : ''}</span>
                                 </div>
                                 <button type="button" className="go" onClick={() => navigate(`/DoctorAppointments?tab=all&focus=${a.appointment_id}`)} aria-label={`Open the appointment of ${a.student_first_name}`}><ChevronRight size={16} /></button>
                             </div>

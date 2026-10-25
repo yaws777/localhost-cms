@@ -26,8 +26,7 @@ import {
     CalendarPlus,
     RotateCcw,
     FileCheck,
-    ClipboardList,
-    Inbox
+    ClipboardList
 } from 'lucide-react';
 
 import { formatTime, formatDate } from '../../utils/datetime';
@@ -35,16 +34,16 @@ import { openReportWindow, writeReport } from '../../utils/printReport';
 import { printDocument, visitDocumentHtml } from '../../utils/doctorVisitDocuments';
 import '../../styles/nurse/DoctorVisits.css';
 import { FolderCrumbs, FolderGrid, Pager, MoreMenu, sectionLabel, paginate, scopeCounts, TabCount, groupByDay, dayKey, dayHeading, DaySection } from '../../components/common/RecordFolders';
-import { DoctorAvailability, BookingRequests } from '../../components/nurse/DoctorAvailability';
+import SchedulingHub from '../../components/scheduling/SchedulingHub';
 import VisitCard from '../../components/nurse/VisitCard';
 import PastVisitsTable from '../../components/nurse/PastVisitsTable';
 import { DirectAppointmentModal } from '../../components/doctor/AppointmentModals';
-import UnavailableDates from '../../components/doctor/UnavailableDates';
 import { PURPOSES, visitLabel } from '../../utils/visitPurpose';
 import { useDpAutoLabels } from '../../utils/autoLabels';
 
 // The page has three sections; the open one is kept in the URL (?section=) so a link or a notification can land on it
-const SECTIONS = ['visits', 'availability', 'requests'];
+const SECTIONS = ['visits', 'availability', 'requests', 'waiting'];
+const HUB_TAB_FOR_SECTION = { availability: 'calendar', requests: 'approvals', waiting: 'waiting' };
 
 // the purpose of a visit: General Check Up, Dental, Vision or Other (and the purpose is specified)
 const VISIT_TYPES = PURPOSES;
@@ -77,7 +76,7 @@ const EMPTY_VISION = {
 };
 
 // Pending requests and declined bookings are handled in the Booking Requests section, not in this list
-const HIDDEN_APPT_STATUSES = ['Pending Approval', 'Declined'];
+const HIDDEN_APPT_STATUSES = ['Waiting for Approval', 'Declined'];
 
 const time12 = (t) => {
     if (!t) return '';
@@ -1664,36 +1663,27 @@ const DoctorVisit = () => {
                 <button type="button" className={`section-tab-dv ${section === 'visits' ? 'active-dv' : ''}`} onClick={() => goSection('visits')}>
                     <ClipboardList size={16} /> Visits
                 </button>
-                <button type="button" className={`section-tab-dv ${section === 'availability' ? 'active-dv' : ''}`} onClick={() => goSection('availability')}>
-                    <CalendarClock size={16} /> Availability
+                <button type="button" className={`section-tab-dv ${section !== 'visits' ? 'active-dv' : ''}`} onClick={() => goSection('availability')}>
+                    <CalendarClock size={16} /> Scheduling
+                    {pendingBookingCount > 0 && <span className="section-badge-dv">{pendingBookingCount}</span>}
                     {doctorsWithoutSchedule > 0 && (
                         <span className="section-badge-dv warn-dv" title={`${doctorsWithoutSchedule} doctor(s) have no open schedule, so nothing can be booked with them`}>{doctorsWithoutSchedule}</span>
                     )}
                 </button>
-                <button type="button" className={`section-tab-dv ${section === 'requests' ? 'active-dv' : ''}`} onClick={() => goSection('requests')}>
-                    <Inbox size={16} /> Booking Requests
-                    {pendingBookingCount > 0 && <span className="section-badge-dv">{pendingBookingCount}</span>}
-                </button>
             </nav>
 
-            {section === 'availability' && (
-                <>
-                    <DoctorAvailability
-                        doctors={doctors}
-                        nurseId={nurseId}
-                        userId={userId}
-                        onChanged={refreshAfterScheduleChange}
-                        onAddDoctor={openAddDoctor}
-                        onEditDoctor={openEditDoctor}
-                    />
-                    <div style={{ marginTop: 18 }}>
-                        <UnavailableDates doctors={doctors} userId={userId} onChanged={refreshAfterScheduleChange} />
-                    </div>
-                </>
-            )}
-
-            {section === 'requests' && (
-                <BookingRequests doctors={doctors} userId={userId} onChanged={refreshAfterScheduleChange} />
+            {/* one scheduling screen, the same one the doctor sees: calendar, schedules, waiting list, booking approvals, assistant */}
+            {section !== 'visits' && (
+                <SchedulingHub
+                    role="nurse"
+                    doctors={doctors}
+                    nurseId={nurseId}
+                    userId={userId}
+                    initialTab={HUB_TAB_FOR_SECTION[section] || 'calendar'}
+                    onChanged={refreshAfterScheduleChange}
+                    onAddDoctor={openAddDoctor}
+                    onEditDoctor={openEditDoctor}
+                />
             )}
 
             {section === 'visits' && (

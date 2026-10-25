@@ -1,8 +1,9 @@
 // doctorProfile.jsx
 import React, { useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { Phone, KeyRound, Eye, EyeOff, CheckCircle2 } from 'lucide-react';
+import { Phone, KeyRound, Eye, EyeOff, CheckCircle2, Stethoscope } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
+import DoctorServices from '../../components/scheduling/DoctorServices';
 import { initials } from '../../utils/visitPurpose';
 import '../../styles/doctor/DoctorLayout.css';
 
@@ -79,7 +80,7 @@ const DoctorProfile = () => {
             <div className="dp-page-head">
                 <div>
                     <h2>My Profile</h2>
-                    <p>Your account details. The nurse manages your name and specialization.</p>
+                    <p>Your account details and the check-ups you offer. The nurse manages your name and specialization.</p>
                 </div>
             </div>
 
@@ -97,6 +98,11 @@ const DoctorProfile = () => {
                         <dt>Doctor ID</dt><dd>{doctor.doctor_id}</dd>
                         <dt>Phone</dt><dd>{doctor.contact_number || '-'}</dd>
                     </dl>
+                </section>
+
+                <section className="dp-card" style={{ margin: 0, gridColumn: '1 / -1' }}>
+                    <h3 className="dp-card-title"><span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Stethoscope size={18} /> Check-ups I offer</span></h3>
+                    <DoctorServices doctor={doctor} onSaved={() => refreshDoctor()} />
                 </section>
 
                 <section className="dp-card" style={{ margin: 0 }}>

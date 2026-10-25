@@ -149,7 +149,7 @@ const DoctorAppointments = () => {
         const buttons = [];
         const documented = !!a.assessment_id;
 
-        if (a.status === 'Pending Approval') {
+        if (a.status === 'Waiting for Approval') {
             buttons.push(<button key="ok" className="dp-btn dp-btn-success dp-btn-sm" onClick={() => setConfirmTarget(a)}><Check size={15} /> Confirm</button>);
             buttons.push(<button key="mv" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => setMoveTarget(a)}><CalendarClock size={15} /> Reschedule</button>);
             buttons.push(<button key="no" className="dp-btn dp-btn-danger dp-btn-sm" onClick={() => setDeclineTarget(a)}><X size={15} /> Decline</button>);

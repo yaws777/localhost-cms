@@ -60,6 +60,7 @@ const ConsultationModal = ({ appt, doctorId, userId, onClose, onSaved }) => {
     useEffect(() => {
         if (!appt) return;
         setForm({
+            chief_complaint: appt.chief_complaint || appt.booking_reason || '',
             clinical_findings: appt.clinical_findings || '',
             diagnosis: appt.diagnosis || '',
             treatment_recommendations: appt.treatment_recommendations || '',
@@ -153,6 +154,7 @@ const ConsultationModal = ({ appt, doctorId, userId, onClose, onSaved }) => {
                 student_user_id: appt.student_user_id,
                 sender_id: userId,
                 documented_by_doctor_id: doctorId,
+                chief_complaint: form.chief_complaint,
                 clinical_findings: form.clinical_findings,
                 diagnosis: form.diagnosis,
                 treatment_recommendations: form.treatment_recommendations,
@@ -312,6 +314,12 @@ const ConsultationModal = ({ appt, doctorId, userId, onClose, onSaved }) => {
                         <TemplateFields fields={template.fields} values={answers} onChange={setAnswers} idPrefix="consult" />
                     </>
                 )}
+
+                <div className="dp-section-label">Chief complaint</div>
+                <div className="dp-field">
+                    <label htmlFor="consult-complaint">Why the student came (reason for the consultation)</label>
+                    <input id="consult-complaint" className="dp-input" type="text" maxLength={255} value={form.chief_complaint} onChange={(e) => set({ chief_complaint: e.target.value })} placeholder="e.g. Headache and fever since yesterday" />
+                </div>
 
                 <div className="dp-section-label">Diagnosis and treatment plan</div>
                 <div className="dp-field">

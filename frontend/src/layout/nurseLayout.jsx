@@ -170,6 +170,8 @@ export const NurseLayout = () => {
 
         // Doctor schedule / booking / appointment notifications must be matched before the generic 'request' and 'visit' rules
         if (type.includes('restock')) return '/ReportsAnalytics?tab=inventory';
+        if (type === 'consultation_request' || type === 'consultation_reconfirmed') return '/DoctorVisit?section=waiting';
+        if (type === 'schedule_update') return '/DoctorVisit?section=availability';
         if (type.includes('booking')) return '/DoctorVisit?section=requests';
         if (type.includes('appointment') || type.includes('batch') || type.includes('assessment') || type.includes('doctor_visit')) return '/DoctorVisit';
         if (type.includes('requirement') || msg.includes('requirement') || title.includes('submission')) return '/RequirementManagement';

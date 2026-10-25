@@ -48,6 +48,7 @@ const visitDetailRows = (a) => {
         ['Doctor', `Dr. ${a.doc_first_name || ''} ${a.doc_last_name || ''} (${a.specialization || 'General Physician'})`],
         ['Attendance', a.attendance_status || 'Pending']
     ];
+    if (a.chief_complaint || a.booking_reason) rows.push(['Chief complaint', a.chief_complaint || a.booking_reason]);
     if (a.visit_type === 'Dental' && a.oral_hygiene) {
         const dmft = (Number(a.caries_count) || 0) + (Number(a.missing_count) || 0) + (Number(a.filled_count) || 0);
         rows.push(['Oral hygiene', a.oral_hygiene]);
@@ -80,6 +81,7 @@ const visitDetailRows = (a) => {
     if (a.is_abnormal) rows.push(['Result', '<span class="flag">Abnormal finding</span>']);
     if (a.follow_up_needed) rows.push(['Follow-up', '<span class="flag">Follow-up needed</span>']);
     if (a.referral_facility) rows.push(['Referral', `${a.referral_facility} - ${a.referral_reason || ''}`]);
+    if (a.documented_by_name) rows.push(['Documented by', `${a.documented_by_name}${a.documented_by_role ? ` (${a.documented_by_role})` : ''}`]);
     return rows;
 };
 

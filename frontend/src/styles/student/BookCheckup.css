@@ -184,7 +184,7 @@
 
 .status-scheduled-bc { background: #dcfce7; color: #166534; }
 .status-completed-bc { background: #dbeafe; color: #1e40af; }
-.status-pending-approval-bc { background: #fef3c7; color: #92400e; }
+.status-pending-approval-bc, .status-waiting-for-approval-bc { background: #fef3c7; color: #92400e; }
 .status-declined-bc,
 .status-cancelled-bc,
 .status-no-show-bc { background: #fee2e2; color: #991b1b; }
@@ -334,3 +334,17 @@
     .booking-grid-bc,
     .occurrence-grid-bc { grid-template-columns: 1fr; }
 }
+
+/* ---- consultation requests (waiting list) + clinic announcements ---- */
+.status-waiting-list-bc, .status-awaiting-reconfirmation-bc { background: #fef3c7; color: #92400e; }
+.status-reconfirmed-bc, .status-appointed-bc, .status-booked-bc, .status-fulfilled-bc { background: #dcfce7; color: #166534; }
+.status-denied-bc, .status-withdrawn-bc { background: #fee2e2; color: #991b1b; }
+.status-waiting-for-approval-bc { background: #fef3c7; color: #92400e; }
+
+.header-actions-bc { margin-top: 12px; display: flex; gap: 10px; flex-wrap: wrap; }
+.request-card-bc { border-left: 4px solid var(--sti-blue); }
+.request-card-bc.attention-bc { border-left-color: #d97706; background: #fffbeb; }
+:root[data-theme="dark"] .request-card-bc.attention-bc { background: #3d3411; }
+.request-help-bc { font-size: 0.84rem; color: var(--text-secondary); margin: 6px 0 0; }
+.announce-bc { border-left: 4px solid #d97706; }
+.announce-bc.appointment-bc { border-left-color: #2563eb; }

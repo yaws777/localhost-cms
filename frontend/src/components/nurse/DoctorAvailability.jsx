@@ -5,20 +5,23 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
     CalendarPlus, Edit, Lock, Unlock, Trash2, X, Check, XCircle, Stethoscope, UserPlus,
-    ChevronDown, ChevronRight, Search, Inbox, AlertCircle
+    ChevronDown, ChevronRight, Search, Inbox, AlertCircle, TimerReset, Bell
 } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatTime } from '../../utils/datetime';
 import { visitLabel } from '../../utils/visitPurpose';
 import { Pager, paginate } from '../common/RecordFolders';
+import {
+    API, SCHEDULE_TYPES, SCHEDULE_TYPE_KEYS, WEEKDAYS, typeLabel, eligibleDoctors, visitRefusal, coverageLabel
+} from '../../utils/scheduling';
+import { AppointModal, ExtendSessionModal } from '../scheduling/SessionModals';
 import '../../styles/nurse/DoctorVisits.css';
 import '../../styles/nurse/DoctorSchedule.css';
+import '../../styles/scheduling/Scheduling.css';
 
-const API = 'http://localhost:3001';
 const HISTORY_PER_PAGE = 15;
 
 const VISIT_TYPES = ['Any', 'General Check Up', 'Dental', 'Vision', 'Other'];
-const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 const STATUS_FILTERS = [
     ['open', 'Active'],
@@ -54,10 +57,12 @@ const whenLabel = (s) => {
 };
 
 const EMPTY_FORM = {
-    doctor_id: '', visit_type: 'Any', recurrence: 'Once', schedule_date: '', day_of_week: 1,
+    doctor_id: '', schedule_type: 'Open Slot', announcement: '', visit_type: 'Any', recurrence: 'Once', schedule_date: '', day_of_week: 1,
     valid_from: '', valid_until: '', start_time: '09:00', end_time: '12:00',
     slot_duration_min: 15, max_patients_per_slot: 1, location: '', notes: '', auto_confirm: false
 };
+
+const TypeBadge = ({ type }) => <span className={`type-badge-sc ${(SCHEDULE_TYPES[type] || SCHEDULE_TYPES['Open Slot']).cls}`}>{typeLabel(type)}</span>;
 
 const StateBadge = ({ s }) => {
     const state = scheduleState(s);
@@ -70,13 +75,15 @@ const StateBadge = ({ s }) => {
 // Availability: every doctor with their own schedules underneath
 // ---------------------------------------------------------------------------
 // creatorDoctorId: the doctor portal posts the doctor's own blocks (no nurse involved)
-export const DoctorAvailability = ({ doctors, nurseId, userId, onChanged, onAddDoctor, onEditDoctor, creatorDoctorId }) => {
+// prefill: values from a scheduling-assistant suggestion that open the form; onRemind(scheduleId, date): open the waiting list for a session
+export const DoctorAvailability = ({ doctors, nurseId, userId, onChanged, onAddDoctor, onEditDoctor, creatorDoctorId, prefill, onPrefillUsed, onRemind, refreshKey }) => {
     const { showAlert, showConfirm } = useAlert();
     const [searchParams, setSearchParams] = useSearchParams();
 
     const [schedules, setSchedules] = useState([]);
     const [loading, setLoading] = useState(true);
     const [doctorFilter, setDoctorFilter] = useState('');
+    const [typeFilter, setTypeFilter] = useState('');
     const [statusFilter, setStatusFilter] = useState('open');
     const [collapsed, setCollapsed] = useState(() => new Set());
 
@@ -88,6 +95,9 @@ export const DoctorAvailability = ({ doctors, nurseId, userId, onChanged, onAddD
 
     const [closeTarget, setCloseTarget] = useState(null);
     const [closeReason, setCloseReason] = useState('');
+    const [extendTarget, setExtendTarget] = useState(null);
+    const [appointTarget, setAppointTarget] = useState(null);
+    const creator = creatorDoctorId ? { doctorId: creatorDoctorId } : { nurseId };
 
     const fetchSchedules = useCallback(async () => {
         try {
@@ -102,17 +112,28 @@ export const DoctorAvailability = ({ doctors, nurseId, userId, onChanged, onAddD
         }
     }, [showAlert, creatorDoctorId]);
 
-    useEffect(() => { fetchSchedules(); }, [fetchSchedules]);
+    useEffect(() => { fetchSchedules(); }, [fetchSchedules, refreshKey]);
 
     // a change here also changes the visit lists and the numbers on the page tabs
     const changed = () => { fetchSchedules(); if (onChanged) onChanged(); };
 
-    const openCreate = useCallback((doctorId = '') => {
+    const openCreate = useCallback((doctorId = '', preset = {}) => {
         setEditingId(null);
         setFormError('');
-        setForm({ ...EMPTY_FORM, doctor_id: doctorId, schedule_date: todayStr(), valid_from: todayStr(), valid_until: todayStr() });
+        setForm({ ...EMPTY_FORM, doctor_id: doctorId, schedule_date: todayStr(), valid_from: todayStr(), valid_until: todayStr(), ...preset });
         setShowModal(true);
     }, []);
+
+    // A suggestion of the scheduling assistant opens the form already filled in
+    useEffect(() => {
+        if (!prefill || doctors.length === 0) return;
+        openCreate(prefill.doctor_id, {
+            schedule_type: prefill.schedule_type, visit_type: prefill.visit_type, schedule_date: prefill.date,
+            start_time: prefill.start_time, end_time: prefill.end_time, slot_duration_min: prefill.slot_duration_min,
+            max_patients_per_slot: prefill.max_patients_per_slot || 1, auto_confirm: false
+        });
+        if (onPrefillUsed) onPrefillUsed();
+    }, [prefill, doctors, openCreate, onPrefillUsed]);
 
     // Sent here from a visit form: ?doctor=<id>&new=1 opens the form for that doctor
     useEffect(() => {
@@ -130,7 +151,7 @@ export const DoctorAvailability = ({ doctors, nurseId, userId, onChanged, onAddD
         setEditingId(s.schedule_id);
         setFormError('');
         setForm({
-            doctor_id: s.doctor_id, visit_type: s.visit_type, recurrence: s.recurrence,
+            doctor_id: s.doctor_id, schedule_type: s.schedule_type || 'Open Slot', announcement: s.announcement || '', visit_type: s.visit_type, recurrence: s.recurrence,
             schedule_date: s.schedule_date || '', day_of_week: s.day_of_week ?? 1,
             valid_from: s.valid_from || '', valid_until: s.valid_until || '',
             start_time: hhmm(s.start_time), end_time: hhmm(s.end_time),
@@ -145,7 +166,9 @@ export const DoctorAvailability = ({ doctors, nurseId, userId, onChanged, onAddD
         setFormError('');
         setSaving(true);
         try {
-            const payload = creatorDoctorId ? { ...form, created_by_doctor_id: creatorDoctorId } : { ...form, nurse_id: nurseId };
+            const payload = creatorDoctorId
+                ? { ...form, created_by_doctor_id: creatorDoctorId, sender_id: userId }
+                : { ...form, nurse_id: nurseId, sender_id: userId };
             const res = await fetch(editingId ? `${API}/api/doctor-schedules/${editingId}` : `${API}/api/doctor-schedules`, {
                 method: editingId ? 'PUT' : 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -233,14 +256,14 @@ export const DoctorAvailability = ({ doctors, nurseId, userId, onChanged, onAddD
                 const open = g.all.filter(s => scheduleState(s) === 'open');
                 return {
                     ...g,
-                    rows: g.all.filter(s => statusFilter === 'all' || scheduleState(s) === statusFilter).sort(compareSchedules),
+                    rows: g.all.filter(s => (statusFilter === 'all' || scheduleState(s) === statusFilter) && (!typeFilter || s.schedule_type === typeFilter)).sort(compareSchedules),
                     openCount: open.length,
                     upcoming: open.reduce((n, s) => n + (Number(s.active_bookings) || 0), 0),
                     pending: open.reduce((n, s) => n + (Number(s.pending_bookings) || 0), 0)
                 };
             })
             .sort((a, b) => `${a.doctor.last_name} ${a.doctor.first_name}`.localeCompare(`${b.doctor.last_name} ${b.doctor.first_name}`));
-    }, [doctors, schedules, doctorFilter, statusFilter]);
+    }, [doctors, schedules, doctorFilter, statusFilter, typeFilter]);
 
     const totals = useMemo(() => ({
         doctors: groups.length,
@@ -256,19 +279,31 @@ export const DoctorAvailability = ({ doctors, nurseId, userId, onChanged, onAddD
     });
 
     const selectedDoctor = doctors.find(d => d.doctor_id === form.doctor_id);
+    // Dental only lists dentists, Vision only optometrists / ophthalmologists, and only doctors who offer the check-up
+    const doctorChoices = editingId ? doctors : eligibleDoctors(doctors, form.visit_type);
+    const isWalkIn = form.schedule_type === 'Walk-in';
+    const isAppointment = form.schedule_type === 'Appointment';
+    const setVisitType = (visitType) => {
+        const stillOk = !form.doctor_id || eligibleDoctors(doctors, visitType).some(d => d.doctor_id === form.doctor_id);
+        setForm({ ...form, visit_type: visitType, doctor_id: stillOk ? form.doctor_id : '' });
+    };
     const emptyText = statusFilter === 'open' ? 'No active schedule.' : statusFilter === 'all' ? 'No schedules yet.' : `No ${statusFilter} schedules.`;
 
     return (
         <>
             <p className="summary-ds">
                 <strong>{totals.doctors}</strong> doctor{totals.doctors === 1 ? '' : 's'} - <strong>{totals.open}</strong> active schedule{totals.open === 1 ? '' : 's'} - <strong>{totals.upcoming}</strong> upcoming booking{totals.upcoming === 1 ? '' : 's'}
-                {totals.pending > 0 && <> - <strong className="warn-text-ds">{totals.pending} awaiting approval</strong></>}
+                {totals.pending > 0 && <> - <strong className="warn-text-ds">{totals.pending} waiting for approval</strong></>}
             </p>
 
             <div className="filters-ds">
                 <select value={doctorFilter} onChange={e => setDoctorFilter(e.target.value)} aria-label="Doctor">
                     <option value="">All doctors</option>
                     {doctors.map(d => <option key={d.doctor_id} value={d.doctor_id}>{doctorName(d)}</option>)}
+                </select>
+                <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} aria-label="Schedule type">
+                    <option value="">All schedule types</option>
+                    {SCHEDULE_TYPE_KEYS.map(k => <option key={k} value={k}>{SCHEDULE_TYPES[k].label}</option>)}
                 </select>
                 <div className="chip-filter-ds" role="group" aria-label="Schedule status">
                     {STATUS_FILTERS.map(([value, label]) => (
@@ -301,7 +336,7 @@ export const DoctorAvailability = ({ doctors, nurseId, userId, onChanged, onAddD
                                 {isCollapsed ? <ChevronRight size={18} /> : <ChevronDown size={18} />}
                                 <span className="group-title-ds">
                                     <strong>{doctorName(g.doctor)}</strong>
-                                    <small>{g.doctor.specialization || 'General Physician'}{g.doctor.contact_number ? ` - ${g.doctor.contact_number}` : ''}</small>
+                                    <small>{g.doctor.specialization || 'General Physician'} - offers: {coverageLabel(g.doctor)}{g.doctor.contact_number ? ` - ${g.doctor.contact_number}` : ''}</small>
                                 </span>
                             </button>
                             <div className="group-chips-ds">
@@ -309,7 +344,7 @@ export const DoctorAvailability = ({ doctors, nurseId, userId, onChanged, onAddD
                                     ? <span className="badge-ds badge-pending-ds" title="Nothing can be booked with this doctor yet">No active schedule</span>
                                     : <span className="badge-ds badge-open-ds">{g.openCount} active</span>}
                                 {g.upcoming > 0 && <span className="badge-ds badge-expired-ds">{g.upcoming} upcoming</span>}
-                                {g.pending > 0 && <span className="badge-ds badge-pending-ds">{g.pending} awaiting approval</span>}
+                                {g.pending > 0 && <span className="badge-ds badge-pending-ds">{g.pending} waiting for approval</span>}
                             </div>
                             <div className="group-actions-ds">
                                 {!g.removed && onEditDoctor && (
@@ -331,25 +366,43 @@ export const DoctorAvailability = ({ doctors, nurseId, userId, onChanged, onAddD
                                     <table className="sti-table-dv">
                                         <thead>
                                             <tr>
-                                                <th>Visit Type</th><th>When</th><th>Time</th><th>Slots</th>
+                                                <th>Type</th><th>Visit Type</th><th>When</th><th>Time</th><th>Slots</th>
                                                 <th>Location</th><th>Bookings</th><th>Status</th><th>Actions</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {g.rows.map(s => (
                                                 <tr key={s.schedule_id}>
-                                                    <td>{s.visit_type}</td>
+                                                    <td><TypeBadge type={s.schedule_type} />{s.schedule_type === 'Open Slot' && <div className="muted-ds">{s.auto_confirm ? 'Auto-confirm' : 'Needs approval'}</div>}</td>
+                                                    <td>
+                                                        {s.visit_type}
+                                                        {s.waiting_count > 0 && scheduleState(s) === 'open' && <div className="muted-ds">{s.waiting_count} on the waiting list</div>}
+                                                    </td>
                                                     <td>{whenLabel(s)}{s.next_date && s.recurrence === 'Weekly' && <div className="muted-ds">Next: {dateLabel(s.next_date)}</div>}</td>
-                                                    <td>{to12h(s.start_time)} - {to12h(s.end_time)}</td>
-                                                    <td>{s.slot_duration_min} min x {s.max_patients_per_slot}{s.auto_confirm ? <div className="muted-ds">Auto-confirm</div> : null}</td>
+                                                    <td>
+                                                        {to12h(s.start_time)} - {to12h(s.end_time)}
+                                                        {s.extended_minutes > 0 && <div className="muted-ds">Extended +{s.extended_minutes} min</div>}
+                                                    </td>
+                                                    <td>{s.schedule_type === 'Walk-in' ? <span className="muted-ds">No booking</span> : <>{s.slot_duration_min} min x {s.max_patients_per_slot}</>}</td>
                                                     <td>{s.location || '-'}</td>
                                                     <td>
-                                                        {s.active_bookings} upcoming
-                                                        {s.pending_bookings > 0 && <div className="muted-ds">{s.pending_bookings} awaiting approval</div>}
+                                                        {s.schedule_type === 'Walk-in' ? '-' : <>{s.active_bookings} upcoming</>}
+                                                        {s.pending_bookings > 0 && <div className="muted-ds">{s.pending_bookings} waiting for approval</div>}
                                                     </td>
                                                     <td><StateBadge s={s} />{s.status === 'Closed' && s.closed_reason ? <div className="muted-ds">{s.closed_reason}</div> : null}</td>
                                                     <td>
                                                         <div className="table-actions-dv">
+                                                            {scheduleState(s) === 'open' && (
+                                                                <>
+                                                                    {s.schedule_type !== 'Walk-in' && (
+                                                                        <button className="icon-btn-ds" title="Appoint a student" onClick={() => setAppointTarget(s)}><UserPlus size={16} /></button>
+                                                                    )}
+                                                                    {onRemind && (
+                                                                        <button className="icon-btn-ds" title={s.schedule_type === 'Appointment' ? 'Ask the waiting list to reconfirm' : 'Remind the waiting list'} onClick={() => onRemind(s.schedule_id, s.next_date)}><Bell size={16} /></button>
+                                                                    )}
+                                                                    <button className="icon-btn-ds" title="Extend the session" onClick={() => setExtendTarget(s)}><TimerReset size={16} /></button>
+                                                                </>
+                                                            )}
                                                             <button className="icon-btn-ds" title="Edit" onClick={() => openEdit(s)}><Edit size={16} /></button>
                                                             {s.status === 'Open'
                                                                 ? <button className="icon-btn-ds" title="Close schedule" onClick={() => { setCloseTarget(s); setCloseReason(''); }}><Lock size={16} /></button>
@@ -380,20 +433,43 @@ export const DoctorAvailability = ({ doctors, nurseId, userId, onChanged, onAddD
                             {formError && <div className="error-banner-dv">{formError}</div>}
 
                             <div className="form-group-dv">
-                                <label>Doctor</label>
-                                <select required disabled={!!editingId} value={form.doctor_id} onChange={e => setForm({ ...form, doctor_id: e.target.value })}>
-                                    <option value="">-- Select Doctor --</option>
-                                    {doctors.map(d => <option key={d.doctor_id} value={d.doctor_id}>{doctorName(d)} ({d.specialization})</option>)}
-                                </select>
+                                <label>How will students be seen?</label>
+                                <div className="type-picker-sc" role="radiogroup" aria-label="Schedule type">
+                                    {SCHEDULE_TYPE_KEYS.map(k => (
+                                        <button
+                                            key={k} type="button" role="radio" aria-checked={form.schedule_type === k}
+                                            className={`type-option-sc ${form.schedule_type === k ? 'selected-sc' : ''}`}
+                                            onClick={() => setForm({ ...form, schedule_type: k, auto_confirm: k === 'Open Slot' ? form.auto_confirm : false })}
+                                        >
+                                            <strong>{SCHEDULE_TYPES[k].label}</strong>
+                                            <small>{SCHEDULE_TYPES[k].short}</small>
+                                        </button>
+                                    ))}
+                                </div>
+                                <small className="hint-ds">{SCHEDULE_TYPES[form.schedule_type].text}</small>
                             </div>
 
                             <div className="form-group-dv">
                                 <label>Visit Type</label>
-                                <select value={form.visit_type} onChange={e => setForm({ ...form, visit_type: e.target.value })}>
-                                    {(VISIT_TYPES.includes(form.visit_type) ? VISIT_TYPES : [...VISIT_TYPES, form.visit_type]).map(t => <option key={t} value={t}>{t === 'Any' ? 'Any (student picks)' : t}</option>)}
+                                <select value={form.visit_type} onChange={e => setVisitType(e.target.value)}>
+                                    {(VISIT_TYPES.includes(form.visit_type) ? VISIT_TYPES : [...VISIT_TYPES, form.visit_type]).map(t => <option key={t} value={t}>{t === 'Any' ? (isWalkIn ? 'Any visit' : 'Any (student picks)') : t}</option>)}
                                 </select>
-                                {selectedDoctor && (form.visit_type === 'Dental' || form.visit_type === 'Vision') && (
-                                    <small className="hint-ds">Dental needs a Dentist and Vision needs an Optometrist/Ophthalmologist on the doctor profile.</small>
+                                {(form.visit_type === 'Dental' || form.visit_type === 'Vision') && (
+                                    <small className="hint-ds">{form.visit_type === 'Dental' ? 'Only dentists are listed below.' : 'Only optometrists and ophthalmologists are listed below.'}</small>
+                                )}
+                            </div>
+
+                            <div className="form-group-dv">
+                                <label>Doctor</label>
+                                <select required disabled={!!editingId} value={form.doctor_id} onChange={e => setForm({ ...form, doctor_id: e.target.value })}>
+                                    <option value="">-- Select Doctor --</option>
+                                    {doctorChoices.map(d => <option key={d.doctor_id} value={d.doctor_id}>{doctorName(d)} ({d.specialization})</option>)}
+                                </select>
+                                {doctorChoices.length === 0 && (
+                                    <small className="hint-ds warn-text-ds">No doctor can take {form.visit_type} visits. Check the doctors' specializations and the check-ups they offer.</small>
+                                )}
+                                {selectedDoctor && visitRefusal(selectedDoctor, form.visit_type) && (
+                                    <small className="hint-ds warn-text-ds">{visitRefusal(selectedDoctor, form.visit_type)}</small>
                                 )}
                             </div>
 
@@ -442,33 +518,44 @@ export const DoctorAvailability = ({ doctors, nurseId, userId, onChanged, onAddD
                                 </div>
                             </div>
 
-                            <div className="form-row-dv">
-                                <div className="form-group-dv">
-                                    <label>Minutes per slot</label>
-                                    <input type="number" min="5" max="240" step="5" required value={form.slot_duration_min} onChange={e => setForm({ ...form, slot_duration_min: e.target.value })} />
+                            {!isWalkIn && (
+                                <div className="form-row-dv">
+                                    <div className="form-group-dv">
+                                        <label>{isAppointment ? 'Minutes per appointment' : 'Minutes per slot'}</label>
+                                        <input type="number" min="5" max="240" step="5" required value={form.slot_duration_min} onChange={e => setForm({ ...form, slot_duration_min: e.target.value })} />
+                                    </div>
+                                    <div className="form-group-dv">
+                                        <label>{isAppointment ? 'Students at the same time' : 'Patients per slot'}</label>
+                                        <input type="number" min="1" max="50" required value={form.max_patients_per_slot} onChange={e => setForm({ ...form, max_patients_per_slot: e.target.value })} />
+                                    </div>
                                 </div>
-                                <div className="form-group-dv">
-                                    <label>Patients per slot</label>
-                                    <input type="number" min="1" max="50" required value={form.max_patients_per_slot} onChange={e => setForm({ ...form, max_patients_per_slot: e.target.value })} />
-                                </div>
-                            </div>
+                            )}
 
                             <div className="form-group-dv">
                                 <label>Location</label>
                                 <input type="text" maxLength={100} placeholder="e.g. Clinic Room 1" value={form.location} onChange={e => setForm({ ...form, location: e.target.value })} />
                             </div>
 
+                            {isWalkIn && (
+                                <div className="form-group-dv">
+                                    <label>Announcement (shown to students)</label>
+                                    <textarea rows="2" maxLength={500} placeholder="e.g. The doctor accepts walk-in consultations. No booking needed, just come to the clinic." value={form.announcement} onChange={e => setForm({ ...form, announcement: e.target.value })} />
+                                </div>
+                            )}
+
                             <div className="form-group-dv">
                                 <label>Notes for students (optional)</label>
                                 <input type="text" maxLength={255} placeholder="e.g. Bring your student ID" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} />
                             </div>
 
-                            <div className="form-group-dv">
-                                <label className="check-ds">
-                                    <input type="checkbox" checked={form.auto_confirm} onChange={e => setForm({ ...form, auto_confirm: e.target.checked })} />
-                                    Confirm student bookings automatically (no approval needed)
-                                </label>
-                            </div>
+                            {form.schedule_type === 'Open Slot' && (
+                                <div className="form-group-dv">
+                                    <label className="check-ds">
+                                        <input type="checkbox" checked={form.auto_confirm} onChange={e => setForm({ ...form, auto_confirm: e.target.checked })} />
+                                        Confirm student bookings automatically (otherwise the nurse or doctor approves each one)
+                                    </label>
+                                </div>
+                            )}
 
                             <div className="modal-footer-dv">
                                 <button type="button" className="sti-btn-dv sti-btn-light-dv" onClick={() => setShowModal(false)}>Cancel</button>
@@ -504,6 +591,9 @@ export const DoctorAvailability = ({ doctors, nurseId, userId, onChanged, onAddD
                     </div>
                 </div>
             )}
+
+            <AppointModal isOpen={!!appointTarget} schedule={appointTarget} creator={creator} userId={userId} onClose={() => setAppointTarget(null)} onDone={changed} />
+            <ExtendSessionModal schedule={extendTarget} creator={creator} userId={userId} onClose={() => setExtendTarget(null)} onDone={changed} />
         </>
     );
 };
@@ -512,7 +602,7 @@ export const DoctorAvailability = ({ doctors, nurseId, userId, onChanged, onAddD
 // Booking requests: what needs an answer first, the handled ones below
 // ---------------------------------------------------------------------------
 const requestStatusBadge = (status) => {
-    const cls = status === 'Pending Approval' ? 'badge-pending-ds' : status === 'Scheduled' || status === 'Completed' ? 'badge-open-ds' : 'badge-closed-ds';
+    const cls = status === 'Waiting for Approval' ? 'badge-pending-ds' : status === 'Scheduled' || status === 'Completed' ? 'badge-open-ds' : 'badge-closed-ds';
     return <span className={`badge-ds ${cls}`}>{status === 'Scheduled' ? 'Approved' : status}</span>;
 };
 
@@ -523,7 +613,7 @@ const studentLine = (r) => (
     </>
 );
 
-export const BookingRequests = ({ doctors, userId, onChanged }) => {
+export const BookingRequests = ({ doctors, userId, onChanged, fixedDoctorId, refreshKey }) => {
     const { showAlert } = useAlert();
 
     const [requests, setRequests] = useState([]);
@@ -537,7 +627,7 @@ export const BookingRequests = ({ doctors, userId, onChanged }) => {
 
     const fetchRequests = useCallback(async () => {
         try {
-            const res = await fetch(`${API}/api/doctor-bookings?status=${showHistory ? 'all' : 'pending'}`);
+            const res = await fetch(`${API}/api/doctor-bookings?status=${showHistory ? 'all' : 'pending'}${fixedDoctorId ? `&doctor_id=${encodeURIComponent(fixedDoctorId)}` : ''}`);
             const data = await res.json();
             if (data.success) setRequests(data.bookings);
         } catch (e) {
@@ -545,9 +635,9 @@ export const BookingRequests = ({ doctors, userId, onChanged }) => {
         } finally {
             setLoading(false);
         }
-    }, [showHistory, showAlert]);
+    }, [showHistory, showAlert, fixedDoctorId]);
 
-    useEffect(() => { fetchRequests(); }, [fetchRequests]);
+    useEffect(() => { fetchRequests(); }, [fetchRequests, refreshKey]);
     useEffect(() => { setHistoryPage(1); }, [search, doctorFilter, showHistory]);
 
     const changed = () => { fetchRequests(); if (onChanged) onChanged(); };
@@ -591,8 +681,8 @@ export const BookingRequests = ({ doctors, userId, onChanged }) => {
         const rows = requests.filter(matches);
         const byStart = (a, b) => String(a.start_time).localeCompare(String(b.start_time));
         return {
-            pending: rows.filter(r => r.status === 'Pending Approval').sort(byStart),
-            handled: rows.filter(r => r.status !== 'Pending Approval').sort((a, b) => byStart(b, a))
+            pending: rows.filter(r => r.status === 'Waiting for Approval').sort(byStart),
+            handled: rows.filter(r => r.status !== 'Waiting for Approval').sort((a, b) => byStart(b, a))
         };
     }, [requests, search, doctorFilter]);
 
@@ -607,7 +697,7 @@ export const BookingRequests = ({ doctors, userId, onChanged }) => {
             <td className="reason-ds">{r.booking_reason || '-'}</td>
             <td>{requestStatusBadge(r.status)}{r.decline_reason ? <div className="muted-ds">{r.decline_reason}</div> : null}</td>
             <td>
-                {r.status === 'Pending Approval' ? (
+                {r.status === 'Waiting for Approval' ? (
                     <div className="table-actions-dv">
                         <button className="sti-btn-dv sti-btn-primary-dv" onClick={() => handleApprove(r)}><Check size={14} /> Approve</button>
                         <button className="sti-btn-dv sti-btn-light-dv" onClick={() => { setDeclineTarget(r); setDeclineReason(''); }}><XCircle size={14} /> Decline</button>
@@ -630,10 +720,12 @@ export const BookingRequests = ({ doctors, userId, onChanged }) => {
                     <Search size={16} />
                     <input type="text" placeholder="Search student, ID, doctor or visit type..." value={search} onChange={e => setSearch(e.target.value)} />
                 </div>
-                <select value={doctorFilter} onChange={e => setDoctorFilter(e.target.value)} aria-label="Doctor">
-                    <option value="">All doctors</option>
-                    {doctors.map(d => <option key={d.doctor_id} value={d.doctor_id}>{doctorName(d)}</option>)}
-                </select>
+                {!fixedDoctorId && (
+                    <select value={doctorFilter} onChange={e => setDoctorFilter(e.target.value)} aria-label="Doctor">
+                        <option value="">All doctors</option>
+                        {doctors.map(d => <option key={d.doctor_id} value={d.doctor_id}>{doctorName(d)}</option>)}
+                    </select>
+                )}
                 <label className="check-ds">
                     <input type="checkbox" checked={showHistory} onChange={e => setShowHistory(e.target.checked)} />
                     Also show approved / declined / cancelled (last 60 days)
@@ -645,7 +737,7 @@ export const BookingRequests = ({ doctors, userId, onChanged }) => {
             ) : (
                 <>
                     <h3 className="section-head-ds">
-                        <Inbox size={18} /> Awaiting approval <span className="count-pill-ds">{pending.length}</span>
+                        <Inbox size={18} /> Waiting for approval <span className="count-pill-ds">{pending.length}</span>
                     </h3>
                     {pending.length === 0 ? (
                         <div className="group-empty-ds"><AlertCircle size={16} /> No booking requests are waiting for approval.</div>
