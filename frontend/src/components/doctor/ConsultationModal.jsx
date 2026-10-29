@@ -39,7 +39,8 @@ const visionFrom = (a) => ({
     eye_findings: a.eye_findings || '', recommended_action: a.recommended_action || 'No action', remarks: a.vision_remarks || ''
 });
 
-const ConsultationModal = ({ appt, doctorId, userId, onClose, onSaved }) => {
+// doctorId: whose templates are offered; nurseId is set when the nurse documents the visit instead of the doctor
+const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }) => {
     const { showAlert } = useAlert();
     const editing = !!appt?.assessment_id;
     const visitType = appt?.visit_type || 'General Check Up';
@@ -137,7 +138,7 @@ const ConsultationModal = ({ appt, doctorId, userId, onClose, onSaved }) => {
             setError('Every prescription line needs a medicine name.');
             return;
         }
-        if (form.follow_up_needed && bookFollowUp && !form.follow_up_date) { setError('Pick the follow-up date to book it.'); return; }
+        if (form.follow_up_needed && bookFollowUp && !form.follow_up_date) { setError('Pick the repeat date to book it.'); return; }
 
         setBusy(true);
         try {
@@ -153,7 +154,7 @@ const ConsultationModal = ({ appt, doctorId, userId, onClose, onSaved }) => {
                 student_id: appt.student_id,
                 student_user_id: appt.student_user_id,
                 sender_id: userId,
-                documented_by_doctor_id: doctorId,
+                documented_by_doctor_id: nurseId ? undefined : doctorId,
                 chief_complaint: form.chief_complaint,
                 clinical_findings: form.clinical_findings,
                 diagnosis: form.diagnosis,
@@ -178,12 +179,12 @@ const ConsultationModal = ({ appt, doctorId, userId, onClose, onSaved }) => {
                 const fu = await fetch(`${API}/api/doctor-visits/${appt.appointment_id}/follow-up`, {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        student_id: appt.student_id, created_by_doctor_id: doctorId, sender_id: userId,
+                        student_id: appt.student_id, ...(nurseId ? { nurse_id: nurseId } : { created_by_doctor_id: doctorId }), sender_id: userId,
                         start_time: `${form.follow_up_date} ${followTime}:00`, duration_min: followDuration, notes: form.follow_up_notes
                     })
                 });
                 const fd = await fu.json();
-                followUpMessage = fd.success ? ' The follow-up appointment was booked.' : ` The follow-up could not be booked: ${fd.message}`;
+                followUpMessage = fd.success ? ' The repeat appointment was booked.' : ` The repeat could not be booked: ${fd.message}`;
             }
             showAlert(`Consultation saved.${followUpMessage}`, followUpMessage.includes('could not') ? 'warning' : 'success');
             onSaved?.();
@@ -359,24 +360,24 @@ const ConsultationModal = ({ appt, doctorId, userId, onClose, onSaved }) => {
                 ))}
                 <div><button type="button" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => set({ prescriptions: [...form.prescriptions, { ...EMPTY_RX }] })}><Plus size={15} /> Add medicine</button></div>
 
-                <div className="dp-section-label">Follow-up</div>
+                <div className="dp-section-label">Repeat</div>
                 <div style={{ display: 'flex', gap: 22, flexWrap: 'wrap' }}>
                     <label className="dp-check"><input type="checkbox" checked={form.is_abnormal} onChange={(e) => set({ is_abnormal: e.target.checked })} /> Abnormal finding</label>
-                    <label className="dp-check"><input type="checkbox" checked={form.follow_up_needed} onChange={(e) => set({ follow_up_needed: e.target.checked })} /> Follow-up needed</label>
+                    <label className="dp-check"><input type="checkbox" checked={form.follow_up_needed} onChange={(e) => set({ follow_up_needed: e.target.checked })} /> Repeat needed</label>
                 </div>
                 {form.follow_up_needed && (
                     <>
                         <div className="dp-row">
                             <div className="dp-field">
-                                <label>Follow-up date</label>
+                                <label>Repeat date</label>
                                 <input className="dp-input" type="date" min={localDateStr()} value={form.follow_up_date} onChange={(e) => set({ follow_up_date: e.target.value })} />
                             </div>
                             <div className="dp-field" style={{ gridColumn: 'span 2' }}>
-                                <label>Follow-up notes</label>
+                                <label>Repeat notes</label>
                                 <input className="dp-input" maxLength={500} value={form.follow_up_notes} onChange={(e) => set({ follow_up_notes: e.target.value })} placeholder="e.g. Return if the headache persists after 3 days" />
                             </div>
                         </div>
-                        <label className="dp-check"><input type="checkbox" checked={bookFollowUp} onChange={(e) => setBookFollowUp(e.target.checked)} /> Also book the follow-up appointment on that date</label>
+                        <label className="dp-check"><input type="checkbox" checked={bookFollowUp} onChange={(e) => setBookFollowUp(e.target.checked)} /> Appoint the repeat now (direct appointment on that date). Without it the student waits in the Repeats list for a schedule.</label>
                         {bookFollowUp && (
                             <div className="dp-row">
                                 <div className="dp-field"><label>Time</label><input className="dp-input" type="time" value={followTime} onChange={(e) => setFollowTime(e.target.value)} /></div>

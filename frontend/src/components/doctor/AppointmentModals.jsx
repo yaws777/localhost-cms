@@ -8,7 +8,7 @@ import Modal from '../common/Modal';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatDateTime, formatTime } from '../../utils/datetime';
 import { visitLabel, localDateStr, fullName } from '../../utils/visitPurpose';
-import { eligibleDoctors, visitRefusal, coveredTypes } from '../../utils/scheduling';
+import { eligibleDoctors, visitRefusal, coveredTypes, upcomingDates, dayLabel, to12h } from '../../utils/scheduling';
 import { useSpecializations } from '../../hooks/useSpecializations';
 import '../../styles/doctor/DoctorLayout.css';
 
@@ -73,11 +73,13 @@ export const ReasonModal = ({ isOpen, title, message, label = 'Reason', placehol
 };
 
 // ---------------------------------------------------------------------------
-// Reschedule: a new date and time block, with the reason
+// Reschedule: an appointment inside a schedule moves to one of that schedule's available time slots; a direct appointment
+// (custom time block) takes a new date and time. Both need the reason.
 // ---------------------------------------------------------------------------
 export const RescheduleModal = ({ appt, onSubmit, onClose }) => {
     const start = parseParts(appt?.start_time);
     const end = parseParts(appt?.end_time);
+    const slotMode = !!(appt && appt.schedule_id && appt.doctor_id);
     const [date, setDate] = useState(start.date);
     const [from, setFrom] = useState(start.time);
     const [to, setTo] = useState(end.time);
@@ -85,17 +87,61 @@ export const RescheduleModal = ({ appt, onSubmit, onClose }) => {
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
 
+    // slot mode: the days the schedule still runs and the time slots of the chosen day
+    const [days, setDays] = useState([]);
+    const [slots, setSlots] = useState([]);
+    const [slotsLoading, setSlotsLoading] = useState(slotMode);
+    const [picked, setPicked] = useState(null);
+
     const duration = start.time && end.time ? minutesBetween(start.time, end.time) : 15;
+
+    useEffect(() => {
+        if (!slotMode) return undefined;
+        let live = true;
+        fetch(`${API}/api/doctor-schedules?doctor_id=${encodeURIComponent(appt.doctor_id)}`)
+            .then((r) => r.json())
+            .then((d) => {
+                if (!live) return;
+                const schedule = d.success ? d.schedules.find((x) => x.schedule_id === appt.schedule_id) : null;
+                const list = schedule ? upcomingDates(schedule, 12) : [];
+                if (!list.includes(start.date)) list.unshift(start.date);
+                setDays(list);
+            })
+            .catch(() => { if (live) setDays([start.date]); });
+        return () => { live = false; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [appt && appt.appointment_id]);
+
+    useEffect(() => {
+        if (!slotMode || !date) return undefined;
+        let live = true;
+        setSlotsLoading(true);
+        setPicked(null);
+        const qs = new URLSearchParams({ date, exclude_appointment_id: appt.appointment_id });
+        if (appt.student_id) qs.set('student_id', appt.student_id);
+        fetch(`${API}/api/doctor-schedules/${appt.schedule_id}/slots?${qs.toString()}`)
+            .then((r) => r.json())
+            .then((d) => { if (live) setSlots(d.success ? d.slots : []); })
+            .catch(() => { if (live) setSlots([]); })
+            .finally(() => { if (live) setSlotsLoading(false); });
+        return () => { live = false; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [slotMode, date, appt && appt.appointment_id]);
 
     const submit = async (e) => {
         e.preventDefault();
         setError('');
-        if (!date || !from || !to) { setError('Pick the new date and the start and end time.'); return; }
-        if (to <= from) { setError('The end time must be after the start time.'); return; }
+        if (slotMode) {
+            if (!picked) { setError('Pick one of the available time slots.'); return; }
+        } else {
+            if (!date || !from || !to) { setError('Pick the new date and the start and end time.'); return; }
+            if (to <= from) { setError('The end time must be after the start time.'); return; }
+        }
         if (!reason.trim()) { setError('Please give a reason for rescheduling.'); return; }
         setBusy(true);
         try {
-            const message = await onSubmit({ start_time: `${date} ${from}:00`, end_time: `${date} ${to}:00`, reason: reason.trim() });
+            const times = slotMode ? { start_time: picked.start_time, end_time: picked.end_time } : { start_time: `${date} ${from}:00`, end_time: `${date} ${to}:00` };
+            const message = await onSubmit({ ...times, reason: reason.trim() });
             if (message) setError(message);
         } finally { setBusy(false); }
     };
@@ -106,23 +152,57 @@ export const RescheduleModal = ({ appt, onSubmit, onClose }) => {
                 <div className="dp-notice">
                     {fullName(appt?.student_first_name, appt?.student_last_name)} - {visitLabel(appt?.visit_type, appt?.purpose_other)}<br />
                     Now: {formatDate(appt?.start_time)}, {formatTime(appt?.start_time)} - {formatTime(appt?.end_time)}
-                    {appt?.booking_source === 'Student' && <><br />This booking came from an open time block, so the new time has to stay inside that block.</>}
+                    {slotMode && <><br />Pick the new time from the available time slots of this schedule.</>}
                 </div>
                 {error && <div className="dp-error">{error}</div>}
-                <div className="dp-row">
-                    <div className="dp-field">
-                        <label>New date</label>
-                        <input className="dp-input" type="date" required min={localDateStr()} value={date} onChange={(e) => setDate(e.target.value)} />
+                {slotMode ? (
+                    <>
+                        <div className="dp-field">
+                            <label>New day</label>
+                            <select className="dp-select" value={date} onChange={(e) => setDate(e.target.value)}>
+                                {days.map((d) => <option key={d} value={d}>{dayLabel(d, { weekday: 'long', month: 'long', day: 'numeric' })}</option>)}
+                            </select>
+                        </div>
+                        <div className="dp-field">
+                            <label>Available time slots</label>
+                            {slotsLoading ? <p className="dp-hint">Loading...</p> : slots.length === 0 ? <p className="dp-hint">This schedule has no time slots on that day.</p> : (
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: 8 }}>
+                                    {slots.map((s) => {
+                                        const current = s.start_time === appt.start_time;
+                                        const chosen = picked && picked.start_time === s.start_time;
+                                        return (
+                                            <button
+                                                key={s.start_time} type="button" disabled={!s.available || current}
+                                                className={`dp-btn ${chosen ? 'dp-btn-primary' : 'dp-btn-ghost'}`}
+                                                style={{ flexDirection: 'column', gap: 2, padding: '8px 6px' }}
+                                                onClick={() => setPicked(s)}
+                                                title={current ? 'The current time' : s.blocked ? 'The doctor is unavailable' : s.past ? 'This time has passed' : !s.available ? 'Fully booked' : 'Available'}
+                                            >
+                                                {to12h(s.start_time.slice(11))}
+                                                <small>{current ? 'Current' : s.past ? 'Passed' : s.blocked ? 'Unavailable' : s.available ? `${s.capacity - s.booked} left` : 'Full'}</small>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    </>
+                ) : (
+                    <div className="dp-row">
+                        <div className="dp-field">
+                            <label>New date</label>
+                            <input className="dp-input" type="date" required min={localDateStr()} value={date} onChange={(e) => setDate(e.target.value)} />
+                        </div>
+                        <div className="dp-field">
+                            <label>Start</label>
+                            <input className="dp-input" type="time" required value={from} onChange={(e) => { setFrom(e.target.value); if (e.target.value) setTo(addMinutes(e.target.value, duration > 0 ? duration : 15)); }} />
+                        </div>
+                        <div className="dp-field">
+                            <label>End</label>
+                            <input className="dp-input" type="time" required value={to} onChange={(e) => setTo(e.target.value)} />
+                        </div>
                     </div>
-                    <div className="dp-field">
-                        <label>Start</label>
-                        <input className="dp-input" type="time" required value={from} onChange={(e) => { setFrom(e.target.value); if (e.target.value) setTo(addMinutes(e.target.value, duration > 0 ? duration : 15)); }} />
-                    </div>
-                    <div className="dp-field">
-                        <label>End</label>
-                        <input className="dp-input" type="time" required value={to} onChange={(e) => setTo(e.target.value)} />
-                    </div>
-                </div>
+                )}
                 <div className="dp-field">
                     <label>Reason (the student and parents are told)</label>
                     <textarea className="dp-textarea" rows={2} maxLength={255} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. The doctor has an emergency consultation at that time" />

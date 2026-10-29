@@ -1726,3 +1726,268 @@ body.modal-open-nd {
   font-size: 12px;
   color: #6B7280;
 }
+
+/* ---------- Mini calendar ---------- */
+.mini-cal-panel-nd {
+  margin: 20px 0 28px;
+}
+
+.dashboard-details-single-nd {
+  grid-template-columns: 1fr;
+}
+
+.mini-cal-nd {
+  display: grid;
+  grid-template-columns: minmax(280px, 340px) 1fr;
+  gap: 20px;
+  padding: 14px 18px 16px;
+}
+
+.mini-cal-head-nd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.mini-cal-month-nd {
+  flex: 1;
+  text-align: center;
+  font-size: 14px;
+  color: #111827;
+}
+
+.mini-cal-nav-nd,
+.mini-cal-today-nd {
+  border: 1px solid var(--border-color);
+  background: #fff;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #374151;
+}
+
+.mini-cal-nav-nd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+}
+
+.mini-cal-today-nd {
+  padding: 4px 9px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.mini-cal-nav-nd:hover,
+.mini-cal-today-nd:hover {
+  background: #F0F5FA;
+}
+
+.mini-cal-weekdays-nd,
+.mini-cal-days-nd {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.mini-cal-weekdays-nd span {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding-bottom: 4px;
+}
+
+.mini-cal-day-nd {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  height: 38px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 12.5px;
+  color: #1F2937;
+  cursor: pointer;
+}
+
+.mini-cal-day-nd:hover {
+  background: #F3F4F6;
+}
+
+.mini-cal-today-cell-nd {
+  font-weight: 700;
+  color: #0250A3;
+  background: #EAF2FB;
+}
+
+.mini-cal-selected-nd,
+.mini-cal-selected-nd:hover {
+  border-color: #0250A3;
+  background: #fff;
+  box-shadow: 0 0 0 1px #0250A3 inset;
+}
+
+.mini-cal-dots-nd {
+  display: flex;
+  gap: 2px;
+  height: 5px;
+}
+
+.mini-cal-dots-nd i,
+.mini-cal-legend-item-nd i {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+}
+
+.mini-cal-legend-nd {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.mini-cal-legend-item-nd {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: #fff;
+  font-size: 11px;
+  color: #374151;
+  cursor: pointer;
+}
+
+.mini-cal-legend-item-nd i {
+  width: 7px;
+  height: 7px;
+}
+
+.mini-cal-legend-off-nd {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+
+.mini-cal-agenda-side-nd {
+  min-width: 0;
+  border-left: 1px solid var(--border-color);
+  padding-left: 20px;
+}
+
+.mini-cal-agenda-title-nd {
+  font-size: 13px;
+  font-weight: 700;
+  color: #111827;
+  margin-bottom: 8px;
+}
+
+.mini-cal-empty-nd {
+  padding: 24px 0;
+  font-size: 13px;
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.mini-cal-agenda-list-nd {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 250px;
+  overflow-y: auto;
+}
+
+.mini-cal-event-nd {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  border: 1px solid var(--border-color);
+  border-left: 3px solid;
+  border-radius: 8px;
+  background: #F9FAFB;
+  cursor: pointer;
+}
+
+.mini-cal-event-nd:hover {
+  background: #F0F5FA;
+}
+
+.mini-cal-event-body-nd {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.mini-cal-event-body-nd strong {
+  font-size: 12.5px;
+  color: #111827;
+}
+
+.mini-cal-event-body-nd small {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+@media (max-width: 800px) {
+  .mini-cal-nd {
+    grid-template-columns: 1fr;
+  }
+
+  .mini-cal-agenda-side-nd {
+    border-left: none;
+    border-top: 1px solid var(--border-color);
+    padding: 12px 0 0;
+  }
+}
+
+/* ---------- Top block layout: calendar | quick actions, then stock alerts ---------- */
+.dashboard-top-row-nd {
+  display: grid;
+  grid-template-columns: minmax(0, 1.75fr) minmax(280px, 1fr);
+  gap: 20px;
+  align-items: stretch;
+  margin-bottom: 20px;
+}
+
+.dashboard-top-row-nd .mini-cal-panel-nd {
+  margin: 0;
+}
+
+.quick-actions-section-nd.detail-panel-nd {
+  margin-top: 0;
+}
+
+.quick-actions-section-nd .quick-actions-grid-nd {
+  grid-template-columns: 1fr;
+  grid-auto-rows: 1fr;
+  gap: 10px;
+  flex: 1;
+  padding: 14px 16px 16px;
+}
+
+.dashboard-details-single-nd {
+  margin-bottom: 0;
+}
+
+@media (max-width: 1100px) {
+  .dashboard-top-row-nd {
+    grid-template-columns: 1fr;
+  }
+
+  .quick-actions-section-nd .quick-actions-grid-nd {
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  }
+}

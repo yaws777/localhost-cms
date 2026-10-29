@@ -1,10 +1,11 @@
-// FollowUps.jsx
-// The follow-up list. Every assessment marked "follow-up needed" is one row for one student, so follow-ups (and repeat
-// visits, which are simply the next follow-up) are always set individually. From here the nurse or doctor appoints a time:
+// FollowUps.jsx (the "Repeats" tab)
+// The repeat list. Every assessment where the doctor says the student needs a repeat (a follow-up consultation) is one row for one student, so
+// repeats are always set individually. From here the nurse or doctor appoints the student again (a direct appointment):
 //   - a custom time (any date and hour the doctor is free), or
 //   - a slot inside one of the doctor's posted sessions.
+// A student with no schedule to go to simply waits in the list until one is posted.
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { CalendarClock, Search, RefreshCw, Undo2, EyeOff, CalendarPlus } from 'lucide-react';
+import { CalendarClock, Search, RefreshCw, Undo2, EyeOff, CalendarPlus, Hourglass } from 'lucide-react';
 import Modal from '../common/Modal';
 import { ReasonModal } from '../doctor/AppointmentModals';
 import { useAlert } from '../../context/AlertContext';
@@ -18,7 +19,7 @@ import '../../styles/doctor/DoctorLayout.css';
 import '../../styles/scheduling/Scheduling.css';
 
 const STATE_FILTERS = [
-    ['needs_time', 'Needs a time'],
+    ['needs_time', 'Waiting for a schedule'],
     ['scheduled', 'Scheduled'],
     ['done', 'Done'],
     ['dismissed', 'Taken off the list'],
@@ -26,7 +27,7 @@ const STATE_FILTERS = [
 ];
 
 const STATE_BADGE = {
-    needs_time: ['badge-pending-ds', 'Needs a time'],
+    needs_time: ['badge-pending-ds', 'Waiting for a schedule'],
     scheduled: ['badge-open-ds', 'Scheduled'],
     done: ['badge-expired-ds', 'Done'],
     dismissed: ['badge-closed-ds', 'Taken off the list']
@@ -44,7 +45,7 @@ const occursOn = (s, date) => (s.recurrence === 'Once'
     : dayOfWeek(date) === Number(s.day_of_week) && String(s.valid_from) <= date && date <= String(s.valid_until));
 
 // ---------------------------------------------------------------------------
-// Appoint one follow-up
+// Appoint one repeat
 // ---------------------------------------------------------------------------
 const AppointFollowUpModal = ({ item, creator, userId, onClose, onDone }) => {
     const { showAlert } = useAlert();
@@ -109,7 +110,7 @@ const AppointFollowUpModal = ({ item, creator, userId, onClose, onDone }) => {
     const submit = async (e) => {
         e.preventDefault();
         setError('');
-        if (!date) { setError('Pick the date of the follow-up.'); return; }
+        if (!date) { setError('Pick the date of the repeat.'); return; }
         let start; let minutes; let scheduleId;
         if (mode === 'schedule') {
             if (!session || !slot) { setError('Pick a session and one of its time slots.'); return; }
@@ -117,7 +118,7 @@ const AppointFollowUpModal = ({ item, creator, userId, onClose, onDone }) => {
             minutes = session.slot_duration_min;
             scheduleId = session.schedule_id;
         } else {
-            if (!time) { setError('Pick the time of the follow-up.'); return; }
+            if (!time) { setError('Pick the time of the repeat.'); return; }
             start = `${date} ${time}:00`;
             minutes = parseInt(duration, 10);
         }
@@ -127,7 +128,7 @@ const AppointFollowUpModal = ({ item, creator, userId, onClose, onDone }) => {
                 ...creatorBody(creator), sender_id: userId, student_id: item.student_id, start_time: start, duration_min: minutes, schedule_id: scheduleId, notes
             });
             if (data.success) { showAlert(data.message, 'success'); onDone?.(); onClose(); }
-            else setError(data.message || 'Could not schedule the follow-up.');
+            else setError(data.message || 'Could not schedule the repeat.');
         } catch (err) {
             setError('Could not reach the server.');
         } finally {
@@ -136,10 +137,10 @@ const AppointFollowUpModal = ({ item, creator, userId, onClose, onDone }) => {
     };
 
     return (
-        <Modal isOpen={!!item} onClose={onClose} title="Appoint the follow-up" icon={<CalendarPlus size={20} />} size="lg">
+        <Modal isOpen={!!item} onClose={onClose} title="Appoint the repeat" icon={<CalendarPlus size={20} />} size="lg">
             <form className="dp-form" onSubmit={submit}>
                 <div className="dp-notice">
-                    <strong>{fullName(item.student_first_name, item.student_last_name)}</strong> - follow-up of {visitLabel(item.visit_type, item.purpose_other)} on {formatDate(item.visit_start)}<br />
+                    <strong>{fullName(item.student_first_name, item.student_last_name)}</strong> - repeat of {visitLabel(item.visit_type, item.purpose_other)} on {formatDate(item.visit_start)}<br />
                     Dr. {item.doc_first_name} {item.doc_last_name}
                     {item.follow_up_date ? ` - the doctor asked for ${formatDate(item.follow_up_date)}` : ''}
                     {item.follow_up_notes ? ` - ${item.follow_up_notes}` : ''}
@@ -183,7 +184,7 @@ const AppointFollowUpModal = ({ item, creator, userId, onClose, onDone }) => {
                         </div>
                         <div className="dp-field">
                             <label>Time slot</label>
-                            {slotsLoading ? <p className="dp-hint">Loading times...</p> : slots.length === 0 ? <p className="dp-hint">Pick a date with a session to see its time slots.</p> : (
+                            {slotsLoading ? <p className="dp-hint">Loading times...</p> : slots.length === 0 ? <p className="dp-hint">No schedule on this date yet: the student waits in the list until one is posted. Pick a date with a session to see its time slots.</p> : (
                                 <div className="slot-grid-sc">
                                     {slots.map((s) => {
                                         const t = s.start_time.slice(11, 16);
@@ -210,9 +211,99 @@ const AppointFollowUpModal = ({ item, creator, userId, onClose, onDone }) => {
 
                 <div className="dp-modal-foot">
                     <button type="button" className="dp-btn dp-btn-ghost" onClick={onClose}>Cancel</button>
-                    <button type="submit" className="dp-btn dp-btn-primary" disabled={busy || (mode === 'schedule' && !slot)}>{busy ? 'Saving...' : 'Appoint follow-up'}</button>
+                    <button type="submit" className="dp-btn dp-btn-primary" disabled={busy || (mode === 'schedule' && !slot)}>{busy ? 'Saving...' : 'Appoint repeat'}</button>
                 </div>
             </form>
+        </Modal>
+    );
+};
+
+// ---------------------------------------------------------------------------
+// Repeat from a past consultation: a direct appointment right now, or wait for a schedule (the student joins the Repeats list)
+// ---------------------------------------------------------------------------
+export const RepeatModal = ({ appt, creator, userId, onClose, onDone }) => {
+    const { showAlert } = useAlert();
+    const [wantedDate, setWantedDate] = useState('');
+    const [notes, setNotes] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState('');
+    const [appointing, setAppointing] = useState(null);
+
+    useEffect(() => {
+        if (!appt) return;
+        setWantedDate(appt.follow_up_date ? String(appt.follow_up_date).slice(0, 10) : '');
+        setNotes(appt.follow_up_notes || '');
+        setBusy(false);
+        setError('');
+        setAppointing(null);
+    }, [appt]);
+
+    if (!appt) return null;
+
+    // the repeat list only holds consultations flagged "repeat needed": flag this one first
+    const flag = async () => {
+        const data = await send(`/api/follow-ups/${appt.appointment_id}/flag`, 'PUT', { student_id: appt.student_id, follow_up_date: wantedDate || undefined, notes: notes.trim() || undefined });
+        if (!data.success) setError(data.message || 'Could not set the repeat.');
+        return !!data.success;
+    };
+
+    const choose = async (how) => {
+        setError('');
+        setBusy(true);
+        try {
+            if (!(await flag())) return;
+            if (how === 'wait') {
+                showAlert('The student waits in the Repeats list until a schedule is posted.', 'success');
+                onDone?.();
+                onClose();
+            } else {
+                setAppointing({ ...appt, visit_start: appt.start_time, follow_up_date: wantedDate || null, follow_up_notes: notes.trim() });
+            }
+        } catch (e) {
+            setError('Could not reach the server.');
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    if (appointing) {
+        return <AppointFollowUpModal item={appointing} creator={creator} userId={userId} onClose={() => { onDone?.(); onClose(); }} onDone={onDone} />;
+    }
+
+    return (
+        <Modal isOpen onClose={onClose} title="Repeat consultation" icon={<CalendarClock size={20} />} size="md">
+            <div className="dp-form">
+                <div className="dp-notice">
+                    <strong>{fullName(appt.student_first_name, appt.student_last_name)}</strong> - repeat of {visitLabel(appt.visit_type, appt.purpose_other)} on {formatDate(appt.start_time)}.
+                    Appoint the student now, or let the student wait for a schedule.
+                </div>
+                {error && <div className="dp-error">{error}</div>}
+                <div className="dp-row">
+                    <div className="dp-field">
+                        <label htmlFor="rp-date">Repeat around (optional)</label>
+                        <input id="rp-date" className="dp-input" type="date" min={localDateStr()} value={wantedDate} onChange={(e) => setWantedDate(e.target.value)} />
+                    </div>
+                    <div className="dp-field" style={{ gridColumn: 'span 2' }}>
+                        <label htmlFor="rp-notes">Note for the student (optional)</label>
+                        <input id="rp-notes" className="dp-input" type="text" maxLength={200} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. Bring the lab results" />
+                    </div>
+                </div>
+                <div className="dp-choice-grid">
+                    <button type="button" className="dp-choice" disabled={busy} onClick={() => choose('direct')}>
+                        <CalendarPlus size={20} />
+                        <strong>Direct appointment</strong>
+                        <span>Pick a date and time, or a slot in one of the doctor's schedules, now.</span>
+                    </button>
+                    <button type="button" className="dp-choice" disabled={busy} onClick={() => choose('wait')}>
+                        <Hourglass size={20} />
+                        <strong>Wait for a schedule</strong>
+                        <span>The student joins the Repeats list and is appointed when a schedule is posted.</span>
+                    </button>
+                </div>
+                <div className="dp-modal-foot">
+                    <button type="button" className="dp-btn dp-btn-ghost" onClick={onClose}>Cancel</button>
+                </div>
+            </div>
         </Modal>
     );
 };
@@ -238,7 +329,7 @@ const FollowUps = ({ fixedDoctorId, doctors, creator, userId, refreshKey, onChan
             const data = await res.json();
             if (data.success) { setItems(data.follow_ups); setCounts(data.counts || {}); }
         } catch (e) {
-            showAlert('Could not load the follow-up list.', 'error');
+            showAlert('Could not load the repeat list.', 'error');
         } finally {
             setLoading(false);
         }
@@ -258,18 +349,18 @@ const FollowUps = ({ fixedDoctorId, doctors, creator, userId, refreshKey, onChan
         const r = dismissTarget;
         const data = await send(`/api/follow-ups/${r.appointment_id}/dismiss`, 'PUT', { student_id: r.student_id, dismissed: true, reason });
         setDismissTarget(null);
-        if (data.success) { showAlert(data.message, 'success'); changed(); } else showAlert(data.message || 'Could not update the follow-up.', 'error');
+        if (data.success) { showAlert(data.message, 'success'); changed(); } else showAlert(data.message || 'Could not update the repeat.', 'error');
     };
 
     const restore = async (r) => {
         const data = await send(`/api/follow-ups/${r.appointment_id}/dismiss`, 'PUT', { student_id: r.student_id, dismissed: false });
-        if (data.success) { showAlert(data.message, 'success'); changed(); } else showAlert(data.message || 'Could not update the follow-up.', 'error');
+        if (data.success) { showAlert(data.message, 'success'); changed(); } else showAlert(data.message || 'Could not update the repeat.', 'error');
     };
 
     return (
         <>
             <p className="summary-ds">
-                Each row is one student whose assessment says a follow-up is needed. Appoint every follow-up (and every repeat visit) on its own: pick a time, or put the student in one of the doctor's schedules.
+                Each row is one student whose assessment says a repeat consultation is needed. Appoint every repeat on its own, as a direct appointment: pick a time, or put the student in one of the doctor's schedules. A student with no schedule yet waits here until the doctor posts one.
             </p>
 
             <div className="toolbar-sc">
@@ -294,13 +385,13 @@ const FollowUps = ({ fixedDoctorId, doctors, creator, userId, refreshKey, onChan
                 ))}
             </div>
 
-            {loading ? <div className="loading-dv">Loading the follow-up list...</div> : rows.length === 0 ? (
-                <div className="group-empty-ds"><CalendarClock size={16} /> {state === 'needs_time' ? 'No student is waiting for a follow-up time.' : 'Nothing in this list.'}</div>
+            {loading ? <div className="loading-dv">Loading the repeat list...</div> : rows.length === 0 ? (
+                <div className="group-empty-ds"><CalendarClock size={16} /> {state === 'needs_time' ? 'No student is waiting for a repeat.' : 'Nothing in this list.'}</div>
             ) : (
                 <div className="table-card-dv">
                     <table className="sti-table-dv">
                         <thead>
-                            <tr><th>Student</th><th>Follow-up of</th><th>Asked for</th><th>Status</th><th>Actions</th></tr>
+                            <tr><th>Student</th><th>Repeat of</th><th>Asked for</th><th>Status</th><th>Actions</th></tr>
                         </thead>
                         <tbody>
                             {rows.map((r) => {
@@ -349,8 +440,8 @@ const FollowUps = ({ fixedDoctorId, doctors, creator, userId, refreshKey, onChan
 
             <AppointFollowUpModal item={appointTarget} creator={creator} userId={userId} onClose={() => setAppointTarget(null)} onDone={changed} />
             <ReasonModal
-                isOpen={!!dismissTarget} title="Take the follow-up off the list" confirmLabel="Take off the list" label="Reason"
-                message={dismissTarget ? `${fullName(dismissTarget.student_first_name, dismissTarget.student_last_name)} - follow-up of ${visitLabel(dismissTarget.visit_type, dismissTarget.purpose_other)}` : ''}
+                isOpen={!!dismissTarget} title="Take the repeat off the list" confirmLabel="Take off the list" label="Reason"
+                message={dismissTarget ? `${fullName(dismissTarget.student_first_name, dismissTarget.student_last_name)} - repeat of ${visitLabel(dismissTarget.visit_type, dismissTarget.purpose_other)}` : ''}
                 placeholder="e.g. The student recovered, or was seen elsewhere" onSubmit={dismiss} onClose={() => setDismissTarget(null)}
             />
         </>

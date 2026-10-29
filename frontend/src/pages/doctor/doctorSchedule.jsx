@@ -20,7 +20,7 @@ const DoctorSchedule = () => {
             <div className="dp-page-head">
                 <div>
                     <h2>My Schedule</h2>
-                    <p>The same schedule the nurse manages for you: calendar, schedules, waiting list, follow-ups and booking approvals.</p>
+                    <p>The same schedule the nurse manages for you: calendar, schedules, waiting list, repeats and booking approvals.</p>
                 </div>
             </div>
 

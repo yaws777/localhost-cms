@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
     CalendarPlus, Edit, Lock, Unlock, Trash2, Check, XCircle, Stethoscope,
-    ChevronDown, ChevronRight, Search, Inbox, AlertCircle, TimerReset, Bell, UserPlus
+    ChevronDown, ChevronRight, Search, Inbox, AlertCircle, TimerReset, Bell, UserPlus, ListPlus
 } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatTime } from '../../utils/datetime';
@@ -54,8 +54,8 @@ const StateBadge = ({ s }) => {
 // Schedules: every doctor with their own schedules underneath
 // ---------------------------------------------------------------------------
 // creator: { nurseId } or { doctorId } (the doctor portal only ever sees the doctor's own schedules)
-// prefill: values from a scheduling-assistant suggestion that open the form; onRemind(scheduleId, date): open the waiting list for a session
-export const DoctorAvailability = ({ doctors, creator, userId, onChanged, prefill, onPrefillUsed, onRemind, refreshKey }) => {
+// prefill: values from a scheduling-assistant suggestion that open the form; onReconfirm / onAppointFromWaiting(scheduleId, date): open the waiting list for a session
+export const DoctorAvailability = ({ doctors, creator, userId, onChanged, prefill, onPrefillUsed, onReconfirm, onAppointFromWaiting, refreshKey }) => {
     const { showAlert, showConfirm } = useAlert();
     const [searchParams, setSearchParams] = useSearchParams();
 
@@ -295,8 +295,11 @@ export const DoctorAvailability = ({ doctors, creator, userId, onChanged, prefil
                                                                 {state === 'open' && (
                                                                     <>
                                                                         <button className="icon-btn-ds" title="Appoint a student" onClick={() => setAppointTarget(s)}><UserPlus size={16} /></button>
-                                                                        {onRemind && (
-                                                                            <button className="icon-btn-ds" title="Remind the waiting list" onClick={() => onRemind(s.schedule_id, s.next_date)}><Bell size={16} /></button>
+                                                                        {onReconfirm && !s.in_session_now && (
+                                                                            <button className="icon-btn-ds" title="Reconfirm: ask waiting-list students to reconfirm for this schedule" onClick={() => onReconfirm(s.schedule_id, s.next_date)}><Bell size={16} /></button>
+                                                                        )}
+                                                                        {onAppointFromWaiting && !s.in_session_now && (
+                                                                            <button className="icon-btn-ds" title="Appoint from the waiting list (reconfirmed students)" onClick={() => onAppointFromWaiting(s.schedule_id, s.next_date)}><ListPlus size={16} /></button>
                                                                         )}
                                                                         {s.in_session_now && (
                                                                             <button className="icon-btn-ds" title="Extend the session (it is happening now)" onClick={() => setExtendTarget(s)}><TimerReset size={16} /></button>

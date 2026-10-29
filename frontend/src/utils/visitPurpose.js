@@ -8,6 +8,19 @@ export const visitLabel = (type, other) => {
     return t === 'Other' && other ? `Other: ${other}` : t;
 };
 
+// The example shown in the "reason" box, so it fits the purpose the student picked. A purpose added later falls back to a generic hint.
+const REASON_HINTS = [
+    [/dent/i, 'e.g. Toothache for 2 days, swollen gums, or a teeth cleaning'],
+    [/vision|eye|optom|ophthal/i, 'e.g. Blurry vision when reading the board, eye pain, or a new eyeglass prescription'],
+    [/mental|counsel|psych/i, 'e.g. Feeling anxious before exams, trouble sleeping, or I need someone to talk to'],
+    [/general/i, 'e.g. Fever and cough for 3 days, a yearly check-up, or a medical certificate']
+];
+export const reasonPlaceholder = (type) => {
+    if (!type) return 'Select the purpose of the consultation first';
+    const hint = REASON_HINTS.find(([re]) => re.test(type));
+    return hint ? hint[1] : `Describe why you need a ${type} consultation`;
+};
+
 // How an appointment came to be, in the words the clinic uses
 export const sourceLabel = (source) => {
     if (source === 'Student') return 'By open time slot';

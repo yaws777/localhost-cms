@@ -2,14 +2,14 @@
 // Dialogs for a consultation session that both the nurse and the doctor use:
 // appoint a student into a session, extend a session, extend one appointment.
 import React, { useState, useEffect, useCallback } from 'react';
-import { CalendarPlus, TimerReset } from 'lucide-react';
+import { CalendarPlus, CalendarClock, Ban, TimerReset, Users } from 'lucide-react';
 import Modal from '../common/Modal';
 import { useAlert } from '../../context/AlertContext';
 import { formatTime } from '../../utils/datetime';
 import { visitLabel, fullName } from '../../utils/visitPurpose';
-import { API, dayLabel, to12h, upcomingDates, sessionEnded } from '../../utils/scheduling';
+import { API, SCHEDULING_WAYS, wayOf, dayLabel, to12h, upcomingDates, sessionEnded } from '../../utils/scheduling';
 import { useSpecializations } from '../../hooks/useSpecializations';
-import { StudentPicker } from '../doctor/AppointmentModals';
+import { StudentPicker, ReasonModal, RescheduleModal } from '../doctor/AppointmentModals';
 import '../../styles/doctor/DoctorLayout.css';
 import '../../styles/scheduling/Scheduling.css';
 
@@ -190,6 +190,109 @@ export const AppointModal = ({ isOpen, schedule, request, fixedDate, creator, us
                 </div>
             </form>
         </Modal>
+    );
+};
+
+// ---------------------------------------------------------------------------
+// Participants: everyone who has a place in one session
+// ---------------------------------------------------------------------------
+// While the session is still upcoming the nurse or doctor can move or cancel any participant's appointment
+export const ParticipantsModal = ({ schedule, userId, onClose, onChanged }) => {
+    const { showAlert } = useAlert();
+    const [list, setList] = useState(null);
+    const [reloadKey, setReloadKey] = useState(0);
+    const [moveFor, setMoveFor] = useState(null);
+    const [cancelFor, setCancelFor] = useState(null);
+    const canChange = !!schedule && schedule.state === 'upcoming';
+
+    useEffect(() => {
+        if (!schedule) return undefined;
+        let live = true;
+        setList(null);
+        fetch(`${API}/api/doctor-schedules/${schedule.schedule_id}/participants?date=${schedule.date}`)
+            .then((r) => r.json())
+            .then((d) => { if (live) setList(d.success ? d.participants : []); })
+            .catch(() => { if (live) setList([]); });
+        return () => { live = false; };
+    }, [schedule, reloadKey]);
+
+    const changed = () => { setReloadKey((k) => k + 1); if (onChanged) onChanged(); };
+
+    const move = async ({ start_time, end_time, reason }) => {
+        const res = await send(`/api/doctor-visits/reschedule/${moveFor.appointment_id}`, 'PUT', { sender_id: userId, start_time, end_time, reason });
+        if (res.success) { setMoveFor(null); showAlert('Appointment rescheduled. The student and parents were notified.', 'success'); changed(); return ''; }
+        return res.message || 'Could not reschedule the appointment.';
+    };
+
+    const cancel = async (reason) => {
+        const res = await send(`/api/doctor-visits/cancel/${cancelFor.appointment_id}`, 'PUT', { sender_id: userId, reason });
+        if (res.success) { setCancelFor(null); showAlert('Appointment cancelled. The student and parents were notified.', 'success'); changed(); }
+        else showAlert(res.message || 'Could not cancel the appointment.', 'error');
+    };
+
+    return (
+        <>
+        <Modal isOpen={!!schedule} onClose={onClose} title="Participants" icon={<Users size={20} />} size="lg">
+            {schedule && (
+                <>
+                    <div className="dp-notice" style={{ marginBottom: 12 }}>
+                        {schedule.doctor_name} - {dayLabel(schedule.date, { weekday: 'long', month: 'long', day: 'numeric' })}, {to12h(schedule.start_time)} to {to12h(schedule.end_time)}
+                    </div>
+                    {list === null ? <p className="dp-hint">Loading...</p> : list.length === 0 ? <p className="dp-hint">Nobody has a place in this session yet.</p> : (
+                        <div className="table-card-dv">
+                            <table className="sti-table-dv">
+                                <thead>
+                                    <tr><th>Student</th><th>Time</th><th>Purpose</th><th>Scheduled by</th><th>Status</th>{canChange && <th>Actions</th>}</tr>
+                                </thead>
+                                <tbody>
+                                    {list.map((p) => (
+                                        <tr key={`${p.appointment_id}-${p.student_id}`}>
+                                            <td>
+                                                {p.student_name}
+                                                <div className="muted-ds">{p.student_id}{p.program_name ? ` - ${p.program_name} ${p.year_level || ''}${p.section || ''}` : ''}</div>
+                                            </td>
+                                            <td>{to12h(p.start_time.slice(11))} - {to12h(p.end_time.slice(11))}</td>
+                                            <td>{visitLabel(p.visit_type, p.purpose_other)}</td>
+                                            <td><span className={`type-badge-sc ${SCHEDULING_WAYS[wayOf(p.booking_source)].cls}`}>{SCHEDULING_WAYS[wayOf(p.booking_source)].label}</span></td>
+                                            <td>
+                                                {p.status}
+                                                {p.attendance_status && p.attendance_status !== 'Pending' && <div className="muted-ds">{p.attendance_status}</div>}
+                                            </td>
+                                            {canChange && (
+                                                <td>
+                                                    {['Scheduled', 'Waiting for Approval'].includes(p.status) && (
+                                                        <div className="row-actions-sc">
+                                                            <button type="button" className="icon-btn-ds" title="Change the time of this participant" onClick={() => setMoveFor({ ...p, schedule_id: schedule.schedule_id, doctor_id: schedule.doctor_id, student_first_name: p.student_name, student_last_name: '' })}><CalendarClock size={15} /></button>
+                                                            <button type="button" className="icon-btn-ds" title="Cancel this participant's appointment" onClick={() => setCancelFor(p)}><Ban size={15} /></button>
+                                                        </div>
+                                                    )}
+                                                </td>
+                                            )}
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                    <div className="dp-modal-foot">
+                        <button type="button" className="dp-btn dp-btn-ghost" onClick={onClose}>Close</button>
+                    </div>
+                </>
+            )}
+        </Modal>
+        {moveFor && <RescheduleModal key={moveFor.appointment_id} appt={moveFor} onSubmit={move} onClose={() => setMoveFor(null)} />}
+        <ReasonModal
+            isOpen={!!cancelFor}
+            title="Cancel appointment"
+            message={cancelFor && `${cancelFor.student_name} - ${to12h(cancelFor.start_time.slice(11))}. The student and parents are notified.`}
+            label="Reason (shown to the student)"
+            placeholder="e.g. The doctor is unavailable, please rebook"
+            confirmLabel="Cancel appointment"
+            danger
+            onSubmit={cancel}
+            onClose={() => setCancelFor(null)}
+        />
+        </>
     );
 };
 

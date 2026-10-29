@@ -15,15 +15,15 @@ import '../../styles/scheduling/Scheduling.css';
 
 const EMPTY = {
     doctor_id: '', visit_type: 'Any', recurrence: 'Once', schedule_date: '', day_of_week: 1, valid_from: '', valid_until: '',
-    start_time: '09:00', end_time: '12:00', slot_duration_min: 15, max_patients_per_slot: 1, location: '', notes: '', announcement: '',
+    start_time: '09:00', end_time: '12:00', slot_duration_min: 15, max_patients_per_slot: 1, location: '', notes: '',
     allow_walk_in: true, auto_confirm: false
 };
 
 const fromSchedule = (s) => ({
     doctor_id: s.doctor_id, visit_type: s.visit_type, recurrence: s.recurrence, schedule_date: s.schedule_date || '', day_of_week: s.day_of_week ?? 1,
     valid_from: s.valid_from || '', valid_until: s.valid_until || '', start_time: hhmm(s.start_time), end_time: hhmm(s.end_time),
-    slot_duration_min: s.slot_duration_min, max_patients_per_slot: s.max_patients_per_slot, location: s.location || '', notes: s.notes || '',
-    announcement: s.announcement || '', allow_walk_in: hasWalkIn(s), auto_confirm: !!s.auto_confirm
+    slot_duration_min: s.slot_duration_min, max_patients_per_slot: s.max_patients_per_slot, location: s.location || '', notes: s.notes || s.announcement || '',
+    allow_walk_in: hasWalkIn(s), auto_confirm: !!s.auto_confirm
 });
 
 // creator: { nurseId } or { doctorId }; schedule: the schedule being edited (none = add); preset: values for a new one
@@ -90,6 +90,7 @@ const ScheduleFormModal = ({ isOpen, schedule, preset, doctors, creator, userId,
                 {error && <div className="dp-error" role="alert">{error}</div>}
                 {running && <div className="dp-error">This session is happening now, so its dates and hours are locked. Use Extend to keep it open longer; the rest can still be edited.</div>}
                 {hasBookings && !running && <div className="dp-notice">This schedule has upcoming bookings, so only the location, notes, walk-in setting and approval setting can change. Close the schedule to cancel the bookings first.</div>}
+                {/* a new schedule is always one date; an existing weekly series keeps its weekday fields */}
 
                 <div className="dp-row">
                     <div className="dp-field">
@@ -109,14 +110,6 @@ const ScheduleFormModal = ({ isOpen, schedule, preset, doctors, creator, userId,
                 </div>
                 {doctor && <small className="dp-hint">Dr. {doctor.last_name} covers: {coveredTypes(doctor).join(', ')}.</small>}
                 {refusal && <div className="dp-error">{refusal}</div>}
-
-                <div className="dp-field">
-                    <label htmlFor="sf-repeat">Repeats</label>
-                    <select id="sf-repeat" className="dp-select" disabled={running || hasBookings} value={form.recurrence} onChange={(e) => set({ recurrence: e.target.value })}>
-                        <option value="Once">One date only</option>
-                        <option value="Weekly">Every week on a weekday</option>
-                    </select>
-                </div>
 
                 {form.recurrence === 'Once' ? (
                     <div className="dp-field">
@@ -166,18 +159,12 @@ const ScheduleFormModal = ({ isOpen, schedule, preset, doctors, creator, userId,
                     <input id="sf-location" className="dp-input" type="text" maxLength={100} placeholder="e.g. Clinic Room 1" value={form.location} onChange={(e) => set({ location: e.target.value })} />
                 </div>
 
-                <label className="dp-check"><input type="checkbox" checked={form.allow_walk_in} onChange={(e) => set({ allow_walk_in: e.target.checked })} /> Accept walk-ins during this schedule (appointments are still seen first)</label>
+                <label className="dp-check"><input type="checkbox" checked={form.allow_walk_in} onChange={(e) => set({ allow_walk_in: e.target.checked })} /> Accept walk-ins while this consultation is in session (appointments are still seen first)</label>
                 <label className="dp-check"><input type="checkbox" checked={form.auto_confirm} onChange={(e) => set({ auto_confirm: e.target.checked })} /> Confirm students' open-slot bookings automatically (otherwise the nurse or doctor approves each one)</label>
 
-                {form.allow_walk_in && (
-                    <div className="dp-field">
-                        <label htmlFor="sf-announce">Announcement for students (optional)</label>
-                        <textarea id="sf-announce" className="dp-textarea" rows={2} maxLength={500} placeholder="e.g. Walk-ins are welcome. No booking needed, just come to the clinic." value={form.announcement} onChange={(e) => set({ announcement: e.target.value })} />
-                    </div>
-                )}
                 <div className="dp-field">
-                    <label htmlFor="sf-notes">Notes for students (optional)</label>
-                    <input id="sf-notes" className="dp-input" type="text" maxLength={255} placeholder="e.g. Bring your student ID" value={form.notes} onChange={(e) => set({ notes: e.target.value })} />
+                    <label htmlFor="sf-notes">Notes for Students (optional)</label>
+                    <textarea id="sf-notes" className="dp-textarea" rows={2} maxLength={255} placeholder="Bring your student ID" value={form.notes} onChange={(e) => set({ notes: e.target.value })} />
                 </div>
 
                 <div className="dp-modal-foot">

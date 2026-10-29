@@ -348,3 +348,152 @@
 .request-help-bc { font-size: 0.84rem; color: var(--text-secondary); margin: 6px 0 0; }
 .announce-bc { border-left: 4px solid #d97706; }
 .announce-bc.appointment-bc { border-left-color: #2563eb; }
+
+/* ---- one calendar for requests, bookings, announcements and open schedules ---- */
+.alert-bc { margin-bottom: 12px; }
+
+.toolbar-bc {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+}
+
+.toolbar-bc .filters-bc { margin-bottom: 0; }
+
+.kind-filters-bc { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.kind-request-bc { --kind-color: #d97706; }
+.kind-booking-bc { --kind-color: #16a34a; }
+.kind-announce-bc { --kind-color: #7c3aed; }
+.kind-available-bc { --kind-color: #2563eb; }
+
+.kind-dot-bc {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--kind-color);
+    flex: none;
+}
+
+.kind-chip-bc {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border-color, #cbd5e1);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.kind-chip-bc.on-bc {
+    border-color: var(--kind-color);
+    color: var(--text-primary);
+    background: color-mix(in srgb, var(--kind-color) 12%, transparent);
+}
+
+.cal-layout-bc {
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr);
+    gap: 16px;
+    align-items: start;
+}
+
+.cal-head-bc {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.section-bc .cal-head-bc h3 { margin: 0; }
+.cal-nav-bc { display: flex; gap: 6px; }
+.cal-icon-bc { display: inline-flex; align-items: center; padding: 8px 10px; }
+
+.cal-grid-bc {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 4px;
+}
+
+.cal-dow-bc {
+    text-align: center;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+    padding: 4px 0;
+}
+
+.cal-day-bc {
+    min-height: 74px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 6px;
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 8px;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    cursor: pointer;
+    text-align: left;
+}
+
+.cal-day-bc:hover { border-color: var(--sti-blue); }
+.cal-day-bc.outside-bc { opacity: 0.45; }
+.cal-day-bc.today-bc .cal-num-bc { background: var(--sti-blue); color: #fff; border-radius: 999px; padding: 0 6px; }
+.cal-day-bc.selected-bc { border-color: var(--sti-blue); box-shadow: 0 0 0 2px var(--sti-blue-light); }
+.cal-num-bc { font-size: 0.82rem; font-weight: 700; }
+
+.cal-marks-bc { display: flex; flex-wrap: wrap; gap: 3px 6px; }
+
+.cal-mark-bc {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+}
+
+.day-panel-bc {
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 10px;
+    padding: 14px;
+    max-height: 640px;
+    overflow-y: auto;
+}
+
+.section-bc .day-panel-bc h3 { font-size: 0.95rem; margin-bottom: 10px; }
+
+.stack-bc { display: flex; flex-direction: column; gap: 12px; }
+
+.event-bc { display: flex; flex-direction: column; gap: 4px; }
+
+.event-kind-bc {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--kind-color);
+}
+
+@media (max-width: 900px) {
+    .cal-layout-bc { grid-template-columns: 1fr; }
+    .day-panel-bc { max-height: none; }
+}
+
+@media (max-width: 600px) {
+    .cal-day-bc { min-height: 58px; padding: 4px; }
+}

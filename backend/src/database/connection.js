@@ -8921,6 +8921,18 @@ const assertAppointmentFits = async (conn, { doctor, visitType, startStr, endStr
     if (overlaps >= covering.max_patients_per_slot) {
         throw new BookingError(`${doctorDisplayName(doctor)} is already fully booked for ${startStr.slice(11, 16)}-${endStr.slice(11, 16)} on ${startStr.slice(0, 10)}.`);
     }
+    // moving an appointment (excludeId) adds no booking, so the rule only applies to a new one
+    if (studentId && covering.schedule_id && !excludeId) {
+        // one active booking per student in a schedule: a Scheduled / Waiting for Approval one has to be cancelled before another can be made
+        const [[held]] = await conn.query(
+            `SELECT COUNT(*) AS n FROM doctor_appointments da
+             JOIN doctor_appointment_students das ON das.appointment_id = da.appointment_id
+             WHERE das.student_id = ? AND da.schedule_id = ? AND DATE(da.start_time) = ? AND da.status IN ('Scheduled', 'Waiting for Approval')
+               ${excludeId ? 'AND da.appointment_id <> ?' : ''}`,
+            excludeId ? [studentId, covering.schedule_id, startStr.slice(0, 10), excludeId] : [studentId, covering.schedule_id, startStr.slice(0, 10)]
+        );
+        if (held.n > 0) throw new BookingError('This student already has an active appointment in this schedule. It has to be cancelled before another one can be made.');
+    }
     if (studentId) {
         const mine = await countStudentOverlaps(conn, studentId, startStr, endStr, excludeId);
         if (mine > 0) throw new BookingError(`Student ${studentId} already has a doctor appointment overlapping ${startStr.slice(11, 16)}-${endStr.slice(11, 16)} on ${startStr.slice(0, 10)}.`);
@@ -9079,8 +9091,10 @@ const validateScheduleInput = async (conn, input, { excludeScheduleId = null } =
     const capacity = isWalkInSession && !input.max_patients_per_slot ? 1 : parseInt(input.max_patients_per_slot, 10);
     if (!Number.isFinite(capacity) || capacity < 1 || capacity > 50) return { error: 'Max patients per slot must be between 1 and 50.' };
 
-    const announcement = textOrNull(input.announcement);
-    if (announcement && announcement.length > 500) return { error: 'The announcement can be at most 500 characters.' };
+    // "Notes for students" is the only text a schedule carries; `announcement` is kept equal to it so every reader of either column sees the same note
+    const notes = textOrNull(input.notes) || textOrNull(input.announcement);
+    if (notes && notes.length > 255) return { error: 'The notes for students can be at most 255 characters.' };
+    const announcement = notes;
 
     const today = nowManilaStr().slice(0, 10);
     const normalized = {
@@ -9099,7 +9113,7 @@ const validateScheduleInput = async (conn, input, { excludeScheduleId = null } =
         slot_duration_min: slotMin,
         max_patients_per_slot: capacity,
         location: textOrNull(input.location),
-        notes: textOrNull(input.notes),
+        notes,
         // staff-appointed students are confirmed at once; a walk-in session has nothing to approve; only student bookings (open booking) can wait for approval
         auto_confirm: modes.allow_open_booking ? toFlag(input.auto_confirm) : (modes.allow_appointment ? 1 : 0)
     };
@@ -9458,7 +9472,9 @@ app.delete('/api/doctor-schedules/:id', async (req, res) => {
 // ---- Slots (shared by students and nurses) ----
 
 // Builds the slots of one schedule on one date. `appts` = active appointments of that doctor on that date.
-const buildSlots = (schedule, dateStr, appts, studentAppts, nowStr, unavailable = []) => {
+const buildSlots = (schedule, dateStr, appts, studentAppts, nowStr, unavailable = [], moving = false) => {
+    // a student with an active appointment in this schedule on this day cannot take another slot of it
+    const holding = !moving && studentAppts.some((a) => a.schedule_id === schedule.schedule_id && a.start_time.slice(0, 10) === dateStr && ['Scheduled', 'Waiting for Approval'].includes(a.status));
     const slots = [];
     const startMin = hmsToMin(schedule.start_time);
     const endMin = hmsToMin(schedule.end_time);
@@ -9466,7 +9482,7 @@ const buildSlots = (schedule, dateStr, appts, studentAppts, nowStr, unavailable 
         const startStr = `${dateStr} ${minToHms(m)}`;
         const endStr = `${dateStr} ${minToHms(m + schedule.slot_duration_min)}`;
         const booked = appts.filter((a) => a.start_time < endStr && a.end_time > startStr).length;
-        const mine = studentAppts.some((a) => a.start_time < endStr && a.end_time > startStr);
+        const mine = holding || studentAppts.some((a) => a.start_time < endStr && a.end_time > startStr);
         const past = startStr <= nowStr;
         const blocked = unavailable.some((u) => unavailabilityApplies(u, startStr, endStr));
         slots.push({
@@ -9511,7 +9527,7 @@ app.get('/api/doctor-schedules/open', async (req, res) => {
         let studentAppts = [];
         if (student_id) {
             [studentAppts] = await pool.query(
-                `SELECT da.start_time, da.end_time FROM doctor_appointments da
+                `SELECT da.start_time, da.end_time, da.schedule_id, da.status FROM doctor_appointments da
                  JOIN doctor_appointment_students das ON das.appointment_id = da.appointment_id
                  WHERE das.student_id = ? AND da.status IN (?) AND da.end_time > ?`,
                 [student_id, OCCUPYING_APPT_STATUSES, `${today} 00:00:00`]
@@ -9530,14 +9546,16 @@ app.get('/api/doctor-schedules/open', async (req, res) => {
                 const docUnavailable = unavailable.filter((u) => u.doctor_id === s.doctor_id);
                 const slots = buildSlots(s, d, docAppts, studentAppts, nowStr, docUnavailable);
                 const open = slots.filter((x) => x.available).length;
-                if (slots.length === 0 || open === 0) continue;
+                // a schedule the student already holds a booking in stays listed so the page can offer to change or cancel it
+                const hasMyBooking = studentAppts.some((a) => a.schedule_id === s.schedule_id && a.start_time.slice(0, 10) === d && ['Scheduled', 'Waiting for Approval'].includes(a.status));
+                if (slots.length === 0 || (open === 0 && !hasMyBooking)) continue;
                 occurrences.push({
                     date: d, schedule_id: s.schedule_id, doctor_id: s.doctor_id,
                     doctor_name: `Dr. ${s.doc_first_name} ${s.doc_last_name}`, specialization: s.specialization,
                     covered_visit_types: doctorCoverage(s).covered_visit_types,
                     schedule_type: s.schedule_type, allow_appointment: s.allow_appointment, allow_walk_in: s.allow_walk_in,
                     visit_type: s.visit_type, start_time: s.start_time, end_time: s.end_time, location: s.location, notes: s.notes,
-                    slot_duration_min: s.slot_duration_min, auto_confirm: s.auto_confirm, total_slots: slots.length, open_slots: open
+                    slot_duration_min: s.slot_duration_min, auto_confirm: s.auto_confirm, total_slots: slots.length, open_slots: open, has_my_booking: hasMyBooking
                 });
             }
         }
@@ -9563,17 +9581,20 @@ app.get('/api/doctor-schedules/:id/slots', async (req, res) => {
         let studentAppts = [];
         if (student_id) {
             [studentAppts] = await pool.query(
-                `SELECT da.start_time, da.end_time FROM doctor_appointments da
+                `SELECT da.start_time, da.end_time, da.schedule_id, da.status FROM doctor_appointments da
                  JOIN doctor_appointment_students das ON das.appointment_id = da.appointment_id
-                 WHERE das.student_id = ? AND da.status IN (?) AND da.start_time >= ? AND da.start_time < ?`,
-                [student_id, OCCUPYING_APPT_STATUSES, `${date} 00:00:00`, `${addDaysStr(date, 1)} 00:00:00`]
+                 WHERE das.student_id = ? AND da.status IN (?) AND da.start_time >= ? AND da.start_time < ?
+                   ${req.query.exclude_appointment_id ? 'AND da.appointment_id <> ?' : ''}`,
+                req.query.exclude_appointment_id
+                    ? [student_id, OCCUPYING_APPT_STATUSES, `${date} 00:00:00`, `${addDaysStr(date, 1)} 00:00:00`, req.query.exclude_appointment_id]
+                    : [student_id, OCCUPYING_APPT_STATUSES, `${date} 00:00:00`, `${addDaysStr(date, 1)} 00:00:00`]
             );
         }
         const [unavailable] = await pool.query(
             `SELECT * FROM doctor_unavailable_dates WHERE doctor_id = ? AND end_date >= ? AND start_date <= ?`,
             [schedule.doctor_id, date, date]
         );
-        res.json({ success: true, slots: buildSlots(schedule, date, appts, studentAppts, nowManilaStr(), unavailable) });
+        res.json({ success: true, slots: buildSlots(schedule, date, appts, studentAppts, nowManilaStr(), unavailable, !!req.query.exclude_appointment_id) });
     } catch (error) {
         console.error('Error fetching slots:', error);
         res.status(500).json({ success: false, message: 'Failed to fetch slots' });
@@ -10313,7 +10334,7 @@ const decideConsultationRequest = async (req, res, decision) => {
             sender_id: sender_id || null, recipient_ids: await getStudentAndParentUserIds(r.student_id),
             title: decision === 'approve' ? 'Consultation Request Approved' : 'Consultation Request Denied',
             message: decision === 'approve'
-                ? `Your ${purpose} consultation request was approved and you are on the waiting list. You will be notified when the doctor has a schedule.${note ? ` Note: ${note}` : ''}`
+                ? `Your ${purpose} consultation request was approved and you are on the waiting list. Please stay active: when the doctor has a schedule, the school nurse will send you a reconfirmation to answer, and only reconfirmed students can be appointed.${note ? ` Note: ${note}` : ''}`
                 : `Your ${purpose} consultation request was denied: ${note}`,
             type: decision === 'approve' ? 'CONSULTATION_APPROVED' : 'CONSULTATION_DENIED', payloadData: { request_id: r.request_id }
         });
@@ -10335,12 +10356,12 @@ app.put('/api/consultation-requests/:id/priority', async (req, res) => {
     }
 });
 
-// Remind (or ask to reconfirm) the selected students, or every eligible student, about one posted schedule.
+// Ask the selected students (or every eligible student) to reconfirm their appointment request for one posted schedule.
 app.post('/api/consultation-requests/notify', async (req, res) => {
     const { schedule_id, sender_id } = req.body;
     const requestIds = Array.isArray(req.body.request_ids) ? req.body.request_ids.filter(Boolean) : [];
     const everyone = toFlag(req.body.all) === 1;
-    if (!schedule_id) return res.status(400).json({ success: false, message: 'Pick the schedule to remind the students about.' });
+    if (!schedule_id) return res.status(400).json({ success: false, message: 'Pick the schedule the students are asked to reconfirm for.' });
     if (!everyone && requestIds.length === 0) return res.status(400).json({ success: false, message: 'Select at least one student, or choose all.' });
 
     const connection = await pool.getConnection();
@@ -10348,19 +10369,19 @@ app.post('/api/consultation-requests/notify', async (req, res) => {
     try {
         await connection.beginTransaction();
         const [[schedule]] = await connection.query(`SELECT * FROM doctor_schedules WHERE schedule_id = ? FOR UPDATE`, [schedule_id]);
-        if (!schedule || schedule.status !== 'Open') throw new BookingError('This schedule is closed, so students cannot be reminded about it.');
+        if (!schedule || schedule.status !== 'Open') throw new BookingError('This schedule is closed, so students cannot be asked to reconfirm for it.');
         const doctor = await lockDoctor(connection, schedule.doctor_id);
 
         const today = nowManilaStr().slice(0, 10);
         const date = isDateStr(req.body.date) ? req.body.date : nextUpcomingOccurrence(schedule);
-        if (!date || date < today || !scheduleOccursOn(schedule, date)) throw new BookingError('The schedule has no upcoming date to remind the students about.');
+        if (!date || date < today || !scheduleOccursOn(schedule, date)) throw new BookingError('The schedule has no upcoming date to ask the students to reconfirm for.');
 
         const [candidates] = everyone
             ? await connection.query(`SELECT * FROM consultation_requests WHERE status IN ('Waiting List', 'Awaiting Reconfirmation') ORDER BY is_priority DESC, reviewed_at ASC FOR UPDATE`)
             : await connection.query(`SELECT * FROM consultation_requests WHERE request_id IN (?) ORDER BY is_priority DESC, reviewed_at ASC FOR UPDATE`, [requestIds]);
 
-        // an appointment-only session asks "are you still interested?"; sessions students can book or walk into just remind them
-        const noticeType = schedule.allow_appointment && !schedule.allow_open_booking ? 'Reconfirm' : 'Reminder';
+        // the only notice there is: "are you still interested?" - the student answers in Book a Check-up, then the clinic appoints a time
+        const noticeType = 'Reconfirm';
         const actor = await resolveActor(connection, sender_id);
         const notified = [];
         const skipped = [];
@@ -10374,7 +10395,7 @@ app.post('/api/consultation-requests/notify', async (req, res) => {
             if (refusal) { skip(refusal); continue; }
             if (everyone && r.preferred_doctor_id && r.preferred_doctor_id !== schedule.doctor_id) continue;
 
-            const newStatus = noticeType === 'Reconfirm' ? 'Awaiting Reconfirmation' : 'Waiting List';
+            const newStatus = 'Awaiting Reconfirmation';
             await connection.query(
                 `UPDATE consultation_requests SET status = ?, notified_schedule_id = ?, notified_date = ?, last_notice_type = ?, last_notified_at = NOW(),
                         notify_count = notify_count + 1, reconfirm_response = NULL, reconfirm_note = NULL, reconfirm_responded_at = NULL
@@ -10382,7 +10403,7 @@ app.post('/api/consultation-requests/notify', async (req, res) => {
                 [newStatus, schedule.schedule_id, date, noticeType, r.request_id]
             );
             await logRequest(connection, {
-                request_id: r.request_id, action: noticeType === 'Reconfirm' ? 'Reconfirm Sent' : 'Reminded', from_status: r.status, to_status: newStatus,
+                request_id: r.request_id, action: 'Reconfirm Sent', from_status: r.status, to_status: newStatus,
                 reason: `${schedule.schedule_type} session on ${date}${r.notify_count > 0 ? ` (notice #${r.notify_count + 1})` : ''}`, schedule_id: schedule.schedule_id,
                 actor_user_id: sender_id || null, actor_role: actor.role, actor_name: actor.name
             });
@@ -10399,7 +10420,7 @@ app.post('/api/consultation-requests/notify', async (req, res) => {
         connection.release();
         if (error instanceof BookingError) return res.status(error.status).json({ success: false, message: error.message });
         console.error('Error notifying the waiting list:', error);
-        return res.status(500).json({ success: false, message: 'Failed to send the reminders' });
+        return res.status(500).json({ success: false, message: 'Failed to send the reconfirmations' });
     }
     connection.release();
 
@@ -10408,31 +10429,19 @@ app.post('/api/consultation-requests/notify', async (req, res) => {
     for (const r of notified) {
         try {
             const purpose = visitLabel(r.visit_type, r.purpose_other);
-            let title; let message; let type;
-            if (noticeType === 'Reconfirm') {
-                title = 'Are You Still Interested?';
-                message = `${doctorDisplayName(doctor)} will hold appointment consultations on ${where}. Are you still interested in your ${purpose} consultation? Please reconfirm in Book a Check-up so the clinic can appoint you a time.`;
-                type = 'CONSULTATION_RECONFIRM';
-            } else if (!schedule.allow_open_booking) {
-                title = 'Walk-in Consultation Available';
-                message = `${doctorDisplayName(doctor)} accepts walk-in consultations on ${where}. No booking needed, just come to the clinic.${schedule.announcement ? ` ${schedule.announcement}` : ''}`;
-                type = 'CONSULTATION_REMINDER';
-            } else {
-                title = 'Time Slots Are Open';
-                message = `${doctorDisplayName(doctor)} opened time slots on ${where}. Book your ${purpose} consultation in Book a Check-up.${schedule.auto_confirm ? '' : ' Your booking needs approval from the clinic.'}${schedule.allow_appointment ? ' The clinic may also appoint you a time from the waiting list.' : ''}`;
-                type = 'CONSULTATION_REMINDER';
-            }
             await notifyUsers({
-                sender_id: sender_id || null, recipient_ids: await getStudentAndParentUserIds(r.student_id), title, message, type,
-                payloadData: { request_id: r.request_id, schedule_id: schedule.schedule_id }
+                sender_id: sender_id || null, recipient_ids: await getStudentAndParentUserIds(r.student_id),
+                title: 'Please Reconfirm Your Appointment Request',
+                message: `${doctorDisplayName(doctor)} will hold consultations on ${where}. Are you still interested in your ${purpose} consultation? Please reconfirm in Book a Check-up so the clinic can appoint you a time.${schedule.notes ? ` Note: ${schedule.notes}` : ''}`,
+                type: 'CONSULTATION_RECONFIRM', payloadData: { request_id: r.request_id, schedule_id: schedule.schedule_id }
             });
         } catch (e) { console.error('Waiting list notification failed:', e.message); }
     }
     if (notified.length > 0) {
         try {
             await notifyCounterpart({
-                actor: result.actor, senderId: sender_id, doctorId: schedule.doctor_id, title: 'Waiting List Notified',
-                message: `${notified.length} student(s) on the waiting list were ${noticeType === 'Reconfirm' ? 'asked to reconfirm' : 'reminded'} about the ${schedule.schedule_type} session on ${where}.`,
+                actor: result.actor, senderId: sender_id, doctorId: schedule.doctor_id, title: 'Reconfirmation Sent',
+                message: `${notified.length} student(s) on the waiting list were asked to reconfirm for the session on ${where}.`,
                 type: 'SCHEDULE_UPDATE', payloadData: { schedule_id: schedule.schedule_id }
             });
         } catch (e) { console.error('Counterpart notification failed:', e.message); }
@@ -10441,8 +10450,8 @@ app.post('/api/consultation-requests/notify', async (req, res) => {
     res.json({
         success: true,
         message: notified.length === 0
-            ? 'Nobody was notified.'
-            : `${notified.length} student(s) ${noticeType === 'Reconfirm' ? 'asked to reconfirm' : 'reminded'}.${result.skipped.length > 0 ? ` ${result.skipped.length} skipped.` : ''}`,
+            ? 'Nobody was asked to reconfirm.'
+            : `${notified.length} student(s) asked to reconfirm.${result.skipped.length > 0 ? ` ${result.skipped.length} skipped.` : ''}`,
         notified: notified.length, skipped: result.skipped, notice_type: noticeType
     });
 });
@@ -10898,6 +10907,42 @@ app.get('/api/schedule-calendar', async (req, res) => {
     } catch (error) {
         console.error('Error building the schedule calendar:', error);
         res.status(500).json({ success: false, message: 'Failed to load the schedule' });
+    }
+});
+
+// Everyone who has a place in one session (one date of one schedule): appointed, booked an open slot, waiting for approval, or walked in.
+app.get('/api/doctor-schedules/:id/participants', async (req, res) => {
+    try {
+        const date = req.query.date;
+        if (!isDateStr(date)) return res.status(400).json({ success: false, message: 'Pick the date of the session.' });
+        const [[schedule]] = await pool.query(`SELECT * FROM doctor_schedules WHERE schedule_id = ?`, [req.params.id]);
+        if (!schedule) return res.status(404).json({ success: false, message: 'Schedule not found.' });
+        if (!scheduleOccursOn(schedule, date)) return res.status(400).json({ success: false, message: 'The doctor has no session on that date.' });
+
+        const [rows] = await pool.query(
+            `SELECT da.appointment_id, da.start_time, da.end_time, da.status, da.visit_type, da.purpose_other, da.booking_source, da.booking_reason, da.extended_minutes,
+                    das.student_id, das.attendance_status, s.first_name, s.last_name, s.year_level, s.section, p.program_name
+             FROM doctor_appointments da
+             JOIN doctor_appointment_students das ON das.appointment_id = da.appointment_id
+             JOIN students s ON s.student_id = das.student_id
+             LEFT JOIN academic_programs p ON p.program_id = s.program_id
+             WHERE da.doctor_id = ? AND da.status IN ('Scheduled', 'Waiting for Approval', 'Completed')
+               AND da.start_time >= ? AND da.start_time < ?
+             ORDER BY da.start_time ASC, s.last_name ASC`,
+            [schedule.doctor_id, `${date} ${schedule.start_time}`, `${date} ${schedule.end_time}`]
+        );
+        res.json({
+            success: true,
+            participants: rows.map((a) => ({
+                appointment_id: a.appointment_id, student_id: a.student_id, student_name: `${a.first_name} ${a.last_name}`,
+                program_name: a.program_name, year_level: a.year_level, section: a.section,
+                start_time: a.start_time, end_time: a.end_time, status: a.status, attendance_status: a.attendance_status,
+                visit_type: a.visit_type, purpose_other: a.purpose_other, booking_source: a.booking_source, booking_reason: a.booking_reason, extended_minutes: a.extended_minutes
+            }))
+        });
+    } catch (error) {
+        console.error('Error loading the session participants:', error);
+        res.status(500).json({ success: false, message: 'Failed to load the participants' });
     }
 });
 
@@ -12260,6 +12305,28 @@ app.get('/api/follow-ups', async (req, res) => {
     }
 });
 
+// A documented consultation that was not flagged for a repeat is flagged now, so the student waits in the Repeats list for a schedule
+// (or gets a direct appointment right after)
+app.put('/api/follow-ups/:appointment_id/flag', async (req, res) => {
+    const { student_id } = req.body;
+    if (!student_id) return res.status(400).json({ success: false, message: 'Student is required.' });
+    try {
+        const date = isDateStr(req.body.follow_up_date) ? req.body.follow_up_date : null;
+        const [result] = await pool.query(
+            `UPDATE doctor_assessments
+             SET follow_up_needed = 1, follow_up_closed = 0, follow_up_closed_reason = NULL,
+                 follow_up_date = COALESCE(?, follow_up_date), follow_up_notes = COALESCE(?, follow_up_notes)
+             WHERE appointment_id = ? AND student_id = ?`,
+            [date, textOrNull(req.body.notes), req.params.appointment_id, student_id]
+        );
+        if (result.affectedRows === 0) return res.status(404).json({ success: false, message: 'Document the consultation first.' });
+        res.json({ success: true, message: 'The student is on the repeat list.' });
+    } catch (error) {
+        console.error('Error flagging the repeat:', error);
+        res.status(500).json({ success: false, message: 'Failed to set the repeat' });
+    }
+});
+
 // Take a follow-up off the list without a visit (or put it back)
 app.put('/api/follow-ups/:appointment_id/dismiss', async (req, res) => {
     const { student_id } = req.body;
@@ -12804,55 +12871,91 @@ app.get('/api/doctor/:doctorId/dashboard', async (req, res) => {
 // ---- Doctor: appointments / consultations lists ----
 // scope: requests (waiting for approval) | today | upcoming | past | queue (checked in, not documented yet) | documented | all
 
+// doctorId "all" lists every doctor (the nurse), narrowed by ?doctor_id=; the filters are shared with the day folders below
+const appointmentFilter = (req) => {
+    const { scope = 'upcoming', q, purpose, from, to } = req.query;
+    const where = [];
+    const params = [];
+    const doctorId = req.params.doctorId === 'all' ? textOrNull(req.query.doctor_id) : req.params.doctorId;
+    if (doctorId) { where.push('da.doctor_id = ?'); params.push(doctorId); }
+
+    switch (scope) {
+        case 'requests': where.push(`da.status = 'Waiting for Approval'`, `da.start_time > NOW()`); break;
+        case 'today': where.push(`DATE(da.start_time) = CURDATE()`, `da.status IN ('Scheduled', 'Waiting for Approval', 'Completed')`); break;
+        // upcoming (not started) | ongoing (happening now) | past (over, or closed): every visit is in exactly one of the three
+        case 'upcoming': where.push(`da.status IN ('Scheduled', 'Waiting for Approval')`, `da.start_time > NOW()`); break;
+        case 'ongoing': where.push(`da.status IN ('Scheduled', 'Completed')`, `da.start_time <= NOW()`, `da.end_time > NOW()`); break;
+        case 'past': where.push(`(da.end_time <= NOW() OR da.status IN ('Completed', 'Cancelled', 'Declined', 'No-Show'))`, `NOT (da.status IN ('Scheduled', 'Completed') AND da.start_time <= NOW() AND da.end_time > NOW())`); break;
+        case 'queue': where.push(`da.status = 'Scheduled'`, `das.attendance_status = 'Present'`, `da_assessment.assessment_id IS NULL`); break;
+        case 'documented': where.push(`da_assessment.assessment_id IS NOT NULL`); break;
+        case 'all': break;
+        default: return null;
+    }
+    if (purpose && DOCTOR_VISIT_TYPES.includes(purpose)) { where.push('da.visit_type = ?'); params.push(purpose); }
+    if (isDateStr(from)) { where.push('DATE(da.start_time) >= ?'); params.push(from); }
+    if (isDateStr(to)) { where.push('DATE(da.start_time) <= ?'); params.push(to); }
+    const search = textOrNull(q);
+    if (search) {
+        const like = `%${search}%`;
+        where.push(`(CONCAT(s.first_name, ' ', s.last_name) LIKE ? OR s.student_id LIKE ? OR da.title LIKE ? OR da.visit_type LIKE ? OR da.purpose_other LIKE ? OR da.booking_reason LIKE ?)`);
+        params.push(like, like, like, like, like, like);
+    }
+    return { scope, where: where.length > 0 ? where.join(' AND ') : '1 = 1', params };
+};
+
+const APPOINTMENT_JOINS = `
+    FROM doctor_appointments da
+    JOIN doctor_appointment_students das ON das.appointment_id = da.appointment_id
+    JOIN students s ON s.student_id = das.student_id
+    LEFT JOIN doctor_assessments da_assessment ON da_assessment.appointment_id = da.appointment_id AND da_assessment.student_id = das.student_id`;
+
 app.get('/api/doctor/:doctorId/appointments', async (req, res) => {
     try {
-        const { scope = 'upcoming', q, purpose, from, to } = req.query;
         const { page, pageSize, offset } = pageParams(req.query);
-        const where = ['da.doctor_id = ?'];
-        const params = [req.params.doctorId];
+        const filter = appointmentFilter(req);
+        if (!filter) return res.status(400).json({ success: false, message: 'Unknown scope.' });
+        const { scope, where, params } = filter;
 
-        switch (scope) {
-            case 'requests': where.push(`da.status = 'Waiting for Approval'`, `da.start_time > NOW()`); break;
-            case 'today': where.push(`DATE(da.start_time) = CURDATE()`, `da.status IN ('Scheduled', 'Waiting for Approval', 'Completed')`); break;
-            // upcoming (not started) | ongoing (happening now) | past (over, or closed): every visit is in exactly one of the three
-            case 'upcoming': where.push(`da.status IN ('Scheduled', 'Waiting for Approval')`, `da.start_time > NOW()`); break;
-            case 'ongoing': where.push(`da.status IN ('Scheduled', 'Completed')`, `da.start_time <= NOW()`, `da.end_time > NOW()`); break;
-            case 'past': where.push(`(da.end_time <= NOW() OR da.status IN ('Completed', 'Cancelled', 'Declined', 'No-Show'))`, `NOT (da.status IN ('Scheduled', 'Completed') AND da.start_time <= NOW() AND da.end_time > NOW())`); break;
-            case 'queue': where.push(`da.status = 'Scheduled'`, `das.attendance_status = 'Present'`, `da_assessment.assessment_id IS NULL`); break;
-            case 'documented': where.push(`da_assessment.assessment_id IS NOT NULL`); break;
-            case 'all': break;
-            default: return res.status(400).json({ success: false, message: 'Unknown scope.' });
-        }
-        if (purpose && DOCTOR_VISIT_TYPES.includes(purpose)) { where.push('da.visit_type = ?'); params.push(purpose); }
-        if (isDateStr(from)) { where.push('DATE(da.start_time) >= ?'); params.push(from); }
-        if (isDateStr(to)) { where.push('DATE(da.start_time) <= ?'); params.push(to); }
-        const search = textOrNull(q);
-        if (search) {
-            const like = `%${search}%`;
-            where.push(`(CONCAT(s.first_name, ' ', s.last_name) LIKE ? OR s.student_id LIKE ? OR da.title LIKE ? OR da.visit_type LIKE ? OR da.purpose_other LIKE ? OR da.booking_reason LIKE ?)`);
-            params.push(like, like, like, like, like, like);
-        }
-
-        const [[countRow]] = await pool.query(
-            `SELECT COUNT(*) AS n
-             FROM doctor_appointments da
-             JOIN doctor_appointment_students das ON das.appointment_id = da.appointment_id
-             JOIN students s ON s.student_id = das.student_id
-             LEFT JOIN doctor_assessments da_assessment ON da_assessment.appointment_id = da.appointment_id AND da_assessment.student_id = das.student_id
-             WHERE ${where.join(' AND ')}`,
-            params
-        );
+        const [[countRow]] = await pool.query(`SELECT COUNT(*) AS n ${APPOINTMENT_JOINS} WHERE ${where}`, params);
         const total = Number(countRow.n);
         const desc = ['past', 'documented'].includes(scope);
 
         const [rows] = await pool.query(
-            `${DOCTOR_VISIT_SELECT} WHERE ${where.join(' AND ')} ORDER BY da.start_time ${desc ? 'DESC' : 'ASC'} LIMIT ? OFFSET ?`,
+            `${DOCTOR_VISIT_SELECT} WHERE ${where} ORDER BY da.start_time ${desc ? 'DESC' : 'ASC'} LIMIT ? OFFSET ?`,
             [...params, pageSize, offset]
         );
         res.json({ success: true, appointments: rows, total, page, pageSize, pageCount: Math.max(Math.ceil(total / pageSize), 1) });
     } catch (error) {
         console.error('Error fetching doctor appointments:', error);
         res.status(500).json({ success: false, message: 'Failed to load appointments' });
+    }
+});
+
+// The same list cut into one folder per day (newest first): the Past Consultation tab opens a day to see its consultations
+app.get('/api/doctor/:doctorId/appointment-days', async (req, res) => {
+    try {
+        const { page, pageSize, offset } = pageParams(req.query);
+        const filter = appointmentFilter(req);
+        if (!filter) return res.status(400).json({ success: false, message: 'Unknown scope.' });
+        const { where, params } = filter;
+
+        const [[countRow]] = await pool.query(`SELECT COUNT(DISTINCT DATE(da.start_time)) AS n ${APPOINTMENT_JOINS} WHERE ${where}`, params);
+        const total = Number(countRow.n);
+        const [days] = await pool.query(
+            `SELECT DATE_FORMAT(da.start_time, '%Y-%m-%d') AS day, COUNT(*) AS total,
+                    SUM(da_assessment.assessment_id IS NOT NULL) AS documented, SUM(COALESCE(da_assessment.is_abnormal, 0)) AS abnormal
+             ${APPOINTMENT_JOINS} WHERE ${where}
+             GROUP BY day ORDER BY day DESC LIMIT ? OFFSET ?`,
+            [...params, pageSize, offset]
+        );
+        res.json({
+            success: true,
+            days: days.map((d) => ({ day: d.day, total: Number(d.total), documented: Number(d.documented), abnormal: Number(d.abnormal) })),
+            total, page, pageSize, pageCount: Math.max(Math.ceil(total / pageSize), 1)
+        });
+    } catch (error) {
+        console.error('Error fetching appointment days:', error);
+        res.status(500).json({ success: false, message: 'Failed to load the consultation days' });
     }
 });
 
@@ -15805,6 +15908,106 @@ app.get('/api/nurse/dashboard', async (req, res) => {
       message: 'Failed to retrieve nurse dashboard data',
       error: error.message
     });
+  }
+});
+
+// Month calendar for the nurse dashboard: requirement deadlines, medicine batch expirations,
+// health screenings and doctor consultations, one flat list of dated events.
+app.get('/api/nurse/dashboard-calendar', async (req, res) => {
+  try {
+    const match = /^(\d{4})-(\d{2})$/.exec(String(req.query.month || ''));
+    const now = new Date();
+    const year = match ? Number(match[1]) : now.getFullYear();
+    const month = match ? Number(match[2]) : now.getMonth() + 1;
+    if (month < 1 || month > 12) return res.status(400).json({ success: false, message: 'Invalid month.' });
+    const pad = (n) => String(n).padStart(2, '0');
+    const from = `${year}-${pad(month)}-01`;
+    const next = new Date(year, month, 1);
+    const to = `${next.getFullYear()}-${pad(next.getMonth() + 1)}-01`;
+
+    const [requirements, specialRequirements, expirations, screenings, visits] = await Promise.all([
+      pool.query(
+        `SELECT prc.config_id AS id, prc.requirement_name, prc.year_level,
+                COALESCE(ap.program_name, prc.program_id) AS program_name,
+                DATE_FORMAT(prc.submission_deadline, '%Y-%m-%d') AS event_date
+         FROM program_requirements_config prc
+         LEFT JOIN academic_programs ap ON ap.program_id = prc.program_id
+         WHERE prc.submission_deadline >= ? AND prc.submission_deadline < ?`,
+        [from, to]
+      ),
+      pool.query(
+        `SELECT CONCAT(ssr.student_id, '_', ssr.requirement_name) AS id, ssr.requirement_name,
+                CONCAT(s.first_name, ' ', s.last_name) AS student_name,
+                DATE_FORMAT(ssr.submission_deadline, '%Y-%m-%d') AS event_date
+         FROM student_special_requirements ssr
+         LEFT JOIN students s ON s.student_id = ssr.student_id
+         WHERE ssr.submission_deadline >= ? AND ssr.submission_deadline < ?`,
+        [from, to]
+      ),
+      pool.query(
+        `SELECT b.medicine_id, m.generic_name, m.brand_name, m.dosage_form,
+                SUM(b.current_stock) AS stock,
+                DATE_FORMAT(b.expiration_date, '%Y-%m-%d') AS event_date
+         FROM medicine_inventory_batches b
+         JOIN medicines m ON m.medicine_id = b.medicine_id
+         WHERE b.current_stock > 0 AND b.expiration_date >= ? AND b.expiration_date < ?
+         GROUP BY b.medicine_id, m.generic_name, m.brand_name, m.dosage_form, b.expiration_date`,
+        [from, to]
+      ),
+      pool.query(
+        `SELECT screening_schedule_id AS id, title, screening_type, start_time, end_time,
+                DATE_FORMAT(scheduled_date, '%Y-%m-%d') AS event_date
+         FROM screening_schedules
+         WHERE scheduled_date >= ? AND scheduled_date < ?`,
+        [from, to]
+      ),
+      pool.query(
+        `SELECT da.appointment_id AS id, da.title, da.visit_type, da.status, da.start_time, da.end_time,
+                d.first_name AS doc_first_name, d.last_name AS doc_last_name,
+                DATE_FORMAT(da.start_time, '%Y-%m-%d') AS event_date
+         FROM doctor_appointments da
+         LEFT JOIN doctors d ON d.doctor_id = da.doctor_id
+         WHERE da.start_time >= ? AND da.start_time < ?
+           AND da.status NOT IN ('Cancelled', 'Declined', 'Waiting for Approval')
+         ORDER BY da.start_time ASC`,
+        [from, to]
+      )
+    ]);
+
+    const events = [
+      ...requirements[0].map((r) => ({
+        type: 'requirement', id: `req-${r.id}`, date: r.event_date,
+        title: r.requirement_name,
+        detail: `Program: ${r.program_name || 'All Programs'} (Yr ${r.year_level || 'All'})`
+      })),
+      ...specialRequirements[0].map((r) => ({
+        type: 'requirement', id: `sreq-${r.id}`, date: r.event_date,
+        title: r.requirement_name,
+        detail: `Student: ${r.student_name || 'Specific Student'}`
+      })),
+      ...expirations[0].map((r) => ({
+        type: 'expiration', id: `exp-${r.medicine_id}-${r.event_date}`, date: r.event_date,
+        title: r.brand_name ? `${r.generic_name} (${r.brand_name})` : r.generic_name,
+        detail: `${Number(r.stock)} ${r.dosage_form || 'unit'} expiring`
+      })),
+      ...screenings[0].map((r) => ({
+        type: 'screening', id: `scr-${r.id}`, date: r.event_date,
+        title: r.title,
+        detail: r.screening_type || 'Screening',
+        start_time: r.start_time, end_time: r.end_time
+      })),
+      ...visits[0].map((r) => ({
+        type: 'doctor', id: `doc-${r.id}`, date: r.event_date,
+        title: r.title || 'Doctor consultation',
+        detail: r.doc_first_name ? `Dr. ${r.doc_first_name} ${r.doc_last_name}` : 'Assigned Doctor',
+        status: r.status, start_time: r.start_time, end_time: r.end_time
+      }))
+    ];
+
+    res.json({ success: true, month: `${year}-${pad(month)}`, events });
+  } catch (error) {
+    console.error('Error fetching nurse dashboard calendar:', error);
+    res.status(500).json({ success: false, message: 'Failed to retrieve dashboard calendar' });
   }
 });
 

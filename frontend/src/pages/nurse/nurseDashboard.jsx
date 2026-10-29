@@ -24,15 +24,11 @@ import {
   Search, 
   Calendar,
   FileText,
-  Stethoscope,
-  Activity,
   Clock,
   Pill,
   QrCode,
   AlertCircle,
-  GraduationCap,
   FileCheck,
-  UserCheck,
   ShieldAlert,
   Download,
   Megaphone,
@@ -42,6 +38,7 @@ import {
   FolderHeart,
   Plus
 } from 'lucide-react';
+import DashboardCalendar from '../../components/nurse/DashboardCalendar';
 import stiLogo from '../../assets/sti-logof.png';
 import { formatMonthDay, formatTime as formatTimeBase, formatDate as formatDateBase, formatDateTime as formatDateTimeBase } from '../../utils/datetime';
 import '../../styles/nurse/NurseDashboard.css';
@@ -1556,11 +1553,27 @@ const NurseDashboard = () => {
         </div>
       )}
 
-      {/* QUICK ACTIONS SECTION */}
-      <div className="quick-actions-section-nd">
-        <div className="quick-actions-header-nd">
-          <h2 className="dashboard-title-nd">Quick Actions</h2>
+      {/* CALENDAR + QUICK ACTIONS ROW */}
+      <div className="dashboard-top-row-nd">
+        {/* MINI CALENDAR: requirement deadlines, medicine expirations, screenings, doctor consultations */}
+        <div className="detail-panel-nd mini-cal-panel-nd">
+          <div className="panel-header-nd">
+            <div className="panel-title-wrapper-nd">
+              <Calendar size={18} className="panel-icon-nd text-blue-nd" />
+              <h3 className="panel-title-nd">Calendar of Deadlines & Schedules</h3>
+            </div>
+          </div>
+          <DashboardCalendar />
         </div>
+
+        {/* QUICK ACTIONS SECTION */}
+        <div className="detail-panel-nd quick-actions-section-nd">
+          <div className="panel-header-nd">
+            <div className="panel-title-wrapper-nd">
+              <QrCode size={18} className="panel-icon-nd text-blue-nd" />
+              <h3 className="panel-title-nd">Quick Actions</h3>
+            </div>
+          </div>
         <div className="quick-actions-grid-nd">
           <button
             type="button"
@@ -1622,7 +1635,85 @@ const NurseDashboard = () => {
             <ChevronRight size={18} className="quick-action-arrow-nd" />
           </button>
         </div>
+        </div>
       </div>
+
+      {/* MEDICINE STOCK LEVEL ALERTS */}
+      {!isNurseDashboardLoading && (
+        <div className="dashboard-details-grid-nd dashboard-details-single-nd">
+
+          {/* Medicine Inventory Low & Critical Batch Stock Details */}
+          <div className="detail-panel-nd">
+            <div className="panel-header-nd">
+              <div className="panel-title-wrapper-nd">
+                <Pill size={18} className="panel-icon-nd text-red-nd" />
+                <h3 className="panel-title-nd">Medicine Stock Level Alerts</h3>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <span className="count-badge-nd count-badge-red-nd">{nurseDashboardData.medicineStockAlerts.length}</span>
+                <button
+                  style={viewAllBtnStyle}
+                  onClick={() => navigate('/ReportsAnalytics?tab=inventory')}
+                  onMouseOver={(e) => e.currentTarget.style.background = '#f0f5fa'}
+                  onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+                >
+                  View All <ChevronRight size={14} />
+                </button>
+              </div>
+            </div>
+            <div className="panel-content-nd">
+              {nurseDashboardData.medicineStockAlerts.length === 0 ? (
+                <div className="panel-empty-nd panel-empty-success-nd">
+                  <CheckCircle2 size={18} color="#10B981" />
+                  <span>All medicines are currently adequately stocked.</span>
+                </div>
+              ) : (
+                <div className="table-responsive-nd">
+                  <table className="overview-table-nd">
+                    <thead>
+                      <tr>
+                        <th>Medicine</th>
+                        <th>Form</th>
+                        <th>Current Stock</th>
+                        <th>Thresholds (Low / Crit)</th>
+                        <th>Predicted Need</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {nurseDashboardData.medicineStockAlerts.map((med) => (
+                        <tr key={med.medicine_id}>
+                          <td>
+                            <div className="font-semibold-nd">{med.generic_name}</div>
+                            {med.brand_name && <div className="text-xs-nd text-muted-nd">({med.brand_name})</div>}
+                          </td>
+                          <td>{med.dosage_form || 'N/A'}</td>
+                          <td>
+                            <strong className={['CRITICAL', 'OUT'].includes(med.stock_status) ? 'text-red-nd' : 'text-orange-nd'}>
+                              {med.current_stock} {pluralize(med.dosage_form || 'unit', med.current_stock)}
+                            </strong>
+                          </td>
+                          <td className="text-xs-nd text-muted-nd">
+                            Low: {med.low_stock_level} | Crit: {med.critical_stock_level}
+                          </td>
+                          <td><strong>+{med.suggested_qty} {pluralize(med.dosage_form || 'unit', med.suggested_qty)}</strong></td>
+                          <td>
+                            <span className={`status-badge-nd ${['CRITICAL', 'OUT'].includes(med.stock_status) ? 'badge-critical-nd' : 'badge-low-nd'}`}>
+                              {med.stock_status === 'OUT' ? 'OUT OF STOCK' : med.stock_status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+
+
+        </div>
+      )}
 
       <div className="dashboard-divider-line-nd" />
 
@@ -2025,265 +2116,6 @@ const NurseDashboard = () => {
           </>
         )}
       </div>
-
-      {/* SECTION 4: DETAILED PANELS GRID */}
-      <div className="dashboard-divider-line-nd" />
-
-      <div className="dashboard-section-header-nd">
-        <h2 className="dashboard-title-nd">Detailed Clinic Records & Deadlines</h2>
-      </div>
-
-      {!isNurseDashboardLoading && (
-        <div className="dashboard-details-grid-nd">
-          
-          {/* 1. Upcoming Requirement Deadlines Details */}
-          <div className="detail-panel-nd">
-            <div className="panel-header-nd">
-              <div className="panel-title-wrapper-nd">
-                <Clock size={18} className="panel-icon-nd text-blue-nd" />
-                <h3 className="panel-title-nd">Upcoming Requirement Deadlines</h3>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <span className="count-badge-nd">{nurseDashboardData.upcomingRequirementDeadlines.length}</span>
-                <button 
-                  style={viewAllBtnStyle} 
-                  onClick={() => navigate('/RequirementManagement')}
-                  onMouseOver={(e) => e.currentTarget.style.background = '#f0f5fa'}
-                  onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
-                >
-                  View All <ChevronRight size={14} />
-                </button>
-              </div>
-            </div>
-            <div className="panel-content-nd">
-              {nurseDashboardData.upcomingRequirementDeadlines.length === 0 ? (
-                <div className="panel-empty-nd">No upcoming requirement deadlines recorded.</div>
-              ) : (
-                <div className="table-responsive-nd">
-                  <table className="overview-table-nd">
-                    <thead>
-                      <tr>
-                        <th>Requirement Name</th>
-                        <th>Type</th>
-                        <th>Target Scope</th>
-                        <th>Deadline</th>
-                        <th>Late Submission</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {nurseDashboardData.upcomingRequirementDeadlines.map((req, idx) => (
-                        <tr key={req.id || idx}>
-                          <td className="font-semibold-nd">{req.requirement_name}</td>
-                          <td>
-                            <span className={`badge-pill-nd ${req.requirement_type === 'Program' ? 'badge-program-nd' : 'badge-special-nd'}`}>
-                              {req.requirement_type}
-                            </span>
-                          </td>
-                          <td className="text-muted-nd">
-                            {req.requirement_type === 'Program' 
-                              ? `Program: ${req.program_name || req.program_code || 'All Programs'} (Yr ${req.year_level || 'All'})`
-                              : `Student: ${req.student_name || 'Specific Student'}`
-                            }
-                          </td>
-                          <td className="text-highlight-nd">{formatDate(req.submission_deadline)}</td>
-                          <td>
-                            <span className={`status-tag-nd ${req.allow_late_submission ? 'tag-allowed-nd' : 'tag-strict-nd'}`}>
-                              {req.allow_late_submission ? 'Allowed' : 'Not Allowed'}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* 2. Medicine Inventory Low & Critical Batch Stock Details */}
-          <div className="detail-panel-nd">
-            <div className="panel-header-nd">
-              <div className="panel-title-wrapper-nd">
-                <Pill size={18} className="panel-icon-nd text-red-nd" />
-                <h3 className="panel-title-nd">Medicine Stock Level Alerts</h3>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <span className="count-badge-nd count-badge-red-nd">{nurseDashboardData.medicineStockAlerts.length}</span>
-                <button
-                  style={viewAllBtnStyle}
-                  onClick={() => navigate('/ReportsAnalytics?tab=inventory')}
-                  onMouseOver={(e) => e.currentTarget.style.background = '#f0f5fa'}
-                  onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
-                >
-                  View All <ChevronRight size={14} />
-                </button>
-              </div>
-            </div>
-            <div className="panel-content-nd">
-              {nurseDashboardData.medicineStockAlerts.length === 0 ? (
-                <div className="panel-empty-nd panel-empty-success-nd">
-                  <CheckCircle2 size={18} color="#10B981" />
-                  <span>All medicines are currently adequately stocked.</span>
-                </div>
-              ) : (
-                <div className="table-responsive-nd">
-                  <table className="overview-table-nd">
-                    <thead>
-                      <tr>
-                        <th>Medicine</th>
-                        <th>Form</th>
-                        <th>Current Stock</th>
-                        <th>Thresholds (Low / Crit)</th>
-                        <th>Predicted Need</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {nurseDashboardData.medicineStockAlerts.map((med) => (
-                        <tr key={med.medicine_id}>
-                          <td>
-                            <div className="font-semibold-nd">{med.generic_name}</div>
-                            {med.brand_name && <div className="text-xs-nd text-muted-nd">({med.brand_name})</div>}
-                          </td>
-                          <td>{med.dosage_form || 'N/A'}</td>
-                          <td>
-                            <strong className={['CRITICAL', 'OUT'].includes(med.stock_status) ? 'text-red-nd' : 'text-orange-nd'}>
-                              {med.current_stock} {pluralize(med.dosage_form || 'unit', med.current_stock)}
-                            </strong>
-                          </td>
-                          <td className="text-xs-nd text-muted-nd">
-                            Low: {med.low_stock_level} | Crit: {med.critical_stock_level}
-                          </td>
-                          <td><strong>+{med.suggested_qty} {pluralize(med.dosage_form || 'unit', med.suggested_qty)}</strong></td>
-                          <td>
-                            <span className={`status-badge-nd ${['CRITICAL', 'OUT'].includes(med.stock_status) ? 'badge-critical-nd' : 'badge-low-nd'}`}>
-                              {med.stock_status === 'OUT' ? 'OUT OF STOCK' : med.stock_status}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* 3. Upcoming Health Screenings Details */}
-          <div className="detail-panel-nd">
-            <div className="panel-header-nd">
-              <div className="panel-title-wrapper-nd">
-                <Activity size={18} className="panel-icon-nd text-green-nd" />
-                <h3 className="panel-title-nd">Upcoming Health Screenings</h3>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <span className="count-badge-nd">{upcomingHealthScreenings.length}</span>
-                <button 
-                  style={viewAllBtnStyle} 
-                  onClick={() => navigate('/HealthScreening')}
-                  onMouseOver={(e) => e.currentTarget.style.background = '#f0f5fa'}
-                  onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
-                >
-                  View All <ChevronRight size={14} />
-                </button>
-              </div>
-            </div>
-            <div className="panel-content-nd">
-              {upcomingHealthScreenings.length === 0 ? (
-                <div className="panel-empty-nd">No upcoming health screenings scheduled.</div>
-              ) : (
-                <div className="cards-list-nd">
-                  {upcomingHealthScreenings.map((screen) => (
-                    <div key={screen.screening_schedule_id} className="detail-card-nd border-left-green-nd">
-                      <div className="card-top-row-nd">
-                        <h4 className="card-item-title-nd">{screen.title}</h4>
-                        <span className="badge-pill-nd badge-green-nd">{screen.screening_type || 'Screening'}</span>
-                      </div>
-                      <div className="card-meta-grid-nd">
-                        <div>
-                          <Calendar size={13} className="inline-icon-nd" />
-                          <strong>Date:</strong> {formatDate(screen.scheduled_date)}
-                        </div>
-                        <div>
-                          <Clock size={13} className="inline-icon-nd" />
-                          <strong>Time:</strong> {formatTime(screen.start_time)} - {formatTime(screen.end_time)}
-                        </div>
-                        <div>
-                          <GraduationCap size={13} className="inline-icon-nd" />
-                          <strong>Target:</strong> Program: {screen.target_program_name || screen.target_program || 'All Programs'}, Yr {screen.target_year_level || 'All'} ({screen.target_section || 'All Sections'})
-                        </div>
-                      </div>
-                      {screen.announcement && (
-                        <div className="card-announcement-nd">
-                          <strong>Announcement:</strong> {screen.announcement}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* 4. Upcoming Doctor Visits Details */}
-          <div className="detail-panel-nd">
-            <div className="panel-header-nd">
-              <div className="panel-title-wrapper-nd">
-                <Stethoscope size={18} className="panel-icon-nd text-purple-nd" />
-                <h3 className="panel-title-nd">Upcoming Doctor Visits</h3>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <span className="count-badge-nd">{upcomingDoctorVisits.length}</span>
-                <button 
-                  style={viewAllBtnStyle} 
-                  onClick={() => navigate('/DoctorVisit')}
-                  onMouseOver={(e) => e.currentTarget.style.background = '#f0f5fa'}
-                  onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
-                >
-                  View All <ChevronRight size={14} />
-                </button>
-              </div>
-            </div>
-            <div className="panel-content-nd">
-              {upcomingDoctorVisits.length === 0 ? (
-                <div className="panel-empty-nd">No upcoming doctor visits scheduled.</div>
-              ) : (
-                <div className="cards-list-nd">
-                  {upcomingDoctorVisits.map((visit) => (
-                    <div key={visit.appointment_id} className="detail-card-nd border-left-purple-nd">
-                      <div className="card-top-row-nd">
-                        <h4 className="card-item-title-nd">{visit.title || `Doctor Visit`}</h4>
-                        <span className="badge-pill-nd badge-purple-nd">{visit.status || 'Scheduled'}</span>
-                      </div>
-                      <div className="card-meta-grid-nd">
-                        <div>
-                          <Clock size={13} className="inline-icon-nd" />
-                          <strong>Schedule:</strong> {formatDateTime(visit.start_time)}
-                        </div>
-                        <div>
-                          <UserCheck size={13} className="inline-icon-nd" />
-                          <strong>Doctor:</strong> {visit.doctor_name || visit.doctor || 'Assigned Doctor'}
-                        </div>
-                        {visit.assigned_by_nurse_name && (
-                          <div>
-                            <strong>Assigned By:</strong> Nurse {visit.assigned_by_nurse_name}
-                          </div>
-                        )}
-                      </div>
-                      {visit.announcement && (
-                        <div className="card-announcement-nd">
-                          <strong>Notes:</strong> {visit.announcement}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-        </div>
-      )}
 
       {/* SECTION 5: FREQUENT COMPLAINT ALERTS */}
       <div className="dashboard-divider-line-nd" />

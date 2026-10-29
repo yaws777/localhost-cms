@@ -92,7 +92,7 @@ const MonthCalendar = ({ month, selected, calendar, absences, onSelect, onMonth 
     );
 };
 
-// which list of My Appointments a visit is in: past (over or closed), ongoing (happening now) or upcoming
+// which Consultations list a visit is in: past (over or closed), ongoing (happening now) or upcoming
 const visitTab = (a) => {
     const ms = (v) => new Date(String(v).replace(' ', 'T')).getTime();
     if (ms(a.end_time) <= Date.now() || ['Cancelled', 'Declined', 'No-Show'].includes(a.status)) return 'past';
@@ -181,12 +181,12 @@ const DoctorDashboard = () => {
                             <span className="num">{totals.consultations_month ?? '-'}</span>
                             <span className="sub">this month ({totals.consultations ?? 0} in total)</span>
                         </button>
-                        <button type="button" className="dd-stat rose" onClick={() => navigate('/DoctorAppointments?tab=requests')}>
+                        <button type="button" className="dd-stat rose" onClick={() => navigate('/DoctorMySchedule?tab=approvals')}>
                             <span className="lbl"><Inbox size={16} /> Requests</span>
                             <span className="num">{totals.pending_requests ?? '-'}</span>
                             <span className="sub">waiting for approval</span>
                         </button>
-                        <button type="button" className="dd-stat green" onClick={() => navigate('/DoctorAppointments?tab=upcoming')}>
+                        <button type="button" className="dd-stat green" onClick={() => navigate('/DoctorConsultations?tab=upcoming')}>
                             <span className="lbl"><CalendarCheck size={16} /> Today</span>
                             <span className="num">{totals.today_total ?? '-'}</span>
                             <span className="sub">{totals.today_remaining ?? 0} remaining</span>
@@ -270,11 +270,11 @@ const DoctorDashboard = () => {
                                     <strong>{fullName(a.student_first_name, a.student_last_name)}</strong>
                                     <span>{time12(a.start_time)} - {time12(a.end_time)} - {visitLabel(a.visit_type, a.purpose_other)}{a.status === 'Waiting for Approval' ? ' (pending)' : ''}</span>
                                 </div>
-                                <button type="button" className="go" onClick={() => navigate(`/DoctorAppointments?tab=${visitTab(a)}&focus=${a.appointment_id}`)} aria-label={`Open the appointment of ${a.student_first_name}`}><ChevronRight size={16} /></button>
+                                <button type="button" className="go" onClick={() => navigate(a.status === 'Waiting for Approval' ? '/DoctorMySchedule?tab=approvals' : `/DoctorConsultations?tab=${visitTab(a)}&focus=${a.appointment_id}`)} aria-label={`Open the consultation of ${a.student_first_name}`}><ChevronRight size={16} /></button>
                             </div>
                         ))}
                     </div>
-                    <button type="button" className="dp-btn dp-btn-ghost dd-view-all" onClick={() => navigate('/DoctorAppointments')}>View All Appointments <ArrowRight size={16} /></button>
+                    <button type="button" className="dp-btn dp-btn-ghost dd-view-all" onClick={() => navigate('/DoctorConsultations')}>View All Consultations <ArrowRight size={16} /></button>
                 </section>
             </div>
         </div>

@@ -1,6 +1,8 @@
 // WaitingList.jsx
 // Consultation requests of the students. The nurse and the doctor use this same screen:
-//   review (approve / deny with a reason) -> waiting list -> remind or ask to reconfirm for a posted session -> appoint.
+//   review (approve / deny with a reason) -> waiting list -> ask to reconfirm for a posted session -> reconfirmed -> appoint.
+// The session cards of the calendar land here: "Reconfirm" opens the waiting list and "Appoint from waiting list" opens the reconfirmed
+// students, each with the session already picked, so the staff only selects the students.
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Check, XCircle, Bell, Star, History, UserPlus, Search, Wand2, RefreshCw } from 'lucide-react';
 import Modal from '../common/Modal';
@@ -83,14 +85,16 @@ const WaitingList = ({ doctors, fixedDoctorId, creator, userId, refreshKey, init
 
     useEffect(() => { load(); }, [load, refreshKey]);
 
-    // Sent here from a schedule row / the calendar: pre-select that session and show the list that can be reminded
+    // Sent here from a schedule row / the calendar: pre-select that session and show the list the staff picks students from
+    // (mode 'reconfirm': the waiting list, mode 'appoint': the reconfirmed students)
     useEffect(() => {
         if (!focusSchedule || schedules.length === 0) return;
         const found = schedules.find((s) => s.schedule_id === focusSchedule.schedule_id);
         if (found) {
             setSessionId(found.schedule_id);
             setSessionDate(focusSchedule.date || '');
-            setGroup('waiting');
+            setGroup(focusSchedule.mode === 'appoint' ? 'ready' : 'waiting');
+            setSelected(new Set());
         }
         if (onFocusConsumed) onFocusConsumed();
     }, [focusSchedule, schedules, onFocusConsumed]);
@@ -128,18 +132,15 @@ const WaitingList = ({ doctors, fixedDoctorId, creator, userId, refreshKey, init
         if (!sessionDates.includes(sessionDate)) setSessionDate(sessionDates[0] || '');
     }, [session, sessionDates, sessionDate]);
 
-    // can this request be reminded about the picked session?
+    // can this request be asked to reconfirm for (waiting list) or appointed into (reconfirmed) the picked session?
     const fitsSession = useCallback((r) => {
         if (!session) return false;
-        if (!NOTIFIABLE.includes(r.status)) return false;
+        if (!NOTIFIABLE.includes(r.status) && r.status !== 'Reconfirmed') return false;
         if (session.visit_type !== 'Any' && session.visit_type !== r.visit_type) return false;
         const doctor = doctors.find((d) => d.doctor_id === session.doctor_id);
         if (doctor && !doctorOffers(doctor, r.visit_type)) return false;
         return true;
     }, [session, doctors]);
-
-    const eligibleCount = useMemo(() => requests.filter((r) => fitsSession(r) && (!r.preferred_doctor_id || r.preferred_doctor_id === session.doctor_id)).length, [requests, fitsSession, session]);
-    const noticeVerb = 'Remind';
 
     const toggle = (id) => setSelected((prev) => {
         const next = new Set(prev);
@@ -167,18 +168,19 @@ const WaitingList = ({ doctors, fixedDoctorId, creator, userId, refreshKey, init
         if (data.success) load(); else showAlert(data.message || 'Could not change the priority.', 'error');
     };
 
-    const notify = async (ids, everyone) => {
+    // asks the chosen students to reconfirm their appointment request for the picked session
+    const reconfirm = async (ids) => {
         if (!session) { showAlert('Pick the session first.', 'warning'); return; }
         setBusy(true);
         try {
             const data = await post('/api/consultation-requests/notify', 'POST', {
-                schedule_id: session.schedule_id, date: sessionDate || undefined, request_ids: ids, all: everyone, sender_id: userId
+                schedule_id: session.schedule_id, date: sessionDate || undefined, request_ids: ids, sender_id: userId
             });
             if (data.success) {
                 showAlert(data.message, data.notified > 0 ? 'success' : 'warning');
                 if (data.skipped && data.skipped.length > 0) setSkippedInfo(data.skipped);
                 changed();
-            } else showAlert(data.message || 'Could not send the reminders.', 'error');
+            } else showAlert(data.message || 'Could not send the reconfirmation.', 'error');
         } catch (e) {
             showAlert('Could not reach the server.', 'error');
         } finally {
@@ -186,11 +188,12 @@ const WaitingList = ({ doctors, fixedDoctorId, creator, userId, refreshKey, init
         }
     };
 
-    const autoAppoint = async () => {
+    // appoints the chosen reconfirmed students into the picked session, each on the earliest free slot
+    const autoAppoint = async (ids) => {
         if (!session || !sessionDate) { showAlert('Pick the session and its day first.', 'warning'); return; }
         setBusy(true);
         try {
-            const data = await post(`/api/doctor-schedules/${session.schedule_id}/auto-appoint`, 'POST', { ...creatorBody(creator), sender_id: userId, date: sessionDate });
+            const data = await post(`/api/doctor-schedules/${session.schedule_id}/auto-appoint`, 'POST', { ...creatorBody(creator), sender_id: userId, date: sessionDate, request_ids: ids });
             if (data.success) {
                 showAlert(data.message, data.appointed.length > 0 ? 'success' : 'warning');
                 if (data.unassigned && data.unassigned.length > 0) setSkippedInfo(data.unassigned);
@@ -231,7 +234,12 @@ const WaitingList = ({ doctors, fixedDoctorId, creator, userId, refreshKey, init
     const selectedFit = [...selected].filter((id) => { const r = requests.find((x) => x.request_id === id); return r && fitsSession(r); });
 
     const compatibleSessions = schedules.filter((s) => !fixedDoctorId || s.doctor_id === fixedDoctorId);
-    const showNotifyBar = group === 'waiting' || group === 'reconfirm' || group === 'ready';
+    // waiting list / awaiting reconfirmation: pick students to ask to reconfirm; reconfirmed: pick students to appoint
+    const appointMode = group === 'ready';
+    const showNotifyBar = group === 'waiting' || group === 'reconfirm' || appointMode;
+    const pickable = rows.filter((r) => fitsSession(r));
+    const allPicked = pickable.length > 0 && pickable.every((r) => selected.has(r.request_id));
+    const toggleAll = () => setSelected(allPicked ? new Set() : new Set(pickable.map((r) => r.request_id)));
 
     return (
         <>
@@ -258,7 +266,7 @@ const WaitingList = ({ doctors, fixedDoctorId, creator, userId, refreshKey, init
             {showNotifyBar && (
                 <div className="notify-bar-sc">
                     <strong style={{ fontSize: '0.88rem' }}>Session</strong>
-                    <select value={sessionId} onChange={(e) => setSessionId(e.target.value)} aria-label="Session to notify about">
+                    <select value={sessionId} onChange={(e) => { setSessionId(e.target.value); setSelected(new Set()); }} aria-label={appointMode ? 'Session to appoint into' : 'Session to reconfirm for'}>
                         <option value="">-- Pick a posted session --</option>
                         {compatibleSessions.map((s) => (
                             <option key={s.schedule_id} value={s.schedule_id}>
@@ -271,20 +279,23 @@ const WaitingList = ({ doctors, fixedDoctorId, creator, userId, refreshKey, init
                             {sessionDates.map((d) => <option key={d} value={d}>{dayLabel(d, { weekday: 'long', month: 'short', day: 'numeric' })}</option>)}
                         </select>
                     )}
-                    {session && (
-                        <>
-                            <button type="button" className="sti-btn-dv sti-btn-primary-dv btn-sm-sc" disabled={busy || selectedFit.length === 0} onClick={() => notify(selectedFit, false)}>
-                                <Bell size={14} /> {noticeVerb} selected ({selectedFit.length})
-                            </button>
-                            <button type="button" className="sti-btn-dv sti-btn-secondary-dv btn-sm-sc" disabled={busy || eligibleCount === 0} onClick={() => notify([], true)}>
-                                <Bell size={14} /> {noticeVerb} all eligible ({eligibleCount})
-                            </button>
-                            <button type="button" className="sti-btn-dv sti-btn-light-dv btn-sm-sc" disabled={busy || !(session.reconfirmed_count > 0)} onClick={autoAppoint} title="Gives every reconfirmed student the earliest free slot, priority students first">
-                                <Wand2 size={14} /> Auto-appoint reconfirmed
-                            </button>
-                        </>
+                    {session && !appointMode && (
+                        <button type="button" className="sti-btn-dv sti-btn-primary-dv btn-sm-sc" disabled={busy || selectedFit.length === 0} onClick={() => reconfirm(selectedFit)}>
+                            <Bell size={14} /> Reconfirm selected ({selectedFit.length})
+                        </button>
                     )}
-                    {!session && <span className="muted-ds">Pick a posted session to remind the students about it. They are reminded and can book an open time slot. Use Appoint / move on a student to place them in a session yourself.</span>}
+                    {session && appointMode && (
+                        <button type="button" className="sti-btn-dv sti-btn-primary-dv btn-sm-sc" disabled={busy || selectedFit.length === 0} onClick={() => autoAppoint(selectedFit)} title="Gives each selected student the earliest free slot of the session, priority students first">
+                            <Wand2 size={14} /> Appoint selected ({selectedFit.length})
+                        </button>
+                    )}
+                    {!session && (
+                        <span className="muted-ds">
+                            {appointMode
+                                ? 'Pick a posted session, then select the reconfirmed students to appoint to it.'
+                                : 'Pick a posted session, then select the students to ask to reconfirm their appointment request for it.'}
+                        </span>
+                    )}
                 </div>
             )}
 
@@ -295,7 +306,11 @@ const WaitingList = ({ doctors, fixedDoctorId, creator, userId, refreshKey, init
                     <table className="sti-table-dv">
                         <thead>
                             <tr>
-                                {showNotifyBar && <th style={{ width: 34 }} />}
+                                {showNotifyBar && (
+                                    <th style={{ width: 34 }}>
+                                        <input type="checkbox" aria-label="Select every student that fits the session" disabled={pickable.length === 0} checked={allPicked} onChange={toggleAll} />
+                                    </th>
+                                )}
                                 <th>Student</th><th>Purpose and reason</th><th>Requested</th><th>Status</th><th>Actions</th>
                             </tr>
                         </thead>
@@ -330,7 +345,7 @@ const WaitingList = ({ doctors, fixedDoctorId, creator, userId, refreshKey, init
                                         {r.status === 'Denied' && r.review_reason && <div className="muted-ds">{r.review_reason}</div>}
                                         {r.status === 'Waiting List' && r.review_reason && <div className="muted-ds">Note: {r.review_reason}</div>}
                                         {r.last_notified_at && NOTIFIABLE.includes(r.status) && (
-                                            <div className="muted-ds">{r.last_notice_type === 'Reconfirm' ? 'Asked to reconfirm' : 'Reminded'} {formatDateTime(r.last_notified_at)}{r.notify_count > 1 ? ` (x${r.notify_count})` : ''}</div>
+                                            <div className="muted-ds">Asked to reconfirm {formatDateTime(r.last_notified_at)}{r.notify_count > 1 ? ` (x${r.notify_count})` : ''}</div>
                                         )}
                                         {r.status === 'Reconfirmed' && <div className="muted-ds">Still interested{r.reconfirm_note ? `: ${r.reconfirm_note}` : ''}</div>}
                                         {r.appointment_start && ['Appointed', 'Booked', 'Fulfilled'].includes(r.status) && (
@@ -349,9 +364,9 @@ const WaitingList = ({ doctors, fixedDoctorId, creator, userId, refreshKey, init
                                                 <>
                                                     <button
                                                         type="button" className="sti-btn-dv sti-btn-secondary-dv btn-sm-sc" disabled={busy || !fitsSession(r)}
-                                                        title={session ? '' : 'Pick a session above first'} onClick={() => notify([r.request_id], false)}
+                                                        title={session ? '' : 'Pick a session above first'} onClick={() => reconfirm([r.request_id])}
                                                     >
-                                                        <Bell size={13} /> {r.status === 'Awaiting Reconfirmation' ? 'Remind again' : 'Remind'}
+                                                        <Bell size={13} /> {r.status === 'Awaiting Reconfirmation' ? 'Reconfirm again' : 'Reconfirm'}
                                                     </button>
                                                     <button type="button" className="icon-btn-ds" title={r.is_priority ? 'Remove priority' : 'Make priority'} onClick={() => togglePriority(r)}>
                                                         <Star size={14} className={r.is_priority ? 'priority-star-sc' : ''} fill={r.is_priority ? 'currentColor' : 'none'} />
@@ -383,7 +398,7 @@ const WaitingList = ({ doctors, fixedDoctorId, creator, userId, refreshKey, init
                         <div className="dp-notice">
                             {fullName(approveTarget.student_first_name, approveTarget.student_last_name)} - {visitLabel(approveTarget.visit_type, approveTarget.purpose_other)}<br />
                             Reason: {approveTarget.reason}<br />
-                            The student goes on the waiting list and is told. You can remind them when a session is posted.
+                            The student goes on the waiting list and is told to stay active: you ask them to reconfirm when a session is posted.
                         </div>
                         <label className="check-ds">
                             <input type="checkbox" checked={priorityOnApprove} onChange={(e) => setPriorityOnApprove(e.target.checked)} />

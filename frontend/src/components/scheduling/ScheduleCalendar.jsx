@@ -2,19 +2,21 @@
 // The schedule as a calendar. The nurse sees every doctor, the doctor sees their own; both read the same data
 // (GET /api/schedule-calendar), so what one posts shows up for the other right away.
 // A day's sessions follow the visit rules:
-//   upcoming : add / edit / delete the schedule, appoint students, remind the waiting list; appointments can be rescheduled or cancelled
-//   ongoing  : appoint into what is left, extend the session or an appointment (the dates and hours are locked)
+//   upcoming : add / edit / delete the schedule, appoint students, ask the waiting list to reconfirm, appoint the reconfirmed students;
+//              appointments can be rescheduled or cancelled
+//   ongoing  : appoint into what is left, register walk-ins, extend the session or an appointment (the dates and hours are locked)
 //   past     : closed, nothing can be booked, appointed or changed any more
+// Every session lists its participants.
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, UserPlus, TimerReset, Bell, Inbox, CalendarX, CalendarPlus, Edit, Trash2, CalendarClock, Ban } from 'lucide-react';
+import { ChevronLeft, ChevronRight, UserPlus, TimerReset, Bell, Inbox, CalendarX, CalendarPlus, Edit, Trash2, CalendarClock, Ban, Users, ListPlus, Footprints } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
 import { visitLabel, statusClass } from '../../utils/visitPurpose';
 import {
     API, SCHEDULING_WAYS, SCHEDULING_WAY_KEYS, wayOf, MONTHS, WEEKDAYS, dateKey, todayKey, parseDay, dayLabel, to12h, timeRange, hasWalkIn, coverageLabel
 } from '../../utils/scheduling';
-import { AppointModal, ExtendSessionModal, ExtendAppointmentModal } from './SessionModals';
+import { AppointModal, ExtendSessionModal, ExtendAppointmentModal, ParticipantsModal } from './SessionModals';
 import ScheduleFormModal from './ScheduleFormModal';
-import { ReasonModal, RescheduleModal } from '../doctor/AppointmentModals';
+import { ReasonModal, RescheduleModal, WalkInModal } from '../doctor/AppointmentModals';
 import '../../styles/scheduling/Scheduling.css';
 
 const CHIP_LIMIT = 2;
@@ -27,7 +29,7 @@ const putJson = async (path, body) => {
     return data;
 };
 
-const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey, onChanged, onRemind, onGoTab }) => {
+const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey, onChanged, onReconfirm, onAppointFromWaiting, onGoTab }) => {
     const { showAlert, showConfirm } = useAlert();
     const [cursor, setCursor] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
     const [selected, setSelected] = useState(todayKey());
@@ -42,6 +44,8 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
     const [extendAppt, setExtendAppt] = useState(null);
     const [moveAppt, setMoveAppt] = useState(null);
     const [cancelAppt, setCancelAppt] = useState(null);
+    const [participantsFor, setParticipantsFor] = useState(null);
+    const [walkInFor, setWalkInFor] = useState(null);
 
     // the month grid always starts on a Sunday and shows six weeks
     const gridDays = useMemo(() => {
@@ -248,7 +252,7 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
                                     return <span key={k} className={`type-badge-sc ${SCHEDULING_WAYS[k].cls}`}>{n || 0} {SCHEDULING_WAYS[k].short.toLowerCase()}</span>;
                                 })}
                             </div>
-                            {hasWalkIn(s) && s.announcement && <div className="session-meta-sc">{s.announcement}</div>}
+                            {(s.notes || s.announcement) && <div className="session-meta-sc">{s.notes || s.announcement}</div>}
                             {st && (
                                 <>
                                     <div className={`load-bar-sc ${st.full ? 'full-sc' : ''}`}><div style={{ width: `${st.pct}%` }} /></div>
@@ -258,21 +262,32 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
                                     </div>
                                 </>
                             )}
-                            {s.state !== 'past' && (
-                                <div className="session-actions-sc">
+                            <div className="session-actions-sc">
+                                {s.state !== 'past' && (
                                     <button type="button" className="sti-btn-dv sti-btn-primary-dv btn-sm-sc" onClick={() => setAppointFor(s)}><UserPlus size={14} /> Appoint</button>
-                                    {s.state === 'upcoming' && (
-                                        <button type="button" className="sti-btn-dv sti-btn-secondary-dv btn-sm-sc" onClick={() => onRemind && onRemind(s.schedule_id, s.date)}><Bell size={14} /> Remind waiting list</button>
-                                    )}
-                                    {s.state === 'ongoing' && (
+                                )}
+                                {s.state === 'upcoming' && (
+                                    <>
+                                        <button type="button" className="sti-btn-dv sti-btn-secondary-dv btn-sm-sc" onClick={() => onReconfirm && onReconfirm(s.schedule_id, s.date)}><Bell size={14} /> Reconfirm</button>
+                                        <button type="button" className="sti-btn-dv sti-btn-secondary-dv btn-sm-sc" onClick={() => onAppointFromWaiting && onAppointFromWaiting(s.schedule_id, s.date)}><ListPlus size={14} /> Appoint from waiting list</button>
+                                    </>
+                                )}
+                                {s.state === 'ongoing' && (
+                                    <>
                                         <button type="button" className="sti-btn-dv sti-btn-light-dv btn-sm-sc" onClick={() => setExtendSession(s)}><TimerReset size={14} /> Extend</button>
-                                    )}
+                                        {hasWalkIn(s) && (
+                                            <button type="button" className="sti-btn-dv sti-btn-secondary-dv btn-sm-sc" onClick={() => setWalkInFor(s)}><Footprints size={14} /> Add walk-in</button>
+                                        )}
+                                    </>
+                                )}
+                                <button type="button" className="sti-btn-dv sti-btn-light-dv btn-sm-sc" onClick={() => setParticipantsFor(s)}><Users size={14} /> Participants</button>
+                                {s.state !== 'past' && (
                                     <button type="button" className="sti-btn-dv sti-btn-light-dv btn-sm-sc" onClick={() => editSchedule(s)}><Edit size={14} /> {s.recurrence === 'Weekly' ? 'Edit series' : 'Edit'}</button>
-                                    {s.state === 'upcoming' && (
-                                        <button type="button" className="sti-btn-dv sti-btn-light-dv btn-sm-sc" onClick={() => deleteSchedule(s)}><Trash2 size={14} /> Delete</button>
-                                    )}
-                                </div>
-                            )}
+                                )}
+                                {s.state === 'upcoming' && (
+                                    <button type="button" className="sti-btn-dv sti-btn-light-dv btn-sm-sc" onClick={() => deleteSchedule(s)}><Trash2 size={14} /> Delete</button>
+                                )}
+                            </div>
                         </div>
                     );
                 })}
@@ -319,6 +334,11 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
             <AppointModal
                 isOpen={!!appointFor} schedule={appointFor} fixedDate={appointFor ? appointFor.date : null} creator={creator} userId={userId}
                 onClose={() => setAppointFor(null)} onDone={changed}
+            />
+            <ParticipantsModal schedule={participantsFor} userId={userId} onClose={() => setParticipantsFor(null)} onChanged={changed} />
+            <WalkInModal
+                isOpen={!!walkInFor} doctors={doctors} fixedDoctorId={walkInFor ? walkInFor.doctor_id : ''}
+                creator={creator} userId={userId} onClose={() => setWalkInFor(null)} onCreated={changed}
             />
             <ExtendSessionModal schedule={extendSession} creator={creator} userId={userId} onClose={() => setExtendSession(null)} onDone={changed} />
             <ExtendAppointmentModal appt={extendAppt} creator={creator} userId={userId} onClose={() => setExtendAppt(null)} onDone={changed} />

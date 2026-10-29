@@ -1,10 +1,11 @@
 // bookCheckup.jsx
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { CalendarPlus, CalendarClock, MapPin, Stethoscope, X, Clock, Info, Megaphone, ClipboardPlus } from 'lucide-react';
+import { CalendarPlus, CalendarClock, MapPin, Stethoscope, X, Clock, Info, ClipboardPlus, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatTime, formatDateTime } from '../../utils/datetime';
-import { visitLabel, sourceLabel } from '../../utils/visitPurpose';
+import { visitLabel, sourceLabel, reasonPlaceholder } from '../../utils/visitPurpose';
+import { MONTHS, WEEKDAYS, dateKey, todayKey, parseDay, dayLabel, doctorOffers } from '../../utils/scheduling';
 import { useSpecializations } from '../../hooks/useSpecializations';
 import '../../styles/student/BookCheckup.css';
 
@@ -21,7 +22,28 @@ const statusLabel = (b) => {
     return b.status;
 };
 
-const EMPTY_REQUEST = { visit_type: 'General Check Up', reason: '', preferred_note: '' };
+const EMPTY_REQUEST = { visit_type: '', reason: '', preferred_note: '' };
+
+// The four kinds of update the calendar shows, in the order a day lists them
+const KINDS = {
+    request: { label: 'My consultation requests', short: 'Request' },
+    booking: { label: 'My bookings', short: 'Booking' },
+    announce: { label: 'Clinic announcements', short: 'Announcement' },
+    available: { label: 'Available schedules', short: 'Open' }
+};
+const KIND_KEYS = Object.keys(KINDS);
+
+const dayOf = (value) => (value ? String(value).slice(0, 10) : '');
+
+// A request is open until the clinic answers it, or until the appointment it led to has passed
+const isOpenRequest = (r) => !['Denied', 'Withdrawn', 'Appointed', 'Booked', 'Fulfilled'].includes(r.status)
+    || (['Appointed', 'Booked'].includes(r.status) && r.appointment_start && new Date(String(r.appointment_end).replace(' ', 'T')) >= new Date());
+
+// Where a request sits on the calendar: its appointment, else today while it is still open, else the day it was sent
+const requestDay = (r) => {
+    if (['Appointed', 'Booked', 'Fulfilled'].includes(r.status) && r.appointment_start) return dayOf(r.appointment_start);
+    return isOpenRequest(r) ? todayKey() : dayOf(r.created_at);
+};
 
 const statusClass = (status) => `status-${String(status).toLowerCase().replace(/\s+/g, '-')}-bc`;
 
@@ -30,6 +52,14 @@ const BookCheckup = () => {
     const { showAlert, showConfirm } = useAlert();
     // the purposes come from the specializations: every specialization adds its own visit type
     const { visitTypes } = useSpecializations();
+
+    // only the purposes a doctor with a login account actually covers can be picked
+    const [doctors, setDoctors] = useState([]);
+    const [doctorsLoaded, setDoctorsLoaded] = useState(false);
+    const purposes = useMemo(
+        () => visitTypes.filter((t) => doctors.some((d) => d.user_id && doctorOffers(d, t))),
+        [visitTypes, doctors]
+    );
 
     const [bookings, setBookings] = useState([]);
     const [occurrences, setOccurrences] = useState([]);
@@ -51,6 +81,22 @@ const BookCheckup = () => {
     const [announcements, setAnnouncements] = useState([]);
     const [showRequest, setShowRequest] = useState(false);
     const [requestForm, setRequestForm] = useState(EMPTY_REQUEST);
+
+    // the calendar: which kinds of update are shown, the month on screen and the day opened in the side panel
+    const [kinds, setKinds] = useState({ request: true, booking: true, announce: true, available: true });
+    const [cursor, setCursor] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
+    const [selected, setSelected] = useState(todayKey());
+
+    useEffect(() => {
+        (async () => {
+            try {
+                const res = await fetch(`${API}/api/doctors`);
+                const data = await res.json();
+                if (data.success) setDoctors(data.doctors);
+            } catch (e) { /* the purpose list stays empty and the form says so */ }
+            finally { setDoctorsLoaded(true); }
+        })();
+    }, []);
 
     const fetchRequests = useCallback(async () => {
         if (!studentId) return;
@@ -75,6 +121,7 @@ const BookCheckup = () => {
 
     const sendRequest = async (e) => {
         e.preventDefault();
+        if (!requestForm.visit_type) { showAlert('Please select the purpose of the consultation.', 'warning'); return; }
         if (!requestForm.reason.trim()) { showAlert('Please tell the clinic why you need a consultation.', 'warning'); return; }
         setSubmitting(true);
         try {
@@ -128,9 +175,7 @@ const BookCheckup = () => {
         if (r.status === 'Waiting for Approval') return 'The nurse or doctor is reviewing your request.';
         if (r.status === 'Denied') return r.review_reason ? `Denied: ${r.review_reason}` : 'The clinic denied this request.';
         if (r.status === 'Waiting List') {
-            return r.notified_schedule_id && r.last_notified_at
-                ? `You are on the waiting list. Last notice: Dr. ${r.notified_doc_first_name} ${r.notified_doc_last_name}, ${formatDate(r.notified_date)}, ${to12h(r.notified_start_time)} - ${to12h(r.notified_end_time)} (book an open time slot below, or the clinic may appoint you a time).`
-                : 'Approved. You are on the waiting list and will be notified when a doctor has a schedule.';
+            return 'Approved. You are on the waiting list. Stay active: when a doctor has a schedule, the school nurse will send you a reconfirmation here and in your notifications. Only students who reconfirm can be appointed.';
         }
         if (r.status === 'Awaiting Reconfirmation') {
             return `Dr. ${r.notified_doc_first_name} ${r.notified_doc_last_name} will hold appointments on ${formatDate(r.notified_date)}, ${to12h(r.notified_start_time)} - ${to12h(r.notified_end_time)}${r.notified_location ? ` (${r.notified_location})` : ''}. Are you still interested?`;
@@ -143,8 +188,7 @@ const BookCheckup = () => {
         return '';
     };
 
-    const openRequests = requests.filter((r) => !['Denied', 'Withdrawn', 'Appointed', 'Booked', 'Fulfilled'].includes(r.status) || (['Appointed', 'Booked'].includes(r.status) && r.appointment_start && new Date(String(r.appointment_end).replace(' ', 'T')) >= new Date()));
-    const pastRequests = requests.filter((r) => !openRequests.includes(r));
+    const openRequests = requests.filter(isOpenRequest);
 
     const fetchBookings = useCallback(async () => {
         if (!studentId) return;
@@ -187,14 +231,50 @@ const BookCheckup = () => {
         [occurrences, doctorFilter]
     );
 
-    const upcoming = bookings.filter(b => new Date(b.end_time.replace(' ', 'T')) >= new Date() && ['Scheduled', 'Waiting for Approval'].includes(b.status));
-    const history = bookings.filter(b => !upcoming.includes(b));
+    // ---- calendar data: every update lands on a day ----
+    const events = useMemo(() => {
+        const list = [];
+        requests.forEach((r) => list.push({ kind: 'request', date: requestDay(r), key: `r-${r.request_id}`, item: r }));
+        bookings.forEach((b) => list.push({ kind: 'booking', date: dayOf(b.start_time), key: `b-${b.appointment_id}`, item: b }));
+        announcements.forEach((a) => list.push({ kind: 'announce', date: dayOf(a.date), key: `a-${a.schedule_id}-${a.date}`, item: a }));
+        visibleOccurrences.forEach((o) => list.push({ kind: 'available', date: dayOf(o.date), key: `o-${o.schedule_id}-${o.date}`, item: o }));
+        return list.filter((ev) => ev.date);
+    }, [requests, bookings, announcements, visibleOccurrences]);
 
-    const loadSlots = useCallback(async (occurrence) => {
+    const kindCount = useMemo(() => {
+        const counts = { request: 0, booking: 0, announce: 0, available: 0 };
+        events.forEach((ev) => { counts[ev.kind] += 1; });
+        return counts;
+    }, [events]);
+
+    const eventsByDay = useMemo(() => {
+        const map = {};
+        events.filter((ev) => kinds[ev.kind]).forEach((ev) => { (map[ev.date] = map[ev.date] || []).push(ev); });
+        Object.values(map).forEach((list) => list.sort((a, b) => KIND_KEYS.indexOf(a.kind) - KIND_KEYS.indexOf(b.kind)));
+        return map;
+    }, [events, kinds]);
+
+    // the month grid always starts on a Sunday and shows six weeks
+    const gridDays = useMemo(() => {
+        const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+        const start = new Date(first);
+        start.setDate(first.getDate() - first.getDay());
+        return Array.from({ length: 42 }, (_, i) => { const d = new Date(start); d.setDate(start.getDate() + i); return dateKey(d); });
+    }, [cursor]);
+
+    const today = todayKey();
+    const goMonth = (n) => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + n, 1));
+    const jumpToday = () => { const d = new Date(); setCursor(new Date(d.getFullYear(), d.getMonth(), 1)); setSelected(todayKey()); };
+    const toggleKind = (k) => setKinds((prev) => ({ ...prev, [k]: !prev[k] }));
+    const dayEvents = eventsByDay[selected] || [];
+    const awaitingAnswer = requests.filter((r) => r.status === 'Awaiting Reconfirmation').length;
+
+    // when a booking is being moved, its own appointment must not block the slots of the schedule it already holds
+    const loadSlots = useCallback(async (occurrence, movingId = '') => {
         setSlotsLoading(true);
         setSelectedSlot('');
         try {
-            const res = await fetch(`${API}/api/doctor-schedules/${occurrence.schedule_id}/slots?date=${occurrence.date}&student_id=${studentId}`);
+            const res = await fetch(`${API}/api/doctor-schedules/${occurrence.schedule_id}/slots?date=${occurrence.date}&student_id=${studentId}${movingId ? `&exclude_appointment_id=${movingId}` : ''}`);
             const data = await res.json();
             setSlots(data.success ? data.slots : []);
         } catch (e) {
@@ -214,14 +294,13 @@ const BookCheckup = () => {
     };
 
     const openReschedule = async (booking) => {
-        // other open days of the same schedule
-        const same = occurrences.filter(o => o.schedule_id === booking.schedule_id);
-        if (same.length === 0) {
-            showAlert('There are no other open days for this doctor schedule. You can cancel this booking and book another doctor.', 'warning');
-            return;
-        }
+        // the day the student already holds no longer shows as open (one active booking per schedule), so it is added back here
+        const same = occurrences.filter(o => o.schedule_id === booking.schedule_id && o.date !== dayOf(booking.start_time));
+        same.unshift({
+            schedule_id: booking.schedule_id, date: dayOf(booking.start_time), doctor_name: `Dr. ${booking.doc_first_name} ${booking.doc_last_name}`, location: booking.location
+        });
         setPicker({ mode: 'reschedule', occurrence: same[0], options: same, booking });
-        loadSlots(same[0]);
+        loadSlots(same[0], booking.appointment_id);
     };
 
     const closePicker = () => { setPicker(null); setSlots([]); setSelectedSlot(''); };
@@ -253,7 +332,7 @@ const BookCheckup = () => {
                 fetchRequests();
             } else {
                 showAlert(data.message || 'Could not complete the booking.', 'error');
-                if (res.status === 409) loadSlots(picker.occurrence);
+                if (res.status === 409) loadSlots(picker.occurrence, picker.booking ? picker.booking.appointment_id : '');
             }
         } catch (e) {
             showAlert('Server error. Please try again.', 'error');
@@ -298,6 +377,90 @@ const BookCheckup = () => {
         </div>
     );
 
+    const renderRequest = (r) => {
+        const open = isOpenRequest(r);
+        return (
+            <div key={`r-${r.request_id}`} className={`booking-card-bc request-card-bc ${r.status === 'Awaiting Reconfirmation' ? 'attention-bc' : ''}`}>
+                <div className="booking-top-bc">
+                    <strong>{visitLabel(r.visit_type, r.purpose_other)}</strong>
+                    <span className={`status-pill-bc ${statusClass(r.status)}`}>{r.status}</span>
+                </div>
+                <div className="booking-reason-bc">Reason: {r.reason}</div>
+                <div className="booking-line-bc"><Clock size={14} /> Sent {formatDate(r.created_at)}</div>
+                <p className="request-help-bc">{requestHelp(r)}</p>
+                {open && (
+                    <div className="booking-actions-bc">
+                        {r.status === 'Awaiting Reconfirmation' && (
+                            <>
+                                <button className="btn-bc btn-primary-bc" onClick={() => answerReconfirm(r, 'Yes')}>Yes, I'm still interested</button>
+                                <button className="btn-bc btn-light-bc" onClick={() => answerReconfirm(r, 'No')}>Not anymore</button>
+                            </>
+                        )}
+                        {Number(r.can_withdraw) === 1 && r.status !== 'Awaiting Reconfirmation' && (
+                            <button className="btn-bc btn-danger-bc" onClick={() => withdrawRequest(r)}>Withdraw</button>
+                        )}
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+    const renderAnnouncement = (a) => (
+        <div key={`a-${a.schedule_id}-${a.date}`} className="booking-card-bc announce-bc">
+            <div className="booking-top-bc">
+                <strong>Walk-in consultation</strong>
+                <span className="tag-bc">{a.visit_type === 'Any' ? 'Any visit' : a.visit_type}</span>
+            </div>
+            <div className="booking-line-bc"><Stethoscope size={14} /> {a.doctor_name} ({a.specialization})</div>
+            {a.covered_visit_types && <div className="booking-line-bc"><Info size={14} /> Covers: {a.covered_visit_types.join(', ')}</div>}
+            <div className="booking-line-bc"><Clock size={14} /> {formatDate(a.date)}, {to12h(a.start_time)} - {to12h(a.end_time)}</div>
+            {a.location && <div className="booking-line-bc"><MapPin size={14} /> {a.location}</div>}
+            <p className="request-help-bc">
+                Walk-ins are accepted only while this consultation is in session. Booked and appointed students are seen first, and you can also book an open time slot.
+            </p>
+            {(a.notes || a.announcement) && <div className="muted-bc">{a.notes || a.announcement}</div>}
+        </div>
+    );
+
+    const renderOccurrence = (o) => {
+        // the student's active booking in this schedule and day, if any: it is changed or cancelled here instead of booking again
+        const mine = o.has_my_booking
+            ? bookings.find((b) => b.schedule_id === o.schedule_id && dayOf(b.start_time) === o.date && ['Scheduled', 'Waiting for Approval'].includes(b.status))
+            : null;
+        return (
+        <div key={`o-${o.schedule_id}-${o.date}`} className="occurrence-card-bc">
+            <div className="occurrence-doc-bc"><Stethoscope size={14} /> <strong>{o.doctor_name}</strong></div>
+            <div className="muted-bc">{o.specialization}</div>
+            {o.covered_visit_types && <div className="muted-bc">Covers: {o.covered_visit_types.join(', ')}</div>}
+            <div className="occurrence-meta-bc"><Clock size={14} /> {to12h(o.start_time)} - {to12h(o.end_time)}</div>
+            {o.location && <div className="occurrence-meta-bc"><MapPin size={14} /> {o.location}</div>}
+            <div className="occurrence-tags-bc">
+                <span className="tag-bc">{o.visit_type === 'Any' ? 'Any visit type' : o.visit_type}</span>
+                {mine
+                    ? <span className="tag-bc">Your slot: {formatTime(mine.start_time)} - {formatTime(mine.end_time)}</span>
+                    : <span className="tag-bc tag-soft-bc">{o.open_slots} of {o.total_slots} slots open</span>}
+                <span className="tag-bc tag-soft-bc">{o.auto_confirm ? 'Instant confirmation' : 'Needs approval'}</span>
+            </div>
+            {o.notes && <div className="muted-bc">{o.notes}</div>}
+            {mine ? (
+                <div className="booking-actions-bc">
+                    <button className="btn-bc btn-primary-bc" onClick={() => openReschedule(mine)}>Change time slot</button>
+                    <button className="btn-bc btn-danger-bc" onClick={() => cancelBooking(mine)}>Cancel</button>
+                </div>
+            ) : (
+                <button className="btn-bc btn-primary-bc" onClick={() => openBook(o)}>Choose a time</button>
+            )}
+        </div>
+        );
+    };
+
+    const renderEvent = (ev) => {
+        if (ev.kind === 'request') return renderRequest(ev.item);
+        if (ev.kind === 'booking') return renderBooking(ev.item);
+        if (ev.kind === 'announce') return renderAnnouncement(ev.item);
+        return renderOccurrence(ev.item);
+    };
+
     return (
         <div className="container-bc">
             <div className="header-bc">
@@ -305,142 +468,114 @@ const BookCheckup = () => {
                     <h2><CalendarPlus size={22} /> Book a Check-up</h2>
                     <p>Reserve a time slot in a schedule the clinic has opened, or send a consultation request if there is no schedule yet. The nurse or doctor reviews every request.</p>
                     <div className="header-actions-bc">
-                        <button type="button" className="btn-bc btn-primary-bc" onClick={() => { setRequestForm(EMPTY_REQUEST); setShowRequest(true); }}>
+                        <button type="button" className="btn-bc btn-primary-bc" onClick={() => { setRequestForm({ ...EMPTY_REQUEST, visit_type: purposes.length === 1 ? purposes[0] : '' }); setShowRequest(true); }}>
                             <ClipboardPlus size={16} /> Request a consultation
                         </button>
                     </div>
                 </div>
             </div>
 
-            <section className="section-bc">
-                <h3>My Consultation Requests</h3>
-                {openRequests.length === 0 ? (
-                    <div className="empty-bc">You have no open consultation request. If no schedule suits you, send a request and the clinic will put you on the waiting list.</div>
-                ) : (
-                    <div className="booking-grid-bc">
-                        {openRequests.map(r => (
-                            <div key={r.request_id} className={`booking-card-bc request-card-bc ${r.status === 'Awaiting Reconfirmation' ? 'attention-bc' : ''}`}>
-                                <div className="booking-top-bc">
-                                    <strong>{visitLabel(r.visit_type, r.purpose_other)}</strong>
-                                    <span className={`status-pill-bc ${statusClass(r.status)}`}>{r.status}</span>
-                                </div>
-                                <div className="booking-reason-bc">Reason: {r.reason}</div>
-                                <div className="booking-line-bc"><Clock size={14} /> Sent {formatDate(r.created_at)}</div>
-                                <p className="request-help-bc">{requestHelp(r)}</p>
-                                <div className="booking-actions-bc">
-                                    {r.status === 'Awaiting Reconfirmation' && (
-                                        <>
-                                            <button className="btn-bc btn-primary-bc" onClick={() => answerReconfirm(r, 'Yes')}>Yes, I'm still interested</button>
-                                            <button className="btn-bc btn-light-bc" onClick={() => answerReconfirm(r, 'No')}>Not anymore</button>
-                                        </>
-                                    )}
-                                    {Number(r.can_withdraw) === 1 && r.status !== 'Awaiting Reconfirmation' && (
-                                        <button className="btn-bc btn-danger-bc" onClick={() => withdrawRequest(r)}>Withdraw</button>
-                                    )}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
-                {pastRequests.length > 0 && (
-                    <details className="history-bc">
-                        <summary>Earlier requests ({pastRequests.length})</summary>
-                        <div className="booking-grid-bc">
-                            {pastRequests.map(r => (
-                                <div key={r.request_id} className="booking-card-bc request-card-bc">
-                                    <div className="booking-top-bc">
-                                        <strong>{visitLabel(r.visit_type, r.purpose_other)}</strong>
-                                        <span className={`status-pill-bc ${statusClass(r.status)}`}>{r.status}</span>
-                                    </div>
-                                    <div className="booking-reason-bc">Reason: {r.reason}</div>
-                                    <p className="request-help-bc">{requestHelp(r)}</p>
-                                </div>
-                            ))}
+            <section className="section-bc" aria-label="Consultation calendar">
+                {awaitingAnswer > 0 && (
+                    <div className="booking-card-bc attention-bc alert-bc" role="alert">
+                        <strong><Info size={15} style={{ verticalAlign: 'middle' }} /> The clinic is waiting for your answer</strong>
+                        <p className="request-help-bc">
+                            {awaitingAnswer} consultation request{awaitingAnswer > 1 ? 's need' : ' needs'} your reconfirmation.
+                        </p>
+                        <div className="booking-actions-bc">
+                            <button type="button" className="btn-bc btn-light-bc" onClick={() => { setKinds((prev) => ({ ...prev, request: true })); jumpToday(); }}>Show</button>
                         </div>
-                    </details>
+                    </div>
                 )}
-            </section>
+                {openRequests.some((r) => r.status === 'Waiting List') && (
+                    <div className="booking-card-bc attention-bc alert-bc" role="alert">
+                        <strong><Info size={15} style={{ verticalAlign: 'middle' }} /> Stay active</strong>
+                        <p className="request-help-bc">
+                            Your request was approved. Keep checking your notifications: when a doctor has a schedule, the school nurse will send you a reconfirmation. Answer it so the clinic can appoint you a time.
+                        </p>
+                    </div>
+                )}
 
-            {announcements.length > 0 && (
-                <section className="section-bc">
-                    <h3><Megaphone size={18} style={{ verticalAlign: 'middle' }} /> Clinic announcements</h3>
-                    <div className="booking-grid-bc">
-                        {announcements.slice(0, 8).map(a => (
-                            <div key={`${a.schedule_id}-${a.date}`} className="booking-card-bc announce-bc">
-                                <div className="booking-top-bc">
-                                    <strong>Walk-in consultation</strong>
-                                    <span className="tag-bc">{a.visit_type === 'Any' ? 'Any visit' : a.visit_type}</span>
-                                </div>
-                                <div className="booking-line-bc"><Stethoscope size={14} /> {a.doctor_name} ({a.specialization})</div>
-                                {a.covered_visit_types && <div className="booking-line-bc"><Info size={14} /> Covers: {a.covered_visit_types.join(', ')}</div>}
-                                <div className="booking-line-bc"><Clock size={14} /> {formatDate(a.date)}, {to12h(a.start_time)} - {to12h(a.end_time)}</div>
-                                {a.location && <div className="booking-line-bc"><MapPin size={14} /> {a.location}</div>}
-                                <p className="request-help-bc">
-                                    {a.announcement || 'Walk-ins are accepted during these hours. Booked and appointed students are seen first, and you can also book an open time slot below.'}
-                                </p>
-                                {a.notes && <div className="muted-bc">{a.notes}</div>}
-                            </div>
+                <div className="toolbar-bc">
+                    <div className="kind-filters-bc">
+                        {KIND_KEYS.map((k) => (
+                            <button
+                                key={k} type="button" aria-pressed={kinds[k]}
+                                className={`kind-chip-bc kind-${k}-bc ${kinds[k] ? 'on-bc' : ''}`} onClick={() => toggleKind(k)}
+                            >
+                                <i className="kind-dot-bc" /> {KINDS[k].label} ({kindCount[k]})
+                            </button>
                         ))}
                     </div>
-                </section>
-            )}
-
-            <section className="section-bc">
-                <h3>My Bookings</h3>
-                {upcoming.length === 0 ? (
-                    <div className="empty-bc">You have no upcoming bookings.</div>
-                ) : (
-                    <div className="booking-grid-bc">{upcoming.map(renderBooking)}</div>
-                )}
-                {history.length > 0 && (
-                    <details className="history-bc">
-                        <summary>Past and cancelled bookings ({history.length})</summary>
-                        <div className="booking-grid-bc">{history.map(renderBooking)}</div>
-                    </details>
-                )}
-            </section>
-
-            <section className="section-bc">
-                <h3>Available Schedules</h3>
-                <div className="filters-bc">
-                    <select value={visitType} onChange={e => setVisitType(e.target.value)} aria-label="Visit type">
-                        <option value="">All visit types</option>
-                        {visitTypes.map(t => <option key={t} value={t}>{t}</option>)}
-                    </select>
-                    <select value={doctorFilter} onChange={e => setDoctorFilter(e.target.value)} aria-label="Doctor">
-                        <option value="">All doctors</option>
-                        {doctorOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-                    </select>
+                    <div className="filters-bc filters-inline-bc">
+                        <select value={visitType} onChange={e => setVisitType(e.target.value)} aria-label="Visit type">
+                            <option value="">All visit types</option>
+                            {purposes.map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                        <select value={doctorFilter} onChange={e => setDoctorFilter(e.target.value)} aria-label="Doctor">
+                            <option value="">All doctors</option>
+                            {doctorOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+                        </select>
+                    </div>
                 </div>
 
-                {loadingSlots ? (
-                    <div className="empty-bc">Loading available schedules...</div>
-                ) : visibleOccurrences.length === 0 ? (
-                    <div className="empty-bc">
-                        <CalendarClock size={28} />
-                        <p>No open doctor schedules right now. The clinic has not set one up yet, or all slots are taken. Please check back later.</p>
-                    </div>
-                ) : (
-                    <div className="occurrence-grid-bc">
-                        {visibleOccurrences.map(o => (
-                            <div key={`${o.schedule_id}-${o.date}`} className="occurrence-card-bc">
-                                <div className="occurrence-date-bc">{formatDate(o.date)}</div>
-                                <div className="occurrence-doc-bc"><Stethoscope size={14} /> {o.doctor_name}</div>
-                                <div className="muted-bc">{o.specialization}</div>
-                                {o.covered_visit_types && <div className="muted-bc">Covers: {o.covered_visit_types.join(', ')}</div>}
-                                <div className="occurrence-meta-bc"><Clock size={14} /> {to12h(o.start_time)} - {to12h(o.end_time)}</div>
-                                {o.location && <div className="occurrence-meta-bc"><MapPin size={14} /> {o.location}</div>}
-                                <div className="occurrence-tags-bc">
-                                    <span className="tag-bc">{o.visit_type === 'Any' ? 'Any visit type' : o.visit_type}</span>
-                                    <span className="tag-bc tag-soft-bc">{o.open_slots} of {o.total_slots} slots open</span>
-                                    <span className="tag-bc tag-soft-bc">{o.auto_confirm ? 'Instant confirmation' : 'Needs approval'}</span>
-                                </div>
-                                {o.notes && <div className="muted-bc">{o.notes}</div>}
-                                <button className="btn-bc btn-primary-bc" onClick={() => openBook(o)}>Choose a time</button>
+                <div className="cal-layout-bc">
+                    <div className="cal-card-bc">
+                        <div className="cal-head-bc">
+                            <h3>{MONTHS[cursor.getMonth()]} {cursor.getFullYear()}</h3>
+                            <div className="cal-nav-bc">
+                                <button type="button" className="btn-bc btn-light-bc cal-icon-bc" onClick={() => goMonth(-1)} aria-label="Previous month"><ChevronLeft size={16} /></button>
+                                <button type="button" className="btn-bc btn-light-bc" onClick={jumpToday}>Today</button>
+                                <button type="button" className="btn-bc btn-light-bc cal-icon-bc" onClick={() => goMonth(1)} aria-label="Next month"><ChevronRight size={16} /></button>
                             </div>
-                        ))}
+                        </div>
+                        <div className="cal-grid-bc">
+                            {WEEKDAYS.map((w) => <div key={w} className="cal-dow-bc">{w.slice(0, 3)}</div>)}
+                            {gridDays.map((day) => {
+                                const list = eventsByDay[day] || [];
+                                const classes = ['cal-day-bc'];
+                                if (parseDay(day).getMonth() !== cursor.getMonth()) classes.push('outside-bc');
+                                if (day === today) classes.push('today-bc');
+                                if (day === selected) classes.push('selected-bc');
+                                return (
+                                    <button key={day} type="button" className={classes.join(' ')} onClick={() => setSelected(day)} aria-label={dayLabel(day, { weekday: 'long', month: 'long', day: 'numeric' })}>
+                                        <span className="cal-num-bc">{parseDay(day).getDate()}</span>
+                                        <span className="cal-marks-bc">
+                                            {KIND_KEYS.map((k) => {
+                                                const n = list.filter((ev) => ev.kind === k).length;
+                                                return n > 0 ? <span key={k} className={`cal-mark-bc kind-${k}-bc`} title={`${n} ${KINDS[k].label.toLowerCase()}`}><i className="kind-dot-bc" />{n}</span> : null;
+                                            })}
+                                        </span>
+                                    </button>
+                                );
+                            })}
+                        </div>
                     </div>
-                )}
+
+                    <aside className="day-panel-bc" aria-label="Selected day">
+                        <h3>{dayLabel(selected, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}{selected === today ? ' (today)' : ''}</h3>
+                        {loadingSlots && <div className="empty-bc">Loading available schedules...</div>}
+                        {dayEvents.length === 0 ? (
+                            <div className="empty-bc">
+                                <CalendarClock size={28} />
+                                <p>
+                                    {selected === today && requests.length === 0 && bookings.length === 0
+                                        ? 'Nothing here yet. If no schedule suits you, send a consultation request and the clinic will put you on the waiting list.'
+                                        : 'Nothing on this day. Pick a day with a marker to see the details.'}
+                                </p>
+                            </div>
+                        ) : (
+                            <div className="stack-bc">
+                                {dayEvents.map((ev) => (
+                                    <div key={ev.key} className="event-bc">
+                                        <span className={`event-kind-bc kind-${ev.kind}-bc`}><i className="kind-dot-bc" /> {KINDS[ev.kind].short}</span>
+                                        {renderEvent(ev)}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </aside>
+                </div>
             </section>
 
             {showRequest && (
@@ -455,13 +590,17 @@ const BookCheckup = () => {
                         </p>
                         <div className="field-bc">
                             <label>Purpose of the consultation</label>
-                            <select value={requestForm.visit_type} onChange={e => setRequestForm({ ...requestForm, visit_type: e.target.value })}>
-                                {visitTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                            <select required value={requestForm.visit_type} onChange={e => setRequestForm({ ...requestForm, visit_type: e.target.value })} disabled={purposes.length === 0}>
+                                <option value="">{!doctorsLoaded ? 'Loading...' : purposes.length === 0 ? 'No doctor is available yet' : '-- Select the purpose --'}</option>
+                                {purposes.map(t => <option key={t} value={t}>{t}</option>)}
                             </select>
+                            {doctorsLoaded && purposes.length === 0 && (
+                                <small className="muted-bc">The clinic has no doctor account for a consultation yet. Please check back later.</small>
+                            )}
                         </div>
                         <div className="field-bc">
                             <label>Reason for the consultation</label>
-                            <textarea rows="3" maxLength={255} required value={requestForm.reason} onChange={e => setRequestForm({ ...requestForm, reason: e.target.value })} placeholder="e.g. Toothache for 2 days, or I need a yearly check-up" />
+                            <textarea rows="3" maxLength={255} required value={requestForm.reason} onChange={e => setRequestForm({ ...requestForm, reason: e.target.value })} placeholder={reasonPlaceholder(requestForm.visit_type)} />
                         </div>
                         <div className="field-bc">
                             <label>Preferred days or times (optional)</label>
@@ -469,7 +608,7 @@ const BookCheckup = () => {
                         </div>
                         <div className="modal-footer-bc">
                             <button type="button" className="btn-bc btn-light-bc" onClick={() => setShowRequest(false)}>Close</button>
-                            <button type="submit" className="btn-bc btn-primary-bc" disabled={submitting}>{submitting ? 'Sending...' : 'Send request'}</button>
+                            <button type="submit" className="btn-bc btn-primary-bc" disabled={submitting || !requestForm.visit_type}>{submitting ? 'Sending...' : 'Send request'}</button>
                         </div>
                     </form>
                 </div>
@@ -491,7 +630,7 @@ const BookCheckup = () => {
                                     onChange={e => {
                                         const next = picker.options.find(o => o.date === e.target.value);
                                         setPicker({ ...picker, occurrence: next });
-                                        loadSlots(next);
+                                        loadSlots(next, picker.booking.appointment_id);
                                     }}
                                 >
                                     {picker.options.map(o => <option key={o.date} value={o.date}>{formatDate(o.date)}</option>)}
@@ -544,7 +683,7 @@ const BookCheckup = () => {
                                 ) : null}
                                 <div className="field-bc">
                                     <label>Reason for the check-up</label>
-                                    <textarea rows="3" maxLength={255} value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. Toothache for 2 days, or yearly check-up" />
+                                    <textarea rows="3" maxLength={255} value={reason} onChange={e => setReason(e.target.value)} placeholder={reasonPlaceholder(bookVisitType)} />
                                 </div>
                             </>
                         )}

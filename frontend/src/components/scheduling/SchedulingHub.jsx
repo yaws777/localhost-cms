@@ -1,13 +1,14 @@
 // SchedulingHub.jsx
 // The one consultation scheduling screen. The nurse (every doctor) and the doctor (their own schedule) get the same
 // tabs and the same data, so whatever one of them posts, appoints or approves is what the other sees:
-//   Calendar | Schedules | Waiting list | Follow-ups | Booking approvals | Assistant | Chat (nurse <-> doctor)
+//   Calendar | Schedules | Waiting list | Repeats | Booking approvals | Assistant | Chat (nurse <-> doctor)
+// Walk-ins are registered from a session that is running right now (the session card in the calendar), not from here.
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { CalendarDays, ListChecks, Users, Inbox, Lightbulb, CalendarClock, MessagesSquare, CalendarPlus, Footprints } from 'lucide-react';
+import { CalendarDays, ListChecks, Users, Inbox, Lightbulb, CalendarClock, MessagesSquare, CalendarPlus } from 'lucide-react';
 import { DoctorAvailability, BookingRequests } from '../nurse/DoctorAvailability';
 import UnavailableDates from '../doctor/UnavailableDates';
-import { DirectAppointmentModal, WalkInModal } from '../doctor/AppointmentModals';
+import { DirectAppointmentModal } from '../doctor/AppointmentModals';
 import ScheduleCalendar from './ScheduleCalendar';
 import WaitingList from './WaitingList';
 import FollowUps from './FollowUps';
@@ -20,7 +21,7 @@ const TABS = [
     ['calendar', 'Calendar', CalendarDays],
     ['schedules', 'Schedules', ListChecks],
     ['waiting', 'Waiting list', Users],
-    ['followups', 'Follow-ups', CalendarClock],
+    ['followups', 'Repeats', CalendarClock],
     ['approvals', 'Booking approvals', Inbox],
     ['assistant', 'Assistant', Lightbulb],
     ['chat', 'Chat', MessagesSquare]
@@ -36,7 +37,6 @@ const SchedulingHub = ({ role, doctors, fixedDoctorId, nurseId, userId, initialT
     const [counts, setCounts] = useState({ review: 0, approvals: 0, followups: 0 });
     const [chatUnread, setChatUnread] = useState(0);
     const [showDirect, setShowDirect] = useState(false);
-    const [showWalkIn, setShowWalkIn] = useState(false);
 
     const creator = useMemo(() => (role === 'doctor' ? { doctorId: fixedDoctorId } : { nurseId }), [role, fixedDoctorId, nurseId]);
     const doctorList = useMemo(() => (fixedDoctorId ? doctors.filter((d) => d.doctor_id === fixedDoctorId) : doctors), [doctors, fixedDoctorId]);
@@ -93,7 +93,9 @@ const SchedulingHub = ({ role, doctors, fixedDoctorId, nurseId, userId, initialT
     }, [onChanged]);
 
     const goTab = useCallback((next, group = null) => { setTab(next); setWaitingGroup(group); }, []);
-    const remind = useCallback((scheduleId, date) => { setFocusSchedule({ schedule_id: scheduleId, date }); goTab('waiting', 'waiting'); }, [goTab]);
+    // from a session card: "Reconfirm" opens the waiting list, "Appoint from waiting list" opens the reconfirmed students, with that session picked
+    const reconfirm = useCallback((scheduleId, date) => { setFocusSchedule({ schedule_id: scheduleId, date, mode: 'reconfirm' }); goTab('waiting', 'waiting'); }, [goTab]);
+    const appointFromWaiting = useCallback((scheduleId, date) => { setFocusSchedule({ schedule_id: scheduleId, date, mode: 'appoint' }); goTab('waiting', 'ready'); }, [goTab]);
     const useSuggestion = useCallback((suggestion) => { setPrefill(suggestion); goTab('schedules'); }, [goTab]);
     const prefillUsed = useCallback(() => setPrefill(null), []);
     const focusUsed = useCallback(() => setFocusSchedule(null), []);
@@ -104,7 +106,6 @@ const SchedulingHub = ({ role, doctors, fixedDoctorId, nurseId, userId, initialT
         <div className="hub-sc">
             <div className="toolbar-hub-sc">
                 <button type="button" className="sti-btn-dv sti-btn-secondary-dv" onClick={() => setShowDirect(true)}><CalendarPlus size={16} /> Direct appointment</button>
-                <button type="button" className="sti-btn-dv sti-btn-secondary-dv" onClick={() => setShowWalkIn(true)}><Footprints size={16} /> Walk-in</button>
             </div>
 
             <nav className="hub-tabs-sc" aria-label="Scheduling sections">
@@ -119,7 +120,7 @@ const SchedulingHub = ({ role, doctors, fixedDoctorId, nurseId, userId, initialT
             {tab === 'calendar' && (
                 <ScheduleCalendar
                     doctors={doctorList} fixedDoctorId={fixedDoctorId} creator={creator} userId={userId} refreshKey={refreshKey}
-                    onChanged={changed} onRemind={remind} onGoTab={goTab}
+                    onChanged={changed} onReconfirm={reconfirm} onAppointFromWaiting={appointFromWaiting} onGoTab={goTab}
                 />
             )}
 
@@ -127,7 +128,7 @@ const SchedulingHub = ({ role, doctors, fixedDoctorId, nurseId, userId, initialT
                 <>
                     <DoctorAvailability
                         doctors={doctorList} creator={creator} userId={userId} refreshKey={refreshKey} onChanged={changed}
-                        prefill={prefill} onPrefillUsed={prefillUsed} onRemind={remind}
+                        prefill={prefill} onPrefillUsed={prefillUsed} onReconfirm={reconfirm} onAppointFromWaiting={appointFromWaiting}
                     />
                     <div style={{ marginTop: 18 }}>
                         <UnavailableDates doctors={doctorList} fixedDoctorId={fixedDoctorId} userId={userId} onChanged={changed} />
@@ -157,7 +158,6 @@ const SchedulingHub = ({ role, doctors, fixedDoctorId, nurseId, userId, initialT
             {tab === 'chat' && <StaffChat userId={userId} onUnreadChange={setChatUnread} />}
 
             <DirectAppointmentModal isOpen={showDirect} doctors={doctorList} fixedDoctorId={fixedDoctorId} creator={creator} userId={userId} onClose={() => setShowDirect(false)} onCreated={changed} />
-            <WalkInModal isOpen={showWalkIn} doctors={doctorList} fixedDoctorId={fixedDoctorId} creator={creator} userId={userId} onClose={() => setShowWalkIn(false)} onCreated={changed} />
         </div>
     );
 };
