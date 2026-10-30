@@ -274,11 +274,14 @@ const StudentLayout = () => {
 
         if (type.includes('message') || msg.includes('message') || title.includes('message')) {
             setIsMessageOpen(true);
+        } else if (type.startsWith('queue_')) {
+            // "now calling", "your turn is near" and "number skipped": the queue card on the dashboard shows the live numbers
+            navigate('/StudentDashboard');
         } else if (type.includes('booking') || type.includes('appointment') || type.startsWith('consultation_')) {
             navigate('/BookCheckup');
         } else if (type.includes('requirement') || msg.includes('requirement') || title.includes('requirement')) {
             navigate('/MyRequirements'); 
-        } else if (type.includes('Doctor','Incident','Visit') || type.includes('record') || msg.includes('clinic','Incident','Doctor') || msg.includes('consultation') || msg.includes('visit')) {
+        } else if (['doctor', 'incident', 'visit', 'record'].some((k) => type.includes(k)) || ['clinic', 'incident', 'doctor', 'consultation', 'visit'].some((k) => msg.includes(k))) {
             navigate('/ClinicLogsAndRecords');
         } else if (type.includes('request') || msg.includes('request')) {
             navigate('/RequestModule');
@@ -339,6 +342,7 @@ const StudentLayout = () => {
 
     return (
         <div className="student-layout">
+            <a href="#main-content" className="skip-link">Skip to main content</a>
             <button className="mobile-toggle-btn" onClick={toggleSidebar}>
                 ☰
             </button>
@@ -389,7 +393,7 @@ const StudentLayout = () => {
                                     className="sidebar-qr-box" 
                                     style={{ 
                                         padding: '8px', 
-                                        backgroundColor: '#ffffff', 
+                                        backgroundColor: 'var(--bg-card)', 
                                         borderRadius: '8px', 
                                         display: 'inline-block',
                                         boxShadow: '0 2px 6px rgba(0,0,0,0.15)'
@@ -413,7 +417,7 @@ const StudentLayout = () => {
                                         color: '#004b87',
                                         border: 'none',
                                         borderRadius: '4px',
-                                        fontSize: '0.75rem',
+                                        fontSize: '0.875rem',
                                         fontWeight: 'bold',
                                         cursor: 'pointer',
                                         display: 'inline-flex',
@@ -429,7 +433,7 @@ const StudentLayout = () => {
                             </div>
                         )}
                         
-                        {errorMsg && <span className="profile-error" style={{color: '#ff4d4f', fontSize: '0.8em', display: 'block', marginTop: '5px'}}>{errorMsg}</span>}
+                        {errorMsg && <span className="profile-error" style={{color: 'var(--status-critical-text)', fontSize: '0.875rem', display: 'block', marginTop: '5px'}}>{errorMsg}</span>}
                     </div>
                 </div>
 
@@ -446,7 +450,7 @@ const StudentLayout = () => {
 
                     <NavLink to="/BookCheckup" className="nav-link" onClick={closeSidebar}>
                         <CalendarPlus className="nav-icon" size={16} />
-                        <span>Book a Check-up</span>
+                        <span>Check-up</span>
                     </NavLink>
 
                     <NavLink to="/ClinicLogsAndRecords" className="nav-link" onClick={closeSidebar}>
@@ -470,12 +474,11 @@ const StudentLayout = () => {
                         <span>Notification Settings</span>
                     </NavLink>
 
-                    <hr className="nav-divider" style={{ margin: '15px 0', borderColor: 'rgba(255,255,255,0.1)' }} />
+                    <hr className="nav-divider" />
 
                     <button 
                         onClick={handleLogoutClick} 
                         className="nav-link logout-btn" 
-                        style={{ background: 'transparent', border: 'none', width: '100%', textAlign: 'left', cursor: 'pointer', color: 'yellow' }}
                     >
                         <LogOut className="nav-icon" size={16} />
                         <span>Logout</span>
@@ -493,7 +496,7 @@ const StudentLayout = () => {
                     <button
                         onClick={toggleTheme}
                         className="theme-toggle-btn"
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', color: '#333', padding: '4px' }}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', color: 'var(--text-primary)', padding: '4px' }}
                         title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
                         aria-label="Toggle dark mode"
                     >
@@ -551,15 +554,15 @@ const StudentLayout = () => {
                                     borderTopLeftRadius: '8px',
                                     borderTopRightRadius: '8px'
                                 }}>
-                                    <span style={{ color: 'var(--text-primary)', fontSize: '14px' }}>Notifications</span>
+                                    <span style={{ color: 'var(--text-primary)', fontSize: '0.875rem' }}>Notifications</span>
                                     {unreadNotifCount > 0 && (
                                         <button
                                             onClick={handleMarkAllAsRead}
                                             style={{
                                                 background: 'none',
                                                 border: 'none',
-                                                color: '#1890ff',
-                                                fontSize: '12px',
+                                                color: 'var(--text-brand)',
+                                                fontSize: '0.875rem',
                                                 cursor: 'pointer',
                                                 padding: 0,
                                                 fontWeight: '500'
@@ -571,7 +574,7 @@ const StudentLayout = () => {
                                 </div>
 
                                 {notifications.length === 0 ? (
-                                    <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '13px' }}>
+                                    <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
                                         No notifications
                                     </div>
                                 ) : (
@@ -594,7 +597,7 @@ const StudentLayout = () => {
                                             >
                                                 <div style={{
                                                     fontWeight: isItemRead ? 'normal' : 'bold',
-                                                    fontSize: '13px',
+                                                    fontSize: '0.875rem',
                                                     marginBottom: '4px',
                                                     color: 'var(--text-primary)',
                                                     display: 'flex',
@@ -612,10 +615,10 @@ const StudentLayout = () => {
                                                     )}
                                                     {item.title || 'Notification'}
                                                 </div>
-                                                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', lineHeight: '1.4' }}>
+                                                <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '6px', lineHeight: '1.4' }}>
                                                     {item.message}
                                                 </div>
-                                                <div style={{ fontSize: '10px', color: 'var(--text-secondary)', textAlign: 'right' }}>
+                                                <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', textAlign: 'right' }}>
                                                     {formatDateTime(item.created_at)}
                                                 </div>
                                             </div>
@@ -629,7 +632,7 @@ const StudentLayout = () => {
             </div>
 
             <div className={`main-content ${collapsed ? 'sidebar-collapsed-margin' : ''}`}>
-                <div className="page-content">
+                <main id="main-content" tabIndex={-1} className="page-content">
                     <Outlet context={{ 
                         studentId: studentData?.student_id || '', 
                         userId: studentData?.user_id || currentUserId || '',
@@ -645,7 +648,7 @@ const StudentLayout = () => {
                             }
                         }
                     }} />
-                </div>
+                </main>
             </div>
 
             {isMessageOpen && currentUserId && (

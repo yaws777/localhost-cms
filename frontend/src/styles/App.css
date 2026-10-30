@@ -4,7 +4,7 @@
   width: 100%;
   overflow-x: hidden;
   background: linear-gradient(to bottom right, #0047AB, #0066CC);
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  font-family: var(--font-sans);
   color: #ffffff;
   box-sizing: border-box;
 }
@@ -50,14 +50,14 @@
   align-items: center;
   justify-content: center;
   border-radius: 9999px;
-  background-color: #ffffff;
+  background-color: var(--bg-card);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
 .logo-badge span {
   font-size: 1.125rem;
   font-weight: 800;
-  color: #0047AB;
+  color: var(--text-brand);
 }
 
 .brand-title {
@@ -69,7 +69,7 @@
 }
 
 .brand-subtitle {
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   color: rgba(255, 255, 255, 0.85);
   margin: 0;
 }
@@ -80,7 +80,7 @@
 }
 
 .current-date {
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 500;
   color: rgba(255, 255, 255, 0.9);
   margin: 0;
@@ -123,14 +123,14 @@
   border: none;
   cursor: pointer;
   border-radius: 0.5rem;
-  background-color: #ffffff;
+  background-color: var(--bg-card);
   padding: 0.875rem 2rem;
   font-size: 1rem;
   font-weight: 700;
   width: auto;
   min-width: 220px;
   max-width: 100%;
-  color: #0047AB;
+  color: var(--text-brand);
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
   transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
 }
@@ -138,7 +138,7 @@
 .portal-btn:hover {
   transform: translateY(-2px);
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.2);
-  background-color: #f8fafc;
+  background-color: var(--bg-subtle);
 }
 
 .portal-btn:active {
@@ -179,7 +179,7 @@
 
 /* System Objectives Section */
 .objectives-section {
-  background-color: #f8fafc;
+  background-color: var(--bg-subtle);
   padding: clamp(2.5rem, 6vw, 4.5rem) 1.25rem;
 }
 
@@ -205,14 +205,14 @@ p.section-title {
 h3.section-title {
   font-size: clamp(1.5rem, 3.5vw, 2.125rem);
   font-weight: 800;
-  color: #0f172a;
+  color: var(--text-primary);
   margin-top: 0;
   margin-bottom: 0.75rem;
 }
 
 .section-subtitle {
   font-size: clamp(0.875rem, 2vw, 1rem);
-  color: #475569;
+  color: var(--text-secondary);
   max-width: 42rem;
   line-height: 1.6;
 }
@@ -240,8 +240,8 @@ h3.section-title {
 /* Cards setup */
 .objective-card {
   border-radius: 0.75rem;
-  border: 1px solid #e2e8f0;
-  background-color: #ffffff;
+  border: 1px solid var(--card-border);
+  background-color: var(--bg-card);
   padding: clamp(1.25rem, 3vw, 1.5rem);
   display: flex;
   flex-direction: column;
@@ -278,7 +278,7 @@ h3.section-title {
 .card-title {
   font-size: 1.05rem;
   font-weight: 700;
-  color: #1e293b;
+  color: var(--text-primary);
   margin: 0 0 0.5rem 0;
   line-height: 1.35;
 }
@@ -286,28 +286,28 @@ h3.section-title {
 .card-description {
   font-size: 0.875rem;
   line-height: 1.55;
-  color: #64748b;
+  color: var(--text-secondary);
   margin: 0;
 }
 
 /* Dynamic Color Themes mappings */
-.theme-blue         { color: #2563eb; background-color: #eff6ff; }
-.theme-indigo       { color: #4f46e5; background-color: #e0e7ff; }
-.theme-green        { color: #16a34a; background-color: #f0fdf4; }
-.theme-orange       { color: #ea580c; background-color: #fff7ed; }
-.theme-red          { color: #dc2626; background-color: #fef2f2; }
-.theme-purple       { color: #9333ea; background-color: #faf5ff; }
-.theme-yellow       { color: #ca8a04; background-color: #fefce8; }
-.theme-teal         { color: #0d9488; background-color: #f0fdfa; }
-.theme-cyan         { color: #0891b2; background-color: #ecfeff; }
-.theme-blue-light   { color: #3b82f6; background-color: #eff6ff; }
-.theme-emerald      { color: #059669; background-color: #ecfdf5; }
-.theme-amber        { color: #d97706; background-color: #fffbeb; }
-.theme-pink         { color: #db2777; background-color: #fdf2f8; }
-.theme-violet       { color: #7c3aed; background-color: #f5f3ff; }
-.theme-sky          { color: #0284c7; background-color: #f0f9ff; }
-.theme-indigo-light { color: #6366f1; background-color: #e0e7ff; }
-.theme-orange-light { color: #f97316; background-color: #fff7ed; }
+.theme-blue         { color: var(--text-brand); background-color: var(--sti-blue-light); }
+.theme-indigo       { color: var(--text-brand); background-color: var(--sti-blue-light); }
+.theme-green        { color: var(--status-adequate-text); background-color: var(--status-adequate-bg); }
+.theme-orange       { color: var(--status-low-text); background-color: var(--status-low-bg); }
+.theme-red          { color: var(--status-critical-text); background-color: var(--status-critical-bg); }
+.theme-purple       { color: var(--text-accent); background-color: var(--tint-violet-bg); }
+.theme-yellow       { color: var(--status-low-text); background-color: var(--status-low-bg); }
+.theme-teal         { color: var(--text-brand); background-color: var(--status-adequate-bg); }
+.theme-cyan         { color: var(--text-brand); background-color: var(--sti-blue-light); }
+.theme-blue-light   { color: var(--text-brand); background-color: var(--sti-blue-light); }
+.theme-emerald      { color: var(--status-adequate-text); background-color: var(--status-adequate-bg); }
+.theme-amber        { color: var(--status-low-text); background-color: var(--status-low-bg); }
+.theme-pink         { color: var(--text-accent); background-color: var(--tint-violet-bg); }
+.theme-violet       { color: var(--text-accent); background-color: var(--sti-blue-light); }
+.theme-sky          { color: var(--text-brand); background-color: var(--bg-subtle); }
+.theme-indigo-light { color: var(--text-brand); background-color: var(--sti-blue-light); }
+.theme-orange-light { color: var(--status-low-text); background-color: var(--status-low-bg); }
 
 /* Footer Styles */
 .main-footer {
@@ -331,7 +331,7 @@ h3.section-title {
 
 .footer-subtext {
   margin-top: 0.5rem;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   color: rgba(255, 255, 255, 0.65);
   margin-bottom: 0;
 }

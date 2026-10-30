@@ -1,0 +1,67 @@
+/* ==========================================================================
+   MY QUEUE (student) - -mq scoped. Colors come from the shared theme tokens.
+   ========================================================================== */
+
+.stack-mq { display: flex; flex-direction: column; gap: 12px; }
+.empty-mq { margin: 0; padding: 14px 4px; color: var(--text-secondary); font-size: 0.9rem; }
+
+.ticket-mq {
+    display: flex;
+    gap: 16px;
+    align-items: stretch;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color, var(--card-border));
+    border-left: 5px solid var(--sti-blue, #0369a1);
+    border-radius: 10px;
+    padding: 14px 16px;
+    color: var(--text-primary);
+}
+
+.ticket-no-mq {
+    flex: 0 0 auto;
+    min-width: 84px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(3, 105, 161, 0.1);
+    border-radius: 8px;
+    padding: 8px 12px;
+}
+.ticket-no-mq small { font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); }
+.ticket-no-mq strong { font-size: 2rem; line-height: 1.1; font-variant-numeric: tabular-nums; }
+
+.ticket-body-mq { flex: 1 1 auto; min-width: 0; }
+.ticket-top-mq { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: center; }
+.serving-mq { display: inline-flex; align-items: center; gap: 5px; font-size: 0.875rem; color: var(--text-secondary); }
+.serving-mq b { color: var(--text-primary); font-size: 0.95rem; }
+.ticket-title-mq { margin-top: 4px; font-weight: 600; font-size: 1rem; }
+.ticket-text-mq { margin: 4px 0 8px; font-size: 0.875rem; color: var(--text-secondary); }
+.ticket-meta-mq { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.875rem; color: var(--text-secondary); }
+.ticket-meta-mq span { display: inline-flex; align-items: center; gap: 5px; }
+
+.tone-go-mq { border-left-color: #16a34a; background: var(--status-adequate-bg); }
+.tone-go-mq .ticket-no-mq { background: var(--status-adequate-bg); }
+.tone-near-mq { border-left-color: #d97706; background: var(--status-low-bg); }
+.tone-near-mq .ticket-no-mq { background: #fde68a; }
+.tone-void-mq { border-left-color: #dc2626; background: var(--status-critical-bg); }
+.tone-void-mq .ticket-no-mq { background: #fecaca; }
+.tone-done-mq { border-left-color: #64748b; opacity: 0.85; }
+.tone-list-mq { border-left-color: #7c3aed; }
+.tone-list-mq .ticket-no-mq { background: rgba(124, 58, 237, 0.12); }
+
+:root[data-theme="dark"] .tone-go-mq { background: #0f2e1b; }
+:root[data-theme="dark"] .tone-go-mq .ticket-no-mq { background: #14532d; }
+:root[data-theme="dark"] .tone-near-mq { background: #3d3411; }
+:root[data-theme="dark"] .tone-near-mq .ticket-no-mq { background: #78561a; }
+:root[data-theme="dark"] .tone-void-mq { background: #3b1414; }
+:root[data-theme="dark"] .tone-void-mq .ticket-no-mq { background: #7f1d1d; }
+
+.compact-mq { padding: 10px 12px; gap: 12px; }
+.compact-mq .ticket-no-mq { min-width: 64px; padding: 6px 8px; }
+.compact-mq .ticket-no-mq strong { font-size: 1.5rem; }
+
+@media (max-width: 520px) {
+    .ticket-mq { flex-direction: column; gap: 10px; }
+    .ticket-no-mq { flex-direction: row; gap: 8px; justify-content: flex-start; }
+}

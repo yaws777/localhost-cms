@@ -1,5 +1,5 @@
 // SchedulingAssistant.jsx
-// Helps whoever plans the consultations: how many approved students are waiting for which kind of visit,
+// Helps whoever plans the check-ups: how many students are on each category's waiting list,
 // what needs chasing up, and where the clinic could post a session (free doctor time, no clash, doctor offers the check-up).
 import React, { useState, useEffect, useCallback } from 'react';
 import { Lightbulb, AlertTriangle, Info, CalendarPlus, RefreshCw, Users } from 'lucide-react';
@@ -12,7 +12,7 @@ import '../../styles/scheduling/Scheduling.css';
 
 const ALERT_ICON = { info: Info, warning: AlertTriangle, danger: AlertTriangle };
 
-const SchedulingAssistant = ({ fixedDoctorId, refreshKey, onUseSuggestion, onGoTab }) => {
+const SchedulingAssistant = ({ fixedDoctorId, refreshKey, onUseSuggestion, onGoTab, role }) => {
     const { showAlert } = useAlert();
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -46,7 +46,7 @@ const SchedulingAssistant = ({ fixedDoctorId, refreshKey, onUseSuggestion, onGoT
             </div>
 
             {data.alerts.length === 0 ? (
-                <div className="alert-sc info-sc"><Info size={18} /><div><strong>Nothing needs chasing up.</strong>Every approved student has a session, and no request is overdue.</div></div>
+                <div className="alert-sc info-sc"><Info size={18} /><div><strong>Nothing needs chasing up.</strong>Every student on a waiting list has a session coming, and no answer is overdue.</div></div>
             ) : data.alerts.map((a) => {
                 const Icon = ALERT_ICON[a.level] || Info;
                 return (
@@ -55,21 +55,19 @@ const SchedulingAssistant = ({ fixedDoctorId, refreshKey, onUseSuggestion, onGoT
                         <div style={{ flex: 1 }}>
                             <strong>{a.title}</strong>{a.text}
                         </div>
-                        {a.key === 'review' && onGoTab && <button type="button" className="sti-btn-dv sti-btn-light-dv btn-sm-sc" onClick={() => onGoTab('waiting', 'review')}>Review</button>}
-                        {a.key === 'reconfirm' && onGoTab && <button type="button" className="sti-btn-dv sti-btn-light-dv btn-sm-sc" onClick={() => onGoTab('waiting', 'reconfirm')}>Open</button>}
-                        {a.key === 'booking' && onGoTab && <button type="button" className="sti-btn-dv sti-btn-light-dv btn-sm-sc" onClick={() => onGoTab('approvals')}>Review</button>}
+                        {a.key === 'reconfirm' && onGoTab && <button type="button" className="sti-btn-dv sti-btn-light-dv btn-sm-sc" onClick={() => onGoTab('waiting')}>Open</button>}
                     </div>
                 );
             })}
 
-            <h3 className="section-head-ds"><Users size={18} /> Waiting for a consultation <span className="count-pill-ds count-muted-ds">{totalWaiting}</span></h3>
+            <h3 className="section-head-ds"><Users size={18} /> Waiting lists <span className="count-pill-ds count-muted-ds">{totalWaiting}</span></h3>
             <div className="assist-grid-sc">
                 {data.demand.map((d) => (
                     <div key={d.visit_type} className="demand-card-sc">
                         <h4>{d.visit_type}</h4>
                         <span className="big-sc">{d.waiting}</span>
                         <small>
-                            {d.waiting === 0 ? 'Nobody waiting' : `${d.on_waiting_list} on the list, ${d.awaiting_reconfirmation} asked to reconfirm, ${d.reconfirmed} ready to appoint`}
+                            {d.waiting === 0 ? 'Nobody waiting' : `${d.on_waiting_list} on the list, ${d.awaiting_reconfirmation} asked to confirm, ${d.reconfirmed} confirmed`}
                             {d.priority > 0 ? ` - ${d.priority} priority` : ''}
                         </small>
                         {d.oldest_since && <small>Longest wait since {formatDate(d.oldest_since)}</small>}
@@ -81,7 +79,7 @@ const SchedulingAssistant = ({ fixedDoctorId, refreshKey, onUseSuggestion, onGoT
             {data.suggestions.length === 0 ? (
                 <div className="group-empty-ds">
                     {totalWaiting === 0
-                        ? 'No approved student is waiting, so there is nothing to plan for right now.'
+                        ? 'Nobody is on a waiting list, so there is nothing to plan for right now.'
                         : 'Every waiting student already has an upcoming session of the right kind, or no doctor has a free window in the next two weeks.'}
                 </div>
             ) : data.suggestions.map((s) => (
@@ -94,7 +92,7 @@ const SchedulingAssistant = ({ fixedDoctorId, refreshKey, onUseSuggestion, onGoT
                         <p>{s.reason}</p>
                     </div>
                     {onUseSuggestion && (
-                        <button type="button" className="sti-btn-dv sti-btn-primary-dv" onClick={() => onUseSuggestion(s)}>Create this schedule</button>
+                        <button type="button" className="sti-btn-dv sti-btn-primary-dv" onClick={() => onUseSuggestion(s)}>{role === 'doctor' ? 'Create this schedule' : 'Request this schedule'}</button>
                     )}
                 </div>
             ))}

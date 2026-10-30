@@ -57,11 +57,13 @@
 
 .top-bar-message-btn {
     position: relative;
-    background: #0056b3;
-    color: white;
+    background: transparent;
+    color: var(--text-primary);
     border: none;
-    width: 38px;
-    height: 38px;
+    width: 2.75rem;
+    min-width: 2.75rem;
+    height: 2.75rem;
+    flex: none;
     border-radius: 50%;
     cursor: pointer;
     display: flex;
@@ -71,20 +73,21 @@
 }
 
 .top-bar-message-btn:hover {
-    background: #004494;
+    background: var(--sti-blue-light);
 }
 
 .top-bar-unread-badge {
     position: absolute;
     top: -4px;
     right: -4px;
-    background: #ff4d4f;
-    color: white;
-    font-size: 0.7rem;
+    background: var(--danger-fill);
+    color: #ffffff;
+    font-size: 0.875rem;
     font-weight: bold;
     border-radius: 10px;
     padding: 2px 6px;
-    border: 2px solid white;
+    line-height: 1.2;
+    border: 2px solid var(--bg-card);
 }
 
 /* Messenger General Layout */
@@ -96,10 +99,10 @@
 
 .messenger-sidebar {
     width: 300px;
-    border-right: 1px solid #eef2f5;
+    border-right: 1px solid var(--card-border);
     display: flex;
     flex-direction: column;
-    background: #f8fafc;
+    background: var(--bg-subtle);
     flex-shrink: 0;
 }
 
@@ -108,7 +111,7 @@
     display: flex;
     align-items: center;
     background: var(--bg-card);
-    border-bottom: 1px solid #eef2f5;
+    border-bottom: 1px solid var(--card-border);
     gap: 8px;
 }
 
@@ -116,7 +119,7 @@
     width: 100%;
     border: none;
     outline: none;
-    font-size: 0.85rem;
+    font-size: 0.875rem;
 }
 
 .conversations-list {
@@ -125,7 +128,7 @@
 }
 
 .section-title {
-    font-size: 0.75rem;
+    font-size: 0.875rem;
     font-weight: 700;
     color: var(--text-secondary);
     padding: 8px 12px;
@@ -170,12 +173,12 @@
 
 .header-row h4 {
     margin: 0;
-    font-size: 0.85rem;
+    font-size: 0.875rem;
     color: var(--text-primary);
 }
 
 .timestamp {
-    font-size: 0.65rem;
+    font-size: 0.875rem;
     color: var(--text-secondary);
 }
 
@@ -188,7 +191,7 @@
 
 .preview {
     margin: 0;
-    font-size: 0.78rem;
+    font-size: 0.875rem;
     color: var(--text-secondary);
     white-space: nowrap;
     overflow: hidden;
@@ -202,16 +205,16 @@
 }
 
 .chat-unread-badge {
-    background: #ff4d4f;
+    background: var(--danger-fill);
     color: white;
-    font-size: 0.7rem;
+    font-size: 0.875rem;
     font-weight: bold;
     padding: 2px 6px;
     border-radius: 10px;
 }
 
 .role-tag {
-    font-size: 0.7rem;
+    font-size: 0.875rem;
     color: var(--text-secondary);
 }
 
@@ -228,7 +231,7 @@
     align-items: center;
     gap: 12px;
     padding: 10px 16px;
-    border-bottom: 1px solid #eef2f5;
+    border-bottom: 1px solid var(--card-border);
     background: var(--bg-card);
 }
 
@@ -241,8 +244,8 @@
 }
 
 .status-text {
-    font-size: 0.7rem;
-    color: #0056b3;
+    font-size: 0.875rem;
+    color: var(--text-brand);
     font-weight: bold;
 }
 
@@ -250,7 +253,7 @@
     flex: 1;
     padding: 14px 16px;
     overflow-y: auto;
-    background: #f4f7fb;
+    background: var(--bg-subtle);
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -293,7 +296,7 @@
 
 .time-stamp {
     display: block;
-    font-size: 0.6rem;
+    font-size: 0.875rem;
     margin-top: 4px;
     opacity: 0.7;
     text-align: right;
@@ -317,7 +320,7 @@
 .chat-footer {
     padding: 8px 12px;
     background: var(--bg-card);
-    border-top: 1px solid #eef2f5;
+    border-top: 1px solid var(--card-border);
 }
 
 .controls-row {
@@ -330,7 +333,7 @@
 .media-btn {
     background: transparent;
     border: none;
-    color: #0056b3;
+    color: var(--text-brand);
     cursor: pointer;
     width: 32px;
     height: 32px;
@@ -348,11 +351,11 @@
 .message-input {
     flex: 1;
     min-width: 0;
-    border: 1px solid #ddd;
+    border: 1px solid var(--card-border);
     border-radius: 20px;
     padding: 8px 14px;
     outline: none;
-    font-size: 0.85rem;
+    font-size: 0.875rem;
 }
 
 .send-btn {
@@ -373,11 +376,11 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    background: #eef2f5;
+    background: var(--bg-subtle);
     padding: 4px 10px;
     border-radius: 6px;
     margin-bottom: 6px;
-    font-size: 0.75rem;
+    font-size: 0.875rem;
 }
 
 .empty-chat-placeholder {
@@ -421,7 +424,7 @@
     top: 20px;
     right: 0;
     background: var(--bg-card);
-    border: 1px solid #ddd;
+    border: 1px solid var(--card-border);
     border-radius: 6px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.15);
     z-index: 100;
@@ -431,9 +434,9 @@
     background: transparent;
     border: none;
     padding: 6px 12px;
-    color: #dc3545;
+    color: var(--status-critical-text);
     cursor: pointer;
-    font-size: 0.8rem;
+    font-size: 0.875rem;
     display: flex;
     align-items: center;
     gap: 6px;
@@ -489,7 +492,7 @@
 
     .message-input {
         padding: 6px 10px;
-        font-size: 0.82rem;
+        font-size: 0.875rem;
     }
 
     .send-btn {

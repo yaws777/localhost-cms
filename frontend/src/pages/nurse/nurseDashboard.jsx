@@ -78,7 +78,7 @@ const formatCeilAvg = (val) => {
     return (
       <>
         <strong>{ceilVal}</strong>
-        <span style={{ color: '#6B7280', fontWeight: 'normal' }}>({rawFormatted})</span>
+        <span style={{ color: 'var(--text-secondary)', fontWeight: 'normal' }}>({rawFormatted})</span>
       </>
     );
   }
@@ -192,15 +192,15 @@ const getAnnouncementStatusInfo = (startAt, expiresAt) => {
   const expires = parseSafeDate(expiresAt);
 
   if (isNaN(start.getTime()) || isNaN(expires.getTime())) {
-    return { label: 'UNKNOWN', color: '#6B7280', bg: '#F3F4F6', border: '#E5E7EB' };
+    return { label: 'UNKNOWN', color: 'var(--text-secondary)', bg: 'var(--bg-muted)', border: 'var(--card-border)' };
   }
 
   if (now < start) {
-    return { label: 'UPCOMING', color: '#2563EB', bg: '#EFF6FF', border: '#BFDBFE' };
+    return { label: 'UPCOMING', color: 'var(--text-brand)', bg: 'var(--sti-blue-light)', border: 'var(--card-border)' };
   } else if (now >= start && now <= expires) {
-    return { label: 'ONGOING', color: '#059669', bg: '#D1FAE5', border: '#A7F3D0' };
+    return { label: 'ONGOING', color: 'var(--status-adequate-text)', bg: 'var(--status-adequate-bg)', border: 'var(--card-border)' };
   } else {
-    return { label: 'EXPIRED', color: '#6B7280', bg: '#F3F4F6', border: '#E5E7EB' };
+    return { label: 'EXPIRED', color: 'var(--text-secondary)', bg: 'var(--bg-muted)', border: 'var(--card-border)' };
   }
 };
 
@@ -417,8 +417,8 @@ const ForecastTooltip = ({ active, payload }) => {
     <div className="custom-chart-tooltip-nd predictive-tooltip-width-nd">
       <h4 className="tooltip-header-nd">Day +{day.dayOffset} · {formatDateBase(day.targetDate)} ({day.dayOfWeek})</h4>
       <ul className="tooltip-items-list-standard-nd">
-        <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Predicted demand</span><span className="tooltip-item-value-nd" style={{ color: '#F97316' }}>{fmt(p1.predictedDemand)} {pluralizeUnit(day.unit, fmt(p1.predictedDemand))}</span></li>
-        <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Stock left after this day</span><span className="tooltip-item-value-nd" style={{ color: '#0250A3' }}>{day.remainingStock} {pluralizeUnit(day.unit, day.remainingStock)}</span></li>
+        <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Predicted demand</span><span className="tooltip-item-value-nd" style={{ color: 'var(--status-low-text)' }}>{fmt(p1.predictedDemand)} {pluralizeUnit(day.unit, fmt(p1.predictedDemand))}</span></li>
+        <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Stock left after this day</span><span className="tooltip-item-value-nd" style={{ color: 'var(--text-brand)' }}>{day.remainingStock} {pluralizeUnit(day.unit, day.remainingStock)}</span></li>
         <li className="tooltip-item-nd tooltip-item-note-nd"><span className="tooltip-item-name-nd">Stock − predicted demand</span><span className="tooltip-item-value-nd">{stockLeftComputation}</span></li>
         <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Window sum</span><span className="tooltip-item-value-nd">{fmt(p1.activeWindowSum)} {pluralizeUnit(day.unit, fmt(p1.activeWindowSum))}</span></li>
         <li className="tooltip-item-nd tooltip-item-note-nd"><span className="tooltip-item-name-nd">Dates covered</span><span className="tooltip-item-value-nd">{activeWindowRange}</span></li>
@@ -493,7 +493,7 @@ const CustomXAxisTick = ({ x, y, payload, filterType, isCurrentYearSelected, cur
       <text
         x={0} y={0} dy={19} textAnchor="middle"
         fill={isCurrentMonth ? '#0250A3' : '#4B5563'}
-        style={{ fontWeight: isCurrentMonth ? 700 : 500, fontSize: 11 }}
+        style={{ fontWeight: isCurrentMonth ? 700 : 500, fontSize: '0.875rem' }}
       >
         {payload.value}
       </text>
@@ -1394,8 +1394,8 @@ const NurseDashboard = () => {
   const viewAllBtnStyle = {
     background: 'transparent',
     border: 'none',
-    color: '#0250A3',
-    fontSize: '13px',
+    color: 'var(--text-brand)',
+    fontSize: '0.875rem',
     fontWeight: '600',
     cursor: 'pointer',
     display: 'flex',
@@ -1445,7 +1445,7 @@ const NurseDashboard = () => {
                 <p className="stat-card-subtext-nd">Students Needing Requirement Attention</p>
               </div>
               <div className="stat-icon-wrapper-nd bg-blue-light-nd">
-                <FileCheck size={24} color="#0250A3" />
+                <FileCheck size={24} color="var(--text-brand)" />
               </div>
             </div>
             <div className="stat-card-footer-nd">
@@ -1476,7 +1476,7 @@ const NurseDashboard = () => {
                 <p className="stat-card-subtext-nd">Awaiting Nurse Review</p>
               </div>
               <div className="stat-icon-wrapper-nd bg-orange-light-nd">
-                <FileText size={24} color="#F59E0B" />
+                <FileText size={24} color="var(--status-low-text)" />
               </div>
             </div>
             <div className="stat-card-footer-nd">
@@ -1505,7 +1505,7 @@ const NurseDashboard = () => {
                 <p className="stat-card-subtext-nd">Medicines to Restock</p>
               </div>
               <div className="stat-icon-wrapper-nd bg-red-light-nd">
-                <ShieldAlert size={24} color="#EF4444" />
+                <ShieldAlert size={24} color="var(--status-critical-text)" />
               </div>
             </div>
             <div className="stat-card-footer-nd">
@@ -1536,7 +1536,7 @@ const NurseDashboard = () => {
                 <p className="stat-card-subtext-nd">Screenings & Doctor Visits</p>
               </div>
               <div className="stat-icon-wrapper-nd bg-green-light-nd">
-                <Calendar size={24} color="#10B981" />
+                <Calendar size={24} color="var(--status-adequate-text)" />
               </div>
             </div>
             <div className="stat-card-footer-nd">
@@ -1664,7 +1664,7 @@ const NurseDashboard = () => {
             <div className="panel-content-nd">
               {nurseDashboardData.medicineStockAlerts.length === 0 ? (
                 <div className="panel-empty-nd panel-empty-success-nd">
-                  <CheckCircle2 size={18} color="#10B981" />
+                  <CheckCircle2 size={18} color="var(--status-adequate-text)" />
                   <span>All medicines are currently adequately stocked.</span>
                 </div>
               ) : (
@@ -1803,8 +1803,8 @@ const NurseDashboard = () => {
                   <ReferenceArea x1={currentRealTimeMonthName} x2={currentRealTimeMonthName} fill="#0250A3" fillOpacity={0.04} stroke="#0250A3" strokeOpacity={0.1} strokeDasharray="3 3" />
                 )}
                 <XAxis dataKey="name" tickLine={false} tick={(props) => <CustomXAxisTick {...props} filterType={filterType} isCurrentYearSelected={isCurrentYearSelected} currentMonthName={currentRealTimeMonthName} />} />
-                <YAxis allowDecimals={false} tick={{ fill: '#4B5563', fontSize: 12 }} axisLine={false} tickLine={false} />
-                <Tooltip content={<CustomTooltip unitLabel="case" />} cursor={{ fill: '#F3F4F6', opacity: 0.4 }} />
+                <YAxis allowDecimals={false} tick={{ fill: 'var(--text-secondary)', fontSize: '0.875rem' }} axisLine={false} tickLine={false} />
+                <Tooltip content={<CustomTooltip unitLabel="case" />} cursor={{ fill: 'var(--bg-muted)', opacity: 0.4 }} />
                 <Legend verticalAlign="bottom" height={36} iconType="rect" iconSize={14} wrapperStyle={{ paddingTop: '15px' }} />
                 
                 {activeComplaintsInGraph.map((complaint) => (
@@ -1930,7 +1930,7 @@ const NurseDashboard = () => {
             <h3 className="chart-subtitle-nd">Liquid Based</h3>
             {standardMedicinesInGraph.length === 0 ? (
               <div className="no-data-container-nd" style={{ padding: '20px' }}>
-                <p className="no-data-title-nd" style={{ fontSize: '14px' }}>No records found for liquid-based medicines.</p>
+                <p className="no-data-title-nd" style={{ fontSize: '0.875rem' }}>No records found for liquid-based medicines.</p>
               </div>
             ) : (
               <div className="chart-wrapper-nd">
@@ -1941,8 +1941,8 @@ const NurseDashboard = () => {
                       <ReferenceArea x1={currentRealTimeMonthName} x2={currentRealTimeMonthName} fill="#0250A3" fillOpacity={0.04} stroke="#0250A3" strokeOpacity={0.1} strokeDasharray="3 3" />
                     )}
                     <XAxis dataKey="name" tickLine={false} tick={(props) => <CustomXAxisTick {...props} filterType={dispensedFilterType} isCurrentYearSelected={isDispensedCurrentYearSelected} currentMonthName={currentRealTimeMonthName} />} />
-                    <YAxis allowDecimals={dispensedHasDecimals} tick={{ fill: '#4B5563', fontSize: 12 }} axisLine={false} tickLine={false} />
-                    <Tooltip content={<CustomTooltip unitLabel="dispensed" medicinesUnitsMap={combinedUnitsMap} showBrandOnly={true} />} cursor={{ fill: '#F3F4F6', opacity: 0.4 }} />
+                    <YAxis allowDecimals={dispensedHasDecimals} tick={{ fill: 'var(--text-secondary)', fontSize: '0.875rem' }} axisLine={false} tickLine={false} />
+                    <Tooltip content={<CustomTooltip unitLabel="dispensed" medicinesUnitsMap={combinedUnitsMap} showBrandOnly={true} />} cursor={{ fill: 'var(--bg-muted)', opacity: 0.4 }} />
                     {standardMedicinesInGraph.map((medicine) => (
                       <Bar key={medicine} dataKey={medicine} name={medicine} fill={getMedicineColor(medicine)} radius={isDispensedStacked ? 0 : [4, 4, 0, 0]} stackId={isDispensedStacked ? 'dispensed' : undefined} />
                     ))}
@@ -1950,7 +1950,7 @@ const NurseDashboard = () => {
                 </ResponsiveContainer>
                 <div className="chart-legend-nd">
                   {standardMedicinesInGraph.map((medicine) => (
-                    <span key={medicine} className="chart-legend-item-nd" style={{ color: getMedicineColor(medicine) }}>
+                    <span key={medicine} className="chart-legend-item-nd">
                       <span className="chart-legend-swatch-nd" style={{ backgroundColor: getMedicineColor(medicine) }} />
                       {medicine}
                     </span>
@@ -1965,7 +1965,7 @@ const NurseDashboard = () => {
             <h3 className="chart-subtitle-nd">Other Units of Measure</h3>
             {otherMedicinesInGraph.length === 0 ? (
               <div className="no-data-container-nd" style={{ padding: '20px' }}>
-                <p className="no-data-title-nd" style={{ fontSize: '14px' }}>No records found for other units of measure.</p>
+                <p className="no-data-title-nd" style={{ fontSize: '0.875rem' }}>No records found for other units of measure.</p>
               </div>
             ) : (
               <div className="chart-wrapper-nd">
@@ -1976,8 +1976,8 @@ const NurseDashboard = () => {
                       <ReferenceArea x1={currentRealTimeMonthName} x2={currentRealTimeMonthName} fill="#0250A3" fillOpacity={0.04} stroke="#0250A3" strokeOpacity={0.1} strokeDasharray="3 3" />
                     )}
                     <XAxis dataKey="name" tickLine={false} tick={(props) => <CustomXAxisTick {...props} filterType={dispensedFilterType} isCurrentYearSelected={isDispensedCurrentYearSelected} currentMonthName={currentRealTimeMonthName} />} />
-                    <YAxis allowDecimals={dispensedHasDecimals} tick={{ fill: '#4B5563', fontSize: 12 }} axisLine={false} tickLine={false} />
-                    <Tooltip content={<CustomTooltip unitLabel="dispensed" medicinesUnitsMap={combinedUnitsMap} showBrandOnly={true} />} cursor={{ fill: '#F3F4F6', opacity: 0.4 }} />
+                    <YAxis allowDecimals={dispensedHasDecimals} tick={{ fill: 'var(--text-secondary)', fontSize: '0.875rem' }} axisLine={false} tickLine={false} />
+                    <Tooltip content={<CustomTooltip unitLabel="dispensed" medicinesUnitsMap={combinedUnitsMap} showBrandOnly={true} />} cursor={{ fill: 'var(--bg-muted)', opacity: 0.4 }} />
                     {otherMedicinesInGraph.map((medicine) => (
                       <Bar key={medicine} dataKey={medicine} name={medicine} fill={getMedicineColor(medicine)} radius={isDispensedStacked ? 0 : [4, 4, 0, 0]} stackId={isDispensedStacked ? 'dispensed' : undefined} />
                     ))}
@@ -1985,7 +1985,7 @@ const NurseDashboard = () => {
                 </ResponsiveContainer>
                 <div className="chart-legend-nd">
                   {otherMedicinesInGraph.map((medicine) => (
-                    <span key={medicine} className="chart-legend-item-nd" style={{ color: getMedicineColor(medicine) }}>
+                    <span key={medicine} className="chart-legend-item-nd">
                       <span className="chart-legend-swatch-nd" style={{ backgroundColor: getMedicineColor(medicine) }} />
                       {medicine}
                     </span>
@@ -2063,10 +2063,10 @@ const NurseDashboard = () => {
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={forecastChartData} margin={{ top: 20, right: 10, left: 10, bottom: 60 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
-                    <XAxis dataKey="label" interval={0} angle={-45} textAnchor="end" height={70} tick={{ fontSize: 11, fill: '#4B5563', fontWeight: 500 }} tickLine={false} />
-                    <YAxis yAxisId="demand" allowDecimals={forecastChartData.some(day => !Number.isInteger(day.predictedDemand))} tick={{ fill: '#F97316', fontSize: 12 }} axisLine={false} tickLine={false} />
-                    <YAxis yAxisId="stock" orientation="right" allowDecimals={false} tick={{ fill: '#0250A3', fontSize: 12 }} axisLine={false} tickLine={false} />
-                    <Tooltip content={<ForecastTooltip />} position={{ y: 10 }} cursor={{ fill: '#F3F4F6', opacity: 0.4 }} />
+                    <XAxis dataKey="label" interval={0} angle={-45} textAnchor="end" height={70} tick={{ fontSize: '0.875rem', fill: 'var(--text-secondary)', fontWeight: 500 }} tickLine={false} />
+                    <YAxis yAxisId="demand" allowDecimals={forecastChartData.some(day => !Number.isInteger(day.predictedDemand))} tick={{ fill: '#F97316', fontSize: '0.875rem' }} axisLine={false} tickLine={false} />
+                    <YAxis yAxisId="stock" orientation="right" allowDecimals={false} tick={{ fill: 'var(--text-brand)', fontSize: '0.875rem' }} axisLine={false} tickLine={false} />
+                    <Tooltip content={<ForecastTooltip />} position={{ y: 10 }} cursor={{ fill: 'var(--bg-muted)', opacity: 0.4 }} />
                     <Legend verticalAlign="bottom" height={36} iconType="rect" iconSize={14} wrapperStyle={{ paddingTop: '20px' }} />
                     <Bar yAxisId="demand" dataKey="predictedDemand" name={`Predicted Daily Demand (${selectedForecastMedicine.unitOfMeasure})`} fill="#F97316" radius={[4, 4, 0, 0]} />
                     <Line yAxisId="stock" type="monotone" dataKey="remainingStock" name={`Remaining Stock (${selectedForecastMedicine.unitOfMeasure})`} stroke="#0250A3" strokeWidth={2.5} dot={false} />
@@ -2093,7 +2093,7 @@ const NurseDashboard = () => {
               </div>
               <div className="forecast-compare-item-nd">
                 <span className="forecast-compare-label-nd">Stock minus 30-day demand</span>
-                <strong style={{ color: forecastDifference < 0 ? '#DC2626' : '#059669' }}>
+                <strong style={{ color: forecastDifference < 0 ? 'var(--status-critical-text)' : 'var(--status-adequate-text)' }}>
                   {forecastDifference > 0 ? '+' : ''}{forecastDifference} {pluralizeUnit(selectedForecastMedicine.unitOfMeasure, Math.abs(forecastDifference))}
                 </strong>
                 <span className="forecast-compare-sub-nd">{forecastDifference < 0 ? 'Shortfall' : 'Surplus'}</span>
@@ -2173,14 +2173,14 @@ const NurseDashboard = () => {
               <div style={{ marginTop: '14px', display: 'flex', gap: '8px' }}>
                 <button 
                   className="retry-btn-nd" 
-                  style={{ height: '34px', fontSize: '12.5px', padding: '0 12px', flex: 1 }}
+                  style={{ height: '34px', fontSize: '0.875rem', padding: '0 12px', flex: 1 }}
                   onClick={() => handleViewDetails(alert)}
                 >
                   View Visit Log
                 </button>
                 <button 
                   className="retry-btn-nd" 
-                  style={{ height: '34px', fontSize: '12.5px', padding: '0 12px', backgroundColor: '#EF4444' }}
+                  style={{ height: '34px', fontSize: '0.875rem', padding: '0 12px', backgroundColor: 'var(--danger-fill)' }}
                   onClick={() => handleDismissAlert(alert.studentId, alert.complaint)}
                 >
                   Dismiss
@@ -2197,7 +2197,7 @@ const NurseDashboard = () => {
           <div className="modal-container-nd modal-container-narrow-nd" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header-nd">
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Megaphone size={20} color="#0250A3" />
+                <Megaphone size={20} color="var(--text-brand)" />
                 <div>
                   <h3 className="modal-title-nd">
                     {announcementModalTab === 'EDIT' 
@@ -2215,12 +2215,12 @@ const NurseDashboard = () => {
             </div>
 
             {/* TAB NAVIGATION HEADER */}
-            <div style={{ display: 'flex', gap: '8px', padding: '12px 20px 0 20px', borderBottom: '1px solid #E5E7EB' }}>
+            <div style={{ display: 'flex', gap: '8px', padding: '12px 20px 0 20px', borderBottom: '1px solid var(--card-border)' }}>
               <button
                 type="button"
                 style={{
                   padding: '8px 14px',
-                  fontSize: '12.5px',
+                  fontSize: '0.875rem',
                   fontWeight: '600',
                   cursor: 'pointer',
                   backgroundColor: announcementModalTab === 'LIST' ? '#0250A3' : '#F3F4F6',
@@ -2239,7 +2239,7 @@ const NurseDashboard = () => {
                 type="button"
                 style={{
                   padding: '8px 14px',
-                  fontSize: '12.5px',
+                  fontSize: '0.875rem',
                   fontWeight: '600',
                   cursor: 'pointer',
                   backgroundColor: announcementModalTab === 'CREATE' ? '#0250A3' : '#F3F4F6',
@@ -2281,7 +2281,7 @@ const NurseDashboard = () => {
                           >
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <h4 style={{ margin: 0, fontSize: '14px', fontWeight: '700', color: '#111827' }}>
+                                <h4 style={{ margin: 0, fontSize: '0.875rem', fontWeight: '700', color: 'var(--text-primary)' }}>
                                   {ann.title}
                                 </h4>
                                 <span style={{
@@ -2300,16 +2300,16 @@ const NurseDashboard = () => {
                                 <button
                                   type="button"
                                   style={{
-                                    background: '#EFF6FF',
+                                    background: 'var(--sti-blue-light)',
                                     border: '1px solid #BFDBFE',
-                                    color: '#1D4ED8',
+                                    color: 'var(--text-brand)',
                                     borderRadius: '4px',
                                     padding: '4px 8px',
                                     cursor: 'pointer',
                                     display: 'flex',
                                     alignItems: 'center',
                                     gap: '4px',
-                                    fontSize: '12px'
+                                    fontSize: '0.875rem'
                                   }}
                                   onClick={() => handleOpenAnnouncementModal('EDIT', ann)}
                                 >
@@ -2318,16 +2318,16 @@ const NurseDashboard = () => {
                                 <button
                                   type="button"
                                   style={{
-                                    background: '#FEE2E2',
+                                    background: 'var(--status-critical-bg)',
                                     border: '1px solid #FCA5A5',
-                                    color: '#991B1B',
+                                    color: 'var(--status-critical-text)',
                                     borderRadius: '4px',
                                     padding: '4px 8px',
                                     cursor: 'pointer',
                                     display: 'flex',
                                     alignItems: 'center',
                                     gap: '4px',
-                                    fontSize: '12px'
+                                    fontSize: '0.875rem'
                                   }}
                                   onClick={() => handleDeleteAnnouncement(ann.announcement_id || ann.id, ann.title)}
                                 >
@@ -2336,11 +2336,11 @@ const NurseDashboard = () => {
                               </div>
                             </div>
 
-                            <p style={{ fontSize: '13px', color: '#4B5563', margin: '0 0 10px 0', lineHeight: '1.4' }}>
+                            <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', margin: '0 0 10px 0', lineHeight: '1.4' }}>
                               {ann.content}
                             </p>
 
-                            <div style={{ fontSize: '11px', color: '#6B7280', display: 'flex', flexWrap: 'wrap', gap: '14px' }}>
+                            <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', display: 'flex', flexWrap: 'wrap', gap: '14px' }}>
                               <span><strong>Target Audience:</strong> {ann.target_audience}</span>
                               <span><strong>Start Date:</strong> {formatDateTime(ann.start_at)}</span>
                               <span><strong>Expiration Date:</strong> {formatDateTime(ann.expires_at)}</span>
@@ -2355,7 +2355,7 @@ const NurseDashboard = () => {
                 /* TAB 2 & 3: FORM TAB (CREATE / EDIT) */
                 <form onSubmit={handleAnnouncementSubmit}>
                   {announcementError && (
-                    <div style={{ padding: '10px 14px', backgroundColor: '#FEE2E2', color: '#991B1B', borderRadius: '6px', marginBottom: '16px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ padding: '10px 14px', backgroundColor: 'var(--status-critical-bg)', color: 'var(--status-critical-text)', borderRadius: '6px', marginBottom: '16px', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <AlertCircle size={16} />
                       <span>{announcementError}</span>
                     </div>
@@ -2363,7 +2363,7 @@ const NurseDashboard = () => {
 
                   {/* Title */}
                   <div style={{ marginBottom: '16px' }}>
-                    <label style={{ display: 'block', fontWeight: '600', fontSize: '13px', marginBottom: '6px', color: '#374151' }}>
+                    <label style={{ display: 'block', fontWeight: '600', fontSize: '0.875rem', marginBottom: '6px', color: 'var(--text-primary)' }}>
                       Announcement Title *
                     </label>
                     <input
@@ -2379,7 +2379,7 @@ const NurseDashboard = () => {
 
                   {/* Content */}
                   <div style={{ marginBottom: '16px' }}>
-                    <label style={{ display: 'block', fontWeight: '600', fontSize: '13px', marginBottom: '6px', color: '#374151' }}>
+                    <label style={{ display: 'block', fontWeight: '600', fontSize: '0.875rem', marginBottom: '6px', color: 'var(--text-primary)' }}>
                       Announcement Details / Content *
                     </label>
                     <textarea
@@ -2395,7 +2395,7 @@ const NurseDashboard = () => {
 
                   {/* Target Audience */}
                   <div style={{ marginBottom: '16px' }}>
-                    <label style={{ display: 'block', fontWeight: '600', fontSize: '13px', marginBottom: '6px', color: '#374151' }}>
+                    <label style={{ display: 'block', fontWeight: '600', fontSize: '0.875rem', marginBottom: '6px', color: 'var(--text-primary)' }}>
                       Target Audience *
                     </label>
                     <select
@@ -2413,7 +2413,7 @@ const NurseDashboard = () => {
                   {/* Program & Year Level Filters */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
                     <div>
-                      <label style={{ display: 'block', fontWeight: '600', fontSize: '13px', marginBottom: '6px', color: '#374151' }}>
+                      <label style={{ display: 'block', fontWeight: '600', fontSize: '0.875rem', marginBottom: '6px', color: 'var(--text-primary)' }}>
                         Target Program (Optional)
                       </label>
                       <select
@@ -2432,7 +2432,7 @@ const NurseDashboard = () => {
                     </div>
 
                     <div>
-                      <label style={{ display: 'block', fontWeight: '600', fontSize: '13px', marginBottom: '6px', color: '#374151' }}>
+                      <label style={{ display: 'block', fontWeight: '600', fontSize: '0.875rem', marginBottom: '6px', color: 'var(--text-primary)' }}>
                         Target Year Level (Optional)
                       </label>
                       <select
@@ -2453,7 +2453,7 @@ const NurseDashboard = () => {
                   {/* Start Date & End Date */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
                     <div>
-                      <label style={{ display: 'block', fontWeight: '600', fontSize: '13px', marginBottom: '6px', color: '#374151' }}>
+                      <label style={{ display: 'block', fontWeight: '600', fontSize: '0.875rem', marginBottom: '6px', color: 'var(--text-primary)' }}>
                         Start Date & Time *
                       </label>
                       <input
@@ -2467,7 +2467,7 @@ const NurseDashboard = () => {
                     </div>
 
                     <div>
-                      <label style={{ display: 'block', fontWeight: '600', fontSize: '13px', marginBottom: '6px', color: '#374151' }}>
+                      <label style={{ display: 'block', fontWeight: '600', fontSize: '0.875rem', marginBottom: '6px', color: 'var(--text-primary)' }}>
                         Expiration Date & Time *
                       </label>
                       <input
@@ -2490,7 +2490,7 @@ const NurseDashboard = () => {
                         checked={announcementForm.notify_update}
                         onChange={(e) => setAnnouncementForm(prev => ({ ...prev, notify_update: e.target.checked }))}
                       />
-                      <label htmlFor="notify_update_check" style={{ fontSize: '13px', color: '#374151', cursor: 'pointer' }}>
+                      <label htmlFor="notify_update_check" style={{ fontSize: '0.875rem', color: 'var(--text-primary)', cursor: 'pointer' }}>
                         Resend System & Web Push Notification to target recipients upon update
                       </label>
                     </div>
@@ -2743,13 +2743,13 @@ const NurseDashboard = () => {
             style={{ maxWidth: '480px', padding: '0' }} 
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="modal-header-nd" style={{ borderBottom: '1px solid #E5E7EB', padding: '16px 20px' }}>
+            <div className="modal-header-nd" style={{ borderBottom: '1px solid var(--card-border)', padding: '16px 20px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                {feedbackModal.type === 'success' && <CheckCircle2 size={22} color="#10B981" />}
-                {feedbackModal.type === 'error' && <AlertCircle size={22} color="#EF4444" />}
-                {feedbackModal.type === 'warning' && <ShieldAlert size={22} color="#F59E0B" />}
-                {feedbackModal.type === 'info' && <Lightbulb size={22} color="#0250A3" />}
-                <h3 className="modal-title-nd" style={{ fontSize: '16px', margin: 0 }}>
+                {feedbackModal.type === 'success' && <CheckCircle2 size={22} color="var(--status-adequate-text)" />}
+                {feedbackModal.type === 'error' && <AlertCircle size={22} color="var(--status-critical-text)" />}
+                {feedbackModal.type === 'warning' && <ShieldAlert size={22} color="var(--status-low-text)" />}
+                {feedbackModal.type === 'info' && <Lightbulb size={22} color="var(--text-brand)" />}
+                <h3 className="modal-title-nd" style={{ fontSize: '1rem', margin: 0 }}>
                   {feedbackModal.title}
                 </h3>
               </div>
@@ -2768,7 +2768,7 @@ const NurseDashboard = () => {
             </div>
 
             <div style={{ padding: '20px' }}>
-              <p style={{ margin: 0, fontSize: '14px', color: '#374151', lineHeight: '1.5' }}>
+              <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-primary)', lineHeight: '1.5' }}>
                 {feedbackModal.message}
               </p>
 
@@ -2781,14 +2781,14 @@ const NurseDashboard = () => {
                     checked={feedbackModalCheckbox}
                     onChange={(e) => setFeedbackModalCheckbox(e.target.checked)}
                   />
-                  <label htmlFor="feedbackModalCheckbox" style={{ fontSize: '13px', color: '#4B5563', cursor: 'pointer', lineHeight: '1.4' }}>
+                  <label htmlFor="feedbackModalCheckbox" style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', cursor: 'pointer', lineHeight: '1.4' }}>
                     {feedbackModal.checkboxLabel}
                   </label>
                 </div>
               )}
             </div>
 
-            <div className="modal-footer-nd" style={{ padding: '12px 20px', gap: '10px', display: 'flex', justifyContent: 'flex-end', backgroundColor: '#F9FAFB' }}>
+            <div className="modal-footer-nd" style={{ padding: '12px 20px', gap: '10px', display: 'flex', justifyContent: 'flex-end', backgroundColor: 'var(--bg-subtle)' }}>
               {feedbackModal.showCancel && (
                 <button
                   type="button"

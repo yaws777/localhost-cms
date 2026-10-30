@@ -820,7 +820,7 @@ const InsuranceVault = () => {
                                     type="button" 
                                     className="btn-add-vault-iv" 
                                     onClick={handleExportSingleReport}
-                                    style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 12px', fontSize: '0.85rem' }}
+                                    style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 12px', fontSize: '0.875rem' }}
                                 >
                                     <Printer size={16} /> export
                                 </button>
@@ -835,7 +835,7 @@ const InsuranceVault = () => {
 
                             <div className="vault-files-header-iv">
                                 <h4>Files Stored in Vault ({vaultFiles.length})</h4>
-                                <button className="btn-add-vault-iv" style={{ padding: '6px 12px', fontSize: '0.85rem' }} onClick={() => handleOpenAddFileModal(selectedFolder)}>
+                                <button className="btn-add-vault-iv" style={{ padding: '6px 12px', fontSize: '0.875rem' }} onClick={() => handleOpenAddFileModal(selectedFolder)}>
                                     <FileUp size={14} /> Add File
                                 </button>
                             </div>

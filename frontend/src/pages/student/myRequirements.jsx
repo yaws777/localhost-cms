@@ -10,7 +10,7 @@ import {
     Lock, 
     X, 
     FileText 
-} from 'lucide-react';
+} from 'lucide-react';
 import { formatDate } from '../../utils/datetime';
 import '../../styles/student/MyRequirements.css';
 
@@ -208,18 +208,18 @@ export default function MyRequirements() {
         const status = statusStr?.toLowerCase();
         switch (status) {
             case 'completed':
-                return '#15803d';
+                return 'var(--status-adequate-text)';
             case 'submitted':
             case 'waiting for approval':
-                return '#002b49';
+                return 'var(--text-brand)';
             case 'rejected':
-                return '#dc2626';
+                return 'var(--status-critical-text)';
             case 'late':
             case 'submitted late':
-                return '#d97706';
+                return 'var(--status-low-text)';
             case 'pending':
             default:
-                return '#b45309';
+                return 'var(--status-low-text)';
         }
     };
 

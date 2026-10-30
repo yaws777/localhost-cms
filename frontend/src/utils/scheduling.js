@@ -3,16 +3,15 @@
 
 export const API = 'http://localhost:3001';
 
-// No schedule type is picked: every schedule is a hybrid (staff can appoint into it, students can book its open time slots).
-// The only switch is allow_walk_in. What is categorized is HOW A STUDENT GOT SCHEDULED, from doctor_appointments.booking_source:
-//   Nurse | Doctor -> by appointment, Student -> by open time slot, Walk-in -> walk-in.
+// A schedule is a session with a queue: the nurse accepts the students who asked for a place in its listing (they get a queue number) and the only
+// switch is allow_walk_in. What is categorized is HOW A STUDENT GOT IN, from doctor_appointments.booking_source:
+//   Nurse | Doctor -> accepted / appointed into the listed queue, Walk-in -> walk-in lane.
 export const SCHEDULING_WAYS = {
-    appointment: { label: 'By appointment', short: 'Appointment', cls: 'type-appointment-sc' },
-    open_slot: { label: 'By open time slot', short: 'Open slot', cls: 'type-open-sc' },
+    appointment: { label: 'Accepted from the listing', short: 'Appointed', cls: 'type-appointment-sc' },
     walk_in: { label: 'Walk-in', short: 'Walk-in', cls: 'type-walkin-sc' }
 };
 export const SCHEDULING_WAY_KEYS = Object.keys(SCHEDULING_WAYS);
-export const wayOf = (bookingSource) => (bookingSource === 'Student' ? 'open_slot' : bookingSource === 'Walk-in' ? 'walk_in' : 'appointment');
+export const wayOf = (bookingSource) => (bookingSource === 'Walk-in' ? 'walk_in' : 'appointment');
 
 const on = (v) => v === true || Number(v) === 1;
 export const hasWalkIn = (s) => on(s && s.allow_walk_in);
@@ -22,7 +21,7 @@ export const hasSlots = () => true;
 export const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 export const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
-// ---- who covers which consultation (the server sends allowed_visit_types / covered_visit_types and is the one that enforces it) ----
+// ---- who covers which check-up (the server sends allowed_visit_types / covered_visit_types and is the one that enforces it) ----
 // allowed: what the doctor's specialization can take (General Check Up + the visit type the specialization adds)
 // covered: what the doctor chose to take from that (everything allowed until they narrow it down in My Profile)
 export const GENERAL_VISIT_TYPE = 'General Check Up';
@@ -34,8 +33,8 @@ export const coveredTypes = (doctor) => (doctor && doctor.covered_visit_types) |
 // Why a doctor cannot take a visit type, or '' when they can
 export const visitRefusal = (doctor, visitType) => {
     if (!doctor || !visitType || visitType === 'Any' || SYSTEM_VISIT_TYPES.includes(visitType)) return '';
-    if (!allowedTypes(doctor).includes(visitType)) return `${doctor.specialization || 'This doctor'} cannot take ${visitType} consultations.`;
-    if (!coveredTypes(doctor).includes(visitType)) return `This doctor does not cover ${visitType} consultations.`;
+    if (!allowedTypes(doctor).includes(visitType)) return `${doctor.specialization || 'This doctor'} cannot take ${visitType} check-ups.`;
+    if (!coveredTypes(doctor).includes(visitType)) return `This doctor does not cover ${visitType} check-ups.`;
     return '';
 };
 
@@ -45,7 +44,7 @@ export const eligibleDoctors = (doctors, visitType) => doctors.filter((d) => doc
 // What a doctor covers, in words
 export const coverageLabel = (doctor) => coveredTypes(doctor).join(', ');
 
-// ---- consultation request statuses ----
+// ---- check-up request statuses ----
 export const REQUEST_STATUS_CLASS = {
     'Waiting for Approval': 'badge-pending-ds',
     'Waiting List': 'badge-expired-ds',
@@ -54,6 +53,7 @@ export const REQUEST_STATUS_CLASS = {
     'Appointed': 'badge-open-ds',
     'Booked': 'badge-open-ds',
     'Fulfilled': 'badge-open-ds',
+    'Missed': 'badge-closed-ds',
     'Denied': 'badge-closed-ds',
     'Withdrawn': 'badge-closed-ds'
 };

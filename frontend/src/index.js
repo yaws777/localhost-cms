@@ -26,7 +26,7 @@ import DoctorLayout from './layout/doctorLayout';
 import DoctorDashboard from './pages/doctor/doctorDashboard';
 import DoctorSchedule from './pages/doctor/doctorSchedule';
 import DoctorChat from './pages/doctor/doctorChat';
-import DoctorConsultations from './pages/doctor/doctorConsultations';
+import DoctorCheckup from './pages/doctor/doctorCheckup';
 import DoctorPatients from './pages/doctor/doctorPatients';
 import DoctorTemplates from './pages/doctor/doctorTemplates';
 import DoctorProfile from './pages/doctor/doctorProfile';
@@ -61,11 +61,11 @@ import StudentNotificationSettings from './pages/student/studentNotificationSett
 import ParentMessages from './components/student/ParentMessageModal';
 import NurseMessages from './components/student/NurseMessageModal'
 
-// The Doctor Schedule page is now the Availability / Booking Requests sections of Doctor Visits.
+// The Doctor Schedule page is now the Availability / Waiting list sections of Doctor Visits.
 // Old links and bookmarks (/DoctorSchedule, ?tab=requests, ?doctor=..&new=1) land on the right section.
 const DoctorScheduleRedirect = () => {
   const params = new URLSearchParams(useLocation().search);
-  params.set('section', params.get('tab') === 'requests' ? 'requests' : 'availability');
+  params.set('section', params.get('tab') === 'requests' ? 'waiting' : 'availability');
   params.delete('tab');
   return <Navigate to={`/DoctorVisit?${params.toString()}`} replace />;
 };
@@ -99,8 +99,9 @@ root.render(
             <Route path="/DoctorDashboard" element={<DoctorDashboard />} />
             <Route path="/DoctorMySchedule" element={<DoctorSchedule />} />
             <Route path="/DoctorChat" element={<DoctorChat />} />
-            <Route path="/DoctorConsultations" element={<DoctorConsultations />} />
-            <Route path="/DoctorAppointments" element={<Navigate to="/DoctorConsultations" replace />} />
+            <Route path="/DoctorCheckup" element={<DoctorCheckup />} />
+            <Route path="/DoctorConsultations" element={<Navigate to="/DoctorCheckup" replace />} />
+            <Route path="/DoctorAppointments" element={<Navigate to="/DoctorCheckup" replace />} />
             <Route path="/DoctorPatients" element={<DoctorPatients />} />
             <Route path="/DoctorTemplates" element={<DoctorTemplates />} />
             <Route path="/DoctorProfile" element={<DoctorProfile />} />

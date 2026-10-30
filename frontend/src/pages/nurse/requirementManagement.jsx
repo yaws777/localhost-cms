@@ -1099,20 +1099,20 @@ export const RequirementManagement = () => {
         const s = status?.toLowerCase();
         switch (s) {
             case 'completed':
-                return { color: '#15803d', backgroundColor: '#dcfce7', border: '1px solid #86efac' };
+                return { color: 'var(--status-adequate-text)', backgroundColor: 'var(--status-adequate-bg)', border: '1px solid #86efac' };
             case 'submitted':
             case 'waiting for approval':
             case 'late':
             case 'submitted late':
-                return { color: '#1d4ed8', backgroundColor: '#dbeafe', border: '1px solid #93c5fd' };
+                return { color: 'var(--text-brand)', backgroundColor: 'var(--sti-blue-light)', border: '1px solid #93c5fd' };
             case 'rejected':
-                return { color: '#dc2626', backgroundColor: '#fee2e2', border: '1px solid #fca5a5' };
+                return { color: 'var(--status-critical-text)', backgroundColor: 'var(--status-critical-bg)', border: '1px solid #fca5a5' };
             case 'missed':
             case 'not submitted':
-                return { color: '#374151', backgroundColor: '#f3f4f6', border: '1px solid #d1d5db' };
+                return { color: 'var(--text-primary)', backgroundColor: 'var(--bg-subtle)', border: '1px solid var(--card-border)' };
             case 'pending':
             default:
-                return { color: '#ca8a04', backgroundColor: '#fef9c3', border: '1px solid #fde047' };
+                return { color: 'var(--status-low-text)', backgroundColor: 'var(--status-low-bg)', border: '1px solid #fde047' };
         }
     };
 
@@ -2097,9 +2097,9 @@ export const RequirementManagement = () => {
                             <p className="confirm-message-rm">{confirmModal.message}</p>
 
                             {confirmModal.details && (
-                                <div className="connection-details-box-rm" style={{ margin: '12px 0', padding: '10px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '6px' }}>
-                                    <h5 style={{ margin: '0 0 6px 0', color: '#991b1b' }}>Connected Dependencies Found:</h5>
-                                    <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '13px', color: '#7f1d1d' }}>
+                                <div className="connection-details-box-rm" style={{ margin: '12px 0', padding: '10px', background: 'var(--status-critical-bg)', border: '1px solid #fca5a5', borderRadius: '6px' }}>
+                                    <h5 style={{ margin: '0 0 6px 0', color: 'var(--status-critical-text)' }}>Connected Dependencies Found:</h5>
+                                    <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '0.875rem', color: 'var(--status-critical-text)' }}>
                                         {confirmModal.details.program_ids.length > 0 && (
                                             <li><b>Program IDs ({confirmModal.details.program_ids.length}):</b> {confirmModal.details.program_ids.join(', ')}</li>
                                         )}

@@ -29,6 +29,19 @@
   --text-secondary: #667085;
   --text-dark: #1e293b;
   --text-on-brand: #ffffff;
+  --text-brand: #004b87;   /* brand-blue text/links on page surfaces */
+  --text-accent: #6d28d9;  /* violet accent text */
+
+  /* Subtle fills inside cards (rows, inputs, hovers) and muted fills
+     (tracks, disabled controls) */
+  --bg-subtle: #f5f7fa;
+  --bg-muted: #e9edf2;
+  --tint-violet-bg: #f1edfd;
+  --focus-ring: #004b87;
+  /* Red fill for count badges / destructive buttons: white text 4.8:1 */
+  --danger-fill: #d92d20;
+  /* Text on an STI yellow fill (never light text on yellow) */
+  --text-on-yellow: #002f6c;
 
   /* Status colors (shared across inventory, requirements, incident severity, etc.) */
   --status-adequate-bg: #ecfdf3;
@@ -61,17 +74,26 @@
   --sidebar-text-strong: #ffffff;
   --sidebar-border: rgba(255, 255, 255, 0.1);
   --sidebar-hover-bg: rgba(255, 255, 255, 0.1);
-  --sidebar-active-bg: var(--sti-yellow);
-  --sidebar-active-text: var(--sti-blue-primary);
+  /* glass pill like the doctor portal: translucent white on the blue, white text (about 6:1) */
+  --sidebar-active-bg: rgba(255, 255, 255, 0.16);
+  --sidebar-active-text: #ffffff;
   --sidebar-width: 260px;
   --sidebar-width-collapsed: 72px;
+
+  /* Typography — modern sans-serif system stack (no web-font download) */
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  color-scheme: light;
 }
 
 :root[data-theme="dark"] {
   --sti-blue-dark: #0a3d75;
-  --sti-blue-primary: #3b82c4;
-  --sti-blue: #3b82c4;
-  --sti-blue-hover: #5c9bd6;
+  /* #3578b8: white text on it is 4.6:1 and it is 3.2:1 against cards, so it
+     works as a button fill and as a border/icon color */
+  --sti-blue-primary: #3578b8;
+  --sti-blue: #3578b8;
+  --sti-blue-hover: #2a6aa6;
   --sti-blue-light: #16304a;
   --sti-yellow: #ffcc00;
   --sti-navy: #0b1f3a;
@@ -82,10 +104,19 @@
   --bg-elevated: #243247;
   --card-border: #334155;
 
-  --text-primary: #e2e8f0;
-  --text-secondary: #94a3b8;
-  --text-dark: #e2e8f0;
+  /* Light text on dark surfaces: primary 13:1, secondary 8:1 on cards */
+  --text-primary: #f1f5f9;
+  --text-secondary: #b6c2d2;
+  --text-dark: #f1f5f9;
   --text-on-brand: #ffffff;
+  --text-brand: #8cc2f5;
+  --text-accent: #c4b5fd;
+
+  --bg-subtle: #172235;
+  --bg-muted: #334155;
+  --tint-violet-bg: #2a2550;
+  --focus-ring: #8cc2f5;
+  --text-on-yellow: #0f2744;
 
   --status-adequate-bg: #0b2e21;
   --status-adequate-text: #4ade80;
@@ -96,11 +127,11 @@
   --status-low-bar: #fbbf24;
 
   --status-critical-bg: #3a1414;
-  --status-critical-text: #f87171;
+  --status-critical-text: #fca5a5;
   --status-critical-bar: #f87171;
 
   --table-header-bg: #1e3a5f;
-  --table-header-text: #e2e8f0;
+  --table-header-text: #f1f5f9;
   --table-row-alt-bg: #1a2638;
   --table-border: #334155;
 
@@ -109,12 +140,18 @@
   --modal-border: #334155;
 
   --sidebar-bg: #0f2744;
-  --sidebar-text: #b9cde6;
+  --sidebar-text: #d1e1f5;
   --sidebar-text-strong: #ffffff;
   --sidebar-border: rgba(255, 255, 255, 0.08);
   --sidebar-hover-bg: rgba(255, 255, 255, 0.07);
-  --sidebar-active-bg: var(--sti-yellow);
-  --sidebar-active-text: #0f2744;
+  --sidebar-active-bg: rgba(255, 255, 255, 0.1);
+  --sidebar-active-text: #ffffff;
+
+  color-scheme: dark;
+}
+
+html {
+  font-size: 100%;
 }
 
 /* Smooth color-scheme transition when the toggle is used */
@@ -123,7 +160,68 @@ body,
 .main-content {
   background-color: var(--bg-page);
   color: var(--text-primary);
-  transition: background-color 0.2s ease, color 0.2s ease;
+  font-family: var(--font-sans);
+  line-height: 1.5;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  body,
+  .student-layout,
+  .main-content {
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+}
+
+/* Every control uses the app font (browsers default form controls to
+   their own font) */
+button,
+input,
+select,
+textarea {
+  font-family: var(--font-sans);
+}
+
+/* ---- Dark mode: generic surfaces and form controls ----
+   Native controls and placeholder text otherwise stay light-gray-on-white
+   or dark-on-dark in dark mode. */
+:root[data-theme="dark"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+:root[data-theme="dark"] select,
+:root[data-theme="dark"] textarea {
+  background-color: var(--bg-subtle);
+  color: var(--text-primary);
+  border-color: var(--card-border);
+}
+
+:root[data-theme="dark"] input::placeholder,
+:root[data-theme="dark"] textarea::placeholder {
+  color: var(--text-secondary);
+  opacity: 1;
+}
+
+:root[data-theme="dark"] input:disabled,
+:root[data-theme="dark"] select:disabled,
+:root[data-theme="dark"] textarea:disabled {
+  background-color: var(--bg-muted);
+  color: var(--text-secondary);
+}
+
+:root[data-theme="dark"] option {
+  background-color: var(--bg-card);
+  color: var(--text-primary);
+}
+
+/* Chart legends: the series swatch keeps its color, the label is body text
+   (series colors like #0250a3 are unreadable as text on dark cards) */
+.recharts-legend-item-text {
+  color: var(--text-primary) !important;
+}
+
+:root[data-theme="dark"] .recharts-cartesian-axis-tick-value tspan {
+  fill: var(--text-secondary);
+}
+
+:root[data-theme="dark"] a:not([class]) {
+  color: var(--text-brand);
 }
 
 /* ---- Shared table header (requirement: identical table headers) ---- */
@@ -260,4 +358,120 @@ table tbody tr:nth-child(even) {
   .hide-on-desktop {
     display: none !important;
   }
+}
+
+/* ---- Accessibility: focus ring + skip link (WCAG 2.4.7, 2.4.1) ----
+   !important so it beats the per-page `outline: none` rules until those are
+   removed. Blue ring on page surfaces, yellow ring on the STI blue chrome. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+[tabindex]:not([tabindex="-1"]):focus-visible,
+[role="button"]:focus-visible,
+[role="tab"]:focus-visible {
+  outline: 0.1875rem solid var(--focus-ring) !important;
+  outline-offset: 0.125rem !important;
+}
+
+.skip-link:focus-visible {
+  outline-color: var(--sti-yellow) !important;
+}
+
+.student-sidebar :focus-visible,
+.parent-sidebar :focus-visible,
+.dl-sidebar :focus-visible,
+.mobile-toggle-btn:focus-visible {
+  outline-color: var(--sti-yellow) !important;
+}
+
+/* Active page of the nurse, student and parent sidebars: glass pill (the --sidebar-active-* tokens) and a yellow bar on the left edge, like the doctor portal. */
+.student-sidebar .nav-link,
+.parent-sidebar .nav-link {
+  position: relative;
+}
+
+.student-sidebar .nav-link.active::before,
+.parent-sidebar .nav-link.active::before {
+  content: '';
+  position: absolute;
+  left: -5px;
+  top: 8px;
+  bottom: 8px;
+  width: 4px;
+  border-radius: 0 4px 4px 0;
+  background: var(--sti-yellow);
+}
+
+.student-sidebar .nav-icon.icon-active,
+.parent-sidebar .nav-icon.icon-active {
+  color: inherit;
+}
+
+.student-sidebar .nav-divider,
+.parent-sidebar .nav-divider {
+  margin: 15px 0;
+  border-color: var(--sidebar-border);
+}
+
+.student-sidebar .logout-btn,
+.parent-sidebar .logout-btn {
+  background: transparent;
+  border: none;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--sti-yellow);
+}
+
+/* today's check-ups dot in the sidebar (nurse: Doctor Visit, doctor: Check-ups): yellow = still to come, green = on going, gray = all over.
+   Always next to a text label (aria-label + title), never color alone. */
+.nav-status-dot {
+  margin-left: auto;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  flex: none;
+  box-shadow: 0 0 0 3px var(--sidebar-hover-bg);
+}
+.nav-status-dot.upcoming { background: #f5b400; }
+.nav-status-dot.ongoing { background: #16a34a; animation: nav-dot-pulse 1.6s ease-in-out infinite; }
+.nav-status-dot.past { background: #98a2b3; }
+@keyframes nav-dot-pulse { 50% { box-shadow: 0 0 0 5px rgba(22, 163, 74, 0.25); } }
+@media (prefers-reduced-motion: reduce) { .nav-status-dot.ongoing { animation: none; } }
+
+/* collapsed nurse sidebar: the label is hidden, the dot moves to the corner of the icon */
+@media (min-width: 769px) {
+  .student-sidebar.collapsed .nav-link .nav-status-dot {
+    display: block !important;
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    margin: 0;
+  }
+}
+
+main:focus {
+  outline: none;
+}
+
+.skip-link {
+  position: fixed;
+  left: 0.5rem;
+  top: -4rem;
+  z-index: 3000;
+  padding: 0.75rem 1rem;
+  min-height: 2.75rem;
+  background: var(--sti-blue-dark);
+  color: var(--text-on-brand);
+  font-weight: 600;
+  text-decoration: underline;
+  border-radius: 0.375rem;
+}
+
+.skip-link:focus {
+  top: 0.5rem;
 }

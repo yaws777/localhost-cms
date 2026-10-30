@@ -75,29 +75,29 @@ const NotificationSettings = () => {
 
     return (
         <div style={{ maxWidth: '700px', margin: '0 auto', padding: '24px' }}>
-            <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', marginBottom: '8px', color: '#111827' }}>
+            <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', marginBottom: '8px', color: 'var(--text-primary)' }}>
                 Notification Settings
             </h2>
-            <p style={{ color: '#6b7280', marginBottom: '24px', fontSize: '0.95rem' }}>
+            <p style={{ color: 'var(--text-secondary)', marginBottom: '24px', fontSize: '0.95rem' }}>
                 Manage how you receive real-time updates and push alerts on this device.
             </p>
 
             <div style={{
-                backgroundColor: '#ffffff',
+                backgroundColor: 'var(--bg-card)',
                 borderRadius: '8px',
-                border: '1px solid #e5e7eb',
+                border: '1px solid var(--card-border)',
                 padding: '20px',
                 boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
                 marginBottom: '20px'
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        {isSubscribed ? <Bell size={24} color="#10b981" /> : <BellOff size={24} color="#ef4444" />}
+                        {isSubscribed ? <Bell size={24} color="var(--status-adequate-text)" /> : <BellOff size={24} color="var(--status-critical-text)" />}
                         <div>
-                            <h3 style={{ fontWeight: '600', fontSize: '1rem', color: '#1f2937', margin: 0 }}>
+                            <h3 style={{ fontWeight: '600', fontSize: '1rem', color: 'var(--text-primary)', margin: 0 }}>
                                 Push Notifications
                             </h3>
-                            <p style={{ fontSize: '0.85rem', color: '#6b7280', margin: '2px 0 0 0' }}>
+                            <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>
                                 Receive instant clinic updates, appointment logs, and direct messages.
                             </p>
                         </div>
@@ -113,7 +113,7 @@ const NotificationSettings = () => {
                             fontWeight: '600',
                             fontSize: '0.875rem',
                             cursor: (loading || !userId) ? 'not-allowed' : 'pointer',
-                            backgroundColor: isSubscribed ? '#ef4444' : '#003366',
+                            backgroundColor: isSubscribed ? 'var(--danger-fill)' : '#003366',
                             color: '#ffffff',
                             transition: 'all 0.2s',
                             opacity: (loading || !userId) ? 0.6 : 1
@@ -124,25 +124,25 @@ const NotificationSettings = () => {
                 </div>
 
                 <div style={{
-                    borderTop: '1px solid #f3f4f6',
+                    borderTop: '1px solid var(--card-border)',
                     paddingTop: '12px',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '16px',
-                    fontSize: '0.85rem'
+                    fontSize: '0.875rem'
                 }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#4b5563' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)' }}>
                         Browser Permission: 
                         <strong style={{ 
-                            color: permission === 'granted' ? '#10b981' : permission === 'denied' ? '#ef4444' : '#f59e0b' 
+                            color: permission === 'granted' ? 'var(--status-adequate-text)' : permission === 'denied' ? 'var(--status-critical-text)' : 'var(--status-low-text)' 
                         }}>
                             {permission.toUpperCase()}
                         </strong>
                     </span>
 
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#4b5563' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)' }}>
                         Push Status: 
-                        <strong style={{ color: isSubscribed ? '#10b981' : '#6b7280' }}>
+                        <strong style={{ color: isSubscribed ? 'var(--status-adequate-text)' : 'var(--text-secondary)' }}>
                             {isSubscribed ? 'SUBSCRIBED' : 'INACTIVE'}
                         </strong>
                     </span>
@@ -151,9 +151,9 @@ const NotificationSettings = () => {
 
             {isSubscribed && (
                 <div style={{
-                    backgroundColor: '#ffffff',
+                    backgroundColor: 'var(--bg-card)',
                     borderRadius: '8px',
-                    border: '1px solid #e5e7eb',
+                    border: '1px solid var(--card-border)',
                     padding: '20px',
                     boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
                     display: 'flex',
@@ -161,10 +161,10 @@ const NotificationSettings = () => {
                     justifyContent: 'space-between'
                 }}>
                     <div>
-                        <h4 style={{ fontWeight: '600', color: '#1f2937', margin: 0, fontSize: '0.95rem' }}>
+                        <h4 style={{ fontWeight: '600', color: 'var(--text-primary)', margin: 0, fontSize: '0.95rem' }}>
                             Test Push Delivery
                         </h4>
-                        <p style={{ fontSize: '0.85rem', color: '#6b7280', margin: '2px 0 0 0' }}>
+                        <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>
                             Verify that push notifications are arriving on this browser.
                         </p>
                     </div>
@@ -177,11 +177,11 @@ const NotificationSettings = () => {
                             alignItems: 'center',
                             gap: '8px',
                             padding: '8px 16px',
-                            backgroundColor: '#f3f4f6',
-                            color: '#1f2937',
-                            border: '1px solid #d1d5db',
+                            backgroundColor: 'var(--bg-subtle)',
+                            color: 'var(--text-primary)',
+                            border: '1px solid var(--card-border)',
                             borderRadius: '6px',
-                            fontSize: '0.85rem',
+                            fontSize: '0.875rem',
                             fontWeight: '500',
                             cursor: testSending ? 'not-allowed' : 'pointer'
                         }}

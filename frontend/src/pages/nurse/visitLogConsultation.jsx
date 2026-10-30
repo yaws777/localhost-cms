@@ -1119,7 +1119,7 @@ const VisitLogConsultation = () => {
                             </button>
                         </div>
                         <div className="confirm-modal-body-vlc" style={{ paddingTop: '16px' }}>
-                            <p className="confirm-notice-vlc" style={{ fontSize: '0.95rem', color: '#334155', lineHeight: '1.5' }}>
+                            <p className="confirm-notice-vlc" style={{ fontSize: '0.95rem', color: 'var(--text-primary)', lineHeight: '1.5' }}>
                                 {feedbackModal.message}
                             </p>
                             <div className="modal-action-footer-vlc" style={{ marginTop: '20px' }}>
@@ -1436,7 +1436,7 @@ const VisitLogConsultation = () => {
                                             border: 'none',
                                             borderRadius: '6px',
                                             fontWeight: '600',
-                                            fontSize: '0.85rem',
+                                            fontSize: '0.875rem',
                                             cursor: 'pointer',
                                             whiteSpace: 'nowrap',
                                             width: 'auto',

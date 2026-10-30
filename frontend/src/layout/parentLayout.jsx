@@ -356,6 +356,7 @@ const ParentLayout = () => {
 
     return (
         <div className="parent-layout">
+            <a href="#main-content" className="skip-link">Skip to main content</a>
             <style>{`
                 @keyframes pmmSpin {
                     0% { transform: rotate(0deg); }
@@ -413,7 +414,7 @@ const ParentLayout = () => {
                             ID: {parentData?.parent_id || '--------'}
                         </span>
                         
-                        {errorMsg && <span className="profile-error" style={{color: '#ff4d4f', fontSize: '0.8em', display: 'block', marginTop: '5px'}}>{errorMsg}</span>}
+                        {errorMsg && <span className="profile-error" style={{color: 'var(--status-critical-text)', fontSize: '0.875rem', display: 'block', marginTop: '5px'}}>{errorMsg}</span>}
                     </div>
                 </div>
 
@@ -463,12 +464,11 @@ const ParentLayout = () => {
                         )}
                     </NavLink>
 
-                    <hr className="nav-divider" style={{ margin: '15px 0', borderColor: 'rgba(255,255,255,0.1)' }} />
+                    <hr className="nav-divider" />
 
                     <button 
                         onClick={handleLogoutClick} 
                         className="nav-link logout-btn" 
-                        style={{ background: 'transparent', border: 'none', width: '100%', textAlign: 'left', cursor: 'pointer', color: 'var(--sti-yellow)' }}
                     >
                         <LogOut className="nav-icon" size={16} />
                         <span>Logout</span>
@@ -482,22 +482,22 @@ const ParentLayout = () => {
                         <span className="viewing-label">Linked Student(s):</span>
                         
                         {isLoading ? (
-                            <span className="student-name" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#666' }}>
+                            <span className="student-name" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)' }}>
                                 <Loader2 size={14} className="pmm-spin" /> Loading Student Info...
                             </span>
                         ) : students && students.length > 0 ? (
                             <div className="student-topbar-details" style={{ display: 'inline-flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                                 {students.map((st) => (
                                     <React.Fragment key={st.student_id}>
-                                        <span className="student-name" style={{ fontWeight: '600', color: '#111' }}>
+                                        <span className="student-name" style={{ fontWeight: '600', color: 'var(--text-primary)' }}>
                                             {st.first_name} {st.last_name}
                                         </span>
                                         <span className="student-id-badge" style={{ 
-                                            background: '#e1ecf4', 
-                                            color: '#3973af', 
+                                            background: 'var(--sti-blue-light)', 
+                                            color: 'var(--text-brand)', 
                                             padding: '2px 8px', 
                                             borderRadius: '4px', 
-                                            fontSize: '0.70rem',
+                                            fontSize: '0.875rem',
                                             fontWeight: '500'
                                         }}>
                                             ID: {st.student_id}
@@ -517,7 +517,7 @@ const ParentLayout = () => {
                             title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
                             aria-label="Toggle dark mode"
                             style={{
-                                background: '#f4f6f8',
+                                background: 'var(--bg-subtle)',
                                 border: 'none',
                                 borderRadius: '50%',
                                 width: '38px',
@@ -526,7 +526,7 @@ const ParentLayout = () => {
                                 alignItems: 'center',
                                 justifyContent: 'center',
                                 cursor: 'pointer',
-                                color: '#333'
+                                color: 'var(--text-primary)'
                             }}
                         >
                             {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
@@ -536,7 +536,7 @@ const ParentLayout = () => {
                             onClick={() => setIsMessageOpen(true)}
                             title="Messages"
                             style={{
-                                background: '#f4f6f8',
+                                background: 'var(--bg-subtle)',
                                 border: 'none',
                                 borderRadius: '50%',
                                 width: '38px',
@@ -548,18 +548,18 @@ const ParentLayout = () => {
                                 position: 'relative'
                             }}
                         >
-                            <MessageSquare size={18} color="#333" />
+                            <MessageSquare size={18} color="var(--text-primary)" />
                             {unreadCount > 0 && (
                                 <span style={{
                                     position: 'absolute',
                                     top: '-2px',
                                     right: '-2px',
-                                    background: '#ff4d4f',
+                                    background: 'var(--danger-fill)',
                                     color: '#ffffff',
                                     borderRadius: '50%',
                                     minWidth: '18px',
                                     height: '18px',
-                                    fontSize: '10px',
+                                    fontSize: '0.875rem',
                                     fontWeight: 'bold',
                                     display: 'flex',
                                     alignItems: 'center',
@@ -575,7 +575,7 @@ const ParentLayout = () => {
                             <button 
                                 onClick={() => setShowNotifDropdown(!showNotifDropdown)}
                                 style={{
-                                    background: '#f4f6f8',
+                                    background: 'var(--bg-subtle)',
                                     border: 'none',
                                     borderRadius: '50%',
                                     width: '38px',
@@ -588,18 +588,18 @@ const ParentLayout = () => {
                                 }}
                                 aria-label="Notifications"
                             >
-                                <Bell size={18} color="#333" />
+                                <Bell size={18} color="var(--text-primary)" />
                                 {unreadNotifCount > 0 && (
                                     <span style={{
                                         position: 'absolute',
                                         top: '-2px',
                                         right: '-2px',
-                                        background: '#ff4d4f',
+                                        background: 'var(--danger-fill)',
                                         color: '#ffffff',
                                         borderRadius: '50%',
                                         minWidth: '18px',
                                         height: '18px',
-                                        fontSize: '10px',
+                                        fontSize: '0.875rem',
                                         fontWeight: 'bold',
                                         display: 'flex',
                                         alignItems: 'center',
@@ -643,8 +643,8 @@ const ParentLayout = () => {
                                                 style={{
                                                     background: 'none',
                                                     border: 'none',
-                                                    color: '#1890ff',
-                                                    fontSize: '12px',
+                                                    color: 'var(--text-brand)',
+                                                    fontSize: '0.875rem',
                                                     cursor: 'pointer',
                                                     padding: 0,
                                                     fontWeight: '500'
@@ -656,7 +656,7 @@ const ParentLayout = () => {
                                     </div>
 
                                     {notifications.length === 0 ? (
-                                        <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                                        <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
                                             No notifications
                                         </div>
                                     ) : (
@@ -679,7 +679,7 @@ const ParentLayout = () => {
                                                 >
                                                     <div style={{
                                                         fontWeight: isItemRead ? 'normal' : '600',
-                                                        fontSize: '0.85rem',
+                                                        fontSize: '0.875rem',
                                                         color: 'var(--text-primary)',
                                                         marginBottom: '4px',
                                                         display: 'flex',
@@ -697,10 +697,10 @@ const ParentLayout = () => {
                                                         )}
                                                         {notif.title || 'Notification'}
                                                     </div>
-                                                    <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: '1.3' }}>
+                                                    <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: '1.3' }}>
                                                         {notif.message}
                                                     </div>
-                                                    <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', marginTop: '6px', textAlign: 'right' }}>
+                                                    <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginTop: '6px', textAlign: 'right' }}>
                                                         {formatDateTime(notif.created_at)}
                                                     </div>
                                                 </div>
@@ -713,7 +713,7 @@ const ParentLayout = () => {
                     </div>
                 </div>
 
-                <div className="page-content">
+                <main id="main-content" tabIndex={-1} className="page-content">
                     <Outlet context={{ 
                         parentId: parentData?.parent_id || '',
                         userId: parentData?.user_id || '', 
@@ -732,7 +732,7 @@ const ParentLayout = () => {
                             }
                         }
                     }} />
-                </div>
+                </main>
             </div>
 
             {isMessageOpen && parentUserId && (

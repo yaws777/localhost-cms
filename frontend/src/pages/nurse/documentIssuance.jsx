@@ -26,7 +26,7 @@ import {
 
 import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/DocumentIssuance.css';
-import { useAlert } from '../../context/AlertContext';
+import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatDateTime } from '../../utils/datetime';
 
 const NURSE_SIGNATURE_SVG = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`
@@ -1216,7 +1216,7 @@ const DocumentIssuance = () => {
             </section>
 
             {/* Table Area */}
-            <main className="table-responsive-di">
+            <div className="table-responsive-di">
                 {loading ? (
                     <div className="loading-di">Loading requests...</div>
                 ) : error ? (
@@ -1276,7 +1276,7 @@ const DocumentIssuance = () => {
                         </tbody>
                     </table>
                 )}
-            </main>
+            </div>
 
             {/* Detail Modal */}
             {selectedRequest && !isApproving && (

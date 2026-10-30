@@ -205,7 +205,7 @@ export const RescheduleModal = ({ appt, onSubmit, onClose }) => {
                 )}
                 <div className="dp-field">
                     <label>Reason (the student and parents are told)</label>
-                    <textarea className="dp-textarea" rows={2} maxLength={255} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. The doctor has an emergency consultation at that time" />
+                    <textarea className="dp-textarea" rows={2} maxLength={255} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. The doctor has an emergency check-up at that time" />
                 </div>
                 <div className="dp-modal-foot">
                     <button type="button" className="dp-btn dp-btn-ghost" onClick={onClose}>Back</button>
@@ -267,14 +267,14 @@ export const LogModal = ({ appt, onClose }) => {
 };
 
 // ---------------------------------------------------------------------------
-// Purpose of the consultation: one of the visit types the specializations add (limited to what the chosen doctor covers)
+// Purpose of the check-up: one of the visit types the specializations add (limited to what the chosen doctor covers)
 // ---------------------------------------------------------------------------
 export const PurposeFields = ({ visitType, doctor, onChange, idPrefix = 'purpose' }) => {
     const { visitTypes } = useSpecializations();
     const options = doctor ? visitTypes.filter((t) => coveredTypes(doctor).includes(t)) : visitTypes;
     return (
         <div className="dp-field">
-            <label htmlFor={`${idPrefix}-type`}>Purpose of the consultation</label>
+            <label htmlFor={`${idPrefix}-type`}>Purpose of the check-up</label>
             <select id={`${idPrefix}-type`} className="dp-select" value={visitType} onChange={(e) => onChange(e.target.value)}>
                 {options.map((p) => <option key={p} value={p}>{p}</option>)}
             </select>
@@ -465,7 +465,6 @@ export const WalkInModal = ({ isOpen, doctors, fixedDoctorId, creator, userId, o
     const [student, setStudent] = useState(null);
     const [visitType, setVisitType] = useState('General Check Up');
     const [reason, setReason] = useState('');
-    const [duration, setDuration] = useState(15);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
 
@@ -475,7 +474,6 @@ export const WalkInModal = ({ isOpen, doctors, fixedDoctorId, creator, userId, o
         setStudent(null);
         setVisitType('General Check Up');
         setReason('');
-        setDuration(15);
         setError('');
         setBusy(false);
     }, [isOpen, fixedDoctorId]);
@@ -497,7 +495,7 @@ export const WalkInModal = ({ isOpen, doctors, fixedDoctorId, creator, userId, o
         try {
             const data = await postJson('/api/doctor-visits/walk-in', 'POST', {
                 ...creatorBody(creator), sender_id: userId, doctor_id: doctorId, student_id: student.student_id,
-                visit_type: visitType, reason, duration_min: duration
+                visit_type: visitType, reason
             });
             if (data.success) {
                 showAlert(data.message, 'success');
@@ -516,7 +514,7 @@ export const WalkInModal = ({ isOpen, doctors, fixedDoctorId, creator, userId, o
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="Walk-in patient" icon={<Footprints size={20} />} size="md">
             <form className="dp-form" onSubmit={submit}>
-                <div className="dp-notice">A walk-in has no booking. The student is checked in right now and can be documented straight away.</div>
+                <div className="dp-notice">A walk-in joins the walk-in queue (W1, W2, ...) of the session that is running now. The doctor calls the walk-ins after the appointed students.</div>
                 {error && <div className="dp-error">{error}</div>}
 
                 {!fixedDoctorId && (
@@ -533,15 +531,9 @@ export const WalkInModal = ({ isOpen, doctors, fixedDoctorId, creator, userId, o
                 <PurposeFields visitType={visitType} doctor={chosenDoctor} onChange={changePurpose} idPrefix="walkin" />
                 {refusal && <div className="dp-error">{refusal}</div>}
 
-                <div className="dp-row">
-                    <div className="dp-field" style={{ gridColumn: 'span 2' }}>
-                        <label>Reason for the visit</label>
-                        <input className="dp-input" type="text" required maxLength={255} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Fever since this morning" />
-                    </div>
-                    <div className="dp-field">
-                        <label>Minutes</label>
-                        <input className="dp-input" type="number" min={5} max={240} step={5} required value={duration} onChange={(e) => setDuration(e.target.value)} />
-                    </div>
+                <div className="dp-field">
+                    <label>Reason for the visit</label>
+                    <input className="dp-input" type="text" required maxLength={255} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Fever since this morning" />
                 </div>
 
                 <div className="dp-modal-foot">

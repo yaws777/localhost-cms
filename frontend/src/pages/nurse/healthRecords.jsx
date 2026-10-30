@@ -644,7 +644,7 @@ export default function HealthRecord() {
                                         </td>
                                         <td>{student.year_level}</td>
                                         <td>{student.section || 'N/A'}</td>
-                                        <td style={{ fontSize: '0.85rem', color: '#475569' }}>
+                                        <td style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
                                             {formatHealthHistory(student)}
                                         </td>
                                         <td className="action-col">

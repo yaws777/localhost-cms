@@ -1,6 +1,6 @@
 // AssessmentModals.jsx
-// Read-only looks at documented consultations, shared by the doctor portal and the nurse's Doctor Visit page:
-//   - AssessmentViewModal: the assessment (or, when nothing was documented, the details) of one consultation
+// Read-only looks at documented check-ups, shared by the doctor portal and the nurse's Doctor Visit page:
+//   - AssessmentViewModal: the assessment (or, when nothing was documented, the details) of one check-up
 //   - AssessmentHistoryModal: every assessment the clinic documented for one student
 import React, { useState, useEffect } from 'react';
 import { ClipboardList, History } from 'lucide-react';
@@ -30,7 +30,7 @@ const Fact = ({ label, children }) => (
     </>
 );
 
-// What the doctor wrote for one consultation
+// What the doctor wrote for one check-up
 export const AssessmentDetails = ({ a }) => {
     const medicines = Array.isArray(a.prescriptions) ? a.prescriptions : [];
     const answers = Array.isArray(a.template_responses) ? a.template_responses.filter((r) => filled(r.value) && !(Array.isArray(r.value) && r.value.length === 0)) : [];
@@ -78,13 +78,13 @@ const chipsOf = (a) => (
 );
 
 // ---------------------------------------------------------------------------
-// One consultation: the assessment, or its details when nothing was documented
+// One check-up: the assessment, or its details when nothing was documented
 // ---------------------------------------------------------------------------
 export const AssessmentViewModal = ({ appt, onClose }) => {
     if (!appt) return null;
     const documented = !!appt.assessment_id;
     return (
-        <Modal isOpen onClose={onClose} title={documented ? 'Assessment' : 'Consultation details'} icon={<ClipboardList size={20} />} size="lg">
+        <Modal isOpen onClose={onClose} title={documented ? 'Assessment' : 'Check-up details'} icon={<ClipboardList size={20} />} size="lg">
             <div className="dp-notice">
                 <strong>{fullName(appt.student_first_name, appt.student_last_name)}</strong> ({appt.student_id}) - {visitLabel(appt.visit_type, appt.purpose_other)}<br />
                 {formatDate(appt.start_time)}, {formatTime(appt.start_time)} - {formatTime(appt.end_time)} - Dr. {appt.doc_first_name} {appt.doc_last_name}
@@ -140,7 +140,7 @@ export const AssessmentHistoryModal = ({ appt, onClose }) => {
                             <div className="dp-history-head">
                                 <strong>{formatDate(r.start_time)}</strong>
                                 <span>{visitLabel(r.visit_type, r.purpose_other)} - Dr. {r.doc_first_name} {r.doc_last_name}</span>
-                                {appt && r.appointment_id === appt.appointment_id && <span className="dp-chip source">This consultation</span>}
+                                {appt && r.appointment_id === appt.appointment_id && <span className="dp-chip source">This check-up</span>}
                             </div>
                             {chipsOf(r)}
                             <AssessmentDetails a={r} />

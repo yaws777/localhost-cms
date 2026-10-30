@@ -702,7 +702,7 @@ export default function ManageParentAccount() {
                   type="button" 
                   className="btn-secondary-mpa" 
                   onClick={handleExportSingleReport}
-                  style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px', height: '32px', padding: '0 12px', fontSize: '13px' }}
+                  style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px', height: '32px', padding: '0 12px', fontSize: '0.875rem' }}
                 >
                   <Printer size={16} /> export
                 </button>

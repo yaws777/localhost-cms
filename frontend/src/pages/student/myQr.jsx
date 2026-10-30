@@ -27,9 +27,9 @@ const MyQr = () => {
       <h2>My Student QR Code</h2>
 
       {studentId ? (
-        <div style={{ border: '1px solid #ddd', borderRadius: '8px', padding: '20px', backgroundColor: '#fff' }}>
+        <div style={{ border: '1px solid var(--card-border)', borderRadius: '8px', padding: '20px', backgroundColor: 'var(--bg-card)' }}>
           <h3>{firstName} {lastName}</h3>
-          <p style={{ color: '#555' }}>ID: {studentId}</p>
+          <p style={{ color: 'var(--text-secondary)' }}>ID: {studentId}</p>
 
           {/* QR Code rendering only the studentId value */}
           <div ref={qrRef} style={{ margin: '20px 0' }}>
@@ -45,11 +45,11 @@ const MyQr = () => {
             onClick={handleDownload}
             style={{
               padding: '10px 20px',
-              backgroundColor: '#007bff',
+              backgroundColor: 'var(--sti-blue-primary)',
               color: '#ffffff',
               border: 'none',
               borderRadius: '5px',
-              fontSize: '15px',
+              fontSize: '0.9375rem',
               cursor: 'pointer'
             }}
           >

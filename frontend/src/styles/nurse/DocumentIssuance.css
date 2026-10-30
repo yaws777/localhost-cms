@@ -3,10 +3,10 @@
     width: 100%;
     min-height: calc(100vh - 70px);
     padding: 24px 32px;
-    background-color: #f8fafc;
+    background-color: var(--bg-subtle);
     box-sizing: border-box;
     color: var(--text-primary);
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-family: var(--font-sans);
     display: flex;
     flex-direction: column;
 }
@@ -28,7 +28,7 @@
 .header-text-di h2 {
     margin: 0;
     font-size: 1.5rem;
-    color: #002b66;
+    color: var(--text-brand);
     font-weight: 700;
 }
 
@@ -65,11 +65,11 @@
 }
 
 .pending-card-di { border-left-color: #f59e0b; }
-.pending-card-di .card-icon-di { background-color: #fef3c7; color: #d97706; }
+.pending-card-di .card-icon-di { background-color: var(--status-low-bg); color: var(--status-low-text); }
 .approved-card-di { border-left-color: #10b981; }
-.approved-card-di .card-icon-di { background-color: #d1fae5; color: #059669; }
+.approved-card-di .card-icon-di { background-color: var(--status-adequate-bg); color: var(--status-adequate-text); }
 .denied-card-di { border-left-color: #ef4444; }
-.denied-card-di .card-icon-di { background-color: #fee2e2; color: #dc2626; }
+.denied-card-di .card-icon-di { background-color: var(--status-critical-bg); color: var(--status-critical-text); }
 
 .card-icon-di {
     width: 52px;
@@ -82,7 +82,7 @@
 }
 
 .card-info-di span {
-    font-size: 0.8rem;
+    font-size: 0.875rem;
     color: var(--text-secondary);
     font-weight: 600;
     text-transform: uppercase;
@@ -175,7 +175,7 @@
 
 .table-di td {
     padding: 12px 16px;
-    border-bottom: 1px solid #e2e8f0;
+    border-bottom: 1px solid var(--card-border);
     vertical-align: middle;
 }
 
@@ -197,7 +197,7 @@
 }
 
 .student-id-di {
-    font-size: 0.8rem;
+    font-size: 0.875rem;
     color: var(--text-secondary);
 }
 
@@ -213,24 +213,24 @@
     display: inline-block;
     padding: 4px 10px;
     border-radius: 20px;
-    font-size: 0.78rem;
+    font-size: 0.875rem;
     font-weight: 600;
 }
 
-.badge-excuse-di { background-color: #e0f2fe; color: #0369a1; }
-.badge-referral-di { background-color: #f3e8ff; color: #6b21a8; }
+.badge-excuse-di { background-color: var(--sti-blue-light); color: var(--text-brand); }
+.badge-referral-di { background-color: var(--tint-violet-bg); color: var(--text-accent); }
 
 .badge-status-di {
     display: inline-block;
     padding: 4px 12px;
     border-radius: 12px;
-    font-size: 0.78rem;
+    font-size: 0.875rem;
     font-weight: 600;
 }
 
-.status-pending-di { background-color: #fef3c7; color: #b45309; }
-.status-completed-di, .status-approved-di { background-color: #d1fae5; color: #047857; }
-.status-denied-di { background-color: #fee2e2; color: #b91c1c; }
+.status-pending-di { background-color: var(--status-low-bg); color: var(--status-low-text); }
+.status-completed-di, .status-approved-di { background-color: var(--status-adequate-bg); color: var(--status-adequate-text); }
+.status-denied-di { background-color: var(--status-critical-bg); color: var(--status-critical-text); }
 
 /* Constrained Lucide Action Icon Buttons */
 .btn-action-icon-di {
@@ -263,7 +263,7 @@
     font-size: 0.95rem;
     color: var(--text-secondary);
 }
-.error-di { color: #dc2626; }
+.error-di { color: var(--status-critical-text); }
 
 /* Modals Overlay & Containers */
 .modal-overlay-di {
@@ -315,7 +315,7 @@
 }
 
 .modal-subtitle-di {
-    font-size: 0.8rem;
+    font-size: 0.875rem;
     color: var(--text-secondary);
 }
 
@@ -355,7 +355,7 @@
 .modal-footer-di {
     padding: 14px 20px;
     background-color: var(--bg-card);
-    border-top: 1px solid #e2e8f0;
+    border-top: 1px solid var(--card-border);
     display: flex;
     justify-content: flex-end;
     align-items: center;
@@ -373,7 +373,7 @@
 }
 
 .detail-item-di label {
-    font-size: 0.75rem;
+    font-size: 0.875rem;
     color: var(--text-secondary);
     text-transform: uppercase;
     font-weight: 600;
@@ -386,18 +386,18 @@
     word-break: break-word;
 }
 
-.text-sti-blue-di { color: #0056B3 !important; }
+.text-sti-blue-di { color: var(--text-brand) !important; }
 
 .modal-divider-di {
     border: 0;
-    border-top: 1px solid #e2e8f0;
+    border-top: 1px solid var(--card-border);
     margin: 4px 0;
 }
 
 .request-specific-details-di h4, .modal-notes-section-di h4 {
     margin: 0 0 8px 0;
     font-size: 0.95rem;
-    color: #002B66;
+    color: var(--text-brand);
 }
 
 .file-attachment-di {
@@ -405,7 +405,7 @@
     align-items: center;
     gap: 8px;
     margin-top: 8px;
-    background: #f1f5f9;
+    background: var(--bg-subtle);
     padding: 8px 12px;
     border-radius: 6px;
     width: fit-content;
@@ -414,17 +414,17 @@
 }
 
 .file-attachment-di a {
-    color: #0056B3;
+    color: var(--text-brand);
     font-weight: 600;
     text-decoration: none;
-    font-size: 0.85rem;
+    font-size: 0.875rem;
     word-break: break-all;
 }
 
 /* Notes & Messages */
 .notes-list-di {
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
+    background: var(--bg-subtle);
+    border: 1px solid var(--card-border);
     border-radius: 8px;
     padding: 12px;
     max-height: 160px;
@@ -435,7 +435,7 @@
 }
 
 .no-notes-di {
-    font-size: 0.85rem;
+    font-size: 0.875rem;
     color: var(--text-secondary);
     margin: 0;
     text-align: center;
@@ -444,16 +444,16 @@
 .note-bubble-di {
     padding: 8px 12px;
     border-radius: 8px;
-    font-size: 0.85rem;
+    font-size: 0.875rem;
 }
 
-.note-nurse-di { background-color: #e0f2fe; border-left: 4px solid #0056B3; }
-.note-student-di { background-color: #f1f5f9; border-left: 4px solid #64748b; }
+.note-nurse-di { background-color: var(--sti-blue-light); border-left: 4px solid #0056B3; }
+.note-student-di { background-color: var(--bg-subtle); border-left: 4px solid #64748b; }
 
 .note-header-di {
     display: flex;
     justify-content: space-between;
-    font-size: 0.75rem;
+    font-size: 0.875rem;
     color: var(--text-secondary);
     margin-bottom: 4px;
 }
@@ -492,7 +492,7 @@
 }
 
 .validity-sublabel-di {
-    font-size: 0.75rem;
+    font-size: 0.875rem;
     color: var(--text-secondary);
 }
 
@@ -526,7 +526,7 @@
 }
 
 .form-group-di label {
-    font-size: 0.85rem;
+    font-size: 0.875rem;
     font-weight: 600;
     color: var(--text-primary);
 }
@@ -542,7 +542,7 @@
 }
 
 .form-group-di input[type="date"]:disabled {
-    background-color: #f1f5f9;
+    background-color: var(--bg-subtle);
     cursor: not-allowed;
     color: var(--text-secondary);
 }
@@ -571,11 +571,11 @@
 .btn-secondary-di { background-color: #64748b; color: #ffffff; }
 .btn-secondary-di:hover { background-color: #475569; }
 
-.btn-sm-di { padding: 6px 12px; font-size: 0.8rem; }
+.btn-sm-di { padding: 6px 12px; font-size: 0.875rem; }
 
 .upload-step-box-di {
-    background: #f0fdf4;
-    border: 1px solid #bbf7d0;
+    background: var(--status-adequate-bg);
+    border: 1px solid var(--card-border);
     padding: 16px;
     border-radius: 8px;
 }
@@ -584,33 +584,33 @@
     display: flex;
     align-items: center;
     gap: 12px;
-    border-bottom: 1px solid #dcfce7;
+    border-bottom: 1px solid var(--card-border);
     padding-bottom: 10px;
 }
 
-.upload-icon-heading-di { color: #16a34a; }
-.upload-step-header-di h4 { margin: 0; color: #15803d; }
-.upload-step-header-di p { margin: 2px 0 0 0; font-size: 0.8rem; color: #166534; }
+.upload-icon-heading-di { color: var(--status-adequate-text); }
+.upload-step-header-di h4 { margin: 0; color: var(--status-adequate-text); }
+.upload-step-header-di p { margin: 2px 0 0 0; font-size: 0.875rem; color: var(--status-adequate-text); }
 
 .mt-2-di { margin-top: 8px; }
 .mt-3-di { margin-top: 12px; }
 .mb-3-di { margin-bottom: 12px; }
 .my-3-di { margin: 12px 0; }
-.text-danger-di { color: #dc2626; }
+.text-danger-di { color: var(--status-critical-text); }
 
 .modal-error-di {
-    background-color: #fee2e2;
-    color: #b91c1c;
+    background-color: var(--status-critical-bg);
+    color: var(--status-critical-text);
     padding: 8px 12px;
     border-radius: 6px;
-    font-size: 0.85rem;
+    font-size: 0.875rem;
     display: flex;
     align-items: center;
     gap: 6px;
 }
 
 .issued-info-box-di {
-    background: #f1f5f9;
+    background: var(--bg-subtle);
     padding: 12px;
     border-radius: 8px;
     font-size: 0.88rem;
@@ -621,7 +621,7 @@
 /* Config Modal Layouts */
 .config-modal-body-di {
     padding: 20px;
-    background-color: #f8fafc;
+    background-color: var(--bg-subtle);
 }
 
 .config-container-di {
@@ -641,7 +641,7 @@
 .config-form-di h5 {
     margin: 0 0 12px 0;
     font-size: 0.95rem;
-    color: #002B66;
+    color: var(--text-brand);
     font-weight: 700;
 }
 
@@ -684,7 +684,7 @@
     border: none;
     padding: 7px 14px;
     border-radius: 6px;
-    font-size: 0.82rem;
+    font-size: 0.875rem;
     font-weight: 600;
     cursor: pointer;
     display: inline-flex;
@@ -701,7 +701,7 @@
     border: none;
     padding: 7px 14px;
     border-radius: 6px;
-    font-size: 0.82rem;
+    font-size: 0.875rem;
     font-weight: 600;
     cursor: pointer;
     width: auto;
@@ -732,7 +732,7 @@
     align-items: flex-start;
     gap: 16px;
     padding-bottom: 12px;
-    border-bottom: 1px solid #f1f5f9;
+    border-bottom: 1px solid var(--card-border);
 }
 
 .facility-info-di {
@@ -744,14 +744,14 @@
 .facility-title-row-di h4 {
     margin: 0;
     font-size: 1rem;
-    color: #002B66;
+    color: var(--text-brand);
     font-weight: 700;
 }
 
 .facility-meta-di {
     display: flex;
     gap: 16px;
-    font-size: 0.82rem;
+    font-size: 0.875rem;
     color: var(--text-secondary);
 }
 
@@ -766,8 +766,8 @@
 }
 
 .slip-controls-card-di {
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
+    background: var(--bg-subtle);
+    border: 1px solid var(--card-border);
     padding: 14px;
     border-radius: 8px;
     display: flex;
@@ -780,7 +780,7 @@
 .slip-controls-card-di h5 {
     margin: 0 0 4px 0;
     font-size: 0.92rem;
-    color: #002B66;
+    color: var(--text-brand);
     display: flex;
     align-items: center;
     gap: 6px;
@@ -791,12 +791,12 @@
     padding: 6px 10px;
     border: 1px solid #cbd5e1;
     border-radius: 6px;
-    font-size: 0.85rem;
+    font-size: 0.875rem;
     box-sizing: border-box;
 }
 
 .slip-preview-card-di {
-    background-color: #f1f5f9;
+    background-color: var(--bg-subtle);
     padding: 12px;
     border-radius: 8px;
     border: 1px solid #cbd5e1;
@@ -809,7 +809,7 @@
     border: 1px solid #cbd5e1;
     padding: 24px;
     border-radius: 4px;
-    font-family: 'Times New Roman', Times, serif;
+    font-family: var(--font-sans);
     color: var(--text-primary);
     position: relative;
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
@@ -828,7 +828,7 @@
 
 .slip-header-center-di { text-align: center; margin-bottom: 20px; }
 .slip-header-center-di h3 { margin: 0; font-size: 1.1rem; font-weight: bold; color: var(--text-primary); }
-.slip-header-center-di p { margin: 2px 0 0 0; font-size: 0.75rem; color: var(--text-secondary); }
+.slip-header-center-di p { margin: 2px 0 0 0; font-size: 0.875rem; color: var(--text-secondary); }
 
 .slip-title-di {
     text-align: center;
@@ -868,13 +868,13 @@
 .slip-thanks-di { margin-left: 16px; font-size: 0.9rem; }
 .slip-signature-block-di { margin-top: 36px; text-align: center; float: right; width: 200px; }
 .signature-line-text-di { border-bottom: 1px solid #1e293b; font-weight: bold; font-size: 0.9rem; padding-bottom: 2px; text-transform: uppercase; }
-.nurse-title-di { font-style: italic; font-size: 0.8rem; margin-top: 4px; }
+.nurse-title-di { font-style: italic; font-size: 0.875rem; margin-top: 4px; }
 
 .referral-mode-selector-di {
     display: flex;
     gap: 12px;
     margin-bottom: 16px;
-    background: #f1f5f9;
+    background: var(--bg-subtle);
     padding: 6px;
     border-radius: 8px;
     border: 1px solid #cbd5e1;
@@ -898,7 +898,7 @@
 
 .mode-tab-btn-di.active-di {
     background: var(--bg-card);
-    color: #0056B3;
+    color: var(--text-brand);
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
 }
 
@@ -1064,18 +1064,18 @@
 }
 
 .confirm-icon-approve-di {
-    background-color: #d1fae5;
-    color: #059669;
+    background-color: var(--status-adequate-bg);
+    color: var(--status-adequate-text);
 }
 
 .confirm-icon-deny-di {
-    background-color: #fee2e2;
-    color: #dc2626;
+    background-color: var(--status-critical-bg);
+    color: var(--status-critical-text);
 }
 
 .confirm-icon-warning-di {
-    background-color: #fef3c7;
-    color: #d97706;
+    background-color: var(--status-low-bg);
+    color: var(--status-low-text);
 }
 
 .confirm-message-di {
@@ -1102,12 +1102,12 @@
 .facility-services-container-di {
     margin-top: 14px;
     padding-top: 12px;
-    border-top: 1px dashed #e2e8f0;
+    border-top: 1px dashed var(--card-border);
 }
 
 .services-section-title-di {
     margin: 0 0 8px 0;
-    font-size: 0.85rem;
+    font-size: 0.875rem;
     color: var(--text-secondary);
     font-weight: 600;
     text-transform: uppercase;
@@ -1128,10 +1128,10 @@
     justify-content: space-between;
     align-items: center;
     padding: 6px 10px;
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
+    background: var(--bg-subtle);
+    border: 1px solid var(--card-border);
     border-radius: 6px;
-    font-size: 0.85rem;
+    font-size: 0.875rem;
 }
 
 .service-name-text-di {
@@ -1160,14 +1160,14 @@
     transition: background 0.15s ease;
 }
 
-.btn-edit-sm-di { color: #0056B3; }
-.btn-edit-sm-di:hover { background: #e0f2fe; }
+.btn-edit-sm-di { color: var(--text-brand); }
+.btn-edit-sm-di:hover { background: var(--sti-blue-light); }
 
-.btn-delete-sm-di { color: #dc2626; }
-.btn-delete-sm-di:hover { background: #fee2e2; }
+.btn-delete-sm-di { color: var(--status-critical-text); }
+.btn-delete-sm-di:hover { background: var(--status-critical-bg); }
 
 .no-services-text-di {
-    font-size: 0.82rem;
+    font-size: 0.875rem;
     color: var(--text-secondary);
     margin: 0;
     font-style: italic;
@@ -1175,7 +1175,7 @@
 
 /* Inline Service Form bound to specific Facility Card */
 .inline-service-form-di {
-    background-color: #f0f9ff;
+    background-color: var(--bg-subtle);
     border: 1px solid #bae6fd;
     border-radius: 8px;
     padding: 14px;
@@ -1185,7 +1185,7 @@
 }
 
 .inline-service-form-di h5 {
-    color: #0369a1;
+    color: var(--text-brand);
     font-size: 0.9rem;
     font-weight: 700;
     margin: 0 0 10px 0;

@@ -1,10 +1,10 @@
 // doctorVisits.jsx
 // Nurse > Doctor Visit. Two sections, the open one is kept in the URL (?section=) so a link or a notification can land on it:
-//   Consultation - the Upcoming / On going / Past lists, the same screen the doctor has in /DoctorConsultations
-//   Scheduling   - the shared scheduling hub (calendar, schedules, waiting list, repeats, booking approvals, chat)
+//   Check-up - the Upcoming / On going / Past lists, the same screen the doctor has in /DoctorCheckup
+//   Scheduling   - the shared scheduling hub (calendar, schedules, waiting list, repeats, chat)
 import React, { useState, useEffect, useCallback } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router-dom';
-import { Bell, CalendarClock, ClipboardList } from 'lucide-react';
+import { CalendarClock, ClipboardList } from 'lucide-react';
 
 import '../../styles/nurse/DoctorVisits.css';
 import SchedulingHub from '../../components/scheduling/SchedulingHub';
@@ -14,7 +14,7 @@ import { useDpAutoLabels } from '../../utils/autoLabels';
 const API = 'http://localhost:3001';
 
 const SECTIONS = ['visits', 'availability', 'requests', 'waiting', 'followups', 'chat'];
-const HUB_TAB_FOR_SECTION = { availability: 'calendar', requests: 'approvals', waiting: 'waiting', followups: 'followups', chat: 'chat' };
+const HUB_TAB_FOR_SECTION = { availability: 'calendar', requests: 'waiting', waiting: 'waiting', followups: 'followups', chat: 'chat' };
 
 const DoctorVisit = () => {
     const { nurseId, userId } = useOutletContext() || {};
@@ -26,15 +26,13 @@ const DoctorVisit = () => {
 
     const [tab, setTab] = useState('upcoming');
     const [doctors, setDoctors] = useState([]);
-    const [pendingBookingCount, setPendingBookingCount] = useState(0);
     const [doctorsWithoutSchedule, setDoctorsWithoutSchedule] = useState(0);
 
-    // the doctors, how many booking requests wait for an answer, and which doctors have no open schedule (nothing can be booked with them)
+    // the doctors, and which doctors have no open schedule (no student can be appointed to them)
     const loadSummary = useCallback(async () => {
         try {
-            const [doctorRes, folderRes, scheduleRes] = await Promise.all([
+            const [doctorRes, scheduleRes] = await Promise.all([
                 fetch(`${API}/api/doctors`).then((r) => r.json()),
-                fetch(`${API}/api/doctor-visits/folders`).then((r) => r.json()),
                 fetch(`${API}/api/doctor-schedules?status=Open`).then((r) => r.json())
             ]);
             if (doctorRes.success) {
@@ -44,7 +42,6 @@ const DoctorVisit = () => {
                     setDoctorsWithoutSchedule(doctorRes.doctors.filter((d) => !withSchedule.has(d.doctor_id)).length);
                 }
             }
-            if (folderRes.success) setPendingBookingCount(folderRes.pending_requests || 0);
         } catch (err) {
             console.error('Error loading the doctor visit summary:', err);
         }
@@ -63,13 +60,12 @@ const DoctorVisit = () => {
 
             <nav className="section-nav-dv" aria-label="Doctor visit sections">
                 <button type="button" className={`section-tab-dv ${section === 'visits' ? 'active-dv' : ''}`} onClick={() => goSection('visits')}>
-                    <ClipboardList size={16} /> Consultation
+                    <ClipboardList size={16} /> Check-up
                 </button>
                 <button type="button" className={`section-tab-dv ${section !== 'visits' ? 'active-dv' : ''}`} onClick={() => goSection('availability')}>
                     <CalendarClock size={16} /> Scheduling
-                    {pendingBookingCount > 0 && <span className="section-badge-dv">{pendingBookingCount}</span>}
                     {doctorsWithoutSchedule > 0 && (
-                        <span className="section-badge-dv warn-dv" title={`${doctorsWithoutSchedule} doctor(s) have no open schedule, so nothing can be booked with them`}>{doctorsWithoutSchedule}</span>
+                        <span className="section-badge-dv warn-dv" title={`${doctorsWithoutSchedule} doctor(s) have no open schedule, so no student can be appointed to them`}>{doctorsWithoutSchedule}</span>
                     )}
                 </button>
             </nav>
@@ -85,13 +81,6 @@ const DoctorVisit = () => {
                 />
             ) : (
                 <>
-                    {pendingBookingCount > 0 && (
-                        <div className="pending-banner-dv">
-                            <Bell size={16} />
-                            <span><strong>{pendingBookingCount}</strong> student booking request{pendingBookingCount > 1 ? 's are' : ' is'} waiting for approval.</span>
-                            <button type="button" className="sti-btn-dv sti-btn-primary-dv" onClick={() => goSection('requests')}>Review requests</button>
-                        </div>
-                    )}
                     <ConsultationLists
                         role="nurse"
                         doctors={doctors}

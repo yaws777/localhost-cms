@@ -1,12 +1,12 @@
-// doctorConsultations.jsx
-// The doctor's consultations: Upcoming, On going and Past (past ones in a folder for each day). The lists are the same screen the nurse
-// sees in Doctor Visit > Consultation (components/scheduling/ConsultationLists.jsx). Booking requests waiting for an answer are in
-// My Schedule > Booking approvals.
+// doctorCheckup.jsx
+// The doctor's check-ups: Upcoming, On going and Past (past ones in a folder for each day). The lists are the same screen the nurse
+// sees in Doctor Visit > Check-up (components/scheduling/ConsultationLists.jsx). Booking requests waiting for an answer are in
+// My Schedule > Waiting list.
 import React from 'react';
 import { useOutletContext, useSearchParams } from 'react-router-dom';
 import ConsultationLists, { CONSULTATION_TABS } from '../../components/scheduling/ConsultationLists';
 
-const DoctorConsultations = () => {
+const DoctorCheckup = () => {
     const { doctorId, userId, refreshPending } = useOutletContext();
     const [params, setParams] = useSearchParams();
 
@@ -26,4 +26,4 @@ const DoctorConsultations = () => {
     );
 };
 
-export default DoctorConsultations;
+export default DoctorCheckup;

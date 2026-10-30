@@ -978,10 +978,10 @@ const DispensedMedicine = () => {
           <div className="modal-card-dm alert-modal-card-dm">
             <div className="modal-header-dm">
               <div className="modal-header-title-dm" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                {alertModal.type === 'success' && <CheckCircle size={24} style={{ color: '#28a745' }} />}
-                {alertModal.type === 'error' && <AlertTriangle size={24} style={{ color: '#dc3545' }} />}
+                {alertModal.type === 'success' && <CheckCircle size={24} style={{ color: 'var(--status-adequate-text)' }} />}
+                {alertModal.type === 'error' && <AlertTriangle size={24} style={{ color: 'var(--status-critical-text)' }} />}
                 {alertModal.type === 'warning' && <AlertTriangle size={24} style={{ color: '#ffc107' }} />}
-                {alertModal.type === 'info' && <Info size={24} style={{ color: '#17a2b8' }} />}
+                {alertModal.type === 'info' && <Info size={24} style={{ color: 'var(--text-brand)' }} />}
                 <h3>{alertModal.title}</h3>
               </div>
               <button type="button" className="modal-close-icon-dm" onClick={closeAlertModal} aria-label="Close Modal">
@@ -989,7 +989,7 @@ const DispensedMedicine = () => {
               </button>
             </div>
             <div className="modal-body-dm">
-              <p style={{ fontSize: '0.95rem', color: '#333', margin: '10px 0' }}>{alertModal.message}</p>
+              <p style={{ fontSize: '0.95rem', color: 'var(--text-primary)', margin: '10px 0' }}>{alertModal.message}</p>
             </div>
             <div className="modal-footer-dm">
               <button type="button" className="btn-secondary-action-dm" onClick={closeAlertModal}>
@@ -1006,7 +1006,7 @@ const DispensedMedicine = () => {
           <div className="modal-card-dm confirm-modal-card-dm">
             <div className="modal-header-dm">
               <div className="modal-header-title-dm" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <HelpCircle size={24} style={{ color: '#0056b3' }} />
+                <HelpCircle size={24} style={{ color: 'var(--text-brand)' }} />
                 <h3>{confirmModal.title}</h3>
               </div>
               <button type="button" className="modal-close-icon-dm" onClick={closeConfirmModal} aria-label="Close Modal">
@@ -1014,7 +1014,7 @@ const DispensedMedicine = () => {
               </button>
             </div>
             <div className="modal-body-dm">
-              <p style={{ fontSize: '0.95rem', color: '#333', margin: '10px 0' }}>{confirmModal.message}</p>
+              <p style={{ fontSize: '0.95rem', color: 'var(--text-primary)', margin: '10px 0' }}>{confirmModal.message}</p>
             </div>
             <div className="modal-footer-dm" style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
               <button type="button" className="btn-secondary-action-dm" onClick={closeConfirmModal}>

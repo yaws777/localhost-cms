@@ -1,10 +1,10 @@
 // useSpecializations.js
-// The specializations a doctor can have and the visit type (purpose of the consultation) each one adds.
+// The specializations a doctor can have and the visit type (purpose of the check-up) each one adds.
 // One shared copy for the whole app: adding a specialization updates every screen that lists the purposes.
 import { useState, useEffect, useCallback } from 'react';
 
 const API = 'http://localhost:3001';
-const FALLBACK = { specializations: [], visitTypes: ['General Check Up'], generalVisitType: 'General Check Up' };
+const FALLBACK = { specializations: [], specializationNames: [], visitTypes: ['General Check Up'], generalVisitType: 'General Check Up' };
 
 let current = null;
 let inflight = null;
@@ -22,7 +22,12 @@ export const loadSpecializations = async (force = false) => {
             .then((res) => res.json())
             .then((data) => {
                 const next = data.success
-                    ? { specializations: data.specializations, visitTypes: data.visit_types, generalVisitType: data.general_visit_type }
+                    ? {
+                        specializations: data.specializations,
+                        specializationNames: data.specialization_names || [...new Set(data.specializations.map((x) => x.name))],
+                        visitTypes: data.visit_types,
+                        generalVisitType: data.general_visit_type
+                    }
                     : FALLBACK;
                 publish(next);
                 return next;

@@ -4,10 +4,10 @@ import { ChevronLeft, ChevronRight, FileCheck, Pill, Activity, Stethoscope } fro
 import { formatTime } from '../../utils/datetime';
 
 const EVENT_TYPES = {
-  requirement: { label: 'Requirement deadline', color: '#0250A3', Icon: FileCheck, path: '/RequirementManagement' },
-  expiration: { label: 'Medicine expiration', color: '#EF4444', Icon: Pill, path: '/ReportsAnalytics?tab=inventory' },
-  screening: { label: 'Health screening', color: '#10B981', Icon: Activity, path: '/HealthScreening' },
-  doctor: { label: 'Doctor consultation', color: '#8B5CF6', Icon: Stethoscope, path: '/DoctorVisit' }
+  requirement: { label: 'Requirement deadline', color: 'var(--text-brand)', Icon: FileCheck, path: '/RequirementManagement' },
+  expiration: { label: 'Medicine expiration', color: 'var(--status-critical-text)', Icon: Pill, path: '/ReportsAnalytics?tab=inventory' },
+  screening: { label: 'Health screening', color: 'var(--status-adequate-text)', Icon: Activity, path: '/HealthScreening' },
+  doctor: { label: 'Doctor check-up', color: 'var(--text-accent)', Icon: Stethoscope, path: '/DoctorVisit' }
 };
 
 const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];

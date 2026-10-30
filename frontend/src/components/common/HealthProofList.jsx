@@ -49,7 +49,7 @@ export default function HealthProofList({ proofs }) {
                                         <img
                                             src={url}
                                             alt={`${CONDITION_LABELS[key]} proof`}
-                                            style={{ marginTop: '4px', maxWidth: '160px', maxHeight: '120px', borderRadius: '6px', border: '1px solid #e2e8f0', objectFit: 'cover' }}
+                                            style={{ marginTop: '4px', maxWidth: '160px', maxHeight: '120px', borderRadius: '6px', border: '1px solid var(--card-border)', objectFit: 'cover' }}
                                         />
                                     </a>
                                 </div>

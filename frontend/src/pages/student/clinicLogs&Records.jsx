@@ -10,7 +10,7 @@ import {
   Eye, 
   X, 
   Filter
-} from 'lucide-react';
+} from 'lucide-react';
 import { formatTime, formatDate as formatDateBase, formatDateTime } from '../../utils/datetime';
 import '../../styles/student/ClinicLogs&Records.css';
 
@@ -185,7 +185,7 @@ export default function ClinicLogsAndRecords() {
       </div>
 
       {/* Main Content Table Area */}
-      <main className="content-clr">
+      <div className="content-clr">
         {loading ? (
           <div className="loading-clr">Loading clinic records...</div>
         ) : (
@@ -208,7 +208,7 @@ export default function ClinicLogsAndRecords() {
             </table>
           </div>
         )}
-      </main>
+      </div>
 
       {/* Record Details Modal */}
       {selectedRecord && (

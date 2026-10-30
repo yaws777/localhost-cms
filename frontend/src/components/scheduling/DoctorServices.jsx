@@ -1,5 +1,5 @@
 // DoctorServices.jsx
-// The consultations / check-ups a doctor covers. Used by the doctor (My Profile) and by the nurse (Manage Doctor Accounts).
+// The check-ups / check-ups a doctor covers. Used by the doctor (My Profile) and by the nurse (Manage Doctor Accounts).
 // The choices are the visit types the doctor's specialization takes; the nurse sees the same list when assigning a visit and
 // the student sees it when picking a doctor, so a doctor is only given the conditions they actually handle.
 import React, { useState, useEffect } from 'react';
@@ -29,7 +29,7 @@ const DoctorServices = ({ doctor, onSaved, compact = false }) => {
     const save = async (e) => {
         e.preventDefault();
         setError('');
-        if (chosen.length === 0) { setError('Pick at least one consultation.'); return; }
+        if (chosen.length === 0) { setError('Pick at least one check-up.'); return; }
         setBusy(true);
         try {
             const res = await fetch(`${API}/api/doctor/${doctor.doctor_id}/services`, {
@@ -37,7 +37,7 @@ const DoctorServices = ({ doctor, onSaved, compact = false }) => {
             });
             const data = await res.json();
             if (data.success) { showAlert(data.message, 'success'); if (onSaved) onSaved(data); }
-            else setError(data.message || 'Could not save the consultations.');
+            else setError(data.message || 'Could not save the check-ups.');
         } catch (err) {
             setError('Could not reach the server.');
         } finally {
@@ -49,7 +49,7 @@ const DoctorServices = ({ doctor, onSaved, compact = false }) => {
         <form className="dp-form" onSubmit={save}>
             {!compact && (
                 <p className="dp-hint" style={{ margin: 0 }}>
-                    Tick the consultations you cover. The nurse sees this when appointing students to you, and students only see you for these.
+                    Tick the check-ups you cover. The nurse sees this when appointing students to you, and students only see you for these.
                     {allowed.length === 1 && ` ${doctor.specialization || 'Your specialization'} covers ${allowed[0]} only.`}
                 </p>
             )}
@@ -66,7 +66,7 @@ const DoctorServices = ({ doctor, onSaved, compact = false }) => {
                     </label>
                 ))}
             </div>
-            <div><button type="submit" className="dp-btn dp-btn-primary" disabled={busy}><Stethoscope size={15} /> {busy ? 'Saving...' : 'Save consultations'}</button></div>
+            <div><button type="submit" className="dp-btn dp-btn-primary" disabled={busy}><Stethoscope size={15} /> {busy ? 'Saving...' : 'Save check-ups'}</button></div>
         </form>
     );
 };

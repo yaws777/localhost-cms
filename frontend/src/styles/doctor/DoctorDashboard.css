@@ -34,9 +34,9 @@
 .dd-banner::before { width: 300px; height: 300px; right: 90px; top: -150px; }
 .dd-banner::after { width: 200px; height: 200px; right: -50px; bottom: -110px; background: rgba(255, 204, 0, 0.1); border-color: transparent; }
 .dd-banner-text { position: relative; z-index: 1; min-width: 0; }
-.dd-banner small { display: block; font-size: 0.85rem; opacity: 0.85; }
+.dd-banner small { display: block; font-size: 0.875rem; opacity: 0.85; }
 .dd-banner h2 { margin: 4px 0 2px; font-size: 1.9rem; line-height: 1.15; overflow-wrap: anywhere; }
-.dd-banner .spec { font-size: 0.82rem; opacity: 0.85; }
+.dd-banner .spec { font-size: 0.875rem; opacity: 0.85; }
 .dd-banner p { margin: 16px 0 0; font-size: 1.1rem; }
 .dd-banner p b { color: var(--sti-yellow); }
 .dd-art { position: relative; z-index: 1; width: 170px; height: 170px; flex-shrink: 0; align-self: flex-end; margin-bottom: -26px; }
@@ -63,27 +63,27 @@
 .dd-stat.blue { background: linear-gradient(160deg, var(--dp-tint-blue), #bcd8f4); }
 .dd-stat.yellow { background: linear-gradient(160deg, var(--dp-tint-yellow), #ffe58a); }
 .dd-stat.rose { background: linear-gradient(160deg, var(--dp-tint-rose), #f9c5bf); }
-.dd-stat.green { background: linear-gradient(160deg, var(--dp-tint-green), #b4ebcb); }
+.dd-stat.green { background: linear-gradient(160deg, var(--dp-tint-green), var(--status-adequate-bg)); }
 :root[data-theme="dark"] .dd-stat.blue { background: linear-gradient(160deg, #173553, #1d4570); }
 :root[data-theme="dark"] .dd-stat.yellow { background: linear-gradient(160deg, #3d3411, #55471a); }
 :root[data-theme="dark"] .dd-stat.rose { background: linear-gradient(160deg, #3f2222, #5a2e2e); }
 :root[data-theme="dark"] .dd-stat.green { background: linear-gradient(160deg, #123628, #1a4d38); }
-.dd-stat .lbl { display: flex; align-items: center; gap: 7px; font-size: 0.82rem; font-weight: 600; }
+.dd-stat .lbl { display: flex; align-items: center; gap: 7px; font-size: 0.875rem; font-weight: 600; }
 .dd-stat .num { display: block; margin-top: 10px; font-size: 2.5rem; font-weight: 800; line-height: 1; letter-spacing: -1px; }
-.dd-stat .sub { display: block; margin-top: 6px; font-size: 0.74rem; opacity: 0.75; }
+.dd-stat .sub { display: block; margin-top: 6px; font-size: 0.875rem; opacity: 0.75; }
 
 /* ----- charts ----- */
 .dd-charts { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 22px; }
 .dd-chart-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
 .dd-chart-head h3 { margin: 0; font-size: 1.05rem; }
 .dd-chart-head select { width: auto; min-height: 36px; padding: 6px 10px; }
-.dd-chart-box { width: 100%; height: 230px; color: var(--text-secondary); font-size: 12px; }
-.dd-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; margin-top: 8px; font-size: 0.78rem; color: var(--text-secondary); }
+.dd-chart-box { width: 100%; height: 230px; color: var(--text-secondary); font-size: 0.875rem; }
+.dd-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; margin-top: 8px; font-size: 0.875rem; color: var(--text-secondary); }
 .dd-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
 .dd-donut { position: relative; width: 100%; height: 190px; }
 .dd-donut .mid { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; }
 .dd-donut .mid b { font-size: 1.7rem; color: var(--text-primary); line-height: 1; }
-.dd-donut .mid span { font-size: 0.74rem; color: var(--text-secondary); margin-top: 2px; }
+.dd-donut .mid span { font-size: 0.875rem; color: var(--text-secondary); margin-top: 2px; }
 
 /* ----- calendar ----- */
 .dd-cal { padding: 0; overflow: hidden; }
@@ -94,7 +94,7 @@
 .dd-cal-nav button { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--card-border); background: var(--bg-card); color: var(--text-primary); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
 .dd-cal-nav button:hover { background: var(--sti-blue-light); }
 .dd-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px 0; text-align: center; }
-.dd-cal-dow { font-size: 0.72rem; font-weight: 700; color: var(--text-secondary); padding: 4px 0 6px; }
+.dd-cal-dow { font-size: 0.875rem; font-weight: 700; color: var(--text-secondary); padding: 4px 0 6px; }
 .dd-cal-day {
   position: relative;
   justify-self: center;
@@ -104,7 +104,7 @@
   border: 2px solid transparent;
   background: transparent;
   color: var(--text-primary);
-  font-size: 0.84rem;
+  font-size: 0.875rem;
   font-family: inherit;
   cursor: pointer;
   display: inline-flex;
@@ -118,7 +118,7 @@
 .dd-cal-day.off { background: repeating-linear-gradient(135deg, rgba(239, 68, 68, 0.18) 0 4px, transparent 4px 8px); color: var(--text-secondary); }
 .dd-cal-day.has::after { content: ''; position: absolute; bottom: 3px; width: 5px; height: 5px; border-radius: 50%; background: var(--sti-yellow); }
 .dd-cal-day.selected.has::after { background: var(--sti-yellow); }
-.dd-cal-key { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 12px; font-size: 0.72rem; color: var(--text-secondary); }
+.dd-cal-key { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 12px; font-size: 0.875rem; color: var(--text-secondary); }
 .dd-cal-key i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
 
 /* ----- appointment cards ----- */
@@ -136,12 +136,12 @@
 .dd-appt:nth-child(4n+2) { background: var(--dp-tint-yellow); }
 .dd-appt:nth-child(4n+3) { background: var(--dp-tint-rose); }
 .dd-appt:nth-child(4n+4) { background: var(--dp-tint-green); }
-.dd-appt .av { width: 40px; height: 40px; border-radius: 50%; background: var(--sti-blue-primary); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.85rem; flex-shrink: 0; }
+.dd-appt .av { width: 40px; height: 40px; border-radius: 50%; background: var(--sti-blue-primary); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.875rem; flex-shrink: 0; }
 .dd-appt .who { flex: 1; min-width: 0; }
 .dd-appt .who strong { display: block; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dd-appt .who span { display: block; font-size: 0.76rem; opacity: 0.8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dd-appt .who span { display: block; font-size: 0.875rem; opacity: 0.8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dd-appt .go { width: 32px; height: 32px; border-radius: 50%; border: none; background: var(--bg-card); color: var(--text-primary); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; }
-.dd-appt .go:hover { background: var(--sti-yellow); color: #00205b; }
+.dd-appt .go:hover { background: var(--sti-yellow); color: var(--text-on-yellow); }
 .dd-view-all { width: 100%; margin-top: 4px; }
 .dd-empty { padding: 18px 8px; text-align: center; color: var(--text-secondary); font-size: 0.88rem; }
 

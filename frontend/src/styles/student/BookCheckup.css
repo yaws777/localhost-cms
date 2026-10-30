@@ -6,7 +6,7 @@
     padding: 24px;
     min-height: 100vh;
     box-sizing: border-box;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-family: var(--font-sans);
     color: var(--text-primary);
 }
 
@@ -48,7 +48,7 @@
 }
 
 .muted-bc {
-    font-size: 0.8rem;
+    font-size: 0.875rem;
     color: var(--text-secondary);
 }
 
@@ -86,7 +86,7 @@
 
 .field-bc label {
     display: block;
-    font-size: 0.82rem;
+    font-size: 0.875rem;
     font-weight: 600;
     margin-bottom: 6px;
 }
@@ -115,7 +115,7 @@
 .btn-primary-bc { background: var(--sti-blue); color: #fff; }
 .btn-primary-bc:hover:not(:disabled) { background: var(--sti-blue-hover); }
 .btn-light-bc { background: transparent; color: var(--text-primary); border: 1px solid var(--border-color, #cbd5e1); }
-.btn-danger-bc { background: #fee2e2; color: #991b1b; }
+.btn-danger-bc { background: var(--status-critical-bg); color: var(--status-critical-text); }
 
 /* Bookings */
 .booking-grid-bc,
@@ -127,7 +127,7 @@
 
 .booking-card-bc,
 .occurrence-card-bc {
-    border: 1px solid var(--border-color, #e2e8f0);
+    border: 1px solid var(--border-color, var(--card-border));
     border-radius: 10px;
     padding: 14px;
     display: flex;
@@ -153,7 +153,7 @@
 }
 
 .booking-reason-bc {
-    font-size: 0.84rem;
+    font-size: 0.875rem;
     color: var(--text-secondary);
 }
 
@@ -161,9 +161,9 @@
     display: flex;
     align-items: flex-start;
     gap: 6px;
-    font-size: 0.82rem;
-    background: #fef3c7;
-    color: #92400e;
+    font-size: 0.875rem;
+    background: var(--status-low-bg);
+    color: var(--status-low-text);
     border-radius: 6px;
     padding: 6px 8px;
 }
@@ -175,19 +175,19 @@
 }
 
 .status-pill-bc {
-    font-size: 0.74rem;
+    font-size: 0.875rem;
     font-weight: 700;
     border-radius: 999px;
     padding: 3px 10px;
     white-space: nowrap;
 }
 
-.status-scheduled-bc { background: #dcfce7; color: #166534; }
-.status-completed-bc { background: #dbeafe; color: #1e40af; }
-.status-pending-approval-bc, .status-waiting-for-approval-bc { background: #fef3c7; color: #92400e; }
+.status-scheduled-bc { background: var(--status-adequate-bg); color: var(--status-adequate-text); }
+.status-completed-bc { background: var(--sti-blue-light); color: var(--text-brand); }
+.status-pending-approval-bc, .status-waiting-for-approval-bc { background: var(--status-low-bg); color: var(--status-low-text); }
 .status-declined-bc,
 .status-cancelled-bc,
-.status-no-show-bc { background: #fee2e2; color: #991b1b; }
+.status-no-show-bc { background: var(--status-critical-bg); color: var(--status-critical-text); }
 
 .history-bc {
     margin-top: 16px;
@@ -205,7 +205,7 @@
 .occurrence-date-bc {
     font-weight: 700;
     font-size: 1rem;
-    color: var(--sti-blue);
+    color: var(--text-brand);
 }
 
 .occurrence-tags-bc {
@@ -216,17 +216,17 @@
 }
 
 .tag-bc {
-    font-size: 0.72rem;
+    font-size: 0.875rem;
     font-weight: 600;
     border-radius: 999px;
     padding: 3px 9px;
     background: var(--sti-blue-light);
-    color: var(--sti-blue);
+    color: var(--text-brand);
 }
 
 .tag-soft-bc {
-    background: #f1f5f9;
-    color: #475569;
+    background: var(--bg-subtle);
+    color: var(--text-secondary);
 }
 
 .occurrence-card-bc .btn-bc {
@@ -296,23 +296,23 @@
     background: var(--bg-card);
     color: var(--text-primary);
     font-weight: 600;
-    font-size: 0.85rem;
+    font-size: 0.875rem;
     cursor: pointer;
 }
 
 .slot-bc small {
     font-weight: 500;
-    font-size: 0.7rem;
+    font-size: 0.875rem;
     color: var(--text-secondary);
 }
 
 .slot-bc:disabled {
-    background: #f1f5f9;
-    color: #94a3b8;
+    background: var(--bg-subtle);
+    color: var(--text-secondary);
     cursor: not-allowed;
 }
 
-.slot-bc:disabled small { color: #94a3b8; }
+.slot-bc:disabled small { color: var(--text-secondary); }
 
 .slot-selected-bc {
     background: var(--sti-blue);
@@ -336,16 +336,16 @@
 }
 
 /* ---- consultation requests (waiting list) + clinic announcements ---- */
-.status-waiting-list-bc, .status-awaiting-reconfirmation-bc { background: #fef3c7; color: #92400e; }
-.status-reconfirmed-bc, .status-appointed-bc, .status-booked-bc, .status-fulfilled-bc { background: #dcfce7; color: #166534; }
-.status-denied-bc, .status-withdrawn-bc { background: #fee2e2; color: #991b1b; }
-.status-waiting-for-approval-bc { background: #fef3c7; color: #92400e; }
+.status-waiting-list-bc, .status-awaiting-reconfirmation-bc { background: var(--status-low-bg); color: var(--status-low-text); }
+.status-reconfirmed-bc, .status-appointed-bc, .status-booked-bc, .status-fulfilled-bc { background: var(--status-adequate-bg); color: var(--status-adequate-text); }
+.status-denied-bc, .status-withdrawn-bc { background: var(--status-critical-bg); color: var(--status-critical-text); }
+.status-waiting-for-approval-bc { background: var(--status-low-bg); color: var(--status-low-text); }
 
 .header-actions-bc { margin-top: 12px; display: flex; gap: 10px; flex-wrap: wrap; }
 .request-card-bc { border-left: 4px solid var(--sti-blue); }
-.request-card-bc.attention-bc { border-left-color: #d97706; background: #fffbeb; }
+.request-card-bc.attention-bc { border-left-color: #d97706; background: var(--status-low-bg); }
 :root[data-theme="dark"] .request-card-bc.attention-bc { background: #3d3411; }
-.request-help-bc { font-size: 0.84rem; color: var(--text-secondary); margin: 6px 0 0; }
+.request-help-bc { font-size: 0.875rem; color: var(--text-secondary); margin: 6px 0 0; }
 .announce-bc { border-left: 4px solid #d97706; }
 .announce-bc.appointment-bc { border-left-color: #2563eb; }
 
@@ -388,7 +388,7 @@
     border: 1px solid var(--border-color, #cbd5e1);
     background: transparent;
     color: var(--text-secondary);
-    font-size: 0.8rem;
+    font-size: 0.875rem;
     font-weight: 600;
     cursor: pointer;
 }
@@ -426,7 +426,7 @@
 
 .cal-dow-bc {
     text-align: center;
-    font-size: 0.72rem;
+    font-size: 0.875rem;
     font-weight: 700;
     color: var(--text-secondary);
     padding: 4px 0;
@@ -439,7 +439,7 @@
     align-items: flex-start;
     gap: 4px;
     padding: 6px;
-    border: 1px solid var(--border-color, #e2e8f0);
+    border: 1px solid var(--border-color, var(--card-border));
     border-radius: 8px;
     background: var(--bg-card);
     color: var(--text-primary);
@@ -451,7 +451,7 @@
 .cal-day-bc.outside-bc { opacity: 0.45; }
 .cal-day-bc.today-bc .cal-num-bc { background: var(--sti-blue); color: #fff; border-radius: 999px; padding: 0 6px; }
 .cal-day-bc.selected-bc { border-color: var(--sti-blue); box-shadow: 0 0 0 2px var(--sti-blue-light); }
-.cal-num-bc { font-size: 0.82rem; font-weight: 700; }
+.cal-num-bc { font-size: 0.875rem; font-weight: 700; }
 
 .cal-marks-bc { display: flex; flex-wrap: wrap; gap: 3px 6px; }
 
@@ -459,13 +459,13 @@
     display: inline-flex;
     align-items: center;
     gap: 3px;
-    font-size: 0.7rem;
+    font-size: 0.875rem;
     font-weight: 700;
     color: var(--text-secondary);
 }
 
 .day-panel-bc {
-    border: 1px solid var(--border-color, #e2e8f0);
+    border: 1px solid var(--border-color, var(--card-border));
     border-radius: 10px;
     padding: 14px;
     max-height: 640px;
@@ -482,7 +482,7 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    font-size: 0.72rem;
+    font-size: 0.875rem;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.03em;
@@ -497,3 +497,8 @@
 @media (max-width: 600px) {
     .cal-day-bc { min-height: 58px; padding: 4px; }
 }
+
+/* waiting list request: the number ticket with its answer buttons below */
+.request-wrap-bc { border-radius: 10px; }
+.request-wrap-bc.attention-bc { outline: 2px solid #d97706; outline-offset: 2px; }
+.request-foot-bc { padding: 8px 4px 0; display: flex; flex-direction: column; gap: 6px; }

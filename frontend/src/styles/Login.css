@@ -6,13 +6,13 @@
     justify-content: center;
     align-items: center;
     min-height: 100vh;
-    background-color: #f4f7f6;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: var(--bg-subtle);
+    font-family: var(--font-sans);
 }
 
 /* The main login card */
 .login-container {
-    background: #ffffff;
+    background: var(--bg-card);
     width: 100%;
     max-width: 400px;
     padding: 40px 30px;
@@ -27,9 +27,9 @@
 }
 
 .login-system-tag {
-    font-size: 0.85rem;
+    font-size: 0.875rem;
     font-weight: 600;
-    color: #004d99; /* STI Blue Accent */
+    color: var(--text-brand); /* STI Blue Accent */
     text-transform: uppercase;
     letter-spacing: 1.5px;
     margin-bottom: 8px;
@@ -37,7 +37,7 @@
 
 .login-title {
     font-size: 1.75rem;
-    color: #333333;
+    color: var(--text-primary);
     margin: 0;
     font-weight: 700;
 }
@@ -53,9 +53,9 @@
     width: 100%;
     padding: 14px 16px;
     font-size: 1rem;
-    border: 1px solid #d1d5db;
+    border: 1px solid var(--card-border);
     border-radius: 8px;
-    background-color: #f9fafb;
+    background-color: var(--bg-subtle);
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
     box-sizing: border-box;
 }
@@ -64,7 +64,7 @@
     outline: none;
     border-color: #004d99;
     box-shadow: 0 0 0 3px rgba(0, 77, 153, 0.1);
-    background-color: #ffffff;
+    background-color: var(--bg-card);
 }
 
 /* Buttons */
@@ -96,7 +96,7 @@
 .btn-link {
     background-color: transparent !important; /* Forces the removal of the blue background */
     border: none;
-    color: #6b7280; /* Neutral gray color for the link */
+    color: var(--text-secondary); /* Neutral gray color for the link */
     font-size: 0.9rem;
     cursor: pointer;
     text-decoration: none; /* Ensures no underline by default */
@@ -116,8 +116,8 @@
 
 /* Alert Messages */
 .error-message {
-    background-color: #fee2e2;
-    color: #b91c1c;
+    background-color: var(--status-critical-bg);
+    color: var(--status-critical-text);
     padding: 12px;
     border-radius: 8px;
     margin-bottom: 20px;
@@ -126,13 +126,13 @@
 }
 
 .success-message {
-    background-color: #d1fae5;
-    color: #047857;
+    background-color: var(--status-adequate-bg);
+    color: var(--status-adequate-text);
     padding: 12px;
     border-radius: 8px;
     margin-bottom: 20px;
     font-size: 0.9rem;
-    border: 1px solid #a7f3d0;
+    border: 1px solid var(--card-border);
 }
 
 /* Modal Overlay */
@@ -152,7 +152,7 @@
 
 /* Modal Card */
 .modal-card {
-    background: #ffffff;
+    background: var(--bg-card);
     width: 100%;
     max-width: 440px;
     padding: 30px;
@@ -164,22 +164,22 @@
 .modal-title {
     font-size: 1.4rem;
     font-weight: 700;
-    color: #1f2937;
+    color: var(--text-primary);
     margin-top: 0;
     margin-bottom: 6px;
 }
 
 .modal-subtitle {
     font-size: 0.9rem;
-    color: #6b7280;
+    color: var(--text-secondary);
     margin-bottom: 20px;
     line-height: 1.4;
 }
 
 /* Password Strength Meter */
 .password-strength-container {
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
+    background: var(--bg-subtle);
+    border: 1px solid var(--card-border);
     border-radius: 8px;
     padding: 12px;
     margin-top: 4px;
@@ -189,27 +189,27 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    font-size: 0.85rem;
+    font-size: 0.875rem;
     font-weight: 600;
-    color: #334155;
+    color: var(--text-primary);
     margin-bottom: 8px;
 }
 
 .strength-badge {
     padding: 2px 8px;
     border-radius: 4px;
-    font-size: 0.75rem;
+    font-size: 0.875rem;
     font-weight: 700;
 }
 
 .strength-badge.weak {
-    background-color: #fee2e2;
-    color: #dc2626;
+    background-color: var(--status-critical-bg);
+    color: var(--status-critical-text);
 }
 
 .strength-badge.strong {
-    background-color: #dcfce7;
-    color: #16a34a;
+    background-color: var(--status-adequate-bg);
+    color: var(--status-adequate-text);
 }
 
 /* Checklist */
@@ -217,7 +217,7 @@
     list-style: none;
     padding: 0;
     margin: 0;
-    font-size: 0.8rem;
+    font-size: 0.875rem;
 }
 
 .req-checklist li {
@@ -227,24 +227,24 @@
 }
 
 .req-checklist li.invalid {
-    color: #94a3b8;
+    color: var(--text-secondary);
 }
 
 .req-checklist li.invalid::before {
     content: "✕ ";
-    color: #ef4444;
+    color: var(--status-critical-text);
     margin-right: 6px;
     font-weight: bold;
 }
 
 .req-checklist li.valid {
-    color: #15803d;
+    color: var(--status-adequate-text);
     font-weight: 500;
 }
 
 .req-checklist li.valid::before {
     content: "✓ ";
-    color: #22c55e;
+    color: var(--status-adequate-text);
     margin-right: 6px;
     font-weight: bold;
 }
@@ -273,7 +273,7 @@
 
 /* Modal Card */
 .modal-card {
-    background: #ffffff;
+    background: var(--bg-card);
     width: 100%;
     max-width: 440px;
     padding: 30px;
@@ -285,22 +285,22 @@
 .modal-title {
     font-size: 1.4rem;
     font-weight: 700;
-    color: #1f2937;
+    color: var(--text-primary);
     margin-top: 0;
     margin-bottom: 6px;
 }
 
 .modal-subtitle {
     font-size: 0.9rem;
-    color: #6b7280;
+    color: var(--text-secondary);
     margin-bottom: 20px;
     line-height: 1.4;
 }
 
 /* Password Strength Meter */
 .password-strength-container {
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
+    background: var(--bg-subtle);
+    border: 1px solid var(--card-border);
     border-radius: 8px;
     padding: 12px;
     margin-top: 4px;
@@ -310,27 +310,27 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    font-size: 0.85rem;
+    font-size: 0.875rem;
     font-weight: 600;
-    color: #334155;
+    color: var(--text-primary);
     margin-bottom: 8px;
 }
 
 .strength-badge {
     padding: 2px 8px;
     border-radius: 4px;
-    font-size: 0.75rem;
+    font-size: 0.875rem;
     font-weight: 700;
 }
 
 .strength-badge.weak {
-    background-color: #fee2e2;
-    color: #dc2626;
+    background-color: var(--status-critical-bg);
+    color: var(--status-critical-text);
 }
 
 .strength-badge.strong {
-    background-color: #dcfce7;
-    color: #16a34a;
+    background-color: var(--status-adequate-bg);
+    color: var(--status-adequate-text);
 }
 
 /* Checklist */
@@ -338,7 +338,7 @@
     list-style: none;
     padding: 0;
     margin: 0;
-    font-size: 0.8rem;
+    font-size: 0.875rem;
 }
 
 .req-checklist li {
@@ -348,24 +348,24 @@
 }
 
 .req-checklist li.invalid {
-    color: #94a3b8;
+    color: var(--text-secondary);
 }
 
 .req-checklist li.invalid::before {
     content: "✕ ";
-    color: #ef4444;
+    color: var(--status-critical-text);
     margin-right: 6px;
     font-weight: bold;
 }
 
 .req-checklist li.valid {
-    color: #15803d;
+    color: var(--status-adequate-text);
     font-weight: 500;
 }
 
 .req-checklist li.valid::before {
     content: "✓ ";
-    color: #22c55e;
+    color: var(--status-adequate-text);
     margin-right: 6px;
     font-weight: bold;
 }
@@ -402,7 +402,7 @@
   margin-left: 90%;
   margin-top: auto;
   cursor: pointer;
-  color: #6b7280; /* Neutral icon color matching your image */
+  color: var(--text-secondary); /* Neutral icon color matching your image */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -410,7 +410,7 @@
 }
 
 .password-toggle-btn:hover {
-  color: #374151;
+  color: var(--text-primary);
 }
 
 .password-toggle-btn:focus {

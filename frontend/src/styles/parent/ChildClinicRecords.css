@@ -5,14 +5,14 @@
   --sti-bg: var(--bg-page);
   --sti-card-bg: var(--bg-card);
   --sti-text: var(--text-primary);
-  --sti-border: #e2e8f0;
+  --sti-border: var(--card-border);
 }
 
 * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-  font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-family: var(--font-sans);
 }
 
 body {
@@ -38,13 +38,13 @@ body {
 }
 
 .header-title-ccr h1 {
-  font-size: 18px;
+  font-size: 1.125rem;
   font-weight: 700;
   margin-bottom: 4px;
 }
 
 .header-title-ccr p {
-  font-size: 12px;
+  font-size: 0.875rem;
   color: var(--sti-yellow);
 }
 
@@ -69,7 +69,7 @@ body {
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;
-  font-size: 13px;
+  font-size: 0.875rem;
   color: var(--sti-text);
   font-weight: 600;
   width: 100%;
@@ -88,7 +88,7 @@ body {
   padding: 8px 10px;
   border: 1px solid var(--sti-border);
   border-radius: 4px;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   color: var(--sti-text);
   background-color: var(--bg-card);
 }
@@ -100,7 +100,7 @@ body {
   justify-content: center;
   gap: 6px;
   padding: 8px 14px;
-  font-size: 13px;
+  font-size: 0.875rem;
   font-weight: 600;
   border-radius: 4px;
   border: none;
@@ -121,8 +121,8 @@ body {
 }
 
 .btn-secondary-ccr {
-  background-color: #e2e8f0;
-  color: var(--sti-navy);
+  background-color: var(--bg-muted);
+  color: var(--text-brand);
 }
 
 .btn-secondary-ccr:hover {
@@ -152,7 +152,7 @@ body {
   background: transparent;
   border: none;
   border-bottom: 3px solid transparent;
-  font-size: 10px;
+  font-size: 0.875rem;
   font-weight: 600;
   color: var(--text-secondary);
   cursor: pointer;
@@ -197,7 +197,7 @@ body {
   width: 100%;
   border-collapse: collapse;
   text-align: left;
-  font-size: 13px;
+  font-size: 0.875rem;
 }
 
 .table-ccr th {
@@ -233,10 +233,10 @@ body {
   width: 32px;
   height: 32px;
   padding: 0;
-  background-color: #f1f5f9;
+  background-color: var(--bg-subtle);
   border: 1px solid var(--sti-border);
   border-radius: 6px;
-  color: var(--sti-blue);
+  color: var(--text-brand);
   cursor: pointer;
   transition: all 0.2s ease;
 }
@@ -251,32 +251,32 @@ body {
   display: inline-block;
   padding: 4px 8px;
   border-radius: 12px;
-  font-size: 11px;
+  font-size: 0.875rem;
   font-weight: 600;
   text-transform: capitalize;
   white-space: nowrap;
 }
 
-.tag-doc-ccr { background-color: #e0f2fe; color: #0369a1; }
-.tag-req-ccr { background-color: #fae8ff; color: #86198f; }
-.tag-direct-ccr { background-color: #e0f2fe; color: #0369a1; }
-.tag-consult-ccr { background-color: #fef3c7; color: #b45309; }
-.tag-screening-ccr { background-color: #f3e8ff; color: #6b21a8; }
+.tag-doc-ccr { background-color: var(--sti-blue-light); color: var(--text-brand); }
+.tag-req-ccr { background-color: var(--tint-violet-bg); color: var(--text-accent); }
+.tag-direct-ccr { background-color: var(--sti-blue-light); color: var(--text-brand); }
+.tag-consult-ccr { background-color: var(--status-low-bg); color: var(--status-low-text); }
+.tag-screening-ccr { background-color: var(--tint-violet-bg); color: var(--text-accent); }
 
-.status-completed-ccr, .status-done-ccr, .status-approved-ccr, .status-issued-ccr { background-color: #d1fae5; color: #065f46; }
-.status-submitted-ccr { background-color: #e0f2fe; color: #075985; }
-.status-pending-ccr, .status-scheduled-ccr, .status-under-review-ccr, .status-pending-approval-ccr, .status-waiting-for-approval-ccr { background-color: #fef3c7; color: #92400e; }
-.status-cancelled-ccr, .status-rejected-ccr, .status-declined-ccr, .status-missing-ccr, .status-missed-ccr { background-color: #fee2e2; color: #991b1b; }
-.status-resubmit-ccr { background-color: #ffedd5; color: #c2410c; }
-.status-submitted-late-ccr { background-color: #fef08a; color: #854d0e; }
-.status-not-submitted-ccr { background-color: #f3f4f6; color: var(--text-secondary); }
-.status-ongoing-ccr, .status-upcoming-ccr { background-color: #e0f2fe; color: #0284c7; }
+.status-completed-ccr, .status-done-ccr, .status-approved-ccr, .status-issued-ccr { background-color: var(--status-adequate-bg); color: var(--status-adequate-text); }
+.status-submitted-ccr { background-color: var(--sti-blue-light); color: var(--text-brand); }
+.status-pending-ccr, .status-scheduled-ccr, .status-under-review-ccr, .status-pending-approval-ccr, .status-waiting-for-approval-ccr { background-color: var(--status-low-bg); color: var(--status-low-text); }
+.status-cancelled-ccr, .status-rejected-ccr, .status-declined-ccr, .status-missing-ccr, .status-missed-ccr { background-color: var(--status-critical-bg); color: var(--status-critical-text); }
+.status-resubmit-ccr { background-color: var(--status-low-bg); color: var(--status-low-text); }
+.status-submitted-late-ccr { background-color: var(--status-low-bg); color: var(--status-low-text); }
+.status-not-submitted-ccr { background-color: var(--bg-subtle); color: var(--text-secondary); }
+.status-ongoing-ccr, .status-upcoming-ccr { background-color: var(--sti-blue-light); color: var(--text-brand); }
 
 .loading-ccr, .no-data-ccr {
   text-align: center;
   padding: 30px 16px;
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 
 /* Detail Modal */
@@ -312,7 +312,7 @@ body {
   align-items: center;
 }
 
-.modal-header-ccr h3 { font-size: 16px; margin: 0; }
+.modal-header-ccr h3 { font-size: 1rem; margin: 0; }
 
 .modal-close-ccr {
   background: transparent;
@@ -345,14 +345,14 @@ body {
   width: 100%;
   color: var(--sti-text);
   text-transform: capitalize;
-  font-size: 13px;
+  font-size: 0.875rem;
 }
 
 .field-value-ccr {
   width: 100%;
   color: var(--text-secondary);
   word-break: break-word;
-  font-size: 13px;
+  font-size: 0.875rem;
 }
 
 .file-container-ccr {
@@ -378,7 +378,7 @@ body {
 
 .modal-footer-ccr {
   padding: 12px 16px;
-  background-color: #f8fafc;
+  background-color: var(--bg-subtle);
   display: flex;
   justify-content: flex-end;
   border-top: 1px solid var(--sti-border);
@@ -390,8 +390,8 @@ body {
 @media (min-width: 768px) {
   .container-ccr { margin: 20px auto; padding: 0 20px; }
   .header-ccr { padding: 24px; }
-  .header-title-ccr h1 { font-size: 24px; }
-  .header-title-ccr p { font-size: 14px; }
+  .header-title-ccr h1 { font-size: 1.5rem; }
+  .header-title-ccr p { font-size: 0.875rem; }
   .control-panel-ccr { padding: 16px 20px 0 20px; }
 
   .filter-bar-ccr {
@@ -409,7 +409,7 @@ body {
   .tab-ccr {
     flex-direction: row; /* Horizontal icon + text on desktop */
     padding: 12px 12px;
-    font-size: 13px;
+    font-size: 0.875rem;
     gap: 6px;
   }
 
@@ -417,6 +417,6 @@ body {
   .truncate-ccr { max-width: 220px; }
   .modal-body-ccr { padding: 20px; gap: 12px; }
   .modal-field-ccr { flex-direction: row; gap: 0; }
-  .field-key-ccr { width: 40%; font-size: 14px; }
-  .field-value-ccr { width: 60%; font-size: 14px; }
+  .field-key-ccr { width: 40%; font-size: 0.875rem; }
+  .field-value-ccr { width: 60%; font-size: 0.875rem; }
 }

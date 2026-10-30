@@ -301,7 +301,7 @@ const NurseMessages = () => {
                                             
                                             {/* Linked Student Name Indicator for Parents */}
                                             {isParent && linkedStudentName && (
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#096dd9', marginTop: '3px' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.875rem', color: 'var(--text-brand)', marginTop: '3px' }}>
                                                     <GraduationCap size={13} />
                                                     <span><strong>Connected Child:</strong> {linkedStudentName} {studentId ? `(${studentId})` : ''}</span>
                                                 </div>
@@ -309,7 +309,7 @@ const NurseMessages = () => {
 
                                             {/* Student Details for Student Role */}
                                             {!isParent && contact.detail && (
-                                                <span style={{ fontSize: '11px', color: '#595959', display: 'block', marginTop: '2px' }}>
+                                                <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', display: 'block', marginTop: '2px' }}>
                                                     {contact.detail}
                                                 </span>
                                             )}
@@ -344,7 +344,7 @@ const NurseMessages = () => {
                                             
                                             {/* Linked Student Badge for Parent Conversation */}
                                             {isParent && linkedStudentName && (
-                                                <span style={{ fontSize: '11px', color: '#1890ff', display: 'flex', alignItems: 'center', gap: '3px', marginBottom: '2px' }}>
+                                                <span style={{ fontSize: '0.875rem', color: 'var(--text-brand)', display: 'flex', alignItems: 'center', gap: '3px', marginBottom: '2px' }}>
                                                     <GraduationCap size={12} />
                                                     <span>Student: {linkedStudentName}</span>
                                                 </span>
@@ -401,7 +401,7 @@ const NurseMessages = () => {
                                 <span className="status-text">
                                     {selectedContact.role?.toUpperCase()}
                                     {(selectedContact.role?.toLowerCase() === 'parent' || selectedContact.role?.toLowerCase() === 'guardian') && selectedContact.student_name && (
-                                        <span style={{ marginLeft: '8px', color: '#595959', fontWeight: 'normal', textTransform: 'none' }}>
+                                        <span style={{ marginLeft: '8px', color: 'var(--text-secondary)', fontWeight: 'normal', textTransform: 'none' }}>
                                             • Student: <strong>{selectedContact.student_name}</strong> {selectedContact.student_id ? `(${selectedContact.student_id})` : ''}
                                         </span>
                                     )}

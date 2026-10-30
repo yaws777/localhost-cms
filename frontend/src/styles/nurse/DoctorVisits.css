@@ -6,10 +6,10 @@
     /* --sti-blue/--sti-navy/--sti-yellow now come from the shared
        frontend/src/styles/theme.css tokens */
     --sti-yellow-hover: #e0a800;
-    --sti-light-bg: #f8f9fa;
-    --sti-border: #e2e8f0;
+    --sti-light-bg: var(--bg-subtle);
+    --sti-border: var(--card-border);
     --sti-text-dark: var(--text-primary);
-    --sti-text-muted: #64748b;
+    --sti-text-muted: var(--text-secondary);
     --sti-success: #10b981;
     --sti-danger: #ef4444;
 }
@@ -18,7 +18,7 @@
     padding: 24px;
     background-color: var(--sti-light-bg);
     min-height: 100vh;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-family: var(--font-sans);
     color: var(--sti-text-dark);
 }
 
@@ -85,7 +85,7 @@
 }
 
 .sti-btn-light-dv {
-    background-color: #e2e8f0;
+    background-color: var(--bg-muted);
     color: var(--sti-text-dark);
 }
 
@@ -118,12 +118,12 @@
 }
 
 .doctor-chip-dv {
-    background: #eef6ff;
+    background: var(--sti-blue-light);
     border: 1px solid #bedbff;
     padding: 4px 10px;
     border-radius: 20px;
-    font-size: 0.82rem;
-    color: var(--sti-blue);
+    font-size: 0.875rem;
+    color: var(--text-brand);
     display: flex;
     align-items: center;
     gap: 6px;
@@ -132,7 +132,7 @@
 .chip-edit-btn-dv {
     background: none;
     border: none;
-    color: var(--sti-blue);
+    color: var(--text-brand);
     cursor: pointer;
     padding: 0;
     display: flex;
@@ -140,7 +140,7 @@
 }
 
 .chip-edit-btn-dv:hover {
-    color: var(--sti-navy);
+    color: var(--text-brand);
 }
 
 /* Tabs & Filter Bar */
@@ -217,7 +217,7 @@
     background: var(--table-header-bg);
     color: var(--table-header-text);
     padding: 12px 16px;
-    font-size: 0.82rem;
+    font-size: 0.875rem;
     text-transform: uppercase;
     letter-spacing: 0.5px;
     border-bottom: 2px solid var(--sti-border);
@@ -231,7 +231,7 @@
 }
 
 .sub-text-dv {
-    font-size: 0.78rem;
+    font-size: 0.875rem;
     color: var(--sti-text-muted);
     margin-top: 2px;
 }
@@ -240,59 +240,59 @@
 .status-badge-dv {
     padding: 4px 10px;
     border-radius: 12px;
-    font-size: 0.75rem;
+    font-size: 0.875rem;
     font-weight: 700;
     text-transform: uppercase;
 }
 
 .badge-upcoming-dv {
-    background: #e0f2fe;
-    color: #0369a1;
+    background: var(--sti-blue-light);
+    color: var(--text-brand);
 }
 
 .badge-ongoing-dv {
-    background: #fef3c7;
-    color: #b45309;
+    background: var(--status-low-bg);
+    color: var(--status-low-text);
 }
 
 .badge-completed-dv {
-    background: #dcfce7;
-    color: #15803d;
+    background: var(--status-adequate-bg);
+    color: var(--status-adequate-text);
 }
 
 .badge-cancelled-dv {
-    background: #fee2e2;
-    color: #b91c1c;
+    background: var(--status-critical-bg);
+    color: var(--status-critical-text);
 }
 
 .badge-present-dv {
-    background: #dcfce7;
-    color: #15803d;
+    background: var(--status-adequate-bg);
+    color: var(--status-adequate-text);
 }
 
 .badge-absent-dv {
-    background: #fee2e2;
-    color: #b91c1c;
+    background: var(--status-critical-bg);
+    color: var(--status-critical-text);
 }
 
 .badge-pending-dv {
-    background: #f1f5f9;
+    background: var(--bg-subtle);
     color: var(--text-secondary);
 }
 
 .doc-done-badge-dv {
-    color: var(--sti-success);
+    color: var(--status-adequate-text);
     font-weight: 600;
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    font-size: 0.82rem;
+    font-size: 0.875rem;
 }
 
 .doc-pending-badge-dv {
     color: var(--sti-text-muted);
     font-style: italic;
-    font-size: 0.82rem;
+    font-size: 0.875rem;
 }
 
 /* Table Action Buttons */
@@ -309,20 +309,20 @@
     border-radius: 4px;
     border: 1px solid var(--sti-border);
     background: var(--bg-card);
-    font-size: 0.78rem;
+    font-size: 0.875rem;
     font-weight: 600;
     cursor: pointer;
     transition: background 0.15s;
 }
 
 .action-btn-dv.edit-dv:hover {
-    background: #e0f2fe;
-    color: var(--sti-blue);
+    background: var(--sti-blue-light);
+    color: var(--text-brand);
 }
 
 .action-btn-dv.cancel-dv:hover {
-    background: #fee2e2;
-    color: var(--sti-danger);
+    background: var(--status-critical-bg);
+    color: var(--status-critical-text);
 }
 
 .action-btn-dv.document-dv {
@@ -392,7 +392,7 @@
 
 .form-group-dv label {
     display: block;
-    font-size: 0.82rem;
+    font-size: 0.875rem;
     font-weight: 600;
     color: var(--text-primary);
     margin-bottom: 6px;
@@ -445,21 +445,21 @@
     padding: 6px 8px;
     border-radius: 4px;
     cursor: pointer;
-    font-size: 0.85rem;
+    font-size: 0.875rem;
 }
 
 .student-checkbox-item-dv:hover, 
 .student-checkbox-item-dv.selected-dv {
-    background-color: #eef6ff;
+    background-color: var(--sti-blue-light);
 }
 
 .error-banner-dv {
-    background-color: #fef2f2;
+    background-color: var(--status-critical-bg);
     border: 1px solid #fecaca;
-    color: #991b1b;
+    color: var(--status-critical-text);
     padding: 10px;
     border-radius: 6px;
-    font-size: 0.82rem;
+    font-size: 0.875rem;
     display: flex;
     align-items: center;
     gap: 6px;
@@ -467,7 +467,7 @@
 }
 
 .appt-info-card-dv {
-    background: #f1f5f9;
+    background: var(--bg-subtle);
     padding: 10px;
     border-radius: 6px;
     margin-bottom: 14px;
@@ -485,21 +485,21 @@
    ========================================================================== */
 
 .badge-excused-dv {
-    background: #e0f2fe;
-    color: #075985;
+    background: var(--sti-blue-light);
+    color: var(--text-brand);
 }
 
 .hint-dv {
-    font-size: 0.85rem;
+    font-size: 0.875rem;
     color: var(--sti-text-muted);
     margin: 4px 0 12px;
 }
 
 .flag-dv {
     display: inline-block;
-    background: #fee2e2;
-    color: #991b1b;
-    font-size: 0.72rem;
+    background: var(--status-critical-bg);
+    color: var(--status-critical-text);
+    font-size: 0.875rem;
     font-weight: 600;
     border-radius: 999px;
     padding: 2px 8px;
@@ -541,7 +541,7 @@
     text-align: left;
     padding: 8px 10px;
     border-radius: 6px;
-    font-size: 0.85rem;
+    font-size: 0.875rem;
     color: var(--text-primary);
     cursor: pointer;
 }
@@ -551,33 +551,33 @@
 }
 
 .row-menu-dv button.danger-dv {
-    color: #dc2626;
+    color: var(--status-critical-text);
 }
 
 .avail-ok-dv,
 .avail-warn-dv {
-    font-size: 0.82rem;
+    font-size: 0.875rem;
     border-radius: 6px;
     padding: 8px 12px;
     margin: 0 0 14px;
 }
 
 .avail-ok-dv {
-    background: #ecfdf5;
-    color: #065f46;
-    border: 1px solid #a7f3d0;
+    background: var(--status-adequate-bg);
+    color: var(--status-adequate-text);
+    border: 1px solid var(--card-border);
 }
 
 .avail-warn-dv {
-    background: #fffbeb;
-    color: #92400e;
-    border: 1px solid #fde68a;
+    background: var(--status-low-bg);
+    color: var(--status-low-text);
+    border: 1px solid var(--card-border);
 }
 
 .link-btn-dv {
     background: none;
     border: none;
-    color: var(--sti-blue);
+    color: var(--text-brand);
     font-weight: 600;
     text-decoration: underline;
     cursor: pointer;
@@ -586,11 +586,11 @@
 }
 
 .no-schedule-chip-dv {
-    background: #fef3c7;
-    color: #92400e;
-    border: 1px solid #fde68a;
+    background: var(--status-low-bg);
+    color: var(--status-low-text);
+    border: 1px solid var(--card-border);
     border-radius: 999px;
-    font-size: 0.72rem;
+    font-size: 0.875rem;
     font-weight: 600;
     padding: 2px 8px;
     cursor: pointer;
@@ -601,9 +601,9 @@
     align-items: center;
     gap: 12px;
     flex-wrap: wrap;
-    background: #fffbeb;
-    border: 1px solid #fde68a;
-    color: #92400e;
+    background: var(--status-low-bg);
+    border: 1px solid var(--card-border);
+    color: var(--status-low-text);
     border-radius: 8px;
     padding: 10px 16px;
     margin: 12px 0;
@@ -626,19 +626,19 @@
     background: var(--bg-card);
     color: var(--text-primary);
     font-weight: 600;
-    font-size: 0.85rem;
+    font-size: 0.875rem;
     cursor: pointer;
 }
 
 .slot-btn-dv small {
-    font-size: 0.7rem;
+    font-size: 0.875rem;
     font-weight: 500;
     color: var(--sti-text-muted);
 }
 
 .slot-btn-dv:disabled {
-    background: #f1f5f9;
-    color: #94a3b8;
+    background: var(--bg-subtle);
+    color: var(--text-secondary);
     cursor: not-allowed;
 }
 
@@ -687,21 +687,22 @@
 .section-tab-dv:hover { color: var(--text-primary); }
 
 .section-tab-dv.active-dv {
-    color: var(--sti-blue);
+    color: var(--text-brand);
     border-bottom-color: var(--sti-yellow);
 }
 
 .section-badge-dv {
-    background: #ef4444;
+    background: var(--danger-fill);
     color: #fff;
     border-radius: 999px;
     padding: 1px 8px;
-    font-size: 0.72rem;
+    font-size: 0.875rem;
     font-weight: 700;
 }
 
 .section-badge-dv.warn-dv {
-    background: #f59e0b;
+    background: var(--sti-yellow);
+    color: var(--text-on-yellow);
 }
 
 .cards-grid-dv {
@@ -737,16 +738,16 @@
     gap: 6px;
     padding: 3px 10px;
     border-radius: 999px;
-    font-size: 0.75rem;
+    font-size: 0.875rem;
     font-weight: 600;
 }
 
-.visit-specialty-dv { background: #e0f2fe; color: #0369a1; }
-.visit-type-dv { background: #e2e8f0; color: #334155; }
-.visit-type-dv.type-dental-dv { background: #fef3c7; color: #92400e; }
-.visit-type-dv.type-vision-dv { background: #ede9fe; color: #5b21b6; }
-.visit-type-dv.type-followup-dv { background: #dcfce7; color: #166534; }
-.visit-type-dv.type-referral-dv { background: #fee2e2; color: #991b1b; }
+.visit-specialty-dv { background: var(--sti-blue-light); color: var(--text-brand); }
+.visit-type-dv { background: var(--bg-muted); color: var(--text-primary); }
+.visit-type-dv.type-dental-dv { background: var(--status-low-bg); color: var(--status-low-text); }
+.visit-type-dv.type-vision-dv { background: var(--sti-blue-light); color: var(--text-accent); }
+.visit-type-dv.type-followup-dv { background: var(--status-adequate-bg); color: var(--status-adequate-text); }
+.visit-type-dv.type-referral-dv { background: var(--status-critical-bg); color: var(--status-critical-text); }
 
 .visit-title-dv {
     margin: 0 0 10px;
@@ -773,7 +774,7 @@
 }
 
 .visit-facts-dv .visit-doctor-dv {
-    font-size: 0.82rem;
+    font-size: 0.875rem;
     font-style: italic;
 }
 
@@ -798,7 +799,7 @@
 }
 
 .visit-actions-dv .visit-delete-dv {
-    background: #ef4444;
+    background: var(--danger-fill);
     color: #fff;
     border: none;
 }
@@ -820,7 +821,7 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    font-size: 0.82rem;
+    font-size: 0.875rem;
     font-weight: 600;
     color: var(--sti-text-muted);
 }
@@ -829,7 +830,7 @@
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    font-size: 0.78rem;
+    font-size: 0.875rem;
     font-weight: 600;
     color: var(--sti-text-muted);
 }
@@ -841,13 +842,13 @@
     border: 1px solid var(--sti-border);
     background: var(--bg-card);
     color: var(--text-primary);
-    font-size: 0.82rem;
+    font-size: 0.875rem;
 }
 
 .past-filters-dv .reset-dv {
     margin-left: auto;
     padding: 6px 12px;
-    font-size: 0.78rem;
+    font-size: 0.875rem;
 }
 
 /* Phones: header buttons, tabs and the search box wrap instead of overflowing */

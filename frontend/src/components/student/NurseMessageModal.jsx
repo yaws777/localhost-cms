@@ -341,14 +341,14 @@ const NurseMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
                                                     <span className="role-tag">{contact.role.toUpperCase()}</span>
                                                     
                                                     {isParent && linkedStudentName && (
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#096dd9', marginTop: '3px' }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.875rem', color: 'var(--text-brand)', marginTop: '3px' }}>
                                                             <GraduationCap size={13} />
                                                             <span><strong>Connected Child:</strong> {linkedStudentName} {studentId ? `(${studentId})` : ''}</span>
                                                         </div>
                                                     )}
 
                                                     {!isParent && contact.detail && (
-                                                        <span style={{ fontSize: '11px', color: '#595959', display: 'block', marginTop: '2px' }}>
+                                                        <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', display: 'block', marginTop: '2px' }}>
                                                             {contact.detail}
                                                         </span>
                                                     )}
@@ -382,7 +382,7 @@ const NurseMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
                                                     </div>
                                                     
                                                     {isParent && linkedStudentName && (
-                                                        <span style={{ fontSize: '11px', color: '#1890ff', display: 'flex', alignItems: 'center', gap: '3px', marginBottom: '2px' }}>
+                                                        <span style={{ fontSize: '0.875rem', color: 'var(--text-brand)', display: 'flex', alignItems: 'center', gap: '3px', marginBottom: '2px' }}>
                                                             <GraduationCap size={12} />
                                                             <span>Student: {linkedStudentName}</span>
                                                         </span>
@@ -444,7 +444,7 @@ const NurseMessageModal = ({ userId, onClose, refreshUnreadCount }) => {
                                         <span className="status-text">
                                             {selectedContact.role?.toUpperCase()}
                                             {(selectedContact.role?.toLowerCase() === 'parent' || selectedContact.role?.toLowerCase() === 'guardian') && selectedContact.student_name && (
-                                                <span className="mobile-hide-student" style={{ marginLeft: '8px', color: '#595959', fontWeight: 'normal', textTransform: 'none' }}>
+                                                <span className="mobile-hide-student" style={{ marginLeft: '8px', color: 'var(--text-secondary)', fontWeight: 'normal', textTransform: 'none' }}>
                                                     • Student: <strong>{selectedContact.student_name}</strong> {selectedContact.student_id ? `(${selectedContact.student_id})` : ''}
                                                 </span>
                                             )}

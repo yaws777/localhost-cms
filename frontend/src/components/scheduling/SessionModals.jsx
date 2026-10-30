@@ -1,11 +1,10 @@
 // SessionModals.jsx
-// Dialogs for a consultation session that both the nurse and the doctor use:
+// Dialogs for a check-up session that both the nurse and the doctor use:
 // appoint a student into a session, extend a session, extend one appointment.
 import React, { useState, useEffect, useCallback } from 'react';
 import { CalendarPlus, CalendarClock, Ban, TimerReset, Users } from 'lucide-react';
 import Modal from '../common/Modal';
 import { useAlert } from '../../context/AlertContext';
-import { formatTime } from '../../utils/datetime';
 import { visitLabel, fullName } from '../../utils/visitPurpose';
 import { API, SCHEDULING_WAYS, wayOf, dayLabel, to12h, upcomingDates, sessionEnded } from '../../utils/scheduling';
 import { useSpecializations } from '../../hooks/useSpecializations';
@@ -24,7 +23,7 @@ const send = async (path, method, body) => {
 export const creatorBody = (creator) => (creator.nurseId ? { nurse_id: creator.nurseId } : { created_by_doctor_id: creator.doctorId });
 
 // ---------------------------------------------------------------------------
-// Appoint a student into a session (Appointment or Open Slot schedule)
+// Appoint a student into a session: no time is picked, the student takes the next queue number of that session day
 // ---------------------------------------------------------------------------
 export const AppointModal = ({ isOpen, schedule, request, fixedDate, creator, userId, onClose, onDone }) => {
     const { showAlert } = useAlert();
@@ -32,28 +31,21 @@ export const AppointModal = ({ isOpen, schedule, request, fixedDate, creator, us
     const [student, setStudent] = useState(null);
     const [dates, setDates] = useState([]);
     const [date, setDate] = useState('');
-    const [slots, setSlots] = useState([]);
-    const [slotsLoading, setSlotsLoading] = useState(false);
-    const [slot, setSlot] = useState('');
-    const [duration, setDuration] = useState(15);
+    const [queue, setQueue] = useState(null);
     const [visitType, setVisitType] = useState('');
     const [reason, setReason] = useState('');
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
 
-    const loadSlots = useCallback(async (forDate, forStudent) => {
-        if (!schedule || !forDate) return;
-        setSlotsLoading(true);
-        setSlot('');
+    // how full the session day is and which number the student will get
+    const loadQueue = useCallback(async (forDate) => {
+        if (!schedule || !forDate) { setQueue(null); return; }
         try {
-            const qs = forStudent ? `&student_id=${encodeURIComponent(forStudent)}` : '';
-            const res = await fetch(`${API}/api/doctor-schedules/${schedule.schedule_id}/slots?date=${forDate}${qs}`);
+            const res = await fetch(`${API}/api/doctor-schedules/${schedule.schedule_id}/queue?date=${forDate}`);
             const data = await res.json();
-            setSlots(data.success ? data.slots : []);
+            setQueue(data.success ? data.queue : null);
         } catch (e) {
-            setSlots([]);
-        } finally {
-            setSlotsLoading(false);
+            setQueue(null);
         }
     }, [schedule]);
 
@@ -69,32 +61,34 @@ export const AppointModal = ({ isOpen, schedule, request, fixedDate, creator, us
             student_id: request.student_id, first_name: request.student_first_name, last_name: request.student_last_name,
             program_name: request.program_name, year_level: request.year_level, section: request.section
         } : null);
-        setDuration(schedule.slot_duration_min || 15);
-        // the purpose of the consultation is never guessed: it is the student's request, the session's own purpose, or picked by the staff
+        // the purpose of the check-up is never guessed: it is the student's request, the session's own purpose, or picked by the staff
         setVisitType(request ? request.visit_type : visitTypes.includes(schedule.visit_type) ? schedule.visit_type : '');
-        setReason(request ? request.reason : '');
+        setReason('');
         setError('');
         setBusy(false);
-        loadSlots(preferred, request ? request.student_id : null);
-    }, [isOpen, schedule, request, fixedDate, loadSlots, visitTypes]);
+        loadQueue(preferred);
+    }, [isOpen, schedule, request, fixedDate, loadQueue, visitTypes]);
 
-    const pickStudent = (s) => { setStudent(s); loadSlots(date, s ? s.student_id : null); };
-    const pickDate = (d) => { setDate(d); loadSlots(d, student ? student.student_id : null); };
+    const pickDate = (d) => { setDate(d); loadQueue(d); };
+
+    const listed = queue ? queue.entries.filter((e) => e.lane === 'Listed' && e.state !== 'Void') : [];
+    const nextNo = queue ? Math.max(0, ...queue.entries.filter((e) => e.lane === 'Listed').map((e) => e.queue_no)) + 1 : null;
+    const full = !!queue && listed.length >= queue.capacity;
 
     const submit = async (e) => {
         e.preventDefault();
         setError('');
         if (!student) { setError('Choose the student.'); return; }
-        if (!visitType) { setError('Select the purpose of the consultation.'); return; }
+        if (!visitType) { setError('Select the purpose of the check-up.'); return; }
         if (schedule.visit_type !== 'Any' && visitTypes.includes(schedule.visit_type) && visitType !== schedule.visit_type) {
-            setError(`This session is for ${schedule.visit_type} consultations, so the purpose has to be ${schedule.visit_type}.`); return;
+            setError(`This session is for ${schedule.visit_type} check-ups, so the purpose has to be ${schedule.visit_type}.`); return;
         }
-        if (!date || !slot) { setError('Pick the day and a time.'); return; }
+        if (!date) { setError('Pick the day of the session.'); return; }
         setBusy(true);
         try {
             const data = await send(`/api/doctor-schedules/${schedule.schedule_id}/appoint`, 'POST', {
                 ...creatorBody(creator), sender_id: userId, student_id: student.student_id, request_id: request ? request.request_id : undefined,
-                date, start_time: slot, duration_min: duration, visit_type: visitType, reason
+                date, visit_type: visitType, reason
             });
             if (data.success) {
                 showAlert(data.message, 'success');
@@ -102,7 +96,7 @@ export const AppointModal = ({ isOpen, schedule, request, fixedDate, creator, us
                 onClose();
             } else {
                 setError(data.message || 'Could not appoint the student.');
-                if (data.httpStatus === 409) loadSlots(date, student.student_id);
+                if (data.httpStatus === 409) loadQueue(date);
             }
         } catch (err) {
             setError('Could not reach the server.');
@@ -115,7 +109,7 @@ export const AppointModal = ({ isOpen, schedule, request, fixedDate, creator, us
     const docName = schedule.doctor_name || `Dr. ${schedule.doc_first_name || ''} ${schedule.doc_last_name || ''}`.trim();
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Appoint a student" icon={<CalendarPlus size={20} />} size="lg">
+        <Modal isOpen={isOpen} onClose={onClose} title="Appoint a student" icon={<CalendarPlus size={20} />} size="md">
             <form className="dp-form" onSubmit={submit}>
                 <div className="dp-notice">
                     {docName} - {to12h(schedule.start_time)} to {to12h(schedule.end_time)}{schedule.location ? ` - ${schedule.location}` : ''}.
@@ -125,18 +119,18 @@ export const AppointModal = ({ isOpen, schedule, request, fixedDate, creator, us
 
                 {request ? (
                     <div className="dp-notice">
-                        <strong>{fullName(request.student_first_name, request.student_last_name)}</strong> - {visitLabel(request.visit_type, request.purpose_other)}<br />
+                        <strong>{fullName(request.student_first_name, request.student_last_name)}</strong> - {visitLabel(request.visit_type, request.purpose_other)} (list no. #{request.queue_no})<br />
                         Reason: {request.reason}
                     </div>
-                ) : <StudentPicker value={student} onChange={pickStudent} />}
+                ) : <StudentPicker value={student} onChange={setStudent} />}
 
                 {request ? (
                     <div className="dp-hint">The purpose follows the student's request: <strong>{visitLabel(request.visit_type, request.purpose_other)}</strong>.</div>
                 ) : schedule.visit_type !== 'Any' && visitTypes.includes(schedule.visit_type) ? (
-                    <div className="dp-hint">Purpose of the consultation: <strong>{schedule.visit_type}</strong> (the purpose of this session).</div>
+                    <div className="dp-hint">Purpose of the check-up: <strong>{schedule.visit_type}</strong> (the purpose of this session).</div>
                 ) : (
                     <div className="dp-field">
-                        <label htmlFor="appoint-type">Purpose of the consultation</label>
+                        <label htmlFor="appoint-type">Purpose of the check-up</label>
                         <select id="appoint-type" className="dp-select" required value={visitType} onChange={(e) => setVisitType(e.target.value)}>
                             <option value="">-- Select the purpose --</option>
                             {visitTypes.filter((p) => !schedule.covered_visit_types || schedule.covered_visit_types.includes(p)).map((p) => <option key={p} value={p}>{p}</option>)}
@@ -144,40 +138,21 @@ export const AppointModal = ({ isOpen, schedule, request, fixedDate, creator, us
                     </div>
                 )}
 
-                <div className="dp-row">
-                    <div className="dp-field">
-                        <label>Day of the session</label>
-                        <select className="dp-select" required value={date} onChange={(e) => pickDate(e.target.value)}>
-                            {dates.length === 0 && <option value="">No day left: the session is over</option>}
-                            {dates.map((d) => <option key={d} value={d}>{dayLabel(d, { weekday: 'long', month: 'long', day: 'numeric' })}</option>)}
-                        </select>
-                    </div>
-                    <div className="dp-field">
-                        <label>Minutes</label>
-                        <input className="dp-input" type="number" min={5} max={240} step={5} required value={duration} onChange={(e) => setDuration(e.target.value)} />
-                    </div>
+                <div className="dp-field">
+                    <label>Day of the session</label>
+                    <select className="dp-select" required value={date} onChange={(e) => pickDate(e.target.value)}>
+                        {dates.length === 0 && <option value="">No day left: the session is over</option>}
+                        {dates.map((d) => <option key={d} value={d}>{dayLabel(d, { weekday: 'long', month: 'long', day: 'numeric' })}</option>)}
+                    </select>
                 </div>
 
-                <div className="dp-field">
-                    <label>Start time</label>
-                    {slotsLoading ? <p className="dp-hint">Loading times...</p> : slots.length === 0 ? <p className="dp-hint">No times to show for this day.</p> : (
-                        <div className="slot-grid-sc">
-                            {slots.map((s) => {
-                                const t = s.start_time.slice(11, 16);
-                                return (
-                                    <button
-                                        key={s.start_time} type="button" disabled={!s.available}
-                                        className={`slot-sc ${slot === t ? 'selected-sc' : ''}`} onClick={() => setSlot(t)}
-                                        title={s.mine ? 'This student already has an appointment then' : s.blocked ? 'The doctor is unavailable' : s.past ? 'Already passed' : !s.available ? 'Fully booked' : 'Free'}
-                                    >
-                                        {formatTime(s.start_time)}
-                                        <small>{s.mine ? 'Has one' : s.blocked ? 'Absent' : s.past ? 'Passed' : s.available ? `${s.capacity - s.booked} free` : 'Full'}</small>
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    )}
-                </div>
+                {queue && (
+                    <div className={full ? 'dp-error' : 'dp-notice'}>
+                        {full
+                            ? `This session day is full (${queue.capacity} students).`
+                            : <>The student will get queue number <strong>#{nextNo}</strong>. {listed.length} of {queue.capacity} places are taken.</>}
+                    </div>
+                )}
 
                 <div className="dp-field">
                     <label>Note for the student (optional)</label>
@@ -186,7 +161,7 @@ export const AppointModal = ({ isOpen, schedule, request, fixedDate, creator, us
 
                 <div className="dp-modal-foot">
                     <button type="button" className="dp-btn dp-btn-ghost" onClick={onClose}>Cancel</button>
-                    <button type="submit" className="dp-btn dp-btn-primary" disabled={busy || !slot || !student || !visitType}>{busy ? 'Appointing...' : 'Appoint student'}</button>
+                    <button type="submit" className="dp-btn dp-btn-primary" disabled={busy || !date || !student || !visitType || full}>{busy ? 'Appointing...' : 'Appoint student'}</button>
                 </div>
             </form>
         </Modal>
@@ -194,16 +169,16 @@ export const AppointModal = ({ isOpen, schedule, request, fixedDate, creator, us
 };
 
 // ---------------------------------------------------------------------------
-// Participants: everyone who has a place in one session
+// Participants: everyone who has a place in one session, in queue order
 // ---------------------------------------------------------------------------
-// While the session is still upcoming the nurse or doctor can move or cancel any participant's appointment
+// Before the session ends the nurse or doctor can cancel a waiting place (the student returns to the waiting list, keeping the place in line)
 export const ParticipantsModal = ({ schedule, userId, onClose, onChanged }) => {
     const { showAlert } = useAlert();
     const [list, setList] = useState(null);
     const [reloadKey, setReloadKey] = useState(0);
     const [moveFor, setMoveFor] = useState(null);
     const [cancelFor, setCancelFor] = useState(null);
-    const canChange = !!schedule && schedule.state === 'upcoming';
+    const canChange = !!schedule && schedule.state !== 'past';
 
     useEffect(() => {
         if (!schedule) return undefined;
@@ -226,8 +201,8 @@ export const ParticipantsModal = ({ schedule, userId, onClose, onChanged }) => {
 
     const cancel = async (reason) => {
         const res = await send(`/api/doctor-visits/cancel/${cancelFor.appointment_id}`, 'PUT', { sender_id: userId, reason });
-        if (res.success) { setCancelFor(null); showAlert('Appointment cancelled. The student and parents were notified.', 'success'); changed(); }
-        else showAlert(res.message || 'Could not cancel the appointment.', 'error');
+        if (res.success) { setCancelFor(null); showAlert('Place cancelled. The student and parents were notified.', 'success'); changed(); }
+        else showAlert(res.message || 'Could not cancel the place.', 'error');
     };
 
     return (
@@ -242,28 +217,30 @@ export const ParticipantsModal = ({ schedule, userId, onClose, onChanged }) => {
                         <div className="table-card-dv">
                             <table className="sti-table-dv">
                                 <thead>
-                                    <tr><th>Student</th><th>Time</th><th>Purpose</th><th>Scheduled by</th><th>Status</th>{canChange && <th>Actions</th>}</tr>
+                                    <tr><th>No.</th><th>Student</th><th>Purpose</th><th>How</th><th>Status</th>{canChange && <th>Actions</th>}</tr>
                                 </thead>
                                 <tbody>
                                     {list.map((p) => (
-                                        <tr key={`${p.appointment_id}-${p.student_id}`}>
+                                        <tr key={`${p.appointment_id}-${p.student_id}`} className={p.queue_state === 'Void' ? 'void-row-sc' : ''}>
+                                            <td><strong>{p.queue_label || to12h(p.start_time.slice(11))}</strong></td>
                                             <td>
                                                 {p.student_name}
                                                 <div className="muted-ds">{p.student_id}{p.program_name ? ` - ${p.program_name} ${p.year_level || ''}${p.section || ''}` : ''}</div>
                                             </td>
-                                            <td>{to12h(p.start_time.slice(11))} - {to12h(p.end_time.slice(11))}</td>
                                             <td>{visitLabel(p.visit_type, p.purpose_other)}</td>
                                             <td><span className={`type-badge-sc ${SCHEDULING_WAYS[wayOf(p.booking_source)].cls}`}>{SCHEDULING_WAYS[wayOf(p.booking_source)].label}</span></td>
                                             <td>
-                                                {p.status}
+                                                {p.queue_state || p.status}
                                                 {p.attendance_status && p.attendance_status !== 'Pending' && <div className="muted-ds">{p.attendance_status}</div>}
                                             </td>
                                             {canChange && (
                                                 <td>
-                                                    {['Scheduled', 'Waiting for Approval'].includes(p.status) && (
+                                                    {p.status === 'Scheduled' && (!p.queue_state || p.queue_state === 'Waiting') && (
                                                         <div className="row-actions-sc">
-                                                            <button type="button" className="icon-btn-ds" title="Change the time of this participant" onClick={() => setMoveFor({ ...p, schedule_id: schedule.schedule_id, doctor_id: schedule.doctor_id, student_first_name: p.student_name, student_last_name: '' })}><CalendarClock size={15} /></button>
-                                                            <button type="button" className="icon-btn-ds" title="Cancel this participant's appointment" onClick={() => setCancelFor(p)}><Ban size={15} /></button>
+                                                            {!p.queue_state && schedule.state === 'upcoming' && (
+                                                                <button type="button" className="icon-btn-ds" title="Change the time of this participant" onClick={() => setMoveFor({ ...p, schedule_id: schedule.schedule_id, doctor_id: schedule.doctor_id, student_first_name: p.student_name, student_last_name: '' })}><CalendarClock size={15} /></button>
+                                                            )}
+                                                            <button type="button" className="icon-btn-ds" title="Cancel this place" onClick={() => setCancelFor(p)}><Ban size={15} /></button>
                                                         </div>
                                                     )}
                                                 </td>
@@ -283,11 +260,11 @@ export const ParticipantsModal = ({ schedule, userId, onClose, onChanged }) => {
         {moveFor && <RescheduleModal key={moveFor.appointment_id} appt={moveFor} onSubmit={move} onClose={() => setMoveFor(null)} />}
         <ReasonModal
             isOpen={!!cancelFor}
-            title="Cancel appointment"
-            message={cancelFor && `${cancelFor.student_name} - ${to12h(cancelFor.start_time.slice(11))}. The student and parents are notified.`}
+            title="Cancel this place"
+            message={cancelFor && `${cancelFor.student_name} - ${cancelFor.queue_label || to12h(cancelFor.start_time.slice(11))}. The student and parents are notified and the student can ask for a place in another listing.`}
             label="Reason (shown to the student)"
-            placeholder="e.g. The doctor is unavailable, please rebook"
-            confirmLabel="Cancel appointment"
+            placeholder="e.g. The doctor has to leave early"
+            confirmLabel="Cancel place"
             danger
             onSubmit={cancel}
             onClose={() => setCancelFor(null)}
@@ -358,7 +335,7 @@ export const ExtendSessionModal = ({ schedule, creator, userId, onClose, onDone 
 };
 
 // ---------------------------------------------------------------------------
-// Extend one appointment (the consultation runs longer)
+// Extend one appointment (the check-up runs longer)
 // ---------------------------------------------------------------------------
 export const ExtendAppointmentModal = ({ appt, creator, userId, onClose, onDone }) => {
     const { showAlert } = useAlert();

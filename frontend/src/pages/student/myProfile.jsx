@@ -455,7 +455,7 @@ export default function MyProfile() {
                     <div className="profile-form requirements-tab-section">
                         <div className="requirements-header-block" style={{ marginBottom: '20px' }}>
                             <h3>Medical Requirements Checklist</h3>
-                            <p style={{ fontSize: '0.9rem', color: '#666' }}>
+                            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
                                 Upload structural files from your local folder. Rows with passed deadlines and disabled late configurations will be blocked securely.
                             </p>
                         </div>
@@ -472,7 +472,7 @@ export default function MyProfile() {
                             <div className="table-responsive-wrapper" style={{ overflowX: 'auto' }}>
                                 <table className="profile-data-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
                                     <thead>
-                                        <tr style={{ borderBottom: '2px solid #eaeaea', backgroundColor: '#f9f9f9' }}>
+                                        <tr style={{ borderBottom: '2px solid var(--card-border)', backgroundColor: 'var(--bg-subtle)' }}>
                                             <th style={{ padding: '12px' }}>Requirement Name</th>
                                             <th style={{ padding: '12px' }}>Classification</th>
                                             <th style={{ padding: '12px' }}>Submission Deadline</th>
@@ -496,16 +496,16 @@ export default function MyProfile() {
                                                 : (req.status || 'Pending');
 
                                             return (
-                                                <tr key={req.requirement_name} style={{ borderBottom: '1px solid #eee', backgroundColor: submissionIsLocked ? '#fafafa' : 'transparent' }}>
+                                                <tr key={req.requirement_name} style={{ borderBottom: '1px solid var(--card-border)', backgroundColor: submissionIsLocked ? '#fafafa' : 'transparent' }}>
                                                     <td style={{ padding: '12px', fontWeight: '500' }}>
-                                                        <div style={{ color: submissionIsLocked ? '#666' : '#333' }}>{req.requirement_name}</div>
+                                                        <div style={{ color: submissionIsLocked ? 'var(--text-secondary)' : 'var(--text-primary)' }}>{req.requirement_name}</div>
                                                         {fileIsPresent && (
                                                             <div style={{ marginTop: '5px' }}>
                                                                 <a 
                                                                     href={req.file_url} 
                                                                     target="_blank" 
                                                                     rel="noopener noreferrer" 
-                                                                    style={{ fontSize: '0.82rem', color: '#0056b3', textDecoration: 'underline' }}
+                                                                    style={{ fontSize: '0.875rem', color: 'var(--text-brand)', textDecoration: 'underline' }}
                                                                 >
                                                                     View Current Submission
                                                                 </a>
@@ -514,7 +514,7 @@ export default function MyProfile() {
                                                     </td>
                                                     <td style={{ padding: '12px' }}>
                                                         <span style={{
-                                                            fontSize: '0.8rem',
+                                                            fontSize: '0.875rem',
                                                             padding: '3px 8px',
                                                             borderRadius: '4px',
                                                             backgroundColor: req.type === 'Special' ? '#fff2e6' : '#e6f7ff',
@@ -523,7 +523,7 @@ export default function MyProfile() {
                                                             {req.type || 'Program'}
                                                         </span>
                                                     </td>
-                                                    <td style={{ padding: '12px', color: isPastDeadline ? '#ff4d4f' : '#333' }}>
+                                                    <td style={{ padding: '12px', color: isPastDeadline ? 'var(--status-critical-text)' : 'var(--text-primary)' }}>
                                                         {deadlineDate 
                                                             ? formatDate(deadlineDate) 
                                                             : 'No Specified Deadline'}
@@ -531,20 +531,20 @@ export default function MyProfile() {
                                                     <td style={{ padding: '12px' }}>
                                                         <span style={{
                                                             fontWeight: 'bold',
-                                                            fontSize: '0.85rem',
+                                                            fontSize: '0.875rem',
                                                             color: getStatusColor(req.status)
                                                         }}>
                                                             {displayStatus}
                                                         </span>
                                                     </td>
-                                                    <td style={{ padding: '12px', fontSize: '0.88rem', color: '#555' }}>
+                                                    <td style={{ padding: '12px', fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
                                                         {req.nurse_remarks || <span style={{ color: '#ccc' }}>—</span>}
                                                     </td>
                                                     <td style={{ padding: '12px' }}>
                                                         {submissionIsLocked ? (
                                                             <span style={{ 
-                                                                color: isCompleted ? '#16a34a' : '#ff4d4f', 
-                                                                fontSize: '0.85rem', 
+                                                                color: isCompleted ? 'var(--status-adequate-text)' : 'var(--status-critical-text)', 
+                                                                fontSize: '0.875rem', 
                                                                 fontWeight: '600' 
                                                             }}>
                                                                 {isCompleted ? '✓ Completed (Upload Closed)' : '🔒 Closed (Deadline Passed)'}
@@ -560,18 +560,18 @@ export default function MyProfile() {
                                                                         onChange={(e) => handleFileChange(req.requirement_name, e.target.files[0])}
                                                                         required
                                                                         style={{
-                                                                            fontSize: '0.85rem',
-                                                                            border: '1px solid #ccc',
+                                                                            fontSize: '0.875rem',
+                                                                            border: '1px solid var(--card-border)',
                                                                             borderRadius: '4px',
                                                                             padding: '4px',
-                                                                            background: '#fff'
+                                                                            background: 'var(--bg-card)'
                                                                         }}
                                                                     />
                                                                     <button 
                                                                         type="submit" 
                                                                         style={{
                                                                             padding: '6px 12px',
-                                                                            fontSize: '0.85rem',
+                                                                            fontSize: '0.875rem',
                                                                             backgroundColor: isPastDeadline ? '#e6a23c' : '#1890ff',
                                                                             color: '#fff',
                                                                             border: 'none',
@@ -583,7 +583,7 @@ export default function MyProfile() {
                                                                     </button>
                                                                 </div>
                                                                 {isPastDeadline && allowsLate && (
-                                                                    <span style={{ color: '#e6a23c', fontSize: '0.78rem', fontWeight: '500' }}>
+                                                                    <span style={{ color: 'var(--status-low-text)', fontSize: '0.875rem', fontWeight: '500' }}>
                                                                         Allow late Submission.
                                                                     </span>
                                                                 )}

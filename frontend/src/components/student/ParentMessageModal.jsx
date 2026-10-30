@@ -412,7 +412,7 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
                     <div className="pmm-sidebar">
                         <div className="pmm-sidebar-scroll">
                             {isLoadingContacts ? (
-                                <div className="pmm-sidebar-loading" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '20px 0', color: '#666' }}>
+                                <div className="pmm-sidebar-loading" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '20px 0', color: 'var(--text-secondary)' }}>
                                     <Loader2 size={18} className="pmm-spin" />
                                     <span>Loading contacts...</span>
                                 </div>
@@ -506,11 +506,11 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
 
                                 {!selectedContact.hasValidUserAccount && (
                                     <div style={{
-                                        backgroundColor: '#fffbe6',
-                                        border: '1px solid #ffe58f',
+                                        backgroundColor: 'var(--status-low-bg)',
+                                        border: '1px solid var(--card-border)',
                                         padding: '8px 16px',
-                                        fontSize: '0.82rem',
-                                        color: '#d46b08',
+                                        fontSize: '0.875rem',
+                                        color: 'var(--status-low-text)',
                                         display: 'flex',
                                         alignItems: 'center',
                                         gap: '8px'
@@ -524,8 +524,8 @@ const ParentMessageModal = ({ userId, parentId, linkedStudents = [], onClose, re
                                 <div className="pmm-messages-container">
                                     {isLoadingThread ? (
                                         <div className="pmm-empty-thread" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '10px', padding: '40px 0' }}>
-                                            <Loader2 size={28} className="pmm-spin" style={{ color: '#003366' }} />
-                                            <span style={{ color: '#666', fontSize: '0.88rem' }}>Loading conversation...</span>
+                                            <Loader2 size={28} className="pmm-spin" style={{ color: 'var(--text-brand)' }} />
+                                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.88rem' }}>Loading conversation...</span>
                                         </div>
                                     ) : messages.length === 0 ? (
                                         <div className="pmm-empty-thread">

@@ -1,5 +1,5 @@
 // FollowUps.jsx (the "Repeats" tab)
-// The repeat list. Every assessment where the doctor says the student needs a repeat (a follow-up consultation) is one row for one student, so
+// The repeat list. Every assessment where the doctor says the student needs a repeat (a follow-up check-up) is one row for one student, so
 // repeats are always set individually. From here the nurse or doctor appoints the student again (a direct appointment):
 //   - a custom time (any date and hour the doctor is free), or
 //   - a slot inside one of the doctor's posted sessions.
@@ -219,7 +219,7 @@ const AppointFollowUpModal = ({ item, creator, userId, onClose, onDone }) => {
 };
 
 // ---------------------------------------------------------------------------
-// Repeat from a past consultation: a direct appointment right now, or wait for a schedule (the student joins the Repeats list)
+// Repeat from a past check-up: a direct appointment right now, or wait for a schedule (the student joins the Repeats list)
 // ---------------------------------------------------------------------------
 export const RepeatModal = ({ appt, creator, userId, onClose, onDone }) => {
     const { showAlert } = useAlert();
@@ -240,7 +240,7 @@ export const RepeatModal = ({ appt, creator, userId, onClose, onDone }) => {
 
     if (!appt) return null;
 
-    // the repeat list only holds consultations flagged "repeat needed": flag this one first
+    // the repeat list only holds check-ups flagged "repeat needed": flag this one first
     const flag = async () => {
         const data = await send(`/api/follow-ups/${appt.appointment_id}/flag`, 'PUT', { student_id: appt.student_id, follow_up_date: wantedDate || undefined, notes: notes.trim() || undefined });
         if (!data.success) setError(data.message || 'Could not set the repeat.');
@@ -271,7 +271,7 @@ export const RepeatModal = ({ appt, creator, userId, onClose, onDone }) => {
     }
 
     return (
-        <Modal isOpen onClose={onClose} title="Repeat consultation" icon={<CalendarClock size={20} />} size="md">
+        <Modal isOpen onClose={onClose} title="Repeat check-up" icon={<CalendarClock size={20} />} size="md">
             <div className="dp-form">
                 <div className="dp-notice">
                     <strong>{fullName(appt.student_first_name, appt.student_last_name)}</strong> - repeat of {visitLabel(appt.visit_type, appt.purpose_other)} on {formatDate(appt.start_time)}.
@@ -360,7 +360,7 @@ const FollowUps = ({ fixedDoctorId, doctors, creator, userId, refreshKey, onChan
     return (
         <>
             <p className="summary-ds">
-                Each row is one student whose assessment says a repeat consultation is needed. Appoint every repeat on its own, as a direct appointment: pick a time, or put the student in one of the doctor's schedules. A student with no schedule yet waits here until the doctor posts one.
+                Each row is one student whose assessment says a repeat check-up is needed. Appoint every repeat on its own, as a direct appointment: pick a time, or put the student in one of the doctor's schedules. A student with no schedule yet waits here until the doctor posts one.
             </p>
 
             <div className="toolbar-sc">

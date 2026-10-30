@@ -1,12 +1,12 @@
 // doctorSchedule.jsx
-// The doctor's consultation scheduling. It is the same screen the nurse uses (SchedulingHub), limited to this doctor:
+// The doctor's check-up scheduling. It is the same screen the nurse uses (SchedulingHub), limited to this doctor:
 // what the doctor posts shows up for the nurse, and what the nurse posts or appoints for this doctor shows up here.
 import React, { useMemo } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router-dom';
 import SchedulingHub from '../../components/scheduling/SchedulingHub';
 import '../../styles/doctor/DoctorLayout.css';
 
-const TABS = ['calendar', 'schedules', 'waiting', 'followups', 'approvals', 'assistant', 'chat'];
+const TABS = ['calendar', 'schedules', 'waiting', 'followups', 'assistant', 'chat'];
 
 const DoctorSchedule = () => {
     const { doctor, doctorId, userId } = useOutletContext();
@@ -20,7 +20,7 @@ const DoctorSchedule = () => {
             <div className="dp-page-head">
                 <div>
                     <h2>My Schedule</h2>
-                    <p>The same schedule the nurse manages for you: calendar, schedules, waiting list, repeats and booking approvals.</p>
+                    <p>The same schedule the nurse manages for you: calendar, schedules (you set them, the nurse can ask for one), the numbered waiting list and the queue of your sessions.</p>
                 </div>
             </div>
 

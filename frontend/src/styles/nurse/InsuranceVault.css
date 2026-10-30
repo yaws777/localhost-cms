@@ -2,10 +2,10 @@
 
 .insurance-vault-container-iv {
     padding: 24px;
-    background-color: #f8fafc;
+    background-color: var(--bg-subtle);
     min-height: 100vh;
     box-sizing: border-box;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-family: var(--font-sans);
 }
 
 .vault-header-iv {
@@ -22,7 +22,7 @@
 
 .vault-header-iv h2 {
     margin: 0;
-    color: #002b66;
+    color: var(--text-brand);
     font-size: 1.5rem;
 }
 
@@ -84,7 +84,7 @@
 }
 
 .search-icon-iv, .date-icon-iv {
-    color: #0055a5;
+    color: var(--text-brand);
 }
 
 .clear-icon-iv {
@@ -93,7 +93,7 @@
 }
 
 .clear-icon-iv:hover {
-    color: #ef4444;
+    color: var(--status-critical-text);
 }
 
 /* Table Alignment Fixes */
@@ -124,7 +124,7 @@
 
 .vault-table-iv th, .vault-table-iv td {
     padding: 14px 16px;
-    border-bottom: 1px solid #e2e8f0;
+    border-bottom: 1px solid var(--card-border);
     vertical-align: middle;
 }
 
@@ -139,7 +139,7 @@
 
 .student-name-cell-iv {
     font-weight: 600;
-    color: #003d7a;
+    color: var(--text-brand);
     display: flex;
     align-items: center;
     gap: 8px;
@@ -147,16 +147,16 @@
 }
 
 .folder-icon-iv {
-    color: #0055a5;
+    color: var(--text-brand);
     flex-shrink: 0;
 }
 
 .badge-program-iv {
-    background-color: #e0f2fe;
-    color: #0369a1;
+    background-color: var(--sti-blue-light);
+    color: var(--text-brand);
     padding: 4px 8px;
     border-radius: 4px;
-    font-size: 0.8rem;
+    font-size: 0.875rem;
     font-weight: 500;
     display: inline-flex;
     align-items: center;
@@ -164,12 +164,12 @@
 }
 
 .badge-file-count-iv {
-    background-color: #fef9c3;
-    color: #854d0e;
+    background-color: var(--status-low-bg);
+    color: var(--status-low-text);
     padding: 4px 8px;
     border-radius: 4px;
     font-weight: 600;
-    font-size: 0.8rem;
+    font-size: 0.875rem;
     display: inline-flex;
     align-items: center;
     white-space: nowrap;
@@ -194,18 +194,18 @@
 }
 
 .btn-action-iv.view-iv {
-    background-color: #e0f2fe;
-    color: #0284c7;
+    background-color: var(--sti-blue-light);
+    color: var(--text-brand);
 }
 
 .btn-action-iv.add-file-iv {
-    background-color: #fef9c3;
-    color: #a16207;
+    background-color: var(--status-low-bg);
+    color: var(--status-low-text);
 }
 
 .btn-action-iv.delete-iv {
-    background-color: #fef2f2;
-    color: #dc2626;
+    background-color: var(--status-critical-bg);
+    color: var(--status-critical-text);
 }
 
 /* Modals & Stacking Order Fixes */
@@ -280,7 +280,7 @@
 }
 
 .vault-info-banner-iv {
-    background-color: #f0f7ff;
+    background-color: var(--bg-subtle);
     padding: 12px;
     border-radius: 6px;
     display: flex;
@@ -299,7 +299,7 @@
 
 .vault-files-header-iv h4 {
     margin: 0;
-    color: #002b66;
+    color: var(--text-brand);
 }
 
 .files-list-iv {
@@ -314,7 +314,7 @@
     justify-content: space-between;
     align-items: center;
     padding: 12px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--card-border);
     border-radius: 6px;
     margin-bottom: 10px;
     background-color: var(--bg-card);
@@ -327,7 +327,7 @@
 }
 
 .file-icon-iv {
-    color: #0055a5;
+    color: var(--text-brand);
     flex-shrink: 0;
 }
 
@@ -338,13 +338,13 @@
 
 .file-meta-iv {
     margin: 2px 0 0 0;
-    font-size: 0.75rem;
+    font-size: 0.875rem;
     color: var(--text-secondary);
 }
 
 .file-notes-iv {
     margin: 4px 0 0 0;
-    font-size: 0.8rem;
+    font-size: 0.875rem;
     color: var(--text-secondary);
 }
 
@@ -361,7 +361,7 @@
     left: 0;
     right: 0;
     background-color: var(--bg-card);
-    border: 1px solid #d1d5db;
+    border: 1px solid var(--card-border);
     border-radius: 6px;
     box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
     max-height: 220px;
@@ -375,7 +375,7 @@
 .search-dropdown-iv li {
     padding: 10px 14px;
     cursor: pointer;
-    border-bottom: 1px solid #f3f4f6;
+    border-bottom: 1px solid var(--card-border);
     transition: background-color 0.15s ease;
 }
 
@@ -384,7 +384,7 @@
 }
 
 .search-dropdown-iv li:hover {
-    background-color: #f0f7ff;
+    background-color: var(--bg-subtle);
 }
 
 .search-item-name-iv {
@@ -393,13 +393,13 @@
 }
 
 .search-item-sub-iv {
-    font-size: 0.8rem;
+    font-size: 0.875rem;
     color: var(--text-secondary);
     margin-top: 2px;
 }
 
 .selected-student-card-iv {
-    background-color: #f0f7ff;
+    background-color: var(--bg-subtle);
     border: 1px solid #bae6fd;
     padding: 14px;
     border-radius: 6px;
@@ -416,8 +416,8 @@
 
 .modal-footer-iv {
     padding: 12px 20px;
-    background-color: #f8fafc;
-    border-top: 1px solid #e2e8f0;
+    background-color: var(--bg-subtle);
+    border-top: 1px solid var(--card-border);
     display: flex;
     justify-content: flex-end;
     align-items: center;
@@ -435,7 +435,7 @@
 }
 
 .btn-secondary-iv {
-    background-color: #e2e8f0;
+    background-color: var(--bg-muted);
     color: var(--text-secondary);
     border: none;
     padding: 8px 16px;
@@ -456,7 +456,7 @@
 }
 
 .form-group-iv label {
-    font-size: 0.85rem;
+    font-size: 0.875rem;
     font-weight: 600;
     color: var(--text-secondary);
 }
@@ -478,12 +478,12 @@
 }
 
 .btn-local-preview-iv {
-    background-color: #e0f2fe;
-    color: #0369a1;
+    background-color: var(--sti-blue-light);
+    color: var(--text-brand);
     border: 1px solid #bae6fd;
     padding: 5px 12px;
     border-radius: 4px;
-    font-size: 0.82rem;
+    font-size: 0.875rem;
     font-weight: 600;
     cursor: pointer;
     white-space: nowrap;
@@ -491,7 +491,7 @@
 }
 
 .btn-local-preview-iv:hover {
-    background-color: #bae6fd;
+    background-color: var(--sti-blue-light);
 }
 
 .preview-card-iv {
@@ -506,7 +506,7 @@
     display: flex;
     justify-content: center;
     align-items: center;
-    background-color: #f8fafc;
+    background-color: var(--bg-subtle);
     padding: 16px;
     min-height: 380px;
     overflow-y: auto;
@@ -544,9 +544,9 @@
     overflow: auto;
     background: var(--bg-card);
     padding: 14px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--card-border);
     border-radius: 4px;
-    font-family: monospace;
+    font-family: var(--font-mono);
     white-space: pre-wrap;
     word-break: break-all;
 }

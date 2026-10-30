@@ -1,7 +1,7 @@
 // doctorDashboard.jsx
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useOutletContext, useNavigate } from 'react-router-dom';
-import { Users, ClipboardCheck, Inbox, CalendarCheck, ChevronLeft, ChevronRight, ArrowRight } from 'lucide-react';
+import { Users, ClipboardCheck, ListOrdered, CalendarCheck, ChevronLeft, ChevronRight, ArrowRight } from 'lucide-react';
 import {
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell
 } from 'recharts';
@@ -92,7 +92,7 @@ const MonthCalendar = ({ month, selected, calendar, absences, onSelect, onMonth 
     );
 };
 
-// which Consultations list a visit is in: past (over or closed), ongoing (happening now) or upcoming
+// which Check-ups list a visit is in: past (over or closed), ongoing (happening now) or upcoming
 const visitTab = (a) => {
     const ms = (v) => new Date(String(v).replace(' ', 'T')).getTime();
     if (ms(a.end_time) <= Date.now() || ['Cancelled', 'Declined', 'No-Show'].includes(a.status)) return 'past';
@@ -124,6 +124,15 @@ const DoctorDashboard = () => {
 
     useEffect(() => { load(); }, [load]);
 
+    // the students waiting for a session of this doctor (every category the doctor covers)
+    const [waitingCount, setWaitingCount] = useState(0);
+    useEffect(() => {
+        fetch(`${API}/api/consultation-requests?status=Waiting%20for%20Approval&doctor_id=${encodeURIComponent(doctorId)}`)
+            .then((r) => r.json())
+            .then((d) => { if (d.success) setWaitingCount(d.requests.length); })
+            .catch(() => { /* the tile stays at 0 */ });
+    }, [doctorId]);
+
     useEffect(() => {
         let live = true;
         setDayLoading(true);
@@ -153,7 +162,7 @@ const DoctorDashboard = () => {
             <div className="dd-col">
                 <section className="dd-banner" aria-label="Welcome">
                     <span className="dd-spark" style={{ top: 22, right: 230 }}>✦</span>
-                    <span className="dd-spark" style={{ bottom: 26, right: 60, fontSize: '0.8rem' }}>✦</span>
+                    <span className="dd-spark" style={{ bottom: 26, right: 60, fontSize: '0.875rem' }}>✦</span>
                     <div className="dd-banner-text">
                         <small>Welcome back,</small>
                         <h2>Dr. {doctor.first_name} {doctor.last_name}</h2>
@@ -162,7 +171,7 @@ const DoctorDashboard = () => {
                             {totals.today_total > 0
                                 ? <>You have total <b>{totals.today_total} appointment{totals.today_total === 1 ? '' : 's'}</b> today{totals.today_remaining > 0 ? ` (${totals.today_remaining} still to see)` : ''}!</>
                                 : <>You have <b>no appointments</b> today.</>}
-                            {totals.pending_requests > 0 && <> <b>{totals.pending_requests}</b> booking request{totals.pending_requests === 1 ? ' is' : 's are'} waiting.</>}
+                            {waitingCount > 0 && <> <b>{waitingCount}</b> student{waitingCount === 1 ? ' is' : 's are'} asking for a place in your listings.</>}
                         </p>
                     </div>
                     <div className="dd-art"><DoctorArt /></div>
@@ -176,17 +185,17 @@ const DoctorDashboard = () => {
                             <span className="num">{totals.patients ?? '-'}</span>
                             <span className="sub">seen by you</span>
                         </button>
-                        <button type="button" className="dd-stat yellow" onClick={() => navigate('/DoctorConsultations')}>
-                            <span className="lbl"><ClipboardCheck size={16} /> Consultations</span>
+                        <button type="button" className="dd-stat yellow" onClick={() => navigate('/DoctorCheckup')}>
+                            <span className="lbl"><ClipboardCheck size={16} /> Check-ups</span>
                             <span className="num">{totals.consultations_month ?? '-'}</span>
                             <span className="sub">this month ({totals.consultations ?? 0} in total)</span>
                         </button>
-                        <button type="button" className="dd-stat rose" onClick={() => navigate('/DoctorMySchedule?tab=approvals')}>
-                            <span className="lbl"><Inbox size={16} /> Requests</span>
-                            <span className="num">{totals.pending_requests ?? '-'}</span>
-                            <span className="sub">waiting for approval</span>
+                        <button type="button" className="dd-stat rose" onClick={() => navigate('/DoctorMySchedule?tab=waiting')}>
+                            <span className="lbl"><ListOrdered size={16} /> Asking for a place</span>
+                            <span className="num">{waitingCount}</span>
+                            <span className="sub">students waiting for a session</span>
                         </button>
-                        <button type="button" className="dd-stat green" onClick={() => navigate('/DoctorConsultations?tab=upcoming')}>
+                        <button type="button" className="dd-stat green" onClick={() => navigate('/DoctorCheckup?tab=upcoming')}>
                             <span className="lbl"><CalendarCheck size={16} /> Today</span>
                             <span className="num">{totals.today_total ?? '-'}</span>
                             <span className="sub">{totals.today_remaining ?? 0} remaining</span>
@@ -268,13 +277,13 @@ const DoctorDashboard = () => {
                                 <span className="av">{initials(a.student_first_name, a.student_last_name)}</span>
                                 <div className="who">
                                     <strong>{fullName(a.student_first_name, a.student_last_name)}</strong>
-                                    <span>{time12(a.start_time)} - {time12(a.end_time)} - {visitLabel(a.visit_type, a.purpose_other)}{a.status === 'Waiting for Approval' ? ' (pending)' : ''}</span>
+                                    <span>{time12(a.start_time)} - {time12(a.end_time)} - {visitLabel(a.visit_type, a.purpose_other)}{a.queue_state ? ` - ${a.queue_lane === 'Walk-in' ? 'W' : '#'}${a.queue_no}` : ''}</span>
                                 </div>
-                                <button type="button" className="go" onClick={() => navigate(a.status === 'Waiting for Approval' ? '/DoctorMySchedule?tab=approvals' : `/DoctorConsultations?tab=${visitTab(a)}&focus=${a.appointment_id}`)} aria-label={`Open the consultation of ${a.student_first_name}`}><ChevronRight size={16} /></button>
+                                <button type="button" className="go" onClick={() => navigate(`/DoctorCheckup?tab=${visitTab(a)}&focus=${a.appointment_id}`)} aria-label={`Open the check-up of ${a.student_first_name}`}><ChevronRight size={16} /></button>
                             </div>
                         ))}
                     </div>
-                    <button type="button" className="dp-btn dp-btn-ghost dd-view-all" onClick={() => navigate('/DoctorConsultations')}>View All Consultations <ArrowRight size={16} /></button>
+                    <button type="button" className="dp-btn dp-btn-ghost dd-view-all" onClick={() => navigate('/DoctorCheckup')}>View All Check-ups <ArrowRight size={16} /></button>
                 </section>
             </div>
         </div>

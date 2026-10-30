@@ -47,7 +47,7 @@
 }
 
 .pmm-header-subtitle {
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   opacity: 0.85;
   margin-top: 2px;
   display: block;
@@ -80,8 +80,8 @@
 /* Contacts Sidebar */
 .pmm-sidebar {
   width: 280px;
-  border-right: 1px solid #eef2f5;
-  background-color: #f8fafc;
+  border-right: 1px solid var(--card-border);
+  background-color: var(--bg-subtle);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
@@ -95,14 +95,14 @@
 
 .pmm-sidebar-loading {
   padding: 16px;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   color: var(--text-secondary);
 }
 
 .pmm-section-header {
   padding: 8px 16px;
   font-weight: 700;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   color: var(--text-secondary);
   letter-spacing: 0.5px;
   text-transform: uppercase;
@@ -150,7 +150,7 @@
 }
 
 .pmm-contact-sub {
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   color: var(--text-secondary);
   margin-top: 2px;
   white-space: nowrap;
@@ -159,11 +159,11 @@
 }
 
 .pmm-unread-badge {
-  background-color: #ff4d4f;
+  background-color: var(--danger-fill);
   color: #ffffff;
   border-radius: 10px;
   padding: 2px 7px;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: bold;
 }
 
@@ -181,7 +181,7 @@
   align-items: center;
   gap: 12px;
   padding: 12px 20px;
-  border-bottom: 1px solid #eef2f5;
+  border-bottom: 1px solid var(--card-border);
   background-color: var(--bg-card);
 }
 
@@ -195,8 +195,8 @@
 }
 
 .pmm-status-text {
-  font-size: 0.75rem;
-  color: #0056b3;
+  font-size: 0.875rem;
+  color: var(--text-brand);
   font-weight: bold;
 }
 
@@ -204,7 +204,7 @@
   display: none;
   background: transparent;
   border: none;
-  color: #0056b3;
+  color: var(--text-brand);
   padding: 6px;
   border-radius: 50%;
   cursor: pointer;
@@ -217,7 +217,7 @@
   flex: 1;
   padding: 16px 20px;
   overflow-y: auto;
-  background-color: #f4f7fb;
+  background-color: var(--bg-subtle);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -227,7 +227,7 @@
   text-align: center;
   padding: 30px;
   color: var(--text-secondary);
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 
 /* Message Wrapper & Bubbles */
@@ -286,8 +286,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #dc3545;
-  font-size: 0.85rem;
+  color: var(--status-critical-text);
+  font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
   border-radius: 6px;
@@ -295,7 +295,7 @@
 }
 
 .pmm-unsend-btn:hover {
-  background-color: #fff0f0;
+  background-color: var(--status-critical-bg);
 }
 
 .pmm-msg-bubble {
@@ -321,16 +321,16 @@
 }
 
 .pmm-msg-bubble.unsent {
-  background-color: #f0f0f0 !important;
+  background-color: var(--bg-subtle) !important;
   color: var(--text-secondary) !important;
-  border: 1px dashed #ccc !important;
+  border: 1px dashed var(--card-border) !important;
   box-shadow: none;
 }
 
 .pmm-unsent-text {
   margin: 0;
   font-style: italic;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 
 .pmm-msg-bubble p {
@@ -365,7 +365,7 @@
 
 .pmm-time-stamp {
   display: block;
-  font-size: 0.65rem;
+  font-size: 0.875rem;
   opacity: 0.75;
   text-align: right;
 }
@@ -375,11 +375,11 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background-color: #eef2f5;
+  background-color: var(--bg-subtle);
   padding: 6px 12px;
   border-radius: 6px;
   margin: 0 16px 8px;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   color: var(--text-primary);
 }
 
@@ -387,7 +387,7 @@
   background: transparent;
   border: none;
   cursor: pointer;
-  color: #ff4d4f;
+  color: var(--status-critical-text);
   font-weight: bold;
 }
 
@@ -395,7 +395,7 @@
 .pmm-input-form {
   padding: 10px 16px;
   background-color: var(--bg-card);
-  border-top: 1px solid #eef2f5;
+  border-top: 1px solid var(--card-border);
 }
 
 .pmm-controls-row {
@@ -408,7 +408,7 @@
 .pmm-media-btn {
   background: transparent;
   border: none;
-  color: #0056b3;
+  color: var(--text-brand);
   cursor: pointer;
   width: 36px;
   height: 36px;
@@ -422,7 +422,7 @@
 }
 
 .pmm-media-btn:hover {
-  background-color: #f0f4f8;
+  background-color: var(--bg-subtle);
 }
 
 .pmm-media-btn.recording {
@@ -438,7 +438,7 @@
 .pmm-message-input {
   flex: 1;
   min-width: 0;
-  border: 1px solid #ddd;
+  border: 1px solid var(--card-border);
   border-radius: 20px;
   padding: 10px 16px;
   outline: none;
@@ -540,7 +540,7 @@
 
   .pmm-message-input {
     padding: 8px 12px;
-    font-size: 0.85rem;
+    font-size: 0.875rem;
   }
 
   .pmm-send-btn {

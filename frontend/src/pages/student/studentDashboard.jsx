@@ -16,6 +16,8 @@ import {
   Megaphone
 } from 'lucide-react';
 import HealthTipsModal from '../../components/student/HealthTips';
+import MyQueue from '../../components/student/MyQueue';
+import { useQueueStatus } from '../../hooks/useQueueStatus';
 import { formatDate as formatDateBase, formatDateTime as formatDateTimeBase, formatTime as formatTimeBase } from '../../utils/datetime';
 import '../../styles/student/StudentDashboard.css';
 
@@ -33,6 +35,9 @@ const StudentDashboard = () => {
     yearLevel = '', 
     section = '' 
   } = context;
+
+  // the student's numbers in the check-up waiting list and in a session queue; refreshed every few seconds
+  const queue = useQueueStatus(studentId);
 
   // API Data States
   const [visitsData, setVisitsData] = useState({ clinic_visits: [], direct_dispensations: [] });
@@ -94,45 +99,29 @@ const StudentDashboard = () => {
           section: section || ''
         }).toString();
 
-        const [visitsRes, reqsRes, docsRes, screeningsRes, appointmentsRes, announcementsRes] = await Promise.all([
-          fetch(`${API_BASE}/student/dashboard/visits-dispensation/${studentId}`),
-          fetch(`${API_BASE}/student/dashboard/requirements/${studentId}`),
-          fetch(`${API_BASE}/student/dashboard/document-requests/${studentId}`),
-          fetch(`${API_BASE}/student/dashboard/upcoming-health-screenings?${queryParams}`),
-          fetch(`${API_BASE}/student/dashboard/doctor-appointments/${studentId}`),
-          fetch(`${API_BASE}/student/dashboard/announcements/${studentId}`)
+        // each part loads on its own: one failing endpoint must not blank the rest of the dashboard
+        const load = async (name, url, apply) => {
+          try {
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`Status ${res.status}`);
+            const json = await res.json();
+            if (json.success) apply(json.data);
+            return true;
+          } catch (e) {
+            console.error(`API Error on [${name}]:`, e.message);
+            return false;
+          }
+        };
+
+        const results = await Promise.all([
+          load('Visits & Dispensation', `${API_BASE}/student/dashboard/visits-dispensation/${studentId}`, setVisitsData),
+          load('Requirements', `${API_BASE}/student/dashboard/requirements/${studentId}`, setRequirementsData),
+          load('Document Requests', `${API_BASE}/student/dashboard/document-requests/${studentId}`, setDocumentRequestsData),
+          load('Health Screenings', `${API_BASE}/student/dashboard/upcoming-health-screenings?${queryParams}`, setHealthScreenings),
+          load('Doctor Appointments', `${API_BASE}/student/dashboard/doctor-appointments/${studentId}`, setDoctorAppointments),
+          load('Announcements', `${API_BASE}/student/dashboard/announcements/${studentId}`, setAnnouncements)
         ]);
-
-        const responses = [
-          { name: 'Visits & Dispensation', res: visitsRes },
-          { name: 'Requirements', res: reqsRes },
-          { name: 'Document Requests', res: docsRes },
-          { name: 'Health Screenings', res: screeningsRes },
-          { name: 'Doctor Appointments', res: appointmentsRes },
-          { name: 'Announcements', res: announcementsRes }
-        ];
-
-        const failedEndpoints = responses.filter((r) => !r.res.ok);
-        if (failedEndpoints.length > 0) {
-          failedEndpoints.forEach((f) => console.error(`API Error on [${f.name}]: Status ${f.res.status}`));
-          throw new Error('Failed to load parts of your health dashboard.');
-        }
-
-        const [visits, reqs, docs, screenings, appointments, announcementsData] = await Promise.all([
-          visitsRes.json(),
-          reqsRes.json(),
-          docsRes.json(),
-          screeningsRes.json(),
-          appointmentsRes.json(),
-          announcementsRes.json()
-        ]);
-
-        if (visits.success) setVisitsData(visits.data);
-        if (reqs.success) setRequirementsData(reqs.data);
-        if (docs.success) setDocumentRequestsData(docs.data);
-        if (screenings.success) setHealthScreenings(screenings.data);
-        if (appointments.success) setDoctorAppointments(appointments.data);
-        if (announcementsData.success) setAnnouncements(announcementsData.data);
+        if (results.some((ok) => !ok)) setError('Some parts of your dashboard could not be loaded. The rest is shown below.');
 
       } catch (err) {
         console.error('Error fetching student dashboard data:', err);
@@ -261,7 +250,29 @@ const StudentDashboard = () => {
       </section>
 
       {/* Main Grid Layout */}
-      <main className="grid-sd">
+      <div className="grid-sd">
+
+        {/* 0. CONSULTATION QUEUE: my number and the number being served */}
+        <section className="card-section-sd col-span-2-sd" aria-label="My check-up queue">
+          <div className="card-header-sd">
+            <div className="card-title-group-sd">
+              <h2><ClipboardList size={18} /> My Check-up Queue</h2>
+            </div>
+            <Link to="/BookCheckup" className="view-all-link-sd">
+              Waiting list <ArrowRight size={14} />
+            </Link>
+          </div>
+          {queue.loading ? (
+            <p className="empty-state-sd">Loading your queue...</p>
+          ) : (
+            <MyQueue
+              appointments={queue.appointments}
+              requests={queue.requests}
+              compact
+              emptyText="You are not on a check-up waiting list. Join one from the Check-up page to get a number."
+            />
+          )}
+        </section>
 
         {/* 1. NURSE ANNOUNCEMENTS SECTION */}
         <section className="card-section-sd col-span-2-sd">
@@ -284,10 +295,10 @@ const StudentDashboard = () => {
                       Nurse: {ann.nurse_name || 'Clinic Staff'}
                     </span>
                   </div>
-                  <p className="item-subtext-sd" style={{ marginTop: '6px', fontSize: '0.9rem', color: '#334155' }}>
+                  <p className="item-subtext-sd" style={{ marginTop: '6px', fontSize: '0.9rem', color: 'var(--text-primary)' }}>
                     {ann.content}
                   </p>
-                  <p className="item-subtext-sd" style={{ marginTop: '8px', fontSize: '0.78rem' }}>
+                  <p className="item-subtext-sd" style={{ marginTop: '8px', fontSize: '0.875rem' }}>
                     Posted: <span>{formatDateTime(ann.created_at)}</span>
                   </p>
                 </div>
@@ -582,9 +593,9 @@ const StudentDashboard = () => {
               {doctorAppointments.slice(0, 3).map((appt) => (
                 <div key={appt.appointment_id} className="item-card-sd accent-card-sd">
                   <div className="item-card-row-sd">
-                    <span className="item-title-sd">{appt.title || 'Doctor Consultation'}</span>
-                    <span className={getStatusBadgeClass(appt.attendance_status || appt.appointment_status)}>
-                      {appt.attendance_status || appt.appointment_status || 'Scheduled'}
+                    <span className="item-title-sd">{appt.title || 'Doctor Check-up'}</span>
+                    <span className={getStatusBadgeClass(appt.appointment_status || appt.attendance_status)}>
+                      {appt.appointment_status || appt.attendance_status || 'Scheduled'}
                     </span>
                   </div>
 
@@ -606,7 +617,7 @@ const StudentDashboard = () => {
           )}
         </section>
 
-      </main>
+      </div>
 
       {/* Health Tips Modal */}
       <HealthTipsModal 

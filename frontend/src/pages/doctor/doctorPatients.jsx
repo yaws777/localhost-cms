@@ -170,8 +170,8 @@ const DoctorPatients = () => {
                             </>
                         )}
 
-                        <div className="dp-section-label">Doctor consultations ({record.consultations.length})</div>
-                        {record.consultations.length === 0 && <p className="dp-hint" style={{ margin: 0 }}>No consultation has been documented for this student.</p>}
+                        <div className="dp-section-label">Doctor check-ups ({record.consultations.length})</div>
+                        {record.consultations.length === 0 && <p className="dp-hint" style={{ margin: 0 }}>No check-up has been documented for this student.</p>}
                         {record.consultations.map((c) => {
                             const isOpen = open.has(c.appointment_id);
                             return (

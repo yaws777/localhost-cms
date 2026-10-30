@@ -3,10 +3,10 @@
   /* --sti-blue/--sti-blue-dark/--sti-yellow now come from the shared
      frontend/src/styles/theme.css tokens */
   --sti-yellow-hover: #E5B220;
-  --sti-gray-bg: #F4F6F9;
+  --sti-gray-bg: var(--bg-subtle);
   --sti-text-dark: var(--text-primary);
-  --sti-text-muted: #64748B;
-  --sti-border: #E2E8F0;
+  --sti-text-muted: var(--text-secondary);
+  --sti-border: var(--card-border);
   --sti-success: #16A34A;
   --sti-error: #DC2626;
 }
@@ -18,7 +18,7 @@
   padding: 2rem 1rem;
   background-color: var(--sti-gray-bg);
   min-height: 60vh;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-family: var(--font-sans);
 }
 
 .sti-contact-card {
@@ -60,7 +60,7 @@
 .sti-card-header h2 {
   margin: 0;
   font-size: 1.35rem;
-  color: var(--sti-blue-dark);
+  color: var(--text-brand);
   font-weight: 700;
 }
 
@@ -81,14 +81,14 @@
 }
 
 .sti-alert-success {
-  background-color: #DCFCE7;
-  color: var(--sti-success);
-  border: 1px solid #BBF7D0;
+  background-color: var(--status-adequate-bg);
+  color: var(--status-adequate-text);
+  border: 1px solid var(--card-border);
 }
 
 .sti-alert-error {
-  background-color: #FEE2E2;
-  color: var(--sti-error);
+  background-color: var(--status-critical-bg);
+  color: var(--status-critical-text);
   border: 1px solid #FECACA;
 }
 
@@ -149,9 +149,9 @@
 }
 
 .sti-input-prefix {
-  background-color: #F1F5F9;
+  background-color: var(--bg-subtle);
   color: var(--sti-text-muted);
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   font-weight: 700;
   padding: 0.65rem 0.75rem;
   border-right: 1px solid var(--sti-border);
@@ -167,7 +167,7 @@
 }
 
 .sti-help-text {
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   color: var(--sti-text-muted);
 }
 

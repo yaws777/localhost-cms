@@ -4,19 +4,19 @@
 :root {
   --primary-blue: #0056b3;
   --primary-blue-hover: #003d80;
-  --primary-blue-light: #e6f0fa;
+  --primary-blue-light: var(--sti-blue-light);
   /* --bg-main/--text-dark now come from the shared
      frontend/src/styles/theme.css tokens */
   --card-bg: var(--bg-card);
-  --text-muted: #64748b;
-  --border-color: #e2e8f0;
+  --text-muted: var(--text-secondary);
+  --border-color: var(--card-border);
   
-  --status-success-bg: #dcfce7;
-  --status-success-text: #15803d;
-  --status-warning-bg: #fef3c7;
-  --status-warning-text: #b45309;
-  --status-danger-bg: #fee2e2;
-  --status-danger-text: #b91c1c;
+  --status-success-bg: var(--status-adequate-bg);
+  --status-success-text: var(--status-adequate-text);
+  --status-warning-bg: var(--status-low-bg);
+  --status-warning-text: var(--status-low-text);
+  --status-danger-bg: var(--status-critical-bg);
+  --status-danger-text: var(--status-critical-text);
 
   --radius-sm: 6px;
   --radius-md: 10px;
@@ -37,7 +37,7 @@
   background-color: var(--bg-main);
   box-sizing: border-box;
   color: var(--text-dark);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-sans);
 }
 
 /* Header Uniformity */
@@ -56,7 +56,7 @@
 .doc-header h2 {
   font-size: 1.65rem;
   font-weight: 700;
-  color: var(--primary-blue);
+  color: var(--text-brand);
   margin: 0;
 }
 
@@ -191,7 +191,7 @@
   display: inline-block;
   padding: 4px 10px;
   border-radius: 20px;
-  font-size: 0.78rem;
+  font-size: 0.875rem;
   font-weight: 600;
   text-transform: capitalize;
 }
@@ -321,7 +321,7 @@ input:focus, select:focus, textarea:focus {
   .sti-table th, .sti-table td,
   .doc-table th, .doc-table td {
     padding: 8px 10px;
-    font-size: 0.82rem;
+    font-size: 0.875rem;
   }
 
   .btn-view-icon,

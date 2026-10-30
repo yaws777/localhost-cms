@@ -11,7 +11,7 @@
 
 body {
   margin: 0;
-  font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-family: var(--font-sans);
   background-color: var(--bg-color);
   color: var(--text-dark);
 }
@@ -58,7 +58,7 @@ body {
 
 .sidebar-header p {
   margin: 5px 0 0;
-  font-size: 0.5rem;
+  font-size: 0.875rem;
   opacity: 0.8;
   text-transform: uppercase;
   letter-spacing: 1px;
@@ -76,7 +76,7 @@ body {
   text-decoration: none;
   padding: 12px 10px;
   border-radius: 8px;
-  font-size: 0.700rem;
+  font-size: 0.875rem;
   font-weight: 500;
   transition: all 0.2s ease;
   display: flex;
@@ -205,7 +205,7 @@ body {
   width: 50px;
   height: 50px;
   background-color: var(--sti-yellow);
-  color: var(--sti-blue);
+  color: var(--text-on-yellow);
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -234,7 +234,7 @@ body {
 
 .profile-username {
   margin: 0 0 5px 0;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   color: #d1e3f8;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -244,7 +244,7 @@ body {
 
 .profile-id {
   display: inline-block;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 600;
   background-color: rgba(255, 255, 255, 0.12);
   color: var(--sti-yellow);
@@ -298,18 +298,18 @@ body {
 
 .modal-header-nl {
   padding: 16px 20px;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--card-border);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background-color: #f8fafc;
+  background-color: var(--bg-subtle);
 }
 
 .modal-header-nl h2 {
   margin: 0;
-  font-size: 18px;
+  font-size: 1.125rem;
   font-weight: 700;
-  color: var(--sti-blue);
+  color: var(--text-brand);
 }
 
 .btn-close-nl {
@@ -349,24 +349,24 @@ body {
 }
 
 .icon-warning-nl {
-  background-color: #fef3c7;
-  color: #d97706;
+  background-color: var(--status-low-bg);
+  color: var(--status-low-text);
 }
 
 .modal-message-nl {
   margin: 0;
-  font-size: 14px;
+  font-size: 0.875rem;
   color: var(--text-secondary);
   line-height: 1.5;
 }
 
 .modal-footer-nl {
   padding: 14px 20px;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid var(--card-border);
   display: flex;
   justify-content: flex-end;
   gap: 10px;
-  background-color: #f8fafc;
+  background-color: var(--bg-subtle);
 }
 
 .btn-primary-nl,
@@ -381,7 +381,7 @@ body {
   cursor: pointer;
   transition: all 0.2s ease;
   padding: 9px 16px;
-  font-size: 14px;
+  font-size: 0.875rem;
   border: none;
 }
 
@@ -395,7 +395,7 @@ body {
 }
 
 .btn-danger-nl {
-  background-color: #ef4444;
+  background-color: var(--danger-fill);
   color: #ffffff;
 }
 
@@ -404,7 +404,7 @@ body {
 }
 
 .btn-secondary-nl {
-  background-color: #e2e8f0;
+  background-color: var(--bg-muted);
   color: var(--text-primary);
 }
 

@@ -11,7 +11,8 @@ import ConfirmModal from '../components/common/ConfirmModal';
 import { useTheme } from '../context/ThemeContext';
 import { useWebPush } from '../hooks/useWebPush';
 import { formatDateTime } from '../utils/datetime';
-import { initials, localDateStr } from '../utils/visitPurpose';
+import { initials } from '../utils/visitPurpose';
+import { useTodayCheckupStatus, TODAY_LABELS } from '../hooks/useTodayCheckupStatus';
 import { useDpAutoLabels } from '../utils/autoLabels';
 
 const API = 'http://localhost:3001';
@@ -20,7 +21,7 @@ const PAGE_TITLES = {
     '/DoctorDashboard': 'Dashboard',
     '/DoctorMySchedule': 'My Schedule',
     '/DoctorChat': 'Chat with the Nurse',
-    '/DoctorConsultations': 'Consultations',
+    '/DoctorCheckup': 'Check-ups',
     '/DoctorPatients': 'Patient Records',
     '/DoctorTemplates': 'Assessment Templates',
     '/DoctorProfile': 'My Profile'
@@ -28,19 +29,13 @@ const PAGE_TITLES = {
 
 const NAV = [
     { to: '/DoctorDashboard', label: 'Dashboard', Icon: LayoutDashboard },
-    { to: '/DoctorConsultations', label: 'Consultations', Icon: ClipboardPlus, badge: 'consultations' },
+    { to: '/DoctorCheckup', label: 'Check-ups', Icon: ClipboardPlus, badge: 'consultations' },
     { to: '/DoctorMySchedule', label: 'My Schedule', Icon: CalendarDays, badge: 'requests' },
     { to: '/DoctorChat', label: 'Chat', Icon: MessagesSquare, badge: 'chat' },
     { to: '/DoctorPatients', label: 'Patient Records', Icon: FolderHeart },
     { to: '/DoctorTemplates', label: 'Templates', Icon: LayoutTemplate },
     { to: '/DoctorProfile', label: 'My Profile', Icon: UserRound }
 ];
-
-const TODAY_LABELS = {
-    upcoming: 'A consultation is still to come today',
-    ongoing: 'A consultation is on going now',
-    past: 'Today\'s consultations are all over'
-};
 
 const getStoredUser = () => {
     try {
@@ -58,9 +53,9 @@ const notificationRoute = (n) => {
     if (type === 'MESSAGE') return '/DoctorChat';
     if (type === 'CONSULTATION_REQUEST' || type === 'CONSULTATION_RECONFIRMED') return '/DoctorMySchedule?tab=waiting';
     if (type === 'SCHEDULE_UPDATE') return '/DoctorMySchedule';
-    if (type.includes('BOOKING_REQUEST')) return '/DoctorMySchedule?tab=approvals';
-    if (type.includes('ASSESSMENT')) return '/DoctorConsultations';
-    if (type.includes('BOOKING') || type.includes('APPOINTMENT') || type.includes('BATCH')) return '/DoctorConsultations';
+    if (type === 'SCHEDULE_REQUEST') return '/DoctorMySchedule?tab=schedules';
+    if (type.includes('ASSESSMENT')) return '/DoctorCheckup';
+    if (type.includes('BOOKING') || type.includes('APPOINTMENT') || type.includes('BATCH')) return '/DoctorCheckup';
     return '/DoctorDashboard';
 };
 
@@ -84,8 +79,6 @@ export const DoctorLayout = () => {
     const [showNotif, setShowNotif] = useState(false);
     const [pendingRequests, setPendingRequests] = useState(0);
     const [chatUnread, setChatUnread] = useState(0);
-    // today's consultations: yellow = one is still to come, green = one is on going, gray = they are all over
-    const [todayStatus, setTodayStatus] = useState('none');
     const notifRef = useRef(null);
 
     // first login: the phone number is required before the dashboard opens
@@ -138,23 +131,10 @@ export const DoctorLayout = () => {
     const fetchPending = useCallback(async () => {
         if (!doctor?.doctor_id) return;
         try {
-            const res = await fetch(`${API}/api/doctor/${doctor.doctor_id}/appointments?scope=requests&pageSize=1`);
+            // what needs the doctor in My Schedule: the nurse's schedule requests that wait for an answer
+            const res = await fetch(`${API}/api/schedule-requests?doctor_id=${encodeURIComponent(doctor.doctor_id)}&status=Pending`);
             const data = await res.json();
-            if (data.success) setPendingRequests(data.total);
-        } catch (e) { /* ignore */ }
-    }, [doctor?.doctor_id]);
-
-    const fetchTodayStatus = useCallback(async () => {
-        if (!doctor?.doctor_id) return;
-        try {
-            const day = localDateStr();
-            const [ongoing, upcoming, past] = await Promise.all(['ongoing', 'upcoming', 'past'].map((scope) => (
-                fetch(`${API}/api/doctor/${doctor.doctor_id}/appointments?scope=${scope}&from=${day}&to=${day}&pageSize=1`).then((r) => r.json())
-            )));
-            if (ongoing.total > 0) setTodayStatus('ongoing');
-            else if (upcoming.total > 0) setTodayStatus('upcoming');
-            else if (past.total > 0) setTodayStatus('past');
-            else setTodayStatus('none');
+            if (data.success) setPendingRequests(data.requests.length);
         } catch (e) { /* ignore */ }
     }, [doctor?.doctor_id]);
 
@@ -174,13 +154,13 @@ export const DoctorLayout = () => {
         fetchNotifications();
         fetchPending();
         fetchChatUnread();
-        fetchTodayStatus();
-        const timer = setInterval(() => { fetchNotifications(); fetchPending(); fetchChatUnread(); fetchTodayStatus(); }, 15000);
+        const timer = setInterval(() => { fetchNotifications(); fetchPending(); fetchChatUnread(); }, 15000);
         return () => clearInterval(timer);
-    }, [phoneReady, fetchNotifications, fetchPending, fetchChatUnread, fetchTodayStatus]);
+    }, [phoneReady, fetchNotifications, fetchPending, fetchChatUnread]);
 
-    // moving between pages (documenting, rescheduling...) can change today's status: look again
-    useEffect(() => { if (phoneReady) fetchTodayStatus(); }, [location.pathname, phoneReady, fetchTodayStatus]);
+    // today's check-ups: yellow = one is still to come, green = one is on going, gray = they are all over.
+    // Moving between pages (documenting, rescheduling...) can change it: the path makes it look again.
+    const todayStatus = useTodayCheckupStatus(doctor?.doctor_id, { enabled: phoneReady, refreshKey: location.pathname });
 
     useEffect(() => { setSidebarOpen(false); setShowNotif(false); }, [location.pathname]);
 
@@ -260,6 +240,7 @@ export const DoctorLayout = () => {
 
     return (
         <div className="dl-shell">
+            <a href="#main-content" className="skip-link">Skip to main content</a>
             {sidebarOpen && <div className="dl-overlay" onClick={() => setSidebarOpen(false)} />}
 
             <aside className={`dl-sidebar ${sidebarOpen ? 'open' : ''}`} aria-label="Doctor navigation">
@@ -279,7 +260,7 @@ export const DoctorLayout = () => {
                             {badge === 'requests' && pendingRequests > 0 && <span className="dl-nav-count">{pendingRequests}</span>}
                             {badge === 'chat' && chatUnread > 0 && <span className="dl-nav-count">{chatUnread}</span>}
                             {badge === 'consultations' && todayStatus !== 'none' && (
-                                <span className={`dl-status-dot ${todayStatus}`} role="img" aria-label={TODAY_LABELS[todayStatus]} title={TODAY_LABELS[todayStatus]} />
+                                <span className={`nav-status-dot ${todayStatus}`} role="img" aria-label={TODAY_LABELS[todayStatus]} title={TODAY_LABELS[todayStatus]} />
                             )}
                         </NavLink>
                     ))}
@@ -343,7 +324,7 @@ export const DoctorLayout = () => {
                     </button>
                 </header>
 
-                <main className="dl-content">
+                <main id="main-content" tabIndex={-1} className="dl-content">
                     {phoneReady ? (
                         <Outlet context={{
                             doctor,

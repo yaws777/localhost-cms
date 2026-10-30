@@ -1,5 +1,5 @@
 // doctorTemplates.jsx
-// The doctor builds templates of the assessment form (extra questions that appear in the consultation form).
+// The doctor builds templates of the assessment form (extra questions that appear in the check-up form).
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { LayoutTemplate, Plus, Trash2, Copy, Edit, ArrowUp, ArrowDown, Eye } from 'lucide-react';
@@ -145,7 +145,7 @@ const DoctorTemplates = () => {
     };
 
     const remove = async (t) => {
-        const ok = await showConfirm(`Delete the template "${t.template_name}"? Consultations already saved with it keep their answers.`, { danger: true, confirmLabel: 'Delete', title: 'Delete template' });
+        const ok = await showConfirm(`Delete the template "${t.template_name}"? Check-ups already saved with it keep their answers.`, { danger: true, confirmLabel: 'Delete', title: 'Delete template' });
         if (!ok) return;
         try {
             const res = await fetch(`${API}/api/doctor-templates/${t.template_id}?doctor_id=${encodeURIComponent(doctorId)}`, { method: 'DELETE' });
@@ -159,7 +159,7 @@ const DoctorTemplates = () => {
             <div className="dp-page-head">
                 <div>
                     <h2>Assessment Templates</h2>
-                    <p>Build your own assessment form. A template adds your questions to the consultation form, and the answers are saved with the consultation.</p>
+                    <p>Build your own assessment form. A template adds your questions to the check-up form, and the answers are saved with the check-up.</p>
                 </div>
                 <div className="dp-actions">
                     <button className="dp-btn dp-btn-primary" onClick={openNew}><Plus size={17} /> New template</button>
@@ -225,7 +225,7 @@ const DoctorTemplates = () => {
                             <label htmlFor="tpl-desc">Description (optional)</label>
                             <input id="tpl-desc" className="dp-input" maxLength={255} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
                         </div>
-                        <label className="dp-check"><input type="checkbox" checked={form.is_default} onChange={(e) => setForm({ ...form, is_default: e.target.checked })} /> Use as my default for this purpose (selected automatically in a new consultation)</label>
+                        <label className="dp-check"><input type="checkbox" checked={form.is_default} onChange={(e) => setForm({ ...form, is_default: e.target.checked })} /> Use as my default for this purpose (selected automatically in a new check-up)</label>
 
                         <div className="dp-section-label">Fields</div>
                         {form.fields.map((f, i) => (
@@ -285,7 +285,7 @@ const DoctorTemplates = () => {
 
                         {preview && (
                             <div className="dp-card" style={{ boxShadow: 'none' }}>
-                                <div className="dp-section-label" style={{ marginBottom: 10 }}>Preview in the consultation form</div>
+                                <div className="dp-section-label" style={{ marginBottom: 10 }}>Preview in the check-up form</div>
                                 <div className="dp-form">
                                     {previewFields.length === 0 ? <p className="dp-hint">Add a label to a field to see it here.</p> : <TemplateFields fields={previewFields} values={previewValues} onChange={setPreviewValues} idPrefix="preview" />}
                                 </div>

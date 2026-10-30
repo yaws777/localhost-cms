@@ -1,10 +1,10 @@
 /* Core Palette: STI institutional brand colors. Primary: White, Secondary: Blue */
 :root {
-  --color-primary-bg: #ffffff;
+  --color-primary-bg: var(--bg-card);
   --color-secondary-blue: #004b93;
   --color-secondary-hover: #00366b;
-  --color-text-dark: #1e293b;
-  --color-text-muted: #64748b;
+  --color-text-dark: var(--text-primary);
+  --color-text-muted: var(--text-secondary);
   --color-border: #cbd5e1;
   --color-bg-light: var(--bg-page);
 }
@@ -12,7 +12,7 @@
 body {
   background-color: var(--color-bg-light);
   color: var(--color-text-dark);
-  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-family: var(--font-sans);
   margin: 0;
   padding: 0;
 }
@@ -45,7 +45,7 @@ body {
   margin: 0;
   font-size: 1.5rem;
   font-weight: 700;
-  color: #002b66;
+  color: var(--text-brand);
 }
 
 .header-subtitle-dm {
@@ -95,9 +95,9 @@ body {
 .card-dm h2 {
   margin-top: 0;
   margin-bottom: 18px;
-  font-size: 17px;
+  font-size: 1.0625rem;
   color: var(--color-text-dark);
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--card-border);
   padding-bottom: 12px;
   display: flex;
   align-items: center;
@@ -105,7 +105,7 @@ body {
 }
 
 .icon-blue-dm {
-  color: var(--color-secondary-blue);
+  color: var(--text-brand);
 }
 
 /* Form Controls and Input Field Styling */
@@ -117,7 +117,7 @@ body {
   display: block;
   margin-bottom: 6px;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 0.875rem;
   color: var(--color-text-dark);
 }
 
@@ -128,7 +128,7 @@ body {
   padding: 10px 12px;
   border: 1px solid var(--color-border);
   border-radius: 6px;
-  font-size: 14px;
+  font-size: 0.875rem;
   box-sizing: border-box;
   background-color: var(--color-primary-bg);
   transition: border-color 0.2s, box-shadow 0.2s;
@@ -183,7 +183,7 @@ body {
   cursor: pointer;
   white-space: nowrap;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 0.875rem;
   transition: background-color 0.2s;
   width: fit-content;
   flex-shrink: 0;
@@ -214,7 +214,7 @@ body {
 .dropdown-item-dm {
   padding: 10px 14px;
   cursor: pointer;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--card-border);
   transition: background-color 0.15s ease;
 }
 
@@ -229,24 +229,24 @@ body {
 }
 
 .student-name-dm {
-  font-size: 13.5px;
+  font-size: 0.875rem;
   font-weight: 600;
 }
 
 .student-id-badge-dm {
-  font-size: 11.5px;
+  font-size: 0.875rem;
   background-color: var(--color-bg-light);
   color: var(--color-secondary-blue);
   padding: 2px 6px;
   border-radius: 4px;
-  font-family: monospace;
+  font-family: var(--font-mono);
 }
 
 .dropdown-no-results-dm {
   padding: 12px;
   text-align: center;
   color: var(--color-text-muted);
-  font-size: 13px;
+  font-size: 0.875rem;
   font-style: italic;
 }
 
@@ -263,7 +263,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 13px;
+  font-size: 0.875rem;
 }
 
 .badge-id-dm {
@@ -271,17 +271,17 @@ body {
   color: #ffffff;
   padding: 2px 6px;
   border-radius: 3px;
-  font-size: 11px;
+  font-size: 0.875rem;
 }
 
 /* Batch Summary & Dosage Input */
 .batch-details-summary-dm {
-  background-color: #f1f5f9;
-  border: 1px solid #e2e8f0;
+  background-color: var(--bg-subtle);
+  border: 1px solid var(--card-border);
   border-radius: 6px;
   padding: 10px 12px;
   margin-bottom: 16px;
-  font-size: 12.5px;
+  font-size: 0.875rem;
 }
 
 .batch-details-summary-dm p {
@@ -300,10 +300,10 @@ body {
 
 .unit-readonly-input-dm {
   width: 110px !important;
-  background-color: #f1f5f9 !important;
+  background-color: var(--bg-subtle) !important;
   text-align: center;
   font-weight: 600;
-  color: var(--color-secondary-blue);
+  color: var(--text-brand);
 }
 
 /* Prevention of Overwidth Buttons */
@@ -317,10 +317,10 @@ body {
   width: fit-content;
   min-width: 160px;
   background-color: var(--color-secondary-blue);
-  color: var(--color-primary-bg);
+  color: var(--text-on-brand);
   border: none;
   padding: 11px 20px;
-  font-size: 14px;
+  font-size: 0.875rem;
   font-weight: 600;
   border-radius: 6px;
   cursor: pointer;
@@ -352,8 +352,8 @@ body {
 
 .todays-badge-dm {
   background-color: rgba(0, 75, 147, 0.08);
-  color: var(--color-secondary-blue);
-  font-size: 12px;
+  color: var(--text-brand);
+  font-size: 0.875rem;
   font-weight: 600;
   padding: 4px 10px;
   border-radius: 12px;
@@ -369,7 +369,7 @@ body {
   width: 100%;
   border-collapse: collapse;
   text-align: left;
-  font-size: 13.5px;
+  font-size: 0.875rem;
   white-space: nowrap;
 }
 
@@ -383,12 +383,12 @@ body {
 
 .custom-table-dm td {
   padding: 10px 12px;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--card-border);
   vertical-align: middle;
 }
 
 .custom-table-dm tr:hover td {
-  background-color: rgba(248, 250, 252, 0.8);
+  background-color: var(--bg-card);
 }
 
 .text-center-empty-dm {
@@ -403,19 +403,19 @@ body {
   display: inline-block;
   padding: 3px 8px;
   border-radius: 12px;
-  font-size: 11px;
+  font-size: 0.875rem;
   font-weight: 600;
   text-transform: uppercase;
 }
 
-.status-ok-dm { background-color: #dcfce7; color: #15803d; }
-.status-low-dm { background-color: #fef9c3; color: #a16207; }
-.status-out-dm, .critical-dm { background-color: #fee2e2; color: #b91c1c; }
-.adequate-dm { background-color: #dcfce7; color: #15803d; }
+.status-ok-dm { background-color: var(--status-adequate-bg); color: var(--status-adequate-text); }
+.status-low-dm { background-color: var(--status-low-bg); color: var(--status-low-text); }
+.status-out-dm, .critical-dm { background-color: var(--status-critical-bg); color: var(--status-critical-text); }
+.adequate-dm { background-color: var(--status-adequate-bg); color: var(--status-adequate-text); }
 
 .stock-box-badge-dm {
-  background-color: #e0f2fe;
-  color: #0369a1;
+  background-color: var(--sti-blue-light);
+  color: var(--text-brand);
   padding: 2px 6px;
   border-radius: 4px;
   font-weight: 600;
@@ -436,7 +436,7 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--color-secondary-blue);
+  color: var(--text-brand);
   transition: all 0.2s ease;
   width: fit-content;
 }
@@ -475,20 +475,20 @@ body {
   padding: 12px 16px;
   border-radius: 8px;
   margin-bottom: 20px;
-  font-size: 13.5px;
+  font-size: 0.875rem;
   font-weight: 500;
 }
 
 .alert-success-dm {
-  background-color: #f0fdf4;
-  border: 1px solid #bbf7d0;
-  color: #166534;
+  background-color: var(--status-adequate-bg);
+  border: 1px solid var(--card-border);
+  color: var(--status-adequate-text);
 }
 
 .alert-error-dm {
-  background-color: #fef2f2;
+  background-color: var(--status-critical-bg);
   border: 1px solid #fecaca;
-  color: #991b1b;
+  color: var(--status-critical-text);
 }
 
 .alert-close-btn-dm {
@@ -540,11 +540,11 @@ body {
 
 .modal-header-dm {
   padding: 18px 24px;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--card-border);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background-color: #f8fafc;
+  background-color: var(--bg-subtle);
   flex-shrink: 0;
 }
 
@@ -556,7 +556,7 @@ body {
 
 .modal-header-dm h3 {
   margin: 0;
-  font-size: 18px;
+  font-size: 1.125rem;
   color: var(--color-text-dark);
 }
 
@@ -596,7 +596,7 @@ body {
   gap: 12px;
   flex-wrap: wrap;
   margin-bottom: 16px;
-  background-color: #f1f5f9;
+  background-color: var(--bg-subtle);
   padding: 12px;
   border-radius: 8px;
   flex-shrink: 0;
@@ -621,12 +621,12 @@ body {
 .date-range-group-dm input[type="date"] {
   border: none;
   outline: none;
-  font-size: 13px;
+  font-size: 0.875rem;
   color: var(--color-text-dark);
 }
 
 .date-sep-dm {
-  font-size: 12px;
+  font-size: 0.875rem;
   color: var(--color-text-muted);
 }
 
@@ -634,7 +634,7 @@ body {
   padding: 8px 12px;
   border-radius: 6px;
   border: 1px solid var(--color-border);
-  font-size: 13px;
+  font-size: 0.875rem;
   width: 200px;
 }
 
@@ -654,7 +654,7 @@ body {
   border-radius: 6px;
   cursor: pointer;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 0.875rem;
   width: fit-content;
 }
 
@@ -663,12 +663,12 @@ body {
   align-items: center;
   gap: 4px;
   padding: 8px 12px;
-  background-color: #ef4444;
+  background-color: var(--danger-fill);
   color: #ffffff;
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 0.875rem;
   width: fit-content;
 }
 
@@ -677,7 +677,7 @@ body {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--card-border);
   border-radius: 6px;
   background-color: var(--bg-card);
 }
@@ -693,10 +693,10 @@ body {
 
 .modal-footer-dm {
   padding: 14px 24px;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid var(--card-border);
   display: flex;
   justify-content: flex-end;
-  background-color: #f8fafc;
+  background-color: var(--bg-subtle);
   flex-shrink: 0;
 }
 
@@ -708,7 +708,7 @@ body {
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 13.5px;
+  font-size: 0.875rem;
   font-weight: 500;
   width: fit-content !important;
   max-width: fit-content !important;
@@ -732,13 +732,13 @@ body {
 }
 
 .detail-label-dm {
-  font-size: 12px;
+  font-size: 0.875rem;
   font-weight: 600;
   color: var(--color-text-muted);
 }
 
 .detail-value-dm {
-  font-size: 14px;
+  font-size: 0.875rem;
   font-weight: 500;
   color: var(--color-text-dark);
 }
@@ -774,7 +774,7 @@ body {
 }
 
 .qr-hint-text-dm {
-  font-size: 12.5px;
+  font-size: 0.875rem;
   color: var(--color-text-muted);
   margin-bottom: 16px;
 }
@@ -862,6 +862,6 @@ body {
 .field-help-text-dm {
   display: block;
   margin-top: 6px;
-  font-size: 0.8rem;
-  color: #b54708;
+  font-size: 0.875rem;
+  color: var(--status-low-text);
 }

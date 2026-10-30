@@ -500,22 +500,22 @@ export default function RequestModule() {
                 />
 
                 {excuseForm.proof && proofPreview && (
-                  <div className="sti-proof-preview-container" style={{ marginTop: '12px', padding: '10px', border: '1px solid #e2e8f0', borderRadius: '8px', backgroundColor: '#f8fafc' }}>
+                  <div className="sti-proof-preview-container" style={{ marginTop: '12px', padding: '10px', border: '1px solid var(--card-border)', borderRadius: '8px', backgroundColor: 'var(--bg-subtle)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                      <span style={{ fontSize: '0.85rem', fontWeight: '600', color: '#334155', wordBreak: 'break-all' }}>
+                      <span style={{ fontSize: '0.875rem', fontWeight: '600', color: 'var(--text-primary)', wordBreak: 'break-all' }}>
                         📎 {excuseForm.proof.name} ({Math.round(excuseForm.proof.size / 1024)} KB)
                       </span>
                       <button
                         type="button"
                         onClick={() => setExcuseForm({ ...excuseForm, proof: null })}
-                        style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 'bold' }}
+                        style={{ background: 'none', border: 'none', color: 'var(--status-critical-text)', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 'bold' }}
                       >
                         Remove
                       </button>
                     </div>
 
                     {excuseForm.proof.type.startsWith('image/') ? (
-                      <div style={{ textAlign: 'center', backgroundColor: '#ffffff', padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }}>
+                      <div style={{ textAlign: 'center', backgroundColor: 'var(--bg-card)', padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }}>
                         <img
                           src={proofPreview}
                           alt="Proof Preview"
@@ -529,7 +529,7 @@ export default function RequestModule() {
                         style={{ width: '100%', height: '220px', border: '1px solid #cbd5e1', borderRadius: '6px' }}
                       />
                     ) : (
-                      <p style={{ fontSize: '0.85rem', color: '#64748b', margin: 0 }}>
+                      <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', margin: 0 }}>
                         File attached ready for upload.
                       </p>
                     )}

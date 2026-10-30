@@ -316,9 +316,9 @@ export default function MedicineInventory() {
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
     if (diffDays < 0) {
-      return { msg: '🚨 Expired!', style: { color: '#B42318', fontWeight: 'bold' } };
+      return { msg: '🚨 Expired!', style: { color: 'var(--status-critical-text)', fontWeight: 'bold' } };
     } else if (diffDays <= 7) {
-      return { msg: `⚠️ Alert (${diffDays} days left)`, style: { color: '#B54708', fontWeight: '600' } };
+      return { msg: `⚠️ Alert (${diffDays} days left)`, style: { color: 'var(--status-low-text)', fontWeight: '600' } };
     }
     return { msg: formatDate(expiryDate), style: { color: 'inherit' } };
   };
@@ -1130,7 +1130,7 @@ export default function MedicineInventory() {
                         );
                       })
                     ) : (
-                      <p style={{ gridColumn: '1 / -1', color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '4px 0' }}>
+                      <p style={{ gridColumn: '1 / -1', color: 'var(--text-secondary)', fontSize: '0.875rem', margin: '4px 0' }}>
                         No matching medical conditions found.
                       </p>
                     )}

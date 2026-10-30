@@ -447,16 +447,16 @@ export default function Login() {
                     <div className="forgot-flow-wrapper">
                         
                         {/* Step Indicators */}
-                        <div className="flow-step-indicators" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px', fontSize: '0.75rem', fontWeight: '600' }}>
-                            <span style={{ color: forgotStep >= 1 ? '#0284c7' : '#9ca3af' }}>1. Username</span>
-                            <span style={{ color: forgotStep >= 2 ? '#0284c7' : '#9ca3af' }}>2. Verification</span>
-                            <span style={{ color: forgotStep >= 3 && isIdentifierVerified ? '#0284c7' : '#9ca3af' }}>3. New Password</span>
+                        <div className="flow-step-indicators" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px', fontSize: '0.875rem', fontWeight: '600' }}>
+                            <span style={{ color: forgotStep >= 1 ? 'var(--text-brand)' : 'var(--text-secondary)' }}>1. Username</span>
+                            <span style={{ color: forgotStep >= 2 ? 'var(--text-brand)' : 'var(--text-secondary)' }}>2. Verification</span>
+                            <span style={{ color: forgotStep >= 3 && isIdentifierVerified ? 'var(--text-brand)' : 'var(--text-secondary)' }}>3. New Password</span>
                         </div>
 
                         {forgotStep === 1 && (
                             /* STEP 1: ENTER USERNAME */
                             <form onSubmit={handleVerifyUsername} className="auth-form">
-                                <div style={{ textAlign: 'left', marginBottom: '6px', fontSize: '0.85rem', color: '#4b5563' }}>
+                                <div style={{ textAlign: 'left', marginBottom: '6px', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
                                     Enter your registered username to verify account existence.
                                 </div>
                                 <input 
@@ -481,14 +481,14 @@ export default function Login() {
                         {forgotStep === 2 && (
                             /* STEP 2: VERIFY ROLE IDENTIFIER MATCH IN DATABASE */
                             <form onSubmit={handleVerifyIdentifier} className="auth-form">
-                                <div style={{ textAlign: 'left', marginBottom: '8px', padding: '8px', backgroundColor: '#f0f9ff', borderRadius: '6px', border: '1px solid #bae6fd' }}>
-                                    <div style={{ fontSize: '0.8rem', color: '#0369a1' }}>
+                                <div style={{ textAlign: 'left', marginBottom: '8px', padding: '8px', backgroundColor: 'var(--bg-subtle)', borderRadius: '6px', border: '1px solid #bae6fd' }}>
+                                    <div style={{ fontSize: '0.875rem', color: 'var(--text-brand)' }}>
                                         Account Found: <strong>{forgotUsername}</strong> ({detectedRole?.role_name})
                                     </div>
                                 </div>
 
                                 <div className="input-group" style={{ textAlign: 'left', marginTop: '6px' }}>
-                                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '600', marginBottom: '4px', color: '#374151' }}>
+                                    <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '600', marginBottom: '4px', color: 'var(--text-primary)' }}>
                                         {roleConfig.label}
                                     </label>
                                     <input 
@@ -499,7 +499,7 @@ export default function Login() {
                                         placeholder={roleConfig.placeholder} 
                                         className="auth-input"
                                     />
-                                    <small style={{ color: '#6b7280', fontSize: '0.75rem', marginTop: '4px', display: 'block' }}>
+                                    <small style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginTop: '4px', display: 'block' }}>
                                         {roleConfig.helpText}
                                     </small>
                                 </div>
@@ -521,9 +521,9 @@ export default function Login() {
                         {forgotStep === 3 && (
                             /* STEP 3: PROCEED TO ENTER NEW STRONG PASSWORD */
                             <form onSubmit={handleResetPassword} className="auth-form">
-                                <div style={{ textAlign: 'left', marginBottom: '8px', padding: '8px', backgroundColor: '#f0fdf4', borderRadius: '6px', border: '1px solid #bbf7d0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <CheckCircle2 size={18} color="#16a34a" />
-                                    <span style={{ fontSize: '0.8rem', color: '#15803d', fontWeight: '600' }}>
+                                <div style={{ textAlign: 'left', marginBottom: '8px', padding: '8px', backgroundColor: 'var(--status-adequate-bg)', borderRadius: '6px', border: '1px solid var(--card-border)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <CheckCircle2 size={18} color="var(--status-adequate-text)" />
+                                    <span style={{ fontSize: '0.875rem', color: 'var(--status-adequate-text)', fontWeight: '600' }}>
                                         Identity Verified! Please enter your new strong password.
                                     </span>
                                 </div>
@@ -717,7 +717,7 @@ export default function Login() {
                                     className="auth-input"
                                     maxLength={13}
                                 />
-                                <small style={{ color: '#6b7280', fontSize: '0.75rem', marginTop: '4px', display: 'block', textAlign: 'left' }}>
+                                <small style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginTop: '4px', display: 'block', textAlign: 'left' }}>
                                     Must be a valid PH number starting with 09 or +639 (11 digits).
                                 </small>
                             </div>

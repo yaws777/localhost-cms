@@ -16,9 +16,9 @@ const REASON_HINTS = [
     [/general/i, 'e.g. Fever and cough for 3 days, a yearly check-up, or a medical certificate']
 ];
 export const reasonPlaceholder = (type) => {
-    if (!type) return 'Select the purpose of the consultation first';
+    if (!type) return 'Select the purpose of the check-up first';
     const hint = REASON_HINTS.find(([re]) => re.test(type));
-    return hint ? hint[1] : `Describe why you need a ${type} consultation`;
+    return hint ? hint[1] : `Describe why you need a ${type} check-up`;
 };
 
 // How an appointment came to be, in the words the clinic uses

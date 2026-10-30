@@ -848,7 +848,7 @@ const IncidentReport = () => {
                                     <button 
                                         type="button" 
                                         className="btn btn-secondary" 
-                                        style={{ padding: '4px 10px', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                                        style={{ padding: '4px 10px', fontSize: '0.875rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                                         onClick={requestCameraAndStartScan}
                                     >
                                         <Camera size={14} />
@@ -866,7 +866,7 @@ const IncidentReport = () => {
                                 />
 
                                 {cameraPermissionError && (
-                                    <div style={{ marginTop: '8px', padding: '8px 12px', backgroundColor: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '6px', color: '#991b1b', fontSize: '0.82rem' }}>
+                                    <div style={{ marginTop: '8px', padding: '8px 12px', backgroundColor: 'var(--status-critical-bg)', border: '1px solid #fca5a5', borderRadius: '6px', color: 'var(--status-critical-text)', fontSize: '0.875rem' }}>
                                         <strong>{cameraPermissionError}</strong>
                                     </div>
                                 )}
@@ -986,7 +986,7 @@ const IncidentReport = () => {
                                 muted 
                                 playsInline 
                             />
-                            <p style={{ marginTop: '12px', fontSize: '0.88rem', color: '#64748b' }}>
+                            <p style={{ marginTop: '12px', fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
                                 Point camera directly at the student's QR code to scan automatically.
                             </p>
                             <div className="modal-footer" style={{ marginTop: '16px', justifyContent: 'center' }}>

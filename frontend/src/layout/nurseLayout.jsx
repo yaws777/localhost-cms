@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
     LayoutDashboard, FileBarChart, Stethoscope, FolderHeart,
     Pill, Boxes, FileCheck, ClipboardCheck, HeartPulse,
@@ -12,6 +12,7 @@ import NurseMessageModal from '../components/student/NurseMessageModal.jsx';
 import { useWebPush } from '../hooks/useWebPush';
 import { useTheme } from '../context/ThemeContext';
 import { useSidebar } from '../context/SidebarContext';
+import { useTodayCheckupStatus, TODAY_LABELS } from '../hooks/useTodayCheckupStatus';
 import ConfirmModal from '../components/common/ConfirmModal';
 import { formatCurrentDate, formatDateTime } from '../utils/datetime';
 
@@ -19,6 +20,7 @@ const API_BASE_URL = 'http://localhost:3001';
 
 export const NurseLayout = () => {
     const navigate = useNavigate();
+    const location = useLocation();
     const { theme, toggleTheme } = useTheme();
     const { collapsed, toggleCollapsed } = useSidebar();
     const [isOpen, setIsOpen] = useState(false);
@@ -64,6 +66,9 @@ export const NurseLayout = () => {
     ).length;
 
     const activeUserId = nurseUserId;
+
+    // today's check-ups of every doctor: yellow = one is still to come, green = one is on going, gray = they are all over
+    const todayStatus = useTodayCheckupStatus('all', { enabled: !!nurseData?.nurse_id, refreshKey: location.pathname });
 
     // Fetch unread messages count
     const fetchUnreadCount = useCallback(async (targetUserId) => {
@@ -172,7 +177,7 @@ export const NurseLayout = () => {
         if (type.includes('restock')) return '/ReportsAnalytics?tab=inventory';
         if (type === 'consultation_request' || type === 'consultation_reconfirmed') return '/DoctorVisit?section=waiting';
         if (type === 'schedule_update') return '/DoctorVisit?section=availability';
-        if (type.includes('booking')) return '/DoctorVisit?section=requests';
+        if (type.startsWith('schedule_request')) return '/DoctorVisit?section=availability';
         if (type.includes('appointment') || type.includes('batch') || type.includes('assessment') || type.includes('doctor_visit')) return '/DoctorVisit';
         if (type.includes('requirement') || msg.includes('requirement') || title.includes('submission')) return '/RequirementManagement';
         if (type.includes('visit') || type.includes('consultation') || msg.includes('clinic visit')) return '/VisitLogConsultation';
@@ -281,6 +286,7 @@ export const NurseLayout = () => {
 
     return (
         <div className="student-layout">
+            <a href="#main-content" className="skip-link">Skip to main content</a>
             <button className="mobile-toggle-btn" onClick={toggleSidebar}>☰</button>
             {isOpen && <div className="sidebar-overlay" onClick={closeSidebar}></div>}
 
@@ -311,7 +317,7 @@ export const NurseLayout = () => {
                         <span className="profile-id">ID: {nurseData?.nurse_id || '--------'}</span>
                         
                         {errorMsg && (
-                            <span className="profile-error" style={{ color: '#ff4d4f', fontSize: '0.8em', display: 'block', marginTop: '5px' }}>
+                            <span className="profile-error" style={{ color: 'var(--status-critical-text)', fontSize: '0.875rem', display: 'block', marginTop: '5px' }}>
                                 {errorMsg}
                             </span>
                         )}
@@ -405,6 +411,9 @@ export const NurseLayout = () => {
                             <>
                                 <BriefcaseMedical className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
                                 <span>Doctor Visit</span>
+                                {todayStatus !== 'none' && (
+                                    <span className={`nav-status-dot ${todayStatus}`} role="img" aria-label={TODAY_LABELS[todayStatus]} title={TODAY_LABELS[todayStatus]} />
+                                )}
                             </>
                         )}
                     </NavLink>
@@ -463,9 +472,9 @@ export const NurseLayout = () => {
                         )}
                     </NavLink>
                     
-                    <hr className="nav-divider" style={{ margin: '15px 0', borderColor: 'rgba(255,255,255,0.1)' }} />
+                    <hr className="nav-divider" />
 
-                    <button onClick={handleLogoutClick} className="nav-link logout-btn" style={{ background: 'transparent', border: 'none', width: '100%', textAlign: 'left', cursor: 'pointer', color: 'yellow' }}>
+                    <button onClick={handleLogoutClick} className="nav-link logout-btn">
                         <LogOut className="nav-icon" size={16} />
                         <span>Logout</span>
                     </button>
@@ -482,7 +491,7 @@ export const NurseLayout = () => {
                     <button
                         onClick={toggleTheme}
                         className="theme-toggle-btn"
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', color: '#333', padding: '4px' }}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', color: 'var(--text-primary)', padding: '4px' }}
                         title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
                         aria-label="Toggle dark mode"
                     >
@@ -499,7 +508,7 @@ export const NurseLayout = () => {
                             display: 'inline-flex', 
                             alignItems: 'center', 
                             justifyContent: 'center',
-                            color: '#333', 
+                            color: 'var(--text-primary)', 
                             padding: '4px'
                         }} 
                         title="Messages"
@@ -510,11 +519,11 @@ export const NurseLayout = () => {
                                 position: 'absolute',
                                 top: '-6px',
                                 right: '-8px',
-                                backgroundColor: '#ff4d4f',
+                                backgroundColor: 'var(--danger-fill)',
                                 color: '#ffffff',
                                 borderRadius: '10px',
                                 padding: '2px 6px',
-                                fontSize: '10px',
+                                fontSize: '0.875rem',
                                 fontWeight: 'bold',
                                 lineHeight: '1',
                                 minWidth: '18px',
@@ -533,7 +542,7 @@ export const NurseLayout = () => {
                     <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
                         <button 
                             onClick={() => setShowNotifDropdown(!showNotifDropdown)} 
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', position: 'relative', display: 'inline-flex', alignItems: 'center', color: '#333', padding: '4px' }}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', position: 'relative', display: 'inline-flex', alignItems: 'center', color: 'var(--text-primary)', padding: '4px' }}
                             title="Notifications"
                         >
                             <Bell size={22} />
@@ -542,11 +551,11 @@ export const NurseLayout = () => {
                                     position: 'absolute',
                                     top: '-6px',
                                     right: '-8px',
-                                    backgroundColor: '#ff4d4f',
+                                    backgroundColor: 'var(--danger-fill)',
                                     color: '#ffffff',
                                     borderRadius: '10px',
                                     padding: '2px 6px',
-                                    fontSize: '10px',
+                                    fontSize: '0.875rem',
                                     fontWeight: 'bold',
                                     lineHeight: '1',
                                     minWidth: '18px',
@@ -593,8 +602,8 @@ export const NurseLayout = () => {
                                             style={{
                                                 background: 'none',
                                                 border: 'none',
-                                                color: '#1890ff',
-                                                fontSize: '12px',
+                                                color: 'var(--text-brand)',
+                                                fontSize: '0.875rem',
                                                 cursor: 'pointer',
                                                 padding: 0,
                                                 fontWeight: '500'
@@ -606,7 +615,7 @@ export const NurseLayout = () => {
                                 </div>
 
                                 {notifications.length === 0 ? (
-                                    <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '14px' }}>
+                                    <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
                                         No notifications
                                     </div>
                                 ) : (
@@ -629,7 +638,7 @@ export const NurseLayout = () => {
                                             >
                                                 <div style={{
                                                     fontWeight: isItemRead ? 'normal' : 'bold',
-                                                    fontSize: '14px',
+                                                    fontSize: '0.875rem',
                                                     marginBottom: '4px',
                                                     color: 'var(--text-primary)',
                                                     display: 'flex',
@@ -647,10 +656,10 @@ export const NurseLayout = () => {
                                                     )}
                                                     {item.title || 'Notification'}
                                                 </div>
-                                                <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', lineHeight: '1.4' }}>
+                                                <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '6px', lineHeight: '1.4' }}>
                                                     {item.message}
                                                 </div>
-                                                <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textAlign: 'right' }}>
+                                                <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', textAlign: 'right' }}>
                                                     {formatDateTime(item.created_at)}
                                                 </div>
                                             </div>
@@ -665,7 +674,7 @@ export const NurseLayout = () => {
                 </div>
             </div>
 
-            <div className={`main-content ${collapsed ? 'sidebar-collapsed-margin' : ''}`}>
+            <main id="main-content" tabIndex={-1} className={`main-content ${collapsed ? 'sidebar-collapsed-margin' : ''}`}>
                 <Outlet context={{
                     nurseId: nurseData?.nurse_id || '', 
                     userId: nurseData?.user_id || activeUserId || '',
@@ -676,7 +685,7 @@ export const NurseLayout = () => {
                     refreshUnreadCount: () => fetchUnreadCount(activeUserId),
                     refreshNotifications: () => fetchNotifications(nurseData?.nurse_id)
                 }} />
-            </div>
+            </main>
 
             {isMessageOpen && activeUserId && (
                 <NurseMessageModal 

@@ -68,7 +68,7 @@ const objectives = [
   {
     icon: Stethoscope,
     title: "Doctor Visit Scheduling",
-    description: "Allow the school nurse to schedule doctor visits and appoint students to a doctor, enabling efficient coordination of medical consultations within the school clinic.",
+    description: "Allow the school nurse to schedule doctor visits and appoint students to a doctor, enabling efficient coordination of medical check-ups within the school clinic.",
     theme: "teal",
   },
   {
@@ -128,7 +128,7 @@ const objectives = [
   {
     icon: ClipboardList,
     title: "Student & Parent Clinic Logs & Records",
-    description: "Allow students and parents to view the student's complete record on the clinic, including clinic visit consultation history, medicine request history, issued excuse slip request history, screening & monitoring history, doctor consultation history, and incident report history.",
+    description: "Allow students and parents to view the student's complete record on the clinic, including clinic visit consultation history, medicine request history, issued excuse slip request history, screening & monitoring history, doctor check-up history, and incident report history.",
     theme: "teal",
   },
 ];

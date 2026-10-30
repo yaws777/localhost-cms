@@ -10,8 +10,8 @@
 }
 
 .shared-modal-panel {
-    background-color: var(--modal-panel-bg, #ffffff);
-    border: 1px solid var(--modal-border, #e4e7ec);
+    background-color: var(--modal-panel-bg, var(--bg-card));
+    border: 1px solid var(--modal-border, var(--card-border));
     border-radius: 12px;
     width: 100%;
     max-width: 480px;
@@ -32,7 +32,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 16px 20px;
-    border-bottom: 1px solid var(--modal-border, #e4e7ec);
+    border-bottom: 1px solid var(--modal-border, var(--card-border));
     flex-shrink: 0;
 }
 
@@ -61,7 +61,7 @@
 
 .shared-modal-close:hover {
     background-color: var(--sti-blue-light);
-    color: var(--sti-blue-primary);
+    color: var(--text-brand);
 }
 
 .shared-modal-body {
@@ -75,7 +75,7 @@
     justify-content: flex-end;
     gap: 10px;
     padding: 14px 20px;
-    border-top: 1px solid var(--modal-border, #e4e7ec);
+    border-top: 1px solid var(--modal-border, var(--card-border));
     flex-shrink: 0;
 }
 
@@ -121,7 +121,7 @@
 
 .shared-icon-success { background-color: var(--status-adequate-bg); color: var(--status-adequate-text); }
 .shared-icon-error { background-color: var(--status-critical-bg); color: var(--status-critical-text); }
-.shared-icon-info { background-color: var(--sti-blue-light); color: var(--sti-blue-primary); }
+.shared-icon-info { background-color: var(--sti-blue-light); color: var(--text-brand); }
 .shared-icon-warning { background-color: var(--status-low-bg); color: var(--status-low-text); }
 
 .shared-alert-body {

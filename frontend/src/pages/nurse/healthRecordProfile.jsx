@@ -129,7 +129,7 @@ export default function HealthRecordsProfile() {
         window.print();
     };
 
-    if (loading) return <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>Loading student medical file index...</div>;
+    if (loading) return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>Loading student medical file index...</div>;
 
     const isInactive = studentHeader?.is_active === 0 || studentHeader?.is_active === false;
 
@@ -427,8 +427,8 @@ export default function HealthRecordsProfile() {
                             </label>
 
                             {/* Connected Parent Account Header & View Modal Button */}
-                            <div className="column-full-width" style={{ marginTop: '16px', borderTop: '1px solid #e2e8f0', paddingTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <h4 style={{ margin: 0, color: '#1e293b', fontSize: '1rem', fontWeight: '600' }}>
+                            <div className="column-full-width" style={{ marginTop: '16px', borderTop: '1px solid var(--card-border)', paddingTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <h4 style={{ margin: 0, color: 'var(--text-primary)', fontSize: '1rem', fontWeight: '600' }}>
                                     Connected Parent Account Details
                                 </h4>
                                 <button 
@@ -602,9 +602,9 @@ export default function HealthRecordsProfile() {
                         </div>
 
                         {reqLoading ? (
-                            <div style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>Updating checklist criteria view logs...</div>
+                            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)' }}>Updating checklist criteria view logs...</div>
                         ) : requirementsList.length === 0 ? (
-                            <div style={{ textAlign: 'center', padding: '20px', color: '#999' }}>No academic profile file configurations mapped to this account.</div>
+                            <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-secondary)' }}>No academic profile file configurations mapped to this account.</div>
                         ) : (
                             <div className="table-responsive-wrapper">
                                 <table className="profile-data-table">
@@ -644,7 +644,7 @@ export default function HealthRecordsProfile() {
                                                             {req.status || 'Pending'}
                                                         </span>
                                                     </td>
-                                                    <td style={{ fontSize: '0.88rem', color: '#555' }}>
+                                                    <td style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
                                                         {req.nurse_remarks || <span style={{ color: '#cbd5e1' }}>—</span>}
                                                     </td>
                                                     <td>
@@ -656,7 +656,7 @@ export default function HealthRecordsProfile() {
                                                                 <FileText size={14} /> Open Document
                                                             </a>
                                                         ) : (
-                                                            <span style={{ color: '#999', fontSize: '0.85rem', fontStyle: 'italic' }}>No Upload Found</span>
+                                                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', fontStyle: 'italic' }}>No Upload Found</span>
                                                         )}
                                                     </td>
                                                 </tr>
@@ -682,7 +682,7 @@ export default function HealthRecordsProfile() {
                         </div>
                         <div className="modal-body-content">
                             {parentLoading ? (
-                                <div style={{ textAlign: 'center', padding: '30px', color: '#64748b' }}>
+                                <div style={{ textAlign: 'center', padding: '30px', color: 'var(--text-secondary)' }}>
                                     Loading parent details...
                                 </div>
                             ) : parentError ? (
@@ -743,30 +743,30 @@ export default function HealthRecordsProfile() {
             <div className="printable-health-report">
                 <div style={{ textAlign: 'center', marginBottom: '20px', borderBottom: '2px solid #0f172a', paddingBottom: '12px' }}>
                     <img src={stiLogo} alt="STI Logo" style={{ height: '60px', marginBottom: '8px' }} />
-                    <h2 style={{ margin: '0', fontSize: '18px', fontWeight: 'bold' }}>STI College Baliuag</h2>
-                    <p style={{ margin: '4px 0', fontSize: '12px', color: '#334155' }}>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan.</p>
-                    <h3 style={{ margin: '12px 0 0 0', fontSize: '16px', letterSpacing: '0.5px' }}>HEALTH PROFILE REPORT</h3>
+                    <h2 style={{ margin: '0', fontSize: '1.125rem', fontWeight: 'bold' }}>STI College Baliuag</h2>
+                    <p style={{ margin: '4px 0', fontSize: '0.875rem', color: 'var(--text-primary)' }}>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan.</p>
+                    <h3 style={{ margin: '12px 0 0 0', fontSize: '1rem', letterSpacing: '0.5px' }}>HEALTH PROFILE REPORT</h3>
                 </div>
 
                 <div style={{ marginBottom: '20px' }}>
-                    <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px' }}>Student Information</h4>
-                    <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Student ID:</strong> {studentId} {isInactive ? '(Inactive Account)' : ''}</p>
-                    <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Name:</strong> {studentHeader?.first_name} {studentHeader?.last_name}</p>
-                    <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Program & Year:</strong> {studentHeader?.program_id} - {studentHeader?.year_level} Year</p>
-                    <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Gender:</strong> {personalInfo.gender || 'N/A'} | <strong>Age:</strong> {personalInfo.age || 'N/A'} | <strong>Date of Birth:</strong> {personalInfo.birth_date ? formatDate(personalInfo.birth_date) : 'N/A'}</p>
-                    <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Contact No.:</strong> {personalInfo.contact_number || 'N/A'}</p>
-                    <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Address:</strong> {personalInfo.address || 'N/A'}</p>
+                    <h4 style={{ margin: '0 0 8px 0', fontSize: '0.875rem', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px' }}>Student Information</h4>
+                    <p style={{ margin: '3px 0', fontSize: '0.875rem' }}><strong>Student ID:</strong> {studentId} {isInactive ? '(Inactive Account)' : ''}</p>
+                    <p style={{ margin: '3px 0', fontSize: '0.875rem' }}><strong>Name:</strong> {studentHeader?.first_name} {studentHeader?.last_name}</p>
+                    <p style={{ margin: '3px 0', fontSize: '0.875rem' }}><strong>Program & Year:</strong> {studentHeader?.program_id} - {studentHeader?.year_level} Year</p>
+                    <p style={{ margin: '3px 0', fontSize: '0.875rem' }}><strong>Gender:</strong> {personalInfo.gender || 'N/A'} | <strong>Age:</strong> {personalInfo.age || 'N/A'} | <strong>Date of Birth:</strong> {personalInfo.birth_date ? formatDate(personalInfo.birth_date) : 'N/A'}</p>
+                    <p style={{ margin: '3px 0', fontSize: '0.875rem' }}><strong>Contact No.:</strong> {personalInfo.contact_number || 'N/A'}</p>
+                    <p style={{ margin: '3px 0', fontSize: '0.875rem' }}><strong>Address:</strong> {personalInfo.address || 'N/A'}</p>
                 </div>
 
                 <div style={{ marginBottom: '20px' }}>
-                    <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px' }}>Connected Parent Information</h4>
-                    <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Parent Name:</strong> {studentHeader?.parent_first_name ? `${studentHeader.parent_first_name} ${studentHeader.parent_last_name}` : 'N/A'}</p>
-                    <p style={{ margin: '3px 0', fontSize: '12px' }}><strong>Parent Contact No.:</strong> {studentHeader?.parent_phone || 'N/A'}</p>
+                    <h4 style={{ margin: '0 0 8px 0', fontSize: '0.875rem', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px' }}>Connected Parent Information</h4>
+                    <p style={{ margin: '3px 0', fontSize: '0.875rem' }}><strong>Parent Name:</strong> {studentHeader?.parent_first_name ? `${studentHeader.parent_first_name} ${studentHeader.parent_last_name}` : 'N/A'}</p>
+                    <p style={{ margin: '3px 0', fontSize: '0.875rem' }}><strong>Parent Contact No.:</strong> {studentHeader?.parent_phone || 'N/A'}</p>
                 </div>
 
                 <div style={{ marginBottom: '30px' }}>
-                    <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px' }}>Health Profile Summary</h4>
-                    <ul style={{ margin: '4px 0', paddingLeft: '18px', fontSize: '12px' }}>
+                    <h4 style={{ margin: '0 0 8px 0', fontSize: '0.875rem', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px' }}>Health Profile Summary</h4>
+                    <ul style={{ margin: '4px 0', paddingLeft: '18px', fontSize: '0.875rem' }}>
                         {healthInfo.has_allergies && <li>Allergies (Food: {healthInfo.allergy_food || 'None'}, Meds: {healthInfo.allergy_medicine || 'None'})</li>}
                         {healthInfo.has_asthma && <li>Asthma (Triggers: {healthInfo.asthma_triggers || 'N/A'})</li>}
                         {healthInfo.has_other_respiratory && <li>Respiratory Conditions ({healthInfo.other_respiratory_specify || 'Specified'})</li>}
@@ -784,9 +784,9 @@ export default function HealthRecordsProfile() {
                 </div>
 
                 <div style={{ marginTop: '50px', textAlign: 'left' }}>
-                    <p style={{ margin: '0 0 35px 0', fontSize: '12px' }}><strong>Prepared by:</strong></p>
-                    <p style={{ margin: '0', fontSize: '13px', fontWeight: 'bold', textDecoration: 'underline' }}>Marilou H. Balarao</p>
-                    <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: '#475569' }}>School Nurse</p>
+                    <p style={{ margin: '0 0 35px 0', fontSize: '0.875rem' }}><strong>Prepared by:</strong></p>
+                    <p style={{ margin: '0', fontSize: '0.875rem', fontWeight: 'bold', textDecoration: 'underline' }}>Marilou H. Balarao</p>
+                    <p style={{ margin: '2px 0 0 0', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>School Nurse</p>
                 </div>
             </div>
         </div>

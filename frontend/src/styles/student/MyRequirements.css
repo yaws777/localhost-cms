@@ -12,13 +12,13 @@
     min-height: 90%;
     margin: 0 auto;
     box-sizing: border-box;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-family: var(--font-sans);
     padding: 10px 0;
 }
 
 .loading-state-mr {
     padding: 20px;
-    color: #002B49;
+    color: var(--text-brand);
     font-weight: 600;
 }
 
@@ -64,7 +64,7 @@
     color: #002B49; /* STI Navy Text */
     padding: 3px 10px;
     border-radius: 4px;
-    font-size: 0.85rem;
+    font-size: 0.875rem;
     font-weight: 700;
     letter-spacing: 0.5px;
 }
@@ -73,9 +73,9 @@
 .error-message-mr {
     margin: 15px 0;
     padding: 12px 16px;
-    background-color: #fef2f2;
+    background-color: var(--status-critical-bg);
     border-left: 4px solid #dc2626;
-    color: #991b1b;
+    color: var(--status-critical-text);
     border-radius: 4px;
     font-weight: 500;
 }
@@ -83,9 +83,9 @@
 .success-message-mr {
     margin: 15px 0;
     padding: 12px 16px;
-    background-color: #f0fdf4;
+    background-color: var(--status-adequate-bg);
     border-left: 4px solid #16a34a;
-    color: #166534;
+    color: var(--status-adequate-text);
     border-radius: 4px;
     font-weight: 500;
 }
@@ -99,19 +99,19 @@
     background-color: var(--bg-card);
     border-radius: 8px;
     padding: 24px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--card-border);
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
 
 .header-block-mr {
     margin-bottom: 20px;
-    border-bottom: 2px solid #f1f5f9;
+    border-bottom: 2px solid var(--card-border);
     padding-bottom: 12px;
 }
 
 .header-block-mr h3 {
     margin: 0;
-    color: #002B49;
+    color: var(--text-brand);
     font-size: 1.2rem;
 }
 
@@ -124,7 +124,7 @@
 .loading-placeholder-mr {
     padding: 30px;
     text-align: center;
-    color: #002B49;
+    color: var(--text-brand);
     font-weight: 500;
 }
 
@@ -138,7 +138,7 @@
 .table-wrapper-mr {
     overflow-x: auto;
     border-radius: 6px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--card-border);
 }
 
 .table-mr {
@@ -160,7 +160,7 @@
 }
 
 .table-row-mr {
-    border-bottom: 1px solid #e2e8f0;
+    border-bottom: 1px solid var(--card-border);
     background-color: var(--bg-card);
     transition: background-color 0.15s ease;
 }
@@ -170,7 +170,7 @@
 }
 
 .table-row-mr.locked-row-mr {
-    background-color: #f1f5f9;
+    background-color: var(--bg-subtle);
 }
 
 /* Cells & Text Colors */
@@ -200,34 +200,34 @@
 }
 
 .file-link-mr {
-    font-size: 0.82rem;
-    color: #0072CE; /* STI Accent Blue */
+    font-size: 0.875rem;
+    color: var(--text-brand); /* STI Accent Blue */
     font-weight: 600;
     text-decoration: underline;
 }
 
 .file-link-mr:hover {
-    color: #002B49;
+    color: var(--text-brand);
 }
 
 /* Program & Special Badges */
 .badge-special-mr {
-    font-size: 0.78rem;
+    font-size: 0.875rem;
     padding: 4px 10px;
     border-radius: 12px;
-    background-color: #fffbe6;
-    color: #b78103;
-    border: 1px solid #ffe58f;
+    background-color: var(--status-low-bg);
+    color: var(--status-low-text);
+    border: 1px solid var(--card-border);
     font-weight: 600;
     display: inline-block;
 }
 
 .badge-program-mr {
-    font-size: 0.78rem;
+    font-size: 0.875rem;
     padding: 4px 10px;
     border-radius: 12px;
-    background-color: #e6f7ff;
-    color: #0050b3;
+    background-color: var(--sti-blue-light);
+    color: var(--text-brand);
     border: 1px solid #91d5ff;
     font-weight: 600;
     display: inline-block;
@@ -240,13 +240,13 @@
 }
 
 .cell-deadline-mr.deadline-past-mr {
-    color: #dc2626;
+    color: var(--status-critical-text);
     font-weight: 600;
 }
 
 .status-badge-mr {
     font-weight: 700;
-    font-size: 0.85rem;
+    font-size: 0.875rem;
 }
 
 .cell-remarks-mr {
@@ -257,28 +257,28 @@
 /* Gray Badge Mark for Empty Remarks */
 .no-remarks-mr {
     display: inline-block;
-    background-color: #f1f5f9;
+    background-color: var(--bg-subtle);
     color: var(--text-secondary);
     border: 1px solid #cbd5e1;
     padding: 2px 8px;
     border-radius: 4px;
-    font-size: 0.78rem;
+    font-size: 0.875rem;
     font-weight: 500;
     text-transform: lowercase;
 }
 
 /* Status Lock State */
 .status-lock-mr {
-    font-size: 0.85rem;
+    font-size: 0.875rem;
     font-weight: 600;
 }
 
 .completed-text-mr {
-    color: #15803d;
+    color: var(--status-adequate-text);
 }
 
 .closed-text-mr {
-    color: #dc2626;
+    color: var(--status-critical-text);
 }
 
 /* Upload Form & Buttons */
@@ -295,7 +295,7 @@
 }
 
 .file-input-mr {
-    font-size: 0.82rem;
+    font-size: 0.875rem;
     border: 1px solid #cbd5e1;
     border-radius: 4px;
     padding: 5px;
@@ -305,7 +305,7 @@
 
 .submit-btn-mr {
     padding: 6px 14px;
-    font-size: 0.85rem;
+    font-size: 0.875rem;
     font-weight: 600;
     border: none;
     border-radius: 4px;
@@ -326,17 +326,18 @@
 
 /* Late Submit: STI Gold/Amber Button */
 .submit-btn-mr.btn-late-mr {
-    background-color: #d97706;
-    color: #ffffff;
+    background-color: var(--status-low-text);
+    color: var(--bg-card);
 }
 
 .submit-btn-mr.btn-late-mr:hover {
-    background-color: #b45309;
+    background-color: var(--status-low-text);
+    filter: brightness(0.9);
 }
 
 .late-warning-mr {
-    color: #d97706;
-    font-size: 0.78rem;
+    color: var(--status-low-text);
+    font-size: 0.875rem;
     font-weight: 600;
 }
 
@@ -390,8 +391,8 @@
     }
 
     .table-row-mr.locked-row-mr {
-        background-color: #f8fafc;
-        border-color: #e2e8f0;
+        background-color: var(--bg-subtle);
+        border-color: var(--card-border);
     }
 
     .cell-name-mr,
@@ -401,7 +402,7 @@
     .cell-remarks-mr,
     .cell-action-mr {
         padding: 8px 0;
-        border-bottom: 1px dashed #e2e8f0;
+        border-bottom: 1px dashed var(--card-border);
         display: flex;
         flex-direction: column;
         align-items: flex-start;
@@ -415,10 +416,10 @@
 
     .table-mr td::before {
         content: attr(data-label);
-        font-size: 0.75rem;
+        font-size: 0.875rem;
         font-weight: 700;
         text-transform: uppercase;
-        color: #002B49;
+        color: var(--text-brand);
         margin-bottom: 4px;
         letter-spacing: 0.5px;
     }
@@ -457,7 +458,7 @@
     }
 
     .header-desc-mr {
-        font-size: 0.82rem;
+        font-size: 0.875rem;
     }
 }
 
@@ -473,8 +474,8 @@
 .file-preview-btn-mr {
     background: transparent;
     border: none;
-    color: #002b49;
-    font-size: 0.82rem;
+    color: var(--text-brand);
+    font-size: 0.875rem;
     font-weight: 600;
     cursor: pointer;
     padding: 0;
@@ -482,22 +483,22 @@
 }
 
 .file-preview-btn-mr:hover {
-    color: #0284c7;
+    color: var(--text-brand);
 }
 
 .btn-local-preview-mr {
-    background-color: #e0f2fe;
-    color: #0369a1;
+    background-color: var(--sti-blue-light);
+    color: var(--text-brand);
     border: 1px solid #bae6fd;
     padding: 4px 10px;
     border-radius: 4px;
-    font-size: 0.8rem;
+    font-size: 0.875rem;
     cursor: pointer;
     transition: background-color 0.2s;
 }
 
 .btn-local-preview-mr:hover {
-    background-color: #bae6fd;
+    background-color: var(--sti-blue-light);
 }
 
 /* Preview Modal Backdrop & Window */
@@ -560,7 +561,7 @@
     display: flex;
     justify-content: center;
     align-items: center;
-    background-color: #f8fafc;
+    background-color: var(--bg-subtle);
     min-height: 350px;
 }
 
@@ -596,9 +597,9 @@
     overflow: auto;
     background: var(--bg-card);
     padding: 14px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--card-border);
     border-radius: 4px;
-    font-family: monospace;
+    font-family: var(--font-mono);
     white-space: pre-wrap;
     word-break: break-all;
 }

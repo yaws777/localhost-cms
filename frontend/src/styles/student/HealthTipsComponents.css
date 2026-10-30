@@ -4,20 +4,20 @@
 
 /* --- CSS Tokens --- */
 :root {
-  --modal-bg: #ffffff;
+  --modal-bg: var(--bg-card);
   --modal-overlay-bg: rgba(15, 23, 42, 0.65);
-  --modal-border: #e2e8f0;
+  --modal-border: var(--card-border);
   --modal-radius: 16px;
 
-  --text-dark: #0f172a;
-  --text-muted: #64748b;
+  --text-dark: var(--text-primary);
+  --text-muted: var(--text-secondary);
 
   --prevent-accent: #059669;
-  --prevent-bg: #ecfdf5;
-  --prevent-border: #a7f3d0;
+  --prevent-bg: var(--status-adequate-bg);
+  --prevent-border: var(--card-border);
 
   --cure-accent: #0284c7;
-  --cure-bg: #f0f9ff;
+  --cure-bg: var(--bg-subtle);
   --cure-border: #bae6fd;
 
   --danger-color: #ef4444;
@@ -127,11 +127,11 @@
   flex-direction: column;
   gap: 16px;
   color: var(--text-dark);
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-sans);
 }
 
 .error-text {
-  color: var(--danger-color);
+  color: var(--status-critical-text);
   font-size: 0.875rem;
   font-weight: 500;
   text-align: center;
@@ -151,7 +151,7 @@
 }
 
 .banner-badge {
-  font-size: 0.675rem;
+  font-size: 0.875rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -177,8 +177,8 @@
 }
 
 .date-range {
-  font-size: 0.75rem;
-  color: #a5b4fc;
+  font-size: 0.875rem;
+  color: var(--text-brand);
 }
 
 /* --- Prevention & Cure Grid Layout --- */
@@ -213,7 +213,7 @@
 }
 
 .section-box li {
-  font-size: 0.825rem;
+  font-size: 0.875rem;
   line-height: 1.45;
   word-break: break-word;
 }
@@ -229,7 +229,7 @@
 }
 
 .prevention-box li {
-  color: #065f46;
+  color: var(--status-adequate-text);
 }
 
 .cure-box {
@@ -242,7 +242,7 @@
 }
 
 .cure-box li {
-  color: #075985;
+  color: var(--text-brand);
 }
 
 /* --- Footer Section --- */
@@ -265,7 +265,7 @@
   font-size: 0.875rem;
   font-weight: 600;
   color: var(--text-dark);
-  background-color: #f1f5f9;
+  background-color: var(--bg-subtle);
   border: 1px solid var(--modal-border);
   border-radius: 8px;
   cursor: pointer;

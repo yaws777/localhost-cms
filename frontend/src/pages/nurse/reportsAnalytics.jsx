@@ -53,7 +53,7 @@ const TABS = [
 
 const COLORS = { visits: '#005691', incidents: '#dc2626', dispensed: '#16a34a', direct: '#005691', consultation: '#f5b301' };
 const TOOLTIP_STYLE = { borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' };
-const TICK = { fontSize: 11, fill: '#64748B' };
+const TICK = { fontSize: '0.875rem', fill: 'var(--text-secondary)' };
 
 const ymd = (date) => {
   const year = date.getFullYear();
@@ -490,7 +490,7 @@ const ReportsAnalytics = () => {
         <ResponsiveContainer width="100%" height={280}>
           <LineChart data={trend.points} margin={{ top: 10, right: 12, left: -20, bottom: 25 }}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-            <XAxis dataKey="label" tick={{ ...TICK, fontSize: 10 }} interval={trend.points.length > 16 ? 'preserveStartEnd' : 0} angle={-30} textAnchor="end" height={55} />
+            <XAxis dataKey="label" tick={{ ...TICK, fontSize: '0.875rem' }} interval={trend.points.length > 16 ? 'preserveStartEnd' : 0} angle={-30} textAnchor="end" height={55} />
             <YAxis tick={TICK} allowDecimals={false} />
             <Tooltip contentStyle={TOOLTIP_STYLE} />
             <Legend verticalAlign="top" height={28} iconType="plainline" />
@@ -626,7 +626,7 @@ const ReportsAnalytics = () => {
             <ResponsiveContainer width="100%" height={240}>
               <BarChart data={trend.points} margin={{ top: 10, right: 10, left: -20, bottom: 25 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-                <XAxis dataKey="label" tick={{ ...TICK, fontSize: 10 }} interval={trend.points.length > 16 ? 'preserveStartEnd' : 0} angle={-30} textAnchor="end" height={55} />
+                <XAxis dataKey="label" tick={{ ...TICK, fontSize: '0.875rem' }} interval={trend.points.length > 16 ? 'preserveStartEnd' : 0} angle={-30} textAnchor="end" height={55} />
                 <YAxis tick={TICK} allowDecimals={false} />
                 <Tooltip contentStyle={TOOLTIP_STYLE} />
                 <Bar dataKey="incidents" name="Incidents" fill={COLORS.incidents} radius={[4, 4, 0, 0]} />

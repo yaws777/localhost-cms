@@ -2,11 +2,11 @@
 :root {
   /* --sti-blue/--sti-blue-hover/--sti-yellow now come from the shared
      frontend/src/styles/theme.css tokens */
-  --sti-dark: #2C3E50;
-  --sti-light-bg: #F4F6F9;
+  --sti-dark: var(--text-primary);
+  --sti-light-bg: var(--bg-subtle);
   --sti-white: #FFFFFF;
-  --sti-border: #E2E8F0;
-  --sti-text-muted: #64748B;
+  --sti-border: var(--card-border);
+  --sti-text-muted: var(--text-secondary);
 }
 
 .sti-req-container {
@@ -14,13 +14,13 @@
   background-color: var(--sti-light-bg);
   min-height: 100vh;
   box-sizing: border-box;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-family: var(--font-sans);
   color: var(--sti-dark);
 }
 
 .sti-page-title {
-  color: var(--sti-blue);
-  font-size: 24px;
+  color: var(--text-brand);
+  font-size: 1.5rem;
   margin-bottom: 20px;
   font-weight: 700;
   border-bottom: 3px solid var(--sti-yellow);
@@ -37,7 +37,7 @@
 }
 
 .sti-action-card {
-  background: var(--sti-white);
+  background: var(--sti-var(--bg-card));
   border-radius: 10px;
   padding: 20px;
   border-top: 5px solid var(--sti-blue);
@@ -55,19 +55,19 @@
 }
 
 .sti-card-icon {
-  font-size: 32px;
+  font-size: 2rem;
   margin-bottom: 10px;
 }
 
 .sti-action-card h3 {
   margin: 0 0 8px 0;
-  color: var(--sti-blue);
-  font-size: 18px;
+  color: var(--text-brand);
+  font-size: 1.125rem;
 }
 
 .sti-action-card p {
   color: var(--sti-text-muted);
-  font-size: 14px;
+  font-size: 0.875rem;
   margin-bottom: 16px;
   flex-grow: 1;
 }
@@ -99,19 +99,19 @@
 }
 
 .sti-btn-icon {
-  background-color: #E0F2FE;
-  color: #0369A1;
+  background-color: var(--sti-blue-light);
+  color: var(--text-brand);
   border: 1px solid #BAE6FD;
   padding: 6px 12px;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 0.875rem;
   font-weight: 600;
 }
 
 /* History Table Card */
 .sti-table-card {
-  background: var(--sti-white);
+  background: var(--sti-var(--bg-card));
   border-radius: 10px;
   padding: 20px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
@@ -119,7 +119,7 @@
 
 .sti-table-card h3 {
   margin-top: 0;
-  color: var(--sti-blue);
+  color: var(--text-brand);
   margin-bottom: 16px;
 }
 
@@ -132,7 +132,7 @@
 .sti-table th, .sti-table td {
   padding: 12px 14px;
   border-bottom: 1px solid var(--sti-border);
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 
 .sti-table th {
@@ -145,37 +145,37 @@
 .sti-badge {
   padding: 4px 10px;
   border-radius: 12px;
-  font-size: 12px;
+  font-size: 0.875rem;
   font-weight: 600;
 }
 
 .badge-excuse {
-  background-color: #FEF3C7;
-  color: #92400E;
+  background-color: var(--status-low-bg);
+  color: var(--status-low-text);
 }
 
 .badge-referral {
-  background-color: #E0E7FF;
-  color: #3730A3;
+  background-color: var(--sti-blue-light);
+  color: var(--text-brand);
 }
 
 .sti-status {
   padding: 4px 10px;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: 0.875rem;
   font-weight: 600;
 }
 
 .status-pending {
-  background-color: #FFFBEB;
-  color: #D97706;
-  border: 1px solid #FDE68A;
+  background-color: var(--status-low-bg);
+  color: var(--status-low-text);
+  border: 1px solid var(--card-border);
 }
 
 .status-approved {
-  background-color: #ECFDF5;
-  color: #059669;
-  border: 1px solid #A7F3D0;
+  background-color: var(--status-adequate-bg);
+  color: var(--status-adequate-text);
+  border: 1px solid var(--card-border);
 }
 
 /* Modal Popup Overlay */
@@ -193,7 +193,7 @@
 }
 
 .sti-modal-content {
-  background: var(--sti-white);
+  background: var(--sti-var(--bg-card));
   border-radius: 10px;
   width: 90%;
   max-width: 500px;
@@ -215,13 +215,13 @@
 
 .sti-modal-header h3 {
   margin: 0;
-  color: var(--sti-blue);
+  color: var(--text-brand);
 }
 
 .sti-modal-close {
   background: none;
   border: none;
-  font-size: 24px;
+  font-size: 1.5rem;
   cursor: pointer;
   color: var(--sti-text-muted);
 }
@@ -233,10 +233,10 @@
 }
 
 .sti-form-group label {
-  font-size: 13px;
+  font-size: 0.875rem;
   font-weight: 600;
   margin-bottom: 6px;
-  color: var(--sti-dark);
+  color: var(--text-primary);
 }
 
 .sti-form-group input,
@@ -245,7 +245,7 @@
   padding: 10px;
   border: 1px solid var(--sti-border);
   border-radius: 6px;
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 
 .sti-form-row {
@@ -266,7 +266,7 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 
 .sti-divider {
@@ -276,7 +276,7 @@
 }
 
 .sti-chat-box {
-  background: #F8FAFC;
+  background: var(--bg-subtle);
   border: 1px solid var(--sti-border);
   border-radius: 8px;
   padding: 12px;
@@ -290,23 +290,23 @@
   padding: 8px 12px;
   border-radius: 8px;
   max-width: 80%;
-  font-size: 13px;
+  font-size: 0.875rem;
 }
 
 .bubble-student {
-  background-color: #DBEAFE;
+  background-color: var(--sti-blue-light);
   margin-left: auto;
   text-align: right;
 }
 
 .bubble-nurse {
-  background-color: #E2E8F0;
+  background-color: var(--bg-muted);
   margin-right: auto;
   text-align: left;
 }
 
 .sti-chat-meta {
-  font-size: 11px;
+  font-size: 0.875rem;
   color: var(--sti-text-muted);
   margin-bottom: 2px;
 }
@@ -325,7 +325,7 @@
 
 .sti-text-muted {
   color: var(--sti-text-muted);
-  font-size: 13px;
+  font-size: 0.875rem;
 }
 
 
@@ -339,14 +339,14 @@
   border: 1px solid var(--sti-border);
   padding: 10px;
   border-radius: 6px;
-  background-color: #FAFAFA;
+  background-color: var(--bg-subtle);
 }
 
 .sti-checkbox-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 14px;
+  font-size: 0.875rem;
   cursor: pointer;
 }
 

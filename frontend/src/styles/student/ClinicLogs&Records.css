@@ -5,14 +5,14 @@
   --sti-bg: var(--bg-page);
   --sti-card-bg: var(--bg-card);
   --sti-text: var(--text-primary);
-  --sti-border: #e2e8f0;
+  --sti-border: var(--card-border);
 }
 
 * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-  font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-family: var(--font-sans);
 }
 
 body {
@@ -40,14 +40,14 @@ body {
 }
 
 .header-title-clr h1 {
-  font-size: 18px;
+  font-size: 1.125rem;
   font-weight: 700;
   margin-bottom: 4px;
   word-break: break-word;
 }
 
 .header-title-clr p {
-  font-size: 12px;
+  font-size: 0.875rem;
   color: var(--sti-yellow);
 }
 
@@ -72,7 +72,7 @@ body {
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;
-  font-size: 13px;
+  font-size: 0.875rem;
   color: var(--sti-text);
   font-weight: 600;
   width: 100%;
@@ -90,7 +90,7 @@ body {
   border: 1px solid var(--sti-border);
   border-radius: 4px;
   outline: none;
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 
 .filter-actions-clr {
@@ -108,7 +108,7 @@ body {
   justify-content: center;
   gap: 6px;
   padding: 8px 16px;
-  font-size: 14px;
+  font-size: 0.875rem;
   font-weight: 600;
   border-radius: 4px;
   border: none;
@@ -131,8 +131,8 @@ body {
 }
 
 .btn-secondary-clr {
-  background-color: #e2e8f0;
-  color: var(--sti-navy);
+  background-color: var(--bg-muted);
+  color: var(--text-brand);
 }
 
 .btn-secondary-clr:hover {
@@ -158,7 +158,7 @@ body {
   background: transparent;
   border: none;
   border-bottom: 3px solid transparent;
-  font-size: 12px;
+  font-size: 0.875rem;
   font-weight: 600;
   color: var(--text-secondary);
   cursor: pointer;
@@ -169,7 +169,7 @@ body {
 }
 
 .tab-clr:hover {
-  color: var(--sti-blue);
+  color: var(--text-brand);
 }
 
 .tab-clr.active-clr {
@@ -199,7 +199,7 @@ body {
   min-width: 650px;
   border-collapse: collapse;
   text-align: left;
-  font-size: 13px;
+  font-size: 0.875rem;
 }
 
 .table-clr th {
@@ -228,10 +228,10 @@ body {
   width: 32px;
   height: 32px;
   min-width: 32px;
-  background-color: #f1f5f9;
+  background-color: var(--bg-subtle);
   border: 1px solid var(--sti-border);
   border-radius: 4px;
-  color: var(--sti-blue);
+  color: var(--text-brand);
   cursor: pointer;
   transition: all 0.2s ease;
   padding: 0;
@@ -248,43 +248,43 @@ body {
   display: inline-block;
   padding: 3px 8px;
   border-radius: 12px;
-  font-size: 11px;
+  font-size: 0.875rem;
   font-weight: 600;
   white-space: nowrap;
 }
 
 .tag-direct-clr {
-  background-color: #e0f2fe;
-  color: #0369a1;
+  background-color: var(--sti-blue-light);
+  color: var(--text-brand);
 }
 
 .tag-consult-clr {
-  background-color: #fef3c7;
-  color: #b45309;
+  background-color: var(--status-low-bg);
+  color: var(--status-low-text);
 }
 
 .tag-screening-clr {
-  background-color: #f3e8ff;
-  color: #6b21a8;
+  background-color: var(--tint-violet-bg);
+  color: var(--text-accent);
 }
 
 .status-completed-clr, 
 .status-done-clr {
-  background-color: #dcfce7;
-  color: #15803d;
+  background-color: var(--status-adequate-bg);
+  color: var(--status-adequate-text);
 }
 
 .status-pending-clr, 
 .status-pending-approval-clr, .status-waiting-for-approval-clr,
 .status-scheduled-clr {
-  background-color: #fef9c3;
-  color: #a16207;
+  background-color: var(--status-low-bg);
+  color: var(--status-low-text);
 }
 
 .status-cancelled-clr,
 .status-declined-clr {
-  background-color: #fee2e2;
-  color: #b91c1c;
+  background-color: var(--status-critical-bg);
+  color: var(--status-critical-text);
 }
 
 .loading-clr, 
@@ -292,7 +292,7 @@ body {
   text-align: center;
   padding: 30px 16px;
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 
 /* Detail Modal */
@@ -360,19 +360,19 @@ body {
   width: 100%;
   color: var(--sti-text);
   text-transform: capitalize;
-  font-size: 13px;
+  font-size: 0.875rem;
 }
 
 .field-value-clr {
   width: 100%;
   color: var(--text-secondary);
   word-break: break-word;
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 
 .modal-footer-clr {
   padding: 12px 16px;
-  background-color: #f8fafc;
+  background-color: var(--bg-subtle);
   display: flex;
   justify-content: flex-end;
   border-top: 1px solid var(--sti-border);
@@ -395,11 +395,11 @@ body {
   }
 
   .header-title-clr h1 {
-    font-size: 24px;
+    font-size: 1.5rem;
   }
 
   .header-title-clr p {
-    font-size: 14px;
+    font-size: 0.875rem;
   }
 
   .control-panel-clr {
@@ -418,7 +418,7 @@ body {
     align-items: center;
     width: auto;
     gap: 8px;
-    font-size: 14px;
+    font-size: 0.875rem;
   }
 
   .input-group-clr input[type="date"] {
@@ -442,7 +442,7 @@ body {
   .tab-clr {
     flex: 1 1 0px;
     padding: 12px 20px;
-    font-size: 14px;
+    font-size: 0.875rem;
     gap: 8px;
     white-space: nowrap;
   }
@@ -453,7 +453,7 @@ body {
   }
 
   .table-clr {
-    font-size: 14px;
+    font-size: 0.875rem;
   }
 
   .table-clr th,
@@ -463,13 +463,13 @@ body {
 
   .badge-clr {
     padding: 4px 10px;
-    font-size: 12px;
+    font-size: 0.875rem;
   }
 
   .loading-clr,
   .no-data-clr {
     padding: 40px;
-    font-size: 15px;
+    font-size: 0.9375rem;
   }
 
   .modal-header-clr {
@@ -487,12 +487,12 @@ body {
 
   .field-key-clr {
     width: 40%;
-    font-size: 14px;
+    font-size: 0.875rem;
   }
 
   .field-value-clr {
     width: 60%;
-    font-size: 14px;
+    font-size: 0.875rem;
   }
 
   .modal-footer-clr {

@@ -159,12 +159,12 @@ export default function ChildProfile() {
                     display: 'flex',
                     alignItems: 'center',
                     gap: '10px',
-                    backgroundColor: '#ffffff',
+                    backgroundColor: 'var(--bg-card)',
                     padding: '12px 16px',
                     borderRadius: '8px',
                     boxShadow: '0 2px 8px rgba(0,0,0,0.06)'
                 }}>
-                    <label htmlFor="studentSelect" style={{ fontWeight: '600', color: '#333', fontSize: '0.9rem' }}>
+                    <label htmlFor="studentSelect" style={{ fontWeight: '600', color: 'var(--text-primary)', fontSize: '0.9rem' }}>
                         Select Child:
                     </label>
                     <select
@@ -174,10 +174,10 @@ export default function ChildProfile() {
                         style={{
                             padding: '8px 12px',
                             borderRadius: '6px',
-                            border: '1px solid #d9d9d9',
+                            border: '1px solid var(--card-border)',
                             fontSize: '0.9rem',
                             fontWeight: '500',
-                            backgroundColor: '#fafafa',
+                            backgroundColor: 'var(--bg-subtle)',
                             cursor: 'pointer',
                             outline: 'none'
                         }}
@@ -460,7 +460,7 @@ export default function ChildProfile() {
                     <div className="profile-form requirements-tab-section">
                         <div className="requirements-header-block" style={{ marginBottom: '20px' }}>
                             <h3>Medical Requirements Checklist <span className="instruction" style={{ fontSize: '0.9rem' }}>(View Only)</span></h3>
-                            <p style={{ fontSize: '0.9rem', color: '#666' }}>
+                            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
                                 View your child's medical document submission status and uploaded files.
                             </p>
                         </div>
@@ -477,7 +477,7 @@ export default function ChildProfile() {
                             <div className="table-responsive-wrapper" style={{ overflowX: 'auto' }}>
                                 <table className="profile-data-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
                                     <thead>
-                                        <tr style={{ borderBottom: '2px solid #eaeaea', backgroundColor: '#f9f9f9' }}>
+                                        <tr style={{ borderBottom: '2px solid var(--card-border)', backgroundColor: 'var(--bg-subtle)' }}>
                                             <th style={{ padding: '12px' }}>Requirement Name</th>
                                             <th style={{ padding: '12px' }}>Classification</th>
                                             <th style={{ padding: '12px' }}>Deadline</th>
@@ -490,13 +490,13 @@ export default function ChildProfile() {
                                         {requirementsList.map((req) => {
                                             const deadlineDate = req.submission_deadline ? new Date(req.submission_deadline) : null;
                                             return (
-                                                <tr key={req.requirement_name} style={{ borderBottom: '1px solid #eee' }}>
+                                                <tr key={req.requirement_name} style={{ borderBottom: '1px solid var(--card-border)' }}>
                                                     <td style={{ padding: '12px', fontWeight: '500' }}>
                                                         {req.requirement_name}
                                                     </td>
                                                     <td style={{ padding: '12px' }}>
                                                         <span style={{
-                                                            fontSize: '0.8rem',
+                                                            fontSize: '0.875rem',
                                                             padding: '3px 8px',
                                                             borderRadius: '4px',
                                                             backgroundColor: req.type === 'Special' ? '#fff2e6' : '#e6f7ff',
@@ -513,14 +513,14 @@ export default function ChildProfile() {
                                                     <td style={{ padding: '12px' }}>
                                                         <span style={{
                                                             fontWeight: 'bold',
-                                                            fontSize: '0.85rem',
+                                                            fontSize: '0.875rem',
                                                             color: ['completed', 'submitted'].includes(req.status?.toLowerCase()) ? 'green' : 
                                                                    ['late', 'submitted late'].includes(req.status?.toLowerCase()) ? 'orange' : 'red'
                                                         }}>
                                                             {req.status || 'Pending'}
                                                         </span>
                                                     </td>
-                                                    <td style={{ padding: '12px', fontSize: '0.88rem', color: '#555' }}>
+                                                    <td style={{ padding: '12px', fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
                                                         {req.nurse_remarks || <span style={{ color: '#ccc' }}>—</span>}
                                                     </td>
                                                     <td style={{ padding: '12px' }}>
@@ -529,12 +529,12 @@ export default function ChildProfile() {
                                                                 href={req.file_url} 
                                                                 target="_blank" 
                                                                 rel="noopener noreferrer" 
-                                                                style={{ fontSize: '0.85rem', color: '#0056b3', textDecoration: 'underline' }}
+                                                                style={{ fontSize: '0.875rem', color: 'var(--text-brand)', textDecoration: 'underline' }}
                                                             >
                                                                 View Document
                                                             </a>
                                                         ) : (
-                                                            <span style={{ color: '#999', fontSize: '0.85rem' }}>Not Uploaded</span>
+                                                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Not Uploaded</span>
                                                         )}
                                                     </td>
                                                 </tr>

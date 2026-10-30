@@ -26,7 +26,7 @@ import {
   XCircle
 } from 'lucide-react';
 
-import stiLogo from '../../assets/sti-logof.png';
+import stiLogo from '../../assets/sti-logof.png';
 import { formatDate } from '../../utils/datetime';
 import '../../styles/nurse/ManageStudentAccounts.css';
 
@@ -1052,7 +1052,7 @@ export default function ManageStudentAccounts() {
         </div>
       </header>
 
-      <main className="content-msa">
+      <div className="content-msa">
         <div className="actions-bar-msa">
           <div className="search-wrapper-msa">
             <Search className="search-icon-msa" size={18} />
@@ -1207,7 +1207,7 @@ export default function ManageStudentAccounts() {
             </table>
           </div>
         </div>
-      </main>
+      </div>
 
       {/* Modal: Batch Pre-Fill & Review CSV Data */}
       {isBatchModalOpen && (
@@ -2069,19 +2069,19 @@ export default function ManageStudentAccounts() {
       {modalConfig.isOpen && (
         <div className="modal-overlay-msa" style={{ zIndex: 1100 }}>
           <div className="modal-msa" style={{ maxWidth: '420px', width: '90%' }}>
-            <div className="modal-header-msa" style={{ borderBottom: '1px solid #e2e8f0' }}>
+            <div className="modal-header-msa" style={{ borderBottom: '1px solid var(--card-border)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 {modalConfig.type === 'success' && <CheckCircle className="text-success-msa" size={22} />}
                 {modalConfig.type === 'error' && <XCircle className="text-danger-msa" size={22} />}
-                {modalConfig.type === 'warning' && <AlertTriangle style={{ color: '#f59e0b' }} size={22} />}
+                {modalConfig.type === 'warning' && <AlertTriangle style={{ color: 'var(--status-low-text)' }} size={22} />}
                 {(modalConfig.type === 'info' || modalConfig.type === 'confirm') && <AlertCircle className="text-blue-msa" size={22} />}
-                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '600' }}>{modalConfig.title}</h3>
+                <h3 style={{ margin: 0, fontSize: '1.125rem', fontWeight: '600' }}>{modalConfig.title}</h3>
               </div>
               <button type="button" className="close-btn-msa" onClick={closeModalConfig}>
                 <X size={20} />
               </button>
             </div>
-            <div className="modal-body-msa" style={{ padding: '20px 16px', fontSize: '14px', lineHeight: '1.5', color: '#334155' }}>
+            <div className="modal-body-msa" style={{ padding: '20px 16px', fontSize: '0.875rem', lineHeight: '1.5', color: 'var(--text-primary)' }}>
               <p style={{ margin: 0, whiteSpace: 'pre-line' }}>{modalConfig.message}</p>
             </div>
             <div className="modal-footer-msa" style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', paddingTop: '12px' }}>

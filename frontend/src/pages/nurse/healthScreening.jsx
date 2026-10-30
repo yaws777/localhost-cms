@@ -1498,7 +1498,7 @@ export default function HealthScreening() {
                   <select value={scheduleForm.screening_type} onChange={e => setScheduleForm({...scheduleForm, screening_type: e.target.value})}>
                     {SCREENING_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                   </select>
-                  <small style={{ color: '#64748b', display: 'block', marginTop: '4px' }}>
+                  <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '4px' }}>
                     Dental and Vision examinations are scheduled under Doctor Visits.
                   </small>
                 </div>
@@ -1799,7 +1799,7 @@ export default function HealthScreening() {
             <div className="modal-header-hs">
               <div>
                 <h2>{activeSchedule.title} - Participant List ({activeSchedule.screening_type})</h2>
-                <div style={{ fontSize: '13px', color: '#64748b', marginTop: '4px' }}>
+                <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
                   Attendance Rate: <strong>
                     {scheduleStudents.filter(st => st.attendance_status === 'PRESENT').length} / {scheduleStudents.length}
                   </strong> Present
@@ -2299,17 +2299,17 @@ export default function HealthScreening() {
         <div className="modal-overlay-hs" style={{ zIndex: 1100 }}>
           <div className="modal-hs modal-sm-hs" style={{ maxWidth: '420px', textAlign: 'center' }}>
             <div className="modal-header-hs" style={{ justifyContent: 'center', borderBottom: 'none', paddingBottom: '0' }}>
-              <h2 style={{ fontSize: '18px' }}>{alertModal.title}</h2>
+              <h2 style={{ fontSize: '1.125rem' }}>{alertModal.title}</h2>
             </div>
             <div className="modal-body-hs" style={{ paddingTop: '10px', paddingBottom: '20px' }}>
               <div style={{ marginBottom: '15px', display: 'flex', justifyContent: 'center' }}>
-                {alertModal.type === 'success' && <CheckCircle size={48} color="#16a34a" />}
-                {alertModal.type === 'warning' && <AlertCircle size={48} color="#ea580c" />}
-                {alertModal.type === 'error' && <AlertCircle size={48} color="#dc2626" />}
-                {alertModal.type === 'confirm' && <AlertCircle size={48} color="#2563eb" />}
+                {alertModal.type === 'success' && <CheckCircle size={48} color="var(--status-adequate-text)" />}
+                {alertModal.type === 'warning' && <AlertCircle size={48} color="var(--status-low-text)" />}
+                {alertModal.type === 'error' && <AlertCircle size={48} color="var(--status-critical-text)" />}
+                {alertModal.type === 'confirm' && <AlertCircle size={48} color="var(--text-brand)" />}
                 {alertModal.type === 'info' && <AlertCircle size={48} color="#0284c7" />}
               </div>
-              <p style={{ fontSize: '14px', color: '#334155', margin: 0, lineHeight: '1.5' }}>
+              <p style={{ fontSize: '0.875rem', color: 'var(--text-primary)', margin: 0, lineHeight: '1.5' }}>
                 {alertModal.message}
               </p>
             </div>

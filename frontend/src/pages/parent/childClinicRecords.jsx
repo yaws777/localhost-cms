@@ -14,7 +14,7 @@ import {
   Filter,
   ExternalLink,
   User 
-} from 'lucide-react';
+} from 'lucide-react';
 import { formatTime, formatDate as formatDateBase, formatDateTime } from '../../utils/datetime';
 import '../../styles/parent/ChildClinicRecords.css';
 
@@ -266,7 +266,7 @@ export default function ChildClinicRecords() {
         </nav>
       </div>
 
-      <main className="content-ccr">
+      <div className="content-ccr">
         {loading ? (
           <div className="loading-ccr">Loading student records...</div>
         ) : (
@@ -289,7 +289,7 @@ export default function ChildClinicRecords() {
             </table>
           </div>
         )}
-      </main>
+      </div>
 
       {selectedRecord && (
         <Modal record={selectedRecord} onClose={() => setSelectedRecord(null)} />

@@ -1,5 +1,5 @@
 // TemplateFields.jsx
-// Renders the fields of a doctor's assessment template (used in the consultation form and in the template preview).
+// Renders the fields of a doctor's assessment template (used in the check-up form and in the template preview).
 // values: { [field.key]: string | string[] }
 import React from 'react';
 
@@ -42,7 +42,7 @@ export const TemplateFields = ({ fields, values, onChange, idPrefix = 'tf' }) =>
             {fields.map((f) => {
                 const id = `${idPrefix}-${f.key}`;
                 const value = values[f.key] ?? emptyValue(f);
-                const required = f.required ? <span aria-hidden="true" style={{ color: '#b42318' }}> *</span> : null;
+                const required = f.required ? <span aria-hidden="true" style={{ color: 'var(--status-critical-text)' }}> *</span> : null;
 
                 if (f.type === 'heading') return <div key={f.key} className="dp-section-label">{f.label}</div>;
 

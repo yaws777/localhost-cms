@@ -3,8 +3,8 @@
    Colors come from the shared theme.css tokens
    ========================================== */
 .ra-container {
-  --ra-border: var(--border-color, #e2e8f0);
-  --ra-muted: var(--text-secondary, #64748b);
+  --ra-border: var(--border-color, var(--card-border));
+  --ra-muted: var(--text-secondary, var(--text-secondary));
   --ra-card: var(--bg-card, #fff);
   --ra-good: #15803d;
   --ra-bad: #b91c1c;
@@ -67,7 +67,7 @@
   height: 40px;
   padding: 0 16px;
   border-radius: 8px;
-  font-size: 14px;
+  font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
@@ -100,11 +100,11 @@
   align-items: center;
   gap: 10px;
   padding: 12px 16px;
-  background: #fef2f2;
+  background: var(--status-critical-bg);
   border: 1px solid #fca5a5;
   border-radius: 8px;
-  color: #991b1b;
-  font-size: 14px;
+  color: var(--status-critical-text);
+  font-size: 0.875rem;
   font-weight: 500;
 }
 
@@ -134,7 +134,7 @@
   border-bottom: 3px solid transparent;
   background: transparent;
   color: var(--ra-muted);
-  font-size: 14px;
+  font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
@@ -143,7 +143,7 @@
 .ra-tab:hover { color: var(--text-primary); }
 
 .ra-tab.active {
-  color: var(--sti-blue);
+  color: var(--text-brand);
   border-bottom-color: var(--sti-blue);
 }
 
@@ -209,7 +209,7 @@
 .ra-step-btn:hover:not(:disabled) {
   background: var(--bg-elevated);
   border-color: var(--sti-blue);
-  color: var(--sti-blue);
+  color: var(--text-brand);
 }
 
 .ra-step-btn:disabled { opacity: 0.35; cursor: not-allowed; }
@@ -223,13 +223,13 @@
   min-width: 0;
 }
 
-.ra-step-range { font-weight: 700; font-size: 15px; color: var(--text-primary); }
+.ra-step-range { font-weight: 700; font-size: 0.9375rem; color: var(--text-primary); }
 
 .ra-step-tag {
-  font-size: 12px;
+  font-size: 0.875rem;
   font-weight: 600;
   color: var(--ra-muted);
-  background: #f1f5f9;
+  background: var(--bg-subtle);
   padding: 1px 10px;
   border-radius: 12px;
 }
@@ -245,12 +245,12 @@
 .ra-content.loading { opacity: 0.55; transition: opacity 0.15s ease; }
 
 .ra-note {
-  background: #f0f7ff;
+  background: var(--bg-subtle);
   border: 1px solid #bae6fd;
-  color: #0369a1;
+  color: var(--text-brand);
   border-radius: 8px;
   padding: 10px 14px;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 
 .ra-kpis {
@@ -271,26 +271,26 @@
   min-width: 0;
 }
 
-.ra-kpi.blue { background: #f0f7ff; border-color: #bae6fd; --kpi: #0369a1; }
-.ra-kpi.green { background: #f0fdf4; border-color: #bbf7d0; --kpi: #15803d; }
-.ra-kpi.red { background: #fef2f2; border-color: #fecaca; --kpi: #b91c1c; }
-.ra-kpi.amber { background: #fffbeb; border-color: #fde68a; --kpi: #b45309; }
+.ra-kpi.blue { background: var(--bg-subtle); border-color: var(--card-border); --kpi: var(--text-brand); }
+.ra-kpi.green { background: var(--status-adequate-bg); border-color: var(--card-border); --kpi: var(--status-adequate-text); }
+.ra-kpi.red { background: var(--status-critical-bg); border-color: var(--card-border); --kpi: var(--status-critical-text); }
+.ra-kpi.amber { background: var(--status-low-bg); border-color: var(--card-border); --kpi: var(--status-low-text); }
 
 .ra-kpi-label {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 12px;
+  font-size: 0.875rem;
   font-weight: 700;
   letter-spacing: 0.03em;
   text-transform: uppercase;
-  color: #475569;
+  color: var(--text-secondary);
 }
 
 .ra-kpi-label svg { color: var(--kpi); flex-shrink: 0; }
 
 .ra-kpi-value {
-  font-size: 28px;
+  font-size: 1.75rem;
   font-weight: 800;
   line-height: 1.15;
   color: var(--kpi);
@@ -300,8 +300,8 @@
 }
 
 .ra-kpi-note {
-  font-size: 0.78rem;
-  color: #475569;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -314,8 +314,8 @@
   font-weight: 600;
 }
 
-.ra-delta.good { color: var(--ra-good); }
-.ra-delta.bad { color: var(--ra-bad); }
+.ra-delta.good { color: var(--status-adequate-text); }
+.ra-delta.bad { color: var(--status-critical-text); }
 .ra-delta.flat { color: var(--ra-muted); font-weight: 500; }
 
 .ra-highlights {
@@ -336,7 +336,7 @@
   min-width: 0;
 }
 
-.ra-highlight-label { font-size: 12px; color: var(--ra-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+.ra-highlight-label { font-size: 0.875rem; color: var(--ra-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
 .ra-highlight-value { font-size: 1rem; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .ra-grid-2 {
@@ -364,8 +364,8 @@
   margin-bottom: 14px;
 }
 
-.ra-panel-title { font-size: 16px; font-weight: 700; color: var(--text-primary); margin: 0; }
-.ra-panel-note { font-size: 12px; color: var(--ra-muted); }
+.ra-panel-title { font-size: 1rem; font-weight: 700; color: var(--text-primary); margin: 0; }
+.ra-panel-note { font-size: 0.875rem; color: var(--ra-muted); }
 
 .ra-panel-foot {
   display: flex;
@@ -374,12 +374,12 @@
   margin-top: 14px;
 }
 
-.ra-link { font-size: 0.85rem; font-weight: 600; color: var(--sti-blue); text-decoration: none; }
+.ra-link { font-size: 0.875rem; font-weight: 600; color: var(--text-brand); text-decoration: none; }
 .ra-link:hover { text-decoration: underline; }
 
 .ra-empty {
   color: var(--ra-muted);
-  font-size: 14px;
+  font-size: 0.875rem;
   font-style: italic;
   text-align: center;
   padding: 28px 8px;
@@ -405,9 +405,9 @@
 
 .ra-bar-label { color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .ra-bar-value { font-weight: 700; color: var(--text-primary); white-space: nowrap; flex-shrink: 0; }
-.ra-bar-value em { font-style: normal; font-weight: 500; color: var(--ra-muted); font-size: 0.8rem; }
+.ra-bar-value em { font-style: normal; font-weight: 500; color: var(--ra-muted); font-size: 0.875rem; }
 
-.ra-bar-track { height: 8px; background: #eef2f7; border-radius: 4px; overflow: hidden; }
+.ra-bar-track { height: 8px; background: var(--bg-subtle); border-radius: 4px; overflow: hidden; }
 .ra-bar-fill { height: 100%; border-radius: 4px; min-width: 2px; }
 
 /* tables */
@@ -418,9 +418,9 @@
 .ra-table th {
   text-align: left;
   padding: 10px 12px;
-  background: var(--table-header-bg, #f1f5f9);
+  background: var(--table-header-bg, var(--bg-subtle));
   color: var(--table-header-text, inherit);
-  font-size: 0.76rem;
+  font-size: 0.875rem;
   text-transform: uppercase;
   white-space: nowrap;
 }
@@ -439,30 +439,30 @@
   display: inline-block;
   padding: 2px 10px;
   border-radius: 12px;
-  font-size: 0.78rem;
+  font-size: 0.875rem;
   font-weight: 700;
   white-space: nowrap;
 }
 
-.ra-badge.bad { background: #fee2e2; color: var(--ra-bad); }
-.ra-badge.good { background: #dcfce7; color: var(--ra-good); }
-.ra-badge.new { background: #dbeafe; color: #1d4ed8; }
-.ra-badge.flat { background: #f1f5f9; color: var(--ra-muted); }
+.ra-badge.bad { background: var(--status-critical-bg); color: var(--status-critical-text); }
+.ra-badge.good { background: var(--status-adequate-bg); color: var(--status-adequate-text); }
+.ra-badge.new { background: var(--sti-blue-light); color: var(--text-brand); }
+.ra-badge.flat { background: var(--bg-subtle); color: var(--ra-muted); }
 
 .ra-pill {
   display: inline-block;
   padding: 2px 10px;
   border-radius: 12px;
-  font-size: 0.78rem;
+  font-size: 0.875rem;
   font-weight: 700;
   white-space: nowrap;
-  background: #dcfce7;
-  color: var(--ra-good);
+  background: var(--status-adequate-bg);
+  color: var(--status-adequate-text);
 }
 
-.ra-pill.low { background: #fef3c7; color: #b45309; }
-.ra-pill.critical { background: #ffedd5; color: #c2410c; }
-.ra-pill.out-of-stock { background: #fee2e2; color: var(--ra-bad); }
+.ra-pill.low { background: var(--status-low-bg); color: var(--status-low-text); }
+.ra-pill.critical { background: var(--status-low-bg); color: var(--status-low-text); }
+.ra-pill.out-of-stock { background: var(--status-critical-bg); color: var(--status-critical-text); }
 
 .spin-icon { animation: ra-spin 1s linear infinite; }
 
@@ -491,15 +491,15 @@
   .ra-segment { width: 100%; }
   .ra-segment-btn { flex: 1; padding: 7px 8px; }
   .ra-stepper { min-width: 0; width: 100%; }
-  .ra-step-range { font-size: 13px; }
+  .ra-step-range { font-size: 0.875rem; }
   .ra-panel { padding: 16px; }
-  .ra-kpi-value { font-size: 24px; }
+  .ra-kpi-value { font-size: 1.5rem; }
 }
 
 @media (max-width: 480px) {
   .ra-title { font-size: 1.25rem; }
-  .ra-subtitle { font-size: 0.8rem; }
+  .ra-subtitle { font-size: 0.875rem; }
   .ra-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .ra-kpi { padding: 12px; }
-  .ra-kpi-value { font-size: 20px; }
+  .ra-kpi-value { font-size: 1.25rem; }
 }

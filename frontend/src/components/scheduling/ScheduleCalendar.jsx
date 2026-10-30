@@ -2,13 +2,13 @@
 // The schedule as a calendar. The nurse sees every doctor, the doctor sees their own; both read the same data
 // (GET /api/schedule-calendar), so what one posts shows up for the other right away.
 // A day's sessions follow the visit rules:
-//   upcoming : add / edit / delete the schedule, appoint students, ask the waiting list to reconfirm, appoint the reconfirmed students;
-//              appointments can be rescheduled or cancelled
-//   ongoing  : appoint into what is left, register walk-ins, extend the session or an appointment (the dates and hours are locked)
-//   past     : closed, nothing can be booked, appointed or changed any more
-// Every session lists its participants.
+//   upcoming : the doctor adds / edits / reschedules (the whole session moves with its students) / deletes the schedule (the nurse sends a schedule request), staff appoint students from the waiting list
+//              (each gets a queue number); timed appointments can be rescheduled or cancelled
+//   ongoing  : the doctor runs the queue (call next, skip, accommodate), staff appoint into what is left, register walk-ins, extend the session
+//   past     : closed, nothing can be appointed or changed any more
+// Every session lists its participants and its queue.
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, UserPlus, TimerReset, Bell, Inbox, CalendarX, CalendarPlus, Edit, Trash2, CalendarClock, Ban, Users, ListPlus, Footprints } from 'lucide-react';
+import { ChevronLeft, ChevronRight, UserPlus, TimerReset, CalendarX, CalendarPlus, Edit, Trash2, CalendarClock, Ban, Users, ListPlus, Footprints, Megaphone, Send } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
 import { visitLabel, statusClass } from '../../utils/visitPurpose';
 import {
@@ -16,6 +16,9 @@ import {
 } from '../../utils/scheduling';
 import { AppointModal, ExtendSessionModal, ExtendAppointmentModal, ParticipantsModal } from './SessionModals';
 import ScheduleFormModal from './ScheduleFormModal';
+import { ScheduleRequestModal } from './ScheduleRequests';
+import QueuePanel from './QueuePanel';
+import Modal from '../common/Modal';
 import { ReasonModal, RescheduleModal, WalkInModal } from '../doctor/AppointmentModals';
 import '../../styles/scheduling/Scheduling.css';
 
@@ -29,12 +32,14 @@ const putJson = async (path, body) => {
     return data;
 };
 
-const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey, onChanged, onReconfirm, onAppointFromWaiting, onGoTab }) => {
+const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey, onChanged, onAppointFromWaiting }) => {
     const { showAlert, showConfirm } = useAlert();
     const [cursor, setCursor] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
     const [selected, setSelected] = useState(todayKey());
     const [doctorFilter, setDoctorFilter] = useState(fixedDoctorId || '');
-    const [wayFilter, setWayFilter] = useState('');
+    const isNurse = !creator.doctorId;
+    const [requestPreset, setRequestPreset] = useState(null);
+    const [queueFor, setQueueFor] = useState(null);
     const [data, setData] = useState({ sessions: [], appointments: [], absences: [] });
     const [loading, setLoading] = useState(true);
 
@@ -81,9 +86,10 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
 
     const apptsByDay = useMemo(() => {
         const map = {};
-        data.appointments.filter((a) => !wayFilter || wayOf(a.booking_source) === wayFilter).forEach((a) => { (map[a.date] = map[a.date] || []).push(a); });
+        // places in a session queue belong to their session card; only timed appointments (direct, follow-up, referral) are listed here
+        data.appointments.filter((a) => !a.queue_state).forEach((a) => { (map[a.date] = map[a.date] || []).push(a); });
         return map;
-    }, [data.appointments, wayFilter]);
+    }, [data.appointments]);
 
     const absentOn = (day) => data.absences.filter((u) => u.start_date <= day && u.end_date >= day);
 
@@ -99,14 +105,16 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
     const isPast = selected < today;
 
     const sessionStatus = (s) => {
-        const used = s.booked + s.waiting_for_approval;
+        const used = s.by_appointment;
         return { used, pct: s.capacity ? Math.min(100, Math.round((used / s.capacity) * 100)) : 0, full: s.capacity ? used >= s.capacity : false };
     };
 
     // ---- schedule CRUD from the calendar ----
     const addSchedule = () => {
         const doctorId = fixedDoctorId || doctorFilter || '';
-        setForm({ schedule: null, preset: { doctor_id: doctorId, schedule_date: selected, valid_from: selected, valid_until: selected } });
+        // the doctor sets the schedule; the nurse asks the doctor for it
+        if (isNurse) setRequestPreset({ doctor_id: doctorId, preferred_date: selected });
+        else setForm({ schedule: null, preset: { doctor_id: doctorId, schedule_date: selected, valid_from: selected, valid_until: selected } });
     };
 
     // the form needs the whole schedule (dates, slots, booking counts), which the calendar day does not carry
@@ -166,10 +174,6 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
                             {doctors.map((d) => <option key={d.doctor_id} value={d.doctor_id}>Dr. {d.first_name} {d.last_name}</option>)}
                         </select>
                     )}
-                    <select className="dp-select" style={{ maxWidth: 190 }} value={wayFilter} onChange={(e) => setWayFilter(e.target.value)} aria-label="How students were scheduled">
-                        <option value="">Scheduled: any way</option>
-                        {SCHEDULING_WAY_KEYS.map((k) => <option key={k} value={k}>{SCHEDULING_WAYS[k].label}</option>)}
-                    </select>
                     <div className="cal-nav-sc">
                         <button type="button" className="icon-btn-ds" onClick={() => goMonth(-1)} aria-label="Previous month"><ChevronLeft size={16} /></button>
                         <button type="button" className="sti-btn-dv sti-btn-light-dv" onClick={jumpToday}>Today</button>
@@ -191,7 +195,7 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
                             <button key={day} type="button" className={classes.join(' ')} onClick={() => setSelected(day)} aria-label={dayLabel(day, { weekday: 'long', month: 'long', day: 'numeric' })}>
                                 <span className="cal-num-sc">{parseDay(day).getDate()}</span>
                                 {list.slice(0, CHIP_LIMIT).map((s) => (
-                                    <span key={`${s.schedule_id}`} className={`cal-chip-sc type-open-sc ${s.state === 'past' ? 'past-sc' : ''}`}>{to12h(s.start_time).replace(':00', '')} Session</span>
+                                    <span key={`${s.schedule_id}`} className={`cal-chip-sc type-open-sc ${s.state === 'past' ? 'past-sc' : ''}`}>{to12h(s.start_time).replace(':00', '')} Session{s.booked > 0 ? ` (${s.booked})` : ''}</span>
                                 ))}
                                 {list.length > CHIP_LIMIT && <span className="cal-chip-sc" style={{ color: 'var(--sti-text-muted)' }}>+{list.length - CHIP_LIMIT} more</span>}
                                 {apptCount > 0 && <span className="cal-chip-sc" style={{ color: 'var(--sti-text-muted)' }}>{apptCount} appt{apptCount > 1 ? 's' : ''}</span>}
@@ -210,7 +214,9 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
                 <div className="day-head-sc">
                     <h3>{dayLabel(selected, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}{selected === today ? ' (today)' : ''}</h3>
                     {!isPast && (
-                        <button type="button" className="sti-btn-dv sti-btn-primary-dv btn-sm-sc" onClick={addSchedule}><CalendarPlus size={14} /> Add schedule</button>
+                        <button type="button" className="sti-btn-dv sti-btn-primary-dv btn-sm-sc" onClick={addSchedule}>
+                            {isNurse ? <><Send size={14} /> Request schedule</> : <><CalendarPlus size={14} /> Add schedule</>}
+                        </button>
                     )}
                 </div>
 
@@ -243,22 +249,28 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
                             </div>
                             {doctor && <div className="session-meta-sc"><span>Covers: {coverageLabel(doctor)}</span></div>}
                             <div className="session-meta-sc">
-                                <span>{s.auto_confirm ? 'Bookings auto-confirmed' : 'Bookings need approval'}</span>
                                 <span>{hasWalkIn(s) ? 'Walk-ins allowed' : 'No walk-ins'}</span>
                             </div>
                             <div className="session-meta-sc">
                                 {SCHEDULING_WAY_KEYS.map((k) => {
-                                    const n = k === 'appointment' ? s.by_appointment : k === 'open_slot' ? s.by_open_slot : s.by_walk_in;
+                                    const n = k === 'appointment' ? s.by_appointment : s.by_walk_in;
                                     return <span key={k} className={`type-badge-sc ${SCHEDULING_WAYS[k].cls}`}>{n || 0} {SCHEDULING_WAYS[k].short.toLowerCase()}</span>;
                                 })}
                             </div>
+                            {(s.queue_waiting > 0 || s.queue_serving || s.queue_void > 0 || s.queue_done > 0) && (
+                                <div className="session-queue-sc">
+                                    <span><Megaphone size={13} /> Serving <b>{s.queue_serving || '-'}</b></span>
+                                    <span><b>{s.queue_waiting}</b> waiting</span>
+                                    {s.queue_void > 0 && <span><b>{s.queue_void}</b> void</span>}
+                                    {s.queue_done > 0 && <span><b>{s.queue_done}</b> done</span>}
+                                </div>
+                            )}
                             {(s.notes || s.announcement) && <div className="session-meta-sc">{s.notes || s.announcement}</div>}
                             {st && (
                                 <>
                                     <div className={`load-bar-sc ${st.full ? 'full-sc' : ''}`}><div style={{ width: `${st.pct}%` }} /></div>
                                     <div className="session-meta-sc">
-                                        <span>{s.booked} booked of {s.capacity} places</span>
-                                        {s.waiting_for_approval > 0 && <span>{s.waiting_for_approval} waiting for approval</span>}
+                                        <span>{s.by_appointment} appointed of {s.capacity} places</span>
                                     </div>
                                 </>
                             )}
@@ -266,11 +278,11 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
                                 {s.state !== 'past' && (
                                     <button type="button" className="sti-btn-dv sti-btn-primary-dv btn-sm-sc" onClick={() => setAppointFor(s)}><UserPlus size={14} /> Appoint</button>
                                 )}
-                                {s.state === 'upcoming' && (
-                                    <>
-                                        <button type="button" className="sti-btn-dv sti-btn-secondary-dv btn-sm-sc" onClick={() => onReconfirm && onReconfirm(s.schedule_id, s.date)}><Bell size={14} /> Reconfirm</button>
-                                        <button type="button" className="sti-btn-dv sti-btn-secondary-dv btn-sm-sc" onClick={() => onAppointFromWaiting && onAppointFromWaiting(s.schedule_id, s.date)}><ListPlus size={14} /> Appoint from waiting list</button>
-                                    </>
+                                {s.state !== 'past' && (
+                                    <button type="button" className="sti-btn-dv sti-btn-secondary-dv btn-sm-sc" onClick={() => onAppointFromWaiting && onAppointFromWaiting(s.schedule_id, s.date)}><ListPlus size={14} /> Listing requests</button>
+                                )}
+                                {s.state !== 'upcoming' && (
+                                    <button type="button" className="sti-btn-dv sti-btn-primary-dv btn-sm-sc" onClick={() => setQueueFor(s)}><Megaphone size={14} /> {s.state === 'ongoing' ? 'Open queue' : 'View queue'}</button>
                                 )}
                                 {s.state === 'ongoing' && (
                                     <>
@@ -281,10 +293,10 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
                                     </>
                                 )}
                                 <button type="button" className="sti-btn-dv sti-btn-light-dv btn-sm-sc" onClick={() => setParticipantsFor(s)}><Users size={14} /> Participants</button>
-                                {s.state !== 'past' && (
+                                {s.state !== 'past' && !isNurse && (
                                     <button type="button" className="sti-btn-dv sti-btn-light-dv btn-sm-sc" onClick={() => editSchedule(s)}><Edit size={14} /> {s.recurrence === 'Weekly' ? 'Edit series' : 'Edit'}</button>
                                 )}
-                                {s.state === 'upcoming' && (
+                                {s.state === 'upcoming' && !isNurse && (
                                     <button type="button" className="sti-btn-dv sti-btn-light-dv btn-sm-sc" onClick={() => deleteSchedule(s)}><Trash2 size={14} /> Delete</button>
                                 )}
                             </div>
@@ -296,7 +308,7 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
                     <>
                         <h3 style={{ fontSize: '0.92rem' }}>Appointments ({dayAppts.length})</h3>
                         {dayAppts.map((a) => (
-                            <div key={a.appointment_id} className={`appt-row-sc ${a.status === 'Waiting for Approval' ? 'waiting-sc' : ''}`}>
+                            <div key={a.appointment_id} className="appt-row-sc">
                                 <div>
                                     <strong>{to12h(a.start_time)} - {to12h(a.end_time)}</strong> {a.student_name}
                                     <small>
@@ -308,9 +320,6 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
                                 <div className="row-actions-sc">
                                     <span className={`type-badge-sc ${SCHEDULING_WAYS[wayOf(a.booking_source)].cls}`}>{SCHEDULING_WAYS[wayOf(a.booking_source)].label}</span>
                                     <span className={`dp-chip ${statusClass(a.status)}`}>{a.status}</span>
-                                    {a.status === 'Waiting for Approval' && a.state === 'upcoming' && onGoTab && (
-                                        <button type="button" className="sti-btn-dv sti-btn-light-dv btn-sm-sc" onClick={() => onGoTab('approvals')}><Inbox size={13} /> Review</button>
-                                    )}
                                     {a.status === 'Scheduled' && a.state === 'upcoming' && (
                                         <>
                                             <button type="button" className="icon-btn-ds" title="Reschedule this appointment" onClick={() => setMoveAppt(forModal(a))}><CalendarClock size={15} /></button>
@@ -331,6 +340,20 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
                 isOpen={!!form} schedule={form ? form.schedule : null} preset={form ? form.preset : null} doctors={doctors}
                 creator={creator} userId={userId} onClose={() => setForm(null)} onSaved={changed}
             />
+            <ScheduleRequestModal
+                isOpen={!!requestPreset} preset={requestPreset} doctors={doctors} nurseId={creator.nurseId} userId={userId}
+                onClose={() => setRequestPreset(null)} onSent={changed}
+            />
+            <Modal isOpen={!!queueFor} onClose={() => setQueueFor(null)} title="Session queue" icon={<Megaphone size={20} />} size="lg">
+                {queueFor && (
+                    <>
+                        <div className="dp-notice" style={{ marginBottom: 12 }}>
+                            {queueFor.doctor_name} - {dayLabel(queueFor.date, { weekday: 'long', month: 'long', day: 'numeric' })}, {timeRange(queueFor.start_time, queueFor.end_time)}
+                        </div>
+                        <QueuePanel scheduleId={queueFor.schedule_id} date={queueFor.date} creator={creator} userId={userId} onChanged={changed} />
+                    </>
+                )}
+            </Modal>
             <AppointModal
                 isOpen={!!appointFor} schedule={appointFor} fixedDate={appointFor ? appointFor.date : null} creator={creator} userId={userId}
                 onClose={() => setAppointFor(null)} onDone={changed}

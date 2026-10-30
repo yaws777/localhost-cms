@@ -29,8 +29,8 @@ function ProofUpload({ file, onChange }) {
                 />
             </label>
             {file && (
-                <div style={{ marginTop: '8px', padding: '8px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#f8fafc' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', fontSize: '0.85rem' }}>
+                <div style={{ marginTop: '8px', padding: '8px', border: '1px solid var(--card-border)', borderRadius: '8px', background: 'var(--bg-subtle)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', fontSize: '0.875rem' }}>
                         <span>📎 {file.name} ({Math.round(file.size / 1024)} KB)</span>
                         <button type="button" onClick={() => { onChange(null); setInputKey(k => k + 1); }} style={{ cursor: 'pointer' }}>Remove</button>
                     </div>

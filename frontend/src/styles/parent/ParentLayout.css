@@ -11,7 +11,7 @@
 
 body {
     margin: 0;
-    font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    font-family: var(--font-sans);
     background-color: var(--bg-color);
     color: var(--text-dark);
 }
@@ -58,7 +58,7 @@ body {
 
 .sidebar-header p {
     margin: 5px 0 0;
-    font-size: 0.5rem;
+    font-size: 0.875rem;
     opacity: 0.8;
     text-transform: uppercase;
     letter-spacing: 1px;
@@ -76,7 +76,7 @@ body {
     text-decoration: none;
     padding: 12px 10px;
     border-radius: 8px;
-    font-size: 0.700rem;
+    font-size: 0.875rem;
     font-weight: 500;
     transition: all 0.2s ease;
     display: flex;
@@ -106,7 +106,7 @@ body {
 }
 
 .nav-icon.icon-active {
-    color: var(--sti-blue); 
+    color: var(--text-brand); 
 }
 
 /* ============================================== */
@@ -146,7 +146,7 @@ body {
 }
 
 .viewing-label {
-    font-size: 0.70rem;
+    font-size: 0.875rem;
     color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -154,20 +154,20 @@ body {
 }
 
 .student-name {
-    font-size: 0.75rem;
+    font-size: 0.875rem;
     font-weight: 700;
-    color: var(--sti-blue); 
+    color: var(--text-brand); 
     margin-top: 2px;
 }
 
 .btn-switch-child {
     background-color: var(--sti-yellow);
-    color: var(--sti-blue);
+    color: var(--text-on-yellow);
     border: none;
     padding: 8px 16px;
     border-radius: 6px;
     font-weight: 700;
-    font-size: 0.70rem;
+    font-size: 0.875rem;
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -292,7 +292,7 @@ body {
     width: 50px;
     height: 50px;
     background-color: var(--sti-yellow);
-    color: var(--sti-blue);
+    color: var(--text-on-yellow);
     border-radius: 50%;
     display: flex;
     align-items: center;
@@ -321,7 +321,7 @@ body {
 
 .profile-username {
     margin: 0 0 5px 0;
-    font-size: 0.8rem;
+    font-size: 0.875rem;
     color: #d1e3f8;
     white-space: nowrap;
     text-overflow: ellipsis;
@@ -333,7 +333,7 @@ body {
     display: block;        
     width: fit-content;    
     margin: 0 auto;        
-    font-size: 0.75rem;
+    font-size: 0.875rem;
     font-weight: 600;
     background-color: rgba(255, 255, 255, 0.12);
     color: var(--sti-yellow);
@@ -391,18 +391,18 @@ body {
 
 .modal-header-pl {
     padding: 16px 20px;
-    border-bottom: 1px solid #e2e8f0;
+    border-bottom: 1px solid var(--card-border);
     display: flex;
     justify-content: space-between;
     align-items: center;
-    background-color: #f8fafc;
+    background-color: var(--bg-subtle);
 }
 
 .modal-header-pl h2 {
     margin: 0;
-    font-size: 18px;
+    font-size: 1.125rem;
     font-weight: 700;
-    color: var(--sti-blue);
+    color: var(--text-brand);
 }
 
 .btn-close-pl {
@@ -445,30 +445,30 @@ body {
 }
 
 .icon-warning-pl {
-    background-color: #fef3c7;
-    color: #d97706;
+    background-color: var(--status-low-bg);
+    color: var(--status-low-text);
 }
 
 .modal-message-pl {
     margin: 0 0 12px 0;
-    font-size: 14px;
+    font-size: 0.875rem;
     color: var(--text-secondary);
     line-height: 1.5;
 }
 
 .notif-timestamp-pl {
     display: block;
-    font-size: 12px;
+    font-size: 0.875rem;
     color: var(--text-secondary);
 }
 
 .modal-footer-pl {
     padding: 14px 20px;
-    border-top: 1px solid #e2e8f0;
+    border-top: 1px solid var(--card-border);
     display: flex;
     justify-content: flex-end;
     gap: 10px;
-    background-color: #f8fafc;
+    background-color: var(--bg-subtle);
 }
 
 .btn-primary-pl,
@@ -483,7 +483,7 @@ body {
     cursor: pointer;
     transition: all 0.2s ease;
     padding: 9px 16px;
-    font-size: 14px;
+    font-size: 0.875rem;
     border: none;
 }
 
@@ -497,7 +497,7 @@ body {
 }
 
 .btn-danger-pl {
-    background-color: #ef4444;
+    background-color: var(--danger-fill);
     color: #ffffff;
 }
 
@@ -506,7 +506,7 @@ body {
 }
 
 .btn-secondary-pl {
-    background-color: #e2e8f0;
+    background-color: var(--bg-muted);
     color: var(--text-primary);
 }
 

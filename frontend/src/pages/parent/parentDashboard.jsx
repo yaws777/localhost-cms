@@ -19,7 +19,7 @@ import {
   X,
   Info,
   ShieldAlert
-} from 'lucide-react';
+} from 'lucide-react';
 import { formatDate as formatDateBase, formatDateTime as formatDateTimeBase, formatMonthShort, formatTime as formatTimeBase } from '../../utils/datetime';
 import '../../styles/parent/ParentDashboard.css';
 
@@ -307,10 +307,10 @@ const ParentDashboard = () => {
                 {announcementsData.slice(0, 3).map((ann, idx) => (
                   <li key={ann.announcement_id || idx} className="pd-overview-item" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '4px' }}>
                     <div className="pd-flex-gap" style={{ width: '100%', justifyContent: 'space-between' }}>
-                      <strong style={{ fontSize: '0.95rem', color: '#1e293b' }}>{ann.title}</strong>
+                      <strong style={{ fontSize: '0.95rem', color: 'var(--text-primary)' }}>{ann.title}</strong>
                       <span className="pd-visit-date">Nurse: {ann.nurse_name || 'Clinic Staff'}</span>
                     </div>
-                    <p style={{ margin: '4px 0', fontSize: '0.85rem', color: '#475569' }}>{ann.content}</p>
+                    <p style={{ margin: '4px 0', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>{ann.content}</p>
                     <span className="pd-dispense-time">Posted: {formatDateTime(ann.created_at)}</span>
                   </li>
                 ))}
@@ -615,7 +615,7 @@ const ParentDashboard = () => {
 
                     <div className="pd-schedule-details">
                       <div className="pd-flex-gap">
-                        <h4 className="pd-schedule-title">{appt.title || 'Doctor Consultation'}</h4>
+                        <h4 className="pd-schedule-title">{appt.title || 'Doctor Check-up'}</h4>
                         {renderStudentBadge(appt.studentName)}
                       </div>
                       <p className="pd-schedule-time">

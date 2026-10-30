@@ -1,5 +1,5 @@
 // ConsultationModal.jsx
-// Clinical consultation documentation for one doctor visit: findings, diagnosis, treatment plan,
+// Clinical check-up documentation for one doctor visit: findings, diagnosis, treatment plan,
 // prescriptions and follow-up notes, plus the doctor's own template fields and the Dental / Vision forms.
 import React, { useState, useEffect, useMemo } from 'react';
 import { ClipboardPlus, Plus, Trash2 } from 'lucide-react';
@@ -172,7 +172,7 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
             };
             const res = await fetch(`${API}/api/doctor-assessments`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
             const data = await res.json();
-            if (!data.success) { setError(data.message || 'Could not save the consultation.'); return; }
+            if (!data.success) { setError(data.message || 'Could not save the check-up.'); return; }
 
             let followUpMessage = '';
             if (form.follow_up_needed && bookFollowUp) {
@@ -186,7 +186,7 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
                 const fd = await fu.json();
                 followUpMessage = fd.success ? ' The repeat appointment was booked.' : ` The repeat could not be booked: ${fd.message}`;
             }
-            showAlert(`Consultation saved.${followUpMessage}`, followUpMessage.includes('could not') ? 'warning' : 'success');
+            showAlert(`Check-up saved.${followUpMessage}`, followUpMessage.includes('could not') ? 'warning' : 'success');
             onSaved?.();
             onClose();
         } catch (err) {
@@ -197,7 +197,7 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
     };
 
     return (
-        <Modal isOpen onClose={onClose} title={editing ? 'Edit consultation' : 'Document consultation'} icon={<ClipboardPlus size={20} />} size="xl" closeOnBackdrop={false}>
+        <Modal isOpen onClose={onClose} title={editing ? 'Edit check-up' : 'Document check-up'} icon={<ClipboardPlus size={20} />} size="xl" closeOnBackdrop={false}>
             <form className="dp-form" onSubmit={submit}>
                 <div className="dp-notice">
                     <strong>{fullName(appt.student_first_name, appt.student_last_name)}</strong> ({appt.student_id}) - {visitLabel(visitType, appt.purpose_other)}<br />
@@ -318,7 +318,7 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
 
                 <div className="dp-section-label">Chief complaint</div>
                 <div className="dp-field">
-                    <label htmlFor="consult-complaint">Why the student came (reason for the consultation)</label>
+                    <label htmlFor="consult-complaint">Why the student came (reason for the check-up)</label>
                     <input id="consult-complaint" className="dp-input" type="text" maxLength={255} value={form.chief_complaint} onChange={(e) => set({ chief_complaint: e.target.value })} placeholder="e.g. Headache and fever since yesterday" />
                 </div>
 
@@ -389,7 +389,7 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
 
                 <div className="dp-modal-foot">
                     <button type="button" className="dp-btn dp-btn-ghost" onClick={onClose}>Cancel</button>
-                    <button type="submit" className="dp-btn dp-btn-primary" disabled={busy}>{busy ? 'Saving...' : editing ? 'Save changes' : 'Save consultation'}</button>
+                    <button type="submit" className="dp-btn dp-btn-primary" disabled={busy}>{busy ? 'Saving...' : editing ? 'Save changes' : 'Save check-up'}</button>
                 </div>
             </form>
         </Modal>

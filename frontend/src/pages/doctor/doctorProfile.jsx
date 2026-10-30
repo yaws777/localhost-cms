@@ -80,7 +80,7 @@ const DoctorProfile = () => {
             <div className="dp-page-head">
                 <div>
                     <h2>My Profile</h2>
-                    <p>Your account details and the consultations you cover. The nurse manages your name and specialization.</p>
+                    <p>Your account details, the check-ups you cover and their listings. The nurse manages your name and specialization.</p>
                 </div>
             </div>
 
@@ -102,7 +102,7 @@ const DoctorProfile = () => {
                 </section>
 
                 <section className="dp-card" style={{ margin: 0, gridColumn: '1 / -1' }}>
-                    <h3 className="dp-card-title"><span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Stethoscope size={18} /> Consultations I cover</span></h3>
+                    <h3 className="dp-card-title"><span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Stethoscope size={18} /> Check-ups I cover</span></h3>
                     <DoctorServices doctor={doctor} onSaved={() => refreshDoctor()} />
                 </section>
 
@@ -138,7 +138,7 @@ const DoctorProfile = () => {
                         <button type="button" className="dp-btn dp-btn-ghost dp-btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => setShow((v) => !v)}>
                             {show ? <EyeOff size={15} /> : <Eye size={15} />} {show ? 'Hide' : 'Show'} passwords
                         </button>
-                        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 3, fontSize: '0.8rem' }}>
+                        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 3, fontSize: '0.875rem' }}>
                             {Object.entries(checks).map(([label, ok]) => (
                                 <li key={label} style={{ color: ok ? '#027a48' : 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6 }}>
                                     <CheckCircle2 size={14} style={{ opacity: ok ? 1 : 0.35 }} /> {label}
