@@ -666,6 +666,7 @@
     margin-bottom: 18px;
     border-bottom: 2px solid var(--sti-border);
     overflow-x: auto;
+    overflow-y: hidden;
     white-space: nowrap;
 }
 

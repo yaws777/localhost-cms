@@ -16,6 +16,7 @@ import {
   User 
 } from 'lucide-react';
 import { formatTime, formatDate as formatDateBase, formatDateTime } from '../../utils/datetime';
+import { DoctorVisitDetail, ScreeningDetail, VisitStatus, ScreeningStatus, visitDoctor, visitTitle } from '../../components/common/ClinicRecordViews';
 import '../../styles/parent/ChildClinicRecords.css';
 
 const API_BASE = 'http://localhost:3001';
@@ -292,7 +293,7 @@ export default function ChildClinicRecords() {
       </div>
 
       {selectedRecord && (
-        <Modal record={selectedRecord} onClose={() => setSelectedRecord(null)} />
+        <Modal tab={activeTab} record={selectedRecord} onClose={() => setSelectedRecord(null)} />
       )}
     </div>
   );
@@ -372,11 +373,13 @@ function renderTableHeader(tab) {
     case 'doctor-visits':
       return (
         <tr>
-          <th>Appointment ID</th>
+          <th>Date</th>
           <th>Student ID</th>
+          <th>Check-up</th>
           <th>Doctor Name</th>
-          <th>Schedule Window</th>
+          <th>Number</th>
           <th>Status</th>
+          <th>Assessment</th>
           <th>Action</th>
         </tr>
       );
@@ -504,7 +507,7 @@ function renderTableRow(tab, item, index, onViewDetails) {
           <td><span className="badge-ccr tag-screening-ccr">{item.screening_type}</span></td>
           <td>{item.student_id}</td>
           <td>{formatDate(item.record_date)}</td>
-          <td><span className={`badge-ccr status-${statusClass}-ccr`}>{item.status}</span></td>
+          <td><ScreeningStatus item={item} /></td>
           <td>
             <button className="btn-icon-ccr" onClick={onViewDetails} title="View Details" aria-label="View Details">
               <Eye size={18} />
@@ -514,20 +517,15 @@ function renderTableRow(tab, item, index, onViewDetails) {
       );
 
     case 'doctor-visits': {
-      const doctorName = item.doctor_first_name && item.doctor_last_name
-        ? `${item.doctor_first_name} ${item.doctor_last_name}`
-        : item.doctor_id || 'N/A';
-
       return (
         <tr key={item.appointment_id || index}>
-          <td><strong>{item.appointment_id}</strong></td>
+          <td>{formatDate(item.start_time)}</td>
           <td>{item.student_id}</td>
-          <td>{doctorName}</td>
-          <td>
-            {item.start_time ? formatTime(new Date(item.start_time)) : ''} - 
-            {item.end_time ? formatTime(new Date(item.end_time)) : ''}
-          </td>
-          <td><span className={`badge-ccr status-${statusClass}-ccr`}>{item.status}</span></td>
+          <td><strong>{visitTitle(item)}</strong></td>
+          <td>{visitDoctor(item)}</td>
+          <td>{item.queue_label || '-'}</td>
+          <td><VisitStatus item={item} /></td>
+          <td>{item.documented ? (item.diagnosis || 'Documented') : '-'}</td>
           <td>
             <button className="btn-icon-ccr" onClick={onViewDetails} title="View Details" aria-label="View Details">
               <Eye size={18} />
@@ -542,7 +540,7 @@ function renderTableRow(tab, item, index, onViewDetails) {
   }
 }
 
-function Modal({ record, onClose }) {
+function Modal({ tab, record, onClose }) {
   const isFileKey = (key, value) => {
     if (typeof value !== 'string') return false;
     const k = key.toLowerCase();
@@ -573,7 +571,7 @@ function Modal({ record, onClose }) {
         </div>
 
         <div className="modal-body-ccr">
-          {Object.entries(record).map(([key, value]) => {
+          {tab === 'doctor-visits' ? <DoctorVisitDetail record={record} /> : tab === 'health-screenings' ? <ScreeningDetail record={record} /> : Object.entries(record).map(([key, value]) => {
             if (value === null || value === undefined || value === '') {
               return (
                 <div className="modal-field-ccr" key={key}>

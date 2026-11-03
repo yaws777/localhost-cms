@@ -85,6 +85,8 @@ const formatTimeDisplay = (timeStr) => {
     return formatTime(timeStr) || timeStr;
 };
 
+const isVisitDocumented = (visit) => Boolean(visit?.complaint_id || visit?.complaint_name || visit?.nursing_intervention);
+
 const VisitLogConsultation = () => {
     const location = useLocation();
     const { nurseId } = useOutletContext();
@@ -98,6 +100,8 @@ const VisitLogConsultation = () => {
     const [selectedStudent, setSelectedStudent] = useState(null);
     const [showConfirmModal, setShowConfirmModal] = useState(false);
     const [previousVisitsCount, setPreviousVisitsCount] = useState(0);
+    // Time In = the moment the student is picked (manual click) or the QR is captured
+    const [checkInTime, setCheckInTime] = useState('');
 
     const [isCameraScanning, setIsCameraScanning] = useState(false);
     const [cameraPermissionError, setCameraPermissionError] = useState(null);
@@ -315,11 +319,44 @@ const VisitLogConsultation = () => {
         setComplaintFilter('');
     };
 
+    const handleOpenDocumentModal = useCallback((visit) => {
+        const currentTime = new Date().toTimeString().split(' ')[0].substring(0, 5);
+        const visitDateVal = visit.visit_date ? visit.visit_date.split('T')[0] : getLocalDateString();
+        const timeInVal = visit.time_in ? visit.time_in.substring(0, 5) : currentTime;
+        const timeOutVal = visit.time_out ? visit.time_out.substring(0, 5) : '';
+
+        const existingDosageVal = visit.dosage_consumption_unit_value
+            ? String(Math.round(parseFloat(visit.dosage_consumption_unit_value)))
+            : '';
+
+        setDocumentingVisit(visit);
+        setFormData({
+            complaint_id: visit.complaint_id || '',
+            specify_complaint_text: visit.specify_complaint_text || visit.specify_complaints_text || '',
+            visit_date: visitDateVal,
+            time_in: timeInVal,
+            time_out: timeOutVal,
+            temperature: visit.temperature || '',
+            respiratory_rate: visit.respiratory_rate || '',
+            pulse_rate: visit.pulse_rate || '',
+            blood_pressure: visit.blood_pressure || '',
+            nursing_intervention: visit.nursing_intervention || '',
+            assessment: visit.assessment || visit.health_advice || '',
+            batch_id: visit.batch_id || '',
+            dosage_consumption_unit_value: existingDosageVal,
+            dosage_consumption_unit_of_measure: visit.dosage_consumption_unit_of_measure || ''
+        });
+    }, []);
+
     const handleOpenQrTimeoutModal = useCallback((visit) => {
+        if (!isVisitDocumented(visit)) {
+            showAlertModal('Document First', 'Fill up the visit documentation before timing the student out.', 'warning');
+            return;
+        }
         setQrTimeoutVisit(visit);
         setQrTimeoutInput('');
         requestCameraAndStartScan();
-    }, [requestCameraAndStartScan]);
+    }, [requestCameraAndStartScan, showAlertModal]);
 
     const handleSelectStudent = useCallback((student) => {
         if (student.is_active === 0 || student.is_active === false) {
@@ -332,6 +369,17 @@ const VisitLogConsultation = () => {
         }
 
         stopCameraScan();
+
+        const pendingDocVisit = todayVisits.find(v => !isVisitDocumented(v));
+        if (pendingDocVisit) {
+            showAlertModal(
+                'Finish Documentation First',
+                `${pendingDocVisit.first_name} ${pendingDocVisit.last_name} (ID: ${pendingDocVisit.student_id}) still has an undocumented visit. Complete it before attending another student.`,
+                'warning'
+            );
+            handleOpenDocumentModal(pendingDocVisit);
+            return;
+        }
 
         const activeVisit = todayVisits.find(
             v => String(v.student_id).toLowerCase() === String(student.student_id).toLowerCase() && (!v.time_out || v.time_out === '')
@@ -349,13 +397,14 @@ const VisitLogConsultation = () => {
             return;
         }
 
+        setCheckInTime(new Date().toTimeString().split(' ')[0].substring(0, 5));
         setSelectedStudent(student);
         const existingCount = todayVisits.filter(
             v => String(v.student_id).toLowerCase() === String(student.student_id).toLowerCase()
         ).length;
         setPreviousVisitsCount(existingCount);
         setShowConfirmModal(true);
-    }, [todayVisits, stopCameraScan, handleOpenQrTimeoutModal, showAlertModal, showConfirmDialog]);
+    }, [todayVisits, stopCameraScan, handleOpenQrTimeoutModal, handleOpenDocumentModal, showAlertModal, showConfirmDialog]);
 
     const searchStudentByQr = useCallback(async (studentId) => {
         if (!studentId || !studentId.trim() || isProcessingScan.current) return;
@@ -436,6 +485,11 @@ const VisitLogConsultation = () => {
     };
 
     const handleManualTimeout = useCallback(async (visitId, customTime = null) => {
+        const target = [...todayVisits, ...allVisits].find(v => v.visit_id === visitId);
+        if (target && !isVisitDocumented(target)) {
+            showAlertModal('Document First', 'Fill up the visit documentation before timing the student out.', 'warning');
+            return;
+        }
         const now = new Date();
         const currentTime = customTime || now.toTimeString().split(' ')[0].substring(0, 5);
         const formattedCurrentTime = formatTimeDisplay(currentTime);
@@ -477,7 +531,7 @@ const VisitLogConsultation = () => {
                 'confirm'
             );
         }
-    }, [fetchTodayVisits, fetchAllVisits, showAllLogsModal, documentingVisit, showAlertModal, showConfirmDialog]);
+    }, [fetchTodayVisits, fetchAllVisits, showAllLogsModal, documentingVisit, todayVisits, allVisits, showAlertModal, showConfirmDialog]);
 
     useEffect(() => {
         let animationFrameId;
@@ -554,7 +608,7 @@ const VisitLogConsultation = () => {
             return;
         }
 
-        const currentTime = new Date().toTimeString().split(' ')[0].substring(0, 5);
+        const currentTime = checkInTime || new Date().toTimeString().split(' ')[0].substring(0, 5);
         const checkInPayload = {
             student_id: selectedStudent.student_id,
             nurse_id: nurseId || 'NURSE-DEFAULT',
@@ -570,14 +624,24 @@ const VisitLogConsultation = () => {
             });
             const data = await res.json();
             if (data.success) {
-                showAlertModal('Check-In Granted', `Check-in logged at ${formatTimeDisplay(currentTime)} for ${selectedStudent.first_name} ${selectedStudent.last_name}.`, 'success');
+                showAlertModal('Check-In Granted', `Check-in logged at ${formatTimeDisplay(currentTime)} for ${selectedStudent.first_name} ${selectedStudent.last_name}. Fill up the visit documentation now.`, 'success');
+                const newVisit = {
+                    visit_id: data.visit_id,
+                    student_id: selectedStudent.student_id,
+                    first_name: selectedStudent.first_name,
+                    last_name: selectedStudent.last_name,
+                    visit_date: checkInPayload.visit_date,
+                    time_in: currentTime
+                };
                 setShowConfirmModal(false);
                 setSelectedStudent(null);
+                setCheckInTime('');
                 setSearchMode(null);
                 setSearchQuery('');
                 setStudents([]);
                 fetchTodayVisits();
                 if (showAllLogsModal) fetchAllVisits();
+                handleOpenDocumentModal(newVisit);
             } else {
                 showAlertModal('Check-In Error', data.error || 'Failed to log check-in entry.', 'error');
             }
@@ -595,33 +659,15 @@ const VisitLogConsultation = () => {
         setPreviousVisitsCount(0);
     };
 
-    const handleOpenDocumentModal = (visit) => {
-        const currentTime = new Date().toTimeString().split(' ')[0].substring(0, 5);
-        const visitDateVal = visit.visit_date ? visit.visit_date.split('T')[0] : getLocalDateString();
-        const timeInVal = visit.time_in ? visit.time_in.substring(0, 5) : currentTime;
-        const timeOutVal = visit.time_out ? visit.time_out.substring(0, 5) : '';
+    // An undocumented visit locks the modal: it cannot be closed until the form is saved
+    const isDocumentLocked = Boolean(documentingVisit) && !isVisitDocumented(documentingVisit);
 
-        const existingDosageVal = visit.dosage_consumption_unit_value 
-            ? String(Math.round(parseFloat(visit.dosage_consumption_unit_value))) 
-            : '';
-
-        setDocumentingVisit(visit);
-        setFormData({
-            complaint_id: visit.complaint_id || '',
-            specify_complaint_text: visit.specify_complaint_text || visit.specify_complaints_text || '',
-            visit_date: visitDateVal,
-            time_in: timeInVal,
-            time_out: timeOutVal,
-            temperature: visit.temperature || '',
-            respiratory_rate: visit.respiratory_rate || '',
-            pulse_rate: visit.pulse_rate || '',
-            blood_pressure: visit.blood_pressure || '',
-            nursing_intervention: visit.nursing_intervention || '',
-            assessment: visit.assessment || visit.health_advice || '',
-            batch_id: visit.batch_id || '',
-            dosage_consumption_unit_value: existingDosageVal,
-            dosage_consumption_unit_of_measure: visit.dosage_consumption_unit_of_measure || ''
-        });
+    const handleCloseDocumentModal = () => {
+        if (isDocumentLocked) {
+            showAlertModal('Documentation Required', 'Complete and save the visit documentation before closing or checking in another student.', 'warning');
+            return;
+        }
+        setDocumentingVisit(null);
     };
 
     const handleBatchChange = (batchId) => {
@@ -827,9 +873,6 @@ const VisitLogConsultation = () => {
     });
 
     const currentTimeRaw = new Date().toTimeString().split(' ')[0].substring(0, 5);
-    const currentTimeFormatted = formatTimeDisplay(currentTimeRaw);
-
-    const isVisitDocumented = (visit) => Boolean(visit?.complaint_id || visit?.complaint_name || visit?.nursing_intervention);
 
     const renderComplaintBadgeText = (visit) => {
         if (!visit.complaint_name) return 'General Checkup';
@@ -1269,7 +1312,7 @@ const VisitLogConsultation = () => {
                                 <p><strong>Program & Year:</strong> {selectedStudent.program_id || 'N/A'} - Year {selectedStudent.year_level}</p>
                                 <p className="time-in-indicator-vlc">
                                     <Clock size={15} />
-                                    Time In: {currentTimeFormatted}
+                                    Time In: {formatTimeDisplay(checkInTime || currentTimeRaw)}
                                 </p>
                             </div>
 
@@ -1585,13 +1628,13 @@ const VisitLogConsultation = () => {
                     <div className="modal-body-container-vlc">
                         <div className="modal-header-accent-vlc">
                             <h3>Document Visit - {documentingVisit.first_name} {documentingVisit.last_name}</h3>
-                            <button className="modal-dismiss-btn-vlc" onClick={() => setDocumentingVisit(null)}><XCircle size={22} /></button>
+                            <button className="modal-dismiss-btn-vlc" aria-label="Close documentation" onClick={handleCloseDocumentModal}><XCircle size={22} /></button>
                         </div>
                         <form onSubmit={handleDocumentSubmit} className="modal-form-scrollable-vlc">
                             {!isVisitDocumented(documentingVisit) && (
                                 <div className="undocumented-banner-vlc">
                                     <AlertTriangle size={18} />
-                                    <span>This visit is <strong>not yet documented</strong>. Please complete the vital signs and intervention fields below.</span>
+                                    <span>This visit is <strong>not yet documented</strong>. Fill up all required fields and save before closing this form or checking in another student.</span>
                                 </div>
                             )}
 
@@ -1607,16 +1650,17 @@ const VisitLogConsultation = () => {
                                         <input type="text" readOnly value={documentingVisit.student_id} />
                                     </div>
                                     <div className="form-input-element-vlc">
-                                        <label>Time In <span className="required-star-vlc">*</span></label>
-                                        <input type="time" required value={formData.time_in} onChange={e => setFormData({...formData, time_in: e.target.value})} />
+                                        <label>Time In</label>
+                                        <input type="time" readOnly value={formData.time_in} />
                                     </div>
                                     <div className="form-input-element-vlc">
-                                        <label>Time Out <span className="label-optional-vlc">(Optional)</span></label>
-                                        <input 
-                                            type="time" 
-                                            value={formData.time_out || ''} 
-                                            onChange={e => setFormData({...formData, time_out: e.target.value})} 
+                                        <label>Time Out</label>
+                                        <input
+                                            type="time"
+                                            readOnly
+                                            value={formData.time_out || ''}
                                         />
+                                        {!formData.time_out && <small>Set with the Time Out button after saving this documentation.</small>}
                                     </div>
                                     <div className="form-input-element-vlc full-width-field-vlc">
                                         <label>Medical Condition <span className="required-star-vlc">*</span></label>
@@ -1843,7 +1887,7 @@ const VisitLogConsultation = () => {
                             </div>
 
                             <div className="modal-action-footer-vlc">
-                                <button type="button" className="btn-cancel-action-vlc" onClick={() => setDocumentingVisit(null)}>Cancel</button>
+                                <button type="button" className="btn-cancel-action-vlc" onClick={handleCloseDocumentModal}>Cancel</button>
                                 <button type="submit" className="btn-confirm-action-vlc">Save Documentation</button>
                             </div>
                         </form>

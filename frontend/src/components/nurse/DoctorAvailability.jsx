@@ -13,15 +13,17 @@ import { formatDate } from '../../utils/datetime';
 import { API, WEEKDAYS, coverageLabel, hasWalkIn, to12h } from '../../utils/scheduling';
 import { AppointModal, ExtendSessionModal } from '../scheduling/SessionModals';
 import ScheduleFormModal from '../scheduling/ScheduleFormModal';
+import { Pager, paginate } from '../common/RecordFolders';
 import ScheduleRequests, { ScheduleRequestModal, presetFromRequest } from '../scheduling/ScheduleRequests';
 import '../../styles/nurse/DoctorVisits.css';
 import '../../styles/nurse/DoctorSchedule.css';
 import '../../styles/scheduling/Scheduling.css';
 
+const SCHEDULES_PER_PAGE = 8;
+
 const STATUS_FILTERS = [
     ['open', 'Active'],
-    ['ended', 'Past'],
-    ['closed', 'Closed'],
+    ['inactive', 'No active'],
     ['all', 'All']
 ];
 
@@ -61,7 +63,9 @@ export const DoctorAvailability = ({ doctors, creator, userId, onChanged, prefil
     const [loading, setLoading] = useState(true);
     const [doctorFilter, setDoctorFilter] = useState('');
     const [statusFilter, setStatusFilter] = useState('open');
-    const [collapsed, setCollapsed] = useState(() => new Set());
+    const [pages, setPages] = useState({}); // page of the schedule table of each doctor
+    // every doctor starts closed: the nurse opens the one she needs
+    const [expanded, setExpanded] = useState(() => new Set());
 
     const isNurse = !creator.doctorId;
     const [form, setForm] = useState(null); // { schedule, preset }
@@ -148,19 +152,21 @@ export const DoctorAvailability = ({ doctors, creator, userId, onChanged, prefil
     const handleDelete = async (s) => {
         if (s.is_ongoing) {
             showAlert(s.in_session_now
-                ? 'This session is happening right now, so it cannot be deleted. Wait until it ends.'
-                : 'This weekly schedule is already running, so it cannot be deleted.', 'warning');
+                ? 'This session is happening right now, so it cannot be cancelled. Wait until it ends.'
+                : 'This weekly schedule is already running, so it cannot be cancelled.', 'warning');
             return;
         }
-        const ok = await showConfirm(`Delete this ${doctorName({ first_name: s.doc_first_name, last_name: s.doc_last_name })} schedule? This cannot be undone.`, { danger: true, confirmLabel: 'Delete', title: 'Delete schedule' });
+        const ok = await showConfirm(`Cancel this ${doctorName({ first_name: s.doc_first_name, last_name: s.doc_last_name })} schedule? The schedule and its session listing are removed and the students are told. Students of the advance listing go back to waiting for a schedule, and the advance listing opens again.`, { danger: true, confirmLabel: 'Cancel schedule', title: 'Cancel schedule' });
         if (!ok) return;
         try {
-            const res = await fetch(`${API}/api/doctor-schedules/${s.schedule_id}`, { method: 'DELETE' });
+            const res = await fetch(`${API}/api/doctor-schedules/${s.schedule_id}`, {
+                method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sender_id: userId })
+            });
             const data = await res.json();
             if (data.success) { showAlert(data.message, 'success'); changed(); }
-            else showAlert(data.message || 'Failed to delete schedule.', 'error');
+            else showAlert(data.message || 'Failed to cancel the schedule.', 'error');
         } catch (err) {
-            showAlert('Server error deleting the schedule.', 'error');
+            showAlert('Server error cancelling the schedule.', 'error');
         }
     };
 
@@ -190,7 +196,7 @@ export const DoctorAvailability = ({ doctors, creator, userId, onChanged, prefil
                 const open = g.all.filter(s => scheduleState(s) === 'open');
                 return {
                     ...g,
-                    rows: g.all.filter(s => (statusFilter === 'all' || scheduleState(s) === statusFilter)).sort(compareSchedules),
+                    rows: g.all.filter(s => (statusFilter === 'all' || (statusFilter === 'open') === (scheduleState(s) === 'open'))).sort(compareSchedules),
                     openCount: open.length,
                     upcoming: open.reduce((n, s) => n + (Number(s.active_bookings) || 0), 0)
                 };
@@ -198,13 +204,13 @@ export const DoctorAvailability = ({ doctors, creator, userId, onChanged, prefil
             .sort((a, b) => `${a.doctor.last_name} ${a.doctor.first_name}`.localeCompare(`${b.doctor.last_name} ${b.doctor.first_name}`));
     }, [doctors, schedules, doctorFilter, statusFilter]);
 
-    const toggleGroup = (id) => setCollapsed(prev => {
+    const toggleGroup = (id) => setExpanded(prev => {
         const next = new Set(prev);
         if (next.has(id)) next.delete(id); else next.add(id);
         return next;
     });
 
-    const emptyText = statusFilter === 'open' ? 'No active schedule.' : statusFilter === 'all' ? 'No schedules yet.' : `No ${statusFilter === 'ended' ? 'past' : statusFilter} schedules.`;
+    const emptyText = statusFilter === 'open' ? 'No active schedule.' : statusFilter === 'all' ? 'No schedules yet.' : 'No past or closed schedules.';
 
     return (
         <>
@@ -235,7 +241,8 @@ export const DoctorAvailability = ({ doctors, creator, userId, onChanged, prefil
                 </div>
             ) : groups.map((g) => {
                 const id = g.doctor.doctor_id;
-                const isCollapsed = collapsed.has(id);
+                const isCollapsed = !expanded.has(id);
+                const paged = paginate(g.rows, pages[id] || 1, SCHEDULES_PER_PAGE);
                 return (
                     <section key={id} className="doctor-group-ds">
                         <header className="group-head-ds">
@@ -254,9 +261,14 @@ export const DoctorAvailability = ({ doctors, creator, userId, onChanged, prefil
                             </div>
                             <div className="group-actions-ds">
                                 {!g.removed && (
-                                    <button type="button" className="sti-btn-dv sti-btn-secondary-dv" onClick={() => openCreate(id)}>
-                                        {isNurse ? <><Send size={14} /> Request schedule</> : <><CalendarPlus size={14} /> Add schedule</>}
-                                    </button>
+                                    isNurse ? (
+                                        <button
+                                            type="button" className="sti-btn-dv sti-btn-secondary-dv icon-only-ds" onClick={() => openCreate(id)}
+                                            title="Request schedule" aria-label={`Request a schedule from ${doctorName(g.doctor)}`}
+                                        ><Send size={16} /></button>
+                                    ) : (
+                                        <button type="button" className="sti-btn-dv sti-btn-secondary-dv" onClick={() => openCreate(id)}><CalendarPlus size={14} /> Add schedule</button>
+                                    )
                                 )}
                             </div>
                         </header>
@@ -274,7 +286,7 @@ export const DoctorAvailability = ({ doctors, creator, userId, onChanged, prefil
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {g.rows.map(s => {
+                                            {paged.items.map(s => {
                                                 const state = scheduleState(s);
                                                 return (
                                                     <tr key={s.schedule_id}>
@@ -294,6 +306,7 @@ export const DoctorAvailability = ({ doctors, creator, userId, onChanged, prefil
                                                                 <>
                                                                     <span className={`badge-ds ${s.listing_open ? 'badge-open-ds' : 'badge-expired-ds'}`}>{s.listing_open ? (s.listing_full ? 'Open - full' : 'Open') : 'Closed'}</span>
                                                                     <div className="muted-ds">{s.accepted} of {s.listing_limit} accepted</div>
+                                                                    {s.advance > 0 && <div className="muted-ds">Advance listing {s.advance} + open places {s.regular}, {s.places_left} left</div>}
                                                                     {isNurse && s.pending > 0 && <div className="muted-ds">{s.pending} to accept</div>}
                                                                 </>
                                                             ) : '-'}
@@ -331,7 +344,8 @@ export const DoctorAvailability = ({ doctors, creator, userId, onChanged, prefil
                                                                 {!isNurse && (
                                                                     <button
                                                                         className="icon-btn-ds danger-ds" onClick={() => handleDelete(s)} disabled={!!s.is_ongoing}
-                                                                        title={s.is_ongoing ? (s.in_session_now ? 'Happening now: it cannot be deleted' : 'Ongoing schedule: it cannot be deleted') : 'Delete'}
+                                                                        title={s.is_ongoing ? (s.in_session_now ? 'Happening now: it cannot be cancelled' : 'Ongoing schedule: it cannot be cancelled') : 'Cancel schedule'}
+                                                                        aria-label="Cancel schedule"
                                                                     ><Trash2 size={16} /></button>
                                                                 )}
                                                             </div>
@@ -341,6 +355,7 @@ export const DoctorAvailability = ({ doctors, creator, userId, onChanged, prefil
                                             })}
                                         </tbody>
                                     </table>
+                                    <Pager page={paged.page} pageCount={paged.pageCount} total={paged.total} pageSize={SCHEDULES_PER_PAGE} onPage={(p) => setPages((prev) => ({ ...prev, [id]: p }))} noun="schedules" />
                                 </div>
                             )
                         )}

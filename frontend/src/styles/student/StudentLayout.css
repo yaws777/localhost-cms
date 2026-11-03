@@ -7,6 +7,8 @@
     --bg-color: var(--bg-page);
     --text-light: #ffffff;
     --sidebar-width: 260px;
+    /* 2.75rem buttons + 0.5rem padding x2 + 2px yellow border */
+    --student-top-bar-height: 3.875rem;
 }
 
 body {
@@ -150,10 +152,20 @@ body {
     flex-direction: column;
 }
 
-.page-content {
-    padding: 10px 10px;
+/* NurseLayout.css, ParentLayout.css and AdminLayout.css also style .main-content / .page-content
+   and CRA bundles every stylesheet globally, so their padding (40px) and margin-top (20px, 75px)
+   leaked in and pushed the page ~175px down under the 62px fixed top bar. Scoped here with
+   .student-portal to win over them (not .student-layout: NurseLayout reuses that class and keeps its own
+   .main-content padding). The top bar is fixed, so the content clears it by its height. */
+.student-portal .main-content {
+    margin-top: 0;
+    padding: 0;
+}
+
+.student-portal .page-content {
+    padding: 0.625rem;
     flex: 1;
-    margin-top: 10px;
+    margin-top: var(--student-top-bar-height);
 }
 
 /* ============================================== */
@@ -210,9 +222,9 @@ body {
         display: none; 
     }
 
-    .page-content {
-        padding: 20px;
-        margin-top: 10px;
+    .student-portal .page-content {
+        padding: 0.625rem;
+        margin-top: var(--student-top-bar-height);
     }
 
     .mobile-toggle-btn {

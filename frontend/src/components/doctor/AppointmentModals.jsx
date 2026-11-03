@@ -8,7 +8,7 @@ import Modal from '../common/Modal';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatDateTime, formatTime } from '../../utils/datetime';
 import { visitLabel, localDateStr, fullName } from '../../utils/visitPurpose';
-import { eligibleDoctors, visitRefusal, coveredTypes, upcomingDates, dayLabel, to12h } from '../../utils/scheduling';
+import { eligibleDoctors, visitRefusal, coveredTypes, upcomingDates, dayLabel, to12h, classLabel } from '../../utils/scheduling';
 import { useSpecializations } from '../../hooks/useSpecializations';
 import '../../styles/doctor/DoctorLayout.css';
 
@@ -310,7 +310,7 @@ export const StudentPicker = ({ value, onChange, label = 'Student' }) => {
             <div className="dp-field">
                 <label>{label}</label>
                 <div className="dp-notice" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                    <span><strong>{fullName(value.first_name, value.last_name)}</strong> - {value.student_id}{value.program_name ? ` - ${value.program_name} ${value.year_level || ''}${value.section || ''}` : ''}</span>
+                    <span><strong>{fullName(value.first_name, value.last_name)}</strong> - {value.student_id}{classLabel(value) ? ` - ${classLabel(value)}` : ''}</span>
                     <button type="button" className="dp-btn dp-btn-ghost dp-btn-sm dp-btn-icon" onClick={() => onChange(null)} aria-label="Choose another student"><X size={15} /></button>
                 </div>
             </div>
@@ -331,7 +331,7 @@ export const StudentPicker = ({ value, onChange, label = 'Student' }) => {
                     ) : matches.map((s) => (
                         <button key={s.student_id} type="button" className="dl-notif" style={{ borderBottom: '1px solid var(--card-border)' }} onClick={() => { onChange(s); setQuery(''); }}>
                             <strong>{fullName(s.first_name, s.last_name)}</strong>
-                            <small>{s.student_id}{s.program_name ? ` - ${s.program_name} ${s.year_level || ''}${s.section || ''}` : ''}</small>
+                            <small>{s.student_id}{classLabel(s) ? ` - ${classLabel(s)}` : ''}</small>
                         </button>
                     ))}
                 </div>
@@ -459,8 +459,11 @@ export const DirectAppointmentModal = ({ isOpen, doctors, fixedDoctorId, creator
 // ---------------------------------------------------------------------------
 // Walk-in: the student is at the clinic now
 // ---------------------------------------------------------------------------
-export const WalkInModal = ({ isOpen, doctors, fixedDoctorId, creator, userId, onClose, onCreated }) => {
+// schedule: the running session the walk-in joins; its check-up service is the purpose (picked only when the session is for any check-up)
+export const WalkInModal = ({ isOpen, doctors, fixedDoctorId, schedule, creator, userId, onClose, onCreated }) => {
     const { showAlert } = useAlert();
+    const { visitTypes } = useSpecializations();
+    const sessionType = schedule && schedule.visit_type !== 'Any' && visitTypes.includes(schedule.visit_type) ? schedule.visit_type : '';
     const [doctorId, setDoctorId] = useState('');
     const [student, setStudent] = useState(null);
     const [visitType, setVisitType] = useState('General Check Up');
@@ -472,11 +475,11 @@ export const WalkInModal = ({ isOpen, doctors, fixedDoctorId, creator, userId, o
         if (!isOpen) return;
         setDoctorId(fixedDoctorId || '');
         setStudent(null);
-        setVisitType('General Check Up');
+        setVisitType(sessionType || 'General Check Up');
         setReason('');
         setError('');
         setBusy(false);
-    }, [isOpen, fixedDoctorId]);
+    }, [isOpen, fixedDoctorId, sessionType]);
 
     const chosenDoctor = (doctors || []).find((d) => d.doctor_id === doctorId);
     const refusal = chosenDoctor ? visitRefusal(chosenDoctor, visitType) : '';
@@ -495,7 +498,7 @@ export const WalkInModal = ({ isOpen, doctors, fixedDoctorId, creator, userId, o
         try {
             const data = await postJson('/api/doctor-visits/walk-in', 'POST', {
                 ...creatorBody(creator), sender_id: userId, doctor_id: doctorId, student_id: student.student_id,
-                visit_type: visitType, reason
+                visit_type: visitType, reason, schedule_id: schedule ? schedule.schedule_id : undefined
             });
             if (data.success) {
                 showAlert(data.message, 'success');
@@ -528,7 +531,11 @@ export const WalkInModal = ({ isOpen, doctors, fixedDoctorId, creator, userId, o
                 )}
 
                 <StudentPicker value={student} onChange={setStudent} />
-                <PurposeFields visitType={visitType} doctor={chosenDoctor} onChange={changePurpose} idPrefix="walkin" />
+                {sessionType ? (
+                    <div className="dp-hint">Purpose of the check-up: <strong>{sessionType}</strong> (the check-up service of this session).</div>
+                ) : (
+                    <PurposeFields visitType={visitType} doctor={chosenDoctor} onChange={changePurpose} idPrefix="walkin" />
+                )}
                 {refusal && <div className="dp-error">{refusal}</div>}
 
                 <div className="dp-field">

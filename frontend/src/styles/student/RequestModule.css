@@ -37,7 +37,7 @@
 }
 
 .sti-action-card {
-  background: var(--sti-var(--bg-card));
+  background: var(--bg-card);
   border-radius: 10px;
   padding: 20px;
   border-top: 5px solid var(--sti-blue);
@@ -111,7 +111,7 @@
 
 /* History Table Card */
 .sti-table-card {
-  background: var(--sti-var(--bg-card));
+  background: var(--bg-card);
   border-radius: 10px;
   padding: 20px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
@@ -181,25 +181,26 @@
 /* Modal Popup Overlay */
 .sti-modal-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  background: rgba(0, 0, 0, 0.5);
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 1000;
+  z-index: 2100;
+  overflow: hidden;
 }
 
 .sti-modal-content {
-  background: var(--sti-var(--bg-card));
+  background: var(--bg-card);
   border-radius: 10px;
   width: 90%;
   max-width: 500px;
   padding: 24px;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
   border-top: 6px solid var(--sti-yellow);
+  max-height: 90vh;
+  overflow-y: auto;
+  box-sizing: border-box;
 }
 
 .sti-modal-lg {
@@ -267,6 +268,18 @@
   grid-template-columns: 1fr 1fr;
   gap: 10px;
   font-size: 0.875rem;
+}
+
+.sti-details-grid p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 30rem) {
+  .sti-details-grid,
+  .sti-form-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 .sti-divider {

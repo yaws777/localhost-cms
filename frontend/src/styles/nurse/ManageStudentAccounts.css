@@ -870,3 +870,80 @@
   color: var(--status-adequate-text);
   line-height: 1.2;
 }
+/* Filters: program, school year, section, status */
+.student-container-msa .filters-bar-msa {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1rem;
+  padding: 0.875rem 1rem;
+  border-bottom: 1px solid var(--card-border);
+}
+
+.student-container-msa .filter-group-msa {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 10rem;
+  flex: 1 1 10rem;
+}
+
+.student-container-msa .filter-group-msa label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.student-container-msa .filter-group-msa select {
+  min-height: 2.75rem;
+  padding: 0.5rem 0.625rem;
+  font-size: 0.875rem;
+  border: 1px solid var(--sti-border-color);
+  border-radius: 0.375rem;
+  background-color: var(--bg-card);
+  color: var(--text-primary);
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.student-container-msa .filters-count-msa {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  align-self: center;
+}
+
+.student-container-msa .form-group-msa input[type="date"],
+.student-container-msa .form-group-msa input[inputmode="numeric"] {
+  padding: 8px 10px;
+  font-size: 0.875rem;
+  border: 1px solid var(--sti-border-color);
+  border-radius: 6px;
+  outline: none;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 2.75rem;
+  background-color: var(--bg-card);
+  color: var(--text-primary);
+}
+
+.student-container-msa .form-group-msa small {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.student-container-msa .error-text-msa {
+  color: var(--status-critical-text);
+  background-color: var(--status-critical-bg);
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.375rem;
+  margin: 0 0 1rem;
+  font-size: 0.875rem;
+}
+
+.student-container-msa .filter-group-msa select:focus-visible,
+.student-container-msa .form-group-msa input:focus-visible,
+.student-container-msa .form-group-msa select:focus-visible,
+.student-container-msa .btn-msa:focus-visible {
+  outline: 0.1875rem solid var(--sti-blue-primary);
+  outline-offset: 0.125rem;
+}

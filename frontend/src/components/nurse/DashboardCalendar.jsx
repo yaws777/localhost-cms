@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, FileCheck, Pill, Activity, Stethoscope } from 'lucide-react';
+import { ChevronLeft, ChevronRight, FileCheck, Pill, Activity, Stethoscope, ClipboardList, Megaphone } from 'lucide-react';
 import { formatTime } from '../../utils/datetime';
 
 const EVENT_TYPES = {
   requirement: { label: 'Requirement deadline', color: 'var(--text-brand)', Icon: FileCheck, path: '/RequirementManagement' },
   expiration: { label: 'Medicine expiration', color: 'var(--status-critical-text)', Icon: Pill, path: '/ReportsAnalytics?tab=inventory' },
   screening: { label: 'Health screening', color: 'var(--status-adequate-text)', Icon: Activity, path: '/HealthScreening' },
-  doctor: { label: 'Doctor check-up', color: 'var(--text-accent)', Icon: Stethoscope, path: '/DoctorVisit' }
+  doctor: { label: 'Doctor check-up', color: 'var(--text-accent)', Icon: Stethoscope, path: '/DoctorVisit' },
+  listing: { label: 'Session listing', color: 'var(--sti-blue-primary)', Icon: ClipboardList, path: '/DoctorVisit?section=waiting' },
+  advance: { label: 'Advance listing', color: 'var(--status-low-text)', Icon: Megaphone, path: '/DoctorVisit?section=waiting' }
 };
 
 const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];

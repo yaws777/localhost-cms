@@ -2,28 +2,29 @@
 // The repeat list. Every assessment where the doctor says the student needs a repeat (a follow-up check-up) is one row for one student, so
 // repeats are always set individually. From here the nurse or doctor appoints the student again (a direct appointment):
 //   - a custom time (any date and hour the doctor is free), or
-//   - a slot inside one of the doctor's posted sessions.
+//   - a place in an upcoming session of the doctor for the same check-up service (no time slot: the student takes the next queue number).
 // A student with no schedule to go to simply waits in the list until one is posted.
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { CalendarClock, Search, RefreshCw, Undo2, EyeOff, CalendarPlus, Hourglass } from 'lucide-react';
 import Modal from '../common/Modal';
 import { ReasonModal } from '../doctor/AppointmentModals';
 import { useAlert } from '../../context/AlertContext';
-import { formatDate, formatDateTime, formatTime } from '../../utils/datetime';
+import { formatDate, formatDateTime } from '../../utils/datetime';
 import { visitLabel, fullName, localDateStr } from '../../utils/visitPurpose';
-import { API, dayOfWeek, timeRange } from '../../utils/scheduling';
+import { API, timeRange, classLabel } from '../../utils/scheduling';
 import { creatorBody } from './SessionModals';
+import { Pager, paginate } from '../common/RecordFolders';
 import '../../styles/nurse/DoctorVisits.css';
 import '../../styles/nurse/DoctorSchedule.css';
 import '../../styles/doctor/DoctorLayout.css';
 import '../../styles/scheduling/Scheduling.css';
 
+const REPEATS_PER_PAGE = 8;
+
 const STATE_FILTERS = [
     ['needs_time', 'Waiting for a schedule'],
     ['scheduled', 'Scheduled'],
-    ['done', 'Done'],
-    ['dismissed', 'Taken off the list'],
-    ['all', 'All']
+    ['done', 'Done']
 ];
 
 const STATE_BADGE = {
@@ -40,10 +41,6 @@ const send = async (path, method, body) => {
     return { ...data, httpStatus: res.status };
 };
 
-const occursOn = (s, date) => (s.recurrence === 'Once'
-    ? String(s.schedule_date) === date
-    : dayOfWeek(date) === Number(s.day_of_week) && String(s.valid_from) <= date && date <= String(s.valid_until));
-
 // ---------------------------------------------------------------------------
 // Appoint one repeat
 // ---------------------------------------------------------------------------
@@ -56,9 +53,6 @@ const AppointFollowUpModal = ({ item, creator, userId, onClose, onDone }) => {
     const [notes, setNotes] = useState('');
     const [sessions, setSessions] = useState([]);
     const [sessionId, setSessionId] = useState('');
-    const [slots, setSlots] = useState([]);
-    const [slotsLoading, setSlotsLoading] = useState(false);
-    const [slot, setSlot] = useState('');
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
     const today = localDateStr();
@@ -72,8 +66,6 @@ const AppointFollowUpModal = ({ item, creator, userId, onClose, onDone }) => {
         setDuration(15);
         setNotes(item.follow_up_notes || '');
         setSessionId('');
-        setSlot('');
-        setSlots([]);
         setError('');
         setBusy(false);
         let live = true;
@@ -84,48 +76,32 @@ const AppointFollowUpModal = ({ item, creator, userId, onClose, onDone }) => {
         return () => { live = false; };
     }, [item, today]);
 
-    // sessions of the doctor that run on the picked date
-    const sessionsOnDate = useMemo(() => (date ? sessions.filter((s) => occursOn(s, date)) : []), [sessions, date]);
+    // upcoming sessions of the doctor for the same check-up service as the visit that is repeated
+    const upcoming = useMemo(() => (item ? sessions.filter((x) => x.next_date && (x.visit_type === 'Any' || x.visit_type === item.visit_type || ['Follow-up', 'Referral'].includes(item.visit_type))) : []), [sessions, item]);
     useEffect(() => {
         if (mode !== 'schedule') return;
-        if (!sessionsOnDate.some((s) => s.schedule_id === sessionId)) setSessionId(sessionsOnDate[0] ? sessionsOnDate[0].schedule_id : '');
-    }, [mode, sessionsOnDate, sessionId]);
-
-    useEffect(() => {
-        setSlot('');
-        if (mode !== 'schedule' || !sessionId || !date || !item) { setSlots([]); return undefined; }
-        let live = true;
-        setSlotsLoading(true);
-        fetch(`${API}/api/doctor-schedules/${sessionId}/slots?date=${date}&student_id=${encodeURIComponent(item.student_id)}`)
-            .then((r) => r.json())
-            .then((d) => { if (live) setSlots(d.success ? d.slots : []); })
-            .catch(() => { if (live) setSlots([]); })
-            .finally(() => { if (live) setSlotsLoading(false); });
-        return () => { live = false; };
-    }, [mode, sessionId, date, item]);
+        if (!upcoming.some((x) => x.schedule_id === sessionId)) setSessionId('');
+    }, [mode, upcoming, sessionId]);
 
     if (!item) return null;
-    const session = sessions.find((s) => s.schedule_id === sessionId) || null;
+    const session = upcoming.find((x) => x.schedule_id === sessionId) || null;
 
     const submit = async (e) => {
         e.preventDefault();
         setError('');
-        if (!date) { setError('Pick the date of the repeat.'); return; }
-        let start; let minutes; let scheduleId;
+        let body;
         if (mode === 'schedule') {
-            if (!session || !slot) { setError('Pick a session and one of its time slots.'); return; }
-            start = `${date} ${slot}:00`;
-            minutes = session.slot_duration_min;
-            scheduleId = session.schedule_id;
+            if (!session) { setError('Pick the schedule the student goes into.'); return; }
+            body = { schedule_id: session.schedule_id, date: session.next_date };
         } else {
+            if (!date) { setError('Pick the date of the repeat.'); return; }
             if (!time) { setError('Pick the time of the repeat.'); return; }
-            start = `${date} ${time}:00`;
-            minutes = parseInt(duration, 10);
+            body = { start_time: `${date} ${time}:00`, duration_min: parseInt(duration, 10) };
         }
         setBusy(true);
         try {
             const data = await send(`/api/doctor-visits/${item.appointment_id}/follow-up`, 'POST', {
-                ...creatorBody(creator), sender_id: userId, student_id: item.student_id, start_time: start, duration_min: minutes, schedule_id: scheduleId, notes
+                ...creatorBody(creator), sender_id: userId, student_id: item.student_id, ...body, notes
             });
             if (data.success) { showAlert(data.message, 'success'); onDone?.(); onClose(); }
             else setError(data.message || 'Could not schedule the repeat.');
@@ -152,56 +128,47 @@ const AppointFollowUpModal = ({ item, creator, userId, onClose, onDone }) => {
                     <button type="button" className={`status-chip-sc ${mode === 'schedule' ? 'active-sc' : ''}`} onClick={() => setMode('schedule')}>Put in a schedule</button>
                 </div>
 
-                <div className="dp-row">
-                    <div className="dp-field">
-                        <label htmlFor="fu-date">Date</label>
-                        <input id="fu-date" className="dp-input" type="date" min={today} required value={date} onChange={(e) => setDate(e.target.value)} />
+                {mode === 'time' && (
+                    <div className="dp-row">
+                        <div className="dp-field">
+                            <label htmlFor="fu-date">Date</label>
+                            <input id="fu-date" className="dp-input" type="date" min={today} required value={date} onChange={(e) => setDate(e.target.value)} />
+                        </div>
+                        <div className="dp-field">
+                            <label htmlFor="fu-time">Start time</label>
+                            <input id="fu-time" className="dp-input" type="time" required value={time} onChange={(e) => setTime(e.target.value)} />
+                        </div>
+                        <div className="dp-field">
+                            <label htmlFor="fu-min">Minutes</label>
+                            <input id="fu-min" className="dp-input" type="number" min={5} max={240} step={5} required value={duration} onChange={(e) => setDuration(e.target.value)} />
+                        </div>
                     </div>
-                    {mode === 'time' && (
-                        <>
-                            <div className="dp-field">
-                                <label htmlFor="fu-time">Start time</label>
-                                <input id="fu-time" className="dp-input" type="time" required value={time} onChange={(e) => setTime(e.target.value)} />
-                            </div>
-                            <div className="dp-field">
-                                <label htmlFor="fu-min">Minutes</label>
-                                <input id="fu-min" className="dp-input" type="number" min={5} max={240} step={5} required value={duration} onChange={(e) => setDuration(e.target.value)} />
-                            </div>
-                        </>
-                    )}
-                </div>
+                )}
 
                 {mode === 'schedule' && (
-                    <>
-                        <div className="dp-field">
-                            <label htmlFor="fu-session">Session on that day</label>
-                            <select id="fu-session" className="dp-select" value={sessionId} onChange={(e) => setSessionId(e.target.value)}>
-                                {sessionsOnDate.length === 0 && <option value="">No session of this doctor on that date</option>}
-                                {sessionsOnDate.map((s) => (
-                                    <option key={s.schedule_id} value={s.schedule_id}>{timeRange(s.start_time, s.end_time)}{s.location ? ` - ${s.location}` : ''}</option>
-                                ))}
-                            </select>
-                        </div>
-                        <div className="dp-field">
-                            <label>Time slot</label>
-                            {slotsLoading ? <p className="dp-hint">Loading times...</p> : slots.length === 0 ? <p className="dp-hint">No schedule on this date yet: the student waits in the list until one is posted. Pick a date with a session to see its time slots.</p> : (
-                                <div className="slot-grid-sc">
-                                    {slots.map((s) => {
-                                        const t = s.start_time.slice(11, 16);
-                                        return (
-                                            <button
-                                                key={s.start_time} type="button" disabled={!s.available} className={`slot-sc ${slot === t ? 'selected-sc' : ''}`} onClick={() => setSlot(t)}
-                                                title={s.mine ? 'This student already has an appointment then' : s.blocked ? 'The doctor is unavailable' : s.past ? 'Already passed' : !s.available ? 'Fully booked' : 'Free'}
-                                            >
-                                                {formatTime(s.start_time)}
-                                                <small>{s.mine ? 'Has one' : s.blocked ? 'Absent' : s.past ? 'Passed' : s.available ? `${s.capacity - s.booked} free` : 'Full'}</small>
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            )}
-                        </div>
-                    </>
+                    <div className="dp-field" role="radiogroup" aria-labelledby="fu-schedules-label">
+                        <span id="fu-schedules-label" className="dp-label">Upcoming schedules for {visitLabel(item.visit_type, item.purpose_other)}</span>
+                        {upcoming.length === 0 ? (
+                            <p className="dp-hint">No upcoming schedule of this doctor for this check-up service yet: the student waits in the list until one is posted.</p>
+                        ) : (
+                            <div className="dp-choice-grid">
+                                {upcoming.map((x) => {
+                                    const full = !!x.listing_full;
+                                    const picked = sessionId === x.schedule_id;
+                                    return (
+                                        <button
+                                            key={x.schedule_id} type="button" role="radio" aria-checked={picked} disabled={full}
+                                            className={`dp-choice ${picked ? 'selected-sc' : ''}`} onClick={() => setSessionId(x.schedule_id)}
+                                        >
+                                            <strong>{formatDate(x.next_date)}</strong>
+                                            <span>{timeRange(x.start_time, x.end_time)}{x.location ? ` - ${x.location}` : ''}</span>
+                                            <span>{x.accepted} of {x.listing_limit} places taken{full ? ' (full)' : ''}{picked ? ' - selected' : ''}</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
                 )}
 
                 <div className="dp-field">
@@ -211,7 +178,7 @@ const AppointFollowUpModal = ({ item, creator, userId, onClose, onDone }) => {
 
                 <div className="dp-modal-foot">
                     <button type="button" className="dp-btn dp-btn-ghost" onClick={onClose}>Cancel</button>
-                    <button type="submit" className="dp-btn dp-btn-primary" disabled={busy || (mode === 'schedule' && !slot)}>{busy ? 'Saving...' : 'Appoint repeat'}</button>
+                    <button type="submit" className="dp-btn dp-btn-primary" disabled={busy || (mode === 'schedule' && !session)}>{busy ? 'Saving...' : 'Appoint repeat'}</button>
                 </div>
             </form>
         </Modal>
@@ -292,7 +259,7 @@ export const RepeatModal = ({ appt, creator, userId, onClose, onDone }) => {
                     <button type="button" className="dp-choice" disabled={busy} onClick={() => choose('direct')}>
                         <CalendarPlus size={20} />
                         <strong>Direct appointment</strong>
-                        <span>Pick a date and time, or a slot in one of the doctor's schedules, now.</span>
+                        <span>Pick a date and time, or put the student in an upcoming schedule of the doctor, now.</span>
                     </button>
                     <button type="button" className="dp-choice" disabled={busy} onClick={() => choose('wait')}>
                         <Hourglass size={20} />
@@ -318,6 +285,7 @@ const FollowUps = ({ fixedDoctorId, doctors, creator, userId, refreshKey, onChan
     const [loading, setLoading] = useState(true);
     const [state, setState] = useState('needs_time');
     const [search, setSearch] = useState('');
+    const [page, setPage] = useState(1);
     const [doctorFilter, setDoctorFilter] = useState('');
     const [appointTarget, setAppointTarget] = useState(null);
     const [dismissTarget, setDismissTarget] = useState(null);
@@ -345,6 +313,9 @@ const FollowUps = ({ fixedDoctorId, doctors, creator, userId, refreshKey, onChan
             && (!q || `${r.student_first_name} ${r.student_last_name} ${r.student_id}`.toLowerCase().includes(q)));
     }, [items, state, search]);
 
+    useEffect(() => { setPage(1); }, [state, search, doctorFilter]);
+    const paged = paginate(rows, page, REPEATS_PER_PAGE);
+
     const dismiss = async (reason) => {
         const r = dismissTarget;
         const data = await send(`/api/follow-ups/${r.appointment_id}/dismiss`, 'PUT', { student_id: r.student_id, dismissed: true, reason });
@@ -359,10 +330,6 @@ const FollowUps = ({ fixedDoctorId, doctors, creator, userId, refreshKey, onChan
 
     return (
         <>
-            <p className="summary-ds">
-                Each row is one student whose assessment says a repeat check-up is needed. Appoint every repeat on its own, as a direct appointment: pick a time, or put the student in one of the doctor's schedules. A student with no schedule yet waits here until the doctor posts one.
-            </p>
-
             <div className="toolbar-sc">
                 <div className="search-box-dv" style={{ width: 260 }}>
                     <Search size={16} />
@@ -380,7 +347,7 @@ const FollowUps = ({ fixedDoctorId, doctors, creator, userId, refreshKey, onChan
             <div className="status-chips-sc" style={{ marginBottom: 14 }}>
                 {STATE_FILTERS.map(([key, label]) => (
                     <button key={key} type="button" className={`status-chip-sc ${state === key ? 'active-sc' : ''}`} onClick={() => setState(key)}>
-                        {label} <em>{key === 'all' ? items.length : (counts[key] || 0)}</em>
+                        {label} <em>{counts[key] || 0}</em>
                     </button>
                 ))}
             </div>
@@ -394,13 +361,13 @@ const FollowUps = ({ fixedDoctorId, doctors, creator, userId, refreshKey, onChan
                             <tr><th>Student</th><th>Repeat of</th><th>Asked for</th><th>Status</th><th>Actions</th></tr>
                         </thead>
                         <tbody>
-                            {rows.map((r) => {
+                            {paged.items.map((r) => {
                                 const [badgeClass, badgeText] = STATE_BADGE[r.state];
                                 return (
                                     <tr key={`${r.appointment_id}-${r.student_id}`}>
                                         <td>
                                             {fullName(r.student_first_name, r.student_last_name)}
-                                            <div className="muted-ds">{r.student_id}{r.program_name ? ` - ${r.program_name} ${r.year_level || ''}${r.section || ''}` : ''}</div>
+                                            <div className="muted-ds">{r.student_id}{classLabel(r) ? ` - ${classLabel(r)}` : ''}</div>
                                         </td>
                                         <td>
                                             <strong>{visitLabel(r.visit_type, r.purpose_other)}</strong>
@@ -435,6 +402,7 @@ const FollowUps = ({ fixedDoctorId, doctors, creator, userId, refreshKey, onChan
                             })}
                         </tbody>
                     </table>
+                    <Pager page={paged.page} pageCount={paged.pageCount} total={paged.total} pageSize={REPEATS_PER_PAGE} onPage={setPage} noun="repeats" />
                 </div>
             )}
 

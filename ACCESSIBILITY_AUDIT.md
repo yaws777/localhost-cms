@@ -301,3 +301,5 @@ Put this once in `theme.css`.
 
 ---
 Limits: static analysis only. Findings in A-03, A-12, A-14 (OTP field) include *verify* items that depend on markup not read line by line. Fixing A-01, A-02 and A-04 first removes the three biggest barriers with the least code (one CSS block, one component, four layouts).
+
+

@@ -341,7 +341,7 @@ const StudentLayout = () => {
     const currentDate = formatCurrentDate();
 
     return (
-        <div className="student-layout">
+        <div className="student-layout student-portal">
             <a href="#main-content" className="skip-link">Skip to main content</a>
             <button className="mobile-toggle-btn" onClick={toggleSidebar}>
                 ☰

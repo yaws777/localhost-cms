@@ -4233,16 +4233,10 @@ app.post('/api/clinic-visits', async (req, res) => {
                     payloadData: { visit_id }
                 });
 
-                if (info.primary_phone) {
-                    const formattedPhone = formatPhoneNumber(info.primary_phone);
-                    if (formattedPhone) {
-                        const smsResult = await sendPhilSms(formattedPhone, notifMessage);
-                        smsNotificationSent = smsResult.success;
-                    }
-                }
+                // No SMS here: the parent is texted once, after the visit is documented and timed out.
             }
         } catch (notifError) {
-            console.error('[Notification Error] System/Push/SMS failed:', notifError.message);
+            console.error('[Notification Error] System/Push failed:', notifError.message);
         }
 
         res.status(201).json({
@@ -4272,13 +4266,20 @@ app.patch('/api/clinic-visits/:id/timeout', async (req, res) => {
     }
 
     try {
-        const [rows] = await pool.execute('SELECT time_out FROM clinic_visits WHERE visit_id = ?', [id]);
+        const [rows] = await pool.execute(
+            'SELECT time_out, complaint_id, nursing_intervention, assessment FROM clinic_visits WHERE visit_id = ?',
+            [id]
+        );
         if (rows.length === 0) {
             return res.status(404).json({ success: false, error: "Visit record not found" });
         }
 
         if (rows[0].time_out !== null && rows[0].time_out !== '') {
             return res.status(400).json({ success: false, error: "Once 'Time Out' is set, it cannot be modified." });
+        }
+
+        if (!rows[0].complaint_id || !rows[0].nursing_intervention || !rows[0].assessment) {
+            return res.status(400).json({ success: false, error: "Document the visit before timing the student out." });
         }
 
         await pool.execute('UPDATE clinic_visits SET time_out = ? WHERE visit_id = ?', [time_out, id]);
@@ -4293,12 +4294,23 @@ app.patch('/api/clinic-visits/:id/timeout', async (req, res) => {
                     s.last_name AS student_last_name,
                     p.user_id AS parent_user_id,
                     p.primary_phone,
-                    n.user_id AS nurse_user_id
+                    n.user_id AS nurse_user_id,
+                    cv.time_in,
+                    cv.assessment,
+                    cv.specify_complaint_text,
+                    cc.complaint_name,
+                    m.brand_name AS medicine_name,
+                    cd.dosage_consumption_unit_value,
+                    cd.dosage_consumption_unit_of_measure
                 FROM clinic_visits cv
                 JOIN students s ON cv.student_id = s.student_id
                 LEFT JOIN nurses n ON cv.nurse_id = n.nurse_id
                 LEFT JOIN parent_student_mapping psm ON s.student_id = psm.student_id
                 LEFT JOIN parents p ON psm.parent_id = p.parent_id
+                LEFT JOIN chief_complaints cc ON cv.complaint_id = cc.complaint_id
+                LEFT JOIN consultation_dispensation cd ON cv.visit_id = cd.visit_id
+                LEFT JOIN medicine_inventory_batches mib ON cd.batch_id = mib.batch_id
+                LEFT JOIN medicines m ON mib.medicine_id = m.medicine_id
                 WHERE cv.visit_id = ?
             `;
             const [notifRows] = await pool.execute(notifSql, [id]);
@@ -4320,10 +4332,20 @@ app.patch('/api/clinic-visits/:id/timeout', async (req, res) => {
                     payloadData: { visit_id: id, time_out }
                 });
 
+                // The only SMS of a visit: sent once the visit is documented and the student is timed out.
                 if (info.primary_phone) {
                     const formattedPhone = formatPhoneNumber(info.primary_phone);
                     if (formattedPhone) {
-                        const smsResult = await sendPhilSms(formattedPhone, notifMessage);
+                        const complaintText = info.specify_complaint_text || info.complaint_name || 'General Checkup';
+                        const dosageVal = info.dosage_consumption_unit_value ? Math.round(info.dosage_consumption_unit_value) : '';
+                        const medicineText = info.medicine_name
+                            ? `${info.medicine_name} (${dosageVal} ${info.dosage_consumption_unit_of_measure || ''})`.replace(' )', ')')
+                            : 'None';
+                        const smsMessage =
+                            `${studentFullName} visited the clinic from ${formatTime(info.time_in)} to ${formattedTimeOut} ` +
+                            `with a medical condition of ${complaintText}. Assessment: ${info.assessment || 'N/A'}. ` +
+                            `Medicine given: ${medicineText}. For more details, log in to the parent portal.`;
+                        const smsResult = await sendPhilSms(formattedPhone, smsMessage);
                         smsNotificationSent = smsResult.success;
                     }
                 }
@@ -4370,7 +4392,6 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
             UPDATE clinic_visits 
             SET 
                 time_in = COALESCE(?, time_in),
-                time_out = ?,
                 complaint_id = ?,
                 specify_complaint_text = ?,
                 temperature = ?,
@@ -4383,8 +4404,7 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
         `;
 
         await connection.execute(visitQuery, [
-            time_in,
-            time_out || null,
+            time_in || null,
             complaint_id || null,
             specifyText,
             temperature || null,
@@ -4573,18 +4593,12 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
                     payloadData: { visit_id: id }
                 });
 
-                if (info.primary_phone) {
-                    const formattedPhone = formatPhoneNumber(info.primary_phone);
-                    if (formattedPhone) {
-                        const smsResult = await sendPhilSms(formattedPhone, notifMessage);
-                        smsNotificationSent = smsResult.success;
-                    }
-                }
+                // No SMS here: the parent is texted once, when the documented visit is timed out.
             }
         } catch (notifError) {
-            console.error('[Notification Error] System/Push/SMS failed:', notifError.message);
+            console.error('[Notification Error] System/Push failed:', notifError.message);
         }
-        res.status(200).json({ 
+        res.status(200).json({
             success: true, 
             message: "Visit documentation updated successfully!",
             smsSent: smsNotificationSent
@@ -7415,11 +7429,13 @@ app.get('/api/programs', async (req, res) => {
 app.get('/api/filtered-students', async (req, res) => {
   try {
     const { program_id, year_level, section } = req.query;
+    await ensureSchoolYears();
+    // graduated students are in the archive, not in the pickers
     let query = `
-      SELECT s.student_id, s.user_id, s.first_name, s.last_name, s.year_level, s.section, s.program_id, p.program_name 
+      SELECT s.student_id, s.user_id, s.first_name, s.last_name, s.year_level, s.section, s.program_id, p.program_name
       FROM students s
       LEFT JOIN academic_programs p ON s.program_id = p.program_id
-      WHERE 1=1
+      WHERE s.graduated_at IS NULL
     `;
     const params = [];
 
@@ -7449,18 +7465,572 @@ app.get('/api/filtered-students', async (req, res) => {
 // HEALTH SCREENING API
 // ==========================================
 
-// One result table per screening type. Dental / Vision are legacy (read-only): they are doctor visits now.
+// The screening types live in the screening_types table (migration_screening_types.sql). A type's form_kind decides the
+// result form and the result table, so the tables are looked up by form_kind. DENTAL / VISION are legacy (read-only):
+// they are doctor visits now, they are not in screening_types and old schedules keep their name.
 const SCREENING_RESULT_TABLES = {
-  'BMI': { table: 'bmi_monitoring_logs', idCol: 'bmi_log_id' },
-  'Vital Signs': { table: 'vital_signs_records', idCol: 'vital_record_id' },
-  'Hearing': { table: 'hearing_screening_records', idCol: 'hearing_record_id' },
-  'Dental': { table: 'dental_assessment_records', idCol: 'dental_record_id' },
-  'Vision': { table: 'vision_screening_records', idCol: 'vision_record_id' }
+  HEARING: { table: 'hearing_screening_records', idCol: 'hearing_record_id' },
+  CUSTOM: { table: 'screening_custom_results', idCol: 'custom_record_id' },
+  DENTAL: { table: 'dental_assessment_records', idCol: 'dental_record_id' },
+  VISION: { table: 'vision_screening_records', idCol: 'vision_record_id' }
+};
+// Forms a nurse-made type can use; CUSTOM = a form template (screening_form_templates) made on the Form Templates tab.
+// BMI and Vital Signs used to be fixed forms with their own tables: they are templates now (convertBuiltInForms moves the
+// old types and results over), so a type never has form_kind BMI / VITAL_SIGNS any more. The old tables stay as they are.
+const CUSTOM_FORM_KINDS = ['HEARING', 'CUSTOM'];
+const FORM_KIND_NAMES = { BMI: 'BMI', VITAL_SIGNS: 'Vital Signs', HEARING: 'Hearing', CUSTOM: 'Custom template' };
+
+// Form templates (migration_screening_form_templates.sql): the nurse builds the result form field by field. A type with
+// form_kind CUSTOM points at one (screening_types.template_id); its results are stored as JSON in screening_custom_results.
+// The backend also creates all of it on start, so the page works before the migration is run by hand.
+const ensureScreeningTemplates = async () => {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS screening_form_templates (
+      template_id INT NOT NULL AUTO_INCREMENT,
+      name        VARCHAR(60)  NOT NULL,
+      description VARCHAR(255) NULL,
+      fields      JSON         NOT NULL,
+      created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (template_id),
+      UNIQUE KEY uq_screening_form_templates_name (name)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`);
+  const [[col]] = await pool.query(
+    `SELECT COUNT(*) AS n FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'screening_types' AND COLUMN_NAME = 'template_id'`);
+  if (Number(col.n) === 0) await pool.query('ALTER TABLE screening_types ADD COLUMN template_id INT NULL AFTER form_kind');
+  const [[chk]] = await pool.query(
+    `SELECT COUNT(*) AS n FROM information_schema.TABLE_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = 'screening_types' AND CONSTRAINT_NAME = 'chk_screening_types_form_kind'`);
+  if (Number(chk.n) > 0) await pool.query('ALTER TABLE screening_types DROP CHECK chk_screening_types_form_kind');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS screening_custom_results (
+      custom_record_id      VARCHAR(45) NOT NULL,
+      student_id            VARCHAR(45) NOT NULL,
+      screening_schedule_id VARCHAR(45) NOT NULL,
+      template_id           INT         NOT NULL,
+      answers               JSON        NOT NULL,
+      is_abnormal           TINYINT(1)  NOT NULL DEFAULT 0,
+      remarks               TEXT        NULL,
+      recorded_at           TIMESTAMP   NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (custom_record_id),
+      UNIQUE KEY uq_custom_student_schedule (student_id, screening_schedule_id),
+      KEY idx_custom_schedule (screening_schedule_id),
+      KEY idx_custom_template (template_id),
+      CONSTRAINT fk_custom_student  FOREIGN KEY (student_id) REFERENCES students (student_id),
+      CONSTRAINT fk_custom_schedule FOREIGN KEY (screening_schedule_id) REFERENCES screening_schedules (screening_schedule_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`);
+};
+// BMI and Vital Signs are editable templates now. Types that still use the old fixed forms are pointed at a template made
+// from the old form (same fields, same normal ranges, so the same results flag as abnormal) and their recorded results are
+// copied into screening_custom_results (the old rows stay in their tables). Runs once: it only acts on types with form_kind BMI /
+// VITAL_SIGNS, and none is left afterwards, so deleting the template or the type later does not bring it back.
+const BUILT_IN_FORMS = [
+  {
+    kind: 'BMI', name: 'BMI', description: 'Height, weight and body mass index.', table: 'bmi_monitoring_logs', idCol: 'bmi_log_id', timeCol: 'logged_at',
+    fields: [
+      { key: 'f1', label: 'Height', type: 'number', unit: 'cm', required: true },
+      { key: 'f2', label: 'Weight', type: 'number', unit: 'kg', required: true },
+      {
+        key: 'f3', label: 'BMI', type: 'calculated', required: false, formula: '{f2} / (({f1} / 100) * ({f1} / 100))', decimals: 1, min: 18.5, max: 24.9,
+        bands: [{ upto: 18.5, label: 'Underweight' }, { upto: 25, label: 'Normal' }, { upto: 30, label: 'Overweight' }, { upto: null, label: 'Obese' }]
+      }
+    ],
+    answers: (r) => ({ f1: Number(r.height_cm), f2: Number(r.weight_kg), f3: Number(r.bmi_value), f3__label: r.bmi_category })
+  },
+  {
+    kind: 'VITAL_SIGNS', name: 'Vital Signs', description: 'Blood pressure, pulse, respiratory rate, temperature.', table: 'vital_signs_records', idCol: 'vital_record_id', timeCol: 'recorded_at',
+    fields: [
+      { key: 'f1', label: 'Systolic blood pressure', type: 'number', unit: 'mmHg', required: false, min: 90, max: 119 },
+      { key: 'f2', label: 'Diastolic blood pressure', type: 'number', unit: 'mmHg', required: false, min: 60, max: 79 },
+      { key: 'f3', label: 'Pulse rate', type: 'number', unit: 'bpm', required: false, min: 60, max: 100 },
+      { key: 'f4', label: 'Temperature', type: 'number', unit: 'C', required: false, min: 36.1, max: 37.5 },
+      { key: 'f5', label: 'Respiratory rate', type: 'number', unit: '/min', required: false, min: 12, max: 20 }
+    ],
+    answers: (r) => {
+      const out = {};
+      [['f1', r.bp_systolic], ['f2', r.bp_diastolic], ['f3', r.pulse_rate], ['f4', r.temperature_c], ['f5', r.respiratory_rate]]
+        .forEach(([k, v]) => { if (v !== null && v !== undefined) out[k] = Number(v); });
+      return out;
+    }
+  }
+];
+
+const convertBuiltInForms = async () => {
+  for (const spec of BUILT_IN_FORMS) {
+    const [types] = await pool.query('SELECT screening_type_id FROM screening_types WHERE form_kind = ?', [spec.kind]);
+    if (types.length === 0) continue;
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [[taken]] = await conn.query('SELECT template_id FROM screening_form_templates WHERE name = ?', [spec.name]);
+      const [ins] = await conn.query('INSERT INTO screening_form_templates (name, description, fields) VALUES (?, ?, ?)',
+        [taken ? `${spec.name} form` : spec.name, spec.description, JSON.stringify(spec.fields)]);
+      await conn.query(`UPDATE screening_types SET form_kind = 'CUSTOM', template_id = ? WHERE form_kind = ?`, [ins.insertId, spec.kind]);
+      const [rows] = await conn.query(`SELECT * FROM ${spec.table} WHERE screening_schedule_id IS NOT NULL AND screening_schedule_id <> ''`);
+      for (const r of rows) {
+        const answers = spec.answers(r);
+        if (Object.keys(answers).length === 0) continue;
+        await conn.query(
+          `INSERT IGNORE INTO screening_custom_results (custom_record_id, student_id, screening_schedule_id, template_id, answers, is_abnormal, remarks, recorded_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [r[spec.idCol], r.student_id, r.screening_schedule_id, ins.insertId, JSON.stringify(answers), r.is_abnormal ? 1 : 0, r.remarks || null, r[spec.timeCol] || null]
+        );
+      }
+      await conn.commit();
+    } catch (e) {
+      await conn.rollback();
+      throw e;
+    } finally {
+      conn.release();
+    }
+  }
+};
+
+const screeningTemplatesReady = ensureScreeningTemplates().then(convertBuiltInForms).catch((e) => console.error('Could not set up the screening form templates:', e.message));
+
+const SCREENING_FIELD_TYPES = ['number', 'calculated', 'text', 'select', 'yesno'];
+const TEMPLATE_MAX_FIELDS = 30;
+const jsonOf = (v) => {
+  if (v && typeof v === 'object') return v;
+  try { return JSON.parse(v); } catch (e) { return null; }
+};
+
+// Validates the fields of a template and returns them cleaned. A field: { key, label, type, required, unit, min, max, options, abnormal_options }.
+// number: min / max are the normal range (outside = abnormal). select / yesno: abnormal_options are the answers that count as abnormal.
+const validateTemplateFields = (raw) => {
+  if (!Array.isArray(raw) || raw.length === 0) return { error: 'Add at least one field to the form.' };
+  if (raw.length > TEMPLATE_MAX_FIELDS) return { error: `A form can have ${TEMPLATE_MAX_FIELDS} fields at most.` };
+  const fields = [];
+  const usedKeys = new Set();
+  const labels = new Set();
+  let nextKey = 1;
+  for (const [i, f] of raw.entries()) {
+    const n = i + 1;
+    const label = (textOrNull(f && f.label) || '').replace(/\s+/g, ' ');
+    if (!label) return { error: `Field ${n} needs a label.` };
+    if (label.length > 60) return { error: `The label of field ${n} is too long (60 characters max).` };
+    if (labels.has(label.toLowerCase())) return { error: `Two fields are named "${label}". Give each field its own label.` };
+    labels.add(label.toLowerCase());
+    if (!SCREENING_FIELD_TYPES.includes(f.type)) return { error: `Pick a type for "${label}".` };
+    // keys stay the same on an edit (they link the stored answers to the field); new fields get the next free key
+    let key = /^f\d{1,3}$/.test(String(f.key || '')) && !usedKeys.has(f.key) ? f.key : null;
+    if (!key) { while (usedKeys.has(`f${nextKey}`) || raw.some((x) => x && x.key === `f${nextKey}`)) nextKey++; key = `f${nextKey}`; }
+    usedKeys.add(key);
+    const out = { key, label, type: f.type, required: toFlag(f.required) === 1 };
+    const unit = textOrNull(f.unit);
+    if (unit) { if (unit.length > 15) return { error: `The unit of "${label}" is too long (15 characters max).` }; out.unit = unit; }
+    if (f.type === 'number' || f.type === 'calculated') {
+      for (const bound of ['min', 'max']) {
+        if (f[bound] !== undefined && f[bound] !== null && f[bound] !== '') {
+          const v = Number(f[bound]);
+          if (!Number.isFinite(v)) return { error: `The ${bound === 'min' ? 'lowest' : 'highest'} normal value of "${label}" must be a number.` };
+          out[bound] = v;
+        }
+      }
+      if (out.min !== undefined && out.max !== undefined && out.min > out.max) return { error: `The lowest normal value of "${label}" is above the highest.` };
+    }
+    if (f.type === 'calculated') {
+      out.required = false;
+      out.formula = String(f.formula || '').trim();
+      if (!out.formula) return { error: `Write the formula of "${label}".` };
+      const decimals = f.decimals === undefined || f.decimals === null || f.decimals === '' ? 1 : parseInt(f.decimals, 10);
+      if (!Number.isInteger(decimals) || decimals < 0 || decimals > 4) return { error: `"${label}" can show 0 to 4 decimals.` };
+      out.decimals = decimals;
+      const rawBands = Array.isArray(f.bands) ? f.bands : [];
+      if (rawBands.length > 8) return { error: `"${label}" can have 8 result labels at most.` };
+      const bands = [];
+      for (const [bi, b] of rawBands.entries()) {
+        const bandLabel = (textOrNull(b && b.label) || '').replace(/\s+/g, ' ');
+        if (!bandLabel || bandLabel.length > 30) return { error: `Each result label of "${label}" needs a name of 30 characters at most.` };
+        const hasLimit = b.upto !== undefined && b.upto !== null && b.upto !== '';
+        if (!hasLimit && bi !== rawBands.length - 1) return { error: `Only the last result label of "${label}" can have no limit.` };
+        const upto = hasLimit ? Number(b.upto) : null;
+        if (hasLimit && !Number.isFinite(upto)) return { error: `The limit of "${bandLabel}" must be a number.` };
+        if (hasLimit && bands.length > 0 && bands[bands.length - 1].upto !== null && upto <= bands[bands.length - 1].upto) return { error: `The limits of the result labels of "${label}" must go up.` };
+        bands.push({ upto, label: bandLabel });
+      }
+      if (bands.length > 0) out.bands = bands;
+    }
+    if (f.type === 'select' || f.type === 'yesno') {
+      const options = f.type === 'yesno'
+        ? ['Yes', 'No']
+        : [...new Set((Array.isArray(f.options) ? f.options : []).map((o) => String(o ?? '').replace(/\s+/g, ' ').trim()).filter(Boolean))];
+      if (options.length < 2) return { error: `"${label}" needs at least two choices.` };
+      if (options.length > 12 || options.some((o) => o.length > 40)) return { error: `"${label}" can have 12 choices of 40 characters each at most.` };
+      out.options = options;
+      out.abnormal_options = (Array.isArray(f.abnormal_options) ? f.abnormal_options : []).filter((o) => options.includes(o));
+    }
+    fields.push(out);
+  }
+  // a formula can only use the number fields of the same form
+  const numberKeys = new Set(fields.filter((x) => x.type === 'number').map((x) => x.key));
+  for (const x of fields.filter((y) => y.type === 'calculated')) {
+    const compiled = compileFormula(x.formula);
+    if (compiled.error) return { error: `Formula of "${x.label}": ${compiled.error}` };
+    if (compiled.keys.length === 0) return { error: `The formula of "${x.label}" must use at least one number field.` };
+    if (compiled.keys.some((k) => !numberKeys.has(k))) return { error: `The formula of "${x.label}" can only use number fields of this form.` };
+  }
+  return { fields };
+};
+
+// Formula of a calculated field: numbers, {f1}-style field keys, + - * / and brackets. Returns { keys, run(values) } or { error }.
+// run() answers null when a value is missing or the result is not a number (e.g. divide by zero).
+const compileFormula = (src) => {
+  const text = String(src || '');
+  const tokens = [];
+  const re = /\s*(?:(\d+(?:\.\d+)?)|\{(f\d{1,3})\}|([-+*/()]))/y;
+  let pos = 0;
+  while (pos < text.length && text.slice(pos).trim() !== '') {
+    re.lastIndex = pos;
+    const m = re.exec(text);
+    if (!m) return { error: 'it has something that is not a number, field, + - * / or bracket.' };
+    pos = re.lastIndex;
+    if (m[1] !== undefined) tokens.push({ n: Number(m[1]) });
+    else if (m[2]) tokens.push({ k: m[2] });
+    else tokens.push({ o: m[3] });
+  }
+  if (tokens.length === 0) return { error: 'it is empty.' };
+  let i = 0;
+  const keys = new Set();
+  const isOp = (...ops) => tokens[i] && ops.includes(tokens[i].o);
+  const factor = () => {
+    const t = tokens[i++];
+    if (!t) throw new Error('it ends too early.');
+    if (t.n !== undefined) return () => t.n;
+    if (t.k) { keys.add(t.k); return (v) => (typeof v[t.k] === 'number' ? v[t.k] : NaN); }
+    if (t.o === '-') { const inner = factor(); return (v) => -inner(v); }
+    if (t.o === '(') {
+      const inner = expr();
+      if (!isOp(')')) throw new Error('a bracket is not closed.');
+      i++;
+      return inner;
+    }
+    throw new Error('check the order of the numbers and signs.');
+  };
+  const term = () => {
+    let left = factor();
+    while (isOp('*', '/')) {
+      const op = tokens[i++].o; const l = left; const r = factor();
+      left = op === '*' ? (v) => l(v) * r(v) : (v) => l(v) / r(v);
+    }
+    return left;
+  };
+  const expr = () => {
+    let left = term();
+    while (isOp('+', '-')) {
+      const op = tokens[i++].o; const l = left; const r = term();
+      left = op === '+' ? (v) => l(v) + r(v) : (v) => l(v) - r(v);
+    }
+    return left;
+  };
+  try {
+    const fn = expr();
+    if (i < tokens.length) throw new Error('check the order of the numbers and signs.');
+    return { keys: [...keys], run: (values) => { const out = fn(values); return Number.isFinite(out) ? out : null; } };
+  } catch (e) {
+    return { error: e.message };
+  }
+};
+
+// the label of the band a value falls in (bands go up by limit; the last one may have no limit)
+const bandLabelOf = (bands, value) => {
+  for (const b of bands || []) {
+    if (b.upto === null || b.upto === undefined || value < b.upto) return b.label;
+  }
+  return null;
+};
+
+// Checks one student's answers against the template fields. Returns { answers, is_abnormal } or { error }.
+const evaluateTemplateAnswers = (fields, given) => {
+  const input = given && typeof given === 'object' ? given : {};
+  const answers = {};
+  let abnormal = 0;
+  for (const f of fields) {
+    if (f.type === 'calculated') continue;
+    const raw = input[f.key];
+    const empty = raw === undefined || raw === null || String(raw).trim() === '';
+    if (empty) {
+      if (f.required) return { error: `"${f.label}" is required.` };
+      continue;
+    }
+    if (f.type === 'number') {
+      const v = Number(raw);
+      if (!Number.isFinite(v) || Math.abs(v) > 1e9) return { error: `"${f.label}" must be a number.` };
+      answers[f.key] = v;
+      if ((f.min !== undefined && v < f.min) || (f.max !== undefined && v > f.max)) abnormal = 1;
+    } else if (f.type === 'text') {
+      const s = String(raw).trim();
+      if (s.length > 255) return { error: `"${f.label}" is too long (255 characters max).` };
+      answers[f.key] = s;
+    } else {
+      const s = String(raw);
+      if (!f.options.includes(s)) return { error: `Pick one of the choices for "${f.label}".` };
+      answers[f.key] = s;
+      if ((f.abnormal_options || []).includes(s)) abnormal = 1;
+    }
+  }
+  if (Object.keys(answers).length === 0) return { error: 'Fill in at least one field.' };
+  // calculated fields come from the numbers above, never from the browser
+  for (const f of fields.filter((x) => x.type === 'calculated')) {
+    const compiled = compileFormula(f.formula);
+    const raw = compiled.error ? null : compiled.run(answers);
+    if (raw === null) continue;
+    const v = Number(raw.toFixed(f.decimals ?? 1));
+    answers[f.key] = v;
+    const label = bandLabelOf(f.bands, v);
+    if (label) answers[`${f.key}__label`] = label;
+    if ((f.min !== undefined && v < f.min) || (f.max !== undefined && v > f.max)) abnormal = 1;
+  }
+  return { answers, is_abnormal: abnormal };
+};
+
+const customSummary = (fields, answers) => {
+  const a = jsonOf(answers) || {};
+  return (jsonOf(fields) || []).filter((f) => a[f.key] !== undefined)
+    .map((f) => `${f.label} ${a[f.key]}${f.unit ? ` ${f.unit}` : ''}${a[`${f.key}__label`] ? ` (${a[`${f.key}__label`]})` : ''}`).join(', ');
+};
+
+const loadTemplate = async (conn, id) => {
+  if (!id) return null;
+  const [[row]] = await conn.query('SELECT * FROM screening_form_templates WHERE template_id = ?', [id]);
+  return row ? { ...row, fields: jsonOf(row.fields) || [] } : null;
+};
+const SCREENING_TYPE_NAME_MAX = 60;
+// Dental / Vision used to be Health Screening types; they are now Doctor Visit types.
+// Old schedules keep their type so history stays readable, but no new results are taken.
+const LEGACY_SCREENING_TYPES = ['Dental', 'Vision'];
+const LEGACY_FORM_KIND = { Dental: 'DENTAL', Vision: 'VISION' };
+const legacyScreeningName = (name) => LEGACY_SCREENING_TYPES.find((t) => t.toLowerCase() === String(name || '').trim().toLowerCase()) || null;
+
+// The type row of a schedule's screening_type name (the name match ignores case). Legacy names answer a read-only stand-in.
+// lock: 'FOR SHARE' | 'FOR UPDATE' inside a transaction, so a type cannot be deleted or reshaped while a schedule is being written.
+const findScreeningType = async (conn, name, lock = '') => {
+  const clean = textOrNull(name);
+  if (!clean) return null;
+  const legacy = legacyScreeningName(clean);
+  if (legacy) return { screening_type_id: null, name: legacy, form_kind: LEGACY_FORM_KIND[legacy], is_system: 1, is_active: 0, is_legacy: 1 };
+  const [[row]] = await conn.query(`SELECT * FROM screening_types WHERE name = ? ${lock}`, [clean]);
+  return row || null;
+};
+
+const resultTableOfType = async (conn, name) => {
+  const type = await findScreeningType(conn, name);
+  return type ? SCREENING_RESULT_TABLES[type.form_kind] || null : null;
+};
+
+// Why a type cannot be used for a new schedule, or null when it can.
+const schedulableTypeError = (name, type) => {
+  if (type && type.is_legacy) return `${type.name} examinations are now Doctor Visits. Schedule a "${type.name} Examination" under Doctor Visits.`;
+  if (!type) return textOrNull(name) ? `"${textOrNull(name)}" is not a screening type. Pick one from the list.` : 'Pick a screening type.';
+  if (!type.is_active) return `The "${type.name}" screening type is deactivated. Activate it under Screening Types, or pick another type.`;
+  return null;
 };
 
 const toHms = (t) => (/^\d{2}:\d{2}$/.test(String(t || '')) ? `${t}:00` : String(t || ''));
 const scheduleStartStr = (s) => `${String(s.scheduled_date).slice(0, 10)} ${s.start_time}`;
 const scheduleEndStr = (s) => `${String(s.scheduled_date).slice(0, 10)} ${s.end_time}`;
+
+// A screening whose end time passed stays on going until the nurse confirms the end or extends it (same day only); the date passing ends it by itself.
+// Same DDL as migration_session_end_confirmation.sql, so it works even before the migration is run.
+const SCREENING_END_COLUMNS = [
+  ['end_confirmed_at', 'datetime NULL'],
+  ['extended_minutes', 'int NOT NULL DEFAULT 0'],
+  ['original_end_time', 'time NULL']
+];
+let screeningEndReady = null;
+const ensureScreeningEndColumns = () => {
+  if (!screeningEndReady) {
+    screeningEndReady = (async () => {
+      const [have] = await pool.query(`SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'screening_schedules'`);
+      for (const [column, def] of SCREENING_END_COLUMNS) {
+        if (!have.some((c) => c.COLUMN_NAME === column)) await pool.query(`ALTER TABLE screening_schedules ADD COLUMN \`${column}\` ${def}`);
+      }
+    })().catch((err) => { screeningEndReady = null; throw err; });
+  }
+  return screeningEndReady;
+};
+// where a screening stands: upcoming | ongoing (awaiting_end after the end time) | past (cancelled, confirmed, or the date passed)
+const screeningPhaseOf = (s, nowStr = nowManilaStr()) => {
+  if (s.status === 'Cancelled') return { phase: 'cancelled', awaiting_end: false };
+  const date = String(s.scheduled_date).slice(0, 10);
+  if (date < nowStr.slice(0, 10) || s.end_confirmed_at) return { phase: 'ended', awaiting_end: false };
+  if (nowStr < scheduleStartStr(s)) return { phase: 'upcoming', awaiting_end: false };
+  return { phase: 'ongoing', awaiting_end: nowStr >= scheduleEndStr(s) };
+};
+
+// ---------- School years and graduated students ----------
+// Screenings are tagged with the school year of their date; the folders (program > year > section) follow the student's CURRENT
+// year and section, so a student's records move to the next year folder when the student is promoted. A student who graduated
+// (`students.graduated_at`) leaves those folders and is kept in the Archive. Same DDL as migration_school_years.sql.
+const SCHOOL_YEAR_RE = /^(\d{4})-(\d{4})$/;
+const defaultSchoolYearOf = (dateStr) => {
+  const [y, m] = String(dateStr).slice(0, 10).split('-').map(Number);
+  const start = m >= 6 ? y : y - 1;
+  return `${start}-${start + 1}`;
+};
+const schoolYearLabelOk = (label) => {
+  const m = SCHOOL_YEAR_RE.exec(String(label || ''));
+  return !!m && Number(m[2]) === Number(m[1]) + 1;
+};
+// a student is in the last year of the program: 2nd year of a strand, 4th year of a course
+const finalYearOf = (programType) => (String(programType).toLowerCase() === 'strand' ? 2 : 4);
+const isFinalYear = (programType, yearLevel) => Number(yearLevel) >= finalYearOf(programType);
+
+const STUDENT_GRADUATION_COLUMNS = [
+  ['graduated_at', 'date NULL'],
+  ['graduated_school_year', 'varchar(9) NULL'],
+  ['inactive_reason', 'varchar(20) NULL'],
+  ['inactive_reason_other', 'varchar(150) NULL'],
+  ['school_year', 'varchar(9) NULL'] // school year the account is enrolled in (Manage Student Accounts)
+];
+let schoolYearsReady = null;
+const ensureSchoolYears = () => {
+  if (!schoolYearsReady) {
+    schoolYearsReady = (async () => {
+      await pool.query(`CREATE TABLE IF NOT EXISTS school_years (
+        school_year varchar(9) NOT NULL,
+        start_date date NOT NULL,
+        end_date date NOT NULL,
+        is_current tinyint(1) NOT NULL DEFAULT 0,
+        created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (school_year)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+      const columnsOf = async (table) => (await pool.query(`SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`, [table]))[0].map((c) => c.COLUMN_NAME);
+      const haveSchedules = await columnsOf('screening_schedules');
+      if (!haveSchedules.includes('school_year')) {
+        await pool.query('ALTER TABLE screening_schedules ADD COLUMN school_year varchar(9) NULL, ADD INDEX idx_screening_school_year (school_year)');
+      }
+      const haveStudents = await columnsOf('students');
+      for (const [column, def] of STUDENT_GRADUATION_COLUMNS) {
+        if (!haveStudents.includes(column)) await pool.query(`ALTER TABLE students ADD COLUMN \`${column}\` ${def}`);
+      }
+
+      const sqlYear = (col) => `CONCAT(IF(MONTH(${col}) >= 6, YEAR(${col}), YEAR(${col}) - 1), '-', IF(MONTH(${col}) >= 6, YEAR(${col}) + 1, YEAR(${col})))`;
+      await pool.query(`UPDATE screening_schedules SET school_year = ${sqlYear('scheduled_date')} WHERE school_year IS NULL`);
+      const [used] = await pool.query('SELECT DISTINCT school_year FROM screening_schedules WHERE school_year IS NOT NULL');
+      const labels = new Set([...used.map((r) => r.school_year), defaultSchoolYearOf(todayManilaStr())]);
+      for (const label of labels) {
+        const start = Number(label.slice(0, 4));
+        await pool.query('INSERT IGNORE INTO school_years (school_year, start_date, end_date) VALUES (?, ?, ?)', [label, `${start}-06-01`, `${start + 1}-05-31`]);
+      }
+      const [[cur]] = await pool.query('SELECT COUNT(*) AS n FROM school_years WHERE is_current = 1');
+      if (!Number(cur.n)) await pool.query('UPDATE school_years SET is_current = 1 WHERE school_year = ?', [defaultSchoolYearOf(todayManilaStr())]);
+
+      // students not tagged yet: graduated ones keep the year they graduated, the others are in the current year
+      const [[currentRow]] = await pool.query('SELECT school_year FROM school_years WHERE is_current = 1 LIMIT 1');
+      await pool.query('UPDATE students SET school_year = COALESCE(graduated_school_year, ?) WHERE school_year IS NULL', [currentRow ? currentRow.school_year : defaultSchoolYearOf(todayManilaStr())]);
+    })().catch((err) => { schoolYearsReady = null; throw err; });
+  }
+  return schoolYearsReady;
+};
+
+const schoolYearForDate = async (conn, dateStr) => {
+  await ensureSchoolYears();
+  const day = String(dateStr).slice(0, 10);
+  const [[row]] = await conn.query('SELECT school_year FROM school_years WHERE ? BETWEEN start_date AND end_date ORDER BY start_date DESC LIMIT 1', [day]);
+  return row ? row.school_year : defaultSchoolYearOf(day);
+};
+const currentSchoolYear = async (conn) => {
+  await ensureSchoolYears();
+  const [[row]] = await conn.query('SELECT school_year FROM school_years WHERE is_current = 1 LIMIT 1');
+  return row ? row.school_year : defaultSchoolYearOf(todayManilaStr());
+};
+
+// Active students who would move up (or graduate) when a new school year starts
+const promotionPreview = async (conn) => {
+  const [rows] = await conn.query(
+    `SELECT s.year_level, ap.type AS program_type FROM students s
+     JOIN users u ON u.user_id = s.user_id AND u.is_active = 1
+     LEFT JOIN academic_programs ap ON ap.program_id = s.program_id
+     WHERE s.graduated_at IS NULL AND s.year_level IS NOT NULL`
+  );
+  const graduate = rows.filter((r) => isFinalYear(r.program_type, r.year_level)).length;
+  return { promote: rows.length - graduate, graduate };
+};
+
+app.get('/api/school-years', async (req, res) => {
+  try {
+    await ensureSchoolYears();
+    const [years] = await pool.query(
+      `SELECT y.school_year, y.start_date, y.end_date, y.is_current,
+              (SELECT COUNT(*) FROM screening_schedules s WHERE s.school_year = y.school_year) AS screening_count
+       FROM school_years y ORDER BY y.start_date DESC`
+    );
+    const current = years.find((y) => y.is_current) || years[0] || null;
+    const nextStart = current ? Number(String(current.school_year).slice(0, 4)) + 1 : new Date().getFullYear();
+    res.json({
+      current: current ? current.school_year : null,
+      years,
+      next: { school_year: `${nextStart}-${nextStart + 1}`, start_date: `${nextStart}-06-01`, end_date: `${nextStart + 1}-05-31` },
+      preview: await promotionPreview(pool)
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Start a new school year (nurse only). Optionally moves every active student up one year level; the ones in the last year
+// (2nd year strand, 4th year course) graduate: they are marked graduated, their account is deactivated and they go to the Archive.
+app.post('/api/school-years', async (req, res) => {
+  if (!(await requireNurse(req, res))) return;
+  const label = String(req.body.school_year || '').trim();
+  const start = String(req.body.start_date || '').slice(0, 10);
+  const end = String(req.body.end_date || '').slice(0, 10);
+  const promote = toFlag(req.body.promote_students);
+  if (!schoolYearLabelOk(label)) return res.status(400).json({ error: 'The school year must look like 2026-2027 (two consecutive years).' });
+  if (!isDateStr(start) || !isDateStr(end) || end <= start) return res.status(400).json({ error: 'Give a start date and an end date after it.' });
+
+  const connection = await pool.getConnection();
+  let graduated = 0;
+  let promoted = 0;
+  try {
+    await ensureSchoolYears();
+    await connection.beginTransaction();
+    const [[prev]] = await connection.query('SELECT school_year FROM school_years WHERE is_current = 1 FOR UPDATE');
+    const [[dupe]] = await connection.query('SELECT 1 AS x FROM school_years WHERE school_year = ?', [label]);
+    if (dupe) { await connection.rollback(); return res.status(409).json({ error: `School year ${label} already exists.` }); }
+    const [[clash]] = await connection.query('SELECT school_year FROM school_years WHERE start_date <= ? AND end_date >= ? LIMIT 1', [end, start]);
+    if (clash) { await connection.rollback(); return res.status(409).json({ error: `The dates overlap school year ${clash.school_year}.` }); }
+
+    await connection.query('UPDATE school_years SET is_current = 0');
+    await connection.query('INSERT INTO school_years (school_year, start_date, end_date, is_current) VALUES (?, ?, ?, 1)', [label, start, end]);
+
+    if (promote) {
+      const endedYear = prev ? prev.school_year : defaultSchoolYearOf(start);
+      const [active] = await connection.query(
+        `SELECT s.student_id, s.user_id, s.year_level, ap.type AS program_type FROM students s
+         JOIN users u ON u.user_id = s.user_id AND u.is_active = 1
+         LEFT JOIN academic_programs ap ON ap.program_id = s.program_id
+         WHERE s.graduated_at IS NULL AND s.year_level IS NOT NULL FOR UPDATE`
+      );
+      const finishing = active.filter((r) => isFinalYear(r.program_type, r.year_level));
+      const moving = active.filter((r) => !isFinalYear(r.program_type, r.year_level));
+      if (finishing.length > 0) {
+        await connection.query(
+          `UPDATE students SET graduated_at = ?, graduated_school_year = ?, inactive_reason = 'Graduated', inactive_reason_other = NULL WHERE student_id IN (?)`,
+          [todayManilaStr(), endedYear, finishing.map((r) => r.student_id)]
+        );
+        await connection.query('UPDATE users SET is_active = 0 WHERE user_id IN (?)', [finishing.map((r) => r.user_id)]);
+      }
+      if (moving.length > 0) await connection.query('UPDATE students SET year_level = year_level + 1 WHERE student_id IN (?)', [moving.map((r) => r.student_id)]);
+      graduated = finishing.length;
+      promoted = moving.length;
+    }
+    // every active, not graduated student is enrolled in the new school year (graduates keep the year they finished)
+    await connection.query(
+      `UPDATE students s JOIN users u ON u.user_id = s.user_id AND u.is_active = 1
+       SET s.school_year = ? WHERE s.graduated_at IS NULL`,
+      [label]
+    );
+    await connection.commit();
+  } catch (err) {
+    await connection.rollback();
+    return res.status(500).json({ error: err.message });
+  } finally {
+    connection.release();
+  }
+  res.status(201).json({ message: `School year ${label} started.${promote ? ` ${promoted} student(s) moved up, ${graduated} graduated and archived.` : ''}`, school_year: label, promoted, graduated });
+});
 
 const bmiFrom = (heightCm, weightKg) => {
   const h = Number(heightCm) / 100;
@@ -7479,10 +8049,11 @@ const countScreeningResults = async (conn, scheduleId) => {
   return Number(row.n);
 };
 
-const screeningResultSummary = (type, r) => {
+const screeningResultSummary = (formKind, r, templateFields = null) => {
   if (!r) return '';
-  if (type === 'BMI') return `BMI ${r.bmi_value} (${r.bmi_category}), ${r.height_cm} cm, ${r.weight_kg} kg`;
-  if (type === 'Vital Signs') {
+  if (formKind === 'CUSTOM') return customSummary(templateFields || r.template_fields, r.answers);
+  if (formKind === 'BMI') return `BMI ${r.bmi_value} (${r.bmi_category}), ${r.height_cm} cm, ${r.weight_kg} kg`;
+  if (formKind === 'VITAL_SIGNS') {
     const bits = [];
     if (r.bp_systolic != null) bits.push(`BP ${r.bp_systolic}/${r.bp_diastolic}${r.bp_flag ? ` (${r.bp_flag})` : ''}`);
     if (r.pulse_rate != null) bits.push(`Pulse ${r.pulse_rate}${r.pulse_flag ? ` (${r.pulse_flag})` : ''}`);
@@ -7490,9 +8061,9 @@ const screeningResultSummary = (type, r) => {
     if (r.respiratory_rate != null) bits.push(`Resp ${r.respiratory_rate}${r.respiratory_flag ? ` (${r.respiratory_flag})` : ''}`);
     return bits.join(', ');
   }
-  if (type === 'Hearing') return `Left ear ${r.left_ear_result}, Right ear ${r.right_ear_result}`;
-  if (type === 'Dental') return r.dental_findings || '';
-  if (type === 'Vision') return `VA Left ${r.visual_acuity_left || '-'} / Right ${r.visual_acuity_right || '-'}`;
+  if (formKind === 'HEARING') return `Left ear ${r.left_ear_result}, Right ear ${r.right_ear_result}`;
+  if (formKind === 'DENTAL') return r.dental_findings || '';
+  if (formKind === 'VISION') return `VA Left ${r.visual_acuity_left || '-'} / Right ${r.visual_acuity_right || '-'}`;
   return '';
 };
 
@@ -7512,15 +8083,293 @@ cron.schedule('*/5 * * * *', () => {
 }, { timezone: 'Asia/Manila' });
 markExpiredScreeningsAbsent().catch((err) => console.error('Screening auto-absent job failed:', err.message));
 
+// ---------- Screening types (nurse only; the nurse's user id comes as sender_id, in the query or the body) ----------
+const requireNurse = async (req, res) => {
+  try {
+    const actor = await resolveActor(pool, req.query?.sender_id || req.body?.sender_id);
+    if (actor.role === 'Nurse') return true;
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+    return false;
+  }
+  res.status(403).json({ error: 'Only the nurse can manage screening types.' });
+  return false;
+};
+
+const SCREENING_TYPE_LIST_SQL = `
+  SELECT t.*, tp.name AS template_name, (SELECT COUNT(*) FROM screening_schedules s WHERE s.screening_type = t.name) AS schedule_count
+  FROM screening_types t
+  LEFT JOIN screening_form_templates tp ON tp.template_id = t.template_id`;
+
+// Validates the fields sent for a type. existing = the stored row on an edit (missing fields stay as they are).
+const validateScreeningTypeInput = (body, existing = null) => {
+  const out = {};
+  if (!existing || body.name !== undefined) {
+    const name = (textOrNull(body.name) || '').replace(/\s+/g, ' ');
+    if (!name) return { error: 'A screening type name is required.' };
+    if (name.length > SCREENING_TYPE_NAME_MAX) return { error: `The name is too long (${SCREENING_TYPE_NAME_MAX} characters max).` };
+    const legacy = legacyScreeningName(name);
+    if (legacy) return { error: `"${legacy}" examinations are Doctor Visits now. Pick another name.` };
+    out.name = name;
+  }
+  if (body.description !== undefined) {
+    const description = textOrNull(body.description);
+    if (description && description.length > 255) return { error: 'The description is too long (255 characters max).' };
+    out.description = description;
+  }
+  if (!existing || body.form_kind !== undefined) {
+    if (existing && existing.is_system) {
+      if (body.form_kind !== existing.form_kind) return { error: 'The form of a system screening type cannot be changed.' };
+    } else if (!CUSTOM_FORM_KINDS.includes(body.form_kind)) {
+      return { error: 'Choose the result form: Hearing or a form template.' };
+    }
+    out.form_kind = body.form_kind;
+  }
+  // a CUSTOM type points at a form template; every other form has none
+  const kind = out.form_kind !== undefined ? out.form_kind : existing && existing.form_kind;
+  if (kind === 'CUSTOM') {
+    if (!existing || body.template_id !== undefined) {
+      const templateId = parseInt(body.template_id, 10);
+      if (!Number.isInteger(templateId)) return { error: 'Pick the form template for this screening type.' };
+      out.template_id = templateId;
+    }
+  } else if (out.form_kind !== undefined) {
+    out.template_id = null;
+  }
+  if (body.is_active !== undefined) out.is_active = toFlag(body.is_active);
+  return { data: out };
+};
+
+app.get('/api/screening-types', async (req, res) => {
+  if (!(await requireNurse(req, res))) return;
+  try {
+    const onlyActive = req.query.active === '1' || req.query.active === 'true';
+    const [rows] = await pool.query(`${SCREENING_TYPE_LIST_SQL} ${onlyActive ? 'WHERE t.is_active = 1' : ''} ORDER BY t.is_system DESC, t.name ASC`);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/screening-types', async (req, res) => {
+  if (!(await requireNurse(req, res))) return;
+  const validated = validateScreeningTypeInput(req.body);
+  if (validated.error) return res.status(400).json({ error: validated.error });
+  const f = validated.data;
+  try {
+    if (f.template_id && !(await loadTemplate(pool, f.template_id))) return res.status(400).json({ error: 'That form template no longer exists. Pick another one.' });
+    const [result] = await pool.query(
+      'INSERT INTO screening_types (name, description, form_kind, template_id, is_system, is_active) VALUES (?, ?, ?, ?, 0, ?)',
+      [f.name, f.description || null, f.form_kind, f.template_id || null, f.is_active === undefined ? 1 : f.is_active]
+    );
+    const [[row]] = await pool.query(`${SCREENING_TYPE_LIST_SQL} WHERE t.screening_type_id = ?`, [result.insertId]);
+    res.status(201).json({ message: `Screening type "${f.name}" added.`, type: row });
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: `A screening type named "${f.name}" already exists.` });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Edit a type. Renaming also renames it on its schedules (they store the name), in one transaction.
+app.put('/api/screening-types/:id', async (req, res) => {
+  if (!(await requireNurse(req, res))) return;
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [[current]] = await connection.query('SELECT * FROM screening_types WHERE screening_type_id = ? FOR UPDATE', [req.params.id]);
+    if (!current) {
+      await connection.rollback();
+      return res.status(404).json({ error: 'Screening type not found.' });
+    }
+    const validated = validateScreeningTypeInput(req.body, current);
+    if (validated.error) {
+      await connection.rollback();
+      return res.status(400).json({ error: validated.error });
+    }
+    const f = validated.data;
+
+    const [[usage]] = await connection.query('SELECT COUNT(*) AS n FROM screening_schedules WHERE screening_type = ?', [current.name]);
+    const formChanged = (f.form_kind !== undefined && f.form_kind !== current.form_kind)
+      || (f.template_id !== undefined && (f.template_id || null) !== (current.template_id || null));
+    if (formChanged && Number(usage.n) > 0) {
+      await connection.rollback();
+      return res.status(409).json({ error: `"${current.name}" already has ${usage.n} screening schedule(s), so its result form can no longer be changed.` });
+    }
+    if (f.template_id && !(await loadTemplate(connection, f.template_id))) {
+      await connection.rollback();
+      return res.status(400).json({ error: 'That form template no longer exists. Pick another one.' });
+    }
+
+    const sets = Object.keys(f).map((k) => `${k} = ?`);
+    if (sets.length > 0) {
+      await connection.query(`UPDATE screening_types SET ${sets.join(', ')} WHERE screening_type_id = ?`, [...Object.values(f), current.screening_type_id]);
+    }
+    if (f.name !== undefined && f.name !== current.name) {
+      await connection.query('UPDATE screening_schedules SET screening_type = ? WHERE screening_type = ?', [f.name, current.name]);
+    }
+    await connection.commit();
+
+    const [[row]] = await pool.query(`${SCREENING_TYPE_LIST_SQL} WHERE t.screening_type_id = ?`, [current.screening_type_id]);
+    res.json({ message: `Screening type "${row.name}" saved.`, type: row });
+  } catch (err) {
+    await connection.rollback();
+    if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: `A screening type named "${(textOrNull(req.body.name) || '').replace(/\s+/g, ' ')}" already exists.` });
+    res.status(500).json({ error: err.message });
+  } finally {
+    connection.release();
+  }
+});
+
+// Delete a type (any type, system ones included). Schedules that use it need ?move_to=<type id> (same form_kind, active); they move there.
+app.delete('/api/screening-types/:id', async (req, res) => {
+  if (!(await requireNurse(req, res))) return;
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [[current]] = await connection.query('SELECT * FROM screening_types WHERE screening_type_id = ? FOR UPDATE', [req.params.id]);
+    if (!current) {
+      await connection.rollback();
+      return res.status(404).json({ error: 'Screening type not found.' });
+    }
+    const [[usage]] = await connection.query('SELECT COUNT(*) AS n FROM screening_schedules WHERE screening_type = ?', [current.name]);
+    const used = Number(usage.n);
+    let movedTo = null;
+    if (used > 0) {
+      // schedules that use the type move to another type with the same result form, so their results stay valid
+      const moveToId = req.query.move_to || req.body?.move_to;
+      if (!moveToId) {
+        await connection.rollback();
+        return res.status(409).json({ error: `"${current.name}" is used by ${used} screening schedule(s). Pick another type for them, or deactivate this one instead.`, needs_move_to: true, schedule_count: used });
+      }
+      const [[target]] = await connection.query('SELECT * FROM screening_types WHERE screening_type_id = ? FOR UPDATE', [moveToId]);
+      if (!target || target.screening_type_id === current.screening_type_id) {
+        await connection.rollback();
+        return res.status(400).json({ error: 'Pick a different screening type to move the schedules to.' });
+      }
+      if (target.form_kind !== current.form_kind || (target.template_id || null) !== (current.template_id || null)) {
+        await connection.rollback();
+        return res.status(400).json({ error: `"${target.name}" uses a different result form, so the recorded results would not fit. Pick a type with the same form (${FORM_KIND_NAMES[current.form_kind] || current.form_kind}).` });
+      }
+      if (!target.is_active) {
+        await connection.rollback();
+        return res.status(400).json({ error: `"${target.name}" is deactivated. Pick an active type.` });
+      }
+      await connection.query('UPDATE screening_schedules SET screening_type = ? WHERE screening_type = ?', [target.name, current.name]);
+      movedTo = target.name;
+    }
+    await connection.query('DELETE FROM screening_types WHERE screening_type_id = ?', [current.screening_type_id]);
+    await connection.commit();
+    res.json({ message: movedTo ? `Screening type "${current.name}" removed. ${used} schedule(s) now use "${movedTo}".` : `Screening type "${current.name}" removed.` });
+  } catch (err) {
+    await connection.rollback();
+    res.status(500).json({ error: err.message });
+  } finally {
+    connection.release();
+  }
+});
+
+// ---------- Form templates (nurse only): the result forms a screening type with form_kind CUSTOM uses ----------
+const TEMPLATE_LIST_SQL = `
+  SELECT tp.*,
+    (SELECT COUNT(*) FROM screening_types t WHERE t.template_id = tp.template_id) AS type_count,
+    (SELECT COUNT(*) FROM screening_custom_results r WHERE r.template_id = tp.template_id) AS result_count
+  FROM screening_form_templates tp`;
+
+const readTemplateInput = (body, existing = null) => {
+  const name = (textOrNull(body.name) || '').replace(/\s+/g, ' ');
+  if (!name) return { error: 'A form template name is required.' };
+  if (name.length > 60) return { error: 'The name is too long (60 characters max).' };
+  const description = textOrNull(body.description);
+  if (description && description.length > 255) return { error: 'The description is too long (255 characters max).' };
+  const checked = validateTemplateFields(body.fields);
+  if (checked.error) return { error: checked.error };
+  return { data: { name, description, fields: checked.fields } };
+};
+
+app.get('/api/screening-form-templates', async (req, res) => {
+  if (!(await requireNurse(req, res))) return;
+  try {
+    await screeningTemplatesReady;
+    const [rows] = await pool.query(`${TEMPLATE_LIST_SQL} ORDER BY tp.name ASC`);
+    res.json(rows.map((r) => ({ ...r, fields: jsonOf(r.fields) || [] })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/screening-form-templates', async (req, res) => {
+  if (!(await requireNurse(req, res))) return;
+  const input = readTemplateInput(req.body);
+  if (input.error) return res.status(400).json({ error: input.error });
+  const f = input.data;
+  try {
+    await screeningTemplatesReady;
+    const [result] = await pool.query('INSERT INTO screening_form_templates (name, description, fields) VALUES (?, ?, ?)', [f.name, f.description, JSON.stringify(f.fields)]);
+    const [[row]] = await pool.query(`${TEMPLATE_LIST_SQL} WHERE tp.template_id = ?`, [result.insertId]);
+    res.status(201).json({ message: `Form template "${f.name}" saved.`, template: { ...row, fields: jsonOf(row.fields) || [] } });
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: `A form template named "${f.name}" already exists.` });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// The fields are locked once a result was recorded with the template (the stored answers are keyed by field); name and description stay editable.
+app.put('/api/screening-form-templates/:id', async (req, res) => {
+  if (!(await requireNurse(req, res))) return;
+  const input = readTemplateInput(req.body);
+  if (input.error) return res.status(400).json({ error: input.error });
+  const f = input.data;
+  try {
+    await screeningTemplatesReady;
+    const [[current]] = await pool.query(`${TEMPLATE_LIST_SQL} WHERE tp.template_id = ?`, [req.params.id]);
+    if (!current) return res.status(404).json({ error: 'Form template not found.' });
+    if (Number(current.result_count) > 0) {
+      // recorded answers are keyed by field: a field can be reworded or get new ranges, but not removed or turned into another type
+      for (const old of jsonOf(current.fields) || []) {
+        const now = f.fields.find((x) => x.key === old.key);
+        if (!now) return res.status(409).json({ error: `Results were recorded with "${current.name}", so the field "${old.label}" cannot be removed.` });
+        if (now.type !== old.type) return res.status(409).json({ error: `Results were recorded with "${current.name}", so the answer type of "${old.label}" cannot be changed.` });
+      }
+    }
+    await pool.query('UPDATE screening_form_templates SET name = ?, description = ?, fields = ? WHERE template_id = ?', [f.name, f.description, JSON.stringify(f.fields), current.template_id]);
+    const [[row]] = await pool.query(`${TEMPLATE_LIST_SQL} WHERE tp.template_id = ?`, [current.template_id]);
+    res.json({ message: `Form template "${f.name}" saved.`, template: { ...row, fields: jsonOf(row.fields) || [] } });
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: `A form template named "${f.name}" already exists.` });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/screening-form-templates/:id', async (req, res) => {
+  if (!(await requireNurse(req, res))) return;
+  try {
+    await screeningTemplatesReady;
+    const [[current]] = await pool.query(`${TEMPLATE_LIST_SQL} WHERE tp.template_id = ?`, [req.params.id]);
+    if (!current) return res.status(404).json({ error: 'Form template not found.' });
+    if (Number(current.type_count) > 0) {
+      return res.status(409).json({ error: `"${current.name}" is the result form of ${current.type_count} screening type(s). Change or delete those types first.` });
+    }
+    if (Number(current.result_count) > 0) {
+      return res.status(409).json({ error: `Results were recorded with "${current.name}", so it cannot be deleted.` });
+    }
+    await pool.query('DELETE FROM screening_form_templates WHERE template_id = ?', [current.template_id]);
+    res.json({ message: `Form template "${current.name}" deleted.` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // 3. Screening schedules with attendance and result counts
 const screeningListSql = (whereSql = '', orderSql = 'ORDER BY s.scheduled_date DESC, s.start_time ASC') => {
   const resultCount = Object.values(SCREENING_RESULT_TABLES)
     .map((t) => `(SELECT COUNT(*) FROM ${t.table} WHERE screening_schedule_id = s.screening_schedule_id)`).join(' + ');
-  const abnormalCount = ['bmi_monitoring_logs', 'vital_signs_records', 'hearing_screening_records']
+  const abnormalCount = ['hearing_screening_records', 'screening_custom_results']
     .map((t) => `COALESCE((SELECT SUM(is_abnormal) FROM ${t} WHERE screening_schedule_id = s.screening_schedule_id), 0)`).join(' + ');
 
   return `
     SELECT s.*, p.program_name,
+      COALESCE(stp.form_kind, CASE WHEN s.screening_type = 'Dental' THEN 'DENTAL' WHEN s.screening_type = 'Vision' THEN 'VISION' END) AS form_kind,
+      COALESCE(stp.is_active, 0) AS type_active,
       (SELECT COUNT(*) FROM screening_schedule_participants WHERE screening_schedule_id = s.screening_schedule_id) AS total_students,
       (SELECT COUNT(*) FROM screening_schedule_participants WHERE screening_schedule_id = s.screening_schedule_id AND attendance_status = 'PRESENT') AS present_count,
       (SELECT COUNT(*) FROM screening_schedule_participants WHERE screening_schedule_id = s.screening_schedule_id AND attendance_status = 'ABSENT') AS absent_count,
@@ -7530,12 +8379,14 @@ const screeningListSql = (whereSql = '', orderSql = 'ORDER BY s.scheduled_date D
       (SELECT COUNT(*) FROM screening_schedules m WHERE m.makeup_of = s.screening_schedule_id AND m.status <> 'Cancelled') AS makeup_count
     FROM screening_schedules s
     LEFT JOIN academic_programs p ON s.target_program_id = p.program_id
+    LEFT JOIN screening_types stp ON stp.name = s.screening_type
     ${whereSql}
     ${orderSql}`;
 };
 
 app.get('/api/screenings', async (req, res) => {
   try {
+    await ensureScreeningEndColumns();
     const [rows] = await pool.query(screeningListSql());
     res.json(rows);
   } catch (err) {
@@ -7545,27 +8396,35 @@ app.get('/api/screenings', async (req, res) => {
 
 // ---------- Folders (Program > Year-Section) and paginated list ----------
 // A screening shows up in the folder of every section it has participants from (many are created for "All Programs").
-const screeningCte = (type) => ({
+// type / schoolYear narrow the screenings. The folders follow the student's current program, year and section, and leave out
+// graduated students (they are in the Archive).
+const screeningCte = (type, schoolYear = null) => {
+  const filters = [];
+  const filterParams = [];
+  if (type) { filters.push('s.screening_type = ?'); filterParams.push(type); }
+  if (schoolYear) { filters.push('s.school_year = ?'); filterParams.push(schoolYear); }
+  return {
   sql: `
     sc AS (
       SELECT s.*, TIMESTAMP(s.scheduled_date, s.start_time) AS start_at, TIMESTAMP(s.scheduled_date, s.end_time) AS end_at,
-             CASE WHEN s.status = 'Cancelled' OR NOW() > TIMESTAMP(s.scheduled_date, s.end_time) THEN 'past'
+             CASE WHEN s.status = 'Cancelled' OR s.end_confirmed_at IS NOT NULL OR s.scheduled_date < CURDATE() THEN 'past'
                   WHEN NOW() >= TIMESTAMP(s.scheduled_date, s.start_time) THEN 'ongoing'
                   ELSE 'upcoming' END AS tab
       FROM screening_schedules s
-      ${type ? 'WHERE s.screening_type = ?' : ''}
+      ${filters.length ? `WHERE ${filters.join(' AND ')}` : ''}
     ),
     pp AS (
       SELECT p.screening_schedule_id, p.student_id, st.program_id, st.year_level, st.section
       FROM screening_schedule_participants p JOIN students st ON st.student_id = p.student_id
+      WHERE st.graduated_at IS NULL
     ),
     res AS (
-      SELECT student_id, screening_schedule_id, is_abnormal FROM bmi_monitoring_logs
-      UNION ALL SELECT student_id, screening_schedule_id, is_abnormal FROM vital_signs_records
-      UNION ALL SELECT student_id, screening_schedule_id, is_abnormal FROM hearing_screening_records
+      SELECT student_id, screening_schedule_id, is_abnormal FROM hearing_screening_records
+      UNION ALL SELECT student_id, screening_schedule_id, is_abnormal FROM screening_custom_results
     )`,
-  params: type ? [type] : []
-});
+  params: filterParams
+  };
+};
 
 const screeningFolderSql = (groupBy, extraSelect = '') => `
   SELECT ${extraSelect}
@@ -7573,6 +8432,9 @@ const screeningFolderSql = (groupBy, extraSelect = '') => `
          COUNT(DISTINCT CASE WHEN sc.tab = 'upcoming' THEN sc.screening_schedule_id END) AS upcoming,
          COUNT(DISTINCT CASE WHEN sc.tab = 'ongoing' THEN sc.screening_schedule_id END) AS ongoing,
          COUNT(DISTINCT CASE WHEN sc.tab = 'past' THEN sc.screening_schedule_id END) AS past,
+         COUNT(DISTINCT CASE WHEN sc.tab = 'upcoming' AND sc.scheduled_date = CURDATE() THEN sc.screening_schedule_id END) AS today_upcoming,
+         COUNT(DISTINCT CASE WHEN sc.tab = 'ongoing' AND sc.scheduled_date = CURDATE() THEN sc.screening_schedule_id END) AS today_ongoing,
+         COUNT(DISTINCT CASE WHEN sc.tab = 'past' AND sc.scheduled_date = CURDATE() AND sc.status <> 'Cancelled' THEN sc.screening_schedule_id END) AS today_past,
          CAST(COALESCE(SUM(r.is_abnormal), 0) AS UNSIGNED) AS abnormal
   FROM pp
   JOIN sc ON sc.screening_schedule_id = pp.screening_schedule_id
@@ -7581,14 +8443,16 @@ const screeningFolderSql = (groupBy, extraSelect = '') => `
 
 app.get('/api/screenings/folders', async (req, res) => {
   try {
+    await ensureScreeningEndColumns();
     const type = textOrNull(req.query.type);
-    const cte = screeningCte(type);
+    await ensureSchoolYears();
+    const cte = screeningCte(type, textOrNull(req.query.school_year));
     const [programRows] = await pool.query(`WITH ${cte.sql} ${screeningFolderSql('pp.program_id', 'pp.program_id,')}`, cte.params);
     const [sectionRows] = await pool.query(`WITH ${cte.sql} ${screeningFolderSql('pp.program_id, pp.year_level, pp.section', 'pp.program_id, pp.year_level, pp.section,')}`, cte.params);
     const [names] = await pool.query('SELECT program_id, program_name FROM academic_programs');
     const nameOf = Object.fromEntries(names.map((n) => [n.program_id, n.program_name]));
 
-    const num = (r) => ({ total: Number(r.total), upcoming: Number(r.upcoming), ongoing: Number(r.ongoing), past: Number(r.past), abnormal: Number(r.abnormal) });
+    const num = (r) => ({ total: Number(r.total), upcoming: Number(r.upcoming), ongoing: Number(r.ongoing), past: Number(r.past), abnormal: Number(r.abnormal), today_upcoming: Number(r.today_upcoming), today_ongoing: Number(r.today_ongoing), today_past: Number(r.today_past) });
     const programs = programRows.map((p) => ({
       program_id: p.program_id,
       program_name: nameOf[p.program_id] || p.program_id || 'No program',
@@ -7599,7 +8463,40 @@ app.get('/api/screenings/folders', async (req, res) => {
         .sort((a, b) => (Number(a.year_level) - Number(b.year_level)) || String(a.section).localeCompare(String(b.section)))
     })).sort((a, b) => String(a.program_id).localeCompare(String(b.program_id)));
 
-    res.json({ programs });
+    const [[archived]] = await pool.query('SELECT COUNT(*) AS n FROM students WHERE graduated_at IS NOT NULL');
+    res.json({ programs, archived: Number(archived.n) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Graduated students and their screening records (the Archive)
+app.get('/api/screenings/archive', async (req, res) => {
+  try {
+    await ensureSchoolYears();
+    const { page, pageSize, offset } = pageParams(req.query);
+    const where = ['s.graduated_at IS NOT NULL'];
+    const params = [];
+    const programId = textOrNull(req.query.program_id);
+    const gradYear = textOrNull(req.query.school_year);
+    const search = textOrNull(req.query.q);
+    if (programId) { where.push('s.program_id = ?'); params.push(programId); }
+    if (gradYear) { where.push('s.graduated_school_year = ?'); params.push(gradYear); }
+    if (search) {
+      where.push("(CONCAT(s.first_name, ' ', s.last_name) LIKE ? OR s.student_id LIKE ?)");
+      params.push(`%${search}%`, `%${search}%`);
+    }
+    const [[count]] = await pool.query(`SELECT COUNT(*) AS n FROM students s WHERE ${where.join(' AND ')}`, params);
+    const [students] = await pool.query(
+      `SELECT s.student_id, s.first_name, s.last_name, s.program_id, ap.program_name, s.year_level, s.section, s.graduated_at, s.graduated_school_year,
+              (SELECT COUNT(*) FROM screening_schedule_participants p WHERE p.student_id = s.student_id AND p.attendance_status = 'PRESENT') AS attended
+       FROM students s LEFT JOIN academic_programs ap ON ap.program_id = s.program_id
+       WHERE ${where.join(' AND ')} ORDER BY s.graduated_at DESC, s.last_name ASC, s.first_name ASC LIMIT ? OFFSET ?`,
+      [...params, pageSize, offset]
+    );
+    const [years] = await pool.query('SELECT DISTINCT graduated_school_year AS school_year FROM students WHERE graduated_at IS NOT NULL AND graduated_school_year IS NOT NULL ORDER BY graduated_school_year DESC');
+    const total = Number(count.n);
+    res.json({ students, years: years.map((y) => y.school_year), total, page, pageSize, pageCount: Math.max(Math.ceil(total / pageSize), 1) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -7609,9 +8506,11 @@ app.get('/api/screenings/page', async (req, res) => {
   try {
     const { tab, type, program_id, year_level, section, q, from, to } = req.query;
     if (!['upcoming', 'ongoing', 'past'].includes(tab)) return res.status(400).json({ error: 'tab must be upcoming, ongoing or past.' });
+    await ensureScreeningEndColumns();
+    await ensureSchoolYears();
     const { page, pageSize, offset } = pageParams(req.query);
 
-    const cte = screeningCte(textOrNull(type));
+    const cte = screeningCte(textOrNull(type), textOrNull(req.query.school_year));
     const where = ['sc.tab = ?'];
     const params = [...cte.params, tab];
 
@@ -7681,13 +8580,6 @@ app.post('/api/screenings', async (req, res) => {
     return res.status(400).json({ error: 'At least one participant must be selected.' });
   }
 
-  if (LEGACY_SCREENING_TYPES.includes(req.body.screening_type)) {
-    return res.status(400).json({ error: `${req.body.screening_type} examinations are now Doctor Visits. Schedule a "${req.body.screening_type} Examination" under Doctor Visits.` });
-  }
-  if (!HEALTH_SCREENING_TYPES.includes(req.body.screening_type)) {
-    return res.status(400).json({ error: `Screening type must be one of: ${HEALTH_SCREENING_TYPES.join(', ')}.` });
-  }
-
   const validated = validateScreeningFields(req.body);
   if (validated.error) return res.status(400).json({ error: validated.error });
   const f = validated.data;
@@ -7700,20 +8592,39 @@ app.post('/api/screenings', async (req, res) => {
   try {
     await connection.beginTransaction();
 
-    const [users] = await connection.query('SELECT student_id, user_id FROM students WHERE student_id IN (?)', [uniqueIds]);
-    if (users.length !== uniqueIds.length) {
+    // the type row is read-locked so it cannot be deleted or deactivated while this schedule is written
+    const screeningType = await findScreeningType(connection, f.screening_type, 'FOR SHARE');
+    const typeError = schedulableTypeError(f.screening_type, screeningType);
+    if (typeError) {
       await connection.rollback();
-      return res.status(400).json({ error: 'One or more selected students no longer exist.' });
+      connection.release();
+      return res.status(400).json({ error: typeError });
     }
+    f.screening_type = screeningType.name;
+
+    await ensureSchoolYears();
+    const [users] = await connection.query('SELECT student_id, user_id, program_id, year_level, section, graduated_at FROM students WHERE student_id IN (?)', [uniqueIds]);
+    // one screening is for one class: the same program, year level and section
+    const groups = new Set(users.map((u) => `${u.program_id}|${u.year_level}|${u.section}`));
+    const participantError = users.length !== uniqueIds.length ? 'One or more selected students no longer exist.'
+      : users.some((u) => u.graduated_at) ? 'A graduated student cannot join a new screening.'
+      : groups.size > 1 ? 'The participants must all be from the same program, year level and section.' : null;
+    if (participantError) {
+      await connection.rollback();
+      connection.release();
+      return res.status(400).json({ error: participantError });
+    }
+    const group = users[0];
     recipientUserIds = users.map((u) => u.user_id).filter(Boolean);
 
     scheduleId = await generateCustomId('HSSCHED', 'screening_schedules', 'screening_schedule_id', connection);
+    const schoolYear = await schoolYearForDate(connection, f.scheduled_date);
 
     await connection.query(
       `INSERT INTO screening_schedules
-      (screening_schedule_id, title, screening_type, target_program_id, target_year_level, target_section, scheduled_date, start_time, end_time, announcement)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [scheduleId, f.title, f.screening_type, target_program_id || null, target_year_level || null, target_section || null, f.scheduled_date, f.start_time, f.end_time, f.announcement]
+      (screening_schedule_id, title, screening_type, target_program_id, target_year_level, target_section, scheduled_date, start_time, end_time, announcement, school_year)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [scheduleId, f.title, f.screening_type, group.program_id || null, group.year_level || null, group.section || null, f.scheduled_date, f.start_time, f.end_time, f.announcement, schoolYear]
     );
 
     const participantValues = uniqueIds.map((sId) => [uuidv4(), scheduleId, sId, 'PENDING']);
@@ -7783,14 +8694,21 @@ app.put('/api/screenings/:id', async (req, res) => {
       return res.status(400).json({ error: 'The scheduled date cannot be in the past.' });
     }
 
-    if (f.screening_type !== existing.screening_type) {
-      if (!HEALTH_SCREENING_TYPES.includes(f.screening_type)) return res.status(400).json({ error: `Screening type must be one of: ${HEALTH_SCREENING_TYPES.join(', ')}.` });
+    // a schedule of a deactivated type keeps it; only picking a different type needs an active one
+    if (String(f.screening_type).toLowerCase() !== String(existing.screening_type || '').toLowerCase()) {
+      const newType = await findScreeningType(pool, f.screening_type);
+      const typeError = schedulableTypeError(f.screening_type, newType);
+      if (typeError) return res.status(400).json({ error: typeError });
+      f.screening_type = newType.name;
       if (await countScreeningResults(pool, id) > 0) return res.status(409).json({ error: 'Results were already recorded, so the screening type cannot be changed.' });
+    } else {
+      f.screening_type = existing.screening_type;
     }
 
+    const schoolYear = await schoolYearForDate(pool, f.scheduled_date);
     await pool.query(
-      `UPDATE screening_schedules SET title = ?, screening_type = ?, scheduled_date = ?, start_time = ?, end_time = ?, announcement = ? WHERE screening_schedule_id = ?`,
-      [f.title, f.screening_type, f.scheduled_date, f.start_time, f.end_time, f.announcement, id]
+      `UPDATE screening_schedules SET title = ?, screening_type = ?, scheduled_date = ?, start_time = ?, end_time = ?, announcement = ?, school_year = ? WHERE screening_schedule_id = ?`,
+      [f.title, f.screening_type, f.scheduled_date, f.start_time, f.end_time, f.announcement, schoolYear, id]
     );
 
     try {
@@ -7811,6 +8729,127 @@ app.put('/api/screenings/:id', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// 5b. Replace the participants of an upcoming (not started) screening. Added students are told, removed students are told.
+app.put('/api/screenings/:id/participants', async (req, res) => {
+  const { id } = req.params;
+  const { sender_id, student_ids } = req.body || {};
+
+  if (!Array.isArray(student_ids) || student_ids.length === 0) {
+    return res.status(400).json({ error: 'At least one participant must stay in the screening.' });
+  }
+  const wantedIds = [...new Set(student_ids.map(String))];
+
+  const connection = await pool.getConnection();
+  let schedule;
+  let addedUserIds = [];
+  let removedUserIds = [];
+  let added = 0;
+  let removed = 0;
+  try {
+    await connection.beginTransaction();
+
+    schedule = await loadScreening(connection, id, true);
+    if (!schedule) { await connection.rollback(); connection.release(); return res.status(404).json({ error: 'Schedule not found.' }); }
+    if (schedule.status === 'Cancelled') { await connection.rollback(); connection.release(); return res.status(409).json({ error: 'A cancelled screening cannot be edited.' }); }
+    if (scheduleStartStr(schedule) <= nowManilaStr()) {
+      await connection.rollback(); connection.release();
+      return res.status(409).json({ error: 'This screening has already started, so its participants can no longer be changed.' });
+    }
+
+    const [current] = await connection.query(
+      `SELECT p.student_id, p.attendance_status, s.user_id FROM screening_schedule_participants p JOIN students s ON s.student_id = p.student_id WHERE p.screening_schedule_id = ?`,
+      [id]
+    );
+    const currentIds = new Set(current.map((r) => r.student_id));
+    const wantedSet = new Set(wantedIds);
+
+    const toRemove = current.filter((r) => !wantedSet.has(r.student_id));
+    const busy = toRemove.find((r) => r.attendance_status && r.attendance_status !== 'PENDING');
+    if (busy) {
+      await connection.rollback(); connection.release();
+      return res.status(409).json({ error: 'A participant who already has an attendance record cannot be removed.' });
+    }
+    const toAddIds = wantedIds.filter((sId) => !currentIds.has(sId));
+
+    let toAdd = [];
+    if (toAddIds.length > 0) {
+      [toAdd] = await connection.query('SELECT student_id, user_id, program_id, year_level, section, graduated_at FROM students WHERE student_id IN (?)', [toAddIds]);
+      if (toAdd.length !== toAddIds.length) {
+        await connection.rollback(); connection.release();
+        return res.status(400).json({ error: 'One or more selected students no longer exist.' });
+      }
+      if (toAdd.some((r) => r.graduated_at)) {
+        await connection.rollback(); connection.release();
+        return res.status(400).json({ error: 'A graduated student cannot join a screening.' });
+      }
+      // one screening is for one class; an old screening that already mixes classes keeps working
+      const [kept] = await connection.query(
+        `SELECT DISTINCT st.program_id, st.year_level, st.section FROM screening_schedule_participants p JOIN students st ON st.student_id = p.student_id
+         WHERE p.screening_schedule_id = ? AND p.student_id IN (?)`,
+        [id, wantedIds.filter((sId) => currentIds.has(sId)).concat(['__none__'])]
+      );
+      const classes = new Set([...kept, ...toAdd].map((r) => `${r.program_id}|${r.year_level}|${r.section}`));
+      const [[wasMixed]] = await connection.query(
+        `SELECT COUNT(DISTINCT CONCAT(st.program_id, '|', st.year_level, '|', st.section)) > 1 AS mixed
+         FROM screening_schedule_participants p JOIN students st ON st.student_id = p.student_id WHERE p.screening_schedule_id = ?`,
+        [id]
+      );
+      if (classes.size > 1 && !Number(wasMixed.mixed)) {
+        await connection.rollback(); connection.release();
+        return res.status(400).json({ error: 'The participants must all be from the same program, year level and section.' });
+      }
+      await connection.query(
+        'INSERT INTO screening_schedule_participants (participant_id, screening_schedule_id, student_id, attendance_status) VALUES ?',
+        [toAdd.map((r) => [uuidv4(), id, r.student_id, 'PENDING'])]
+      );
+    }
+    if (toRemove.length > 0) {
+      await connection.query(
+        'DELETE FROM screening_schedule_participants WHERE screening_schedule_id = ? AND student_id IN (?)',
+        [id, toRemove.map((r) => r.student_id)]
+      );
+    }
+
+    await connection.commit();
+    added = toAdd.length;
+    removed = toRemove.length;
+    addedUserIds = toAdd.map((r) => r.user_id).filter(Boolean);
+    removedUserIds = toRemove.map((r) => r.user_id).filter(Boolean);
+  } catch (err) {
+    await connection.rollback();
+    connection.release();
+    return res.status(500).json({ error: err.message });
+  }
+  connection.release();
+
+  try {
+    const senderId = sender_id || req.user?.user_id;
+    const when = `${formatDateManila(schedule.scheduled_date)} from ${formatTimeManila(`${String(schedule.scheduled_date).slice(0, 10)} ${schedule.start_time}`)} to ${formatTimeManila(`${String(schedule.scheduled_date).slice(0, 10)} ${schedule.end_time}`)}`;
+    if (addedUserIds.length > 0) {
+      await notifyUsers({
+        sender_id: senderId,
+        recipient_ids: addedUserIds,
+        title: `Scheduled: ${schedule.title}`,
+        message: `${schedule.screening_type} Screening on ${when}.${schedule.announcement ? ` ${schedule.announcement}` : ''}`,
+        type: 'SCREENING_SCHEDULED',
+        payloadData: { screening_schedule_id: id, screening_type: schedule.screening_type }
+      });
+    }
+    if (removedUserIds.length > 0) {
+      await notifyUsers({
+        sender_id: senderId,
+        recipient_ids: removedUserIds,
+        title: `Removed: ${schedule.title}`,
+        message: `You are no longer part of the ${schedule.screening_type} Screening on ${formatDateManila(schedule.scheduled_date)}.`,
+        type: 'SCREENING_CANCELLED',
+        payloadData: { screening_schedule_id: id }
+      });
+    }
+  } catch (e) { console.error('Screening participants notification failed:', e.message); }
+
+  res.json({ message: 'Participants updated.', added, removed });
 });
 
 // 6a. Cancel (soft): the schedule and any results stay on record
@@ -7917,6 +8956,53 @@ app.post('/api/screenings/:id/start', async (req, res) => {
   }
 });
 
+// 7b. End of the screening. After the end time passed the nurse confirms the end (the screening moves to Past) or extends it.
+// An extension runs until the same date only; when the date passes, the screening ends by itself.
+app.put('/api/screenings/:id/confirm-end', async (req, res) => {
+  try {
+    await ensureScreeningEndColumns();
+    const schedule = await loadScreening(pool, req.params.id);
+    if (!schedule) return res.status(404).json({ error: 'Schedule not found.' });
+    const state = screeningPhaseOf(schedule);
+    if (state.phase === 'cancelled') return res.status(409).json({ error: 'This screening was cancelled.' });
+    if (state.phase === 'ended') return res.status(409).json({ error: 'This screening has already ended.' });
+    if (!state.awaiting_end) return res.status(409).json({ error: 'The end time has not passed yet.' });
+    await pool.query('UPDATE screening_schedules SET end_confirmed_at = NOW() WHERE screening_schedule_id = ? AND end_confirmed_at IS NULL', [schedule.screening_schedule_id]);
+    res.json({ message: 'Screening ended. It is now in Past Screening.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/screenings/:id/extend', async (req, res) => {
+  try {
+    await ensureScreeningEndColumns();
+    const extra = parseInt(req.body.extra_minutes, 10);
+    if (!Number.isFinite(extra) || extra < 5 || extra > 240) return res.status(400).json({ error: 'Extend by 5 to 240 minutes.' });
+    const schedule = await loadScreening(pool, req.params.id);
+    if (!schedule) return res.status(404).json({ error: 'Schedule not found.' });
+    const nowStr = nowManilaStr();
+    const state = screeningPhaseOf(schedule, nowStr);
+    if (state.phase === 'cancelled') return res.status(409).json({ error: 'This screening was cancelled.' });
+    if (state.phase === 'ended') return res.status(409).json({ error: 'This screening has already ended, so it cannot be extended.' });
+    if (state.phase === 'upcoming') return res.status(409).json({ error: 'Only a screening that is happening now can be extended. Edit the schedule to change an upcoming one.' });
+
+    // the extra time counts from the end time, or from now when the end time already passed
+    const endMin = hmsToMin(schedule.end_time);
+    const nowMin = hmsToMin(nowStr.slice(11, 19));
+    const newEndMin = Math.max(endMin, nowMin) + extra;
+    if (newEndMin > 23 * 60 + 59) return res.status(400).json({ error: 'An extension runs until the same date only, and that goes past midnight. Confirm the end instead, or pick a shorter extension.' });
+    const newEnd = minToHms(newEndMin);
+    await pool.query(
+      `UPDATE screening_schedules SET end_time = ?, extended_minutes = extended_minutes + ?, original_end_time = COALESCE(original_end_time, ?) WHERE screening_schedule_id = ?`,
+      [newEnd, newEndMin - endMin, schedule.end_time, schedule.screening_schedule_id]
+    );
+    res.json({ message: `Screening extended. It now ends at ${fmtClock(newEnd)}.`, end_time: newEnd });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // 8. Reminders (1 day before and same day). Used by the button and the daily job, at most once per schedule per day.
 const sentScreeningReminders = new Set();
 
@@ -7988,7 +9074,8 @@ app.get('/api/screenings/:id/students', async (req, res) => {
     const schedule = await loadScreening(pool, id);
     if (!schedule) return res.status(404).json({ error: 'Schedule not found' });
 
-    const resultTable = SCREENING_RESULT_TABLES[schedule.screening_type];
+    const screeningType = await findScreeningType(pool, schedule.screening_type);
+    const resultTable = screeningType ? SCREENING_RESULT_TABLES[screeningType.form_kind] : null;
     const docQuery = resultTable
       ? `LEFT JOIN ${resultTable.table} record ON record.student_id = st.student_id AND record.screening_schedule_id = p.screening_schedule_id`
       : '';
@@ -8005,7 +9092,10 @@ app.get('/api/screenings/:id/students', async (req, res) => {
       ORDER BY st.last_name ASC, st.first_name ASC
     `, [id]);
 
-    res.json({ schedule, students: rows });
+    // a CUSTOM type carries its form template, so the page can draw the form and read the stored answers
+    const template = screeningType && screeningType.form_kind === 'CUSTOM' ? await loadTemplate(pool, screeningType.template_id) : null;
+    const students = template ? rows.map((r) => ({ ...r, answers: jsonOf(r.answers) })) : rows;
+    res.json({ schedule: { ...schedule, form_kind: screeningType ? screeningType.form_kind : null, type_active: screeningType ? screeningType.is_active : 0, template }, students });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -8075,7 +9165,7 @@ app.put('/api/screenings/:id/students/:studentId/attendance', async (req, res) =
     if (!schedule) return res.status(404).json({ error: 'Schedule not found.' });
     if (schedule.status === 'Cancelled') return res.status(409).json({ error: 'This screening was cancelled.' });
 
-    const resultTable = SCREENING_RESULT_TABLES[schedule.screening_type];
+    const resultTable = await resultTableOfType(pool, schedule.screening_type);
     if (attendance_status !== 'PRESENT' && resultTable) {
       const [[has]] = await pool.query(`SELECT COUNT(*) AS n FROM ${resultTable.table} WHERE screening_schedule_id = ? AND student_id = ?`, [id, studentId]);
       if (has.n > 0) return res.status(409).json({ error: 'A result is already recorded for this student. Delete the result first.' });
@@ -8131,13 +9221,16 @@ app.post('/api/screenings/:id/document', async (req, res) => {
     if (!sched) return res.status(404).json({ error: 'Screening schedule not found.' });
     if (sched.status === 'Cancelled') return res.status(409).json({ error: 'This screening was cancelled, so results cannot be recorded.' });
 
+    // old schedules of a deactivated type can still be documented; the type's form_kind picks the form and the table
+    const typeRow = await findScreeningType(pool, sched.screening_type);
     const type = sched.screening_type;
-    if (LEGACY_SCREENING_TYPES.includes(type)) {
+    if (typeRow && typeRow.is_legacy) {
       return res.status(400).json({ error: `${type} examinations are now Doctor Visits. Schedule a "${type} Examination" doctor visit instead.` });
     }
-    if (!HEALTH_SCREENING_TYPES.includes(type)) {
+    if (!typeRow) {
       return res.status(400).json({ error: `Unsupported screening type: ${type}.` });
     }
+    const formKind = typeRow.form_kind;
     if (screening_type && screening_type !== type) {
       return res.status(400).json({ error: 'Screening type does not match the schedule.' });
     }
@@ -8154,66 +9247,14 @@ app.post('/api/screenings/:id/document', async (req, res) => {
       return res.status(400).json({ error: 'Student must be marked PRESENT before documenting results.' });
     }
 
-    const resultTable = SCREENING_RESULT_TABLES[type];
+    const resultTable = SCREENING_RESULT_TABLES[formKind];
+    if (!resultTable) return res.status(400).json({ error: `Unsupported result form for ${type}. Edit the screening type and pick a form template.` });
     const [previousRows] = await pool.query(`SELECT is_abnormal FROM ${resultTable.table} WHERE screening_schedule_id = ? AND student_id = ?`, [id, student_id]);
     const previous = previousRows[0] || null;
 
     let abnormal = 0;
 
-    if (type === 'BMI') {
-      const height = Number(formData.height_cm);
-      const weight = Number(formData.weight_kg);
-      if (!Number.isFinite(height) || height < 50 || height > 250) return res.status(400).json({ error: 'Height must be between 50 and 250 cm.' });
-      if (!Number.isFinite(weight) || weight < 10 || weight > 300) return res.status(400).json({ error: 'Weight must be between 10 and 300 kg.' });
-      // BMI and category are always computed here, never trusted from the browser
-      const { bmi, category } = bmiFrom(height, weight);
-      abnormal = category !== 'Normal' ? 1 : 0;
-      const logId = await generateCustomId('BMI', 'bmi_monitoring_logs', 'bmi_log_id');
-
-      await pool.query(`
-        INSERT INTO bmi_monitoring_logs (bmi_log_id, student_id, screening_schedule_id, height_cm, weight_kg, bmi_value, bmi_category, is_abnormal)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE height_cm = VALUES(height_cm), weight_kg = VALUES(weight_kg), bmi_value = VALUES(bmi_value), bmi_category = VALUES(bmi_category), is_abnormal = VALUES(is_abnormal), logged_at = NOW()
-      `, [logId, student_id, id, height, weight, bmi, category, abnormal]);
-
-    } else if (type === 'Vital Signs') {
-      const f = formData;
-      const toInt = (v) => (v === '' || v == null ? null : parseInt(v, 10));
-      const toDec = (v) => (v === '' || v == null ? null : parseFloat(v));
-      const sys = toInt(f.bp_systolic);
-      const dia = toInt(f.bp_diastolic);
-      const pulse = toInt(f.pulse_rate);
-      const temp = toDec(f.temperature_c);
-      const resp = toInt(f.respiratory_rate);
-
-      if ([sys, dia, pulse, temp, resp].every((v) => v === null)) {
-        return res.status(400).json({ error: 'Enter at least one vital sign.' });
-      }
-      if ((sys === null) !== (dia === null)) {
-        return res.status(400).json({ error: 'Enter both systolic and diastolic blood pressure.' });
-      }
-      const inRange = (v, lo, hi) => v === null || (Number.isFinite(v) && v >= lo && v <= hi);
-      if (!inRange(sys, 40, 300) || !inRange(dia, 20, 200) || !inRange(pulse, 20, 250) || !inRange(temp, 30, 45) || !inRange(resp, 5, 80)) {
-        return res.status(400).json({ error: 'One or more vital sign values are outside a plausible range.' });
-      }
-
-      const flags = classifyVitalSigns({ bp_systolic: sys, bp_diastolic: dia, pulse_rate: pulse, temperature_c: temp, respiratory_rate: resp });
-      abnormal = flags.is_abnormal;
-      const recordId = await generateCustomId('VITAL', 'vital_signs_records', 'vital_record_id');
-
-      await pool.query(`
-        INSERT INTO vital_signs_records
-          (vital_record_id, student_id, screening_schedule_id, bp_systolic, bp_diastolic, pulse_rate, temperature_c, respiratory_rate,
-           bp_flag, pulse_flag, temperature_flag, respiratory_flag, is_abnormal, remarks)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE bp_systolic = VALUES(bp_systolic), bp_diastolic = VALUES(bp_diastolic), pulse_rate = VALUES(pulse_rate),
-          temperature_c = VALUES(temperature_c), respiratory_rate = VALUES(respiratory_rate), bp_flag = VALUES(bp_flag),
-          pulse_flag = VALUES(pulse_flag), temperature_flag = VALUES(temperature_flag), respiratory_flag = VALUES(respiratory_flag),
-          is_abnormal = VALUES(is_abnormal), remarks = VALUES(remarks), recorded_at = NOW()
-      `, [recordId, student_id, id, sys, dia, pulse, temp, resp, flags.bp_flag, flags.pulse_flag, flags.temperature_flag,
-          flags.respiratory_flag, flags.is_abnormal, textOrNull(f.remarks)]);
-
-    } else if (type === 'Hearing') {
+    if (formKind === 'HEARING') {
       const left = textOrNull(formData.left_ear_result);
       const right = textOrNull(formData.right_ear_result);
       if (!['Pass', 'Refer'].includes(left) || !['Pass', 'Refer'].includes(right)) {
@@ -8229,6 +9270,22 @@ app.post('/api/screenings/:id/document', async (req, res) => {
         ON DUPLICATE KEY UPDATE left_ear_result = VALUES(left_ear_result), right_ear_result = VALUES(right_ear_result),
           is_abnormal = VALUES(is_abnormal), remarks = VALUES(remarks), recorded_at = NOW()
       `, [recordId, student_id, id, left, right, abnormal, textOrNull(formData.remarks)]);
+
+    } else if (formKind === 'CUSTOM') {
+      const template = await loadTemplate(pool, typeRow.template_id);
+      if (!template) return res.status(400).json({ error: 'The form template of this screening type is missing. Edit the type and pick a template.' });
+      const checked = evaluateTemplateAnswers(template.fields, formData.answers);
+      if (checked.error) return res.status(400).json({ error: checked.error });
+      abnormal = checked.is_abnormal;
+      const recordId = await generateCustomId('CUSTOM', 'screening_custom_results', 'custom_record_id');
+
+      await pool.query(`
+        INSERT INTO screening_custom_results
+          (custom_record_id, student_id, screening_schedule_id, template_id, answers, is_abnormal, remarks)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE template_id = VALUES(template_id), answers = VALUES(answers),
+          is_abnormal = VALUES(is_abnormal), remarks = VALUES(remarks), recorded_at = NOW()
+      `, [recordId, student_id, id, template.template_id, JSON.stringify(checked.answers), abnormal, textOrNull(formData.remarks)]);
     }
 
     // Tell the student and parents when a result is abnormal (once, not on every re-save)
@@ -8259,7 +9316,7 @@ app.delete('/api/screenings/:id/students/:studentId/result', async (req, res) =>
   try {
     const schedule = await loadScreening(pool, id);
     if (!schedule) return res.status(404).json({ error: 'Schedule not found.' });
-    const resultTable = SCREENING_RESULT_TABLES[schedule.screening_type];
+    const resultTable = await resultTableOfType(pool, schedule.screening_type);
     if (!resultTable) return res.status(400).json({ error: 'Unsupported screening type.' });
 
     const [result] = await pool.query(`DELETE FROM ${resultTable.table} WHERE screening_schedule_id = ? AND student_id = ?`, [id, studentId]);
@@ -8286,7 +9343,9 @@ app.post('/api/screenings/:id/students/:studentId/refer', async (req, res) => {
 
     const schedule = await loadScreening(connection, id);
     if (!schedule) throw new BookingError('Schedule not found.', 404);
-    const resultTable = SCREENING_RESULT_TABLES[schedule.screening_type];
+    const screeningType = await findScreeningType(connection, schedule.screening_type);
+    const resultTable = screeningType ? SCREENING_RESULT_TABLES[screeningType.form_kind] : null;
+    if (!resultTable) throw new BookingError('Unsupported screening type.');
     const [[record]] = await connection.query(`SELECT * FROM ${resultTable.table} WHERE screening_schedule_id = ? AND student_id = ?`, [id, studentId]);
     if (!record) throw new BookingError('Document the result first, then refer the student.');
 
@@ -8306,7 +9365,8 @@ app.post('/api/screenings/:id/students/:studentId/refer', async (req, res) => {
     const endStr = addMinutesToStr(startStr, duration);
     await assertAppointmentFits(connection, { doctor, visitType: 'Referral', startStr, endStr, studentId, graceMin: 5 });
 
-    const summary = screeningResultSummary(schedule.screening_type, record);
+    const referTemplate = screeningType.form_kind === 'CUSTOM' ? await loadTemplate(connection, record.template_id) : null;
+    const summary = screeningResultSummary(screeningType.form_kind, record, referTemplate && referTemplate.fields);
     const appointmentId = await generateCustomId('DVSCHED', 'doctor_appointments', 'appointment_id', connection);
     await connection.query(
       `INSERT INTO doctor_appointments
@@ -8356,8 +9416,11 @@ app.post('/api/screenings/:id/makeup', async (req, res) => {
     const source = await loadScreening(connection, id, true);
     if (!source) throw new BookingError('Schedule not found.', 404);
     if (source.status === 'Cancelled') throw new BookingError('A cancelled screening cannot have a make-up session.');
-    if (scheduleEndStr(source) >= nowManilaStr()) throw new BookingError('The screening has not ended yet. Make-up sessions are for students who missed it.');
-    if (!HEALTH_SCREENING_TYPES.includes(source.screening_type)) throw new BookingError('Make-up sessions are only available for current screening types.');
+    if (screeningPhaseOf(source).phase !== 'ended') throw new BookingError('The screening has not ended yet. Confirm its end first; make-up sessions are for students who missed it.');
+    // a make-up is a new schedule, so the type has to be active (read-locked while the schedule is written)
+    const makeupType = await findScreeningType(connection, source.screening_type, 'FOR SHARE');
+    const makeupTypeError = schedulableTypeError(source.screening_type, makeupType);
+    if (makeupTypeError) throw new BookingError(makeupType && !makeupType.is_legacy && !makeupType.is_active ? `${makeupTypeError} A make-up session is a new schedule.` : 'Make-up sessions are only available for current screening types.');
 
     const validated = validateScreeningFields({
       title: textOrNull(req.body.title) || `Make-up: ${source.title}`.slice(0, 150),
@@ -8384,11 +9447,12 @@ app.post('/api/screenings/:id/makeup', async (req, res) => {
     if (absentees.length === 0) throw new BookingError('There is no absent student left who still needs a make-up session.');
 
     const newId = await generateCustomId('HSSCHED', 'screening_schedules', 'screening_schedule_id', connection);
+    const makeupYear = await schoolYearForDate(connection, f.scheduled_date);
     await connection.query(
       `INSERT INTO screening_schedules
-         (screening_schedule_id, title, screening_type, target_program_id, target_year_level, target_section, scheduled_date, start_time, end_time, announcement, makeup_of)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [newId, f.title, f.screening_type, source.target_program_id, source.target_year_level, source.target_section, f.scheduled_date, f.start_time, f.end_time, f.announcement, id]
+         (screening_schedule_id, title, screening_type, target_program_id, target_year_level, target_section, scheduled_date, start_time, end_time, announcement, makeup_of, school_year)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [newId, f.title, f.screening_type, source.target_program_id, source.target_year_level, source.target_section, f.scheduled_date, f.start_time, f.end_time, f.announcement, id, makeupYear]
     );
     await connection.query(
       'INSERT INTO screening_schedule_participants (participant_id, screening_schedule_id, student_id, attendance_status) VALUES ?',
@@ -8426,10 +9490,13 @@ app.get('/api/screenings/:id/results', async (req, res) => {
   try {
     const schedule = await loadScreening(pool, id);
     if (!schedule) return res.status(404).json({ error: 'Schedule not found.' });
-    const resultTable = SCREENING_RESULT_TABLES[schedule.screening_type];
+    const screeningType = await findScreeningType(pool, schedule.screening_type);
+    const formKind = screeningType ? screeningType.form_kind : null;
+    const resultTable = formKind ? SCREENING_RESULT_TABLES[formKind] : null;
+    const template = formKind === 'CUSTOM' ? await loadTemplate(pool, screeningType.template_id) : null;
 
     const [rows] = await pool.query(`
-      SELECT ${resultTable ? 'record.*, ' : ''}st.student_id, st.first_name, st.last_name, st.year_level, st.section, prog.program_name,
+      SELECT ${resultTable ? 'record.*, ' : ''}st.student_id, st.first_name, st.last_name, st.program_id, st.year_level, st.section, prog.program_name,
              p.attendance_status, p.attendance_note
       FROM screening_schedule_participants p
       JOIN students st ON p.student_id = st.student_id
@@ -8439,7 +9506,7 @@ app.get('/api/screenings/:id/results', async (req, res) => {
       ORDER BY st.last_name ASC, st.first_name ASC
     `, [id]);
 
-    const ended = scheduleEndStr(schedule) < nowManilaStr();
+    const ended = !['upcoming', 'ongoing'].includes(screeningPhaseOf(schedule).phase);
     const summary = { total: rows.length, present: 0, absent: 0, pending: 0, documented: 0, abnormal: 0, distribution: {} };
     const bump = (label) => { summary.distribution[label] = (summary.distribution[label] || 0) + 1; };
 
@@ -8455,14 +9522,24 @@ app.get('/api/screenings/:id/results', async (req, res) => {
       if (documented) {
         summary.documented++;
         if (r.is_abnormal) summary.abnormal++;
-        if (schedule.screening_type === 'BMI') bump(r.bmi_category);
-        else if (schedule.screening_type === 'Vital Signs') bump(`BP ${r.bp_flag || 'not taken'}`);
-        else if (schedule.screening_type === 'Hearing') bump(r.is_abnormal ? 'Refer' : 'Pass');
+        if (formKind === 'HEARING') bump(r.is_abnormal ? 'Refer' : 'Pass');
+        else if (formKind === 'CUSTOM') {
+          // the label of the first calculated field with result labels (BMI: Underweight / Normal ...), else normal / needs attention
+          const banded = template && template.fields.find((f) => f.type === 'calculated' && f.bands);
+          const answers = jsonOf(r.answers) || {};
+          bump(banded && answers[`${banded.key}__label`] ? answers[`${banded.key}__label`] : (r.is_abnormal ? 'Needs attention' : 'Normal'));
+        }
       }
-      return { ...r, attendance_status: attendance, documented, result_summary: documented ? screeningResultSummary(schedule.screening_type, r) : '' };
+      return {
+        ...r,
+        ...(formKind === 'CUSTOM' ? { answers: jsonOf(r.answers) } : {}),
+        attendance_status: attendance,
+        documented,
+        result_summary: documented ? screeningResultSummary(formKind, r, template && template.fields) : ''
+      };
     });
 
-    res.json({ schedule, summary, rows: out });
+    res.json({ schedule: { ...schedule, form_kind: formKind, template }, summary, rows: out });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -8473,21 +9550,51 @@ app.get('/api/students/:studentId/screening-history', async (req, res) => {
   const { studentId } = req.params;
   try {
     const history = [];
-    for (const [type, t] of Object.entries(SCREENING_RESULT_TABLES)) {
+    // one query per result table (form_kind); the type shown is the name the schedule was given
+    for (const [formKind, t] of Object.entries(SCREENING_RESULT_TABLES)) {
+      const custom = formKind === 'CUSTOM';
       const [rows] = await pool.query(
-        `SELECT r.*, s.title, s.scheduled_date FROM ${t.table} r JOIN screening_schedules s ON s.screening_schedule_id = r.screening_schedule_id WHERE r.student_id = ?`,
+        `SELECT r.*, ${custom ? 'tp.fields AS template_fields, ' : ''}s.title, s.scheduled_date, s.school_year, s.screening_type AS schedule_type FROM ${t.table} r JOIN screening_schedules s ON s.screening_schedule_id = r.screening_schedule_id ${custom ? 'LEFT JOIN screening_form_templates tp ON tp.template_id = r.template_id' : ''} WHERE r.student_id = ?`,
         [studentId]
       );
       rows.forEach((r) => history.push({
-        screening_type: LEGACY_SCREENING_TYPES.includes(type) ? `${type} (legacy)` : type,
+        screening_type: legacyScreeningName(r.schedule_type) ? `${legacyScreeningName(r.schedule_type)} (legacy)` : (r.schedule_type || formKind),
         screening_schedule_id: r.screening_schedule_id,
         title: r.title,
         date: r.scheduled_date,
-        summary: screeningResultSummary(type, r),
+        school_year: r.school_year,
+        attendance_status: 'PRESENT',
+        summary: screeningResultSummary(formKind, r),
         is_abnormal: r.is_abnormal ? 1 : 0,
         remarks: r.remarks || null
       }));
     }
+    // screenings the student was in that ended or were cancelled without a recorded result (absent, or not documented)
+    const [parts] = await pool.query(
+      `SELECT s.screening_schedule_id, s.title, s.scheduled_date, s.start_time, s.end_time, s.status, s.end_confirmed_at, s.school_year,
+              s.screening_type, p.attendance_status
+       FROM screening_schedule_participants p JOIN screening_schedules s ON s.screening_schedule_id = p.screening_schedule_id
+       WHERE p.student_id = ?`,
+      [studentId]
+    );
+    const withResult = new Set(history.map((h) => h.screening_schedule_id));
+    parts.forEach((p) => {
+      if (withResult.has(p.screening_schedule_id)) return;
+      const phase = screeningPhaseOf(p).phase;
+      if (phase !== 'ended' && phase !== 'cancelled') return;
+      const attendance = phase === 'cancelled' ? 'CANCELLED' : (p.attendance_status === 'PENDING' ? 'ABSENT' : p.attendance_status);
+      history.push({
+        screening_type: legacyScreeningName(p.screening_type) ? `${legacyScreeningName(p.screening_type)} (legacy)` : p.screening_type,
+        screening_schedule_id: p.screening_schedule_id,
+        title: p.title,
+        date: p.scheduled_date,
+        school_year: p.school_year,
+        attendance_status: attendance,
+        summary: '',
+        is_abnormal: 0,
+        remarks: null
+      });
+    });
     history.sort((a, b) => String(b.date).localeCompare(String(a.date)));
     res.json(history);
   } catch (err) {
@@ -8520,10 +9627,6 @@ const loadSpecializations = async () => {
     SCHEDULE_VISIT_TYPES.splice(0, SCHEDULE_VISIT_TYPES.length, 'Any', ...DOCTOR_VISIT_TYPES);
 };
 loadSpecializations().catch((e) => console.error('Could not load the specializations (run migration_specializations_visit_types.sql):', e.message));
-const HEALTH_SCREENING_TYPES = ['BMI', 'Vital Signs', 'Hearing'];
-// Dental / Vision used to be Health Screening types; they are now Doctor Visit types.
-// Old schedules keep their type so history stays readable, but no new results are taken.
-const LEGACY_SCREENING_TYPES = ['Dental', 'Vision'];
 
 const toFlag = (v) => (v === true || v === 1 || v === '1' || v === 'true' ? 1 : 0);
 const toCount = (v) => {
@@ -8863,14 +9966,51 @@ const scheduleOccursOn = (s, dateStr) => {
 };
 // Is the session happening right now, or is the weekly series already running? Either one makes it "ongoing":
 // it cannot be deleted (close it instead) and a session in progress cannot have its dates or hours changed (extend it).
-const scheduleLiveState = (s) => {
-    if (s.status !== 'Open') return { in_session_now: false, is_ongoing: false };
+// A session whose end time passed stays running ("awaiting the end") until the staff confirm the end or extend it; the day passing ends it by itself.
+// `endConfirmed` = the end of today's session was confirmed (see session_end_confirmations).
+const scheduleLiveState = (s, endConfirmed = false) => {
+    if (s.status !== 'Open') return { in_session_now: false, is_ongoing: false, awaiting_end: false };
     const nowStr = nowManilaStr();
     const today = nowStr.slice(0, 10);
     const nowTime = nowStr.slice(11, 19);
-    const inSessionNow = scheduleOccursOn(s, today) && s.start_time <= nowTime && nowTime < s.end_time;
+    const started = scheduleOccursOn(s, today) && s.start_time <= nowTime;
+    const awaitingEnd = started && nowTime >= s.end_time && !endConfirmed;
+    const inSessionNow = started && (nowTime < s.end_time || awaitingEnd);
     const seriesRunning = s.recurrence === 'Weekly' && s.valid_from <= today && today <= s.valid_until;
-    return { in_session_now: inSessionNow, is_ongoing: inSessionNow || seriesRunning };
+    return { in_session_now: inSessionNow, is_ongoing: inSessionNow || seriesRunning, awaiting_end: awaitingEnd };
+};
+
+// The end of one session day, confirmed by the nurse or the doctor after the end time passed (the session then moves to Past Check-up).
+let sessionEndTableReady = false;
+const ensureSessionEndTable = async () => {
+    if (sessionEndTableReady) return;
+    await pool.query(
+        `CREATE TABLE IF NOT EXISTS session_end_confirmations (
+            schedule_id VARCHAR(45) NOT NULL,
+            session_date DATE NOT NULL,
+            confirmed_by VARCHAR(45) NULL,
+            confirmed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (schedule_id, session_date)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
+    );
+    sessionEndTableReady = true;
+};
+const sessionEndConfirmed = async (conn, scheduleId, dateStr) => {
+    await ensureSessionEndTable();
+    const [[row]] = await conn.query(`SELECT 1 AS yes FROM session_end_confirmations WHERE schedule_id = ? AND session_date = ?`, [scheduleId, dateStr]);
+    return !!row;
+};
+const liveStateOf = async (conn, s) => scheduleLiveState(s, await sessionEndConfirmed(conn, s.schedule_id, nowManilaStr().slice(0, 10)));
+// SQL: a queue entry of today's session whose end time passed but whose end nobody confirmed yet (still on going, not past)
+const AWAITING_END_SQL = `(da.queue_state IS NOT NULL AND da.schedule_id IS NOT NULL AND DATE(da.start_time) = CURDATE() AND da.end_time <= NOW()
+    AND NOT EXISTS (SELECT 1 FROM session_end_confirmations sec WHERE sec.schedule_id = da.schedule_id AND sec.session_date = DATE(da.start_time)))`;
+// where one session day stands: upcoming | ongoing (with awaiting_end after the end time) | past (confirmed, or the date passed)
+const sessionPhaseOf = (s, dateStr, nowStr, confirmed) => {
+    const today = nowStr.slice(0, 10);
+    if (dateStr < today) return { state: 'past', awaiting_end: false, end_confirmed: !!confirmed };
+    if (dateStr > today || nowStr < `${dateStr} ${s.start_time}`) return { state: 'upcoming', awaiting_end: false, end_confirmed: false };
+    if (confirmed) return { state: 'past', awaiting_end: false, end_confirmed: true };
+    return { state: 'ongoing', awaiting_end: nowStr >= `${dateStr} ${s.end_time}`, end_confirmed: false };
 };
 
 // Follow-up and Referral visits happen in the doctor's normal hours, whatever the schedule's own visit type is.
@@ -9119,9 +10259,19 @@ const validateScheduleInput = async (conn, input, { excludeScheduleId = null } =
     if (notes && notes.length > 255) return { error: 'The notes for students can be at most 255 characters.' };
     const announcement = notes;
 
+    // The assessment template the doctor picked for this session: it is offered first when a check-up of the session is documented
+    const templateId = textOrNull(input.template_id);
+    if (templateId) {
+        const [[tpl]] = await conn.query(`SELECT visit_type, is_active FROM doctor_assessment_templates WHERE template_id = ? AND doctor_id = ?`, [templateId, input.doctor_id]);
+        if (!tpl) return { error: 'That assessment template was not found. Pick one of your own templates.' };
+        if (!tpl.is_active) return { error: 'That assessment template is archived. Restore it or pick another one.' };
+        if (tpl.visit_type && visitType !== 'Any' && tpl.visit_type !== visitType) return { error: `That template is for ${tpl.visit_type} check-ups, not ${visitType}.` };
+    }
+
     const today = nowManilaStr().slice(0, 10);
     const normalized = {
         doctor_id: input.doctor_id,
+        template_id: templateId,
         schedule_type: scheduleType,
         ...modes,
         announcement,
@@ -9223,6 +10373,9 @@ app.get('/api/doctor-schedules', async (req, res) => {
             .reduce((n, r) => n + Number(r.n), 0);
 
         const today = nowManilaStr().slice(0, 10);
+        await ensureSessionEndTable();
+        const [endedToday] = await pool.query(`SELECT schedule_id FROM session_end_confirmations WHERE session_date = ?`, [today]);
+        const endedSet = new Set(endedToday.map((r) => r.schedule_id));
         const schedules = rows.map((s) => {
             let nextDate = null;
             if (s.status === 'Open') {
@@ -9234,7 +10387,7 @@ app.get('/api/doctor-schedules', async (req, res) => {
                 }
             }
             return {
-                ...s, ...scheduleLiveState(s), next_date: nextDate, is_expired: s.status === 'Open' && !nextDate,
+                ...s, ...scheduleLiveState(s, endedSet.has(s.schedule_id)), next_date: nextDate, is_expired: s.status === 'Open' && !nextDate,
                 covered_visit_types: doctorCoverage(s).covered_visit_types,
                 waiting_count: demandFor(s.visit_type), reconfirmed_count: demandFor(s.visit_type, 'Reconfirmed')
             };
@@ -9286,6 +10439,7 @@ app.post('/api/doctor-schedules', async (req, res) => {
     let fulfilled = null;
     try {
         await ensureScheduleListingColumns();
+        await ensureAdvanceListing();
         await connection.beginTransaction();
         await lockDoctor(connection, req.body.doctor_id);
         if (scheduleRequestId) {
@@ -9305,10 +10459,10 @@ app.post('/api/doctor-schedules', async (req, res) => {
         await connection.query(
             `INSERT INTO doctor_schedules
                 (schedule_id, doctor_id, schedule_type, allow_appointment, allow_open_booking, allow_walk_in, announcement, visit_type, recurrence, schedule_date, day_of_week, valid_from, valid_until, start_time, end_time,
-                 slot_duration_min, max_patients_per_slot, listing_limit, location, notes, auto_confirm, status, created_by_nurse_id, created_by_doctor_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Open', ?, ?)`,
+                 slot_duration_min, max_patients_per_slot, listing_limit, location, notes, auto_confirm, template_id, status, created_by_nurse_id, created_by_doctor_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Open', ?, ?)`,
             [scheduleId, d.doctor_id, d.schedule_type, d.allow_appointment, d.allow_open_booking, d.allow_walk_in, d.announcement, d.visit_type, d.recurrence, d.schedule_date, d.day_of_week, d.valid_from, d.valid_until, d.start_time, d.end_time,
-             d.slot_duration_min, d.max_patients_per_slot, d.listing_limit, d.location, d.notes, d.auto_confirm, nurseId, creatorDoctorId]
+             d.slot_duration_min, d.max_patients_per_slot, d.listing_limit, d.location, d.notes, d.auto_confirm, d.template_id, nurseId, creatorDoctorId]
         );
         if (fulfilled) {
             await connection.query(`UPDATE schedule_requests SET status = 'Scheduled', schedule_id = ?, responded_at = NOW() WHERE schedule_request_id = ?`, [scheduleId, fulfilled.schedule_request_id]);
@@ -9329,7 +10483,16 @@ app.post('/api/doctor-schedules', async (req, res) => {
             });
         } catch (e) { console.error('Schedule notification failed:', e.message); }
 
-        res.status(201).json({ success: true, message: 'Doctor schedule created.', schedule_id: scheduleId });
+        // a schedule set for the advance listing: the registered students take the first numbers, the places left open for the others
+        let advance = null;
+        if (fulfilled && fulfilled.for_advance) {
+            try { advance = await placeAdvanceEntries(scheduleId, req.body.sender_id || null); } catch (e) { console.error('Placing the advance listing failed:', e.message); }
+        }
+
+        res.status(201).json({
+            success: true, schedule_id: scheduleId, advance,
+            message: advance ? `Doctor schedule created. ${advance.placed} advance listing student(s) got their numbers${advance.places_left > 0 ? `; ${advance.places_left} place(s) are open for other students` : ''}.` : 'Doctor schedule created.'
+        });
     } catch (error) {
         await connection.rollback();
         console.error('Error creating doctor schedule:', error);
@@ -9364,7 +10527,7 @@ app.put('/api/doctor-schedules/:id', async (req, res) => {
             (d.schedule_date || null) !== (existing.schedule_date || null) || (d.day_of_week ?? null) !== (existing.day_of_week ?? null) ||
             (d.valid_from || null) !== (existing.valid_from || null) || (d.valid_until || null) !== (existing.valid_until || null) ||
             d.start_time !== existing.start_time || d.end_time !== existing.end_time;
-        if (timingChange && scheduleLiveState(existing).in_session_now) {
+        if (timingChange && (await liveStateOf(connection, existing)).in_session_now) {
             await connection.rollback();
             return res.status(409).json({ success: false, message: 'This session is happening now, so its dates and hours cannot be changed. Use Extend to keep it open longer.' });
         }
@@ -9393,10 +10556,10 @@ app.put('/api/doctor-schedules/:id', async (req, res) => {
 
         await connection.query(
             `UPDATE doctor_schedules SET schedule_type = ?, allow_appointment = ?, allow_open_booking = ?, allow_walk_in = ?, announcement = ?, visit_type = ?, recurrence = ?, schedule_date = ?, day_of_week = ?, valid_from = ?, valid_until = ?,
-                    start_time = ?, end_time = ?, slot_duration_min = ?, max_patients_per_slot = ?, listing_limit = ?, location = ?, notes = ?, auto_confirm = ?
+                    start_time = ?, end_time = ?, slot_duration_min = ?, max_patients_per_slot = ?, listing_limit = ?, location = ?, notes = ?, auto_confirm = ?, template_id = ?
              WHERE schedule_id = ?`,
             [d.schedule_type, d.allow_appointment, d.allow_open_booking, d.allow_walk_in, d.announcement, d.visit_type, d.recurrence, d.schedule_date, d.day_of_week, d.valid_from, d.valid_until, d.start_time, d.end_time,
-             d.slot_duration_min, d.max_patients_per_slot, d.listing_limit, d.location, d.notes, d.auto_confirm, id]
+             d.slot_duration_min, d.max_patients_per_slot, d.listing_limit, d.location, d.notes, d.auto_confirm, d.template_id, id]
         );
         await connection.commit();
         res.json({ success: true, message: 'Doctor schedule updated.' });
@@ -9591,31 +10754,145 @@ app.put('/api/doctor-schedules/:id/reopen', async (req, res) => {
     }
 });
 
+// Cancelling a schedule deletes it. Everyone who held a place is told: students of the advance listing go back to waiting for a schedule (and the
+// advance listing opens again), students who asked through the session listing have their request ended. A session that is running, or one that
+// already has check-up records, stays (close it instead).
 app.delete('/api/doctor-schedules/:id', async (req, res) => {
     const { id } = req.params;
+    const senderId = (req.body && req.body.sender_id) || req.query.sender_id || null;
+    const connection = await pool.getConnection();
+    let notices = [];
+    let schedule = null;
+    let returned = 0;
     try {
-        const [[schedule]] = await pool.query(`SELECT * FROM doctor_schedules WHERE schedule_id = ?`, [id]);
-        if (!schedule) return res.status(404).json({ success: false, message: 'Schedule not found.' });
-        const live = scheduleLiveState(schedule);
+        await ensureAdvanceListing();
+        await connection.beginTransaction();
+        [[schedule]] = await connection.query(`SELECT * FROM doctor_schedules WHERE schedule_id = ? FOR UPDATE`, [id]);
+        if (!schedule) { await connection.rollback(); return res.status(404).json({ success: false, message: 'Schedule not found.' }); }
+        const live = await liveStateOf(connection, schedule);
         if (live.is_ongoing) {
+            await connection.rollback();
             return res.status(409).json({
                 success: false,
                 message: live.in_session_now
-                    ? 'This session is happening right now, so it cannot be deleted. Wait until it ends, or close it.'
-                    : 'This weekly schedule is already running, so it cannot be deleted. Close it instead; a closed schedule can be deleted if it has no bookings.'
+                    ? 'This session is happening right now, so it cannot be cancelled. Wait until it ends.'
+                    : 'This weekly schedule is already running, so it cannot be cancelled. Close it instead.'
             });
         }
-        const [[ref]] = await pool.query(`SELECT COUNT(*) AS n FROM doctor_appointments WHERE schedule_id = ?`, [id]);
-        if (ref.n > 0) {
-            return res.status(409).json({ success: false, message: 'This schedule already has bookings, so it cannot be deleted. Close it instead to keep the history.' });
+
+        const [appointments] = await connection.query(
+            `SELECT da.appointment_id, da.start_time, da.status, das.student_id
+             FROM doctor_appointments da LEFT JOIN doctor_appointment_students das ON das.appointment_id = da.appointment_id
+             WHERE da.schedule_id = ?`, [id]
+        );
+        const appointmentIds = [...new Set(appointments.map((a) => a.appointment_id))];
+        if (appointmentIds.length > 0) {
+            const [[records]] = await connection.query(
+                `SELECT (SELECT COUNT(*) FROM doctor_assessments WHERE appointment_id IN (?))
+                      + (SELECT COUNT(*) FROM dental_assessment_records WHERE appointment_id IN (?))
+                      + (SELECT COUNT(*) FROM vision_screening_records WHERE appointment_id IN (?)) AS n`,
+                [appointmentIds, appointmentIds, appointmentIds]
+            );
+            if (Number(records.n) > 0) {
+                await connection.rollback();
+                return res.status(409).json({ success: false, message: 'This schedule already has check-up records, so it cannot be cancelled. Close it instead to keep the history.' });
+            }
         }
-        const [result] = await pool.query(`DELETE FROM doctor_schedules WHERE schedule_id = ?`, [id]);
-        if (result.affectedRows === 0) return res.status(404).json({ success: false, message: 'Schedule not found.' });
-        res.json({ success: true, message: 'Schedule deleted.' });
+
+        const reason = textOrNull(req.body && req.body.reason) || 'The doctor cancelled the schedule.';
+        const date = nextUpcomingOccurrence(schedule) || String(schedule.schedule_date || '').slice(0, 10);
+        const when = date ? fmtSessionWhen(date, schedule.start_time, schedule.end_time) : 'the schedule';
+
+        // advance listing students that held a place go back to waiting for a schedule
+        const [advance] = await connection.query(`SELECT * FROM advance_listing_entries WHERE schedule_id = ? AND status = 'Scheduled' FOR UPDATE`, [id]);
+        if (advance.length > 0) {
+            await connection.query(
+                `UPDATE advance_listing_entries SET status = 'Waiting', schedule_id = NULL, session_date = NULL, appointment_id = NULL WHERE entry_id IN (?)`,
+                [advance.map((e) => e.entry_id)]
+            );
+        }
+        returned = advance.length;
+        const advanceStudents = new Set(advance.map((e) => e.student_id));
+
+        // session listing requests: the ones with a place (via the appointment) and the ones still waiting for the nurse
+        if (appointmentIds.length > 0) await releaseRequestsOfAppointments(connection, appointmentIds, `Schedule cancelled: ${reason}`);
+        const [pending] = await connection.query(
+            `SELECT request_id, student_id, status FROM consultation_requests WHERE listing_schedule_id = ? AND status IN (?)`, [id, REQUEST_VISIBLE_STATUSES]
+        );
+        for (const r of pending) {
+            await connection.query(
+                `UPDATE consultation_requests SET status = 'Denied', review_reason = ?, reviewed_at = NOW() WHERE request_id = ?`, [`Schedule cancelled: ${reason}`.slice(0, 255), r.request_id]
+            );
+            await logRequest(connection, {
+                request_id: r.request_id, action: 'Denied', from_status: r.status, to_status: 'Denied', reason: `Schedule cancelled: ${reason}`, schedule_id: id, actor_user_id: senderId
+            });
+        }
+
+        // who has to be told
+        const told = new Map();
+        appointments.filter((a) => a.student_id && ['Scheduled', 'Waiting for Approval'].includes(a.status)).forEach((a) => told.set(a.student_id, 'place'));
+        pending.forEach((r) => { if (!told.has(r.student_id)) told.set(r.student_id, 'request'); });
+        notices = [...told.entries()].map(([studentId, kind]) => ({ studentId, kind, advance: advanceStudents.has(studentId), when, reason }));
+
+        if (appointmentIds.length > 0) {
+            await connection.query(`UPDATE screening_schedule_participants SET referral_appointment_id = NULL WHERE referral_appointment_id IN (?)`, [appointmentIds]);
+            await connection.query(`DELETE FROM doctor_appointment_logs WHERE appointment_id IN (?)`, [appointmentIds]);
+            await connection.query(`DELETE FROM doctor_appointment_students WHERE appointment_id IN (?)`, [appointmentIds]);
+            await connection.query(`DELETE FROM doctor_appointments WHERE appointment_id IN (?)`, [appointmentIds]);
+        }
+        await connection.query(`DELETE FROM session_end_confirmations WHERE schedule_id = ?`, [id]);
+
+        // the request that asked for this schedule is not answered any more; an advance request means the advance listing opens again
+        const [answered] = await connection.query(`SELECT schedule_request_id, for_advance FROM schedule_requests WHERE schedule_id = ?`, [id]);
+        if (answered.length > 0) {
+            await connection.query(`UPDATE schedule_requests SET status = 'Cancelled', schedule_id = NULL, responded_at = NOW() WHERE schedule_id = ?`, [id]);
+        }
+        await connection.query(`DELETE FROM doctor_schedules WHERE schedule_id = ?`, [id]);
+
+        if (returned > 0 || answered.some((r) => r.for_advance)) {
+            // the services of the students that came back, and the service of the schedule (when it is one service), take part again
+            const services = [...new Set([...advance.map((e) => e.visit_type), ...(schedule.visit_type && schedule.visit_type !== 'Any' ? [schedule.visit_type] : [])])];
+            if (services.length > 0) await connection.query(`UPDATE advance_listing_services SET is_open = 1 WHERE visit_type IN (?)`, [services]);
+            const [[setting]] = await connection.query(`SELECT * FROM advance_listing_settings WHERE setting_id = 1 FOR UPDATE`);
+            await connection.query(`UPDATE advance_listing_settings SET is_open = 1, closes_at = NULL WHERE setting_id = 1`);
+            if (setting.current_listing_id) {
+                await connection.query(`UPDATE advance_listings SET closed_at = NULL, close_reason = NULL, closes_at = NULL WHERE listing_id = ?`, [setting.current_listing_id]);
+            }
+        }
+        await connection.commit();
     } catch (error) {
-        console.error('Error deleting doctor schedule:', error);
-        res.status(500).json({ success: false, message: 'Failed to delete doctor schedule' });
+        await connection.rollback();
+        console.error('Error cancelling doctor schedule:', error);
+        return res.status(500).json({ success: false, message: 'Failed to cancel the schedule' });
+    } finally {
+        connection.release();
     }
+
+    for (const n of notices) {
+        try {
+            await notifyUsers({
+                sender_id: senderId, recipient_ids: await getStudentAndParentUserIds(n.studentId), title: 'Check-up Schedule Cancelled',
+                message: `The ${schedule.visit_type === 'Any' ? '' : `${schedule.visit_type} `}schedule of ${n.when} was cancelled: ${n.reason}`
+                    + (n.advance ? ' You are back in the advance listing, waiting for a new schedule.' : n.kind === 'place' ? ' You can ask for a place in another open listing.' : ''),
+                type: 'BOOKING_CANCELLED', payloadData: { schedule_id: id }
+            });
+        } catch (e) { console.error('Failed to notify about the cancelled schedule:', e.message); }
+    }
+    try {
+        const [[doctor]] = await pool.query(`SELECT * FROM doctors WHERE doctor_id = ?`, [schedule.doctor_id]);
+        const recipients = (await getNurseUserIds()).filter((u) => u !== senderId);
+        if (doctor && recipients.length > 0) {
+            await notifyUsers({
+                sender_id: senderId, recipient_ids: recipients, title: 'Schedule Cancelled',
+                message: `${doctorDisplayName(doctor)} cancelled the ${schedule.visit_type === 'Any' ? '' : `${schedule.visit_type} `}schedule.${returned > 0 ? ` ${returned} student(s) are back in the advance listing, which is open again: request a new schedule.` : ''}`,
+                type: 'SCHEDULE_UPDATE', payloadData: { schedule_id: id }
+            });
+        }
+    } catch (e) { console.error('Failed to tell the nurses about the cancelled schedule:', e.message); }
+    res.json({
+        success: true, returned_to_advance: returned,
+        message: returned > 0 ? `Schedule cancelled. ${returned} student(s) are back in the advance listing, which is open again.` : 'Schedule cancelled.'
+    });
 });
 
 // ---- Slots (shared by students and nurses) ----
@@ -9665,9 +10942,14 @@ app.post('/api/schedule-requests', async (req, res) => {
     if (start && end && end <= start) return res.status(400).json({ success: false, message: 'The preferred end time must be after the start time.' });
     if (note && note.length > 255) return res.status(400).json({ success: false, message: 'The note can be at most 255 characters.' });
 
+    // a request for the advance listing: the students registered for this service take the first numbers of the schedule the doctor sets
+    const forAdvance = toFlag(req.body.advance_listing) === 1;
+    if (forAdvance && visitType === 'Any') return res.status(400).json({ success: false, message: 'Pick the check-up service of the advance listing.' });
+
     const connection = await pool.getConnection();
     let created = null;
     try {
+        await ensureAdvanceListing();
         await connection.beginTransaction();
         const doctor = await lockDoctor(connection, doctor_id);
         if (!doctor) throw new BookingError('Doctor not found.', 404);
@@ -9677,16 +10959,22 @@ app.post('/api/schedule-requests', async (req, res) => {
             `SELECT COUNT(*) AS n FROM schedule_requests WHERE doctor_id = ? AND visit_type = ? AND status = 'Pending' AND preferred_date <=> ?`, [doctor_id, visitType, date]
         );
         if (dupe.n > 0) throw new BookingError('This doctor already has a pending request for the same category and date.');
+        let advanceCount = null;
+        if (forAdvance) {
+            const [[waiting]] = await connection.query(`SELECT COUNT(*) AS n FROM advance_listing_entries WHERE visit_type = ? AND status = 'Waiting'`, [visitType]);
+            advanceCount = Number(waiting.n);
+            if (advanceCount === 0) throw new BookingError(`Nobody is waiting in the ${visitType} advance listing, so there is nothing to schedule yet.`, 409);
+        }
 
         const id = await generateCustomIdWithRetry(connection, 'SCHREQ', 'schedule_requests', 'schedule_request_id', async (newId) => {
             await connection.query(
-                `INSERT INTO schedule_requests (schedule_request_id, doctor_id, visit_type, requested_by_nurse_id, preferred_date, preferred_start, preferred_end, note)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-                [newId, doctor_id, visitType, nurseId, date, start, end, note]
+                `INSERT INTO schedule_requests (schedule_request_id, doctor_id, visit_type, requested_by_nurse_id, preferred_date, preferred_start, preferred_end, note, for_advance, advance_count)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [newId, doctor_id, visitType, nurseId, date, start, end, note, forAdvance ? 1 : 0, advanceCount]
             );
         });
         await connection.commit();
-        created = { id, doctor };
+        created = { id, doctor, advanceCount };
     } catch (error) {
         await connection.rollback();
         connection.release();
@@ -9700,7 +10988,9 @@ app.post('/api/schedule-requests', async (req, res) => {
         const [[waiting]] = await pool.query(`SELECT COUNT(*) AS n FROM consultation_requests WHERE status IN (${ACTIVE_STATUS_SQL}) ${visitType === 'Any' ? '' : 'AND visit_type = ?'}`, visitType === 'Any' ? [] : [visitType]);
         await notifyUsers({
             sender_id: senderId, recipient_ids: await getDoctorUserIds(doctor_id), title: 'Schedule Request',
-            message: `The clinic asks for a ${visitType === 'Any' ? '' : visitType + ' '}session${date ? ` on ${date}` : ''}${start ? ` around ${start}${end ? `-${end}` : ''}` : ''}. ${waiting.n} student(s) are on the waiting list.${note ? ` Note: ${note}` : ''} Open My Schedule to set it.`,
+            message: `The clinic asks for a ${visitType === 'Any' ? '' : visitType + ' '}session${date ? ` on ${date}` : ''}${start ? ` around ${start}${end ? `-${end}` : ''}` : ''}. ${created.advanceCount !== null
+                ? `${created.advanceCount} student(s) are registered in the advance listing and take the first queue numbers of the schedule you set; the places left stay open for other students, so set the listing limit above ${created.advanceCount}.`
+                : `${waiting.n} student(s) are on the waiting list.`}${note ? ` Note: ${note}` : ''} Open My Schedule to set it.`,
             type: 'SCHEDULE_REQUEST', payloadData: { schedule_request_id: created.id }
         });
     } catch (e) { console.error('Schedule request notification failed:', e.message); }
@@ -9928,6 +11218,7 @@ const LISTING_COLUMNS = [
     ['doctor_schedules', 'listing_limit', 'int NULL'],
     ['doctor_schedules', 'listing_open', 'tinyint(1) NOT NULL DEFAULT 0'],
     ['doctor_schedules', 'listing_opened_at', 'datetime NULL'],
+    ['doctor_schedules', 'template_id', 'varchar(45) NULL'],
     ['consultation_requests', 'listing_schedule_id', 'varchar(45) NULL'],
     ['consultation_requests', 'listing_date', 'date NULL']
 ];
@@ -9962,17 +11253,27 @@ const scheduleListingCounts = async (conn, scheduleId, date) => {
         `SELECT COUNT(*) AS n FROM consultation_requests WHERE listing_schedule_id = ? AND listing_date = ? AND status = 'Waiting for Approval'`,
         [scheduleId, date]
     );
-    return { accepted: Number(a.n), pending: Number(p.n) };
+    // accepted includes the advance listing students, who hold the first numbers; the rest are the students who asked for the places left
+    await ensureAdvanceListing();
+    const [[adv]] = await conn.query(
+        `SELECT COUNT(*) AS n FROM advance_listing_entries e JOIN doctor_appointments da ON da.appointment_id = e.appointment_id
+         WHERE e.schedule_id = ? AND e.session_date = ? AND da.status IN ('Scheduled', 'Completed') AND da.queue_state <> 'Void'`,
+        [scheduleId, date]
+    );
+    return { accepted: Number(a.n), pending: Number(p.n), advance: Number(adv.n) };
 };
 
 // The listing of one schedule for its next session day
 const scheduleListingOf = async (conn, schedule) => {
     const date = schedule.status === 'Open' ? nextUpcomingOccurrence(schedule) : null;
     const limit = listingLimitOf(schedule);
-    const counts = date ? await scheduleListingCounts(conn, schedule.schedule_id, date) : { accepted: 0, pending: 0 };
+    const counts = date ? await scheduleListingCounts(conn, schedule.schedule_id, date) : { accepted: 0, pending: 0, advance: 0 };
     const open = !!schedule.listing_open && !!date;
     const full = counts.accepted >= limit;
-    return { listing_date: date, listing_open: open, listing_limit: limit, accepted: counts.accepted, pending: counts.pending, listing_full: full, can_request: open && !full };
+    return {
+        listing_date: date, listing_open: open, listing_limit: limit, accepted: counts.accepted, pending: counts.pending, listing_full: full, can_request: open && !full,
+        advance: counts.advance, regular: Math.max(counts.accepted - counts.advance, 0), places_left: Math.max(limit - counts.accepted, 0)
+    };
 };
 
 // The categories a student can ask for: purposes that at least one doctor with a login covers
@@ -10094,7 +11395,7 @@ const notifyCounterpart = async ({ actor, senderId, doctorId, title, message, ty
 
 const REQUEST_SELECT = `
     SELECT r.*, s.first_name AS student_first_name, s.last_name AS student_last_name, s.user_id AS student_user_id,
-           s.year_level, s.section, p.program_name,
+           s.program_id, s.year_level, s.section, p.program_name,
            pd.first_name AS pref_first_name, pd.last_name AS pref_last_name,
            ds.schedule_type AS notified_schedule_type, ds.allow_appointment AS notified_allow_appointment, ds.allow_open_booking AS notified_allow_open_booking,
            ds.allow_walk_in AS notified_allow_walk_in, ds.start_time AS notified_start_time, ds.end_time AS notified_end_time, ds.location AS notified_location,
@@ -10152,6 +11453,12 @@ app.post('/api/student/consultation-requests', async (req, res) => {
         const doctor = await lockDoctor(connection, schedule.doctor_id);
         const listing = await scheduleListingOf(connection, schedule);
         if (!listing.listing_date) throw new BookingError('That session is already over.');
+        const [held] = await connection.query(
+            `SELECT da.queue_lane, da.queue_no FROM doctor_appointments da JOIN doctor_appointment_students das ON das.appointment_id = da.appointment_id
+             WHERE das.student_id = ? AND da.schedule_id = ? AND DATE(da.start_time) = ? AND da.queue_state IS NOT NULL AND da.status NOT IN ('Cancelled', 'Declined') LIMIT 1`,
+            [student_id, schedule.schedule_id, listing.listing_date]
+        );
+        if (held.length > 0) throw new BookingError(`You already have a number in this session (${held[0].queue_lane === 'Walk-in' ? 'W' : '#'}${held[0].queue_no}). You cannot ask for another place in it.`, 409);
         if (!listing.listing_open) throw new BookingError('The nurse has not opened this listing, or it was closed. Please check again later.');
         if (listing.listing_full) throw new BookingError(`This listing is full (${listing.accepted} of ${listing.listing_limit} accepted). Please check another one.`);
         const blocked = await findUnavailability(connection, doctor.doctor_id, `${listing.listing_date} ${schedule.start_time}`, `${listing.listing_date} ${schedule.end_time}`);
@@ -10908,16 +12215,21 @@ app.put('/api/doctor-schedules/:id/extend', async (req, res) => {
         const [[schedule]] = await connection.query(`SELECT * FROM doctor_schedules WHERE schedule_id = ? FOR UPDATE`, [req.params.id]);
         if (!schedule) throw new BookingError('Schedule not found.', 404);
         if (schedule.status !== 'Open') throw new BookingError('A closed schedule cannot be extended. Reopen it first.');
-        if (!scheduleLiveState(schedule).in_session_now) {
+        const live = await liveStateOf(connection, schedule);
+        if (!live.in_session_now) {
             throw new BookingError(nextOccurrenceOf(schedule, nowManilaStr().slice(0, 10)) ? 'Only a session that is happening now can be extended. Edit the schedule to change an upcoming one.' : 'This session is already over, so it cannot be extended.');
         }
         if (req.body.created_by_doctor_id && req.body.created_by_doctor_id !== schedule.doctor_id) throw new BookingError('Doctors can only extend their own schedule.', 403);
         const doctor = await lockDoctor(connection, schedule.doctor_id);
 
+        // an extension runs until the same date only; past the end time it counts from now
         const oldEndMin = hmsToMin(schedule.end_time);
-        const newEndMin = oldEndMin + extra;
-        if (newEndMin > 23 * 60 + 59) throw new BookingError('A session cannot run past midnight.');
-        const upcoming = nowManilaStr().slice(0, 10);
+        const nowNowStr = nowManilaStr();
+        const baseMin = live.awaiting_end ? Math.max(oldEndMin, hmsToMin(nowNowStr.slice(11, 19))) : oldEndMin;
+        const newEndMin = baseMin + extra;
+        if (newEndMin > 23 * 60 + 59) throw new BookingError('A session cannot run past midnight, so an extension runs until the same date only. Pick a shorter extension, or confirm the end of the session.');
+        const added = newEndMin - oldEndMin;
+        const upcoming = nowNowStr.slice(0, 10);
 
         // the new tail must not run into the doctor's other sessions or absences on any date of this schedule
         const merged = { ...schedule, end_time: minToHms(newEndMin) };
@@ -10932,17 +12244,17 @@ app.put('/api/doctor-schedules/:id/extend', async (req, res) => {
 
         await connection.query(
             `UPDATE doctor_schedules SET end_time = ?, extended_minutes = extended_minutes + ?, original_end_time = COALESCE(original_end_time, ?) WHERE schedule_id = ?`,
-            [minToHms(newEndMin), extra, schedule.end_time, schedule.schedule_id]
+            [minToHms(newEndMin), added, schedule.end_time, schedule.schedule_id]
         );
         // today's queue entries run to the end of the session
         await connection.query(
             `UPDATE doctor_appointments SET end_time = ?, extended_minutes = extended_minutes + ?
              WHERE schedule_id = ? AND DATE(start_time) = ? AND queue_state IS NOT NULL AND status = 'Scheduled'`,
-            [`${upcoming} ${minToHms(newEndMin)}`, extra, schedule.schedule_id, upcoming]
+            [`${upcoming} ${minToHms(newEndMin)}`, added, schedule.schedule_id, upcoming]
         );
         const actor = await resolveActor(connection, senderId);
         await connection.commit();
-        done = { schedule, doctor, newEnd: minToHms(newEndMin), upcoming, actor };
+        done = { schedule, doctor, newEnd: minToHms(newEndMin), upcoming, actor, added };
     } catch (error) {
         await connection.rollback();
         connection.release();
@@ -10955,11 +12267,45 @@ app.put('/api/doctor-schedules/:id/extend', async (req, res) => {
     try {
         await notifyCounterpart({
             actor: done.actor, senderId, doctorId: done.schedule.doctor_id, title: 'Session Extended',
-            message: `The ${done.schedule.schedule_type} session of ${doctorDisplayName(done.doctor)} on ${done.upcoming} now ends at ${fmtClock(done.newEnd)} (+${extra} min).${textOrNull(req.body.reason) ? ` Reason: ${textOrNull(req.body.reason)}` : ''}`,
+            message: `The ${done.schedule.schedule_type} session of ${doctorDisplayName(done.doctor)} on ${done.upcoming} now ends at ${fmtClock(done.newEnd)} (+${done.added} min).${textOrNull(req.body.reason) ? ` Reason: ${textOrNull(req.body.reason)}` : ''}`,
             type: 'SCHEDULE_UPDATE', payloadData: { schedule_id: done.schedule.schedule_id }
         });
     } catch (e) { console.error('Extend notification failed:', e.message); }
-    res.json({ success: true, message: `Session extended by ${extra} minutes. It now ends at ${fmtClock(done.newEnd)}.`, end_time: done.newEnd });
+    res.json({ success: true, message: `Session extended. It now ends at ${fmtClock(done.newEnd)}; you will be asked to confirm the end again then.`, end_time: done.newEnd });
+});
+
+// The end time passed: the nurse or the doctor confirms the end of today's session. It moves to Past Check-up, the numbers never called
+// go back to the waiting list and the students who never came are marked absent. (The date passing does the same by itself, see runPastVisitJobs.)
+app.put('/api/doctor-schedules/:id/end-session', async (req, res) => {
+    const senderId = req.body.sender_id || null;
+    const connection = await pool.getConnection();
+    let schedule = null;
+    try {
+        await ensureSessionEndTable();
+        await connection.beginTransaction();
+        [[schedule]] = await connection.query(`SELECT * FROM doctor_schedules WHERE schedule_id = ? FOR UPDATE`, [req.params.id]);
+        if (!schedule) throw new BookingError('Schedule not found.', 404);
+        if (req.body.created_by_doctor_id && req.body.created_by_doctor_id !== schedule.doctor_id) throw new BookingError('Doctors can only end their own session.', 403);
+        const nowStr = nowManilaStr();
+        const date = nowStr.slice(0, 10);
+        if (!scheduleOccursOn(schedule, date)) throw new BookingError('This schedule has no session today.');
+        if (await sessionEndConfirmed(connection, schedule.schedule_id, date)) throw new BookingError('This session was already ended.');
+        if (nowStr.slice(11, 19) < schedule.end_time) throw new BookingError(`The session ends at ${fmtClock(schedule.end_time)}. Ending it is possible after that time.`);
+        await connection.query(`INSERT INTO session_end_confirmations (schedule_id, session_date, confirmed_by) VALUES (?, ?, ?)`, [schedule.schedule_id, date, senderId]);
+        await connection.commit();
+    } catch (error) {
+        await connection.rollback();
+        connection.release();
+        if (error instanceof BookingError) return res.status(error.status).json({ success: false, message: error.message });
+        console.error('Error ending the session:', error);
+        return res.status(500).json({ success: false, message: 'Failed to end the session' });
+    }
+    connection.release();
+    try {
+        await closeFinishedQueues();
+        await markExpiredAppointmentsAbsent();
+    } catch (e) { console.error('Closing the ended session failed:', e.message); }
+    res.json({ success: true, message: 'Session ended. It is now in Past Check-up.' });
 });
 
 app.put('/api/doctor-visits/extend/:appointment_id', async (req, res) => {
@@ -11039,6 +12385,691 @@ app.put('/api/doctor-visits/extend/:appointment_id', async (req, res) => {
     res.json({ success: true, message: `Appointment extended. It now ends at ${fmtClock(done.newEnd.slice(11))}.`, end_time: done.newEnd });
 });
 
+// ---- Advance listing: students register for a check-up service before any schedule exists (migration_advance_listing.sql) ----
+// The nurse opens it (for a while or until it is closed), picks the check-up services and a limit for each. A student registers for ONE service and gets an
+// advance number (A1, A2 ... per service). The nurse asks a doctor for a schedule for that service (schedule request with for_advance = 1). When the doctor
+// sets it, the advance students take the first queue numbers of the session (order of their advance number) and the places left of the listing limit are
+// opened for the students who are not in the advance listing; their numbers come after the advance ones.
+const ADVANCE_COLUMNS = [
+    ['schedule_requests', 'for_advance', 'tinyint(1) NOT NULL DEFAULT 0'],
+    ['schedule_requests', 'advance_count', 'int NULL'],
+    ['advance_listing_settings', 'current_listing_id', 'VARCHAR(45) NULL'],
+    ['advance_listing_services', 'is_open', 'tinyint(1) NOT NULL DEFAULT 1'],
+    ['advance_listing_entries', 'listing_id', 'VARCHAR(45) NULL']
+];
+let advanceListingReady = null;
+const ensureAdvanceListing = () => {
+    if (!advanceListingReady) {
+        advanceListingReady = (async () => {
+            await pool.query(
+                `CREATE TABLE IF NOT EXISTS advance_listing_settings (
+                    setting_id TINYINT NOT NULL PRIMARY KEY,
+                    is_open TINYINT(1) NOT NULL DEFAULT 0,
+                    opened_at DATETIME NULL,
+                    closes_at DATETIME NULL,
+                    updated_by_user_id VARCHAR(45) NULL,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
+            );
+            await pool.query(`INSERT IGNORE INTO advance_listing_settings (setting_id, is_open) VALUES (1, 0)`);
+            await pool.query(
+                `CREATE TABLE IF NOT EXISTS advance_listing_services (
+                    visit_type VARCHAR(60) NOT NULL PRIMARY KEY,
+                    listing_limit INT NOT NULL
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
+            );
+            await pool.query(
+                `CREATE TABLE IF NOT EXISTS advance_listing_entries (
+                    entry_id VARCHAR(45) NOT NULL PRIMARY KEY,
+                    student_id VARCHAR(45) NOT NULL,
+                    visit_type VARCHAR(60) NOT NULL,
+                    reason VARCHAR(255) NOT NULL,
+                    advance_no INT NOT NULL,
+                    status VARCHAR(20) NOT NULL DEFAULT 'Waiting',
+                    schedule_id VARCHAR(45) NULL,
+                    session_date DATE NULL,
+                    appointment_id VARCHAR(45) NULL,
+                    remove_reason VARCHAR(255) NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    INDEX idx_advance_student (student_id, status),
+                    INDEX idx_advance_service (visit_type, status),
+                    INDEX idx_advance_schedule (schedule_id, session_date)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
+            );
+            // one row per time the nurse opened the advance listing: the title, when it was open and why it closed (history of the past listings)
+            await pool.query(
+                `CREATE TABLE IF NOT EXISTS advance_listings (
+                    listing_id VARCHAR(45) NOT NULL PRIMARY KEY,
+                    title VARCHAR(120) NOT NULL,
+                    opened_at DATETIME NOT NULL,
+                    closes_at DATETIME NULL,
+                    closed_at DATETIME NULL,
+                    close_reason VARCHAR(20) NULL,
+                    services_json TEXT NULL,
+                    created_by_user_id VARCHAR(45) NULL
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
+            );
+            const [have] = await pool.query(
+                `SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE()
+                 AND TABLE_NAME IN ('schedule_requests', 'advance_listing_settings', 'advance_listing_services', 'advance_listing_entries')`
+            );
+            for (const [table, column, def] of ADVANCE_COLUMNS) {
+                if (!have.some((c) => c.TABLE_NAME === table && c.COLUMN_NAME === column)) {
+                    await pool.query(`ALTER TABLE \`${table}\` ADD COLUMN \`${column}\` ${def}`);
+                }
+            }
+            // rows from before the history existed belong to one earlier listing
+            const [[setting]] = await pool.query(`SELECT * FROM advance_listing_settings WHERE setting_id = 1`);
+            const [[old]] = await pool.query(`SELECT COUNT(*) AS n, MIN(created_at) AS first FROM advance_listing_entries WHERE listing_id IS NULL`);
+            if (!setting.current_listing_id && (setting.is_open || Number(old.n) > 0)) {
+                const [svcRows] = await pool.query(`SELECT visit_type, listing_limit FROM advance_listing_services`);
+                const listingId = await generateCustomIdWithRetry(pool, 'ADVLS', 'advance_listings', 'listing_id', async (id) => {
+                    await pool.query(
+                        `INSERT INTO advance_listings (listing_id, title, opened_at, closes_at, closed_at, close_reason, services_json) VALUES (?, ?, COALESCE(?, NOW()), ?, ?, ?, ?)`,
+                        [id, 'Advance listing', setting.opened_at || old.first, setting.is_open ? setting.closes_at : null, setting.is_open ? null : new Date(), setting.is_open ? null : 'manual', JSON.stringify(svcRows)]
+                    );
+                });
+                await pool.query(`UPDATE advance_listing_entries SET listing_id = ? WHERE listing_id IS NULL`, [listingId]);
+                await pool.query(`UPDATE advance_listing_settings SET current_listing_id = ? WHERE setting_id = 1`, [listingId]);
+            }
+        })().catch((err) => { advanceListingReady = null; throw err; });
+    }
+    return advanceListingReady;
+};
+
+// A student's request is `Pending` until the nurse accepts it (then `Waiting`, with an advance number) or denies it (`Denied`).
+// Waiting for a schedule, or holding a number in a session that is not over (alias `e` = advance_listing_entries)
+const ADVANCE_ACTIVE_SQL = `(e.status = 'Waiting' OR (e.status = 'Scheduled' AND EXISTS (
+    SELECT 1 FROM doctor_appointments ada WHERE ada.appointment_id = e.appointment_id AND ada.status = 'Scheduled' AND ada.queue_state IN ('Waiting', 'Serving'))))`;
+const advanceLabel = (no) => `A${no}`;
+
+const ADVANCE_ENTRY_SELECT = `
+    SELECT e.*, (${ADVANCE_ACTIVE_SQL}) AS is_active,
+           s.first_name AS student_first_name, s.last_name AS student_last_name, s.program_id, s.year_level, s.section, p.program_name,
+           ds.start_time AS session_start, ds.end_time AS session_end, ds.location,
+           d.first_name AS doc_first_name, d.last_name AS doc_last_name,
+           qa.queue_no, qa.queue_lane, qa.queue_state, qa.status AS appointment_status
+    FROM advance_listing_entries e
+    JOIN students s ON s.student_id = e.student_id
+    LEFT JOIN academic_programs p ON p.program_id = s.program_id
+    LEFT JOIN doctor_schedules ds ON ds.schedule_id = e.schedule_id
+    LEFT JOIN doctors d ON d.doctor_id = ds.doctor_id
+    LEFT JOIN doctor_appointments qa ON qa.appointment_id = e.appointment_id`;
+
+const formatAdvanceEntry = (e) => ({
+    entry_id: e.entry_id, student_id: e.student_id, visit_type: e.visit_type, reason: e.reason, advance_no: e.advance_no || null, label: e.advance_no ? advanceLabel(e.advance_no) : null,
+    // Waiting | Scheduled (holds a queue number) | Done | Ended (the place was cancelled / voided) | Withdrawn | Removed
+    status: e.status === 'Scheduled' && !e.is_active ? (e.appointment_status === 'Completed' || e.queue_state === 'Done' ? 'Done' : 'Ended') : e.status,
+    is_active: e.is_active ? 1 : 0, remove_reason: e.remove_reason, created_at: e.created_at,
+    student_name: `${e.student_first_name || ''} ${e.student_last_name || ''}`.trim(),
+    student_first_name: e.student_first_name, student_last_name: e.student_last_name, program_id: e.program_id, program_name: e.program_name, year_level: e.year_level, section: e.section,
+    schedule_id: e.schedule_id, session_date: e.session_date, session_start: e.session_start, session_end: e.session_end, location: e.location,
+    doctor_name: e.doc_last_name ? `Dr. ${e.doc_first_name} ${e.doc_last_name}` : null,
+    queue_no: e.queue_no || null, queue_label: e.queue_no ? queueLabel(e.queue_lane, e.queue_no) : null
+});
+
+// The student's current advance entry (waiting or holding a number), or null
+const advanceEntryOf = async (conn, studentId) => {
+    await ensureAdvanceListing();
+    const [rows] = await conn.query(`${ADVANCE_ENTRY_SELECT} WHERE e.student_id = ? AND (${ADVANCE_ACTIVE_SQL} OR e.status = 'Pending') ORDER BY e.created_at DESC LIMIT 1`, [studentId]);
+    return rows.length > 0 ? formatAdvanceEntry(rows[0]) : null;
+};
+
+// Open? (a closing time that passed counts as closed), the services with their limit and how many are registered
+// Check-up services that already have an upcoming schedule: the advance listing is for services without one (an `Any` schedule covers every service)
+const scheduledServicesOf = async (conn) => {
+    const [open] = await conn.query(`SELECT * FROM doctor_schedules WHERE status = 'Open'`);
+    const upcoming = open.filter((s) => nextUpcomingOccurrence(s));
+    return { all: upcoming.some((s) => s.visit_type === 'Any'), types: new Set(upcoming.map((s) => s.visit_type)) };
+};
+
+// Closes what has to close by itself, and writes it down (history): the closing time passed, or every offered service already has a schedule
+// (a service with a schedule leaves the advance listing for the Session Listing). Called whenever the state is read.
+const syncAdvanceListing = async (conn, scheduledServices) => {
+    const [[setting]] = await conn.query(`SELECT * FROM advance_listing_settings WHERE setting_id = 1`);
+    const [services] = await conn.query(`SELECT visit_type, is_open FROM advance_listing_services`);
+    const moved = services.filter((s) => s.is_open && (scheduledServices.all || scheduledServices.types.has(s.visit_type)));
+    if (moved.length > 0) {
+        await conn.query(`UPDATE advance_listing_services SET is_open = 0 WHERE visit_type IN (?)`, [moved.map((s) => s.visit_type)]);
+    }
+    if (!setting.is_open) return;
+    let reason = null;
+    if (setting.closes_at && String(setting.closes_at) <= nowManilaStr()) reason = 'time';
+    else if (services.length > 0 && services.every((s) => scheduledServices.all || scheduledServices.types.has(s.visit_type))) reason = 'scheduled';
+    if (!reason) return;
+    await conn.query(`UPDATE advance_listing_settings SET is_open = 0, closes_at = NULL WHERE setting_id = 1 AND is_open = 1`);
+    if (setting.current_listing_id) {
+        await conn.query(`UPDATE advance_listings SET closed_at = ?, close_reason = ? WHERE listing_id = ? AND closed_at IS NULL`, [reason === 'time' ? setting.closes_at : nowManilaStr(), reason, setting.current_listing_id]);
+    }
+};
+
+const advanceStateOf = async (conn = pool) => {
+    await ensureAdvanceListing();
+    const scheduledServices = await scheduledServicesOf(conn);
+    await syncAdvanceListing(conn, scheduledServices);
+    const [[setting]] = await conn.query(`SELECT * FROM advance_listing_settings WHERE setting_id = 1`);
+    const [[listing]] = setting.current_listing_id
+        ? await conn.query(`SELECT * FROM advance_listings WHERE listing_id = ?`, [setting.current_listing_id])
+        : [[null]];
+    const expired = !setting.is_open && !!listing && listing.close_reason === 'time';
+    const [services] = await conn.query(`SELECT visit_type, listing_limit, is_open FROM advance_listing_services ORDER BY visit_type`);
+    const [counts] = await conn.query(
+        `SELECT e.visit_type, COUNT(*) AS registered, SUM(e.status = 'Waiting') AS waiting FROM advance_listing_entries e WHERE ${ADVANCE_ACTIVE_SQL} GROUP BY e.visit_type`
+    );
+    const [pendingCounts] = await conn.query(`SELECT visit_type, COUNT(*) AS pending FROM advance_listing_entries WHERE status = 'Pending' GROUP BY visit_type`);
+    const countOf = (t) => ({ ...(counts.find((c) => c.visit_type === t) || { registered: 0, waiting: 0 }), pending: Number((pendingCounts.find((c) => c.visit_type === t) || {}).pending || 0) });
+    const all = [...new Set([...services.map((s) => s.visit_type), ...counts.map((c) => c.visit_type), ...pendingCounts.map((c) => c.visit_type)])].sort();
+    return {
+        is_open: !!setting.is_open, closes_at: setting.is_open ? setting.closes_at || null : null, opened_at: listing ? listing.opened_at : null, expired,
+        closed_reason: !setting.is_open && listing ? listing.close_reason : null,
+        listing: listing ? { listing_id: listing.listing_id, title: listing.title, opened_at: listing.opened_at, closed_at: listing.closed_at, close_reason: listing.close_reason } : null,
+        services: all.map((t) => {
+            const svc = services.find((s) => s.visit_type === t);
+            const c = countOf(t);
+            const limit = svc ? Number(svc.listing_limit) : null;
+            const scheduled = scheduledServices.all || scheduledServices.types.has(t);
+            const serviceOpen = !!svc && !!svc.is_open && !scheduled;
+            return {
+                visit_type: t, offered: !!svc, listing_limit: limit, registered: Number(c.registered), waiting: Number(c.waiting || 0), pending: c.pending,
+                scheduled, service_open: serviceOpen,
+                // Open | Closed (the nurse closed it, or the whole listing is closed) | Scheduled (has a schedule: moved to the Session Listing)
+                status: scheduled ? 'Scheduled' : serviceOpen && setting.is_open ? 'Open' : 'Closed',
+                listing_full: limit !== null && Number(c.registered) >= limit, places_left: limit !== null ? Math.max(limit - Number(c.registered), 0) : 0
+            };
+        })
+    };
+};
+
+const normalizeClosingTime = (value) => {
+    const v = String(value || '').trim().replace('T', ' ');
+    if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/.test(v)) return null;
+    return v.length === 16 ? `${v}:00` : v;
+};
+
+app.get('/api/advance-listing', async (req, res) => {
+    try {
+        const state = await advanceStateOf(pool);
+        const mine = req.query.student_id ? await advanceEntryOf(pool, req.query.student_id) : null;
+        res.json({ success: true, ...state, eligible: await eligibleCategories(pool), mine, can_register: state.is_open && !mine });
+    } catch (error) {
+        console.error('Error loading the advance listing:', error);
+        res.status(500).json({ success: false, message: 'Failed to load the advance listing' });
+    }
+});
+
+// The nurse opens / closes the advance listing and sets the services, their limits and when it closes by itself.
+// Body: { sender_id, is_open?, closes_at? ('' = stays open until closed), services? [{ visit_type, listing_limit }] }. Closing never removes a registered student.
+app.put('/api/advance-listing', async (req, res) => {
+    const senderId = req.body.sender_id || null;
+    const connection = await pool.getConnection();
+    let done = null;
+    try {
+        await ensureAdvanceListing();
+        await connection.beginTransaction();
+        const actor = await resolveActor(connection, senderId);
+        if (actor.role !== 'Nurse') throw new BookingError('Only the nurse opens or closes the advance listing.', 403);
+        await advanceStateOf(connection); // closes by itself what has to close (time is up, every service has a schedule) before the nurse's change is read
+        const [[current]] = await connection.query(`SELECT * FROM advance_listing_settings WHERE setting_id = 1 FOR UPDATE`);
+        const wasOpen = !!current.is_open;
+        const title = textOrNull(req.body.title);
+        if (title && title.length > 120) throw new BookingError('The title can be at most 120 characters.', 400);
+
+        if (Array.isArray(req.body.services)) {
+            const eligible = await eligibleCategories(connection);
+            const seen = new Set();
+            const wanted = [];
+            for (const raw of req.body.services) {
+                const visitType = String(raw.visit_type || '').trim();
+                const limit = Number(raw.listing_limit);
+                if (!eligible.includes(visitType)) throw new BookingError(`${visitType || 'That service'} is not a check-up service a doctor covers.`, 400);
+                if (seen.has(visitType)) continue;
+                if (!Number.isInteger(limit) || limit < 1 || limit > 500) throw new BookingError(`Set a listing limit from 1 to 500 for ${visitType}.`, 400);
+                seen.add(visitType);
+                wanted.push({ visitType, limit });
+            }
+            const state = await advanceStateOf(connection);
+            for (const w of wanted) {
+                const registered = (state.services.find((s) => s.visit_type === w.visitType) || {}).registered || 0;
+                if (w.limit < registered) throw new BookingError(`${registered} student(s) are already registered for ${w.visitType}, so its limit cannot be lower than ${registered}.`, 409);
+            }
+            const [before] = await connection.query(`SELECT visit_type, is_open FROM advance_listing_services`);
+            await connection.query(`DELETE FROM advance_listing_services`);
+            for (const w of wanted) {
+                // a service the nurse closed stays closed while the listing keeps running; a new listing opens every service
+                const kept = wasOpen ? before.find((b) => b.visit_type === w.visitType) : null;
+                await connection.query(`INSERT INTO advance_listing_services (visit_type, listing_limit, is_open) VALUES (?, ?, ?)`, [w.visitType, w.limit, kept ? kept.is_open : 1]);
+            }
+        }
+
+        let closesAt = current.closes_at || null;
+        if (Object.prototype.hasOwnProperty.call(req.body, 'closes_at')) {
+            if (!req.body.closes_at) closesAt = null;
+            else {
+                closesAt = normalizeClosingTime(req.body.closes_at);
+                if (!closesAt) throw new BookingError('The closing date and time are not valid.', 400);
+                if (closesAt <= nowManilaStr()) throw new BookingError('The closing time must be in the future.', 400);
+            }
+        }
+
+        const wantOpen = req.body.is_open === undefined ? wasOpen : toFlag(req.body.is_open) === 1;
+        const [[svcCount]] = await connection.query(`SELECT COUNT(*) AS n FROM advance_listing_services`);
+        if (wantOpen && Number(svcCount.n) === 0) throw new BookingError('Pick at least one check-up service, with its listing limit, before opening the advance listing.', 400);
+        if (wantOpen && closesAt && closesAt <= nowManilaStr()) throw new BookingError('The closing time must be in the future.', 400);
+
+        if (wantOpen && !wasOpen && !title) throw new BookingError('Give the advance listing a title, e.g. "Advance listing for next month".', 400);
+        const [svcNow] = await connection.query(`SELECT visit_type, listing_limit FROM advance_listing_services ORDER BY visit_type`);
+        let listingId = current.current_listing_id;
+        if (wantOpen && !wasOpen) {
+            // a new listing: the one that was open before stays in the history
+            listingId = await generateCustomIdWithRetry(connection, 'ADVLS', 'advance_listings', 'listing_id', async (id) => {
+                await connection.query(
+                    `INSERT INTO advance_listings (listing_id, title, opened_at, closes_at, services_json, created_by_user_id) VALUES (?, ?, NOW(), ?, ?, ?)`,
+                    [id, title, closesAt, JSON.stringify(svcNow), senderId]
+                );
+            });
+        } else if (wantOpen && listingId) {
+            await connection.query(`UPDATE advance_listings SET title = COALESCE(?, title), closes_at = ?, services_json = ? WHERE listing_id = ?`, [title, closesAt, JSON.stringify(svcNow), listingId]);
+        } else if (!wantOpen && wasOpen && listingId) {
+            await connection.query(`UPDATE advance_listings SET closed_at = NOW(), close_reason = 'manual' WHERE listing_id = ? AND closed_at IS NULL`, [listingId]);
+        }
+        await connection.query(
+            `UPDATE advance_listing_settings SET is_open = ?, closes_at = ?, opened_at = IF(? = 1 AND ? = 0, NOW(), opened_at), current_listing_id = ?, updated_by_user_id = ? WHERE setting_id = 1`,
+            [wantOpen ? 1 : 0, wantOpen ? closesAt : null, wantOpen ? 1 : 0, wasOpen ? 1 : 0, listingId || null, senderId]
+        );
+        await connection.commit();
+        done = { wantOpen, wasOpen };
+    } catch (error) {
+        await connection.rollback();
+        connection.release();
+        if (error instanceof BookingError) return res.status(error.status).json({ success: false, message: error.message });
+        console.error('Error saving the advance listing:', error);
+        return res.status(500).json({ success: false, message: 'Failed to save the advance listing' });
+    }
+    connection.release();
+    res.json({
+        success: true,
+        message: done.wantOpen ? (done.wasOpen ? 'Advance listing settings saved.' : 'Advance listing opened. Students can register for a check-up service now.') : 'Advance listing closed. Registered students keep their numbers.',
+        ...(await advanceStateOf(pool))
+    });
+});
+
+// The nurse opens / closes ONE check-up service of the advance listing, or changes its limit. Body: { sender_id, is_open?, listing_limit? }
+// A service that has a schedule is closed by itself (it moved to the Session Listing) and cannot be opened again here.
+app.put('/api/advance-listing/services/:visitType', async (req, res) => {
+    const visitType = String(req.params.visitType || '').trim();
+    const connection = await pool.getConnection();
+    let message = '';
+    try {
+        await ensureAdvanceListing();
+        await connection.beginTransaction();
+        const actor = await resolveActor(connection, req.body.sender_id || null);
+        if (actor.role !== 'Nurse') throw new BookingError('Only the nurse opens or closes a service of the advance listing.', 403);
+        await connection.query(`SELECT setting_id FROM advance_listing_settings WHERE setting_id = 1 FOR UPDATE`);
+        const state = await advanceStateOf(connection);
+        const service = state.services.find((s) => s.visit_type === visitType && s.offered);
+        if (!service) throw new BookingError(`${visitType} is not offered in the advance listing.`, 404);
+        if (req.body.listing_limit !== undefined) {
+            const limit = Number(req.body.listing_limit);
+            if (!Number.isInteger(limit) || limit < 1 || limit > 500) throw new BookingError('Set a listing limit from 1 to 500.', 400);
+            if (limit < service.registered) throw new BookingError(`${service.registered} student(s) are already registered for ${visitType}, so its limit cannot be lower than ${service.registered}.`, 409);
+            await connection.query(`UPDATE advance_listing_services SET listing_limit = ? WHERE visit_type = ?`, [limit, visitType]);
+            message = `The ${visitType} listing limit is now ${limit}.`;
+        }
+        if (req.body.is_open !== undefined) {
+            const wantOpen = toFlag(req.body.is_open) === 1;
+            if (wantOpen) {
+                if (service.scheduled) throw new BookingError(`${visitType} already has a schedule, so it moved to the Session Listing.`, 409);
+                if (!state.is_open) throw new BookingError('The advance listing is closed. Open it first in the settings.', 409);
+            }
+            await connection.query(`UPDATE advance_listing_services SET is_open = ? WHERE visit_type = ?`, [wantOpen ? 1 : 0, visitType]);
+            message = wantOpen ? `${visitType} is open for the advance listing.` : `${visitType} is closed for the advance listing. Registered students keep their numbers.`;
+        }
+        if (!message) throw new BookingError('Nothing to change.', 400);
+        await connection.commit();
+    } catch (error) {
+        await connection.rollback();
+        connection.release();
+        if (error instanceof BookingError) return res.status(error.status).json({ success: false, message: error.message });
+        console.error('Error changing an advance listing service:', error);
+        return res.status(500).json({ success: false, message: 'Failed to change the service' });
+    }
+    connection.release();
+    res.json({ success: true, message, ...(await advanceStateOf(pool)) });
+});
+
+// The past advance listings (closed ones), newest first, with what became of the requests
+app.get('/api/advance-listing/history', async (req, res) => {
+    try {
+        await ensureAdvanceListing();
+        await advanceStateOf(pool);
+        const [listings] = await pool.query(`SELECT * FROM advance_listings WHERE closed_at IS NOT NULL ORDER BY closed_at DESC, opened_at DESC`);
+        const [counts] = await pool.query(
+            `SELECT listing_id, visit_type, COUNT(*) AS requests, SUM(status IN ('Waiting', 'Scheduled', 'Removed')) AS registered, SUM(status = 'Scheduled') AS scheduled,
+                    SUM(status = 'Waiting') AS waiting, SUM(status = 'Denied') AS declined, SUM(status IN ('Withdrawn', 'Removed')) AS left_listing
+             FROM advance_listing_entries WHERE listing_id IS NOT NULL GROUP BY listing_id, visit_type`
+        );
+        res.json({
+            success: true,
+            listings: listings.map((l) => {
+                let snapshot = [];
+                try { snapshot = JSON.parse(l.services_json || '[]'); } catch (e) { snapshot = []; }
+                const rows = counts.filter((c) => c.listing_id === l.listing_id);
+                const types = [...new Set([...snapshot.map((s) => s.visit_type), ...rows.map((r) => r.visit_type)])].sort();
+                const services = types.map((t) => {
+                    const r = rows.find((x) => x.visit_type === t) || {};
+                    const s = snapshot.find((x) => x.visit_type === t);
+                    return { visit_type: t, listing_limit: s ? Number(s.listing_limit) : null, requests: Number(r.requests || 0), registered: Number(r.registered || 0), scheduled: Number(r.scheduled || 0), waiting: Number(r.waiting || 0), declined: Number(r.declined || 0), left_listing: Number(r.left_listing || 0) };
+                });
+                const sum = (k) => services.reduce((n, s) => n + s[k], 0);
+                return {
+                    listing_id: l.listing_id, title: l.title, opened_at: l.opened_at, closed_at: l.closed_at, close_reason: l.close_reason, services,
+                    requests: sum('requests'), registered: sum('registered'), scheduled: sum('scheduled'), waiting: sum('waiting'), declined: sum('declined')
+                };
+            })
+        });
+    } catch (error) {
+        console.error('Error loading the past advance listings:', error);
+        res.status(500).json({ success: false, message: 'Failed to load the past advance listings' });
+    }
+});
+
+// The student registers in the advance listing for ONE check-up service and gets the next advance number of that service.
+// The nurse can also add a student by hand (manual = true): same number and limit rules, but it works while the listing is closed.
+const nextAdvanceNo = async (conn, visitType) => {
+    const [[next]] = await conn.query(
+        `SELECT COALESCE(MAX(e.advance_no), 0) + 1 AS n FROM advance_listing_entries e WHERE e.visit_type = ? AND ${ADVANCE_ACTIVE_SQL}`, [visitType]
+    );
+    return Number(next.n);
+};
+
+const registerAdvance = async (req, res, manual) => {
+    const { student_id } = req.body;
+    const visitType = String(req.body.visit_type || '').trim();
+    const reason = textOrNull(req.body.reason);
+    if (!student_id) return res.status(400).json({ success: false, message: manual ? 'Choose the student.' : 'Student ID is required.' });
+    if (!visitType) return res.status(400).json({ success: false, message: 'Pick the check-up service you need.' });
+    if (!reason) return res.status(400).json({ success: false, message: 'Please tell the clinic the reason for your check-up.' });
+    if (reason.length > 255) return res.status(400).json({ success: false, message: 'The reason can be at most 255 characters.' });
+
+    const connection = await pool.getConnection();
+    let created = null;
+    let addedStudent = null;
+    try {
+        await ensureAdvanceListing();
+        if (manual) {
+            const actor = await resolveActor(pool, req.body.sender_id || null);
+            if (actor.role !== 'Nurse') { connection.release(); return res.status(403).json({ success: false, message: 'Only the nurse can add a student to the advance listing.' }); }
+        }
+        await connection.beginTransaction();
+        // the settings row is the lock: numbers and limits are checked after it, so two students never get the same number or pass the limit
+        await connection.query(`SELECT setting_id FROM advance_listing_settings WHERE setting_id = 1 FOR UPDATE`);
+        const [[student]] = await connection.query(`SELECT student_id, user_id, first_name, last_name FROM students WHERE student_id = ?`, [student_id]);
+        if (!student) throw new BookingError('Student not found.', 404);
+        const state = await advanceStateOf(connection);
+        if (!manual && !state.is_open) throw new BookingError('The advance listing is closed. Please check again when the nurse opens it.');
+        const service = state.services.find((s) => s.visit_type === visitType && s.offered);
+        if (!service) throw new BookingError(`${visitType} is not offered in the advance listing.`);
+        const mine = await advanceEntryOf(connection, student_id);
+        if (mine) throw new BookingError(manual
+            ? `${student.first_name} ${student.last_name} is already in the advance listing (${mine.visit_type}, ${mine.label}).`
+            : `You are already in the advance listing (${mine.visit_type}, ${mine.label}). You can register again after that check-up.`, 409);
+        if (service.scheduled) throw new BookingError(`${visitType} already has a schedule, so it is no longer open for the advance listing.${manual ? ' Add the student from the Session Listing instead.' : ' Ask for a place in its session listing instead.'}`, 409);
+        if (!manual && !service.service_open) throw new BookingError(`The ${visitType} advance listing is closed. Please check again when the nurse opens it.`);
+        if (service.listing_full) throw new BookingError(`The ${visitType} advance listing is full (${service.registered} of ${service.listing_limit}).${manual ? ' Raise its limit in the settings first.' : ' Please choose another service.'}`);
+        addedStudent = student;
+
+        // a student's request is reviewed first (no number yet); the nurse adding a student is the review, so that one is accepted at once
+        const advanceNo = manual ? await nextAdvanceNo(connection, visitType) : 0;
+        const entryId = await generateCustomIdWithRetry(connection, 'ADVL', 'advance_listing_entries', 'entry_id', async (id) => {
+            await connection.query(
+                `INSERT INTO advance_listing_entries (entry_id, student_id, visit_type, reason, advance_no, status, listing_id) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                [id, student_id, visitType, reason, advanceNo, manual ? 'Waiting' : 'Pending', state.listing ? state.listing.listing_id : null]
+            );
+        });
+        await connection.commit();
+        created = { entryId, advanceNo };
+    } catch (error) {
+        await connection.rollback();
+        connection.release();
+        if (error instanceof BookingError) return res.status(error.status).json({ success: false, message: error.message });
+        console.error('Error registering in the advance listing:', error);
+        return res.status(500).json({ success: false, message: 'Failed to register in the advance listing' });
+    }
+    connection.release();
+    if (manual) {
+        try {
+            await notifyUsers({
+                sender_id: req.body.sender_id || null, recipient_ids: await getStudentAndParentUserIds(student_id), title: 'Added to the Advance Listing',
+                message: `The clinic added you to the ${visitType} advance listing with number ${advanceLabel(created.advanceNo)}. You get your queue number when a doctor sets the schedule.`,
+                type: 'ADVANCE_LISTING', payloadData: { entry_id: created.entryId }
+            });
+        } catch (e) { console.error('Advance listing add notification failed:', e.message); }
+    } else {
+        try {
+            await notifyUsers({
+                sender_id: student_id, recipient_ids: await getNurseUserIds(), title: 'Advance Listing Request',
+                message: `${addedStudent.first_name} ${addedStudent.last_name} asked for a place in the ${visitType} advance listing. Accept or decline the request.`,
+                type: 'ADVANCE_LISTING', payloadData: { entry_id: created.entryId }
+            });
+        } catch (e) { console.error('Advance listing request notification failed:', e.message); }
+    }
+    res.status(201).json({
+        success: true, entry_id: created.entryId, advance_no: created.advanceNo || null, label: created.advanceNo ? advanceLabel(created.advanceNo) : null,
+        message: manual
+            ? `${addedStudent.first_name} ${addedStudent.last_name} was added to the ${visitType} advance listing with number ${advanceLabel(created.advanceNo)}.`
+            : `Your ${visitType} advance listing request was sent. The nurse reviews it first: you get your advance number once it is accepted.`
+    });
+};
+app.post('/api/student/advance-listing', (req, res) => registerAdvance(req, res, false));
+app.post('/api/advance-listing/entries', (req, res) => registerAdvance(req, res, true));
+
+app.put('/api/student/advance-listing/:id/withdraw', async (req, res) => {
+    const { student_id } = req.body;
+    if (!student_id) return res.status(400).json({ success: false, message: 'Student ID is required.' });
+    try {
+        await ensureAdvanceListing();
+        const [result] = await pool.query(
+            `UPDATE advance_listing_entries SET status = 'Withdrawn' WHERE entry_id = ? AND student_id = ? AND status IN ('Pending', 'Waiting')`, [req.params.id, student_id]
+        );
+        if (result.affectedRows === 0) return res.status(409).json({ success: false, message: 'You can only leave the advance listing while your request is pending or you wait for a schedule. Ask the nurse if you already have a queue number.' });
+        res.json({ success: true, message: 'You left the advance listing.' });
+    } catch (error) {
+        console.error('Error withdrawing from the advance listing:', error);
+        res.status(500).json({ success: false, message: 'Failed to leave the advance listing' });
+    }
+});
+
+// The registered students, for the nurse and the doctor. ?visit_type= one service, ?scope=active (default) | all
+app.get('/api/advance-listing/entries', async (req, res) => {
+    try {
+        await ensureAdvanceListing();
+        const where = [];
+        const params = [];
+        if (req.query.visit_type) { where.push('e.visit_type = ?'); params.push(req.query.visit_type); }
+        if (req.query.listing_id) { where.push('e.listing_id = ?'); params.push(req.query.listing_id); }
+        else if (req.query.scope === 'all') where.push(`(${ADVANCE_ACTIVE_SQL} OR e.status = 'Pending' OR e.updated_at >= DATE_SUB(NOW(), INTERVAL 60 DAY))`);
+        else where.push(`(${ADVANCE_ACTIVE_SQL} OR e.status IN ('Pending', 'Scheduled'))`); // students moved to a session stay in the list
+        const [rows] = await pool.query(`${ADVANCE_ENTRY_SELECT} WHERE ${where.join(' AND ')} ORDER BY e.visit_type ASC, (e.status = 'Pending') DESC, e.advance_no ASC, e.created_at ASC`, params);
+        res.json({ success: true, entries: rows.map(formatAdvanceEntry) });
+    } catch (error) {
+        console.error('Error loading the advance listing entries:', error);
+        res.status(500).json({ success: false, message: 'Failed to load the advance listing students' });
+    }
+});
+
+// The nurse reviews a student's request first: accept = the student is in the listing with the next advance number of the service, deny = reason shown to the student
+app.put('/api/advance-listing/entries/:id/accept', async (req, res) => {
+    const senderId = req.body.sender_id || null;
+    const connection = await pool.getConnection();
+    let accepted = null;
+    try {
+        await ensureAdvanceListing();
+        const actor = await resolveActor(pool, senderId);
+        if (actor.role !== 'Nurse') { connection.release(); return res.status(403).json({ success: false, message: 'Only the nurse accepts advance listing requests.' }); }
+        await connection.beginTransaction();
+        await connection.query(`SELECT setting_id FROM advance_listing_settings WHERE setting_id = 1 FOR UPDATE`);
+        const [[entry]] = await connection.query(`SELECT * FROM advance_listing_entries WHERE entry_id = ? FOR UPDATE`, [req.params.id]);
+        if (!entry) throw new BookingError('Request not found.', 404);
+        if (entry.status !== 'Pending') throw new BookingError('This request was already answered or withdrawn.', 409);
+        const state = await advanceStateOf(connection);
+        const service = state.services.find((s) => s.visit_type === entry.visit_type && s.offered);
+        if (!service) throw new BookingError(`${entry.visit_type} is not offered in the advance listing now.`);
+        if (service.scheduled) throw new BookingError(`${entry.visit_type} already has a schedule, so it is no longer open for the advance listing. Decline the request and tell the student to ask for a place in the session listing.`, 409);
+        if (service.listing_full) throw new BookingError(`The ${entry.visit_type} advance listing is full (${service.registered} of ${service.listing_limit}). Raise its limit in the settings first.`);
+        const advanceNo = await nextAdvanceNo(connection, entry.visit_type);
+        await connection.query(`UPDATE advance_listing_entries SET status = 'Waiting', advance_no = ? WHERE entry_id = ?`, [advanceNo, entry.entry_id]);
+        await connection.commit();
+        accepted = { entry, advanceNo };
+    } catch (error) {
+        await connection.rollback();
+        connection.release();
+        if (error instanceof BookingError) return res.status(error.status).json({ success: false, message: error.message });
+        console.error('Error accepting an advance listing request:', error);
+        return res.status(500).json({ success: false, message: 'Failed to accept the request' });
+    }
+    connection.release();
+    try {
+        await notifyUsers({
+            sender_id: senderId, recipient_ids: await getStudentAndParentUserIds(accepted.entry.student_id), title: 'Advance Listing Request Accepted',
+            message: `Your ${accepted.entry.visit_type} advance listing request was accepted. Your advance number is ${advanceLabel(accepted.advanceNo)}. You get your queue number when a doctor sets the schedule.`,
+            type: 'ADVANCE_LISTING', payloadData: { entry_id: accepted.entry.entry_id }
+        });
+    } catch (e) { console.error('Advance listing accept notification failed:', e.message); }
+    res.json({ success: true, advance_no: accepted.advanceNo, label: advanceLabel(accepted.advanceNo), message: `Accepted: advance number ${advanceLabel(accepted.advanceNo)}.` });
+});
+
+app.put('/api/advance-listing/entries/:id/deny', async (req, res) => {
+    const senderId = req.body.sender_id || null;
+    const reason = textOrNull(req.body.reason);
+    if (!reason) return res.status(400).json({ success: false, message: 'Please give the student a reason.' });
+    try {
+        await ensureAdvanceListing();
+        const actor = await resolveActor(pool, senderId);
+        if (actor.role !== 'Nurse') return res.status(403).json({ success: false, message: 'Only the nurse declines advance listing requests.' });
+        const [[entry]] = await pool.query(`SELECT * FROM advance_listing_entries WHERE entry_id = ?`, [req.params.id]);
+        if (!entry) return res.status(404).json({ success: false, message: 'Request not found.' });
+        const [result] = await pool.query(
+            `UPDATE advance_listing_entries SET status = 'Denied', remove_reason = ? WHERE entry_id = ? AND status = 'Pending'`, [reason.slice(0, 255), entry.entry_id]
+        );
+        if (result.affectedRows === 0) return res.status(409).json({ success: false, message: 'This request was already answered or withdrawn.' });
+        try {
+            await notifyUsers({
+                sender_id: senderId, recipient_ids: await getStudentAndParentUserIds(entry.student_id), title: 'Advance Listing Request Declined',
+                message: `Your ${entry.visit_type} advance listing request was declined: ${reason}`, type: 'ADVANCE_LISTING', payloadData: { entry_id: entry.entry_id }
+            });
+        } catch (e) { console.error('Advance listing decline notification failed:', e.message); }
+        res.json({ success: true, message: 'The request was declined.' });
+    } catch (error) {
+        console.error('Error declining an advance listing request:', error);
+        res.status(500).json({ success: false, message: 'Failed to decline the request' });
+    }
+});
+
+// The nurse takes a waiting student off the advance listing (with a reason the student sees)
+app.put('/api/advance-listing/entries/:id/remove', async (req, res) => {
+    const senderId = req.body.sender_id || null;
+    const reason = textOrNull(req.body.reason);
+    if (!reason) return res.status(400).json({ success: false, message: 'Please give the student a reason.' });
+    try {
+        await ensureAdvanceListing();
+        const actor = await resolveActor(pool, senderId);
+        if (actor.role !== 'Nurse') return res.status(403).json({ success: false, message: 'Only the nurse can remove a student from the advance listing.' });
+        const [[entry]] = await pool.query(`SELECT * FROM advance_listing_entries WHERE entry_id = ?`, [req.params.id]);
+        if (!entry) return res.status(404).json({ success: false, message: 'Entry not found.' });
+        const [result] = await pool.query(
+            `UPDATE advance_listing_entries SET status = 'Removed', remove_reason = ? WHERE entry_id = ? AND status = 'Waiting'`, [reason.slice(0, 255), entry.entry_id]
+        );
+        if (result.affectedRows === 0) return res.status(409).json({ success: false, message: 'This student already has a queue number or left the listing.' });
+        try {
+            await notifyUsers({
+                sender_id: senderId, recipient_ids: await getStudentAndParentUserIds(entry.student_id), title: 'Removed From the Advance Listing',
+                message: `You were taken off the ${entry.visit_type} advance listing (${advanceLabel(entry.advance_no)}): ${reason}`, type: 'ADVANCE_LISTING', payloadData: { entry_id: entry.entry_id }
+            });
+        } catch (e) { console.error('Advance listing removal notification failed:', e.message); }
+        res.json({ success: true, message: 'The student was removed from the advance listing.' });
+    } catch (error) {
+        console.error('Error removing from the advance listing:', error);
+        res.status(500).json({ success: false, message: 'Failed to remove the student' });
+    }
+});
+
+// After the doctor set a schedule that answers an advance listing request: the waiting students take the first queue numbers (order of their advance
+// number), up to the listing limit, and the places left are opened for the students who are not in the advance listing.
+const placeAdvanceEntries = async (scheduleId, senderUserId) => {
+    await ensureAdvanceListing();
+    const [[schedule]] = await pool.query(`SELECT * FROM doctor_schedules WHERE schedule_id = ?`, [scheduleId]);
+    const none = { placed: 0, waiting_left: 0, places_left: 0 };
+    if (!schedule || schedule.status !== 'Open') return none;
+    const date = nextUpcomingOccurrence(schedule);
+    if (!date) return none;
+    const [entries] = await pool.query(
+        `SELECT * FROM advance_listing_entries WHERE status = 'Waiting' ${schedule.visit_type === 'Any' ? '' : 'AND visit_type = ?'} ORDER BY created_at ASC, advance_no ASC`,
+        schedule.visit_type === 'Any' ? [] : [schedule.visit_type]
+    );
+    let placed = 0;
+    let doctorForNote = null;
+    for (const entry of entries) {
+        const connection = await pool.getConnection();
+        let result = null;
+        let full = false;
+        try {
+            await connection.beginTransaction();
+            const [[locked]] = await connection.query(`SELECT * FROM doctor_schedules WHERE schedule_id = ? FOR UPDATE`, [scheduleId]);
+            const { accepted } = await scheduleListingCounts(connection, scheduleId, date);
+            if (accepted >= listingLimitOf(locked)) { full = true; throw new BookingError('The session is full.'); }
+            const doctor = await lockDoctor(connection, locked.doctor_id);
+            doctorForNote = doctor;
+            const refusal = visitRefusal(doctor, entry.visit_type);
+            if (refusal) throw new BookingError(refusal);
+            const [[fresh]] = await connection.query(`SELECT status FROM advance_listing_entries WHERE entry_id = ? FOR UPDATE`, [entry.entry_id]);
+            if (!fresh || fresh.status !== 'Waiting') throw new BookingError('This student left the advance listing.');
+            const appointed = await appointIntoSchedule(connection, {
+                schedule: locked, doctor, studentId: entry.student_id, request: null, date, visitType: entry.visit_type, purposeOther: null, reason: entry.reason,
+                creator: { nurseId: null, doctorId: locked.doctor_id, userId: senderUserId, name: doctorDisplayName(doctor) }, how: `Advance listing ${advanceLabel(entry.advance_no)}`
+            });
+            await connection.query(
+                `UPDATE advance_listing_entries SET status = 'Scheduled', schedule_id = ?, session_date = ?, appointment_id = ? WHERE entry_id = ?`,
+                [scheduleId, date, appointed.appointmentId, entry.entry_id]
+            );
+            await connection.commit();
+            result = { appointed, doctor };
+        } catch (error) {
+            await connection.rollback();
+            if (!(error instanceof BookingError)) console.error('Could not place an advance listing student:', error.message);
+        } finally {
+            connection.release();
+        }
+        if (result) {
+            placed += 1;
+            await notifyAppointed({
+                appointed: result.appointed, studentId: entry.student_id, visitType: entry.visit_type, purposeOther: null,
+                doctor: result.doctor, senderId: senderUserId, actor: { role: 'Doctor', name: doctorDisplayName(result.doctor) }
+            });
+        }
+        if (full) break;
+    }
+
+    // the places left of the listing limit are for the students who are not in the advance listing: open the listing for them
+    const { accepted } = await scheduleListingCounts(pool, scheduleId, date);
+    const placesLeft = Math.max(listingLimitOf(schedule) - accepted, 0);
+    if (placesLeft > 0) await pool.query(`UPDATE doctor_schedules SET listing_open = 1, listing_opened_at = NOW() WHERE schedule_id = ?`, [scheduleId]);
+    const [[stillWaiting]] = await pool.query(
+        `SELECT COUNT(*) AS n FROM advance_listing_entries WHERE status = 'Waiting' ${schedule.visit_type === 'Any' ? '' : 'AND visit_type = ?'}`,
+        schedule.visit_type === 'Any' ? [] : [schedule.visit_type]
+    );
+    try {
+        await notifyUsers({
+            sender_id: senderUserId, recipient_ids: await getNurseUserIds(), title: 'Advance Listing Scheduled',
+            message: `${doctorForNote ? doctorDisplayName(doctorForNote) : 'The doctor'} set the ${schedule.visit_type === 'Any' ? '' : `${schedule.visit_type} `}session of ${fmtSessionWhen(date, schedule.start_time, schedule.end_time)}. `
+                + `${placed} advance listing student(s) got the first queue numbers. ${placesLeft > 0 ? `${placesLeft} place(s) are open for the students who are not in the advance listing.` : 'The session is full.'}`
+                + `${Number(stillWaiting.n) > 0 ? ` ${stillWaiting.n} student(s) still wait in the advance listing: request another schedule.` : ''}`,
+            type: 'SCHEDULE_UPDATE', payloadData: { schedule_id: scheduleId }
+        });
+    } catch (e) { console.error('Advance listing schedule notification failed:', e.message); }
+    return { placed, waiting_left: Number(stillWaiting.n), places_left: placesLeft };
+};
+
 // ---- Announcements for students: walk-in and appointment sessions are not bookable, but students should know about them ----
 
 // The listings a student can ask a place in: schedules the doctor set and the nurse opened, with the limit and how many are accepted.
@@ -11046,6 +13077,9 @@ app.put('/api/doctor-visits/extend/:appointment_id', async (req, res) => {
 app.get('/api/student/:studentId/open-listings', async (req, res) => {
     try {
         await ensureScheduleListingColumns();
+        // a student in the advance listing already has a number (or waits for a schedule), so the open places are for the other students
+        const inAdvance = await advanceEntryOf(pool, req.params.studentId);
+        if (inAdvance) return res.json({ success: true, listings: [], in_advance: true, advance: inAdvance });
         const [schedules] = await pool.query(
             `SELECT ds.*, d.first_name AS doc_first_name, d.last_name AS doc_last_name, d.specialization, d.services_offered
              FROM doctor_schedules ds JOIN doctors d ON d.doctor_id = ds.doctor_id
@@ -11058,19 +13092,31 @@ app.get('/api/student/:studentId/open-listings', async (req, res) => {
         );
         const today = nowManilaStr().slice(0, 10);
         const [unavailable] = await pool.query(`SELECT * FROM doctor_unavailable_dates WHERE end_date >= ?`, [today]);
+        // a number the student already holds in a session, whatever way it was given (accepted listing, appointed by staff, follow-up)
+        const [numbers] = await pool.query(
+            `SELECT da.schedule_id, DATE(da.start_time) AS day, da.queue_lane, da.queue_no
+             FROM doctor_appointments da JOIN doctor_appointment_students das ON das.appointment_id = da.appointment_id
+             WHERE das.student_id = ? AND da.schedule_id IS NOT NULL AND da.queue_state IS NOT NULL AND da.status NOT IN ('Cancelled', 'Declined') AND DATE(da.start_time) >= ?`,
+            [req.params.studentId, today]
+        );
         const listings = [];
         for (const s of schedules) {
             const state = await scheduleListingOf(pool, s);
             if (!state.listing_date) continue;
             if (unavailable.some((u) => u.doctor_id === s.doctor_id && !u.start_time && u.start_date <= state.listing_date && u.end_date >= state.listing_date)) continue;
-            const mine = mineRows.find((m) => m.listing_schedule_id === s.schedule_id && String(m.listing_date).slice(0, 10) === state.listing_date) || null;
+            const held = numbers.find((n) => n.schedule_id === s.schedule_id && String(n.day).slice(0, 10) === state.listing_date);
+            const asked = mineRows.find((m) => m.listing_schedule_id === s.schedule_id && String(m.listing_date).slice(0, 10) === state.listing_date) || null;
+            const mine = held
+                ? { request_id: asked ? asked.request_id : null, status: 'Appointed', queue_no: held.queue_no, label: held.queue_lane === 'Walk-in' ? `W${held.queue_no}` : `#${held.queue_no}` }
+                : asked;
             const covered = doctorCoverage(s).covered_visit_types.filter((t) => VISIT_PURPOSES.includes(t));
             listings.push({
                 schedule_id: s.schedule_id, date: state.listing_date, doctor_name: `Dr. ${s.doc_first_name} ${s.doc_last_name}`, specialization: s.specialization,
                 visit_type: s.visit_type, purposes: s.visit_type === 'Any' ? covered : [s.visit_type],
                 start_time: s.start_time, end_time: s.end_time, location: s.location, notes: s.notes,
-                listing_limit: state.listing_limit, accepted: state.accepted, listing_full: state.listing_full, can_request: state.can_request && !mine,
-                mine: mine ? { request_id: mine.request_id, status: mine.status, queue_no: mine.queue_no } : null
+                listing_limit: state.listing_limit, accepted: state.accepted, advance: state.advance, regular: state.regular, places_left: state.places_left,
+                listing_full: state.listing_full, can_request: state.can_request && !mine,
+                mine: mine ? { request_id: mine.request_id, status: mine.status, queue_no: mine.queue_no, label: mine.label || (mine.queue_no ? `#${mine.queue_no}` : null) } : null
             });
         }
         listings.sort((a, b) => `${a.date} ${a.start_time}`.localeCompare(`${b.date} ${b.start_time}`));
@@ -11131,7 +13177,7 @@ app.get('/api/schedule-calendar', async (req, res) => {
         );
         const [appts] = await pool.query(
             `SELECT da.appointment_id, da.doctor_id, da.schedule_id, da.start_time, da.end_time, da.status, da.visit_type, da.purpose_other, da.booking_source, da.booking_reason,
-                    da.queue_lane, da.queue_no, da.queue_state,
+                    da.queue_lane, da.queue_no, da.queue_state, ${APPOINTED_HOW_SQL},
                     da.extended_minutes, das.student_id, das.attendance_status, s.first_name, s.last_name,
                     d.first_name AS doc_first_name, d.last_name AS doc_last_name
              FROM doctor_appointments da
@@ -11149,6 +13195,13 @@ app.get('/api/schedule-calendar', async (req, res) => {
             doctor_id ? [from, to, doctor_id] : [from, to]
         );
 
+        await ensureAdvanceListing();
+        const [advRows] = await pool.query(`SELECT appointment_id FROM advance_listing_entries WHERE appointment_id IS NOT NULL AND session_date BETWEEN ? AND ?`, [from, to]);
+        const advanceIds = new Set(advRows.map((r) => r.appointment_id));
+        await ensureSessionEndTable();
+        const [endRows] = await pool.query(`SELECT schedule_id, DATE_FORMAT(session_date, '%Y-%m-%d') AS day FROM session_end_confirmations WHERE session_date BETWEEN ? AND ?`, [from, to]);
+        const endedKeys = new Set(endRows.map((r) => `${r.schedule_id}|${r.day}`));
+        const phaseOfSession = new Map();
         const sessions = [];
         for (let d = from; d <= to; d = addDaysStr(d, 1)) {
             for (const s of schedules) {
@@ -11158,9 +13211,11 @@ app.get('/api/schedule-calendar', async (req, res) => {
                 const queued = inWindow.filter((a) => a.queue_state);
                 const serving = queued.find((a) => a.queue_state === 'Serving');
                 const slotCount = Math.max(Math.floor((hmsToMin(s.end_time) - hmsToMin(s.start_time)) / s.slot_duration_min), 0);
-                const nowCal = nowManilaStr();
-                const sessionState = `${d} ${s.end_time}` <= nowCal ? 'past' : `${d} ${s.start_time}` <= nowCal ? 'ongoing' : 'upcoming';
+                const phase = sessionPhaseOf(s, d, nowManilaStr(), endedKeys.has(`${s.schedule_id}|${d}`));
+                const sessionState = phase.state;
+                phaseOfSession.set(`${s.schedule_id}|${d}`, phase);
                 sessions.push({
+                    awaiting_end: phase.awaiting_end, end_confirmed: phase.end_confirmed,
                     schedule_id: s.schedule_id, date: d, doctor_id: s.doctor_id, doctor_name: `Dr. ${s.doc_first_name} ${s.doc_last_name}`, specialization: s.specialization,
                     covered_visit_types: doctorCoverage(s).covered_visit_types,
                     schedule_type: s.schedule_type, allow_appointment: s.allow_appointment, allow_open_booking: s.allow_open_booking, allow_walk_in: s.allow_walk_in,
@@ -11172,7 +13227,13 @@ app.get('/api/schedule-calendar', async (req, res) => {
                     capacity: queueCapacity(s),
                     // how the students of this session were scheduled: appointed by staff (listed queue) or walked in
                     by_appointment: inWindow.filter((a) => a.booking_source !== 'Walk-in').length,
+                    by_listing: inWindow.filter((a) => a.how === 'listing').length,
+                    by_nurse: inWindow.filter((a) => a.how === 'nurse').length,
+                    by_doctor: inWindow.filter((a) => a.how === 'doctor').length,
                     by_walk_in: inWindow.filter((a) => a.booking_source === 'Walk-in').length,
+                    // advance listing students hold the first numbers; the students who asked for the places left come after them
+                    by_advance: inWindow.filter((a) => advanceIds.has(a.appointment_id) && a.status !== 'Cancelled' && a.queue_state !== 'Void').length,
+                    listing_open: !!s.listing_open, listing_limit: listingLimitOf(s),
                     booked: inWindow.length,
                     queue_serving: serving ? queueLabel(serving.queue_lane, serving.queue_no) : null,
                     queue_waiting: queued.filter((a) => a.queue_state === 'Waiting').length,
@@ -11188,8 +13249,10 @@ app.get('/api/schedule-calendar', async (req, res) => {
             appointments: appts.map((a) => ({
                 appointment_id: a.appointment_id, doctor_id: a.doctor_id, doctor_name: `Dr. ${a.doc_first_name} ${a.doc_last_name}`, schedule_id: a.schedule_id,
                 date: a.start_time.slice(0, 10), start_time: a.start_time, end_time: a.end_time, status: a.status, visit_type: a.visit_type, purpose_other: a.purpose_other,
-                state: a.end_time <= nowManilaStr() ? 'past' : a.start_time <= nowManilaStr() ? 'ongoing' : 'upcoming',
-                booking_source: a.booking_source, booking_reason: a.booking_reason, extended_minutes: a.extended_minutes, attendance_status: a.attendance_status,
+                // a queue entry follows its session (which stays on going until the end is confirmed)
+                state: (a.queue_state && phaseOfSession.get(`${a.schedule_id}|${a.start_time.slice(0, 10)}`)?.state)
+                    || (a.end_time <= nowManilaStr() ? 'past' : a.start_time <= nowManilaStr() ? 'ongoing' : 'upcoming'),
+                booking_source: a.booking_source, how: a.how, booking_reason: a.booking_reason, extended_minutes: a.extended_minutes, attendance_status: a.attendance_status,
                 queue_lane: a.queue_lane, queue_no: a.queue_no, queue_state: a.queue_state, queue_label: a.queue_state ? queueLabel(a.queue_lane, a.queue_no) : null,
                 student_id: a.student_id, student_name: `${a.first_name} ${a.last_name}`
             })),
@@ -11202,6 +13265,14 @@ app.get('/api/schedule-calendar', async (req, res) => {
 });
 
 // Everyone who has a place in one session (one date of one schedule): appointed (listed queue) or walked in (walk-in lane).
+// How a student got a place in a session: accepted from the listing (the appointment is linked to a listing request), put there by a doctor or a nurse, or walked in
+const APPOINTED_HOW_SQL = `CASE
+    WHEN da.booking_source = 'Walk-in' THEN 'walk_in'
+    WHEN EXISTS (SELECT 1 FROM consultation_requests cr WHERE cr.request_id = da.request_id AND cr.listing_schedule_id IS NOT NULL) THEN 'listing'
+    WHEN da.booking_source = 'Doctor' THEN 'doctor'
+    ELSE 'nurse'
+END AS how`;
+
 app.get('/api/doctor-schedules/:id/participants', async (req, res) => {
     try {
         const date = req.query.date;
@@ -11212,12 +13283,13 @@ app.get('/api/doctor-schedules/:id/participants', async (req, res) => {
 
         const [rows] = await pool.query(
             `SELECT da.appointment_id, da.start_time, da.end_time, da.status, da.visit_type, da.purpose_other, da.booking_source, da.booking_reason, da.extended_minutes,
-                    da.queue_lane, da.queue_no, da.queue_state,
-                    das.student_id, das.attendance_status, s.first_name, s.last_name, s.year_level, s.section, p.program_name
+                    da.queue_lane, da.queue_no, da.queue_state, ${APPOINTED_HOW_SQL}, ale.advance_no,
+                    das.student_id, das.attendance_status, s.first_name, s.last_name, s.year_level, s.section, s.program_id, p.program_name
              FROM doctor_appointments da
              JOIN doctor_appointment_students das ON das.appointment_id = da.appointment_id
              JOIN students s ON s.student_id = das.student_id
              LEFT JOIN academic_programs p ON p.program_id = s.program_id
+             LEFT JOIN advance_listing_entries ale ON ale.appointment_id = da.appointment_id
              WHERE da.doctor_id = ? AND da.status IN ('Scheduled', 'Completed')
                AND da.start_time >= ? AND da.start_time < ?
              ORDER BY da.queue_lane IS NULL, FIELD(da.queue_lane, 'Listed', 'Walk-in'), da.queue_no ASC, da.start_time ASC, s.last_name ASC`,
@@ -11227,10 +13299,11 @@ app.get('/api/doctor-schedules/:id/participants', async (req, res) => {
             success: true,
             participants: rows.map((a) => ({
                 appointment_id: a.appointment_id, student_id: a.student_id, student_name: `${a.first_name} ${a.last_name}`,
-                program_name: a.program_name, year_level: a.year_level, section: a.section,
+                program_id: a.program_id, program_name: a.program_name, year_level: a.year_level, section: a.section, how: a.how,
                 start_time: a.start_time, end_time: a.end_time, status: a.status, attendance_status: a.attendance_status,
                 visit_type: a.visit_type, purpose_other: a.purpose_other, booking_source: a.booking_source, booking_reason: a.booking_reason, extended_minutes: a.extended_minutes,
-                queue_lane: a.queue_lane, queue_no: a.queue_no, queue_state: a.queue_state, queue_label: a.queue_state ? queueLabel(a.queue_lane, a.queue_no) : null
+                queue_lane: a.queue_lane, queue_no: a.queue_no, queue_state: a.queue_state, queue_label: a.queue_state ? queueLabel(a.queue_lane, a.queue_no) : null,
+                advance_label: a.advance_no ? advanceLabel(a.advance_no) : null
             }))
         });
     } catch (error) {
@@ -11745,6 +13818,7 @@ const markExpiredAppointmentsAbsent = async () => {
         JOIN doctor_appointments da ON das.appointment_id = da.appointment_id
         SET das.attendance_status = 'Absent'
         WHERE das.attendance_status = 'Pending' AND da.end_time < NOW() AND da.status = 'Scheduled'
+          AND NOT ${AWAITING_END_SQL}
     `);
     return result.affectedRows;
 };
@@ -11757,7 +13831,8 @@ const closeFinishedQueues = async () => {
          FROM doctor_appointments da
          JOIN doctor_appointment_students das ON das.appointment_id = da.appointment_id
          JOIN students s ON s.student_id = das.student_id
-         WHERE da.queue_state IN ('Waiting', 'Serving') AND da.status = 'Scheduled' AND da.end_time < NOW()`
+         WHERE da.queue_state IN ('Waiting', 'Serving') AND da.status = 'Scheduled' AND da.end_time < NOW()
+           AND NOT ${AWAITING_END_SQL}`
     );
     for (const r of rows) {
         const label = queueLabel(r.queue_lane, r.queue_no);
@@ -11787,7 +13862,8 @@ const closeFinishedQueues = async () => {
 
 const runPastVisitJobs = () => {
     // the queue first: cancelled leftovers must not be marked absent
-    closeFinishedQueues()
+    ensureSessionEndTable()
+        .then(() => closeFinishedQueues())
         .catch((err) => console.error('Close finished queues job failed:', err.message))
         .then(() => markExpiredAppointmentsAbsent())
         .catch((err) => console.error('Auto-absent job failed:', err.message));
@@ -11814,6 +13890,7 @@ const DOCTOR_VISIT_SELECT = `
                 da_assessment.chief_complaint, da_assessment.visit_type AS assessment_visit_type,
                 da_assessment.documented_by_role, da_assessment.documented_by_name,
                 da.extended_minutes, da.request_id,
+                (SELECT sch.template_id FROM doctor_schedules sch WHERE sch.schedule_id = da.schedule_id) AS schedule_template_id,
                 da_assessment.referral_facility, da_assessment.referral_reason, da_assessment.referral_issued_at,
                 dr.oral_hygiene, dr.caries_count, dr.missing_count, dr.filled_count, dr.gum_condition,
                 dr.malocclusion, dr.tooth_notes, dr.treatment_done, dr.treatment_needed,
@@ -12012,7 +14089,8 @@ app.put('/api/doctor-visits/status/:appointment_id', async (req, res) => {
 
         const sets = ['attendance_status = ?'];
         const params = [status];
-        if (status === 'Present') { sets.push('check_in_time = NOW()'); sets.push('notes = NULL'); }
+        // the time in is the moment of the click; a second call does not move it
+        if (status === 'Present') { sets.push(`check_in_time = IF(attendance_status = 'Present' AND check_in_time IS NOT NULL, check_in_time, NOW())`); sets.push('notes = NULL'); }
         else if (status === 'Pending') { sets.push('check_in_time = NULL'); sets.push('notes = NULL'); }
         else { sets.push('notes = ?'); params.push(reason ? reason.slice(0, 255) : (status === 'Absent' ? 'No-show' : null)); }
 
@@ -12653,9 +14731,15 @@ const getStudentUserId = async (studentId) => {
 };
 
 // A session that is running right now for this doctor and takes this visit type (null + a reason when there is none)
-const findRunningWalkInSession = async (conn, doctor, visitType, nowStr) => {
-    const [openSessions] = await conn.query(`SELECT * FROM doctor_schedules WHERE doctor_id = ? AND status = 'Open' FOR UPDATE`, [doctor.doctor_id]);
-    const runningNow = openSessions.filter((s) => scheduleOccursOn(s, nowStr.slice(0, 10)) && s.start_time <= nowStr.slice(11) && nowStr.slice(11) < s.end_time);
+const findRunningWalkInSession = async (conn, doctor, visitType, nowStr, scheduleId = null) => {
+    const [allOpen] = await conn.query(`SELECT * FROM doctor_schedules WHERE doctor_id = ? AND status = 'Open' FOR UPDATE`, [doctor.doctor_id]);
+    // the session the walk-in was asked for, when the client names one
+    const openSessions = scheduleId ? allOpen.filter((s) => s.schedule_id === scheduleId) : allOpen;
+    // a session past its end time still runs until its end is confirmed
+    const runningNow = [];
+    for (const s of openSessions) {
+        if (scheduleOccursOn(s, nowStr.slice(0, 10)) && (await liveStateOf(conn, s)).in_session_now) runningNow.push(s);
+    }
     if (runningNow.length === 0) {
         throw new BookingError(`${doctorDisplayName(doctor)} has no session running right now, so walk-ins are closed. Walk-ins are only taken during a posted session; ask the doctor to set one first.`);
     }
@@ -12728,7 +14812,7 @@ app.post('/api/doctor-visits/walk-in', async (req, res) => {
         const [[student]] = await connection.query(`SELECT student_id, first_name, last_name FROM students WHERE student_id = ?`, [student_id]);
         if (!student) throw new BookingError('Student not found.', 404);
 
-        const schedule = await findRunningWalkInSession(connection, doctor, visitType, nowManilaStr());
+        const schedule = await findRunningWalkInSession(connection, doctor, visitType, nowManilaStr(), req.body.schedule_id || null);
         const creator = { nurseId: nurse_id, doctorId: creatorDoctorId };
         const entry = await insertWalkInEntry(connection, { schedule, doctor, student, visitType, reason, creator, senderId: req.body.sender_id || null });
 
@@ -12774,7 +14858,7 @@ app.post('/api/doctor-visits/walk-in', async (req, res) => {
 const SELECT_QUEUE_ENTRIES = `
     SELECT da.appointment_id, da.queue_lane, da.queue_no, da.queue_state, da.status, da.booking_source, da.visit_type, da.parent_appointment_id,
            da.queue_called_at, da.request_id, das.student_id, das.attendance_status, das.check_in_time,
-           s.first_name, s.last_name, s.year_level, s.section,
+           s.first_name, s.last_name, s.program_id, s.year_level, s.section,
            (a.assessment_id IS NOT NULL) AS documented
     FROM doctor_appointments da
     JOIN doctor_appointment_students das ON das.appointment_id = da.appointment_id
@@ -12788,7 +14872,7 @@ const buildQueueSnapshot = async (conn, schedule, date) => {
     const accommodated = new Map(rows.filter((r) => r.parent_appointment_id).map((r) => [r.parent_appointment_id, r]));
     const entries = rows.map((r) => ({
         appointment_id: r.appointment_id, lane: r.queue_lane, queue_no: r.queue_no, label: queueLabel(r.queue_lane, r.queue_no), state: r.queue_state,
-        student_id: r.student_id, student_name: `${r.first_name} ${r.last_name}`, year_level: r.year_level, section: r.section,
+        student_id: r.student_id, student_name: `${r.first_name} ${r.last_name}`, program_id: r.program_id, year_level: r.year_level, section: r.section,
         visit_type: r.visit_type, arrived: r.attendance_status === 'Present' ? 1 : 0, check_in_time: r.check_in_time, documented: r.documented ? 1 : 0,
         called_at: r.queue_called_at, is_walk_in: r.booking_source === 'Walk-in' ? 1 : 0,
         accommodated_as: accommodated.has(r.appointment_id) ? queueLabel('Walk-in', accommodated.get(r.appointment_id).queue_no) : null
@@ -12841,7 +14925,7 @@ app.put('/api/doctor-schedules/:id/queue/call-next', async (req, res) => {
         if (schedule.doctor_id !== doctorId) throw new BookingError('Doctors can only call the numbers of their own session.', 403);
         const nowStr = nowManilaStr();
         const date = isDateStr(req.body.date) ? req.body.date : nowStr.slice(0, 10);
-        if (date !== nowStr.slice(0, 10) || !scheduleLiveState(schedule).in_session_now) throw new BookingError('Numbers can only be called while the session is running.');
+        if (date !== nowStr.slice(0, 10) || !(await liveStateOf(connection, schedule)).in_session_now) throw new BookingError('Numbers can only be called while the session is running.');
 
         let snapshot = await buildQueueSnapshot(connection, schedule, date);
         if (snapshot.now_serving) {
@@ -12899,7 +14983,7 @@ app.put('/api/doctor-schedules/:id/queue/call-next', async (req, res) => {
 
 const loadQueueEntry = async (conn, appointmentId) => {
     const [[row]] = await conn.query(
-        `SELECT da.*, das.student_id, s.first_name, s.last_name, s.user_id AS student_user_id
+        `SELECT da.*, das.student_id, das.attendance_status, s.first_name, s.last_name, s.user_id AS student_user_id
          FROM doctor_appointments da
          JOIN doctor_appointment_students das ON das.appointment_id = da.appointment_id
          JOIN students s ON s.student_id = das.student_id
@@ -12924,6 +15008,7 @@ app.put('/api/doctor-visits/:appointment_id/queue/skip', async (req, res) => {
         if (!entry || !entry.queue_state) throw new BookingError('This appointment has no queue number.', 404);
         if (entry.doctor_id !== doctorId) throw new BookingError('Doctors can only void numbers in their own queue.', 403);
         if (!['Waiting', 'Serving'].includes(entry.queue_state) || entry.status !== 'Scheduled') throw new BookingError(`This number is already ${entry.queue_state.toLowerCase()}.`);
+        if (entry.attendance_status === 'Present') throw new BookingError('The student already has a time in, so the number cannot be voided. Document the check-up instead.', 409);
 
         await connection.query(`UPDATE doctor_appointments SET queue_state = 'Void' WHERE appointment_id = ?`, [entry.appointment_id]);
         await connection.query(`UPDATE doctor_appointment_students SET attendance_status = 'Absent', notes = COALESCE(notes, 'Skipped in the queue') WHERE appointment_id = ?`, [entry.appointment_id]);
@@ -12972,7 +15057,7 @@ app.put('/api/doctor-visits/:appointment_id/queue/restore', async (req, res) => 
         const [[schedule]] = await connection.query(`SELECT * FROM doctor_schedules WHERE schedule_id = ? FOR UPDATE`, [entry.schedule_id]);
         const nowStr = nowManilaStr();
         const date = String(entry.start_time).slice(0, 10);
-        if (!schedule || date !== nowStr.slice(0, 10) || !scheduleLiveState(schedule).in_session_now) throw new BookingError('You can only go back to a number while the same session is still running.');
+        if (!schedule || date !== nowStr.slice(0, 10) || !(await liveStateOf(connection, schedule)).in_session_now) throw new BookingError('You can only go back to a number while the same session is still running.');
         const [[already]] = await connection.query(
             `SELECT COUNT(*) AS n FROM doctor_appointments WHERE parent_appointment_id = ? AND status = 'Scheduled' AND queue_state IN ('Waiting', 'Serving', 'Done')`, [entry.appointment_id]
         );
@@ -13040,7 +15125,7 @@ app.put('/api/doctor-visits/:appointment_id/queue/accommodate', async (req, res)
         );
         if (already.n > 0) throw new BookingError('This student was already accommodated as a walk-in.');
         const nowStr = nowManilaStr();
-        if (!schedule || String(entry.start_time).slice(0, 10) !== nowStr.slice(0, 10) || !scheduleLiveState(schedule).in_session_now) {
+        if (!schedule || String(entry.start_time).slice(0, 10) !== nowStr.slice(0, 10) || !(await liveStateOf(connection, schedule)).in_session_now) {
             throw new BookingError('A student can be accommodated only while the same session is still running.');
         }
         if (!schedule.allow_walk_in) throw new BookingError('This session does not allow walk-ins. Edit the schedule to allow them.');
@@ -13140,12 +15225,16 @@ app.get('/api/student/:studentId/queue-status', async (req, res) => {
             }
             const snap = snapshots.get(key);
             const me = snap ? snap.entries.find((e) => e.appointment_id === m.appointment_id) : null;
+            // the session is over when its end was confirmed or its date passed; until then a number past the end time stays (the doctor may still call it)
+            const phase = m.schedule_id ? sessionPhaseOf({ start_time: m.session_start || String(m.start_time).slice(11, 19), end_time: m.session_end || String(m.end_time).slice(11, 19) }, date, nowStr, await sessionEndConfirmed(pool, m.schedule_id, date)) : null;
+            const sessionOver = phase ? phase.state === 'past' : String(m.end_time) <= nowStr;
             const ahead = snap && me && me.state === 'Waiting' ? peopleAhead(snap, me) : 0;
             appointments.push({
                 appointment_id: m.appointment_id, visit_type: m.visit_type, doctor_name: `Dr. ${m.doc_first_name} ${m.doc_last_name}`, location: m.location,
                 date, session_start: m.session_start || String(m.start_time).slice(11, 19), session_end: m.session_end || String(m.end_time).slice(11, 19),
                 lane: m.queue_lane, queue_no: m.queue_no, label: queueLabel(m.queue_lane, m.queue_no), state: m.queue_state, arrived: m.attendance_status === 'Present' ? 1 : 0,
-                in_session: String(m.start_time) <= nowStr && nowStr < String(m.end_time) ? 1 : 0,
+                in_session: phase ? (phase.state === 'ongoing' ? 1 : 0) : (String(m.start_time) <= nowStr && nowStr < String(m.end_time) ? 1 : 0),
+                session_over: sessionOver ? 1 : 0, documented: m.documented ? 1 : 0,
                 now_serving: snap?.now_serving ? snap.now_serving.label : null,
                 ahead, est_wait_min: ahead * (Number(m.slot_duration_min) || 15),
                 listed_waiting: snap?.listed_waiting || 0, walkin_waiting: snap?.walkin_waiting || 0
@@ -13158,6 +15247,80 @@ app.get('/api/student/:studentId/queue-status', async (req, res) => {
     }
 });
 
+// Student Check-up page: the repeats (waiting for a schedule + already scheduled) and the past check-ups with their assessment.
+app.get('/api/student/:studentId/checkup-history', async (req, res) => {
+    try {
+        const studentId = req.params.studentId;
+        const today = nowManilaStr().slice(0, 10);
+        const [visits] = await pool.query(
+            `SELECT da.appointment_id, da.visit_type, da.purpose_other, da.start_time, da.end_time, da.status, da.queue_lane, da.queue_no, da.queue_state, da.parent_appointment_id,
+                    das.attendance_status, ds.location, d.first_name AS doc_first_name, d.last_name AS doc_last_name, d.specialization,
+                    a.assessment_id, a.chief_complaint, a.diagnosis, a.clinical_findings, a.treatment_recommendations, a.prescriptions, a.is_abnormal,
+                    a.follow_up_needed, a.follow_up_date, a.follow_up_notes, a.follow_up_closed, a.referral_facility, a.referral_reason, a.assessment_date
+             FROM doctor_appointments da
+             JOIN doctor_appointment_students das ON das.appointment_id = da.appointment_id
+             JOIN doctors d ON d.doctor_id = da.doctor_id
+             LEFT JOIN doctor_schedules ds ON ds.schedule_id = da.schedule_id
+             LEFT JOIN doctor_assessments a ON a.appointment_id = da.appointment_id AND a.student_id = das.student_id
+             WHERE das.student_id = ? AND da.status NOT IN ('Cancelled', 'Declined', 'Waiting for Approval')
+             ORDER BY da.start_time DESC LIMIT 300`,
+            [studentId]
+        );
+        const parse = (v) => { if (typeof v !== 'string') return v || []; try { return JSON.parse(v); } catch (e) { return []; } };
+        const label = (v) => (v.queue_no ? (v.queue_lane === 'Walk-in' ? `W${v.queue_no}` : `#${v.queue_no}`) : null);
+        const doctorName = (v) => `Dr. ${v.doc_first_name} ${v.doc_last_name}`;
+
+        const past = [];
+        const scheduled = [];
+        for (const v of visits) {
+            const date = String(v.start_time).slice(0, 10);
+            const documented = !!v.assessment_id;
+            const missed = v.attendance_status === 'Absent' || v.queue_state === 'Void';
+            const isPast = documented || missed || v.queue_state === 'Done' || date < today;
+            if (isPast) {
+                past.push({
+                    appointment_id: v.appointment_id, visit_type: v.visit_type, purpose_other: v.purpose_other, date, start_time: v.start_time, end_time: v.end_time,
+                    doctor_name: doctorName(v), specialization: v.specialization, location: v.location, label: label(v),
+                    is_repeat: v.visit_type === 'Follow-up' ? 1 : 0, outcome: documented ? 'Seen' : missed ? 'Missed' : 'Not documented',
+                    assessment: documented ? {
+                        chief_complaint: v.chief_complaint, diagnosis: v.diagnosis, clinical_findings: v.clinical_findings, treatment_recommendations: v.treatment_recommendations,
+                        prescriptions: parse(v.prescriptions), is_abnormal: v.is_abnormal ? 1 : 0, follow_up_needed: v.follow_up_needed ? 1 : 0, follow_up_date: v.follow_up_date,
+                        follow_up_notes: v.follow_up_notes, referral_facility: v.referral_facility, referral_reason: v.referral_reason, assessment_date: v.assessment_date
+                    } : null
+                });
+            } else if (v.visit_type === 'Follow-up') {
+                scheduled.push({
+                    appointment_id: v.appointment_id, date, start_time: v.start_time, end_time: v.end_time, doctor_name: doctorName(v), location: v.location,
+                    label: label(v), queued: v.queue_state ? 1 : 0
+                });
+            }
+        }
+        scheduled.sort((a, b) => String(a.start_time).localeCompare(String(b.start_time)));
+
+        // flagged "repeat needed" and not yet in a schedule
+        const [waiting] = await pool.query(
+            `SELECT a.appointment_id, a.follow_up_date, a.follow_up_notes, da.visit_type, da.purpose_other, d.first_name AS doc_first_name, d.last_name AS doc_last_name
+             FROM doctor_assessments a
+             JOIN doctor_appointments da ON da.appointment_id = a.appointment_id
+             JOIN doctors d ON d.doctor_id = da.doctor_id
+             WHERE a.student_id = ? AND a.follow_up_needed = 1 AND a.follow_up_closed = 0
+               AND NOT EXISTS (
+                   SELECT 1 FROM doctor_appointments fu
+                   JOIN doctor_appointment_students x ON x.appointment_id = fu.appointment_id AND x.student_id = a.student_id
+                   WHERE fu.parent_appointment_id = a.appointment_id AND fu.visit_type = 'Follow-up' AND fu.status IN ('Scheduled', 'Waiting for Approval', 'Completed'))
+             ORDER BY a.assessment_date DESC`,
+            [studentId]
+        );
+        res.json({
+            success: true, past, scheduled,
+            waiting: waiting.map((w) => ({ appointment_id: w.appointment_id, visit_type: w.visit_type, purpose_other: w.purpose_other, follow_up_date: w.follow_up_date, notes: w.follow_up_notes, doctor_name: `Dr. ${w.doc_first_name} ${w.doc_last_name}` }))
+        });
+    } catch (error) {
+        console.error('Error loading the check-up history:', error);
+        res.status(500).json({ success: false, message: 'Failed to load your check-up history' });
+    }
+});
+
 // Follow-up visit created from an assessment that was flagged "follow-up needed".
 app.post('/api/doctor-visits/:appointment_id/follow-up', async (req, res) => {
     const { appointment_id } = req.params;
@@ -13166,11 +15329,16 @@ app.post('/api/doctor-visits/:appointment_id/follow-up', async (req, res) => {
     const creatorDoctorId = nurse_id ? null : (req.body.created_by_doctor_id || null);
     const startStr = String(req.body.start_time || '').replace('T', ' ').slice(0, 19);
     const duration = parseInt(req.body.duration_min, 10) || 15;
+    // "Put in a schedule": the student takes the next queue number of an existing upcoming session, so there is no time slot, only a schedule and a date
+    const queueScheduleId = textOrNull(req.body.schedule_id) && !startStr ? textOrNull(req.body.schedule_id) : null;
+    const queueDate = queueScheduleId ? String(req.body.date || '').slice(0, 10) : null;
     if (!student_id || (!nurse_id && !creatorDoctorId)) return res.status(400).json({ success: false, message: 'Student and nurse or doctor are required.' });
-    if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(startStr)) return res.status(400).json({ success: false, message: 'Pick a follow-up date and time.' });
+    if (queueScheduleId && !isDateStr(queueDate)) return res.status(400).json({ success: false, message: 'Pick the date of the session.' });
+    if (!queueScheduleId && !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(startStr)) return res.status(400).json({ success: false, message: 'Pick a follow-up date and time.' });
 
     const connection = await pool.getConnection();
     let created = null;
+    let queued = null;
     try {
         await connection.beginTransaction();
         const [[source]] = await connection.query(
@@ -13189,8 +15357,6 @@ app.post('/api/doctor-visits/:appointment_id/follow-up', async (req, res) => {
 
         if (creatorDoctorId && creatorDoctorId !== doctorId) throw new BookingError('Doctors can only schedule follow-ups for their own patients.', 403);
 
-        const endStr = addMinutesToStr(startStr, duration);
-
         // a follow-up is set for one student at a time; the earlier one has to be cancelled or rescheduled before another is made
         const [[pending]] = await connection.query(
             `SELECT fu.appointment_id, fu.start_time FROM doctor_appointments fu
@@ -13200,35 +15366,56 @@ app.post('/api/doctor-visits/:appointment_id/follow-up', async (req, res) => {
         );
         if (pending) throw new BookingError(`This student already has a follow-up on ${fmtApptWhen(pending.start_time)}. Reschedule or cancel it first.`);
 
-        // Two ways to appoint it: a time the staff picks freely (custom time block), or a slot inside one of the doctor's posted sessions
-        let schedule = null;
-        const scheduleId = textOrNull(req.body.schedule_id);
-        if (scheduleId) {
-            [[schedule]] = await connection.query(`SELECT * FROM doctor_schedules WHERE schedule_id = ? FOR UPDATE`, [scheduleId]);
-            if (!schedule || schedule.status !== 'Open') throw new BookingError('That schedule is no longer open.');
-            if (schedule.doctor_id !== doctorId) throw new BookingError('Pick a session of the same doctor.', 400);
-            if (!hasSlots(schedule)) throw new BookingError('A walk-in session has no time slots. Pick an appointment or open booking session, or set a custom time.', 400);
-            if (!scheduleOccursOn(schedule, startStr.slice(0, 10))) throw new BookingError('The session does not run on that date.', 400);
-            await assertAppointmentFits(connection, { doctor, visitType: 'Follow-up', startStr, endStr, studentId: student_id, graceMin: 5, schedule });
+        if (queueScheduleId) {
+            const [[queueSchedule]] = await connection.query(`SELECT * FROM doctor_schedules WHERE schedule_id = ? FOR UPDATE`, [queueScheduleId]);
+            if (!queueSchedule || queueSchedule.status !== 'Open') throw new BookingError('That schedule is no longer open.');
+            if (queueSchedule.doctor_id !== doctorId) throw new BookingError('Pick a session of the same doctor.', 400);
+            // the repeat goes into a session of the same check-up service as the visit it repeats
+            if (queueSchedule.visit_type !== 'Any' && queueSchedule.visit_type !== source.visit_type && !['Follow-up', 'Referral'].includes(source.visit_type)) {
+                throw new BookingError(`That session is for ${queueSchedule.visit_type} check-ups, but this repeat is a ${source.visit_type} check-up. Pick a session of the same check-up service.`, 400);
+            }
+            const actor = await resolveActor(connection, req.body.sender_id || null);
+            const creator = { nurseId: nurse_id, doctorId: creatorDoctorId, userId: req.body.sender_id || null, name: actor.name };
+            const appointed = await appointIntoSchedule(connection, {
+                schedule: queueSchedule, doctor, studentId: student_id, request: null, date: queueDate, visitType: 'Follow-up', purposeOther: null,
+                reason: textOrNull(req.body.notes) || `Follow-up of ${source.visit_type}`, creator, how: 'Repeat put in a schedule'
+            });
+            await connection.query(`UPDATE doctor_appointments SET parent_appointment_id = ? WHERE appointment_id = ?`, [appointment_id, appointed.appointmentId]);
+            await connection.commit();
+            queued = { appointed, doctor, actor };
         } else {
-            await assertDirectFits(connection, { doctor, startStr, endStr, studentId: student_id, graceMin: 5 });
-        }
+            const endStr = addMinutesToStr(startStr, duration);
 
-        const newId = await generateCustomId('DVSCHED', 'doctor_appointments', 'appointment_id', connection);
-        await connection.query(
-            `INSERT INTO doctor_appointments
-                (appointment_id, doctor_id, batch_id, title, announcement, start_time, end_time, assigned_by_nurse_id, assigned_by_doctor_id, status, visit_type, booking_source, parent_appointment_id, schedule_id)
-             VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, 'Scheduled', 'Follow-up', ?, ?, ?)`,
-            [newId, doctorId, `Follow-up: ${source.title}`.slice(0, 45), textOrNull(req.body.notes) || `Follow-up of ${source.visit_type}`, startStr, endStr, nurse_id, creatorDoctorId,
-             creatorDoctorId ? 'Doctor' : 'Nurse', appointment_id, schedule ? schedule.schedule_id : null]
-        );
-        await connection.query(`INSERT INTO doctor_appointment_students (appointment_id, student_id, attendance_status) VALUES (?, ?, 'Pending')`, [newId, student_id]);
-        await logAppointment(connection, {
-            appointment_id: newId, action: 'Scheduled', to_status: 'Scheduled', new_start_time: startStr, new_end_time: endStr,
-            reason: textOrNull(req.body.notes) || 'Follow-up visit', actor_user_id: req.body.sender_id || null
-        });
-        await connection.commit();
-        created = { newId, doctor, startStr };
+            // a time the staff picks freely (custom time block), or a timed slot inside one of the doctor's posted sessions (older rows)
+            let schedule = null;
+            const scheduleId = textOrNull(req.body.schedule_id);
+            if (scheduleId) {
+                [[schedule]] = await connection.query(`SELECT * FROM doctor_schedules WHERE schedule_id = ? FOR UPDATE`, [scheduleId]);
+                if (!schedule || schedule.status !== 'Open') throw new BookingError('That schedule is no longer open.');
+                if (schedule.doctor_id !== doctorId) throw new BookingError('Pick a session of the same doctor.', 400);
+                if (!hasSlots(schedule)) throw new BookingError('A walk-in session has no time slots. Pick an appointment or open booking session, or set a custom time.', 400);
+                if (!scheduleOccursOn(schedule, startStr.slice(0, 10))) throw new BookingError('The session does not run on that date.', 400);
+                await assertAppointmentFits(connection, { doctor, visitType: 'Follow-up', startStr, endStr, studentId: student_id, graceMin: 5, schedule });
+            } else {
+                await assertDirectFits(connection, { doctor, startStr, endStr, studentId: student_id, graceMin: 5 });
+            }
+
+            const newId = await generateCustomId('DVSCHED', 'doctor_appointments', 'appointment_id', connection);
+            await connection.query(
+                `INSERT INTO doctor_appointments
+                    (appointment_id, doctor_id, batch_id, title, announcement, start_time, end_time, assigned_by_nurse_id, assigned_by_doctor_id, status, visit_type, booking_source, parent_appointment_id, schedule_id)
+                 VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, 'Scheduled', 'Follow-up', ?, ?, ?)`,
+                [newId, doctorId, `Follow-up: ${source.title}`.slice(0, 45), textOrNull(req.body.notes) || `Follow-up of ${source.visit_type}`, startStr, endStr, nurse_id, creatorDoctorId,
+                 creatorDoctorId ? 'Doctor' : 'Nurse', appointment_id, schedule ? schedule.schedule_id : null]
+            );
+            await connection.query(`INSERT INTO doctor_appointment_students (appointment_id, student_id, attendance_status) VALUES (?, ?, 'Pending')`, [newId, student_id]);
+            await logAppointment(connection, {
+                appointment_id: newId, action: 'Scheduled', to_status: 'Scheduled', new_start_time: startStr, new_end_time: endStr,
+                reason: textOrNull(req.body.notes) || 'Follow-up visit', actor_user_id: req.body.sender_id || null
+            });
+            await connection.commit();
+            created = { newId, doctor, startStr };
+        }
     } catch (error) {
         await connection.rollback();
         connection.release();
@@ -13237,6 +15424,17 @@ app.post('/api/doctor-visits/:appointment_id/follow-up', async (req, res) => {
         return res.status(500).json({ success: false, message: 'Failed to schedule follow-up' });
     }
     connection.release();
+
+    if (queued) {
+        await notifyAppointed({
+            appointed: queued.appointed, studentId: student_id, visitType: 'Follow-up', purposeOther: null, doctor: queued.doctor,
+            senderId: req.body.sender_id || null, actor: queued.actor
+        });
+        return res.status(201).json({
+            success: true, appointment_id: queued.appointed.appointmentId, queue_no: queued.appointed.queueNo,
+            message: `Repeat put in the session of ${queued.appointed.when} with queue number #${queued.appointed.queueNo}.`
+        });
+    }
 
     try {
         await notifyUsers({
@@ -13270,7 +15468,7 @@ app.get('/api/follow-ups', async (req, res) => {
         const [rows] = await pool.query(
             `SELECT a.appointment_id, a.student_id, a.diagnosis, a.follow_up_date, a.follow_up_notes, a.follow_up_closed, a.follow_up_closed_reason, a.assessment_date,
                     da.doctor_id, da.title, da.visit_type, da.purpose_other, da.start_time AS visit_start, da.parent_appointment_id AS visit_follow_up_of,
-                    s.first_name AS student_first_name, s.last_name AS student_last_name, s.year_level, s.section, p.program_name,
+                    s.first_name AS student_first_name, s.last_name AS student_last_name, s.program_id, s.year_level, s.section, p.program_name,
                     d.first_name AS doc_first_name, d.last_name AS doc_last_name, d.specialization
              FROM doctor_assessments a
              JOIN doctor_appointments da ON da.appointment_id = a.appointment_id
@@ -13923,8 +16121,9 @@ const appointmentFilter = (req) => {
         case 'today': where.push(`DATE(da.start_time) = CURDATE()`, `da.status IN ('Scheduled', 'Waiting for Approval', 'Completed')`); break;
         // upcoming (not started) | ongoing (happening now) | past (over, or closed): every visit is in exactly one of the three
         case 'upcoming': where.push(`da.status IN ('Scheduled', 'Waiting for Approval')`, `da.start_time > NOW()`); break;
-        case 'ongoing': where.push(`da.status IN ('Scheduled', 'Completed')`, `da.start_time <= NOW()`, `da.end_time > NOW()`); break;
-        case 'past': where.push(`(da.end_time <= NOW() OR da.status IN ('Completed', 'Cancelled', 'Declined', 'No-Show'))`, `NOT (da.status IN ('Scheduled', 'Completed') AND da.start_time <= NOW() AND da.end_time > NOW())`); break;
+        // a session past its end time stays on going until its end is confirmed (AWAITING_END_SQL); the date passing moves it to past by itself
+        case 'ongoing': where.push(`da.status IN ('Scheduled', 'Completed')`, `da.start_time <= NOW()`, `(da.end_time > NOW() OR ${AWAITING_END_SQL})`); break;
+        case 'past': where.push(`(da.end_time <= NOW() OR da.status IN ('Completed', 'Cancelled', 'Declined', 'No-Show'))`, `NOT (da.status IN ('Scheduled', 'Completed') AND da.start_time <= NOW() AND (da.end_time > NOW() OR ${AWAITING_END_SQL}))`); break;
         case 'queue': where.push(`da.status = 'Scheduled'`, `das.attendance_status = 'Present'`, `da_assessment.assessment_id IS NULL`); break;
         case 'documented': where.push(`da_assessment.assessment_id IS NOT NULL`); break;
         case 'all': break;
@@ -14278,7 +16477,7 @@ app.get('/api/doctor/:doctorId/patients', async (req, res) => {
             where = `WHERE mine.visits IS NOT NULL`;
         }
         const [rows] = await pool.query(
-            `SELECT s.student_id, s.first_name, s.last_name, s.year_level, s.section, p.program_name,
+            `SELECT s.student_id, s.first_name, s.last_name, s.program_id, s.year_level, s.section, p.program_name,
                     COALESCE(mine.visits, 0) AS visits_with_me, mine.last_visit, COALESCE(mine.abnormal, 0) AS abnormal
              FROM students s
              LEFT JOIN academic_programs p ON p.program_id = s.program_id
@@ -14308,7 +16507,7 @@ app.get('/api/doctor/patients/:studentId/record', async (req, res) => {
     try {
         const studentId = req.params.studentId;
         const [[student]] = await pool.query(
-            `SELECT s.student_id, s.first_name, s.last_name, s.year_level, s.section, p.program_name
+            `SELECT s.student_id, s.first_name, s.last_name, s.program_id, s.year_level, s.section, p.program_name
              FROM students s LEFT JOIN academic_programs p ON p.program_id = s.program_id WHERE s.student_id = ?`,
             [studentId]
         );
@@ -14466,15 +16665,90 @@ app.post('/api/doctor-templates/:templateId/duplicate', async (req, res) => {
     }
 });
 
-app.delete('/api/doctor-templates/:templateId', async (req, res) => {
+// Starter templates: the page sends the ready-made set that fits the doctor's specialization. They become ordinary templates (view, edit, archive).
+// The seed row stops them from coming back after the doctor archives them. A doctor who already has templates gets none.
+// version 2: the set follows the specialization, so a doctor seeded under version 1 (everyone got the General one) has the sets that do not fit
+// archived once (retire_names) and gets the missing fitting ones.
+const TEMPLATE_SEED_VERSION = 2;
+const templateSeedReady = (async () => {
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS doctor_template_seed (
+            doctor_id VARCHAR(45) NOT NULL,
+            seeded_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+            version   INT NOT NULL DEFAULT 1,
+            PRIMARY KEY (doctor_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    const [[col]] = await pool.query(`SELECT COUNT(*) AS n FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'doctor_template_seed' AND COLUMN_NAME = 'version'`);
+    if (Number(col.n) === 0) await pool.query(`ALTER TABLE doctor_template_seed ADD COLUMN version INT NOT NULL DEFAULT 1`);
+})().catch((e) => console.error('Could not prepare doctor_template_seed:', e.message));
+
+const addStarterTemplates = async (connection, doctorId, starters) => {
+    let added = 0;
+    for (const s of starters) {
+        const name = textOrNull(s.template_name);
+        const visitType = textOrNull(s.visit_type);
+        const cleaned = cleanTemplateFields(s.fields);
+        if (!name || cleaned.error || (visitType && !DOCTOR_VISIT_TYPES.includes(visitType))) continue;
+        const [[same]] = await connection.query(`SELECT COUNT(*) AS n FROM doctor_assessment_templates WHERE doctor_id = ? AND template_name = ?`, [doctorId, name.slice(0, 120)]);
+        if (Number(same.n) > 0) continue;
+        const makeDefault = toFlag(s.is_default) && visitType
+            && (await connection.query(`SELECT 1 FROM doctor_assessment_templates WHERE doctor_id = ? AND visit_type <=> ? AND is_default = 1 AND is_active = 1`, [doctorId, visitType]))[0].length === 0;
+        await connection.query(
+            `INSERT INTO doctor_assessment_templates (template_id, doctor_id, template_name, visit_type, description, fields, is_default) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [`TPL-${uuidv4().substring(0, 8)}`, doctorId, name.slice(0, 120), visitType, textOrNull(s.description)?.slice(0, 255) || null, JSON.stringify(cleaned.fields), makeDefault ? 1 : 0]
+        );
+        added++;
+    }
+    return added;
+};
+
+app.post('/api/doctor/:doctorId/templates/seed', async (req, res) => {
+    const doctorId = req.params.doctorId;
+    const starters = Array.isArray(req.body.templates) ? req.body.templates.slice(0, 20) : [];
+    const retire = (Array.isArray(req.body.retire_names) ? req.body.retire_names : []).map((n) => textOrNull(n)).filter(Boolean).slice(0, 20);
+    const connection = await pool.getConnection();
     try {
-        // saved assessments keep their own copy of the answers, so a template can be removed safely
-        const [result] = await pool.query(`DELETE FROM doctor_assessment_templates WHERE template_id = ? AND doctor_id = ?`, [req.params.templateId, req.query.doctor_id || '']);
-        if (result.affectedRows === 0) return res.status(404).json({ success: false, message: 'Template not found.' });
-        res.json({ success: true, message: 'Template deleted.' });
+        await templateSeedReady;
+        await connection.beginTransaction();
+        const [mark] = await connection.query(`INSERT IGNORE INTO doctor_template_seed (doctor_id, version) VALUES (?, ?)`, [doctorId, TEMPLATE_SEED_VERSION]);
+        let added = 0;
+        if (mark.affectedRows === 1) {
+            const [[existing]] = await connection.query(`SELECT COUNT(*) AS n FROM doctor_assessment_templates WHERE doctor_id = ?`, [doctorId]);
+            if (Number(existing.n) === 0) added = await addStarterTemplates(connection, doctorId, starters);
+        } else {
+            const [[row]] = await connection.query(`SELECT version FROM doctor_template_seed WHERE doctor_id = ? FOR UPDATE`, [doctorId]);
+            if (!row || Number(row.version) >= TEMPLATE_SEED_VERSION) { await connection.rollback(); return res.json({ success: true, seeded: false }); }
+            await connection.query(`UPDATE doctor_template_seed SET version = ? WHERE doctor_id = ?`, [TEMPLATE_SEED_VERSION, doctorId]);
+            if (retire.length > 0) {
+                await connection.query(`UPDATE doctor_assessment_templates SET is_active = 0, is_default = 0 WHERE doctor_id = ? AND template_name IN (?)`, [doctorId, retire]);
+            }
+            added = await addStarterTemplates(connection, doctorId, starters);
+        }
+        await connection.commit();
+        res.json({ success: true, seeded: true, added });
     } catch (error) {
-        console.error('Error deleting template:', error);
-        res.status(500).json({ success: false, message: 'Failed to delete the template' });
+        await connection.rollback();
+        console.error('Error seeding templates:', error);
+        res.status(500).json({ success: false, message: 'Failed to set up the starter templates' });
+    } finally {
+        connection.release();
+    }
+});
+
+// Archive hides a template from the check-up form and the schedule form; restoring brings it back. Nothing is deleted.
+// Body: { doctor_id, archived } (archived defaults to true). An archived template is never the one in use.
+app.put('/api/doctor-templates/:templateId/archive', async (req, res) => {
+    try {
+        const archived = req.body.archived === undefined ? true : !!toFlag(req.body.archived);
+        const [result] = await pool.query(
+            `UPDATE doctor_assessment_templates SET is_active = ?, is_default = is_default AND ? WHERE template_id = ? AND doctor_id = ?`,
+            [archived ? 0 : 1, archived ? 0 : 1, req.params.templateId, req.body.doctor_id || '']
+        );
+        if (result.affectedRows === 0) return res.status(404).json({ success: false, message: 'Template not found.' });
+        res.json({ success: true, message: archived ? 'Template archived.' : 'Template restored.' });
+    } catch (error) {
+        console.error('Error archiving template:', error);
+        res.status(500).json({ success: false, message: 'Failed to archive the template' });
     }
 });
 
@@ -15314,6 +17588,51 @@ app.get('/health-screenings/clinicLogs&Records', async (req, res) => {
     `;
 
     const [rows] = await pool.query(query, params);
+
+    // results taken with a form template (BMI, Vital Signs and the nurse's own forms) replace the plain row of their screening
+    const [custom] = await pool.query(
+      `SELECT cr.screening_schedule_id, cr.answers, cr.is_abnormal, cr.remarks, tp.fields FROM screening_custom_results cr
+       JOIN screening_form_templates tp ON tp.template_id = cr.template_id WHERE cr.student_id = ?`,
+      [studentId]
+    );
+    const byScreening = new Map(custom.map((c) => [c.screening_schedule_id, c]));
+
+    // what the nurse recorded about the screening itself: cancelled, ended, and whether the student came
+    const scheduleIds = rows.filter((r) => r.record_id === r.screening_schedule_id).map((r) => r.screening_schedule_id);
+    const info = new Map();
+    if (scheduleIds.length > 0) {
+      const [meta] = await pool.query(
+        `SELECT s.screening_schedule_id, s.status AS schedule_status, s.cancelled_reason, s.end_confirmed_at, p.attendance_status
+         FROM screening_schedules s
+         LEFT JOIN screening_schedule_participants p ON p.screening_schedule_id = s.screening_schedule_id AND p.student_id = ?
+         WHERE s.screening_schedule_id IN (?)`,
+        [studentId, scheduleIds]
+      );
+      meta.forEach((m) => info.set(m.screening_schedule_id, m));
+    }
+
+    rows.forEach((row) => {
+      const own = row.record_id === row.screening_schedule_id;
+      const c = own ? byScreening.get(row.screening_schedule_id) : null;
+      if (c) {
+        row.details = customSummary(c.fields, c.answers).split(', ').join(' | ');
+        const a = jsonOf(c.answers) || {};
+        row.results = (jsonOf(c.fields) || []).filter((f) => a[f.key] !== undefined && a[f.key] !== '')
+          .map((f) => ({ label: f.label, value: `${a[f.key]}${f.unit ? ` ${f.unit}` : ''}`, note: a[`${f.key}__label`] || null }));
+        row.is_abnormal = c.is_abnormal ? 1 : 0;
+        row.remarks = c.remarks || null;
+        row.status = 'Completed';
+      }
+      const m = own ? info.get(row.screening_schedule_id) : null;
+      if (m) {
+        row.attendance = m.attendance_status || null;
+        if (row.status !== 'Completed') {
+          if (m.schedule_status === 'Cancelled') { row.status = 'Cancelled'; row.cancelled_reason = m.cancelled_reason || null; }
+          else if (row.status === 'Ongoing' && m.end_confirmed_at) row.status = 'Missed';
+        }
+      }
+    });
+
     res.json(rows);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -15356,6 +17675,9 @@ app.get('/doctor-visits/clinicLogs&Records', async (req, res) => {
         doc_ast.assessment_date,
         doc_ast.is_abnormal,
         doc_ast.follow_up_needed,
+        doc_ast.chief_complaint, doc_ast.prescriptions, doc_ast.follow_up_date, doc_ast.follow_up_notes,
+        doc_ast.referral_facility, doc_ast.referral_reason, doc_ast.template_name, doc_ast.template_responses,
+        da.queue_lane, da.queue_no, da.queue_state, da.parent_appointment_id, dsch.location,
         dr.oral_hygiene, dr.caries_count, dr.missing_count, dr.filled_count, dr.gum_condition,
         dr.malocclusion, dr.tooth_notes, dr.treatment_done, dr.treatment_needed,
         dr.referral_needed, dr.referral_to, dr.next_visit_recommendation, dr.remarks AS dental_remarks,
@@ -15369,9 +17691,10 @@ app.get('/doctor-visits/clinicLogs&Records', async (req, res) => {
       LEFT JOIN doctor_assessments doc_ast 
         ON da.appointment_id = doc_ast.appointment_id 
         AND das.student_id = doc_ast.student_id
+      LEFT JOIN doctor_schedules dsch ON dsch.schedule_id = da.schedule_id
       LEFT JOIN dental_assessment_records dr ON dr.appointment_id = da.appointment_id AND dr.student_id = das.student_id
       LEFT JOIN vision_screening_records vr ON vr.appointment_id = da.appointment_id AND vr.student_id = das.student_id
-      WHERE das.student_id = ?
+      WHERE das.student_id = ? AND da.status <> 'Waiting for Approval'
     `;
     const params = [studentId];
 
@@ -15390,6 +17713,12 @@ app.get('/doctor-visits/clinicLogs&Records', async (req, res) => {
     rows.forEach((row) => {
       if (row.visit_type !== 'Dental') dentalKeys.forEach((k) => delete row[k]);
       if (row.visit_type !== 'Vision') visionKeys.forEach((k) => delete row[k]);
+      // the assessment the doctor documented, as one object the screens can show (the flat keys stay for the older views)
+      row.documented = row.assessment_id ? 1 : 0;
+      row.queue_label = row.queue_no ? (row.queue_lane === 'Walk-in' ? `W${row.queue_no}` : `#${row.queue_no}`) : null;
+      row.is_repeat = row.visit_type === 'Follow-up' ? 1 : 0;
+      row.prescriptions = row.assessment_id ? (jsonOf(row.prescriptions) || []) : null;
+      row.template_responses = row.assessment_id ? (jsonOf(row.template_responses) || []) : null;
     });
 
     res.json(rows);
@@ -15622,8 +17951,29 @@ app.get('/api/academic-programs/manageStudentAccounts', async (req, res) => {
 app.get('/api/students/manageStudentAccounts', async (req, res) => {
   const search = req.query.search || '';
   try {
+    await ensureSchoolYears();
+
+    // filters: program, school year, section, status (active | graduated | drop | transfer | other)
+    const filterSql_ = [];
+    const filterParams = [];
+    const program = textOrNull(req.query.program_id);
+    const schoolYear = textOrNull(req.query.school_year);
+    const section = textOrNull(req.query.section);
+    const status = textOrNull(req.query.status);
+    if (program) { filterSql_.push('s.program_id = ?'); filterParams.push(program); }
+    if (schoolYear) { filterSql_.push('s.school_year = ?'); filterParams.push(schoolYear); }
+    if (section) { filterSql_.push('s.section = ?'); filterParams.push(section); }
+    if (status) {
+      const reasonOf = { graduated: 'Graduated', drop: 'Drop', transfer: 'Transfer' }[status];
+      if (status === 'active') filterSql_.push('u.is_active = 1');
+      else if (reasonOf) { filterSql_.push('u.is_active = 0 AND s.inactive_reason = ?'); filterParams.push(reasonOf); }
+      else if (status === 'other') filterSql_.push("u.is_active = 0 AND (s.inactive_reason = 'Other' OR s.inactive_reason IS NULL)");
+      else return res.status(400).json({ error: 'Status must be active, graduated, drop, transfer or other.' });
+    }
+    const filterSql = filterSql_.map((c) => `AND ${c}`).join(' ');
+
     const query = `
-      SELECT 
+      SELECT
         s.student_id,
         s.user_id,
         s.first_name,
@@ -15632,6 +17982,12 @@ app.get('/api/students/manageStudentAccounts', async (req, res) => {
         ap.program_name,
         s.year_level,
         s.section,
+        ap.type AS program_type,
+        s.inactive_reason,
+        s.inactive_reason_other,
+        s.graduated_at,
+        s.graduated_school_year,
+        s.school_year,
         u.username,
         u.is_active,
         psm.parent_id,
@@ -15646,14 +18002,15 @@ app.get('/api/students/manageStudentAccounts', async (req, res) => {
       LEFT JOIN parent_student_mapping psm ON s.student_id = psm.student_id
       LEFT JOIN parents p ON psm.parent_id = p.parent_id
       LEFT JOIN users pu ON p.user_id = pu.user_id
-      WHERE s.student_id LIKE ? 
-         OR s.first_name LIKE ? 
-         OR s.last_name LIKE ? 
-         OR u.username LIKE ?
+      WHERE (s.student_id LIKE ?
+         OR s.first_name LIKE ?
+         OR s.last_name LIKE ?
+         OR u.username LIKE ?)
+         ${filterSql}
       ORDER BY u.created_at DESC
     `;
     const searchTerm = `%${search}%`;
-    const [students] = await pool.query(query, [searchTerm, searchTerm, searchTerm, searchTerm]);
+    const [students] = await pool.query(query, [searchTerm, searchTerm, searchTerm, searchTerm, ...filterParams]);
     res.json(students);
   } catch (err) {
     console.error(err);
@@ -15751,6 +18108,12 @@ app.post('/api/students/manageStudentAccounts', async (req, res) => {
 
   const connection = await pool.getConnection();
   try {
+    await ensureSchoolYears();
+    const requestedYear = textOrNull(req.body.school_year);
+    if (requestedYear && !schoolYearLabelOk(requestedYear)) {
+      return res.status(400).json({ error: 'The school year must look like 2026-2027 (two consecutive years).' });
+    }
+    const enrolledYear = requestedYear || await currentSchoolYear(pool);
     await connection.beginTransaction();
 
     const studentUserId = crypto.randomUUID();
@@ -15765,8 +18128,8 @@ app.post('/api/students/manageStudentAccounts', async (req, res) => {
     );
 
     await connection.query(
-      `INSERT INTO students (student_id, user_id, first_name, last_name, program_id, year_level, section) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [student_id, studentUserId, first_name, last_name, program_id, year_level, section]
+      `INSERT INTO students (student_id, user_id, first_name, last_name, program_id, year_level, section, school_year) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [student_id, studentUserId, first_name, last_name, program_id, year_level, section, enrolledYear]
     );
 
     let finalParentId = null;
@@ -15843,7 +18206,7 @@ app.post('/api/students/import/manageStudentAccounts', async (req, res) => {
       );
 
       await connection.query(
-        `INSERT INTO students (student_id, user_id, first_name, last_name, program_id, year_level, section) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO students (student_id, user_id, first_name, last_name, program_id, year_level, section, school_year) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           item.student_id,
           studentUserId,
@@ -15851,7 +18214,8 @@ app.post('/api/students/import/manageStudentAccounts', async (req, res) => {
           item.last_name,
           item.program_id || default_program_id || null,
           item.year_level || '1',
-          item.section || ''
+          item.section || '',
+          await currentSchoolYear(connection)
         ]
       );
 
@@ -15888,6 +18252,7 @@ app.put('/api/students/:student_id/manageStudentAccounts', async (req, res) => {
 
   const connection = await pool.getConnection();
   try {
+    await ensureSchoolYears();
     await connection.beginTransaction();
 
     const [rows] = await connection.query('SELECT user_id FROM students WHERE student_id = ?', [student_id]);
@@ -15897,9 +18262,52 @@ app.put('/api/students/:student_id/manageStudentAccounts', async (req, res) => {
     }
     const userId = rows[0].user_id;
 
+    // Turning an account off needs a reason: Transfer, Graduated (only the last year: 2nd year strand, 4th year course), Drop or Other (specified).
+    // Graduated moves the student to the screening Archive; turning the account on again clears the reason.
+    let statusSql = ', inactive_reason = NULL, inactive_reason_other = NULL, graduated_at = NULL, graduated_school_year = NULL';
+    let statusParams = [];
+    if (!is_active) {
+      const [[prevUser]] = await connection.query('SELECT is_active FROM users WHERE user_id = ?', [userId]);
+      const reason = textOrNull(req.body.inactive_reason);
+      const other = textOrNull(req.body.inactive_reason_other);
+      if (!reason && !Number(prevUser?.is_active)) {
+        statusSql = ''; // an account that was already off before reasons existed stays as it is
+      } else {
+        if (!['Transfer', 'Graduated', 'Drop', 'Other'].includes(reason)) {
+          await connection.rollback();
+          return res.status(400).json({ error: 'Choose the reason the account is inactive: Transfer, Graduated, Drop or Other.' });
+        }
+        if (reason === 'Other' && !other) {
+          await connection.rollback();
+          return res.status(400).json({ error: 'Specify the other reason.' });
+        }
+        if (other && other.length > 150) {
+          await connection.rollback();
+          return res.status(400).json({ error: 'The reason is too long (150 characters max).' });
+        }
+        if (reason === 'Graduated') {
+          const [[prog]] = await connection.query('SELECT type FROM academic_programs WHERE program_id = ?', [program_id]);
+          if (!isFinalYear(prog?.type, year_level)) {
+            await connection.rollback();
+            return res.status(400).json({ error: 'Graduated is only for 2nd year strand and 4th year course students.' });
+          }
+          statusSql = ', inactive_reason = ?, inactive_reason_other = NULL, graduated_at = COALESCE(graduated_at, ?), graduated_school_year = COALESCE(graduated_school_year, ?)';
+          statusParams = [reason, todayManilaStr(), await currentSchoolYear(connection)];
+        } else {
+          statusSql = ', inactive_reason = ?, inactive_reason_other = ?, graduated_at = NULL, graduated_school_year = NULL';
+          statusParams = [reason, reason === 'Other' ? other : null];
+        }
+      }
+    }
+
+    const newYear = textOrNull(req.body.school_year);
+    if (newYear && !schoolYearLabelOk(newYear)) {
+      await connection.rollback();
+      return res.status(400).json({ error: 'The school year must look like 2026-2027 (two consecutive years).' });
+    }
     await connection.query(
-      `UPDATE students SET first_name = ?, last_name = ?, program_id = ?, year_level = ?, section = ? WHERE student_id = ?`,
-      [first_name, last_name, program_id, year_level, section, student_id]
+      `UPDATE students SET first_name = ?, last_name = ?, program_id = ?, year_level = ?, section = ?${newYear ? ', school_year = ?' : ''}${statusSql} WHERE student_id = ?`,
+      [first_name, last_name, program_id, year_level, section, ...(newYear ? [newYear] : []), ...statusParams, student_id]
     );
 
     const formattedStudentUsername = formatUsername(username);
@@ -17013,7 +19421,7 @@ app.get('/api/nurse/dashboard-calendar', async (req, res) => {
     const next = new Date(year, month, 1);
     const to = `${next.getFullYear()}-${pad(next.getMonth() + 1)}-01`;
 
-    const [requirements, specialRequirements, expirations, screenings, visits] = await Promise.all([
+    const [requirements, specialRequirements, expirations, screenings, visits, queued, openSchedules, advanceRows] = await Promise.all([
       pool.query(
         `SELECT prc.config_id AS id, prc.requirement_name, prc.year_level,
                 COALESCE(ap.program_name, prc.program_id) AS program_name,
@@ -17057,10 +19465,83 @@ app.get('/api/nurse/dashboard-calendar', async (req, res) => {
          LEFT JOIN doctors d ON d.doctor_id = da.doctor_id
          WHERE da.start_time >= ? AND da.start_time < ?
            AND da.status NOT IN ('Cancelled', 'Declined', 'Waiting for Approval')
+           AND da.queue_state IS NULL
          ORDER BY da.start_time ASC`,
         [from, to]
-      )
+      ),
+      // the students queued in a session are one schedule on the calendar, not one row each
+      pool.query(
+        `SELECT da.schedule_id, DATE_FORMAT(da.start_time, '%Y-%m-%d') AS event_date, COUNT(*) AS queued, SUM(da.queue_lane = 'Listed') AS listed
+         FROM doctor_appointments da
+         WHERE da.schedule_id IS NOT NULL AND da.queue_state IS NOT NULL AND da.start_time >= ? AND da.start_time < ?
+           AND da.status NOT IN ('Cancelled', 'Declined', 'Waiting for Approval')
+         GROUP BY da.schedule_id, event_date`,
+        [from, to]
+      ),
+      pool.query(
+        `SELECT ds.*, d.first_name AS doc_first_name, d.last_name AS doc_last_name
+         FROM doctor_schedules ds LEFT JOIN doctors d ON d.doctor_id = ds.doctor_id`
+      ),
+      pool.query(
+        `SELECT listing_id, title, services_json, close_reason,
+                DATE_FORMAT(opened_at, '%Y-%m-%d') AS opened_date, DATE_FORMAT(opened_at, '%H:%i:%s') AS opened_time,
+                closes_at, closed_at
+         FROM advance_listings
+         WHERE (opened_at >= ? AND opened_at < ?) OR (COALESCE(closed_at, closes_at) >= ? AND COALESCE(closed_at, closes_at) < ?)`,
+        [from, to, from, to]
+      ).catch(() => [[]])
     ]);
+
+    // sessions (doctor schedules) of the month: the ones that run in the month and the ones with students queued
+    const dayList = [];
+    for (let d = from; d < to; d = addDaysStr(d, 1)) dayList.push(d);
+    const sessionMap = new Map();
+    const schedulesById = new Map(openSchedules[0].map((sc) => [sc.schedule_id, sc]));
+    openSchedules[0].filter((sc) => sc.status === 'Open').forEach((sc) => {
+      dayList.filter((d) => scheduleOccursOn(sc, d)).forEach((d) => sessionMap.set(`${sc.schedule_id}|${d}`, { schedule: sc, date: d, queued: 0, listed: 0 }));
+    });
+    queued[0].forEach((q) => {
+      const sc = schedulesById.get(q.schedule_id);
+      if (!sc) return;
+      const key = `${q.schedule_id}|${q.event_date}`;
+      sessionMap.set(key, { ...(sessionMap.get(key) || { schedule: sc, date: q.event_date }), queued: Number(q.queued), listed: Number(q.listed) });
+    });
+    const todayStr = nowManilaStr().slice(0, 10);
+    const sessionEvents = [...sessionMap.values()].map(({ schedule: sc, date, queued: n, listed }) => {
+      const limit = listingLimitOf(sc);
+      const next = sc.status === 'Open' ? nextUpcomingOccurrence(sc) : null;
+      const state = date < todayStr ? 'Session over' : date === next ? (sc.listing_open ? 'Listing open' : 'Listing closed') : 'Listing not open yet';
+      const label = sc.visit_type === 'Any' ? 'Check-up' : sc.visit_type;
+      return {
+        type: 'listing', id: `ses-${sc.schedule_id}-${date}`, date,
+        title: `${label} session`,
+        detail: [`Dr. ${sc.doc_first_name} ${sc.doc_last_name}`, limit ? `${listed} of ${limit} places taken` : `${n} in the queue`, state].join(' - '),
+        start_time: sc.start_time, end_time: sc.end_time
+      };
+    });
+
+    // the advance listing: the day it opens and the day it closes (by the nurse, by the closing time, or when every service has a schedule)
+    const [[advSetting]] = await pool.query(`SELECT is_open, closes_at, current_listing_id FROM advance_listing_settings WHERE setting_id = 1`).catch(() => [[null]]);
+    const CLOSE_TEXT = { time: 'closing time reached', scheduled: 'every service has a schedule' };
+    const advanceEvents = [];
+    advanceRows[0].forEach((l) => {
+      let services = '';
+      try { services = (JSON.parse(l.services_json || '[]') || []).map((x) => x.visit_type).filter(Boolean).join(', '); } catch (e) { /* no services */ }
+      const live = advSetting && advSetting.is_open && advSetting.current_listing_id === l.listing_id;
+      const closeAt = live ? (advSetting.closes_at || null) : (l.closed_at || l.closes_at || null);
+      if (l.opened_date >= from && l.opened_date < to) {
+        advanceEvents.push({ type: 'advance', id: `adv-open-${l.listing_id}`, date: l.opened_date, title: 'Advance listing opens', detail: services || l.title, start_time: l.opened_time });
+      }
+      const closeDate = closeAt ? String(closeAt).slice(0, 10) : null;
+      if (closeDate && closeDate >= from && closeDate < to) {
+        const closed = !live;
+        advanceEvents.push({
+          type: 'advance', id: `adv-close-${l.listing_id}`, date: closeDate, title: closed ? 'Advance listing closed' : 'Advance listing closes',
+          detail: [services, closed && l.close_reason ? (CLOSE_TEXT[l.close_reason] || 'closed by the nurse') : null].filter(Boolean).join(' - ') || l.title,
+          start_time: String(closeAt).slice(11, 19)
+        });
+      }
+    });
 
     const events = [
       ...requirements[0].map((r) => ({
@@ -17089,7 +19570,9 @@ app.get('/api/nurse/dashboard-calendar', async (req, res) => {
         title: r.title || 'Doctor check-up',
         detail: r.doc_first_name ? `Dr. ${r.doc_first_name} ${r.doc_last_name}` : 'Assigned Doctor',
         status: r.status, start_time: r.start_time, end_time: r.end_time
-      }))
+      })),
+      ...sessionEvents,
+      ...advanceEvents
     ];
 
     res.json({ success: true, month: `${year}-${pad(month)}`, events });
@@ -17136,9 +19619,9 @@ app.get('/api/student/dashboard/visits-dispensation/:studentId', async (req, res
       LEFT JOIN consultation_dispensation cd ON v.visit_id = cd.visit_id
       LEFT JOIN medicine_inventory_batches mb ON cd.batch_id = mb.batch_id
       LEFT JOIN medicines m ON mb.medicine_id = m.medicine_id
-      WHERE v.student_id = ?
+      WHERE v.student_id = ? AND v.visit_date >= ? AND v.visit_date < ?
       ORDER BY v.visit_date DESC, v.time_in DESC
-      LIMIT 10;
+      LIMIT 50;
     `;
 
     // Fetch direct medicine dispensations joined with batch and medicines
@@ -17154,13 +19637,20 @@ app.get('/api/student/dashboard/visits-dispensation/:studentId', async (req, res
       FROM direct_dispensation dd
       LEFT JOIN medicine_inventory_batches mb ON dd.batch_id = mb.batch_id
       LEFT JOIN medicines m ON mb.medicine_id = m.medicine_id
-      WHERE dd.student_id = ?
+      WHERE dd.student_id = ? AND dd.dispensed_at >= ? AND dd.dispensed_at < ?
       ORDER BY dd.dispensed_at DESC
-      LIMIT 10;
+      LIMIT 50;
     `;
 
-    const [visits] = await pool.query(visitsQuery, [studentId]);
-    const [directDispensations] = await pool.query(directDispenseQuery, [studentId]);
+    // only the current month (Manila time): [first day of this month, first day of next month)
+    const nowStr = nowManilaStr();
+    const year = Number(nowStr.slice(0, 4));
+    const month = Number(nowStr.slice(5, 7));
+    const monthStart = `${nowStr.slice(0, 7)}-01`;
+    const monthEnd = month === 12 ? `${year + 1}-01-01` : `${year}-${String(month + 1).padStart(2, '0')}-01`;
+
+    const [visits] = await pool.query(visitsQuery, [studentId, monthStart, monthEnd]);
+    const [directDispensations] = await pool.query(directDispenseQuery, [studentId, monthStart, monthEnd]);
 
     // Format direct dispensations with medicine_name
     const formattedDirectDispensations = directDispensations.map((dd) => {
@@ -17377,6 +19867,31 @@ app.get('/api/student/dashboard/upcoming-health-screenings', async (req, res) =>
   }
 });
 
+// Live view for the student dashboard: the health screenings this student takes part in, today and later, with where each one stands now
+// (upcoming | ongoing | ended | cancelled) and the student's own attendance. The dashboard asks again every few seconds.
+app.get('/api/student/dashboard/live-screenings/:studentId', async (req, res) => {
+  try {
+    await ensureScreeningEndColumns();
+    const nowStr = nowManilaStr();
+    const [rows] = await pool.query(
+      `SELECT ss.screening_schedule_id, ss.title, ss.screening_type, ss.scheduled_date, ss.start_time, ss.end_time, ss.announcement, ss.status, ss.end_confirmed_at,
+              p.attendance_status, p.attended_at
+       FROM screening_schedule_participants p
+       JOIN screening_schedules ss ON ss.screening_schedule_id = p.screening_schedule_id
+       WHERE p.student_id = ? AND ss.scheduled_date >= ?
+       ORDER BY ss.scheduled_date ASC, ss.start_time ASC
+       LIMIT 20`,
+      [req.params.studentId, nowStr.slice(0, 10)]
+    );
+    // a finished screening (end confirmed, or its date passed) leaves the dashboard by itself; one past its end time that is not confirmed yet stays "ongoing"
+    const screenings = rows.map((r) => ({ ...r, phase: screeningPhaseOf(r, nowStr).phase })).filter((r) => r.phase !== 'ended');
+    res.json({ success: true, data: screenings });
+  } catch (error) {
+    console.error('Error fetching live screenings:', error);
+    res.status(500).json({ success: false, message: 'Server Error', error: error.message });
+  }
+});
+
 // -----------------------------------------------------------------------------
 // 5. Overview of Student Upcoming Doctor Visit Schedule (with details)
 // -----------------------------------------------------------------------------
@@ -17416,6 +19931,113 @@ app.get('/api/student/dashboard/doctor-appointments/:studentId', async (req, res
     });
   } catch (error) {
     console.error('Error fetching upcoming doctor appointments:', error);
+    res.status(500).json({ success: false, message: 'Server Error', error: error.message });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// 6. Student account summary for the dashboard: who the student is (program, year, section, school year),
+//    body measures, health profile highlights, how complete the profile is, and clinic activity counts.
+// -----------------------------------------------------------------------------
+app.get('/api/student/dashboard/account/:studentId', async (req, res) => {
+  const { studentId } = req.params;
+  try {
+    const [[student]] = await pool.query(
+      `SELECT s.student_id, s.first_name, s.last_name, s.year_level, s.section, s.program_id,
+              ap.program_name, ap.type AS program_type, u.username
+       FROM students s
+       JOIN users u ON u.user_id = s.user_id
+       LEFT JOIN academic_programs ap ON ap.program_id = s.program_id
+       WHERE s.student_id = ?`,
+      [studentId]
+    );
+    if (!student) return res.status(404).json({ success: false, message: 'Student not found.' });
+
+    // school_year is added by ensureSchoolYears; older databases may not have it yet
+    let schoolYear = null;
+    try {
+      const [[sy]] = await pool.query('SELECT school_year FROM students WHERE student_id = ?', [studentId]);
+      schoolYear = sy ? sy.school_year : null;
+    } catch (e) {
+      if (e.code !== 'ER_BAD_FIELD_ERROR') throw e;
+    }
+
+    const [[personal]] = await pool.query('SELECT * FROM student_personal_information WHERE student_id = ?', [studentId]);
+    const [[health]] = await pool.query('SELECT * FROM student_health_information WHERE student_id = ?', [studentId]);
+
+    // body measures; BMI = kg / m2
+    const height = personal ? Number(personal.height_cm) : 0;
+    const weight = personal ? Number(personal.weight_kg) : 0;
+    let bmi = null;
+    let bmiLabel = null;
+    if (height > 0 && weight > 0) {
+      bmi = Math.round((weight / ((height / 100) ** 2)) * 10) / 10;
+      bmiLabel = bmi < 18.5 ? 'Underweight' : bmi < 25 ? 'Normal' : bmi < 30 ? 'Overweight' : 'Obese';
+    }
+
+    // conditions the student declared in the health history form (has_* flags, allergies listed apart)
+    const conditions = [];
+    const allergies = [];
+    if (health) {
+      Object.keys(health).forEach((key) => {
+        if (!key.startsWith('has_') || key === 'has_allergies' || !health[key]) return;
+        conditions.push(key.slice(4).split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' '));
+      });
+      if (health.has_allergies) {
+        [['Food', health.allergy_food], ['Medicine', health.allergy_medicine], ['Insect sting', health.allergy_insect_sting],
+          ['Environmental', health.allergy_environmental], ['Other', health.allergy_others]]
+          .forEach(([kind, text]) => { if (text && String(text).trim()) allergies.push({ kind, text: String(text).trim() }); });
+      }
+    }
+
+    // profile completeness: the personal fields below plus a saved health history
+    const personalFields = ['gender', 'birth_date', 'address', 'contact_number', 'height_cm', 'weight_kg', 'father_name', 'mother_name'];
+    const hasValue = (v) => v !== null && v !== undefined && String(v).trim() !== '' && Number(v) !== 0;
+    const missing = personal ? personalFields.filter((f) => !hasValue(personal[f])) : personalFields;
+    const filled = personalFields.length - missing.length;
+    const profileTotal = personalFields.length + 1;
+    const profileDone = filled + (health ? 1 : 0);
+
+    // clinic activity
+    const nowStr = nowManilaStr();
+    const monthStart = `${nowStr.slice(0, 7)}-01`;
+    const [[visitCounts]] = await pool.query(
+      `SELECT COUNT(*) AS total, SUM(visit_date >= ?) AS this_month, MAX(visit_date) AS last_visit FROM clinic_visits WHERE student_id = ?`,
+      [monthStart, studentId]
+    );
+    const [[checkups]] = await pool.query(
+      `SELECT COUNT(DISTINCT a.assessment_id) AS total FROM doctor_assessments a WHERE a.student_id = ?`,
+      [studentId]
+    ).catch(() => [[{ total: 0 }]]);
+    const [[screenings]] = await pool.query(
+      `SELECT COUNT(*) AS total FROM screening_schedule_participants p
+       JOIN screening_schedules ss ON ss.screening_schedule_id = p.screening_schedule_id
+       WHERE p.student_id = ? AND p.attendance_status = 'PRESENT'`,
+      [studentId]
+    ).catch(() => [[{ total: 0 }]]);
+
+    res.json({
+      success: true,
+      data: {
+        student,
+        school_year: schoolYear,
+        personal: personal ? {
+          gender: personal.gender, age: personal.age, birth_date: personal.birth_date,
+          height_cm: height || null, weight_kg: weight || null, bmi, bmi_label: bmiLabel
+        } : null,
+        health: { has_record: !!health, conditions, allergies },
+        profile: { done: profileDone, total: profileTotal, missing },
+        activity: {
+          visits_total: Number(visitCounts?.total) || 0,
+          visits_this_month: Number(visitCounts?.this_month) || 0,
+          last_visit: visitCounts?.last_visit || null,
+          checkups_documented: Number(checkups?.total) || 0,
+          screenings_attended: Number(screenings?.total) || 0
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching student account summary:', error);
     res.status(500).json({ success: false, message: 'Server Error', error: error.message });
   }
 });
@@ -18839,5 +21461,9 @@ app.delete('/api/announcements/:id', async (req, res) => {
 
 // the listing columns must exist before the first request list is read
 ensureScheduleListingColumns().catch((err) => console.error('Could not prepare the schedule listing columns:', err.message));
+ensureAdvanceListing().catch((err) => console.error('Could not prepare the advance listing:', err.message));
+ensureSessionEndTable().catch((err) => console.error('Could not prepare the session end table:', err.message));
+ensureScreeningEndColumns().catch((err) => console.error('Could not prepare the screening end columns:', err.message));
+ensureSchoolYears().catch((err) => console.error('Could not prepare the school years:', err.message));
 
 app.listen(3001, () => console.log('Server running on port 3001'));

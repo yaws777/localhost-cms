@@ -7,60 +7,73 @@
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 6px;
-    margin: 4px 0 14px;
+    gap: 0.375rem;
+    margin: 0.25rem 0 0.875rem;
     font-size: 0.9rem;
 }
 
 .crumb-link-rf {
+    min-height: 2.75rem;
+    min-width: 2.75rem;
     background: none;
     border: none;
-    padding: 2px 4px;
+    padding: 0.125rem 0.5rem;
     color: var(--text-brand);
     font-weight: 600;
     cursor: pointer;
     border-radius: 4px;
 }
 
-.crumb-link-rf:hover { text-decoration: underline; }
+.crumb-link-rf { text-decoration: underline; }
+.crumb-link-rf:hover { text-decoration-thickness: 0.125rem; }
 .crumb-current-rf { font-weight: 700; color: var(--text-primary); }
 .crumb-sep-rf { color: var(--text-secondary); }
 
 .empty-rf {
     text-align: center;
-    padding: 36px 16px;
+    padding: 2.25rem 1rem;
     color: var(--text-secondary);
     background: var(--bg-card);
-    border: 1px dashed var(--border-color, #cbd5e1);
+    border: 1px dashed var(--border-color, var(--card-border));
     border-radius: 10px;
 }
 
 .folder-grid-rf {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-    gap: 14px;
+    gap: 0.875rem;
 }
 
 .folder-card-rf {
     display: flex;
-    gap: 14px;
+    gap: 0.875rem;
     text-align: left;
     background: var(--bg-card);
     color: var(--text-primary);
     border: 1px solid var(--border-color, var(--card-border));
     border-radius: 12px;
-    padding: 16px;
+    padding: 1rem;
     cursor: pointer;
-    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+    transition: box-shadow 0.15s ease, border-color 0.15s ease;
     font: inherit;
 }
 
 .folder-card-rf:hover,
 .folder-card-rf:focus-visible {
-    transform: translateY(-2px);
     border-color: var(--sti-blue);
     box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);
-    outline: none;
+}
+
+.folder-card-rf:focus-visible {
+    outline: 0.1875rem solid var(--sti-blue-primary);
+    outline-offset: 0.125rem;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .folder-card-rf:hover,
+    .folder-card-rf:focus-visible {
+        transform: translateY(-2px);
+    }
 }
 
 .folder-icon-rf {
@@ -77,8 +90,10 @@
 }
 
 .folder-icon-rf .icon-open-rf { display: none; }
-.folder-card-rf:hover .icon-closed-rf { display: none; }
-.folder-card-rf:hover .icon-open-rf { display: block; }
+.folder-card-rf:hover .icon-closed-rf,
+.folder-card-rf:focus-visible .icon-closed-rf { display: none; }
+.folder-card-rf:hover .icon-open-rf,
+.folder-card-rf:focus-visible .icon-open-rf { display: block; }
 
 .folder-individual-rf .folder-icon-rf {
     background: var(--status-low-bg);
@@ -96,19 +111,19 @@
 .folder-sub-rf {
     font-size: 0.875rem;
     color: var(--text-secondary);
-    margin-top: 1px;
+    margin-top: 0.0625rem;
 }
 
 .folder-total-rf {
     font-size: 0.875rem;
-    margin-top: 8px;
+    margin-top: 0.5rem;
 }
 
 .folder-chips-rf {
     display: flex;
     flex-wrap: wrap;
-    gap: 5px;
-    margin-top: 6px;
+    gap: 0.3125rem;
+    margin-top: 0.375rem;
     min-height: 22px;
 }
 
@@ -116,7 +131,7 @@
     font-size: 0.875rem;
     font-weight: 600;
     border-radius: 999px;
-    padding: 2px 8px;
+    padding: 0.125rem 0.5rem;
 }
 
 .chip-upcoming-rf { background: var(--sti-blue-light); color: var(--text-brand); }
@@ -127,10 +142,10 @@
 .pager-rf {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 12px;
+    justify-content: center;
+    gap: 0.75rem;
     flex-wrap: wrap;
-    margin: 16px 0 4px;
+    margin: 1rem 0 0.25rem;
     font-size: 0.875rem;
     color: var(--text-secondary);
 }
@@ -138,18 +153,21 @@
 .pager-controls-rf {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 0.625rem;
 }
 
 .pager-btn-rf {
+    min-height: 2.75rem;
+    min-width: 2.75rem;
+    justify-content: center;
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: 0.25rem;
     background: var(--bg-card);
     color: var(--text-primary);
-    border: 1px solid var(--border-color, #cbd5e1);
+    border: 1px solid var(--border-color, var(--card-border));
     border-radius: 6px;
-    padding: 6px 12px;
+    padding: 0.375rem 0.75rem;
     font-weight: 600;
     cursor: pointer;
 }
@@ -167,8 +185,8 @@
 /* Number shown beside a status tab */
 .tab-count-rf {
     display: inline-block;
-    min-width: 20px;
-    padding: 1px 7px;
+    min-width: 1.5rem;
+    padding: 0.0625rem 0.4375rem;
     border-radius: 999px;
     background: var(--border-color, var(--bg-muted));
     color: var(--text-primary);
@@ -190,15 +208,15 @@ button.active-dv .tab-count-rf {
 }
 
 /* Cards cut into one block per day */
-.day-section-rf + .day-section-rf { margin-top: 22px; }
+.day-section-rf + .day-section-rf { margin-top: 1.375rem; }
 
 .day-head-rf {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
-    gap: 12px;
-    margin: 0 0 10px;
-    padding-bottom: 6px;
+    gap: 0.75rem;
+    margin: 0 0 0.625rem;
+    padding-bottom: 0.375rem;
     border-bottom: 1px solid var(--border-color, var(--card-border));
     font-size: 0.95rem;
     font-weight: 700;
@@ -229,28 +247,48 @@ button.active-dv .tab-count-rf {
     right: 0;
     top: calc(100% + 6px);
     z-index: 41;
-    min-width: 200px;
+    min-width: 12.5rem;
     background: var(--bg-card);
     border: 1px solid var(--sti-border);
     border-radius: 8px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-    padding: 6px;
+    padding: 0.375rem;
     display: flex;
     flex-direction: column;
 }
 
 .menu-list-rf button {
+    min-height: 2.75rem;
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 9px 12px;
+    gap: 0.625rem;
+    padding: 0.5625rem 0.75rem;
     background: none;
     border: none;
     border-radius: 6px;
     color: var(--text-primary);
-    font-size: 0.88rem;
+    font-size: 0.875rem;
     text-align: left;
     cursor: pointer;
 }
 
 .menu-list-rf button:hover { background: var(--sti-light-bg); }
+
+.crumb-link-rf:focus-visible,
+.pager-btn-rf:focus-visible,
+.menu-list-rf button:focus-visible {
+    outline: 0.1875rem solid var(--sti-blue-primary);
+    outline-offset: 0.125rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .folder-card-rf { transition: none; }
+}
+
+/* dots for the screenings of the current date: on going, upcoming, past */
+.today-dots-rf { display: inline-flex; gap: 0.3125rem; margin-left: 0.5rem; vertical-align: middle; }
+.today-dot-rf { width: 0.625rem; height: 0.625rem; border-radius: 50%; display: inline-block; border: 1px solid transparent; }
+.dot-ongoing-rf { background: var(--status-adequate-bar); }
+.dot-upcoming-rf { background: var(--status-low-bar); }
+.dot-past-rf { background: var(--text-secondary); }
+.sr-only-rf { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }

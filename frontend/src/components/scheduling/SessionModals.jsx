@@ -6,11 +6,14 @@ import { CalendarPlus, CalendarClock, Ban, TimerReset, Users } from 'lucide-reac
 import Modal from '../common/Modal';
 import { useAlert } from '../../context/AlertContext';
 import { visitLabel, fullName } from '../../utils/visitPurpose';
-import { API, SCHEDULING_WAYS, wayOf, dayLabel, to12h, upcomingDates, sessionEnded } from '../../utils/scheduling';
+import { API, SCHEDULING_WAYS, wayOf, classLabel, dayLabel, to12h, upcomingDates, sessionEnded } from '../../utils/scheduling';
 import { useSpecializations } from '../../hooks/useSpecializations';
 import { StudentPicker, ReasonModal, RescheduleModal } from '../doctor/AppointmentModals';
+import { Pager, paginate } from '../common/RecordFolders';
 import '../../styles/doctor/DoctorLayout.css';
 import '../../styles/scheduling/Scheduling.css';
+
+const PARTICIPANTS_PER_PAGE = 8;
 
 const send = async (path, method, body) => {
     const res = await fetch(`${API}${path}`, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -178,12 +181,14 @@ export const ParticipantsModal = ({ schedule, userId, onClose, onChanged }) => {
     const [reloadKey, setReloadKey] = useState(0);
     const [moveFor, setMoveFor] = useState(null);
     const [cancelFor, setCancelFor] = useState(null);
+    const [page, setPage] = useState(1);
     const canChange = !!schedule && schedule.state !== 'past';
 
     useEffect(() => {
         if (!schedule) return undefined;
         let live = true;
         setList(null);
+        setPage(1);
         fetch(`${API}/api/doctor-schedules/${schedule.schedule_id}/participants?date=${schedule.date}`)
             .then((r) => r.json())
             .then((d) => { if (live) setList(d.success ? d.participants : []); })
@@ -220,15 +225,16 @@ export const ParticipantsModal = ({ schedule, userId, onClose, onChanged }) => {
                                     <tr><th>No.</th><th>Student</th><th>Purpose</th><th>How</th><th>Status</th>{canChange && <th>Actions</th>}</tr>
                                 </thead>
                                 <tbody>
-                                    {list.map((p) => (
+                                    {paginate(list, page, PARTICIPANTS_PER_PAGE).items.map((p) => (
                                         <tr key={`${p.appointment_id}-${p.student_id}`} className={p.queue_state === 'Void' ? 'void-row-sc' : ''}>
                                             <td><strong>{p.queue_label || to12h(p.start_time.slice(11))}</strong></td>
                                             <td>
                                                 {p.student_name}
-                                                <div className="muted-ds">{p.student_id}{p.program_name ? ` - ${p.program_name} ${p.year_level || ''}${p.section || ''}` : ''}</div>
+                                                <div className="muted-ds">{p.student_id}</div>
+                                                <div className="muted-ds">{classLabel(p.program_id, p.year_level, p.section)}</div>
                                             </td>
                                             <td>{visitLabel(p.visit_type, p.purpose_other)}</td>
-                                            <td><span className={`type-badge-sc ${SCHEDULING_WAYS[wayOf(p.booking_source)].cls}`}>{SCHEDULING_WAYS[wayOf(p.booking_source)].label}</span></td>
+                                            <td><span className={`type-badge-sc ${SCHEDULING_WAYS[wayOf(p.booking_source, p.how)].cls}`}>{SCHEDULING_WAYS[wayOf(p.booking_source, p.how)].label}</span></td>
                                             <td>
                                                 {p.queue_state || p.status}
                                                 {p.attendance_status && p.attendance_status !== 'Pending' && <div className="muted-ds">{p.attendance_status}</div>}
@@ -249,6 +255,7 @@ export const ParticipantsModal = ({ schedule, userId, onClose, onChanged }) => {
                                     ))}
                                 </tbody>
                             </table>
+                            <Pager page={Math.min(page, Math.max(Math.ceil(list.length / PARTICIPANTS_PER_PAGE), 1))} pageCount={Math.max(Math.ceil(list.length / PARTICIPANTS_PER_PAGE), 1)} total={list.length} pageSize={PARTICIPANTS_PER_PAGE} onPage={setPage} noun="participants" />
                         </div>
                     )}
                     <div className="dp-modal-foot">

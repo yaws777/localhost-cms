@@ -12,7 +12,7 @@ import NurseMessageModal from '../components/student/NurseMessageModal.jsx';
 import { useWebPush } from '../hooks/useWebPush';
 import { useTheme } from '../context/ThemeContext';
 import { useSidebar } from '../context/SidebarContext';
-import { useTodayCheckupStatus, TODAY_LABELS } from '../hooks/useTodayCheckupStatus';
+import { useTodayCheckupStatus, useTodayScreeningStatus, TODAY_LABELS, SCREENING_TODAY_LABELS } from '../hooks/useTodayCheckupStatus';
 import ConfirmModal from '../components/common/ConfirmModal';
 import { formatCurrentDate, formatDateTime } from '../utils/datetime';
 
@@ -69,6 +69,7 @@ export const NurseLayout = () => {
 
     // today's check-ups of every doctor: yellow = one is still to come, green = one is on going, gray = they are all over
     const todayStatus = useTodayCheckupStatus('all', { enabled: !!nurseData?.nurse_id, refreshKey: location.pathname });
+    const screeningStatus = useTodayScreeningStatus({ enabled: !!nurseData?.nurse_id, refreshKey: location.pathname });
 
     // Fetch unread messages count
     const fetchUnreadCount = useCallback(async (targetUserId) => {
@@ -307,15 +308,17 @@ export const NurseLayout = () => {
                     <p>Nurse Portal</p>
                 </div>
 
-                <div className="sidebar-profile">
+                <div className="sidebar-profile sidebar-profile--inline">
                     <div className="profile-avatar">{getInitials()}</div>
                     <div className="profile-details">
                         <h3 className="profile-name">
                             {isLoading ? 'Loading...' : nurseData ? `${nurseData.first_name} ${nurseData.last_name}`.trim() : 'Nurse User'}
                         </h3>
-                        <p className="profile-username">{nurseData?.username ? `${nurseData.username}` : '---'}</p>
-                        <span className="profile-id">ID: {nurseData?.nurse_id || '--------'}</span>
-                        
+                        <p className="profile-username" title={nurseData?.username || undefined}>
+                            {nurseData?.username
+                                ? nurseData.username.split('@').flatMap((part, i) => (i === 0 ? [part] : ['@', <wbr key={i} />, part]))
+                                : '---'}
+                        </p>
                         {errorMsg && (
                             <span className="profile-error" style={{ color: 'var(--status-critical-text)', fontSize: '0.875rem', display: 'block', marginTop: '5px' }}>
                                 {errorMsg}
@@ -402,6 +405,9 @@ export const NurseLayout = () => {
                             <>
                                 <HeartPulse className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
                                 <span>Health Screening</span>
+                                {screeningStatus !== 'none' && (
+                                    <span className={`nav-status-dot ${screeningStatus}`} role="img" aria-label={SCREENING_TODAY_LABELS[screeningStatus]} title={SCREENING_TODAY_LABELS[screeningStatus]} />
+                                )}
                             </>
                         )}
                     </NavLink>

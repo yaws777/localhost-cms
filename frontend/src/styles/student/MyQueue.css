@@ -35,6 +35,7 @@
 .ticket-top-mq { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: center; }
 .serving-mq { display: inline-flex; align-items: center; gap: 5px; font-size: 0.875rem; color: var(--text-secondary); }
 .serving-mq b { color: var(--text-primary); font-size: 0.95rem; }
+.done-pill-mq { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.125rem 0.625rem; border-radius: 999px; font-size: 0.875rem; font-weight: 600; background: var(--status-adequate-bg); color: var(--status-adequate-text); }
 .ticket-title-mq { margin-top: 4px; font-weight: 600; font-size: 1rem; }
 .ticket-text-mq { margin: 4px 0 8px; font-size: 0.875rem; color: var(--text-secondary); }
 .ticket-meta-mq { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.875rem; color: var(--text-secondary); }
@@ -46,7 +47,7 @@
 .tone-near-mq .ticket-no-mq { background: #fde68a; }
 .tone-void-mq { border-left-color: #dc2626; background: var(--status-critical-bg); }
 .tone-void-mq .ticket-no-mq { background: #fecaca; }
-.tone-done-mq { border-left-color: #64748b; opacity: 0.85; }
+.tone-done-mq { border-left-color: #64748b; }
 .tone-list-mq { border-left-color: #7c3aed; }
 .tone-list-mq .ticket-no-mq { background: rgba(124, 58, 237, 0.12); }
 

@@ -4,7 +4,7 @@
 //   both   : Time in (manual) or Scan QR marks a student as arrived; the doctor records the check-up only after that. Accommodate a void number as a walk-in once the student shows up
 // Refreshes by itself every few seconds so both sides see the same numbers.
 import React, { useState, useEffect, useCallback } from 'react';
-import { Megaphone, Ban, Undo2, Clock, QrCode, Footprints, RefreshCw, Check, Stethoscope } from 'lucide-react';
+import { Megaphone, Ban, Undo2, Clock, QrCode, Footprints, RefreshCw, Check, Stethoscope, Eye, History } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
 import { ReasonModal } from '../doctor/AppointmentModals';
 import { visitLabel } from '../../utils/visitPurpose';
@@ -26,7 +26,8 @@ const STATE_LABEL = { Serving: 'In session' };
 
 // scheduleId + date: the session day. creator: { nurseId } | { doctorId }. onDocument(entry): open the check-up of the number in session.
 // onWalkIn(): opens the walk-in form (the button sits beside Call next).
-const QueuePanel = ({ scheduleId, date, creator, userId, onChanged, onDocument, onWalkIn, refreshKey = 0, intervalMs = 5000 }) => {
+// onView(entry): the assessment of this check-up (a Done number). onHistory(entry): every assessment of the student.
+const QueuePanel = ({ scheduleId, date, creator, userId, onChanged, onDocument, onView, onHistory, onWalkIn, refreshKey = 0, intervalMs = 5000 }) => {
     const { showAlert } = useAlert();
     const [queue, setQueue] = useState(null);
     const [busy, setBusy] = useState(false);
@@ -81,9 +82,15 @@ const QueuePanel = ({ scheduleId, date, creator, userId, onChanged, onDocument, 
         if (data.success) { showAlert(data.message, 'success'); if (data.queue) setQueue(data.queue); changed(); } else showAlert(data.message || 'Could not go back to the number.', 'warning');
     };
 
-    const markArrived = async (e, quiet = false) => {
+    // openCheckup: the doctor's Time in button goes straight to the check-up form (the server stamps the time of the click)
+    const markArrived = async (e, quiet = false, openCheckup = false) => {
         const data = await send(`/api/doctor-visits/status/${e.appointment_id}`, 'PUT', { student_id: e.student_id, status: 'Present' });
-        if (data.success) { if (!quiet) showAlert(`${e.student_name} has a time in now.`, 'success'); changed(); return true; }
+        if (data.success) {
+            if (!quiet) showAlert(`${e.student_name} has a time in now.`, 'success');
+            changed();
+            if (openCheckup && isDoctor && onDocument) onDocument(e);
+            return true;
+        }
         if (!quiet) showAlert(data.message || 'Could not record the time in.', 'error');
         return false;
     };
@@ -94,6 +101,13 @@ const QueuePanel = ({ scheduleId, date, creator, userId, onChanged, onDocument, 
         setBusy(false);
         if (data.success) { showAlert(data.message, 'success'); changed(); } else showAlert(data.message || 'Could not accommodate the student.', 'warning');
     };
+
+    // every action of a row is an icon; the name is in aria-label and title
+    const iconBtn = (key, variant, Icon, label, onClick, title, disabled = false) => (
+        <button key={key} type="button" className={`sti-btn-dv sti-btn-${variant}-dv btn-icon-sc`} disabled={disabled} onClick={onClick} aria-label={label} title={title || label}>
+            <Icon size={18} aria-hidden="true" />
+        </button>
+    );
 
     if (!queue) return <p className="dp-hint">Loading the queue...</p>;
 
@@ -154,23 +168,24 @@ const QueuePanel = ({ scheduleId, date, creator, userId, onChanged, onDocument, 
                                     <td>
                                         <div className="row-actions-sc">
                                             {['Waiting', 'Serving'].includes(e.state) && !e.arrived && (
-                                                <button type="button" className="sti-btn-dv sti-btn-light-dv btn-sm-sc" onClick={() => markArrived(e)} title="Record the time in by hand: the student is at the clinic"><Clock size={13} /> Time in</button>
+                                                iconBtn('in', 'light', Clock, 'Time in', () => markArrived(e, false, true), 'Time in: record it now. The student is at the clinic and the check-up form opens')
                                             )}
-                                            {isDoctor && ['Waiting', 'Serving'].includes(e.state) && (
-                                                <button type="button" className="sti-btn-dv sti-btn-light-dv btn-sm-sc" onClick={() => setVoidFor(e)} title={e.state === 'Serving' ? 'The student is not here: the number becomes void and the next number is called' : 'The student is not here: the number becomes void'}><Ban size={13} /> {e.state === 'Serving' ? 'Void and call next' : 'Void'}</button>
+                                            {isDoctor && ['Waiting', 'Serving'].includes(e.state) && !e.arrived && !e.documented && (
+                                                iconBtn('void', 'light', Ban, e.state === 'Serving' ? 'Void and call next' : 'Void', () => setVoidFor(e), e.state === 'Serving' ? 'The student is not here: the number becomes void and the next number is called' : 'The student is not here: the number becomes void')
                                             )}
-                                            {isDoctor && e.state === 'Serving' && onDocument && (e.arrived || e.documented) && (
-                                                <button type="button" className="sti-btn-dv sti-btn-primary-dv btn-sm-sc" onClick={() => onDocument(e)}><Stethoscope size={13} /> {e.documented ? 'View' : 'Document'}</button>
+                                            {isDoctor && ['Waiting', 'Serving'].includes(e.state) && onDocument && !!(e.arrived || e.documented) && (
+                                                iconBtn('doc', 'primary', Stethoscope, e.documented ? 'Edit check-up' : 'Document', () => onDocument(e))
                                             )}
-                                            {isDoctor && e.state === 'Serving' && onDocument && !e.arrived && !e.documented && (
-                                                <span className="muted-ds">Time in or scan the QR code to record the check-up</span>
+                                            {e.state === 'Done' && !!e.documented && onView && (
+                                                iconBtn('view', 'primary', Eye, 'View assessment', () => onView(e), 'View the assessment of this check-up')
                                             )}
                                             {isDoctor && e.state === 'Void' && !e.accommodated_as && (
-                                                <button type="button" className="sti-btn-dv sti-btn-light-dv btn-sm-sc" disabled={busy} onClick={() => goBack(e)} title="Go back to this number: it is in session again and the number in session now waits again"><Undo2 size={13} /> Back to number</button>
+                                                iconBtn('back', 'light', Undo2, 'Back to number', () => goBack(e), 'Go back to this number: it is in session again and the number in session now waits again', busy)
                                             )}
                                             {e.state === 'Void' && !e.accommodated_as && (
-                                                <button type="button" className="sti-btn-dv sti-btn-secondary-dv btn-sm-sc" disabled={busy} onClick={() => accommodate(e)} title="The student arrived: they join the walk-in queue, after the listed students"><Footprints size={13} /> Accommodate</button>
+                                                iconBtn('acc', 'secondary', Footprints, 'Accommodate', () => accommodate(e), 'The student arrived: they join the walk-in queue, after the listed students', busy)
                                             )}
+                                            {onHistory && iconBtn('hist', 'light', History, 'Assessment history', () => onHistory(e), 'Past assessments of this student')}
                                         </div>
                                     </td>
                                 </tr>
@@ -185,7 +200,7 @@ const QueuePanel = ({ scheduleId, date, creator, userId, onChanged, onDocument, 
                 message={voidFor ? `${voidFor.label} ${voidFor.student_name} will be marked void. They stay in the list and can be accommodated as a walk-in if they arrive.` : ''}
                 placeholder="e.g. Called three times, not at the clinic" onSubmit={voidNumber} onClose={() => setVoidFor(null)}
             />
-            <AttendanceScanModal isOpen={scanning} entries={queue.entries} onArrived={(entry) => markArrived(entry, true)} onClose={() => setScanning(false)} />
+            <AttendanceScanModal isOpen={scanning} entries={queue.entries} onArrived={(entry) => markArrived(entry, true, true)} onClose={() => setScanning(false)} />
         </div>
     );
 };

@@ -1,64 +1,25 @@
 /* ==========================================================================
-   STUDENT DASHBOARD - COMPACT RESPONSIVE STYLESHEET (MOBILE-FIRST)
+   STUDENT DASHBOARD - RESPONSIVE STYLESHEET (MOBILE-FIRST)
    Page Extension Token: -sd
+   Tokens only (theme.css); rem units; 2.75rem targets; focus ring comes from theme.css
+   Layout: header, nurse announcements on top, then Queue / Requirements / Updates / Visits on the left and the Calendar on the right
    ========================================================================== */
-
-/* --- CSS Variables --- */
-:root {
-  --primary-sd: #2563eb;
-  --primary-light-sd: var(--sti-blue-light);
-  --primary-border-sd: #bfdbfe;
-
-  --success-hover-sd: #059669;
-  --success-light-sd: var(--status-adequate-bg);
-  --success-border-sd: var(--card-border);
-
-  --warning-hover-sd: #d97706;
-  --warning-light-sd: var(--status-low-bg);
-  --warning-border-sd: var(--card-border);
-
-  --danger-hover-sd: #dc2626;
-  --danger-light-sd: var(--status-critical-bg);
-  --danger-border-sd: #fecaca;
-
-  --info-sd: #0284c7;
-  --info-light-sd: var(--sti-blue-light);
-  --info-border-sd: #bae6fd;
-
-  --bg-page-sd: var(--bg-subtle);
-  --bg-card-sd: var(--bg-card);
-  --bg-subtle-sd: var(--bg-subtle);
-
-  --text-main-sd: var(--text-primary);
-  --text-muted-sd: var(--text-secondary);
-
-  --border-color-sd: var(--card-border);
-  --radius-sm-sd: 6px;
-  --radius-md-sd: 10px;
-  --radius-lg-sd: 12px;
-  --radius-full-sd: 9999px;
-
-  --shadow-sm-sd: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
-  --transition-fast-sd: 0.15s ease;
-}
-
-/* --- Base Box Sizing --- */
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-}
 
 /* --- Main Page Container --- */
 .wrapper-sd {
   width: 100%;
   max-width: 100%;
-  padding: 10px;
-  background-color: var(--bg-page-sd);
-  color: var(--text-main-sd);
+  padding: 0.75rem;
+  background-color: var(--bg-subtle);
+  color: var(--text-primary);
   font-family: var(--font-sans);
+  line-height: 1.5;
   overflow-x: hidden;
 }
+
+.wrapper-sd *,
+.wrapper-sd *::before,
+.wrapper-sd *::after { box-sizing: border-box; }
 
 /* --- Loading & Alert States --- */
 .loading-wrapper-sd {
@@ -66,672 +27,490 @@
   align-items: center;
   justify-content: center;
   min-height: 50vh;
-  padding: 16px;
+  padding: 1rem;
 }
 
 .loading-spinner-sd {
-  font-size: 0.875rem;
+  font-size: 1rem;
   font-weight: 600;
-  color: var(--text-muted-sd);
-  animation: pulse-sd 1.5s infinite ease-in-out;
-}
-
-@keyframes pulse-sd {
-  0%, 100% { opacity: 0.5; }
-  50% { opacity: 1; }
+  color: var(--text-secondary);
 }
 
 .alert-error-sd {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  margin-bottom: 10px;
-  background-color: var(--danger-light-sd);
-  border: 1px solid var(--danger-border-sd);
-  color: var(--danger-hover-sd);
-  border-radius: var(--radius-md-sd);
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.75rem;
+  background-color: var(--status-critical-bg);
+  border: 1px solid var(--status-critical-bar);
+  color: var(--status-critical-text);
+  border-radius: 0.625rem;
   font-size: 0.875rem;
   font-weight: 500;
 }
 
-/* --- Header Section & Health Tips Banner --- */
+/* --- Header: greeting and the two request buttons --- */
 .header-sd {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
 }
 
 .header-info-sd h1 {
   margin: 0;
-  font-size: 1.15rem;
+  font-size: 1.5rem;
   font-weight: 700;
-  color: var(--text-main-sd);
-  line-height: 1.2;
+  color: var(--text-primary);
+  line-height: 1.25;
 }
 
 .header-info-sd p {
-  margin: 2px 0 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0 0.5rem;
+  margin: 0.125rem 0 0;
   font-size: 0.875rem;
-  color: var(--text-muted-sd);
+  color: var(--text-secondary);
 }
 
-.header-info-sd p span {
-  font-weight: 600;
-  color: var(--text-brand);
-}
+.id-sd { font-weight: 600; color: var(--text-brand); }
 
+/* --- Daily health tip --- */
 .tips-card-sd {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 8px;
-  background: linear-gradient(135deg, var(--sti-blue-light) 0%, var(--sti-blue-light) 100%);
-  border: 1px solid #c7d2fe;
-  border-radius: var(--radius-md-sd);
-  padding: 10px;
+  gap: 0.5rem;
+  background-color: var(--sti-blue-light);
+  border: 1px solid var(--card-border);
+  border-radius: 0.625rem;
+  padding: 0.5rem 0.75rem;
 }
 
-.tip-content-sd {
-  flex: 1;
-  min-width: 0;
-}
+.tip-content-sd { flex: 1; min-width: 0; }
 
 .tip-header-sd {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 0.375rem;
   flex-wrap: wrap;
-  margin-bottom: 2px;
+  margin-bottom: 0.125rem;
 }
 
 .tip-category-sd {
   font-size: 0.875rem;
   font-weight: 700;
-  text-transform: uppercase;
-  background-color: #4f46e5;
-  color: #ffffff;
-  padding: 1px 6px;
-  border-radius: var(--radius-full-sd);
+  background-color: var(--sti-blue-dark);
+  color: var(--text-on-brand);
+  padding: 0 0.5rem;
+  border-radius: 9999px;
 }
 
-.tip-title-sd {
-  font-size: 0.875rem;
-  font-weight: 700;
-  color: var(--text-brand);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+.tip-title-sd { font-size: 0.875rem; font-weight: 700; color: var(--text-brand); }
+.tip-text-sd { margin: 0; font-size: 0.875rem; color: var(--text-primary); line-height: 1.5; }
 
-.tip-text-sd {
-  margin: 0;
-  font-size: 0.875rem;
-  color: var(--text-brand);
-  line-height: 1.3;
-}
-
-.tip-actions-sd {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
+.tip-actions-sd { display: flex; align-items: center; gap: 0.25rem; flex-shrink: 0; }
 
 .btn-icon-pri-sd,
 .btn-icon-sec-sd {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: none;
-  border-radius: var(--radius-sm-sd);
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  border: 1px solid var(--card-border);
+  border-radius: 0.5rem;
   cursor: pointer;
-  transition: background-color var(--transition-fast-sd);
 }
 
-.btn-icon-sec-sd {
-  background-color: var(--bg-card);
-  color: var(--text-brand);
+.btn-icon-sec-sd { background-color: var(--bg-card); color: var(--text-brand); }
+.btn-icon-pri-sd { background-color: var(--sti-blue-dark); border-color: var(--sti-blue-dark); color: var(--text-on-brand); }
+
+.live-note-sd {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
 }
 
-.btn-icon-pri-sd {
-  background-color: #4f46e5;
-  color: #ffffff;
-}
+.live-note-sd svg { color: var(--status-adequate-text); }
 
-/* --- Quick Actions Bar --- */
+/* --- Quick Actions --- */
 .quick-actions-bar-sd {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-bottom: 12px;
+  gap: 0.5rem;
 }
 
 .quick-action-card-sd {
-  width: 100%;
+  max-width: none;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  background-color: var(--bg-card-sd);
-  border: 1px solid var(--border-color-sd);
-  border-radius: var(--radius-md-sd);
-  box-shadow: var(--shadow-sm-sd);
+  gap: 0.625rem;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.25rem 0.75rem;
+  font: inherit;
+  background-color: var(--bg-card);
+  border: 1px solid var(--card-border);
+  border-radius: 0.75rem;
   cursor: pointer;
   text-align: left;
-  transition: border-color var(--transition-fast-sd), transform var(--transition-fast-sd);
+  color: var(--text-primary);
 }
 
-.quick-action-card-sd:hover {
-  border-color: var(--primary-border-sd);
-  transform: translateY(-1px);
-}
+.quick-action-card-sd:hover { border-color: var(--sti-blue-primary); }
 
 .quick-action-icon-sd {
-  padding: 6px;
-  border-radius: var(--radius-sm-sd);
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
+  padding: 0.375rem;
+  border-radius: 0.5rem;
 }
 
-.excuse-icon-sd {
-  background-color: var(--sti-blue-light);
-  color: var(--text-brand);
-}
+.excuse-icon-sd { background-color: var(--sti-blue-light); color: var(--text-brand); }
+.referral-icon-sd { background-color: var(--status-adequate-bg); color: var(--status-adequate-text); }
 
-.referral-icon-sd {
-  background-color: var(--status-adequate-bg);
-  color: var(--status-adequate-text);
-}
-
-.quick-action-text-sd {
-  flex: 1;
-}
-
-.quick-action-title-sd {
-  margin: 0;
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--text-main-sd);
-}
-
-.quick-action-sub-sd {
-  margin: 1px 0 0;
-  font-size: 0.875rem;
-  color: var(--text-muted-sd);
-}
-
-.quick-action-add-sd {
-  margin-left: auto;
-}
-
+.quick-action-title-sd { flex: 1; font-size: 1rem; font-weight: 600; color: var(--text-primary); }
+.quick-action-add-sd { margin-left: auto; flex-shrink: 0; }
 .excuse-add-sd { color: var(--text-brand); }
 .referral-add-sd { color: var(--status-adequate-text); }
 
-/* --- Dashboard Grid Layout --- */
-.grid-sd {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 10px;
-  width: 100%;
+/* --- Nurse announcements bar (top) --- */
+.notice-bar-sd {
+  margin-bottom: 0.75rem;
+  padding: 0.5rem 1rem 0.75rem;
+  background-color: var(--sti-blue-light);
+  border: 1px solid var(--card-border);
+  border-left: 0.25rem solid var(--sti-blue-primary);
+  border-radius: 0.75rem;
 }
 
-/* --- Card Structure & Sizing --- */
+.notice-bar-sd h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* nothing posted: one slim line, heading and text side by side */
+.notice-empty-sd { display: flex; align-items: center; flex-wrap: wrap; gap: 0 0.75rem; padding-bottom: 0.5rem; }
+.notice-empty-sd h2 { margin: 0; }
+.notice-none-sd { margin: 0; font-size: 0.875rem; color: var(--text-secondary); }
+
+.notice-list-sd {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: 0.5rem;
+  max-height: 9rem;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.notice-item-sd {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding: 0.5rem 0.75rem;
+  background-color: var(--bg-card);
+  border: 1px solid var(--card-border);
+  border-radius: 0.5rem;
+}
+
+.notice-item-sd strong { font-size: 0.9375rem; color: var(--text-primary); }
+.notice-item-sd span { font-size: 0.9375rem; color: var(--text-primary); }
+.notice-item-sd small { font-size: 0.875rem; color: var(--text-secondary); }
+
+/* --- Health profile notice (only while something is missing) --- */
+.profile-note-sd {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  color: var(--status-low-text);
+  background-color: var(--status-low-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 0.625rem;
+}
+
+.profile-note-sd svg { flex-shrink: 0; margin-top: 0.1875rem; }
+.profile-note-sd a { color: inherit; font-weight: 600; text-decoration: underline; }
+
+/* --- Columns: one stack on small screens, in the order of the order- classes --- */
+.cols-sd { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.75rem; }
+
+.order-1-sd { order: 1; }
+.order-2-sd { order: 2; }
+.order-3-sd { order: 3; }
+.order-4-sd { order: 4; }
+.order-5-sd { order: 5; }
+
+/* --- Cards --- */
 .card-section-sd {
-  background-color: var(--bg-card-sd);
-  border: 1px solid var(--border-color-sd);
-  border-radius: var(--radius-lg-sd);
-  padding: 10px 12px;
-  box-shadow: var(--shadow-sm-sd);
+  background-color: var(--bg-card);
+  border: 1px solid var(--card-border);
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
   display: flex;
   flex-direction: column;
   width: 100%;
-  overflow: hidden;
+  min-width: 0;
 }
 
 .card-header-sd {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  margin-bottom: 8px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--bg-subtle-sd);
-}
-
-.card-title-group-sd {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: 0.375rem 0.5rem;
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid var(--card-border);
 }
 
 .card-header-sd h2 {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 0.875rem;
+  gap: 0.375rem;
+  font-size: 1rem;
   font-weight: 700;
-  color: var(--text-main-sd);
+  color: var(--text-primary);
   margin: 0;
 }
 
 .meta-count-sd {
   font-size: 0.875rem;
   font-weight: 600;
-  color: var(--text-muted-sd);
-  background-color: var(--bg-subtle-sd);
-  padding: 1px 6px;
-  border-radius: var(--radius-full-sd);
+  color: var(--text-secondary);
+  background-color: var(--bg-card);
+  padding: 0 0.5rem;
+  border-radius: 9999px;
 }
 
 .view-all-link-sd {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 0.125rem;
+  min-height: 2.75rem;
   font-size: 0.875rem;
   color: var(--text-brand);
-  text-decoration: none;
+  text-decoration: underline;
   font-weight: 600;
-  padding: 2px 6px;
-  border-radius: var(--radius-sm-sd);
+  padding: 0 0.5rem;
+  border-radius: 0.375rem;
   margin-left: auto;
 }
 
-.view-all-link-sd:hover {
-  background-color: var(--primary-light-sd);
-}
+.view-all-link-sd:hover { background-color: var(--sti-blue-light); }
 
 .empty-state-sd {
-  margin: 8px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  margin: 0.5rem 0;
   font-size: 0.875rem;
-  color: var(--text-muted-sd);
+  color: var(--text-secondary);
   text-align: center;
-  font-style: italic;
 }
 
-/* --- Inner Scrollable Lists for Card Heights --- */
 .card-content-stack-sd,
 .card-content-scroll-sd {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0.5rem;
   width: 100%;
-  max-height: 220px;
-  overflow-y: auto;
-  padding-right: 2px;
-}
-
-/* Scrollbar styling */
-.card-content-scroll-sd::-webkit-scrollbar,
-.card-content-stack-sd::-webkit-scrollbar {
-  width: 4px;
-}
-.card-content-scroll-sd::-webkit-scrollbar-thumb,
-.card-content-stack-sd::-webkit-scrollbar-thumb {
-  background-color: #cbd5e1;
-  border-radius: 4px;
-}
-
-/* --- Clinic Visits Section --- */
-.visit-item-sd {
-  background-color: var(--bg-page-sd);
-  border: 1px solid var(--border-color-sd);
-  border-radius: var(--radius-md-sd);
-  padding: 8px;
-}
-
-.visit-date-sd {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--text-muted-sd);
-}
-
-.vitals-grid-sd {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 4px;
-  margin: 6px 0;
-}
-
-.vital-box-sd {
-  background-color: var(--bg-card-sd);
-  border: 1px solid var(--border-color-sd);
-  padding: 4px 6px;
-  border-radius: var(--radius-sm-sd);
-  display: flex;
-  flex-direction: column;
-}
-
-.vital-label-sd {
-  font-size: 0.875rem;
-  text-transform: uppercase;
-  color: var(--text-muted-sd);
-  font-weight: 600;
-}
-
-.vital-value-sd {
-  font-size: 0.875rem;
-  font-weight: 700;
-  color: var(--text-main-sd);
-}
-
-.visit-details-sd {
-  font-size: 0.875rem;
-  color: var(--text-main-sd);
-  background-color: var(--bg-card-sd);
-  padding: 6px;
-  border-radius: var(--radius-sm-sd);
-  border-left: 3px solid var(--primary-sd);
-  margin-bottom: 6px;
-}
-
-.visit-details-sd p {
-  margin: 1px 0;
-}
-
-.meds-title-sd {
-  display: block;
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--text-muted-sd);
-  margin-bottom: 4px;
-}
-
-.meds-tags-sd {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.tag-pill-sd {
-  font-size: 0.875rem;
-  font-weight: 500;
-  background-color: var(--primary-light-sd);
-  color: var(--text-brand);
-  border: 1px solid var(--primary-border-sd);
-  padding: 2px 6px;
-  border-radius: var(--radius-full-sd);
-}
-
-/* Direct Dispensations */
-.direct-dispense-sec-sd {
-  margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px dashed var(--border-color-sd);
-}
-
-.section-subtitle-sd {
-  font-size: 0.875rem;
-  font-weight: 700;
-  color: var(--text-main-sd);
-  margin: 0 0 6px 0;
-}
-
-.direct-grid-sd {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.direct-item-sd {
-  background-color: var(--bg-page-sd);
-  border: 1px solid var(--border-color-sd);
-  border-radius: var(--radius-sm-sd);
-  padding: 6px;
-}
-
-.direct-item-row-sd span {
-  font-size: 0.875rem;
-  font-weight: 600;
-}
-
-.direct-timestamp-sd {
-  margin: 1px 0 0;
-  font-size: 0.875rem;
-  color: var(--text-muted-sd);
-}
-
-/* --- Generic Item Cards --- */
-.item-card-sd {
-  background-color: var(--bg-page-sd);
-  border: 1px solid var(--border-color-sd);
-  border-radius: var(--radius-md-sd);
-  padding: 8px 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.item-card-sd.info-card-sd {
-  border-left: 3px solid var(--info-sd);
-}
-
-.item-card-sd.accent-card-sd {
-  border-left: 3px solid var(--primary-sd);
-}
-
-.item-card-row-sd {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 6px;
-}
-
-.item-title-sd {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--text-main-sd);
-  line-height: 1.25;
-}
-
-.item-subtext-sd {
-  font-size: 0.875rem;
-  color: var(--text-muted-sd);
+  max-height: 28rem;
   margin: 0;
-  line-height: 1.3;
+  padding: 0 0.125rem 0 0;
+  overflow-y: auto;
+  list-style: none;
 }
 
-.item-subtext-sd p {
-  margin: 1px 0;
-}
-
-.item-remarks-sd,
-.item-announcement-sd,
-.item-notes-sd {
-  font-size: 0.875rem;
-  padding: 4px 6px;
-  background-color: var(--bg-card-sd);
-  border-radius: var(--radius-sm-sd);
-  border: 1px solid var(--border-color-sd);
-  color: var(--text-main-sd);
-}
-
-.item-card-footer-sd {
+/* --- List rows --- */
+.item-card-sd {
+  background-color: var(--bg-subtle);
+  border: 1px solid var(--card-border);
+  border-radius: 0.625rem;
+  padding: 0.5rem 0.75rem;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 2px;
-  font-size: 0.875rem;
+  flex-direction: column;
+  gap: 0.125rem;
 }
 
-/* --- Badges --- */
+.item-card-row-sd { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; }
+.item-title-sd { font-size: 0.9375rem; font-weight: 600; color: var(--text-primary); line-height: 1.4; }
+.item-subtext-sd { display: flex; flex-wrap: wrap; align-items: center; gap: 0.125rem 0.5rem; font-size: 0.875rem; color: var(--text-secondary); margin: 0; }
+
+.item-remarks-sd {
+  font-size: 0.875rem;
+  padding: 0.25rem 0.5rem;
+  background-color: var(--bg-card);
+  border-radius: 0.375rem;
+  border: 1px solid var(--card-border);
+  color: var(--text-primary);
+}
+
+.inline-link-sd {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-height: 2.75rem;
+  font-weight: 600;
+  color: var(--text-brand);
+  text-decoration: underline;
+}
+
+.due-sd { padding: 0 0.5rem; font-weight: 600; border-radius: 9999px; }
+.due-info-sd { color: var(--text-brand); background-color: var(--sti-blue-light); }
+.due-warn-sd { color: var(--status-low-text); background-color: var(--status-low-bg); }
+.due-bad-sd { color: var(--status-critical-text); background-color: var(--status-critical-bg); }
+
+/* --- Badges (always carry a text label) --- */
 .badge-sd {
   display: inline-flex;
   align-items: center;
-  padding: 2px 6px;
+  gap: 0.25rem;
+  padding: 0 0.5rem;
   font-size: 0.875rem;
   font-weight: 600;
-  border-radius: var(--radius-full-sd);
+  line-height: 1.5;
+  border-radius: 9999px;
   white-space: nowrap;
-  text-transform: capitalize;
   flex-shrink: 0;
+  border: 1px solid var(--card-border);
 }
 
-.badge-success-sd {
-  background-color: var(--success-light-sd);
-  color: var(--success-hover-sd);
-  border: 1px solid var(--success-border-sd);
-}
+.badge-ok-sd { background-color: var(--status-adequate-bg); color: var(--status-adequate-text); }
+.badge-warn-sd { background-color: var(--status-low-bg); color: var(--status-low-text); }
+.badge-bad-sd { background-color: var(--status-critical-bg); color: var(--status-critical-text); }
+.badge-info-sd { background-color: var(--sti-blue-light); color: var(--text-brand); }
+.badge-default-sd { background-color: var(--bg-subtle); color: var(--text-secondary); }
 
-.badge-warning-sd {
-  background-color: var(--warning-light-sd);
-  color: var(--warning-hover-sd);
-  border: 1px solid var(--warning-border-sd);
-}
+/* --- Requirements progress --- */
+.progress-head-sd { display: flex; justify-content: space-between; gap: 0.5rem; font-size: 0.875rem; color: var(--text-secondary); }
+.progress-head-sd span { display: inline-flex; align-items: center; gap: 0.375rem; }
+.progress-head-sd strong { color: var(--text-primary); }
 
-.badge-danger-sd {
-  background-color: var(--danger-light-sd);
-  color: var(--danger-hover-sd);
-  border: 1px solid var(--danger-border-sd);
-}
-
-.badge-info-sd {
-  background-color: var(--info-light-sd);
-  color: var(--info-sd);
-  border: 1px solid var(--info-border-sd);
-}
-
-.badge-default-sd {
-  background-color: var(--bg-subtle-sd);
-  color: var(--text-muted-sd);
-  border: 1px solid var(--border-color-sd);
-}
-
-/* --- Tabs --- */
-.tab-group-sd {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  background-color: var(--bg-subtle-sd);
-  padding: 2px;
-  border-radius: var(--radius-sm-sd);
-}
-
-.tab-btn-sd {
-  background: transparent;
-  border: none;
-  padding: 2px 6px;
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--text-muted-sd);
-  border-radius: 4px;
-  cursor: pointer;
-  text-transform: capitalize;
-}
-
-.tab-btn-sd.active-sd {
-  background-color: var(--bg-card-sd);
-  color: var(--text-brand);
-  box-shadow: var(--shadow-sm-sd);
-}
-
-/* --- Buttons --- */
-.row-action-btn-sd {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  margin-left: auto;
-  color: var(--text-brand);
-  background-color: var(--primary-light-sd);
-  border: 1px solid var(--primary-border-sd);
-  border-radius: var(--radius-sm-sd);
-  text-decoration: none;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.doc-action-btn-sd {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  text-decoration: none;
-  font-size: 0.875rem;
-  font-weight: 500;
-}
-
-.primary-doc-btn-sd {
-  background-color: var(--sti-blue-light);
-  color: var(--text-brand);
-}
-
-.secondary-doc-btn-sd {
+.progress-track-sd {
+  height: 0.5rem;
+  margin: 0.25rem 0 0.5rem;
   background-color: var(--bg-subtle);
-  color: var(--text-secondary);
+  border: 1px solid var(--card-border);
+  border-radius: 9999px;
+  overflow: hidden;
 }
+
+.progress-fill-sd { height: 100%; background-color: var(--status-adequate-bar); border-radius: 9999px; }
+
+/* --- Queue --- */
+.live-status-sd { margin: 0 0 0.5rem; font-size: 0.875rem; font-weight: 600; line-height: 1.5; color: var(--text-primary); }
+.live-status-sd:empty { display: none; }
 
 /* ==========================================================================
-   RESPONSIVE MEDIA QUERIES (DESKTOP FIT & TABLET)
+   RESPONSIVE
    ========================================================================== */
+@media (min-width: 40rem) {
+  .wrapper-sd { padding: 1rem; }
 
-/* --- Tablet Breakpoint (min-width: 640px) --- */
-@media (min-width: 640px) {
+  .header-sd { flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+  .tips-card-sd { flex: 1 1 18rem; max-width: 32rem; }
+  .quick-actions-bar-sd { flex-direction: row; }
+  .quick-action-card-sd { width: auto; }
+}
+
+/* the sidebar takes 260px, so the side by side layout waits for a wide window:
+   Queue / Requirements / Updates + Visits on the left, the Calendar on the right */
+@media (min-width: 80rem) {
+  .wrapper-sd { padding: 1rem 1.25rem; }
+
+  .header-sd { flex-wrap: nowrap; }
+  .quick-actions-bar-sd { flex-direction: column; gap: 0.25rem; }
+  .quick-action-card-sd { width: 100%; }
+
+  .cols-sd {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.1fr);
+    grid-template-areas:
+      "queue   queue   calendar"
+      "req     req     calendar"
+      "updates visits  calendar";
+    gap: 0.75rem;
+    align-items: start;
+  }
+
+  .order-1-sd, .order-2-sd, .order-3-sd, .order-4-sd, .order-5-sd { order: 0; }
+
+  .area-queue-sd { grid-area: queue; }
+  .area-req-sd { grid-area: req; }
+  .area-calendar-sd { grid-area: calendar; }
+  .area-updates-sd { grid-area: updates; align-self: stretch; }
+  .area-visits-sd { grid-area: visits; align-self: stretch; }
+}
+
+/* ONE SCREEN: on a wide, tall window the whole dashboard fits the viewport. Nothing is cut off:
+   each card keeps its heading in view and scrolls inside itself. Smaller windows keep the page scrolling. */
+@media (min-width: 80rem) and (min-height: 46rem) {
   .wrapper-sd {
-    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - var(--student-top-bar-height, 3.875rem) - 1.25rem);
+    height: calc(100dvh - var(--student-top-bar-height, 3.875rem) - 1.25rem);
+    max-width: none;
+    margin: 0;
+    padding: 0.75rem 1rem;
+    overflow: hidden;
   }
 
-  .header-sd {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-  }
+  .header-sd, .alert-error-sd, .profile-note-sd { flex-shrink: 0; margin-bottom: 0.5rem; }
+  .header-info-sd h1 { font-size: 1.375rem; }
+  .notice-bar-sd { flex-shrink: 0; margin-bottom: 0.5rem; }
+  .notice-list-sd { max-height: 5.5rem; }
 
-  .tips-card-sd {
-    max-width: 380px;
-  }
-
-  .quick-actions-bar-sd {
-    flex-direction: row;
-  }
-
-  .quick-action-card-sd {
+  .cols-sd {
     flex: 1;
+    min-height: 0;
+    /* the queue card is as tall as its content (up to 40%), so it only scrolls when it really must */
+    grid-template-rows: fit-content(40%) minmax(0, 1.7fr) minmax(0, 1.1fr);
+    align-items: stretch;
   }
 
-  .direct-grid-sd {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-/* --- Compact Desktop Grid (min-width: 1024px) --- */
-@media (min-width: 1024px) {
-  .wrapper-sd {
-    padding: 16px 24px;
-    max-width: 1400px;
-    margin: 0 auto;
+  /* the card scrolls, its heading stays */
+  .card-section-sd {
+    min-height: 0;
+    padding: 0 1rem 0.75rem;
+    gap: 0.5rem;
+    overflow-y: auto;
   }
 
-  .grid-sd {
-    grid-template-columns: repeat(3, 1fr);
-    gap: 12px;
+  .card-section-sd > * { flex-shrink: 0; }
+
+  .card-header-sd {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    margin-bottom: 0;
+    padding-top: 0.5rem;
+    background-color: var(--bg-card);
   }
 
-  .col-span-2-sd {
-    grid-column: span 2 / span 2;
-  }
-
-  /* Compact Card Heights to fit everything on one page */
-  .card-content-stack-sd,
-  .card-content-scroll-sd {
-    max-height: 200px;
-  }
-}
-
-/* --- Large Desktop Screens (min-width: 1280px) --- */
-@media (min-width: 1280px) {
-  .header-info-sd h1 {
-    font-size: 1.3rem;
-  }
+  .card-header-sd h2 { white-space: nowrap; }
+  .view-all-link-sd { white-space: nowrap; padding: 0 0.25rem; }
 
   .card-content-stack-sd,
-  .card-content-scroll-sd {
-    max-height: 220px;
-  }
+  .card-content-scroll-sd { max-height: none; overflow: visible; padding-right: 0; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .quick-action-card-sd, .view-all-link-sd { transition: border-color 0.15s ease, background-color 0.15s ease; }
 }

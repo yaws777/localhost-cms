@@ -11,10 +11,14 @@ import {
   X, 
   Filter
 } from 'lucide-react';
+import { Pager, paginate } from '../../components/common/RecordFolders';
+import { DoctorVisitDetail, ScreeningDetail, VisitStatus, ScreeningStatus, visitDoctor, visitTitle } from '../../components/common/ClinicRecordViews';
 import { formatTime, formatDate as formatDateBase, formatDateTime } from '../../utils/datetime';
 import '../../styles/student/ClinicLogs&Records.css';
 
 const API_BASE = 'http://localhost:3001';
+// small pages keep the list on one screen
+const PER_PAGE = 6;
 
 // Safe date formatter to avoid UTC offset shifts
 const formatDate = (dateStr) => {
@@ -70,6 +74,7 @@ export default function ClinicLogsAndRecords() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [selectedRecord, setSelectedRecord] = useState(null);
+  const [page, setPage] = useState(1);
 
   const fetchLogs = useCallback(async (overrideStartDate = startDate, overrideEndDate = endDate) => {
     if (!studentId) return;
@@ -85,6 +90,7 @@ export default function ClinicLogsAndRecords() {
       const response = await fetch(url);
       const data = await response.json();
       setRecords(Array.isArray(data) ? data : []);
+      setPage(1);
     } catch (error) {
       console.error('Error fetching data:', error);
       setRecords([]);
@@ -98,6 +104,8 @@ export default function ClinicLogsAndRecords() {
       fetchLogs();
     }
   }, [studentId, activeTab, fetchLogs]);
+
+  const paged = paginate(records, page, PER_PAGE);
 
   const handleFilter = (e) => {
     e.preventDefault();
@@ -196,7 +204,7 @@ export default function ClinicLogsAndRecords() {
               </thead>
               <tbody>
                 {records.length > 0 ? (
-                  records.map((item, index) => renderTableRow(activeTab, item, index, () => setSelectedRecord(item)))
+                  paged.items.map((item, index) => renderTableRow(activeTab, item, index, () => setSelectedRecord(item)))
                 ) : (
                   <tr>
                     <td colSpan="10" className="no-data-clr">
@@ -208,11 +216,12 @@ export default function ClinicLogsAndRecords() {
             </table>
           </div>
         )}
+        {!loading && <Pager page={paged.page} pageCount={paged.pageCount} total={paged.total} pageSize={PER_PAGE} onPage={setPage} noun="records" />}
       </div>
 
       {/* Record Details Modal */}
       {selectedRecord && (
-        <Modal record={selectedRecord} onClose={() => setSelectedRecord(null)} />
+        <Modal tab={activeTab} record={selectedRecord} onClose={() => setSelectedRecord(null)} />
       )}
     </div>
   );
@@ -271,11 +280,12 @@ function renderTableHeader(tab) {
     case 'doctor-visits':
       return (
         <tr>
-          <th>Appointment ID</th>
-          <th>Student ID</th>
+          <th>Date</th>
+          <th>Check-up</th>
           <th>Doctor Name</th>
-          <th>Schedule Window</th>
+          <th>Number</th>
           <th>Status</th>
+          <th>Assessment</th>
           <th>Action</th>
         </tr>
       );
@@ -359,11 +369,11 @@ function renderTableRow(tab, item, index, onViewDetails) {
           </td>
           <td>{item.student_id}</td>
           <td>{formatDate(item.record_date || item.date)}</td>
-          <td>
+          <td>{tab === 'health-screenings' ? <ScreeningStatus item={item} /> : (
             <span className={`badge-clr status-${(item.status || 'pending').toLowerCase().replace(/\s+/g, '-')}-clr`}>
               {item.status}
             </span>
-          </td>
+          )}</td>
           <td>
             <button className="btn-icon-clr" onClick={onViewDetails} title="View Details" aria-label="View Details">
               <Eye size={18} />
@@ -375,22 +385,12 @@ function renderTableRow(tab, item, index, onViewDetails) {
     case 'doctor-visits':
       return (
         <tr key={item.appointment_id || index}>
-          <td><strong>{item.appointment_id}</strong></td>
-          <td>{item.student_id}</td>
-          <td>
-            {item.doctor_first_name && item.doctor_last_name 
-              ? `${item.doctor_first_name} ${item.doctor_last_name}` 
-              : item.doctor_id || 'N/A'}
-          </td>
-          <td>
-            {item.start_time ? formatTime(new Date(item.start_time)) : ''} - 
-            {item.end_time ? formatTime(new Date(item.end_time)) : ''}
-          </td>
-          <td>
-            <span className={`badge-clr status-${(item.status || 'pending').toLowerCase().replace(/\s+/g, '-')}-clr`}>
-              {item.status}
-            </span>
-          </td>
+          <td>{item.start_time ? formatDate(item.start_time) : 'N/A'}</td>
+          <td><strong>{visitTitle(item)}</strong></td>
+          <td>{visitDoctor(item)}</td>
+          <td>{item.queue_label || '-'}</td>
+          <td><VisitStatus item={item} /></td>
+          <td>{item.documented ? (item.diagnosis || 'Documented') : '-'}</td>
           <td>
             <button className="btn-icon-clr" onClick={onViewDetails} title="View Details" aria-label="View Details">
               <Eye size={18} />
@@ -405,7 +405,7 @@ function renderTableRow(tab, item, index, onViewDetails) {
 }
 
 // Modal Component
-function Modal({ record, onClose }) {
+function Modal({ tab, record, onClose }) {
   return (
     <div className="modal-overlay-clr">
       <div className="modal-content-clr">
@@ -414,7 +414,7 @@ function Modal({ record, onClose }) {
           <button className="modal-close-clr" onClick={onClose}><X size={20} /></button>
         </div>
         <div className="modal-body-clr">
-          {Object.entries(record).map(([key, value]) => (
+          {tab === 'doctor-visits' ? <DoctorVisitDetail record={record} /> : tab === 'health-screenings' ? <ScreeningDetail record={record} /> : Object.entries(record).map(([key, value]) => (
             <div className="modal-field-clr" key={key}>
               <span className="field-key-clr">{formatKeyLabel(key)}:</span>
               <span className="field-value-clr">

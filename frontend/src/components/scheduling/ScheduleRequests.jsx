@@ -5,6 +5,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { CalendarClock, Send, Check, XCircle } from 'lucide-react';
 import Modal from '../common/Modal';
 import { ReasonModal } from '../doctor/AppointmentModals';
+import { Pager, paginate } from '../common/RecordFolders';
 import { useAlert } from '../../context/AlertContext';
 import { useSpecializations } from '../../hooks/useSpecializations';
 import { formatDate } from '../../utils/datetime';
@@ -14,7 +15,12 @@ import '../../styles/nurse/DoctorSchedule.css';
 import '../../styles/doctor/DoctorLayout.css';
 import '../../styles/scheduling/Scheduling.css';
 
+const REQUESTS_PER_PAGE = 6;
+
 const STATUS_BADGE = { Pending: 'badge-pending-ds', Scheduled: 'badge-open-ds', Declined: 'badge-closed-ds', Cancelled: 'badge-closed-ds' };
+
+// the list opens on what still needs an answer; the other states are one click away
+const REQUEST_FILTERS = [['Pending', 'Pending'], ['Scheduled', 'Scheduled'], ['Declined', 'Declined'], ['Cancelled', 'Cancelled'], ['All', 'All']];
 
 const EMPTY = { doctor_id: '', visit_type: 'Any', preferred_date: '', preferred_start: '', preferred_end: '', note: '' };
 
@@ -25,12 +31,19 @@ export const ScheduleRequestModal = ({ isOpen, preset, doctors, nurseId, userId,
     const [form, setForm] = useState(EMPTY);
     const [error, setError] = useState('');
     const [busy, setBusy] = useState(false);
+    const [advanceServices, setAdvanceServices] = useState([]); // services of the advance listing with students waiting for a schedule
 
     useEffect(() => {
         if (!isOpen) return;
         setForm({ ...EMPTY, ...preset });
         setError('');
         setBusy(false);
+        let live = true;
+        fetch(`${API}/api/advance-listing`)
+            .then((r) => r.json())
+            .then((d) => { if (live && d.success) setAdvanceServices(d.services.filter((s) => s.waiting > 0)); })
+            .catch(() => { /* the choice is a convenience */ });
+        return () => { live = false; };
     }, [isOpen, preset]);
 
     const set = (patch) => setForm((f) => ({ ...f, ...patch }));
@@ -39,6 +52,18 @@ export const ScheduleRequestModal = ({ isOpen, preset, doctors, nurseId, userId,
     const changeCategory = (visit_type) => {
         const stillOk = !form.doctor_id || visit_type === 'Any' || eligibleDoctors(doctors, visit_type).some((d) => d.doctor_id === form.doctor_id);
         set({ visit_type, doctor_id: stillOk ? form.doctor_id : '' });
+    };
+
+    // For the advance listing or not: picking a service of the advance listing sets the check-up service to it (Dental = dentists only)
+    const changeAdvance = (service) => {
+        // turning it off removes only the note this choice wrote, never what the nurse typed
+        if (!service) { set({ advance_listing: false, note: /advance listing$/.test(form.note || '') ? '' : form.note }); return; }
+        const found = advanceServices.find((s) => s.visit_type === service);
+        const stillOk = !form.doctor_id || eligibleDoctors(doctors, service).some((d) => d.doctor_id === form.doctor_id);
+        set({
+            advance_listing: true, visit_type: service, doctor_id: stillOk ? form.doctor_id : '',
+            note: found ? `${found.waiting} student(s) in the ${service} advance listing` : form.note
+        });
     };
 
     const submit = async (e) => {
@@ -63,12 +88,25 @@ export const ScheduleRequestModal = ({ isOpen, preset, doctors, nurseId, userId,
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="Request a schedule" icon={<Send size={20} />} size="md" closeOnBackdrop={false}>
             <form className="dp-form" onSubmit={submit}>
-                <div className="dp-notice">The doctor gets your request and sets the schedule. When it is set, open its listing so students can ask for a place.</div>
+                {form.advance_listing ? (
+                    <div className="dp-notice">This request is for the {form.visit_type} advance listing. When the doctor sets the schedule, the students registered in it take the first queue numbers and the places left open for the other students.</div>
+                ) : (
+                    <div className="dp-notice">The doctor gets your request and sets the schedule. When it is set, open its listing so students can ask for a place.</div>
+                )}
                 {error && <div className="dp-error" role="alert">{error}</div>}
+                <div className="dp-field">
+                    <label htmlFor="sr-advance">For the Advance Listing <span className="paren-sc">(No Schedule Yet)</span>?</label>
+                    <select id="sr-advance" className="dp-select" value={form.advance_listing ? form.visit_type : ''} onChange={(e) => changeAdvance(e.target.value)}>
+                        <option value="">No, a normal schedule request</option>
+                        {advanceServices.map((s) => <option key={s.visit_type} value={s.visit_type}>Yes, {s.visit_type} ({s.waiting} waiting)</option>)}
+                        {form.advance_listing && !advanceServices.some((s) => s.visit_type === form.visit_type) && <option value={form.visit_type}>Yes, {form.visit_type}</option>}
+                    </select>
+                    {advanceServices.length === 0 && !form.advance_listing && <small className="dp-hint">Nobody is waiting in the Advance Listing, so every request is a normal one.</small>}
+                </div>
                 <div className="dp-row">
                     <div className="dp-field">
                         <label htmlFor="sr-category">Check-up service</label>
-                        <select id="sr-category" className="dp-select" value={form.visit_type} onChange={(e) => changeCategory(e.target.value)}>
+                        <select id="sr-category" className="dp-select" value={form.visit_type} disabled={!!form.advance_listing} onChange={(e) => changeCategory(e.target.value)}>
                             <option value="Any">Any check-up</option>
                             {visitTypes.map((t) => <option key={t} value={t}>{t}</option>)}
                         </select>
@@ -115,6 +153,9 @@ const ScheduleRequests = ({ role, fixedDoctorId, nurseId, userId, refreshKey, on
     const { showAlert } = useAlert();
     const [requests, setRequests] = useState([]);
     const [declineFor, setDeclineFor] = useState(null);
+    const [statusFilter, setStatusFilter] = useState('Pending');
+    const [page, setPage] = useState(1);
+    useEffect(() => { setPage(1); }, [statusFilter]);
 
     const load = useCallback(async () => {
         try {
@@ -126,8 +167,9 @@ const ScheduleRequests = ({ role, fixedDoctorId, nurseId, userId, refreshKey, on
 
     useEffect(() => { load(); }, [load, refreshKey]);
 
-    const visible = useMemo(() => requests.filter((r) => (role === 'doctor' ? r.status === 'Pending' : true)), [requests, role]);
-    if (visible.length === 0) return null;
+    const visible = useMemo(() => requests.filter((r) => statusFilter === 'All' || r.status === statusFilter), [requests, statusFilter]);
+    if (requests.length === 0) return null;
+    const paged = paginate(visible, page, REQUESTS_PER_PAGE);
 
     const decline = async (reason) => {
         const res = await fetch(`${API}/api/schedule-requests/${declineFor.schedule_request_id}/decline`, {
@@ -153,15 +195,26 @@ const ScheduleRequests = ({ role, fixedDoctorId, nurseId, userId, refreshKey, on
                     <strong><CalendarClock size={16} style={{ verticalAlign: 'middle' }} /> Schedule requests</strong>
                     <small>{role === 'doctor' ? 'The nurse asks you for a schedule. Set it or decline with a reason.' : 'Requests you sent to the doctors.'}</small>
                 </span>
+                <div className="chip-filter-ds" role="group" aria-label="Schedule request status">
+                    {REQUEST_FILTERS.map(([value, label]) => (
+                        <button key={value} type="button" className={statusFilter === value ? 'active-ds' : ''} aria-pressed={statusFilter === value} onClick={() => setStatusFilter(value)}>{label}</button>
+                    ))}
+                </div>
             </header>
+            {visible.length === 0 ? (
+                <div className="group-empty-ds">{statusFilter === 'Pending' ? 'No pending schedule requests.' : statusFilter === 'All' ? 'No schedule requests.' : `No ${statusFilter.toLowerCase()} schedule requests.`}</div>
+            ) : (
             <div className="table-card-dv group-table-ds">
                 <table className="sti-table-dv">
                     <thead><tr><th>{role === 'doctor' ? 'From' : 'Doctor'}</th><th>Check-up service</th><th>Preferred</th><th>Note</th><th>Status</th><th>Actions</th></tr></thead>
                     <tbody>
-                        {visible.map((r) => (
+                        {paged.items.map((r) => (
                             <tr key={r.schedule_request_id}>
                                 <td>{role === 'doctor' ? (r.nurse_first_name ? `${r.nurse_first_name} ${r.nurse_last_name} (nurse)` : 'The clinic') : `Dr. ${r.doc_first_name} ${r.doc_last_name}`}</td>
-                                <td>{r.visit_type === 'Any' ? 'Any check-up' : r.visit_type}</td>
+                                <td>
+                                    {r.visit_type === 'Any' ? 'Any check-up' : r.visit_type}
+                                    {!!r.for_advance && <div className="muted-ds">Advance Listing <span className="paren-sc">(No Schedule Yet)</span>{r.advance_count ? `: ${r.advance_count} student(s)` : ''}</div>}
+                                </td>
                                 <td>
                                     {r.preferred_date ? formatDate(r.preferred_date) : 'Any day'}
                                     {r.preferred_start && <div className="muted-ds">{to12h(r.preferred_start)}{r.preferred_end ? ` - ${to12h(r.preferred_end)}` : ''}</div>}
@@ -186,7 +239,9 @@ const ScheduleRequests = ({ role, fixedDoctorId, nurseId, userId, refreshKey, on
                         ))}
                     </tbody>
                 </table>
+                <Pager page={paged.page} pageCount={paged.pageCount} total={paged.total} pageSize={REQUESTS_PER_PAGE} onPage={setPage} noun="requests" />
             </div>
+            )}
             <ReasonModal
                 isOpen={!!declineFor} title="Decline the schedule request" confirmLabel="Decline" danger label="Reason (shown to the nurse)"
                 message={declineFor ? `${declineFor.visit_type === 'Any' ? 'Any check-up' : declineFor.visit_type}${declineFor.preferred_date ? ` on ${formatDate(declineFor.preferred_date)}` : ''}` : ''}
@@ -199,6 +254,7 @@ const ScheduleRequests = ({ role, fixedDoctorId, nurseId, userId, refreshKey, on
 // values the schedule form takes from a request
 export const presetFromRequest = (r) => ({
     doctor_id: r.doctor_id, visit_type: r.visit_type, schedule_request_id: r.schedule_request_id,
+    ...(r.for_advance ? { advance_count: Number(r.advance_count) || 0 } : {}),
     ...(r.preferred_date ? { schedule_date: String(r.preferred_date).slice(0, 10) } : {}),
     ...(r.preferred_start ? { start_time: hhmm(r.preferred_start) } : {}),
     ...(r.preferred_end ? { end_time: hhmm(r.preferred_end) } : {})

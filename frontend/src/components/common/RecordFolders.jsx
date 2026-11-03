@@ -1,7 +1,7 @@
 // RecordFolders.jsx
 // Shared folder navigation pieces used by Doctor Visits and Health Screening:
 // breadcrumb, folder cards and a pager.
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Folder, FolderOpen, ChevronRight, ChevronLeft, Footprints, MoreVertical } from 'lucide-react';
 import '../../styles/common/RecordFolders.css';
 
@@ -11,9 +11,9 @@ export const FolderCrumbs = ({ trail }) => (
             const last = i === trail.length - 1;
             return (
                 <React.Fragment key={`${c.label}-${i}`}>
-                    {i > 0 && <ChevronRight size={14} className="crumb-sep-rf" />}
+                    {i > 0 && <ChevronRight size={14} className="crumb-sep-rf" aria-hidden="true" />}
                     {last || !c.onClick ? (
-                        <span className="crumb-current-rf">{c.label}</span>
+                        <span className="crumb-current-rf" aria-current={last ? 'page' : undefined}>{c.label}</span>
                     ) : (
                         <button type="button" className="crumb-link-rf" onClick={c.onClick}>{c.label}</button>
                     )}
@@ -26,9 +26,29 @@ export const FolderCrumbs = ({ trail }) => (
 const STAT_LABELS = [
     ['upcoming', 'upcoming'],
     ['ongoing', 'ongoing'],
-    ['past', 'past'],
-    ['abnormal', 'abnormal']
+    ['past', 'past']
 ];
+
+const TODAY_DOTS = [
+    ['today_ongoing', 'ongoing', 'On going today'],
+    ['today_upcoming', 'upcoming', 'Upcoming today'],
+    ['today_past', 'past', 'Past today']
+];
+
+// One dot per state that has a screening on the current date; each dot has a text label too (tooltip and screen reader)
+const TodayDots = ({ counts }) => {
+    const shown = counts ? TODAY_DOTS.filter(([key]) => Number(counts[key]) > 0) : [];
+    if (shown.length === 0) return null;
+    return (
+        <span className="today-dots-rf">
+            {shown.map(([key, state, label]) => (
+                <span key={key} className={`today-dot-rf dot-${state}-rf`} title={`${label}: ${counts[key]}`}>
+                    <span className="sr-only-rf">{label}: {counts[key]}</span>
+                </span>
+            ))}
+        </span>
+    );
+};
 
 // items: [{ key, title, subtitle, counts: {total, upcoming, ongoing, past, abnormal}, onClick, variant }]
 export const FolderGrid = ({ items, noun = 'records', emptyText }) => {
@@ -40,11 +60,14 @@ export const FolderGrid = ({ items, noun = 'records', emptyText }) => {
             {items.map((f) => (
                 <button type="button" key={f.key} className={`folder-card-rf ${f.variant ? `folder-${f.variant}-rf` : ''}`} onClick={f.onClick}>
                     <div className="folder-icon-rf">
-                        {f.variant === 'individual' ? <Footprints size={26} /> : <Folder size={26} className="icon-closed-rf" />}
-                        <FolderOpen size={26} className="icon-open-rf" />
+                        {f.variant === 'individual' ? <Footprints size={26} aria-hidden="true" /> : <Folder size={26} className="icon-closed-rf" aria-hidden="true" />}
+                        <FolderOpen size={26} className="icon-open-rf" aria-hidden="true" />
                     </div>
                     <div className="folder-body-rf">
-                        <div className="folder-title-rf">{f.title}</div>
+                        <div className="folder-title-rf">
+                            {f.title}
+                            <TodayDots counts={f.counts} />
+                        </div>
                         {f.subtitle && <div className="folder-sub-rf">{f.subtitle}</div>}
                         {f.counts && (
                             <>
@@ -64,29 +87,32 @@ export const FolderGrid = ({ items, noun = 'records', emptyText }) => {
 };
 
 export const Pager = ({ page, pageCount, total, pageSize, onPage, noun = 'records' }) => {
-    if (total === 0) return null;
+    if (total === 0 || pageCount <= 1) return null;
     const first = (page - 1) * pageSize + 1;
     const last = Math.min(page * pageSize, total);
     return (
         <div className="pager-rf">
-            <span className="pager-info-rf">Showing {first}-{last} of {total} {noun}</span>
-            {pageCount > 1 && (
-                <div className="pager-controls-rf">
-                    <button type="button" className="pager-btn-rf" disabled={page <= 1} onClick={() => onPage(page - 1)}>
-                        <ChevronLeft size={16} /> Prev
-                    </button>
-                    <span className="pager-page-rf">Page {page} of {pageCount}</span>
-                    <button type="button" className="pager-btn-rf" disabled={page >= pageCount} onClick={() => onPage(page + 1)}>
-                        Next <ChevronRight size={16} />
-                    </button>
-                </div>
-            )}
+            <nav className="pager-controls-rf" aria-label={`${noun} pages`}>
+                <button type="button" className="pager-btn-rf" disabled={page <= 1} onClick={() => onPage(page - 1)}>
+                    <ChevronLeft size={16} aria-hidden="true" /> Prev
+                </button>
+                <span className="pager-page-rf" aria-live="polite">
+                    Page {page} of {pageCount}
+                    <span className="sr-only-rf">, {first} to {last} of {total} {noun}</span>
+                </span>
+                <button type="button" className="pager-btn-rf" disabled={page >= pageCount} onClick={() => onPage(page + 1)}>
+                    Next <ChevronRight size={16} aria-hidden="true" />
+                </button>
+            </nav>
         </div>
     );
 };
 
-// "BSIT > Year 4 > Section B" style labels
-export const sectionLabel = (s) => `Year ${s.year_level || '-'} - Section ${s.section || '-'}`;
+// "4B": year level and section
+export const sectionLabel = (s) => `${s.year_level || '-'}${s.section || '-'}`;
+
+// "BSIT - 4B": program id, year level and section
+export const sectionFolderName = (program, s) => `${program || '-'} - ${s.year_level || '-'}${s.section || '-'}`;
 
 // Counts of the folder that is open ({ total, upcoming, ongoing, past, abnormal }), taken from the
 // folder summary the server already sent. null when they do not describe the list on screen
@@ -110,15 +136,28 @@ export const scopeCounts = (folders, view, searching = false) => {
 // Page header "More" button for the secondary actions: items = [{ icon, label, onClick }]
 export const MoreMenu = ({ items, buttonClassName = '' }) => {
     const [open, setOpen] = useState(false);
+    const triggerRef = useRef(null);
+    const close = () => {
+        setOpen(false);
+        triggerRef.current?.focus();
+    };
     return (
-        <div className="more-menu-rf">
-            <button type="button" className={buttonClassName} aria-expanded={open} onClick={() => setOpen(o => !o)}>
-                <MoreVertical size={18} /> More
+        <div
+            className="more-menu-rf"
+            onKeyDown={(e) => {
+                if (e.key === 'Escape' && open) {
+                    e.stopPropagation();
+                    close();
+                }
+            }}
+        >
+            <button ref={triggerRef} type="button" className={buttonClassName} aria-haspopup="true" aria-expanded={open} onClick={() => setOpen(o => !o)}>
+                <MoreVertical size={18} aria-hidden="true" /> More
             </button>
             {open && (
                 <>
-                    <div className="menu-backdrop-rf" onClick={() => setOpen(false)} />
-                    <div className="menu-list-rf">
+                    <div className="menu-backdrop-rf" onClick={() => setOpen(false)} aria-hidden="true" />
+                    <div className="menu-list-rf" role="group" aria-label="More actions">
                         {items.map(({ icon, label, onClick }) => (
                             <button key={label} type="button" onClick={() => { setOpen(false); onClick(); }}>
                                 {icon} {label}

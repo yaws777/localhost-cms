@@ -8,8 +8,8 @@
 //   role "nurse"  - every doctor's check-ups; a past row can only be viewed (assessment or details)
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-    CalendarPlus, Search, CalendarClock, History, ClipboardPlus, UserX, Ban, FileText, Printer, Pill, Stethoscope, TimerReset,
-    FolderOpen, ChevronLeft, Eye, Repeat, Clock, QrCode, Users
+    Search, CalendarClock, History, ClipboardPlus, UserX, Ban, FileText, Printer, Pill, Stethoscope, TimerReset,
+    FolderOpen, ChevronLeft, Eye, Repeat, Clock, QrCode, Users, BellRing
 } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatTime } from '../../utils/datetime';
@@ -17,20 +17,25 @@ import { visitLabel, sourceLabel, statusClass, statusLabel, fullName } from '../
 import { printDocument, visitDocumentHtml } from '../../utils/doctorVisitDocuments';
 import { useSpecializations } from '../../hooks/useSpecializations';
 import { ExtendAppointmentModal } from './SessionModals';
+import SessionEndPrompt from './SessionEndPrompt';
 import QueuePanel from './QueuePanel';
 import AttendanceScanModal from './AttendanceScanModal';
 import { RepeatModal } from './FollowUps';
 import {
-    ReasonModal, RescheduleModal, LogModal, DirectAppointmentModal, WalkInModal
+    ReasonModal, RescheduleModal, LogModal, WalkInModal
 } from '../doctor/AppointmentModals';
+import { Pager } from '../common/RecordFolders';
+import { classLabel } from '../../utils/scheduling';
 import { AssessmentViewModal, AssessmentHistoryModal } from '../doctor/AssessmentModals';
 import ConsultationModal from '../doctor/ConsultationModal';
 import '../../styles/doctor/DoctorLayout.css';
 
 const API = 'http://localhost:3001';
-const PAGE_SIZE = 10;
-const GROUP_PAGE_SIZE = 12;
-const PAST_TABLE_SIZE = 15;
+// small pages keep a list on one screen
+const PAGE_SIZE = 5;
+const GROUP_PAGE_SIZE = 8;
+const TABLE_SIZE = 6;
+const END_CHECK_MS = 30000;
 
 export const CONSULTATION_TABS = [
     ['upcoming', 'Upcoming Check-up'],
@@ -85,17 +90,17 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
     const [viewTarget, setViewTarget] = useState(null);
     const [historyTarget, setHistoryTarget] = useState(null);
     const [repeatTarget, setRepeatTarget] = useState(null);
-    const [showDirect, setShowDirect] = useState(false);
-    const [showWalkIn, setShowWalkIn] = useState(false);
+    const [walkInFor, setWalkInFor] = useState(null);
     const [extendTarget, setExtendTarget] = useState(null);
     const [runningSessions, setRunningSessions] = useState([]);
+    const [dismissedEnds, setDismissedEnds] = useState([]);
     const [scanning, setScanning] = useState(false);
     const [queueKey, setQueueKey] = useState(0);
     const reqSeq = useRef(0);
 
     // upcoming / past check-ups: the containers of the sessions, until one is opened
     const inFolders = GROUPED_TABS.includes(tab) && !openGroup;
-    const pageSize = inFolders ? GROUP_PAGE_SIZE : tab === 'past' ? PAST_TABLE_SIZE : PAGE_SIZE;
+    const pageSize = inFolders ? GROUP_PAGE_SIZE : tab === 'past' || tab === 'upcoming' ? TABLE_SIZE : PAGE_SIZE;
 
     const setTab = (key) => { onTab(key); setOpenGroup(null); setPage(1); };
 
@@ -166,19 +171,48 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
         } catch (e) { /* the list below still works */ }
     }, [doctorId, isNurse, doctorFilter]);
 
-    useEffect(() => { if (tab === 'ongoing') fetchRunning(); }, [tab, fetchRunning]);
+    // asked on every tab, and again every half minute: the end time can pass while the staff look at another list
+    useEffect(() => {
+        fetchRunning();
+        const timer = setInterval(() => { if (!document.hidden) fetchRunning(); }, END_CHECK_MS);
+        return () => clearInterval(timer);
+    }, [fetchRunning, tab]);
+
+    // the end time passed: confirm the end (the session moves to Past Check-up) or extend it; "Ask me later" keeps the question on the session card
+    const endKey = (s) => `${s.schedule_id}|${s.date}|${s.end_time}`;
+    const endAsk = runningSessions.find((s) => s.awaiting_end && !dismissedEnds.includes(endKey(s))) || null;
+    const confirmEnd = async (s) => {
+        const data = await put(`/api/doctor-schedules/${s.schedule_id}/end-session`, { sender_id: userId, created_by_doctor_id: creator.doctorId || undefined });
+        if (!data.success) return data.message || 'Could not end the session.';
+        showAlert(data.message, 'success');
+        refresh();
+        return '';
+    };
+    const extendEnd = async (s, minutes) => {
+        const data = await put(`/api/doctor-schedules/${s.schedule_id}/extend`, { extra_minutes: minutes, sender_id: userId, created_by_doctor_id: creator.doctorId || undefined });
+        if (!data.success) return data.message || 'Could not extend the session.';
+        showAlert(data.message, 'success');
+        refresh();
+        return '';
+    };
 
     const refresh = () => { fetchList(); fetchCounts(); fetchRunning(); setQueueKey((k) => k + 1); onChanged?.(); };
 
-    // open the check-up of a number that is being served
-    const documentEntry = async (entry) => {
+    // the full check-up row of a queue number (its assessment included)
+    const rowOfEntry = async (entry) => {
         try {
             const res = await fetch(`${API}/api/doctor/${doctorPath}/appointments?scope=ongoing&pageSize=100`);
             const data = await res.json();
             const row = data.appointments?.find((a) => a.appointment_id === entry.appointment_id);
-            if (row) setConsultTarget(row); else showAlert('Could not find this check-up.', 'warning');
-        } catch (e) { showAlert('Could not open the check-up.', 'error'); }
+            if (!row) showAlert('Could not find this check-up.', 'warning');
+            return row || null;
+        } catch (e) { showAlert('Could not open the check-up.', 'error'); return null; }
     };
+    // open the check-up of a number that is being served
+    const documentEntry = async (entry) => { const row = await rowOfEntry(entry); if (row) setConsultTarget(row); };
+    // the assessment of a Done number, and every assessment of its student
+    const viewEntry = async (entry) => { const row = await rowOfEntry(entry); if (row) setViewTarget(row); };
+    const historyEntry = async (entry) => { const row = await rowOfEntry(entry); if (row) setHistoryTarget(row); };
 
     // ---- lifecycle actions ----
     const cancelAppointment = async (reason) => {
@@ -200,9 +234,15 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
     };
 
     // manual time in (or a QR scan): the student is at the clinic, so the check-up can be recorded
-    const timeIn = async (a, quiet = false) => {
+    // openCheckup: the check-up form opens right after the time in (the server stamps the time of the click)
+    const timeIn = async (a, quiet = false, openCheckup = false) => {
         const data = await put(`/api/doctor-visits/status/${a.appointment_id}`, { student_id: a.student_id, status: 'Present' });
-        if (data.success) { if (!quiet) showAlert(`${fullName(a.student_first_name, a.student_last_name)} has a time in now.`, 'success'); refresh(); return true; }
+        if (data.success) {
+            if (!quiet) showAlert(`${fullName(a.student_first_name, a.student_last_name)} has a time in now.`, 'success');
+            refresh();
+            if (openCheckup) documentEntry(a);
+            return true;
+        }
         if (!quiet) showAlert(data.message || 'Could not record the time in.', 'error');
         return false;
     };
@@ -219,39 +259,48 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
     const rxCount = (a) => (Array.isArray(a.prescriptions) ? a.prescriptions.length : 0);
     const withName = (a) => ({ ...a, student_name: fullName(a.student_first_name, a.student_last_name) });
 
+    // every action is an icon only; the name is in aria-label and title
+    const act = (key, variant, Icon, label, onClick, title) => (
+        <button key={key} type="button" className={`dp-btn dp-btn-${variant} dp-btn-icon`} onClick={onClick}
+            title={title || label} aria-label={label}>
+            <Icon size={17} aria-hidden="true" />
+        </button>
+    );
+
     // ---- the actions of Upcoming and On going rows (the same for the doctor and the nurse) ----
     const renderActions = (a) => {
         const buttons = [];
         const documented = !!a.assessment_id;
-        const phase = phaseOf(a);
+        // the server puts a row in On going while its session waits for the end to be confirmed, even past the end time
+        const phase = tab === 'ongoing' && !['Cancelled', 'Declined', 'No-Show'].includes(a.status) ? 'ongoing' : phaseOf(a);
 
         if (a.status === 'Scheduled') {
             if (['Absent', 'Excused'].includes(a.attendance_status)) {
                 buttons.push(<span key="att" className="dp-chip st-no-show">{a.attendance_status === 'Absent' ? 'No-show' : 'Excused'}</span>);
             } else if (documented) {
-                buttons.push(<button key="doc" className="dp-btn dp-btn-primary dp-btn-sm" onClick={() => setConsultTarget(a)}><ClipboardPlus size={15} /> View / edit check-up</button>);
+                buttons.push(act('doc', 'primary', ClipboardPlus, 'View / edit check-up', () => setConsultTarget(a)));
             } else if (phase === 'ongoing' && (!a.queue_state || a.queue_state === 'Serving')) {
                 // the check-up is recorded only after the time in (by hand or QR code)
-                if (a.attendance_status === 'Present') buttons.push(<button key="doc" className="dp-btn dp-btn-primary dp-btn-sm" onClick={() => setConsultTarget(a)}><Stethoscope size={15} /> Document</button>);
-                else buttons.push(<button key="in" className="dp-btn dp-btn-primary dp-btn-sm" onClick={() => timeIn(a)} title="Record the time in by hand, or scan the QR code of the student"><Clock size={15} /> Time in</button>);
+                if (a.attendance_status === 'Present') buttons.push(act('doc', 'primary', Stethoscope, 'Document', () => setConsultTarget(a)));
+                else buttons.push(act('in', 'primary', Clock, 'Time in', () => timeIn(a, false, !isNurse), 'Record the time in now and open the check-up form, or scan the QR code of the student'));
             }
             if (phase === 'upcoming') {
                 // a place in a session queue has no time of its own: the doctor reschedules the whole session instead (My Schedule)
-                if (!a.queue_state) buttons.push(<button key="mv" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => setMoveTarget(a)}><CalendarClock size={15} /> Reschedule</button>);
-                buttons.push(<button key="cx" className="dp-btn dp-btn-danger dp-btn-sm" onClick={() => setCancelTarget(a)}><Ban size={15} /> Cancel</button>);
+                if (!a.queue_state) buttons.push(act('mv', 'ghost', CalendarClock, 'Reschedule', () => setMoveTarget(a)));
+                buttons.push(act('cx', 'danger', Ban, 'Cancel', () => setCancelTarget(a)));
             }
             if (phase === 'ongoing' && !documented && !a.queue_state) {
-                if (a.attendance_status === 'Pending') buttons.push(<button key="ns" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => markNoShow(a)}><UserX size={15} /> No-show</button>);
-                buttons.push(<button key="ex" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => setExtendTarget(withName(a))}><TimerReset size={15} /> Extend</button>);
+                if (a.attendance_status === 'Pending') buttons.push(act('ns', 'ghost', UserX, 'No-show', () => markNoShow(a)));
+                buttons.push(act('ex', 'ghost', TimerReset, 'Extend', () => setExtendTarget(withName(a))));
             }
         } else if (a.status === 'Completed' && documented) {
-            buttons.push(<button key="doc" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => setConsultTarget(a)}><ClipboardPlus size={15} /> View / edit check-up</button>);
+            buttons.push(act('doc', 'ghost', ClipboardPlus, 'View / edit check-up', () => setConsultTarget(a)));
         }
         if (documented) {
-            buttons.push(<button key="sum" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => print(a, 'summary')}><Printer size={15} /> Summary</button>);
-            if (rxCount(a) > 0) buttons.push(<button key="rx" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => print(a, 'prescription')}><Pill size={15} /> Prescription</button>);
+            buttons.push(act('sum', 'ghost', Printer, 'Summary', () => print(a, 'summary')));
+            if (rxCount(a) > 0) buttons.push(act('rx', 'ghost', Pill, 'Prescription', () => print(a, 'prescription')));
         }
-        buttons.push(<button key="log" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => setLogTarget(a)} title="History and reasons"><History size={15} /> History</button>);
+        buttons.push(act('log', 'ghost', History, 'History', () => setLogTarget(a), 'History and reasons'));
         return buttons;
     };
 
@@ -259,25 +308,19 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
     const renderPastActions = (a) => {
         const documented = !!a.assessment_id;
         // the nurse can only look: the assessment, or the details when nothing was documented
-        if (isNurse) {
-            return (
-                <button className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => setViewTarget(a)}>
-                    <Eye size={15} /> {documented ? 'View assessment' : 'View details'}
-                </button>
-            );
-        }
+        if (isNurse) return act('view', 'ghost', Eye, documented ? 'View assessment' : 'View details', () => setViewTarget(a));
         const buttons = [];
         if (documented) {
-            buttons.push(<button key="doc" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => setConsultTarget(a)}><ClipboardPlus size={15} /> View / edit check-up</button>);
+            buttons.push(act('doc', 'ghost', ClipboardPlus, 'View / edit check-up', () => setConsultTarget(a)));
         } else if (a.status === 'Scheduled' && a.attendance_status === 'Present') {
-            buttons.push(<button key="doc" className="dp-btn dp-btn-primary dp-btn-sm" onClick={() => setConsultTarget(a)}><Stethoscope size={15} /> Document</button>);
+            buttons.push(act('doc', 'primary', Stethoscope, 'Document', () => setConsultTarget(a)));
         }
         if (documented) {
-            buttons.push(<button key="sum" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => print(a, 'summary')}><Printer size={15} /> Summary</button>);
-            if (rxCount(a) > 0) buttons.push(<button key="rx" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => print(a, 'prescription')}><Pill size={15} /> Prescription</button>);
-            buttons.push(<button key="rp" className="dp-btn dp-btn-accent dp-btn-sm" onClick={() => setRepeatTarget(a)} title="Direct appointment, or wait for a schedule"><Repeat size={15} /> Repeat</button>);
+            buttons.push(act('sum', 'ghost', Printer, 'Summary', () => print(a, 'summary')));
+            if (rxCount(a) > 0) buttons.push(act('rx', 'ghost', Pill, 'Prescription', () => print(a, 'prescription')));
+            buttons.push(act('rp', 'accent', Repeat, 'Repeat', () => setRepeatTarget(a), 'Repeat: direct appointment, or wait for a schedule'));
         }
-        buttons.push(<button key="log" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => setHistoryTarget(a)} title="Assessment history of the student"><History size={15} /> Assessment history</button>);
+        buttons.push(act('log', 'ghost', History, 'Assessment history', () => setHistoryTarget(a), 'Assessment history of the student'));
         return buttons;
     };
 
@@ -300,7 +343,7 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
                         </div>
                         <div className="dp-appt-main">
                             <h4>{fullName(a.student_first_name, a.student_last_name)} <span className="dp-hint">{a.student_id}</span></h4>
-                            <div className="dp-appt-sub">{visitLabel(a.visit_type, a.purpose_other)}{a.year_level ? ` - Year ${a.year_level}${a.section ? `, Section ${a.section}` : ''}` : ''}{doctorLine(a)}</div>
+                            <div className="dp-appt-sub">{visitLabel(a.visit_type, a.purpose_other)}{classLabel(a) ? ` - ${classLabel(a)}` : ''}{doctorLine(a)}</div>
                             {a.booking_reason && <div className="dp-appt-reason">Reason: {a.booking_reason}</div>}
                             {a.decline_reason && ['Cancelled', 'Declined'].includes(a.status) && <div className="dp-appt-reason">{a.status === 'Declined' ? 'Declined' : 'Cancelled'}: {a.decline_reason}</div>}
                             {documented && (
@@ -350,12 +393,13 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
         </div>
     );
 
+    // the participants of an opened Upcoming / Past container, one row each
     const renderDayTable = () => (
         <div className="dp-card dp-table-wrap">
             <table className="dp-table">
                 <thead>
                     <tr>
-                        <th>Time</th><th>Student</th><th>Purpose</th>{isNurse && <th>Doctor</th>}<th>Status</th><th>Assessment</th><th>Actions</th>
+                        {tab === 'upcoming' && <th>No.</th>}<th>Time</th><th>Student</th><th>Purpose</th>{isNurse && <th>Doctor</th>}<th>Status</th>{tab === 'past' ? <th>Assessment</th> : <th>Reason</th>}<th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -363,10 +407,11 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
                         const documented = !!a.assessment_id;
                         return (
                             <tr key={`${a.appointment_id}-${a.student_id}`} className={focusId === a.appointment_id ? 'focus' : ''}>
+                                {tab === 'upcoming' && <td className="nowrap"><strong>{a.queue_state ? `${a.queue_lane === 'Walk-in' ? 'W' : '#'}${a.queue_no}` : '-'}</strong></td>}
                                 <td className="nowrap">{formatTime(a.start_time)} - {formatTime(a.end_time)}</td>
                                 <td>
                                     <strong>{fullName(a.student_first_name, a.student_last_name)}</strong>
-                                    <div className="dp-hint">{a.student_id}{a.year_level ? ` - Year ${a.year_level}${a.section ? `, ${a.section}` : ''}` : ''}</div>
+                                    <div className="dp-hint">{a.student_id}{classLabel(a) ? ` - ${classLabel(a)}` : ''}</div>
                                 </td>
                                 <td>
                                     {visitLabel(a.visit_type, a.purpose_other)}
@@ -379,7 +424,9 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
                                     {a.decline_reason && ['Cancelled', 'Declined'].includes(a.status) && <div className="dp-hint">{a.decline_reason}</div>}
                                 </td>
                                 <td>
-                                    {documented ? (
+                                    {tab === 'upcoming' ? (
+                                        a.booking_reason ? <div className="dp-cell-clip">{a.booking_reason}</div> : <span className="dp-hint">No reason given</span>
+                                    ) : documented ? (
                                         <>
                                             <div className="dp-cell-clip">{a.diagnosis}</div>
                                             <div className="dp-appt-chips">
@@ -390,7 +437,7 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
                                         </>
                                     ) : <span className="dp-hint">Not documented</span>}
                                 </td>
-                                <td><div className="dp-row-actions">{renderPastActions(a)}</div></td>
+                                <td><div className="dp-row-actions">{tab === 'upcoming' ? renderActions(a) : renderPastActions(a)}</div></td>
                             </tr>
                         );
                     })}
@@ -407,13 +454,6 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
             <div className="dp-page-head">
                 <div>
                     <h2>Check-ups</h2>
-                    <p>
-                        {isNurse ? 'The upcoming, on going and past check-ups of every doctor.' : 'Your upcoming, on going and past check-ups.'}
-                        {' '}Upcoming and past check-ups are kept in a container for each session: open one to see all its participants. Past check-ups are closed and can no longer be booked, rescheduled or cancelled.
-                    </p>
-                </div>
-                <div className="dp-actions">
-                    <button className="dp-btn dp-btn-primary" onClick={() => setShowDirect(true)}><CalendarPlus size={17} /> Direct appointment</button>
                 </div>
             </div>
 
@@ -460,7 +500,14 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
                         {s.doctor_name} - {formatTime(`${s.date} ${s.start_time}`)} to {formatTime(`${s.date} ${s.end_time}`)}{s.location ? ` - ${s.location}` : ''}
                         <span className="dp-hint"> {s.visit_type === 'Any' ? 'Any check-up' : s.visit_type}</span>
                     </h3>
-                    <QueuePanel scheduleId={s.schedule_id} date={s.date} creator={creator} userId={userId} refreshKey={queueKey} onChanged={refresh} onDocument={documentEntry} onWalkIn={() => setShowWalkIn(true)} />
+                    {s.awaiting_end && (
+                        <div className="dp-notice" role="status" style={{ marginBottom: 10 }}>
+                            <BellRing size={15} aria-hidden="true" /> The end time ({formatTime(`${s.date} ${s.end_time}`)}) has passed. Confirm the end to move this session to Past Check-up, or extend it.
+                            {' '}
+                            <button type="button" className="dp-btn dp-btn-primary dp-btn-sm" onClick={() => setDismissedEnds((list) => list.filter((k) => k !== endKey(s)))}>Confirm or extend</button>
+                        </div>
+                    )}
+                    <QueuePanel scheduleId={s.schedule_id} date={s.date} creator={creator} userId={userId} refreshKey={queueKey} onChanged={refresh} onDocument={documentEntry} onView={viewEntry} onHistory={isNurse ? undefined : historyEntry} onWalkIn={() => setWalkInFor(s)} />
                 </section>
             ))}
 
@@ -477,18 +524,9 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
                     <FileText size={36} />
                     <p>No {tabLabel} to show here.</p>
                 </div>
-            ) : inFolders ? renderFolders() : tab === 'past' ? renderDayTable() : renderCards()}
+            ) : inFolders ? renderFolders() : tab === 'past' || tab === 'upcoming' ? renderDayTable() : renderCards()}
 
-            {total > pageSize && (
-                <div className="dp-pager">
-                    <span>{total} {unit}</span>
-                    <div>
-                        <button className="dp-btn dp-btn-ghost dp-btn-sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</button>
-                        <span>Page {page} of {pageCount}</span>
-                        <button className="dp-btn dp-btn-ghost dp-btn-sm" disabled={page >= pageCount} onClick={() => setPage(page + 1)}>Next</button>
-                    </div>
-                </div>
-            )}
+            {!loading && <Pager page={page} pageCount={pageCount} total={total} pageSize={pageSize} onPage={setPage} noun={unit} />}
 
             <ReasonModal
                 isOpen={!!cancelTarget}
@@ -506,6 +544,14 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
             <AssessmentViewModal appt={viewTarget} onClose={() => setViewTarget(null)} />
             <AssessmentHistoryModal appt={historyTarget} onClose={() => setHistoryTarget(null)} />
             <ExtendAppointmentModal appt={extendTarget} creator={creator} userId={userId} onClose={() => setExtendTarget(null)} onDone={refresh} />
+            {endAsk && (
+                <SessionEndPrompt
+                    item={{ key: endKey(endAsk), kind: 'check-up', endTime: endAsk.end_time, title: `${endAsk.doctor_name}'s ${endAsk.visit_type === 'Any' ? 'check-up' : endAsk.visit_type} session on ${formatDate(endAsk.date)}` }}
+                    onConfirm={() => confirmEnd(endAsk)}
+                    onExtend={(minutes) => extendEnd(endAsk, minutes)}
+                    onLater={() => setDismissedEnds((list) => [...list, endKey(endAsk)])}
+                />
+            )}
             {repeatTarget && <RepeatModal key={repeatTarget.appointment_id} appt={repeatTarget} creator={creator} userId={userId} onClose={() => setRepeatTarget(null)} onDone={refresh} />}
             {consultTarget && (
                 <ConsultationModal
@@ -522,8 +568,7 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
                 }))}
                 onArrived={(entry) => timeIn(entry.raw, true)}
             />
-            <DirectAppointmentModal isOpen={showDirect} doctors={doctors} fixedDoctorId={doctorId} creator={creator} userId={userId} onClose={() => setShowDirect(false)} onCreated={refresh} />
-            <WalkInModal isOpen={showWalkIn} doctors={doctors} fixedDoctorId={doctorId} creator={creator} userId={userId} onClose={() => setShowWalkIn(false)} onCreated={afterWalkIn} />
+            <WalkInModal isOpen={!!walkInFor} doctors={doctors} fixedDoctorId={walkInFor ? walkInFor.doctor_id || doctorId : doctorId} schedule={walkInFor} creator={creator} userId={userId} onClose={() => setWalkInFor(null)} onCreated={afterWalkIn} />
         </>
     );
 };

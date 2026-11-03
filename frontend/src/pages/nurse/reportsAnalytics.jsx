@@ -347,8 +347,8 @@ const ReportsAnalytics = () => {
     };
     const conditionsSection = (list, heading) => ({
       heading,
-      columns: ['#', 'Medical condition', 'Cases', 'Students', `Previous ${unit}`],
-      rows: list.map((c, i) => [i + 1, c.name, c.count, c.students, c.previousCount]),
+      columns: ['#', 'Medical condition', 'Previous cases', 'Current cases'],
+      rows: list.map((c, i) => [i + 1, c.name, c.previousCount, c.count]),
       emptyText: 'No medical condition records for this period.'
     });
 
@@ -543,7 +543,7 @@ const ReportsAnalytics = () => {
     <>
       <Panel title="Medical conditions" note={`Each student counts once per condition per month · this ${unit} vs the previous ${unit}`}>
         <Table
-          columns={['#', 'Medical condition', 'Cases', 'Students', `vs previous ${unit}`]}
+          columns={['#', 'Medical condition', 'Previous cases', 'Current cases', 'Trends']}
           isEmpty={health.conditions.length === 0}
           empty={`No medical condition records for this ${unit}`}
         >
@@ -551,8 +551,8 @@ const ReportsAnalytics = () => {
             <tr key={c.name}>
               <td>{i + 1}</td>
               <td>{c.name}</td>
+              <td>{c.previousCount}</td>
               <td><strong>{c.count}</strong></td>
-              <td>{c.students}</td>
               <td><ChangeBadge row={c} /></td>
             </tr>
           ))}

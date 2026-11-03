@@ -2,7 +2,7 @@
 // The student's numbers: the waiting-list number per category and the queue number inside a doctor's session, with the number being served.
 // Used by the Check-up page and the student dashboard.
 import React from 'react';
-import { Stethoscope, MapPin, Clock, Megaphone, Hourglass } from 'lucide-react';
+import { Stethoscope, MapPin, Clock, Hourglass, CheckCircle2 } from 'lucide-react';
 import { formatDate } from '../../utils/datetime';
 import { visitLabel } from '../../utils/visitPurpose';
 import { to12h } from '../../utils/scheduling';
@@ -36,7 +36,9 @@ export const QueueTicket = ({ a, compact = false }) => {
             <div className="ticket-body-mq">
                 <div className="ticket-top-mq">
                     <strong>{visitLabel(a.visit_type)}</strong>
-                    <span className="serving-mq"><Megaphone size={13} /> Now serving: <b>{a.now_serving || '-'}</b></span>
+                    {a.state === 'Done'
+                        ? <span className="done-pill-mq"><CheckCircle2 size={14} aria-hidden="true" /> Done</span>
+                        : <span className="serving-mq"><Stethoscope size={13} aria-hidden="true" /> In check-up: <b>{a.state === 'Serving' ? 'You' : a.now_serving || 'None yet'}</b></span>}
                 </div>
                 <div className="ticket-title-mq">{line.title}</div>
                 {line.text && <p className="ticket-text-mq">{line.text}</p>}

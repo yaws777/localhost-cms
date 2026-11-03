@@ -84,13 +84,25 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
     useEffect(() => {
         if (!appt || !doctorId) return undefined;
         let live = true;
+        // the template the doctor chose for the session is always offered, even when its purpose differs (e.g. a follow-up row)
         fetch(`${API}/api/doctor/${doctorId}/templates?visit_type=${encodeURIComponent(visitType)}`)
             .then((r) => r.json())
+            .then(async (d) => {
+                if (!d.success) return d;
+                const wanted = appt.schedule_template_id;
+                if (wanted && !d.templates.some((t) => t.template_id === wanted)) {
+                    const all = await fetch(`${API}/api/doctor/${doctorId}/templates`).then((r) => r.json());
+                    const extra = all.success ? all.templates.find((t) => t.template_id === wanted) : null;
+                    if (extra) return { ...d, templates: [extra, ...d.templates] };
+                }
+                return d;
+            })
             .then((d) => {
                 if (!live || !d.success) return;
                 setTemplates(d.templates);
                 const saved = d.templates.find((t) => t.template_id === appt.template_id);
-                const pick = saved || (!editing ? d.templates.find((t) => t.is_default) : null);
+                const forSession = d.templates.find((t) => t.template_id === appt.schedule_template_id);
+                const pick = saved || (!editing ? forSession || d.templates.find((t) => t.is_default) : null);
                 if (pick) {
                     setTemplateId(pick.template_id);
                     if (saved && Array.isArray(appt.template_responses)) {
@@ -121,11 +133,20 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
     const isDental = visitType === 'Dental';
     const isVision = visitType === 'Vision';
 
+    // a new check-up cannot be closed until the required fields are filled (Esc, the X and Cancel are off); editing one can be closed any time
+    const requiredFilled = !!form.chief_complaint.trim()
+        && (isDental ? !!dental.oral_hygiene : true)
+        && (isVision ? !!vision.visual_acuity_left.trim() && !!vision.visual_acuity_right.trim() : true)
+        && (isDental || isVision || (!!form.clinical_findings.trim() && !!form.diagnosis.trim() && !!form.treatment_recommendations.trim()))
+        && (!template || missingRequired(template.fields, answers).length === 0);
+    const locked = !editing && !requiredFilled;
+
     const submit = async (e) => {
         e.preventDefault();
         setError('');
 
         if (['Absent', 'Excused'].includes(appt.attendance_status)) { setError(`The student is marked ${appt.attendance_status}. Change the attendance first.`); return; }
+        if (!form.chief_complaint.trim()) { setError('Chief complaint is required.'); return; }
         if (!isDental && !isVision) {
             if (!form.clinical_findings.trim() || !form.diagnosis.trim()) { setError('Clinical findings and diagnosis are required.'); return; }
             if (!form.treatment_recommendations.trim()) { setError('Add the treatment plan / recommendations.'); return; }
@@ -197,11 +218,12 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
     };
 
     return (
-        <Modal isOpen onClose={onClose} title={editing ? 'Edit check-up' : 'Document check-up'} icon={<ClipboardPlus size={20} />} size="xl" closeOnBackdrop={false}>
+        <Modal isOpen onClose={locked ? undefined : onClose} title={editing ? 'Edit check-up' : 'Document check-up'} icon={<ClipboardPlus size={20} />} size="xl" closeOnBackdrop={false}>
             <form className="dp-form" onSubmit={submit}>
                 <div className="dp-notice">
                     <strong>{fullName(appt.student_first_name, appt.student_last_name)}</strong> ({appt.student_id}) - {visitLabel(visitType, appt.purpose_other)}<br />
-                    {formatDate(appt.start_time)}, {formatTime(appt.start_time)} - {formatTime(appt.end_time)}
+                    {appt.queue_state ? formatDate(appt.start_time) : <>{formatDate(appt.start_time)}, {formatTime(appt.start_time)} - {formatTime(appt.end_time)}</>}
+                    {appt.check_in_time ? <><br />Time in: {formatTime(appt.check_in_time)}</> : null}
                     {appt.booking_reason ? <><br />Reason given: {appt.booking_reason}</> : null}
                 </div>
                 {error && <div className="dp-error" role="alert">{error}</div>}
@@ -211,7 +233,7 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
                         <label htmlFor="consult-template">Assessment form template</label>
                         <select id="consult-template" className="dp-select" value={templateId} onChange={(e) => chooseTemplate(e.target.value)}>
                             <option value="">No template (standard form only)</option>
-                            {templates.map((t) => <option key={t.template_id} value={t.template_id}>{t.template_name}{t.is_default ? ' (default)' : ''}</option>)}
+                            {templates.map((t) => <option key={t.template_id} value={t.template_id}>{t.template_name}{t.template_id === appt.schedule_template_id ? ' (set for this session)' : t.is_default ? ' (in use)' : ''}</option>)}
                         </select>
                     </div>
                 )}
@@ -318,22 +340,22 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
 
                 <div className="dp-section-label">Chief complaint</div>
                 <div className="dp-field">
-                    <label htmlFor="consult-complaint">Why the student came (reason for the check-up)</label>
-                    <input id="consult-complaint" className="dp-input" type="text" maxLength={255} value={form.chief_complaint} onChange={(e) => set({ chief_complaint: e.target.value })} placeholder="e.g. Headache and fever since yesterday" />
+                    <label htmlFor="consult-complaint">Why the student came (reason for the check-up) *</label>
+                    <input id="consult-complaint" className="dp-input" type="text" required aria-required="true" maxLength={255} value={form.chief_complaint} onChange={(e) => set({ chief_complaint: e.target.value })} placeholder="e.g. Headache and fever since yesterday" />
                 </div>
 
                 <div className="dp-section-label">Diagnosis and treatment plan</div>
                 <div className="dp-field">
-                    <label htmlFor="consult-findings">Clinical findings{isDental || isVision ? ' (optional, filled from the exam when empty)' : ''}</label>
-                    <textarea id="consult-findings" className="dp-textarea" rows={3} value={form.clinical_findings} onChange={(e) => set({ clinical_findings: e.target.value })} />
+                    <label htmlFor="consult-findings">Clinical findings{isDental || isVision ? ' (optional, filled from the exam when empty)' : ' *'}</label>
+                    <textarea id="consult-findings" className="dp-textarea" rows={3} required={!isDental && !isVision} aria-required={!isDental && !isVision} value={form.clinical_findings} onChange={(e) => set({ clinical_findings: e.target.value })} />
                 </div>
                 <div className="dp-field">
-                    <label htmlFor="consult-diagnosis">Diagnosis{isDental || isVision ? ' (optional)' : ''}</label>
-                    <textarea id="consult-diagnosis" className="dp-textarea" rows={2} value={form.diagnosis} onChange={(e) => set({ diagnosis: e.target.value })} />
+                    <label htmlFor="consult-diagnosis">Diagnosis{isDental || isVision ? ' (optional)' : ' *'}</label>
+                    <textarea id="consult-diagnosis" className="dp-textarea" rows={2} required={!isDental && !isVision} aria-required={!isDental && !isVision} value={form.diagnosis} onChange={(e) => set({ diagnosis: e.target.value })} />
                 </div>
                 <div className="dp-field">
-                    <label htmlFor="consult-plan">Treatment plan / recommendations{isDental || isVision ? ' (optional)' : ''}</label>
-                    <textarea id="consult-plan" className="dp-textarea" rows={3} value={form.treatment_recommendations} onChange={(e) => set({ treatment_recommendations: e.target.value })} />
+                    <label htmlFor="consult-plan">Treatment plan / recommendations{isDental || isVision ? ' (optional)' : ' *'}</label>
+                    <textarea id="consult-plan" className="dp-textarea" rows={3} required={!isDental && !isVision} aria-required={!isDental && !isVision} value={form.treatment_recommendations} onChange={(e) => set({ treatment_recommendations: e.target.value })} />
                 </div>
 
                 <div className="dp-section-label">Prescription</div>
@@ -388,7 +410,8 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
                 )}
 
                 <div className="dp-modal-foot">
-                    <button type="button" className="dp-btn dp-btn-ghost" onClick={onClose}>Cancel</button>
+                    {locked && <span className="dp-hint" role="status">Fill in the required fields (*) to save or close this form.</span>}
+                    <button type="button" className="dp-btn dp-btn-ghost" onClick={onClose} disabled={locked}>Cancel</button>
                     <button type="submit" className="dp-btn dp-btn-primary" disabled={busy}>{busy ? 'Saving...' : editing ? 'Save changes' : 'Save check-up'}</button>
                 </div>
             </form>

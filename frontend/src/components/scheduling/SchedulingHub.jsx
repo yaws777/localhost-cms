@@ -7,12 +7,12 @@
 // Walk-ins are registered from a session that is running right now (the session card in the calendar), not from here.
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { CalendarDays, ListChecks, Users, Lightbulb, CalendarClock, MessagesSquare, CalendarPlus } from 'lucide-react';
+import { CalendarDays, ListChecks, Users, Lightbulb, CalendarClock, MessagesSquare } from 'lucide-react';
 import { DoctorAvailability } from '../nurse/DoctorAvailability';
 import UnavailableDates from '../doctor/UnavailableDates';
-import { DirectAppointmentModal } from '../doctor/AppointmentModals';
 import ScheduleCalendar from './ScheduleCalendar';
 import WaitingList from './WaitingList';
+import AdvanceListing from './AdvanceListing';
 import FollowUps from './FollowUps';
 import StaffChat from './StaffChat';
 import SchedulingAssistant from './SchedulingAssistant';
@@ -36,7 +36,8 @@ const SchedulingHub = ({ role, doctors, fixedDoctorId, nurseId, userId, initialT
     const [focusSchedule, setFocusSchedule] = useState(null);
     const [counts, setCounts] = useState({ waiting: 0, followups: 0 });
     const [chatUnread, setChatUnread] = useState(0);
-    const [showDirect, setShowDirect] = useState(false);
+    // Listings tab: the advance listing (needs no schedule) or the listing of one schedule
+    const [listingMode, setListingMode] = useState(role === 'nurse' ? 'advance' : 'sessions');
 
     const creator = useMemo(() => (role === 'doctor' ? { doctorId: fixedDoctorId } : { nurseId }), [role, fixedDoctorId, nurseId]);
     const doctorList = useMemo(() => (fixedDoctorId ? doctors.filter((d) => d.doctor_id === fixedDoctorId) : doctors), [doctors, fixedDoctorId]);
@@ -91,7 +92,7 @@ const SchedulingHub = ({ role, doctors, fixedDoctorId, nurseId, userId, initialT
 
     const goTab = useCallback((next) => setTab(next), []);
     // from a session card / schedule row: opens the listing requests of that session
-    const appointFromWaiting = useCallback((scheduleId, date) => { setFocusSchedule({ schedule_id: scheduleId, date }); goTab('waiting'); }, [goTab]);
+    const appointFromWaiting = useCallback((scheduleId, date) => { setFocusSchedule({ schedule_id: scheduleId, date }); setListingMode('sessions'); goTab('waiting'); }, [goTab]);
     const useSuggestion = useCallback((suggestion) => { setPrefill(suggestion); goTab('schedules'); }, [goTab]);
     const prefillUsed = useCallback(() => setPrefill(null), []);
     const focusUsed = useCallback(() => setFocusSchedule(null), []);
@@ -100,10 +101,6 @@ const SchedulingHub = ({ role, doctors, fixedDoctorId, nurseId, userId, initialT
 
     return (
         <div className="hub-sc">
-            <div className="toolbar-hub-sc">
-                <button type="button" className="sti-btn-dv sti-btn-secondary-dv" onClick={() => setShowDirect(true)}><CalendarPlus size={16} /> Direct appointment</button>
-            </div>
-
             <nav className="hub-tabs-sc" aria-label="Scheduling sections">
                 {TABS.map(([key, label, Icon]) => (
                     <button key={key} type="button" className={`hub-tab-sc ${tab === key ? 'active-sc' : ''}`} onClick={() => goTab(key)}>
@@ -126,17 +123,34 @@ const SchedulingHub = ({ role, doctors, fixedDoctorId, nurseId, userId, initialT
                         doctors={doctorList} creator={creator} userId={userId} refreshKey={refreshKey} onChanged={changed}
                         prefill={prefill} onPrefillUsed={prefillUsed} onAppointFromWaiting={appointFromWaiting} role={role}
                     />
-                    <div style={{ marginTop: 18 }}>
-                        <UnavailableDates doctors={doctorList} fixedDoctorId={fixedDoctorId} userId={userId} onChanged={changed} />
-                    </div>
+                    {role === 'doctor' && (
+                        <div style={{ marginTop: 18 }}>
+                            <UnavailableDates doctors={doctorList} fixedDoctorId={fixedDoctorId} userId={userId} onChanged={changed} />
+                        </div>
+                    )}
                 </>
             )}
 
             {tab === 'waiting' && (
-                <WaitingList
-                    doctors={doctorList} fixedDoctorId={fixedDoctorId} creator={creator} userId={userId} refreshKey={refreshKey}
-                    focusSchedule={focusSchedule} onFocusConsumed={focusUsed} onChanged={changed}
-                />
+                <>
+                    <div className="listing-mode-sc" role="group" aria-label="Listing type">
+                        {[['advance', 'Advance Listing', '(No Schedule Yet)'], ['sessions', 'Session Listing', '(With Already Schedule)']].map(([key, label, note]) => (
+                            <button key={key} type="button" className={`status-chip-sc ${listingMode === key ? 'active-sc' : ''}`} aria-pressed={listingMode === key} onClick={() => setListingMode(key)}>
+                                {label} <span className="paren-sc">{note}</span>
+                            </button>
+                        ))}
+                    </div>
+                    {listingMode === 'advance' ? (
+                        <AdvanceListing
+                            isNurse={role === 'nurse'} doctors={doctorList} nurseId={nurseId} userId={userId} refreshKey={refreshKey} onChanged={changed}
+                        />
+                    ) : (
+                        <WaitingList
+                            doctors={doctorList} fixedDoctorId={fixedDoctorId} creator={creator} userId={userId} refreshKey={refreshKey}
+                            focusSchedule={focusSchedule} onFocusConsumed={focusUsed} onChanged={changed}
+                        />
+                    )}
+                </>
             )}
 
             {tab === 'followups' && (
@@ -148,8 +162,6 @@ const SchedulingHub = ({ role, doctors, fixedDoctorId, nurseId, userId, initialT
             )}
 
             {tab === 'chat' && <StaffChat userId={userId} onUnreadChange={setChatUnread} />}
-
-            <DirectAppointmentModal isOpen={showDirect} doctors={doctorList} fixedDoctorId={fixedDoctorId} creator={creator} userId={userId} onClose={() => setShowDirect(false)} onCreated={changed} />
         </div>
     );
 };

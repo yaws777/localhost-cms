@@ -276,11 +276,52 @@
     max-width: 100%;
 }
 
+/* ---- advance listing ---- */
+.listing-mode-sc { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+.listing-mode-sc .status-chip-sc { font-size: 1rem; min-height: 2.75rem; padding: 0.25rem 1rem; }
+/* the words in the parenthesis are smaller and lighter than the name before them */
+.paren-sc { font-size: 0.875rem; font-weight: 400; }
+.advance-services-sc { display: flex; flex-direction: column; gap: 0.5rem; }
+.advance-service-row-sc { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; min-height: 2.75rem; }
+.advance-service-row-sc .dp-check { flex: 1 1 12rem; }
+.advance-limit-sc { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; color: var(--text-secondary); }
+.advance-limit-sc .dp-input { width: 6rem; }
+.advance-note-sc { display: inline-flex; flex-wrap: wrap; gap: 0.25rem 0.5rem; align-items: center; }
+.advance-open-sc { display: inline-flex; flex-wrap: wrap; gap: 0.25rem 0.5rem; align-items: center; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.advance-title-sc { font-size: 1.125rem; font-weight: 700; color: var(--text-primary); }
+.advance-head-sc { justify-content: space-between; }
+.advance-count-sc { font-weight: 700; font-variant-numeric: tabular-nums; }
+.advance-chips-sc { display: inline-flex; flex-wrap: wrap; gap: 0.25rem 0.5rem; }
+.advance-actions-sc { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+/* one row of icon buttons in the service table; the status text never wraps */
+.sti-table-dv td .advance-actions-sc { flex-wrap: nowrap; }
+.sti-table-dv td .advance-actions-sc .icon-btn-ds { flex: none; min-width: 2.75rem; min-height: 2.75rem; }
+.sti-table-dv td .badge-ds { white-space: nowrap; }
+.list-head-sc { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.875rem; }
+.list-head-sc h3 { margin: 0; font-size: 1.125rem; color: var(--text-primary); }
+
+/* open / closed switch of one service: the state is also written next to it */
+.switch-sc { display: inline-flex; align-items: center; gap: 0.5rem; min-height: 2.75rem; padding: 0 0.25rem; background: none; border: 0; cursor: pointer; color: var(--text-primary); font-size: 0.875rem; font-weight: 600; }
+.switch-sc:disabled { cursor: not-allowed; opacity: 0.6; }
+.switch-track-sc { position: relative; flex: none; width: 2.75rem; height: 1.5rem; border: 0.125rem solid var(--text-secondary); border-radius: 999px; background: transparent; box-sizing: border-box; }
+.switch-track-sc::after { content: ''; position: absolute; top: 0.125rem; left: 0.125rem; width: 1rem; height: 1rem; border-radius: 50%; background: var(--text-secondary); }
+.switch-sc[aria-checked='true'] .switch-track-sc { background: var(--sti-blue-primary); border-color: var(--sti-blue-primary); }
+.switch-sc[aria-checked='true'] .switch-track-sc::after { background: var(--text-on-brand); left: 1.375rem; }
+@media (prefers-reduced-motion: no-preference) {
+    .switch-track-sc, .switch-track-sc::after { transition: left 0.15s ease, background-color 0.15s ease; }
+}
+.switch-sc:focus-visible { outline: 0.1875rem solid var(--sti-blue-primary); outline-offset: 0.125rem; }
+
 .priority-star-sc { color: var(--status-low-text); }
 .reason-cell-sc { max-width: 260px; white-space: normal; }
 .row-actions-sc { display: flex; gap: 6px; flex-wrap: wrap; }
 
 .btn-sm-sc { padding: 6px 10px; font-size: 0.875rem; }
+
+/* icon-only action button (the label is in aria-label / title) */
+.btn-icon-sc { justify-content: center; padding: 0; min-width: 2.75rem; min-height: 2.75rem; }
+.btn-icon-sc:focus-visible { outline: 0.1875rem solid var(--sti-blue-primary); outline-offset: 0.125rem; }
 
 .timeline-sc { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .timeline-sc li { border-left: 3px solid var(--sti-border); padding-left: 10px; font-size: 0.875rem; }
@@ -514,3 +555,15 @@
 .scan-feedback-sc { margin-top: 0.75rem; padding: 0.625rem 0.875rem; border-radius: 0.5rem; font-size: 0.9375rem; line-height: 1.5; background: var(--bg-elevated); color: var(--text-primary); border: 1px solid var(--card-border); }
 .scan-feedback-sc.success { background: var(--status-adequate-bg); color: var(--status-adequate-text); border-color: var(--status-adequate-bar); }
 .scan-feedback-sc.error { background: var(--status-critical-bg); color: var(--status-critical-text); border-color: var(--status-critical-bar); }
+
+/* cancelled (screening calendar) */
+.type-cancelled-sc { background: var(--status-critical-bg); color: var(--status-critical-text); }
+.cal-chip-sc.type-cancelled-sc { text-decoration: line-through; }
+.session-card-sc.cancelled-sc { border-left-color: var(--status-critical-bar); opacity: 0.8; }
+
+/* ---- schedules tab: icon-only request button, request status filter ---- */
+.icon-only-ds { min-width: 2.75rem; min-height: 2.75rem; padding: 0.5rem; justify-content: center; align-items: center; }
+.icon-only-ds:focus-visible { outline: 0.1875rem solid var(--sti-blue-primary); outline-offset: 0.125rem; }
+.schedule-requests-sc .chip-filter-ds { margin-left: auto; flex-wrap: wrap; }
+.schedule-requests-sc .chip-filter-ds button { min-height: 2.75rem; }
+.schedule-requests-sc .chip-filter-ds button:focus-visible { outline: 0.1875rem solid var(--sti-blue-primary); outline-offset: 0.125rem; }

@@ -5,6 +5,7 @@ import { Users, ClipboardCheck, ListOrdered, CalendarCheck, ChevronLeft, Chevron
 import {
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell
 } from 'recharts';
+import { Pager, paginate } from '../../components/common/RecordFolders';
 import { useAlert } from '../../context/AlertContext';
 import { visitLabel, localDateStr, time12, initials, fullName } from '../../utils/visitPurpose';
 import '../../styles/doctor/DoctorLayout.css';
@@ -20,6 +21,8 @@ const PURPOSE_COLORS = {
     'Follow-up': '#94a3b8',
     Referral: '#f97316'
 };
+// small pages keep the day list short
+const APPTS_PER_PAGE = 3;
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const DOW = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
@@ -110,6 +113,7 @@ const DoctorDashboard = () => {
     const [data, setData] = useState(null);
     const [dayList, setDayList] = useState([]);
     const [dayLoading, setDayLoading] = useState(true);
+    const [dayPage, setDayPage] = useState(1);
 
     const load = useCallback(async () => {
         try {
@@ -136,6 +140,7 @@ const DoctorDashboard = () => {
     useEffect(() => {
         let live = true;
         setDayLoading(true);
+        setDayPage(1);
         fetch(`${API}/api/doctor/${doctorId}/appointments?scope=all&from=${selected}&to=${selected}&pageSize=30`)
             .then((r) => r.json())
             .then((d) => { if (live && d.success) setDayList(d.appointments.filter((a) => !['Cancelled', 'Declined'].includes(a.status))); })
@@ -156,6 +161,14 @@ const DoctorDashboard = () => {
     const purposes = useMemo(() => (data?.purposes || []).filter((p) => p.count > 0), [data]);
     const purposeTotal = purposes.reduce((n, p) => n + p.count, 0);
     const isToday = selected === localDateStr();
+    // the nearest upcoming check-up first, the ones already over after them
+    const sortedDay = useMemo(() => {
+        const ms = (v) => new Date(String(v).replace(' ', 'T')).getTime();
+        const now = Date.now();
+        const over = (a) => ms(a.end_time) <= now;
+        return dayList.slice().sort((a, b) => (over(a) - over(b)) || (ms(a.start_time) - ms(b.start_time)));
+    }, [dayList]);
+    const dayData = paginate(sortedDay, dayPage, APPTS_PER_PAGE);
 
     return (
         <div className="dd-grid">
@@ -272,7 +285,7 @@ const DoctorDashboard = () => {
                             <div className="dp-card dd-empty">Loading...</div>
                         ) : dayList.length === 0 ? (
                             <div className="dp-card dd-empty">No appointments {isToday ? 'today' : 'on this day'}.</div>
-                        ) : dayList.map((a) => (
+                        ) : dayData.items.map((a) => (
                             <div key={`${a.appointment_id}-${a.student_id}`} className="dd-appt">
                                 <span className="av">{initials(a.student_first_name, a.student_last_name)}</span>
                                 <div className="who">
@@ -283,6 +296,7 @@ const DoctorDashboard = () => {
                             </div>
                         ))}
                     </div>
+                    {!dayLoading && <Pager page={dayData.page} pageCount={dayData.pageCount} total={dayData.total} pageSize={APPTS_PER_PAGE} onPage={setDayPage} noun="check-ups" />}
                     <button type="button" className="dp-btn dp-btn-ghost dd-view-all" onClick={() => navigate('/DoctorCheckup')}>View All Check-ups <ArrowRight size={16} /></button>
                 </section>
             </div>

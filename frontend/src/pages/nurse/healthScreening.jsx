@@ -2,47 +2,40 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { 
-  Calendar, Clock, Plus, Users, Eye, Activity, Smile, HeartPulse, Ear, 
-  X, CheckCircle, Edit3, Trash2, FileText, ArrowLeft, ArrowRight, QrCode, AlertCircle, Megaphone, Printer, Filter,
-  Bell, Play, MoreVertical, UserRoundPlus, Download, Search
+  Calendar, Clock, Users, Eye, Activity, Smile, HeartPulse, Ear, 
+  X, CheckCircle, Edit3, Trash2, FileText, ArrowLeft, ArrowRight, Megaphone, Printer, Filter,
+  Play, UserRoundPlus, Download, Search, ClipboardList, BellRing, History, LogIn
 } from 'lucide-react';
-import jsQR from 'jsqr';
 
 import { openReportWindow, writeReport, escapeHtml } from '../../utils/printReport';
 import stiLogo from '../../assets/sti-logof.png';
 import { formatDate, formatTime } from '../../utils/datetime';
 import '../../styles/nurse/HealthScreening.css';
-import { FolderCrumbs, FolderGrid, Pager, MoreMenu, sectionLabel, paginate, scopeCounts, TabCount, groupByDay, dayKey, dayHeading, DaySection } from '../../components/common/RecordFolders';
+import { FolderCrumbs, FolderGrid, Pager, sectionFolderName, paginate, scopeCounts, TabCount, groupByDay, dayKey, dayHeading, DaySection } from '../../components/common/RecordFolders';
+import ScreeningTypesManager from '../../components/nurse/ScreeningTypesManager';
+import ScreeningCalendar from '../../components/nurse/ScreeningCalendar';
+import ScreeningParticipantsModal from '../../components/nurse/ScreeningParticipantsModal';
+import ScreeningTemplatesManager from '../../components/nurse/ScreeningTemplatesManager';
+import ScreeningArchive from '../../components/nurse/ScreeningArchive';
+import SectionStudents from '../../components/nurse/SectionStudents';
+import SchoolYearDialog from '../../components/nurse/SchoolYearDialog';
+import StudentScreeningHistoryModal from '../../components/nurse/StudentScreeningHistoryModal';
+import { calculate } from '../../utils/formula';
+import { classLabel } from '../../utils/scheduling';
+import SessionEndPrompt from '../../components/scheduling/SessionEndPrompt';
+import { HsDialog, HsDialogHeader } from '../../components/nurse/HsDialog';
+import ConfirmModal from '../../components/common/ConfirmModal';
+import AlertModal from '../../components/common/AlertModal';
 
-// Dental / Vision moved to Doctor Visits. Old schedules still show up (read-only) as legacy.
-const SCREENING_TYPES = [
-  { value: 'BMI', label: 'BMI Monitoring' },
-  { value: 'Vital Signs', label: 'Vital Signs' },
-  { value: 'Hearing', label: 'Hearing Screening' }
-];
-const LEGACY_TYPES = ['Dental', 'Vision'];
-const typeLabel = (type) => (LEGACY_TYPES.includes(type) ? `${type} (legacy)` : type);
-const hasResult = (st) => !!(st.bmi_log_id || st.vital_record_id || st.hearing_record_id || st.dental_record_id || st.vision_record_id);
+// The screening types come from GET /api/screening-types (screening_types table). A type's form_kind picks the result form.
+// Dental / Vision moved to Doctor Visits. Old schedules still show up (read-only) as legacy; the server answers form_kind DENTAL / VISION for them.
+const LEGACY_FORM_KINDS = ['DENTAL', 'VISION'];
+const isLegacySchedule = (sch) => LEGACY_FORM_KINDS.includes(sch?.form_kind);
+const typeLabel = (type) => (['Dental', 'Vision'].includes(type) ? `${type} (legacy)` : type);
+const KIND_ICONS = { BMI: Activity, VITAL_SIGNS: HeartPulse, HEARING: Ear, CUSTOM: ClipboardList, DENTAL: Smile, VISION: Eye };
+const hasResult = (st) => !!(st.bmi_log_id || st.custom_record_id || st.vital_record_id || st.hearing_record_id || st.dental_record_id || st.vision_record_id);
 
-// Same reference ranges as the server (resting, school-age / young adult).
-const vitalFlag = (kind, a, b) => {
-  const n = (v) => (v === '' || v === null || v === undefined ? null : Number(v));
-  if (kind === 'bp') {
-    const sys = n(a), dia = n(b);
-    if (sys === null || dia === null) return '';
-    if (sys < 90 || dia < 60) return 'Low';
-    if (sys >= 130 || dia >= 80) return 'High';
-    if (sys >= 120) return 'Elevated';
-    return 'Normal';
-  }
-  const v = n(a);
-  if (v === null) return '';
-  if (kind === 'pulse') return v < 60 ? 'Low' : v > 100 ? 'High' : 'Normal';
-  if (kind === 'temp') return v < 36.1 ? 'Low' : v >= 38 ? 'High' : v > 37.5 ? 'Elevated' : 'Normal';
-  if (kind === 'resp') return v < 12 ? 'Low' : v > 20 ? 'High' : 'Normal';
-  return '';
-};
-const flagColor = (flag) => (flag === 'Normal' ? '#15803d' : flag ? '#b91c1c' : '#64748b');
+const flagColor = (flag) => (flag === 'Normal' ? 'var(--status-adequate-text)' : flag ? 'var(--status-critical-text)' : 'var(--text-secondary)');
 
 const time12 = (t) => {
   if (!t) return '';
@@ -50,27 +43,25 @@ const time12 = (t) => {
   return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
 };
 
-// Columns of the results report / CSV for each screening type
+// Columns of the results report / CSV for each result form (form_kind)
 const RESULT_COLUMNS = {
-  'BMI': [
-    ['Height (cm)', (r) => r.height_cm],
-    ['Weight (kg)', (r) => r.weight_kg],
-    ['BMI', (r) => r.bmi_value],
-    ['Category', (r) => r.bmi_category]
-  ],
-  'Vital Signs': [
-    ['Blood pressure', (r) => (r.bp_systolic != null ? `${r.bp_systolic}/${r.bp_diastolic}${r.bp_flag ? ` (${r.bp_flag})` : ''}` : '')],
-    ['Pulse (bpm)', (r) => (r.pulse_rate != null ? `${r.pulse_rate}${r.pulse_flag ? ` (${r.pulse_flag})` : ''}` : '')],
-    ['Temp (C)', (r) => (r.temperature_c != null ? `${r.temperature_c}${r.temperature_flag ? ` (${r.temperature_flag})` : ''}` : '')],
-    ['Resp (/min)', (r) => (r.respiratory_rate != null ? `${r.respiratory_rate}${r.respiratory_flag ? ` (${r.respiratory_flag})` : ''}` : '')]
-  ],
-  'Hearing': [
+  HEARING: [
     ['Left ear', (r) => r.left_ear_result],
     ['Right ear', (r) => r.right_ear_result]
   ]
 };
 
-const resultColumnsFor = (type) => RESULT_COLUMNS[type] || [['Result', (r) => r.result_summary]];
+// A form template (CUSTOM) gives one column per field, in the order of the form
+const templateColumns = (template) => (template?.fields || []).map((f) => [
+  f.unit ? `${f.label} (${f.unit})` : f.label,
+  (r) => {
+    if (!r.answers || r.answers[f.key] === undefined) return '';
+    const label = r.answers[`${f.key}__label`];
+    return label ? `${r.answers[f.key]} (${label})` : r.answers[f.key];
+  }
+]);
+
+const resultColumnsFor = (formKind, template) => (formKind === 'CUSTOM' ? templateColumns(template) : RESULT_COLUMNS[formKind]) || [['Result', (r) => r.result_summary]];
 
 const csvCell = (v) => {
   const s = String(v ?? '');
@@ -102,6 +93,7 @@ const buildScreeningParams = (q) => {
     p.set('program_id', q.view.program_id);
   }
   p.set('tab', q.activeTab);
+  if (q.schoolYear) p.set('school_year', q.schoolYear);
   if (q.filterType && q.filterType !== 'ALL') p.set('type', q.filterType);
   if (q.search) p.set('q', q.search);
   if (q.activeTab === 'past') {
@@ -116,14 +108,20 @@ const PARTICIPANTS_PER_PAGE = 15;
 
 
 
-// Helper to get today's local date in YYYY-MM-DD format
-const getTodayString = () => {
+// Helper to get a local date in YYYY-MM-DD format, offset days from today
+const getDateString = (offsetDays = 0) => {
   const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 };
+
+const getTodayString = () => getDateString(0);
+
+// Past Screenings opens on yesterday and today
+const defaultPastRange = () => ({ from: getDateString(-1), to: getDateString(0) });
 
 // Helper to get current local time in HH:MM format
 const getCurrentTimeString = () => {
@@ -152,8 +150,8 @@ export default function HealthScreening() {
 
   // Filtering States
   const [filterType, setFilterType] = useState('ALL');
-  const [filterStartDate, setFilterStartDate] = useState('');
-  const [filterEndDate, setFilterEndDate] = useState('');
+  const [filterStartDate, setFilterStartDate] = useState(() => defaultPastRange().from);
+  const [filterEndDate, setFilterEndDate] = useState(() => defaultPastRange().to);
 
   // Modal States
   const [showScheduleModal, setShowScheduleModal] = useState(false);
@@ -161,7 +159,7 @@ export default function HealthScreening() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
   const [showDocModal, setShowDocModal] = useState(false);
-  const [showQrModal, setShowQrModal] = useState(false);
+  const [docLocked, setDocLocked] = useState(false); // opened by Time in: no close until the result is saved
 
   // Custom Notification & Confirmation Modal State
   const [alertModal, setAlertModal] = useState({
@@ -194,14 +192,10 @@ export default function HealthScreening() {
   const [activeSchedule, setActiveSchedule] = useState(null);
   const [scheduleStudents, setScheduleStudents] = useState([]);
   const [editingSchedule, setEditingSchedule] = useState(null);
+  const [participantsSchedule, setParticipantsSchedule] = useState(null);
   const [selectedStudent, setSelectedStudent] = useState(null);
 
   // QR Scanner States & Refs
-  const [qrInput, setQrInput] = useState('');
-  const [scanFeedback, setScanFeedback] = useState({ message: '', type: '' });
-  const videoRef = useRef(null);
-  const canvasRef = useRef(null);
-  const animationFrameId = useRef(null);
 
   // Documentation Dynamic Form State
   const [docData, setDocData] = useState({});
@@ -216,7 +210,78 @@ export default function HealthScreening() {
   const [referSlots, setReferSlots] = useState([]);
   const [referSlotsLoading, setReferSlotsLoading] = useState(false);
   const [historyModal, setHistoryModal] = useState(null);
-  const [openMenuKey, setOpenMenuKey] = useState(null);
+
+  // School years: the lists show one school year at a time (the current one first); past years stay viewable
+  const [schoolYearInfo, setSchoolYearInfo] = useState(null);
+  const [schoolYear, setSchoolYear] = useState('');
+  const [showSchoolYearDialog, setShowSchoolYearDialog] = useState(false);
+  const [classTab, setClassTab] = useState('screenings'); // inside a section folder: 'screenings' | 'students'
+
+  // Screening types (nurse-managed): the list for the type filters, and the active ones for the schedule forms
+  const [mainView, setMainView] = useState('screenings'); // 'screenings' | 'calendar' | 'types' | 'templates'
+  const [calendarSchedules, setCalendarSchedules] = useState([]);
+  const [calendarLoading, setCalendarLoading] = useState(true);
+  const [pickerSearch, setPickerSearch] = useState('');
+  const [screeningTypes, setScreeningTypes] = useState([]);
+  const [typesLoading, setTypesLoading] = useState(true);
+  const [typesError, setTypesError] = useState('');
+  const activeTypes = screeningTypes.filter(t => t.is_active);
+
+  const fetchScreeningTypes = useCallback(async () => {
+    if (!userId) return;
+    try {
+      const res = await fetch(`${API_BASE}/screening-types?sender_id=${encodeURIComponent(userId)}`);
+      const data = await res.json();
+      if (!res.ok || !Array.isArray(data)) throw new Error(data?.error || 'Failed to load the screening types');
+      setScreeningTypes(data);
+      setTypesError('');
+    } catch (err) {
+      console.error('Error fetching screening types:', err);
+      setTypesError(err.message || 'Could not load the screening types.');
+    } finally {
+      setTypesLoading(false);
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    fetchScreeningTypes();
+  }, [fetchScreeningTypes]);
+
+  // form templates the nurse built (the result form of a CUSTOM type)
+  const [templates, setTemplates] = useState([]);
+  const [templatesLoading, setTemplatesLoading] = useState(true);
+  const [templatesError, setTemplatesError] = useState('');
+
+  const fetchTemplates = useCallback(async () => {
+    if (!userId) return;
+    try {
+      const res = await fetch(`${API_BASE}/screening-form-templates?sender_id=${encodeURIComponent(userId)}`);
+      const data = await res.json();
+      if (!res.ok || !Array.isArray(data)) throw new Error(data?.error || 'Failed to load the form templates');
+      setTemplates(data);
+      setTemplatesError('');
+    } catch (err) {
+      console.error('Error fetching form templates:', err);
+      setTemplatesError(err.message || 'Could not load the form templates.');
+    } finally {
+      setTemplatesLoading(false);
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    fetchTemplates();
+  }, [fetchTemplates]);
+
+  // a template saved or deleted changes the "used by" counts of the types too
+  const templatesChanged = async () => { await Promise.all([fetchTemplates(), fetchScreeningTypes()]); };
+
+  // the type picked in the new-schedule form must be an active one
+  useEffect(() => {
+    if (activeTypes.length > 0 && !activeTypes.some(t => t.name === scheduleForm.screening_type)) {
+      setScheduleForm(prev => ({ ...prev, screening_type: activeTypes[0].name }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screeningTypes]);
 
 
   // Helper to parse Date and Time into a single JavaScript Date object
@@ -224,6 +289,13 @@ export default function HealthScreening() {
     if (!dateStr || !timeStr) return null;
     const cleanDate = dateStr.split('T')[0];
     return new Date(`${cleanDate}T${timeStr}`);
+  };
+
+  // A screening is over once its end was confirmed or its date passed; after the end time it is still on going until then
+  const screeningOver = (sch) => {
+    if (!sch) return false;
+    if (sch.end_confirmed_at) return true;
+    return String(sch.scheduled_date).split('T')[0] < new Date().toLocaleDateString('sv-SE');
   };
 
   // Helper Modal Trigger Functions
@@ -278,8 +350,15 @@ export default function HealthScreening() {
     setFilterEndDate(val);
   };
 
+  // Reset goes back to the default view: yesterday and today
   const handleResetFilters = () => {
+    const range = defaultPastRange();
     setFilterType('ALL');
+    setFilterStartDate(range.from);
+    setFilterEndDate(range.to);
+  };
+
+  const handleShowAllDates = () => {
     setFilterStartDate('');
     setFilterEndDate('');
   };
@@ -316,8 +395,7 @@ export default function HealthScreening() {
     const win = openReportWindow(() => showAlert('Please allow popups in your browser to preview and print the report.', 'Popup Blocked', 'warning'));
     if (!win) return;
 
-    const endDt = getScheduleDateTime(activeSchedule.scheduled_date, activeSchedule.end_time);
-    const isScheduleEnded = endDt ? new Date() > endDt : false;
+    const isScheduleEnded = screeningOver(activeSchedule);
 
     let presentCount = 0;
     const rows = scheduleStudents.map(st => {
@@ -328,7 +406,7 @@ export default function HealthScreening() {
       return [
         st.student_id || '',
         `${st.first_name || ''} ${st.last_name || ''}`.trim(),
-        `${st.program_name || ''} (Yr ${st.year_level || ''} - ${st.section || ''})`,
+        classLabel(st.program_id, st.year_level, st.section),
         attendance,
         hasResult(st) ? 'Documented' : 'Pending'
       ];
@@ -349,112 +427,6 @@ export default function HealthScreening() {
     });
   };
 
-  // the list refresh helpers are defined further down; the scan handler reaches them through this ref
-  const scanActionsRef = useRef({});
-
-  // Centralized scan handler for both JSQR and manual entry
-  const processScannedStudentId = useCallback(async (studentId, force = false) => {
-    if (!studentId || !activeSchedule) return;
-
-    try {
-      const res = await fetch(`${API_BASE}/screenings/${activeSchedule.screening_schedule_id}/scan-qr`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ student_id: studentId.trim(), force })
-      });
-      const data = await res.json();
-
-      if (res.ok) {
-        setScanFeedback({ message: data.message || `Scanned Student ID: ${studentId}`, type: 'success' });
-        scanActionsRef.current.openViewModal(activeSchedule);
-        scanActionsRef.current.fetchSchedules();
-      } else if (res.status === 409 && data.outside_window) {
-        // outside the scheduled time: the nurse decides
-        showConfirm(
-          `${data.error}\n\nMark present anyway?`,
-          () => processScannedStudentId(studentId, true),
-          'Outside Scheduled Time',
-          'Yes, Mark Present',
-          'No'
-        );
-      } else {
-        setScanFeedback({ message: data.error || 'Scan failed.', type: 'error' });
-      }
-    } catch (err) {
-      console.error('Error scanning QR:', err);
-      setScanFeedback({ message: 'Network or server error during scan.', type: 'error' });
-    }
-  }, [activeSchedule]);
-
-  // Camera initialization & continuous jsQR detection loop
-  useEffect(() => {
-    if (!showQrModal || !activeSchedule) return;
-
-    let stream = null;
-    let isScanning = true;
-
-    const startCamera = async () => {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' }
-        });
-
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.setAttribute('playsinline', 'true');
-          videoRef.current.play();
-          animationFrameId.current = requestAnimationFrame(scanFrame);
-        }
-      } catch (err) {
-        console.error('Camera access error:', err);
-        setScanFeedback({ message: 'Unable to access camera device.', type: 'error' });
-      }
-    };
-
-    const scanFrame = () => {
-      if (!isScanning) return;
-
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-
-      if (video && video.readyState === video.HAVE_ENOUGH_DATA && canvas) {
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
-        canvas.height = video.videoHeight;
-        canvas.width = video.videoWidth;
-
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        
-        const code = jsQR(imageData.data, imageData.width, imageData.height, {
-          inversionAttempts: 'dontInvert'
-        });
-
-        if (code && code.data) {
-          isScanning = false;
-          processScannedStudentId(code.data);
-          
-          setTimeout(() => {
-            isScanning = true;
-          }, 2500);
-        }
-      }
-
-      animationFrameId.current = requestAnimationFrame(scanFrame);
-    };
-
-    startCamera();
-
-    return () => {
-      isScanning = false;
-      if (animationFrameId.current) {
-        cancelAnimationFrame(animationFrameId.current);
-      }
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-      }
-    };
-  }, [showQrModal, activeSchedule, processScannedStudentId]);
-
   // ---- folders (Program > Year-Section), search and paging ----
   // The server filters and pages the screenings, so the browser only holds one page at a time.
   const [view, setView] = useState({ kind: 'root' });
@@ -474,12 +446,15 @@ export default function HealthScreening() {
   const listMode = view.kind === 'section' || view.kind === 'all' || searching;
 
   const queryRef = useRef({});
-  queryRef.current = { view, activeTab, search: debouncedSearch, filterType, filterStartDate, filterEndDate, page };
+  queryRef.current = { view, activeTab, search: debouncedSearch, filterType, filterStartDate, filterEndDate, page, schoolYear };
 
   const fetchFolders = useCallback(async () => {
     try {
       const q = queryRef.current;
-      const qs = q.filterType && q.filterType !== 'ALL' ? `?type=${encodeURIComponent(q.filterType)}` : '';
+      const fp = new URLSearchParams();
+      if (q.filterType && q.filterType !== 'ALL') fp.set('type', q.filterType);
+      if (q.schoolYear) fp.set('school_year', q.schoolYear);
+      const qs = fp.toString() ? `?${fp.toString()}` : '';
       const res = await fetch(`${API_BASE}/screenings/folders${qs}`);
       const data = await res.json();
       if (res.ok && Array.isArray(data.programs)) setFolders(data);
@@ -490,9 +465,48 @@ export default function HealthScreening() {
     }
   }, []);
 
-  // Loads the current page (and refreshes the folder counts)
+  // every screening, for the calendar
+  const fetchCalendar = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/screenings`);
+      const data = await res.json();
+      if (res.ok && Array.isArray(data)) setCalendarSchedules(data);
+    } catch (err) {
+      console.error('Error fetching calendar:', err);
+    } finally {
+      setCalendarLoading(false);
+    }
+  }, []);
+
+  // the school years (the current one is picked first)
+  const fetchSchoolYears = useCallback(async (pickCurrent = false) => {
+    try {
+      const res = await fetch(`${API_BASE}/school-years`);
+      const data = await res.json();
+      if (!res.ok || !Array.isArray(data.years)) throw new Error(data?.error || 'Failed to load the school years');
+      setSchoolYearInfo(data);
+      if (pickCurrent) setSchoolYear(data.current || '');
+    } catch (err) {
+      console.error('Error fetching school years:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSchoolYears(true);
+  }, [fetchSchoolYears]);
+
+  // the end time of a screening passes while the nurse is on this page: look again every half minute, so the question is asked on time
+  const [clock, setClock] = useState(() => Date.now());
+  const [dismissedEnds, setDismissedEnds] = useState([]);
+  useEffect(() => {
+    const timer = setInterval(() => { if (!document.hidden) { fetchCalendar(); fetchFolders(); setClock(Date.now()); } }, 30000);
+    return () => clearInterval(timer);
+  }, [fetchCalendar, fetchFolders]);
+
+  // Loads the current page (and refreshes the folder counts and the calendar)
   const fetchSchedules = useCallback(async () => {
     fetchFolders();
+    fetchCalendar();
     const q = queryRef.current;
     const inList = q.view.kind === 'section' || q.view.kind === 'all' || q.search !== '';
     if (!inList) {
@@ -518,7 +532,7 @@ export default function HealthScreening() {
       console.error('Error fetching schedules:', err);
       showAlert('Could not load the screening schedules. Please refresh the page.', 'Error', 'error');
     }
-  }, [fetchFolders]);
+  }, [fetchFolders, fetchCalendar]);
 
   // every screening of the current folder / tab / filters (for the export)
   const fetchAllScheduleRows = async () => {
@@ -534,7 +548,7 @@ export default function HealthScreening() {
   };
 
   // A new folder / tab / search / filter starts at page 1; a page change just reloads.
-  const queryKey = JSON.stringify([view, activeTab, debouncedSearch, filterType, filterStartDate, filterEndDate]);
+  const queryKey = JSON.stringify([view, activeTab, debouncedSearch, filterType, filterStartDate, filterEndDate, schoolYear]);
   const lastQueryKeyRef = useRef(queryKey);
   useEffect(() => {
     if (lastQueryKeyRef.current !== queryKey) {
@@ -549,7 +563,7 @@ export default function HealthScreening() {
 
   const goRoot = () => { setView({ kind: 'root' }); setSearchTerm(''); };
   const openProgram = (p) => { setView({ kind: 'program', program_id: p.program_id, program_name: p.program_name }); setSearchTerm(''); };
-  const openSection = (p, s) => { setView({ kind: 'section', program_id: p.program_id, program_name: p.program_name, year_level: s.year_level, section: s.section }); setSearchTerm(''); };
+  const openSection = (p, s) => { setClassTab('screenings'); setView({ kind: 'section', program_id: p.program_id, program_name: p.program_name, year_level: s.year_level, section: s.section }); setSearchTerm(''); };
 
   const crumbTrail = (() => {
     const trail = [{ label: 'Health Screening', onClick: goRoot }];
@@ -559,8 +573,9 @@ export default function HealthScreening() {
         onClick: view.kind === 'section' ? () => setView({ kind: 'program', program_id: view.program_id, program_name: view.program_name }) : undefined
       });
     }
-    if (view.kind === 'section') trail.push({ label: sectionLabel(view) });
+    if (view.kind === 'section') trail.push({ label: sectionFolderName(view.program_id, view) });
     if (view.kind === 'all') trail.push({ label: 'All screenings' });
+    if (view.kind === 'archive') trail.push({ label: 'Archive (graduated)' });
     if (searching && view.kind !== 'section' && view.kind !== 'all') trail.push({ label: `Search: "${debouncedSearch}"` });
     return trail;
   })();
@@ -570,8 +585,7 @@ export default function HealthScreening() {
       const prog = folders.programs.find(p => p.program_id === view.program_id);
       return (prog ? prog.sections : []).map(s => ({
         key: `${s.year_level}-${s.section}`,
-        title: sectionLabel(s),
-        subtitle: view.program_name,
+        title: sectionFolderName(view.program_id, s),
         counts: s,
         onClick: () => openSection(prog, s)
       }));
@@ -579,10 +593,18 @@ export default function HealthScreening() {
     const items = folders.programs.map(p => ({
       key: p.program_id,
       title: p.program_id,
-      subtitle: `${p.program_name} - ${p.sections.length} section${p.sections.length === 1 ? '' : 's'}`,
+      subtitle: p.program_name,
       counts: p,
       onClick: () => openProgram(p)
     }));
+    items.push({
+      key: 'archive',
+      variant: 'archive',
+      title: 'Archive',
+      subtitle: `Graduated students (${folders.archived || 0})`,
+      counts: null,
+      onClick: () => { setView({ kind: 'archive' }); setSearchTerm(''); }
+    });
     items.unshift({
       key: 'all',
       variant: 'all',
@@ -606,7 +628,7 @@ export default function HealthScreening() {
   const participantPageData = (() => {
     const q = participantSearch.trim().toLowerCase();
     const list = scheduleStudents.filter(st =>
-      !q || `${st.first_name || ''} ${st.last_name || ''} ${st.student_id || ''} ${st.program_name || ''} ${st.section || ''}`.toLowerCase().includes(q)
+      !q || `${st.first_name || ''} ${st.last_name || ''} ${st.student_id || ''} ${st.program_name || ''} ${st.program_id || ''} ${st.section || ''}`.toLowerCase().includes(q)
     );
     return paginate(list, participantPage, PARTICIPANTS_PER_PAGE);
   })();
@@ -624,11 +646,15 @@ export default function HealthScreening() {
 
   const handleFilterStudents = useCallback(async () => {
     try {
+      // a screening is for one class: nothing is listed until the program and the year level are chosen
+      if (!scheduleForm.target_program_id || !scheduleForm.target_year_level) {
+        setFilterStudents([]);
+        return;
+      }
       const queryParams = new URLSearchParams();
 
       if (scheduleForm.target_program_id) queryParams.append('program_id', scheduleForm.target_program_id);
       if (scheduleForm.target_year_level) queryParams.append('year_level', scheduleForm.target_year_level);
-      if (scheduleForm.target_section) queryParams.append('section', scheduleForm.target_section);
 
       const res = await fetch(`${API_BASE}/filtered-students?${queryParams.toString()}`);
       const data = await res.json();
@@ -639,7 +665,15 @@ export default function HealthScreening() {
       console.error('Error filtering students:', err);
       setFilterStudents([]);
     }
-  }, [scheduleForm.target_program_id, scheduleForm.target_year_level, scheduleForm.target_section]);
+  }, [scheduleForm.target_program_id, scheduleForm.target_year_level]);
+
+  // The sections to pick from are the ones the chosen program / year really has; the section and the search then narrow the list.
+  const sectionOptions = Array.from(new Set(filterStudents.map(st => st.section).filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b)));
+  const pickerQuery = pickerSearch.trim().toLowerCase();
+  const visibleStudents = !scheduleForm.target_section ? [] : filterStudents.filter(st =>
+    st.section === scheduleForm.target_section &&
+    (!pickerQuery || `${st.first_name || ''} ${st.last_name || ''} ${st.student_id || ''}`.toLowerCase().includes(pickerQuery))
+  );
 
   useEffect(() => {
     if (showStudentSelectModal) {
@@ -676,16 +710,16 @@ export default function HealthScreening() {
 
   const handleSelectAllFiltered = (e) => {
     if (e.target.checked) {
-      const filteredIds = filterStudents.map(st => st.student_id);
+      const filteredIds = visibleStudents.map(st => st.student_id);
       setSelectedStudentIds(prev => Array.from(new Set([...prev, ...filteredIds])));
     } else {
-      const filteredSet = new Set(filterStudents.map(st => st.student_id));
+      const filteredSet = new Set(visibleStudents.map(st => st.student_id));
       setSelectedStudentIds(prev => prev.filter(id => !filteredSet.has(id)));
     }
   };
 
-  const areAllFilteredSelected = filterStudents.length > 0 && 
-    filterStudents.every(st => selectedStudentIds.includes(st.student_id));
+  const areAllFilteredSelected = visibleStudents.length > 0 &&
+    visibleStudents.every(st => selectedStudentIds.includes(st.student_id));
 
   const handleCreateSchedule = async (e) => {
     e.preventDefault();
@@ -890,6 +924,46 @@ export default function HealthScreening() {
     }
   });
 
+  // manual time in: asks first, then the same call the QR scan makes (marks the student PRESENT with the time now; outside the schedule the nurse confirms again).
+  // The result form opens right after and stays open until it is saved, so one participant is recorded before the next time in.
+  const timeIn = (st) => {
+    if (isLegacySchedule(activeSchedule)) {
+      showAlert(`${activeSchedule.screening_type} examinations are now Doctor Visits. This is a legacy schedule, so no new results can be recorded here.`, 'Moved to Doctor Visits', 'warning');
+      return;
+    }
+    showConfirm(
+      `Time in ${st.first_name} ${st.last_name} now?\n\nThe screening result must be recorded right after, before you can continue with the next participant.`,
+      () => sendTimeIn(st),
+      'Confirm Time in',
+      'Yes, Time In',
+      'Cancel'
+    );
+  };
+
+  const sendTimeIn = async (st, force = false) => {
+    try {
+      const res = await fetch(`${API_BASE}/screenings/${activeSchedule.screening_schedule_id}/scan-qr`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ student_id: st.student_id, force })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        openViewModal(activeSchedule);
+        fetchSchedules();
+        // a missing form template would trap the nurse in a form that cannot be filled, so only a usable form is locked
+        const usable = activeSchedule.form_kind === 'HEARING' || (activeSchedule.form_kind === 'CUSTOM' && activeSchedule.template);
+        openDocumentModal({ ...st, attendance_status: 'PRESENT' }, Boolean(usable));
+      } else if (res.status === 409 && data.outside_window) {
+        showConfirm(`${data.error}\n\nTime in anyway?`, () => sendTimeIn(st, true), 'Outside Scheduled Time', 'Yes, Time In', 'No');
+      } else {
+        showAlert(data.error || 'Failed to time in.', 'Error', 'error');
+      }
+    } catch (err) {
+      showAlert('Failed to time in.', 'Error', 'error');
+    }
+  };
+
   const handleDeleteResult = (st) => {
     showConfirm(
       `Delete the recorded result of ${st.first_name} ${st.last_name}? Their attendance stays, and the result can be documented again.`,
@@ -1050,7 +1124,7 @@ export default function HealthScreening() {
   const exportResultsCsv = async (schedule) => {
     const data = await fetchResults(schedule);
     if (!data) return;
-    const cols = resultColumnsFor(schedule.screening_type);
+    const cols = resultColumnsFor(data.schedule?.form_kind || schedule.form_kind, data.schedule?.template);
     const header = ['Student ID', 'Last name', 'First name', 'Program', 'Year', 'Section', 'Attendance', ...cols.map(c => c[0]), 'Abnormal', 'Remarks'];
     const body = data.rows.map(r => [
       r.student_id, r.last_name, r.first_name, r.program_name, r.year_level, r.section, r.attendance_status,
@@ -1071,14 +1145,14 @@ export default function HealthScreening() {
       return;
     }
 
-    const cols = resultColumnsFor(schedule.screening_type);
+    const cols = resultColumnsFor(data.schedule?.form_kind || schedule.form_kind, data.schedule?.template);
     const s = data.summary;
     const dist = Object.entries(s.distribution).map(([k, v]) => `<tr><td>${escapeHtml(k)}</td><td>${v}</td></tr>`).join('');
     const rowsHtml = data.rows.map(r => `
       <tr${r.is_abnormal ? ' class="abn"' : ''}>
         <td>${escapeHtml(r.student_id)}</td>
         <td>${escapeHtml(`${r.last_name}, ${r.first_name}`)}</td>
-        <td>${escapeHtml(`${r.program_name || ''} ${r.year_level || ''}${r.section || ''}`)}</td>
+        <td>${escapeHtml(classLabel(r.program_id, r.year_level, r.section))}</td>
         <td>${escapeHtml(r.attendance_status)}</td>
         ${cols.map(c => `<td>${escapeHtml(r.documented ? c[1](r) : '')}</td>`).join('')}
         <td>${r.documented ? (r.is_abnormal ? 'Abnormal' : 'Normal') : 'Not documented'}</td>
@@ -1142,54 +1216,26 @@ export default function HealthScreening() {
     }
   };
 
-  scanActionsRef.current = { fetchSchedules, openViewModal };
-
-  const handleManualScanSubmit = (e) => {
-    e.preventDefault();
-    if (!qrInput.trim()) return;
-    processScannedStudentId(qrInput);
-    setQrInput('');
-  };
-
-  const openDocumentModal = (student) => {
+  const openDocumentModal = (student, locked = false) => {
     if (student.attendance_status !== 'PRESENT') {
       showAlert('Student must be marked as PRESENT in order to document screening results.', 'Action Required', 'warning');
       return;
     }
 
-    if (LEGACY_TYPES.includes(activeSchedule?.screening_type)) {
+    if (isLegacySchedule(activeSchedule)) {
       showAlert(`${activeSchedule.screening_type} examinations are now Doctor Visits. This is a legacy schedule, so no new results can be recorded here.`, 'Moved to Doctor Visits', 'warning');
       return;
     }
 
     setSelectedStudent(student);
     setDocData({
-      height_cm: student.height_cm || '',
-      weight_kg: student.weight_kg || '',
-      bmi_value: student.bmi_value || '',
-      bmi_category: student.bmi_category || 'Normal',
-      bp_systolic: student.bp_systolic ?? '',
-      bp_diastolic: student.bp_diastolic ?? '',
-      pulse_rate: student.pulse_rate ?? '',
-      temperature_c: student.temperature_c ?? '',
-      respiratory_rate: student.respiratory_rate ?? '',
       left_ear_result: student.left_ear_result || '',
       right_ear_result: student.right_ear_result || '',
-      remarks: student.remarks || ''
+      remarks: student.remarks || '',
+      answers: Object.fromEntries(Object.entries(student.answers || {}).map(([k, v]) => [k, String(v)]))
     });
+    setDocLocked(locked);
     setShowDocModal(true);
-  };
-
-  const calculateBMI = (height, weight) => {
-    if (!height || !weight) return { bmi: '', category: '' };
-    const hMeters = Number(height) / 100;
-    const bmi = Math.round((Number(weight) / (hMeters * hMeters)) * 10) / 10;
-    if (!Number.isFinite(bmi)) return { bmi: '', category: '' };
-    let category = 'Normal';
-    if (bmi < 18.5) category = 'Underweight';
-    else if (bmi >= 30) category = 'Obese';
-    else if (bmi >= 25) category = 'Overweight';
-    return { bmi: bmi.toFixed(1), category };
   };
 
   const handleDocSubmit = async (e) => {
@@ -1201,12 +1247,13 @@ export default function HealthScreening() {
         body: JSON.stringify({
           student_id: selectedStudent.student_id,
           screening_type: activeSchedule.screening_type,
-          formData: docData
+          formData: activeSchedule.form_kind === 'CUSTOM' ? { answers: docData.answers, remarks: docData.remarks } : docData
         })
       });
       const data = await res.json();
       if (res.ok) {
         setShowDocModal(false);
+        setDocLocked(false);
         openViewModal(activeSchedule);
         fetchSchedules();
         showAlert(data.is_abnormal ? 'Result saved and flagged ABNORMAL. The student and parents were notified. You can refer the student to a doctor from the row menu.' : 'Screening result saved successfully!', 'Success', 'success');
@@ -1221,13 +1268,56 @@ export default function HealthScreening() {
 
   const resetScheduleForm = () => {
     setScheduleForm({
-      title: '', screening_type: 'BMI', scheduled_date: '', start_time: '', end_time: '',
+      title: '', screening_type: activeTypes[0]?.name || '', scheduled_date: '', start_time: '', end_time: '',
       announcement: '', target_program_id: '', target_year_level: '', target_section: ''
     });
     setSelectedStudentIds([]);
+    setPickerSearch('');
   };
 
-  const now = new Date();
+  // "Schedule screening" on a day of the calendar: the form opens with that date
+  const scheduleOnDay = (day) => {
+    resetScheduleForm();
+    setScheduleForm(prev => ({ ...prev, scheduled_date: day }));
+    setShowScheduleModal(true);
+  };
+
+  // the end time passed and nobody confirmed the end yet: the screening stays on going, with a question
+  const awaitingEnd = (sch) => {
+    if (sch.status === 'Cancelled' || screeningOver(sch)) return false;
+    const end = getScheduleDateTime(sch.scheduled_date, sch.end_time);
+    const start = getScheduleDateTime(sch.scheduled_date, sch.start_time);
+    return !!(end && start && start <= new Date(clock) && end <= new Date(clock));
+  };
+  const endKey = (sch) => `${sch.screening_schedule_id}|${sch.end_time}`;
+  const endAsk = calendarSchedules.find((sch) => awaitingEnd(sch) && !dismissedEnds.includes(endKey(sch))) || null;
+
+  const sendEnd = async (sch, path, body) => {
+    try {
+      const res = await fetch(`${API_BASE}/screenings/${sch.screening_schedule_id}/${path}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, sender_id: userId })
+      });
+      const data = await res.json();
+      if (!res.ok) return data.error || 'Could not save the change.';
+      showAlert(data.message, 'Done', 'success');
+      fetchSchedules();
+      return '';
+    } catch (err) {
+      return 'Could not reach the server.';
+    }
+  };
+
+  const schoolYearSelect = (
+    <select value={schoolYear} onChange={e => setSchoolYear(e.target.value)} aria-label="School year">
+      <option value="">All school years</option>
+      {(schoolYearInfo?.years || []).map(y => (
+        <option key={y.school_year} value={y.school_year}>{y.school_year}{y.is_current ? ' (current)' : ''}</option>
+      ))}
+    </select>
+  );
+
+  // records of one student (all school years)
+  const openStudentRecords = (st) => openHistory(st);
 
   // numbers on the status tabs (from the folder summary) and the cards of this page cut into days
   const tabCounts = scopeCounts(folders, view, searching);
@@ -1235,44 +1325,131 @@ export default function HealthScreening() {
 
   return (
     <div className="container-hs">
+      {endAsk && (
+        <SessionEndPrompt
+          item={{ key: endKey(endAsk), kind: 'screening', endTime: endAsk.end_time, title: `"${endAsk.title}" (${endAsk.screening_type}) on ${formatDate(endAsk.scheduled_date)}` }}
+          onConfirm={() => sendEnd(endAsk, 'confirm-end', {})}
+          onExtend={(minutes) => sendEnd(endAsk, 'extend', { extra_minutes: minutes })}
+          onLater={() => setDismissedEnds((list) => [...list, endKey(endAsk)])}
+        />
+      )}
+
       {/* Header */}
       <header className="header-hs">
         <div className="title-group-hs">
           <h1>Health Screening Management</h1>
           <p>Schedule, manage, and document student health assessments</p>
         </div>
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <MoreMenu
-            buttonClassName="btn-hs btn-secondary-hs"
-            items={[
-              { icon: <Printer size={16} />, label: 'Print screening summary', onClick: handleExportAllReport },
-              { icon: <Bell size={16} />, label: 'Send reminders', onClick: handleSendReminders }
-            ]}
-          />
-          <button type="button" className="btn-hs btn-primary-hs" onClick={() => setShowScheduleModal(true)}>
-            <Plus size={18} /> Schedule Screening
-          </button>
-        </div>
       </header>
 
-      {/* Folders: Program > Year-Section */}
-      <FolderCrumbs trail={crumbTrail} />
+      {/* Page sections */}
+      <div className="tabs-hs" role="group" aria-label="Health screening sections">
+        <button
+          type="button"
+          className={`tab-btn-hs ${mainView === 'screenings' ? 'active-hs' : ''}`}
+          aria-pressed={mainView === 'screenings'}
+          onClick={() => setMainView('screenings')}
+        >
+          <Calendar size={16} aria-hidden="true" /> Screenings
+        </button>
+        <button
+          type="button"
+          className={`tab-btn-hs ${mainView === 'calendar' ? 'active-hs' : ''}`}
+          aria-pressed={mainView === 'calendar'}
+          onClick={() => setMainView('calendar')}
+        >
+          <Calendar size={16} aria-hidden="true" /> Calendar
+        </button>
+        <button
+          type="button"
+          className={`tab-btn-hs ${mainView === 'types' ? 'active-hs' : ''}`}
+          aria-pressed={mainView === 'types'}
+          onClick={() => setMainView('types')}
+        >
+          <ClipboardList size={16} aria-hidden="true" /> Screening Types
+        </button>
+        <button
+          type="button"
+          className={`tab-btn-hs ${mainView === 'templates' ? 'active-hs' : ''}`}
+          aria-pressed={mainView === 'templates'}
+          onClick={() => setMainView('templates')}
+        >
+          <FileText size={16} aria-hidden="true" /> Form Templates
+        </button>
+      </div>
 
-      {!listMode && (
+      {mainView === 'calendar' && (
+        <ScreeningCalendar
+          schedules={calendarSchedules}
+          loading={calendarLoading}
+          onSchedule={scheduleOnDay}
+          onOpen={openViewModal}
+          onEdit={(sch) => { setEditingSchedule(sch); setShowEditModal(true); }}
+          onCancel={handleCancelSchedule}
+          typeLabel={typeLabel}
+        />
+      )}
+
+      {mainView === 'types' && (
+        <ScreeningTypesManager
+          types={screeningTypes}
+          templates={templates}
+          loading={typesLoading}
+          loadError={typesError}
+          senderId={userId}
+          onChanged={fetchScreeningTypes}
+        />
+      )}
+
+      {mainView === 'templates' && (
+        <ScreeningTemplatesManager
+          templates={templates}
+          loading={templatesLoading}
+          loadError={templatesError}
+          senderId={userId}
+          onChanged={templatesChanged}
+        />
+      )}
+
+      {/* Folders: Program > Year-Section */}
+      {mainView === 'screenings' && <FolderCrumbs trail={crumbTrail} />}
+
+      {mainView === 'screenings' && view.kind === 'archive' && (
+        <ScreeningArchive apiBase={API_BASE} programs={programs} onOpenRecords={openStudentRecords} />
+      )}
+
+      {mainView === 'screenings' && view.kind === 'section' && !searching && (
+        <div className="tabs-hs class-view-toggle-hs" role="group" aria-label="Show screenings or students">
+          <button type="button" className={`tab-btn-hs ${classTab === 'screenings' ? 'active-hs' : ''}`} aria-pressed={classTab === 'screenings'} onClick={() => setClassTab('screenings')}>
+            <Calendar size={16} aria-hidden="true" /> Screenings
+          </button>
+          <button type="button" className={`tab-btn-hs ${classTab === 'students' ? 'active-hs' : ''}`} aria-pressed={classTab === 'students'} onClick={() => setClassTab('students')}>
+            <Users size={16} aria-hidden="true" /> Students &amp; records
+          </button>
+        </div>
+      )}
+
+      {mainView === 'screenings' && view.kind === 'section' && !searching && classTab === 'students' && (
+        <SectionStudents apiBase={API_BASE} view={view} onOpenRecords={openStudentRecords} />
+      )}
+
+      {mainView === 'screenings' && view.kind !== 'archive' && !listMode && (
         <>
           <div className="folder-toolbar-hs">
             <div className="folder-search-hs">
-              <Search size={16} />
+              <Search size={16} aria-hidden="true" />
               <input
                 type="text"
+                aria-label="Search all screenings"
                 placeholder="Search all screenings by title, student name or ID..."
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
               />
             </div>
-            <select value={filterType} onChange={e => setFilterType(e.target.value)} aria-label="Screening type">
+            {schoolYearSelect}
+<select value={filterType} onChange={e => setFilterType(e.target.value)} aria-label="Screening type">
               <option value="ALL">All types</option>
-              {SCREENING_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+              {screeningTypes.map(t => <option key={t.screening_type_id} value={t.name}>{t.name}{t.is_active ? '' : ' (inactive)'}</option>)}
             </select>
           </div>
           {foldersLoading ? (
@@ -1283,21 +1460,23 @@ export default function HealthScreening() {
         </>
       )}
 
-      {listMode && (
+      {mainView === 'screenings' && listMode && !(view.kind === 'section' && !searching && classTab === 'students') && (
       <>
       <div className="folder-toolbar-hs">
         <div className="folder-search-hs">
-          <Search size={16} />
+          <Search size={16} aria-hidden="true" />
           <input
             type="text"
+            aria-label="Search screenings"
             placeholder="Search by title, student name or ID..."
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
           />
         </div>
-        <select value={filterType} onChange={e => setFilterType(e.target.value)} aria-label="Screening type">
+        {schoolYearSelect}
+<select value={filterType} onChange={e => setFilterType(e.target.value)} aria-label="Screening type">
           <option value="ALL">All types</option>
-          {SCREENING_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+          {screeningTypes.map(t => <option key={t.screening_type_id} value={t.name}>{t.name}{t.is_active ? '' : ' (inactive)'}</option>)}
         </select>
       </div>
 
@@ -1308,28 +1487,28 @@ export default function HealthScreening() {
           className={`tab-btn-hs ${activeTab === 'upcoming' ? 'active-hs' : ''}`}
           onClick={() => setActiveTab('upcoming')}
         >
-          <Calendar size={16} /> Upcoming Screenings <TabCount value={tabCounts?.upcoming} />
+          <Calendar size={16} aria-hidden="true" /> Upcoming Screenings <TabCount value={tabCounts?.upcoming} />
         </button>
         <button
           type="button"
           className={`tab-btn-hs ${activeTab === 'ongoing' ? 'active-hs' : ''}`}
           onClick={() => setActiveTab('ongoing')}
         >
-          <Clock size={16} /> Ongoing Screenings <TabCount value={tabCounts?.ongoing} />
+          <Clock size={16} aria-hidden="true" /> Ongoing Screenings <TabCount value={tabCounts?.ongoing} />
         </button>
         <button
           type="button"
           className={`tab-btn-hs ${activeTab === 'past' ? 'active-hs' : ''}`}
           onClick={() => setActiveTab('past')}
         >
-          <CheckCircle size={16} /> Past Screenings <TabCount value={tabCounts?.past} />
+          <CheckCircle size={16} aria-hidden="true" /> Past Screenings <TabCount value={tabCounts?.past} />
         </button>
       </div>
 
       {/* Date range: only past screenings need one (the type filter lives in the toolbar above) */}
       {activeTab === 'past' && (
         <div className="filter-bar-hs">
-          <span className="filter-title-hs"><Filter size={16} /> Date range</span>
+          <span className="filter-title-hs"><Filter size={16} aria-hidden="true" /> Date range</span>
 
           <label>
             From
@@ -1341,7 +1520,13 @@ export default function HealthScreening() {
             <input type="date" value={filterEndDate} min={filterStartDate || undefined} onChange={handleEndDateChange} />
           </label>
 
-          {(filterType !== 'ALL' || filterStartDate || filterEndDate) && (
+          {(filterStartDate || filterEndDate) && (
+            <button type="button" onClick={handleShowAllDates} className="btn-hs btn-secondary-hs reset-hs">
+              Show all dates
+            </button>
+          )}
+
+          {(filterType !== 'ALL' || filterStartDate !== defaultPastRange().from || filterEndDate !== defaultPastRange().to) && (
             <button type="button" onClick={handleResetFilters} className="btn-hs btn-secondary-hs reset-hs">
               Reset filters
             </button>
@@ -1366,22 +1551,19 @@ export default function HealthScreening() {
             return (
               <div key={sch.screening_schedule_id} className="card-hs">
                 <div className="card-badge-hs">
-                  {sch.screening_type === 'BMI' && <Activity size={14} />}
-                  {sch.screening_type === 'Vital Signs' && <HeartPulse size={14} />}
-                  {sch.screening_type === 'Hearing' && <Ear size={14} />}
-                  {sch.screening_type === 'Dental' && <Smile size={14} />}
-                  {sch.screening_type === 'Vision' && <Eye size={14} />}
+                  {React.createElement(KIND_ICONS[sch.form_kind] || ClipboardList, { size: 14, 'aria-hidden': true })}
                   {typeLabel(sch.screening_type)}
+                  {!isLegacySchedule(sch) && !Number(sch.type_active) && ' (inactive type)'}
                 </div>
                 <h3 className="card-title-hs">{sch.title}</h3>
-                <p className="card-info-hs"><Calendar size={14} /> {sch.scheduled_date ? formatDate(sch.scheduled_date.split('T')[0]) : ''}</p>
-                <p className="card-info-hs"><Clock size={14} /> {formatTime(sch.start_time)} - {formatTime(sch.end_time)}</p>
+                <p className="card-info-hs"><Calendar size={14} aria-hidden="true" /> {sch.scheduled_date ? formatDate(sch.scheduled_date.split('T')[0]) : ''}</p>
+                <p className="card-info-hs"><Clock size={14} aria-hidden="true" /> {formatTime(sch.start_time)} - {formatTime(sch.end_time)}</p>
                 <p className="card-info-hs">
-                  <Users size={14} /> <strong>{presentCount} / {totalCount}</strong> Present
+                  <Users size={14} aria-hidden="true" /> <strong>{presentCount} / {totalCount}</strong> Present
                 </p>
                 {sch.announcement && (
                   <p className="card-info-hs announcement-preview-hs">
-                    <Megaphone size={14} /> {sch.announcement}
+                    <Megaphone size={14} aria-hidden="true" /> {sch.announcement}
                   </p>
                 )}
                 
@@ -1396,11 +1578,20 @@ export default function HealthScreening() {
                       <button
                         type="button"
                         className="btn-hs btn-icon-hs btn-secondary-hs"
+                        onClick={() => setParticipantsSchedule(sch)}
+                        title="View & Edit Participants"
+                        aria-label="View and edit participants"
+                      >
+                        <Users size={16} aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-hs btn-icon-hs btn-secondary-hs"
                         onClick={() => { setEditingSchedule(sch); setShowEditModal(true); }}
                         title="Edit Schedule"
                         aria-label="Edit Schedule"
                       >
-                        <Edit3 size={16} />
+                        <Edit3 size={16} aria-hidden="true" />
                       </button>
                       <button
                         type="button"
@@ -1409,7 +1600,7 @@ export default function HealthScreening() {
                         title="Cancel Schedule"
                         aria-label="Cancel Schedule"
                       >
-                        <Trash2 size={16} />
+                        <Trash2 size={16} aria-hidden="true" />
                       </button>
                     </>
                   )}
@@ -1422,17 +1613,22 @@ export default function HealthScreening() {
                       title="View & Document Screening"
                       aria-label="View & Document Screening"
                     >
-                      <FileText size={16} />
+                      <FileText size={16} aria-hidden="true" />
                     </button>
                   )}
 
                   {activeTab === 'ongoing' && (
                     <>
+                      {awaitingEnd(sch) && (
+                        <button type="button" className="btn-hs btn-primary-hs" onClick={() => setDismissedEnds((list) => list.filter((k) => k !== endKey(sch)))} title="The end time has passed: confirm the end or extend it" aria-label="Confirm end time or extend">
+                          <BellRing size={16} aria-hidden="true" /> Confirm end time
+                        </button>
+                      )}
                       <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => handleStartBatch(sch)} title="Notify students that this screening is starting" aria-label="Start Screening">
-                        <Play size={16} />
+                        <Play size={16} aria-hidden="true" />
                       </button>
                       <button type="button" className="btn-hs btn-icon-hs btn-danger-hs" onClick={() => handleCancelSchedule(sch)} title="Cancel Schedule" aria-label="Cancel Schedule">
-                        <Trash2 size={16} />
+                        <Trash2 size={16} aria-hidden="true" />
                       </button>
                     </>
                   )}
@@ -1440,14 +1636,14 @@ export default function HealthScreening() {
                   {activeTab === 'past' && sch.status !== 'Cancelled' && (
                     <>
                       <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => printResultsReport(sch)} title="Print results report" aria-label="Print results report">
-                        <Printer size={16} />
+                        <Printer size={16} aria-hidden="true" />
                       </button>
                       <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => exportResultsCsv(sch)} title="Download results (CSV)" aria-label="Download results CSV">
-                        <Download size={16} />
+                        <Download size={16} aria-hidden="true" />
                       </button>
-                      {(Number(sch.absent_count) + Number(sch.pending_count)) > 0 && SCREENING_TYPES.some(t => t.value === sch.screening_type) && (
+                      {(Number(sch.absent_count) + Number(sch.pending_count)) > 0 && sch.form_kind && !isLegacySchedule(sch) && (
                         <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => openMakeup(sch)} title="Schedule a make-up session for absent students" aria-label="Make-up session">
-                          <UserRoundPlus size={16} />
+                          <UserRoundPlus size={16} aria-hidden="true" />
                         </button>
                       )}
                     </>
@@ -1455,7 +1651,7 @@ export default function HealthScreening() {
 
                   {activeTab === 'past' && Number(sch.result_count) === 0 && (
                     <button type="button" className="btn-hs btn-icon-hs btn-danger-hs" onClick={() => handleDeleteSchedule(sch)} title="Delete (no results were recorded)" aria-label="Delete screening">
-                      <X size={16} />
+                      <X size={16} aria-hidden="true" />
                     </button>
                   )}
                 </div>
@@ -1472,882 +1668,770 @@ export default function HealthScreening() {
 
       {/* MODAL 1: Schedule Screening Details */}
       {showScheduleModal && (
-        <div className="modal-overlay-hs">
-          <div className="modal-hs">
-            <div className="modal-header-hs">
-              <h2>Schedule Health Screening (Step 1 of 2)</h2>
-              <button type="button" className="close-btn-hs" onClick={() => setShowScheduleModal(false)}>
-                <X size={20} />
-              </button>
-            </div>
-            <form onSubmit={handleNextToStudents} className="modal-form-hs">
-              <div className="modal-body-hs">
-                <div className="form-group-hs">
-                  <label>Title</label>
-                  <input 
-                    type="text" 
-                    required 
-                    value={scheduleForm.title} 
-                    onChange={e => setScheduleForm({...scheduleForm, title: e.target.value})} 
-                    placeholder="e.g. Annual Vital Signs Check" 
-                  />
-                </div>
+        <HsDialog onClose={() => setShowScheduleModal(false)}>
+          <HsDialogHeader onClose={() => setShowScheduleModal(false)}>Schedule Health Screening (Step 1 of 2)</HsDialogHeader>
+          <form onSubmit={handleNextToStudents} className="modal-form-hs">
+            <div className="modal-body-hs">
+              <div className="form-group-hs">
+                <label htmlFor="hs-fld-1">Title</label>
+                <input id="hs-fld-1" 
+                  type="text" 
+                  required 
+                  value={scheduleForm.title} 
+                  onChange={e => setScheduleForm({...scheduleForm, title: e.target.value})} 
+                  placeholder="e.g. Annual Vital Signs Check" 
+                />
+              </div>
 
-                <div className="form-group-hs">
-                  <label>Screening Type</label>
-                  <select value={scheduleForm.screening_type} onChange={e => setScheduleForm({...scheduleForm, screening_type: e.target.value})}>
-                    {SCREENING_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                  </select>
-                  <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '4px' }}>
-                    Dental and Vision examinations are scheduled under Doctor Visits.
-                  </small>
-                </div>
+              <div className="form-group-hs">
+                <label htmlFor="hs-fld-2">Screening Type</label>
+                <select id="hs-fld-2"
+                  value={scheduleForm.screening_type}
+                  required
+                  aria-describedby="screening-type-help-hs"
+                  onChange={e => setScheduleForm({...scheduleForm, screening_type: e.target.value})}
+                >
+                  {activeTypes.length === 0 && <option value="">No active screening type</option>}
+                  {activeTypes.map(t => <option key={t.screening_type_id} value={t.name}>{t.name}</option>)}
+                </select>
+                <small id="screening-type-help-hs" style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '0.25rem' }}>
+                  {typesError || 'Dental and Vision examinations are scheduled under Doctor Visits.'}
+                </small>
+              </div>
 
+              <div className="form-group-hs">
+                <label htmlFor="hs-fld-3">Scheduled Date</label>
+                <input id="hs-fld-3" 
+                  type="date" 
+                  required 
+                  min={getTodayString()}
+                  value={scheduleForm.scheduled_date} 
+                  onChange={e => {
+                    const newDate = e.target.value;
+                    setScheduleForm(prev => ({
+                      ...prev,
+                      scheduled_date: newDate,
+                      start_time: newDate === getTodayString() && prev.start_time < getCurrentTimeString() ? '' : prev.start_time,
+                      end_time: newDate === getTodayString() && prev.start_time < getCurrentTimeString() ? '' : prev.end_time
+                    }));
+                  }} 
+                />
+              </div>
+
+              <div className="form-grid-hs">
                 <div className="form-group-hs">
-                  <label>Scheduled Date</label>
-                  <input 
-                    type="date" 
+                  <label htmlFor="hs-fld-4">Start Time</label>
+                  <input id="hs-fld-4" 
+                    type="time" 
                     required 
-                    min={getTodayString()}
-                    value={scheduleForm.scheduled_date} 
+                    min={scheduleForm.scheduled_date === getTodayString() ? getCurrentTimeString() : undefined}
+                    max={scheduleForm.end_time || undefined}
+                    value={scheduleForm.start_time} 
                     onChange={e => {
-                      const newDate = e.target.value;
+                      const newStart = e.target.value;
                       setScheduleForm(prev => ({
                         ...prev,
-                        scheduled_date: newDate,
-                        start_time: newDate === getTodayString() && prev.start_time < getCurrentTimeString() ? '' : prev.start_time,
-                        end_time: newDate === getTodayString() && prev.start_time < getCurrentTimeString() ? '' : prev.end_time
+                        start_time: newStart,
+                        end_time: prev.end_time && newStart && prev.end_time <= newStart ? '' : prev.end_time
                       }));
                     }} 
                   />
                 </div>
-
-                <div className="form-grid-hs">
-                  <div className="form-group-hs">
-                    <label>Start Time</label>
-                    <input 
-                      type="time" 
-                      required 
-                      min={scheduleForm.scheduled_date === getTodayString() ? getCurrentTimeString() : undefined}
-                      max={scheduleForm.end_time || undefined}
-                      value={scheduleForm.start_time} 
-                      onChange={e => {
-                        const newStart = e.target.value;
-                        setScheduleForm(prev => ({
-                          ...prev,
-                          start_time: newStart,
-                          end_time: prev.end_time && newStart && prev.end_time <= newStart ? '' : prev.end_time
-                        }));
-                      }} 
-                    />
-                  </div>
-                  <div className="form-group-hs">
-                    <label>End Time</label>
-                    <input 
-                      type="time" 
-                      required 
-                      disabled={!scheduleForm.start_time}
-                      min={getMinEndTime(scheduleForm.start_time)}
-                      value={scheduleForm.end_time} 
-                      onChange={e => {
-                        const newEnd = e.target.value;
-                        if (newEnd && scheduleForm.start_time && newEnd <= scheduleForm.start_time) {
-                          showAlert('End time must be after Start time.', 'Invalid Time Range', 'warning');
-                          setScheduleForm(prev => ({ ...prev, end_time: '' }));
-                          return;
-                        }
-                        setScheduleForm(prev => ({ ...prev, end_time: newEnd }));
-                      }} 
-                      placeholder={!scheduleForm.start_time ? "Select Start Time first" : ""}
-                    />
-                  </div>
-                </div>
-
                 <div className="form-group-hs">
-                  <label>Announcement / Instructions (Optional)</label>
-                  <textarea 
-                    rows={3}
-                    value={scheduleForm.announcement} 
-                    onChange={e => setScheduleForm({...scheduleForm, announcement: e.target.value})} 
-                    placeholder="e.g. Please wear proper sports attire and bring your student ID card." 
+                  <label htmlFor="hs-fld-5">End Time</label>
+                  <input id="hs-fld-5" 
+                    type="time" 
+                    required 
+                    disabled={!scheduleForm.start_time}
+                    min={getMinEndTime(scheduleForm.start_time)}
+                    value={scheduleForm.end_time} 
+                    onChange={e => {
+                      const newEnd = e.target.value;
+                      if (newEnd && scheduleForm.start_time && newEnd <= scheduleForm.start_time) {
+                        showAlert('End time must be after Start time.', 'Invalid Time Range', 'warning');
+                        setScheduleForm(prev => ({ ...prev, end_time: '' }));
+                        return;
+                      }
+                      setScheduleForm(prev => ({ ...prev, end_time: newEnd }));
+                    }} 
+                    placeholder={!scheduleForm.start_time ? "Select Start Time first" : ""}
                   />
                 </div>
               </div>
 
-              <div className="modal-footer-hs">
-                <button type="button" className="btn-hs btn-secondary-hs" onClick={() => setShowScheduleModal(false)}>Cancel</button>
-                <button type="submit" className="btn-hs btn-primary-hs">
-                  Next: Select Target Students <ArrowRight size={16} />
-                </button>
+              <div className="form-group-hs">
+                <label htmlFor="hs-fld-6">Announcement / Instructions (Optional)</label>
+                <textarea id="hs-fld-6" 
+                  rows={3}
+                  value={scheduleForm.announcement} 
+                  onChange={e => setScheduleForm({...scheduleForm, announcement: e.target.value})} 
+                  placeholder="e.g. Please wear proper sports attire and bring your student ID card." 
+                />
               </div>
-            </form>
-          </div>
-        </div>
+            </div>
+
+            <div className="modal-footer-hs">
+              <button type="button" className="btn-hs btn-secondary-hs" onClick={() => setShowScheduleModal(false)}>Cancel</button>
+              <button type="submit" className="btn-hs btn-primary-hs">
+                Next: Select Target Students <ArrowRight size={16} aria-hidden="true" />
+              </button>
+            </div>
+          </form>
+        </HsDialog>
       )}
 
       {/* MODAL 2: Select Target Students */}
       {showStudentSelectModal && (
-        <div className="modal-overlay-hs">
-          <div className="modal-hs modal-lg-hs">
-            <div className="modal-header-hs">
-              <h2>Select Target Students (Step 2 of 2)</h2>
-              <button type="button" className="close-btn-hs" onClick={() => setShowStudentSelectModal(false)}>
-                <X size={20} />
+        <HsDialog onClose={() => setShowStudentSelectModal(false)} size="lg">
+          <HsDialogHeader onClose={() => setShowStudentSelectModal(false)}>Select Target Students (Step 2 of 2)</HsDialogHeader>
+          <form onSubmit={handleCreateSchedule} className="modal-form-hs">
+            <div className="modal-body-hs">
+              <p className="picker-note-hs">
+                A screening is for one class: choose the program, the year level and the section, then tick the students who take part. Everyone in a screening must be from the same program, year level and section; changing the class clears the ticks.
+              </p>
+              <div className="picker-bar-hs">
+                <div className="form-group-hs">
+                  <label htmlFor="pick-program-hs">Academic Program</label>
+                  <select
+                    id="pick-program-hs"
+                    required
+                    value={scheduleForm.target_program_id}
+                    onChange={e => { setSelectedStudentIds([]); setScheduleForm({...scheduleForm, target_program_id: e.target.value, target_year_level: '', target_section: ''}); }}
+                  >
+                    <option value="">-- Select program --</option>
+                    {programs.map(p => <option key={p.program_id} value={p.program_id}>{p.program_name}</option>)}
+                  </select>
+                </div>
+                <div className="form-group-hs">
+                  <label htmlFor="pick-year-hs">Year Level</label>
+                  <select
+                    id="pick-year-hs"
+                    required
+                    disabled={!scheduleForm.target_program_id}
+                    value={scheduleForm.target_year_level}
+                    onChange={e => { setSelectedStudentIds([]); setScheduleForm({...scheduleForm, target_year_level: e.target.value, target_section: ''}); }}
+                  >
+                    <option value="">-- Select year --</option>
+                    <option value="1">1st Year</option>
+                    <option value="2">2nd Year</option>
+                    {String(programs.find(p => p.program_id === scheduleForm.target_program_id)?.type || '').toLowerCase() !== 'strand' && (
+                      <>
+                        <option value="3">3rd Year</option>
+                        <option value="4">4th Year</option>
+                      </>
+                    )}
+                  </select>
+                </div>
+                <div className="form-group-hs">
+                  <label htmlFor="pick-section-hs">Section</label>
+                  <select
+                    id="pick-section-hs"
+                    required
+                    disabled={!scheduleForm.target_year_level}
+                    value={scheduleForm.target_section}
+                    onChange={e => { setSelectedStudentIds([]); setScheduleForm({...scheduleForm, target_section: e.target.value}); }}
+                  >
+                    <option value="">-- Select section --</option>
+                    {sectionOptions.map(sec => <option key={sec} value={sec}>{sec}</option>)}
+                  </select>
+                </div>
+                <div className="form-group-hs">
+                  <label htmlFor="pick-search-hs">Search student</label>
+                  <input
+                    id="pick-search-hs"
+                    type="text"
+                    placeholder="Name or student ID"
+                    value={pickerSearch}
+                    onChange={e => setPickerSearch(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="student-select-list-hs">
+                <span className="list-title-hs">
+                  Matching Students ({visibleStudents.length}) — {selectedStudentIds.length} Total Selected
+                </span>
+                <div className="table-wrapper-hs">
+                  <table className="table-hs">
+                    <thead>
+                      <tr>
+                        <th className="col-checkbox-hs">
+                          <input 
+                            type="checkbox" 
+                            checked={areAllFilteredSelected} 
+                            onChange={handleSelectAllFiltered}
+                            disabled={visibleStudents.length === 0}
+                            aria-label="Select or deselect all matching students"
+                            title="Select/Deselect all matching students"
+                          />
+                        </th>
+                        <th>Student Name</th>
+                        <th>Class</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visibleStudents.length === 0 ? (
+                        <tr>
+                          <td colSpan="3" className="empty-table-msg-hs">
+                            {scheduleForm.target_section ? 'No students match the selected class or search.' : 'Select the program, year level and section to list the students.'}
+                          </td>
+                        </tr>
+                      ) : (
+                        visibleStudents.map(st => (
+                          <tr key={st.student_id}>
+                            <td className="col-checkbox-hs">
+                              <input
+                                type="checkbox"
+                                aria-label={`Select ${st.first_name} ${st.last_name}`}
+                                checked={selectedStudentIds.includes(st.student_id)}
+                                onChange={(e) => {
+                                  if (e.target.checked) setSelectedStudentIds([...selectedStudentIds, st.student_id]);
+                                  else setSelectedStudentIds(selectedStudentIds.filter(id => id !== st.student_id));
+                                }}
+                              />
+                            </td>
+                            <td>{st.first_name} {st.last_name}</td>
+                            <td>{classLabel(st.program_id, st.year_level, st.section)}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div className="modal-footer-hs">
+              <button type="button" className="btn-hs btn-secondary-hs" onClick={handleBackToSchedule}>
+                <ArrowLeft size={16} aria-hidden="true" /> Back
+              </button>
+              <button 
+                type="submit" 
+                className="btn-hs btn-primary-hs"
+                disabled={selectedStudentIds.length === 0}
+                title={selectedStudentIds.length === 0 ? "Select at least 1 student to create schedule" : ""}
+              >
+                Save & Notify Students
               </button>
             </div>
-            <form onSubmit={handleCreateSchedule} className="modal-form-hs">
-              <div className="modal-body-hs">
-                <div className="form-grid-hs">
-                  <div className="form-group-hs">
-                    <label>Academic Program</label>
-                    <select value={scheduleForm.target_program_id} onChange={e => setScheduleForm({...scheduleForm, target_program_id: e.target.value})}>
-                      <option value="">All Programs</option>
-                      {programs.map(p => <option key={p.program_id} value={p.program_id}>{p.program_name}</option>)}
-                    </select>
-                  </div>
-                  <div className="form-group-hs">
-                    <label>Year Level</label>
-                    <select value={scheduleForm.target_year_level} onChange={e => setScheduleForm({...scheduleForm, target_year_level: e.target.value})}>
-                      <option value="">All Years</option>
-                      <option value="1">1st Year</option>
-                      <option value="2">2nd Year</option>
-                      <option value="3">3rd Year</option>
-                      <option value="4">4th Year</option>
-                    </select>
-                  </div>
-                  <div className="form-group-hs">
-                    <label>Section</label>
-                    <input type="text" placeholder="e.g. BSIT-101" value={scheduleForm.target_section} onChange={e => setScheduleForm({...scheduleForm, target_section: e.target.value})} />
-                  </div>
-                </div>
+          </form>
+        </HsDialog>
+      )}
 
-                <div className="student-select-list-hs">
-                  <span className="list-title-hs">
-                    Matching Students ({filterStudents.length}) — {selectedStudentIds.length} Total Selected
-                  </span>
-                  <div className="table-wrapper-hs">
-                    <table className="table-hs">
-                      <thead>
-                        <tr>
-                          <th className="col-checkbox-hs">
-                            <input 
-                              type="checkbox" 
-                              checked={areAllFilteredSelected} 
-                              onChange={handleSelectAllFiltered}
-                              disabled={filterStudents.length === 0}
-                              title="Select/Deselect all matching students"
-                            />
-                          </th>
-                          <th>Student Name</th>
-                          <th>Program</th>
-                          <th>Year & Section</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filterStudents.length === 0 ? (
-                          <tr>
-                            <td colSpan="4" className="empty-table-msg-hs">
-                              No students match the selected Program, Year Level, or Section filter.
-                            </td>
-                          </tr>
-                        ) : (
-                          filterStudents.map(st => (
-                            <tr key={st.student_id}>
-                              <td className="col-checkbox-hs">
-                                <input 
-                                  type="checkbox" 
-                                  checked={selectedStudentIds.includes(st.student_id)}
-                                  onChange={(e) => {
-                                    if (e.target.checked) setSelectedStudentIds([...selectedStudentIds, st.student_id]);
-                                    else setSelectedStudentIds(selectedStudentIds.filter(id => id !== st.student_id));
-                                  }}
-                                />
-                              </td>
-                              <td>{st.first_name} {st.last_name}</td>
-                              <td>{st.program_name || st.program_id}</td>
-                              <td>Yr {st.year_level} - {st.section}</td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-
-              <div className="modal-footer-hs">
-                <button type="button" className="btn-hs btn-secondary-hs" onClick={handleBackToSchedule}>
-                  <ArrowLeft size={16} /> Back
-                </button>
-                <button 
-                  type="submit" 
-                  className="btn-hs btn-primary-hs"
-                  disabled={selectedStudentIds.length === 0}
-                  title={selectedStudentIds.length === 0 ? "Select at least 1 student to create schedule" : ""}
-                >
-                  Save & Notify Students
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+      {/* MODAL 2b: View & edit participants of an upcoming schedule */}
+      {participantsSchedule && (
+        <ScreeningParticipantsModal
+          schedule={participantsSchedule}
+          programs={programs}
+          apiBase={API_BASE}
+          senderId={userId}
+          showAlert={showAlert}
+          showConfirm={showConfirm}
+          onClose={() => setParticipantsSchedule(null)}
+          onSaved={() => {
+            setParticipantsSchedule(null);
+            fetchSchedules();
+            showAlert('Participants updated and the students were notified.', 'Success', 'success');
+          }}
+        />
       )}
 
       {/* MODAL 3: Edit Upcoming Schedule */}
       {showEditModal && editingSchedule && (
-        <div className="modal-overlay-hs">
-          <div className="modal-hs">
-            <div className="modal-header-hs">
-              <h2>Update Screening Schedule</h2>
-              <button type="button" className="close-btn-hs" onClick={() => setShowEditModal(false)}>
-                <X size={20} />
-              </button>
-            </div>
-            <form onSubmit={handleUpdateSchedule} className="modal-form-hs">
-              <div className="modal-body-hs">
+        <HsDialog onClose={() => setShowEditModal(false)}>
+          <HsDialogHeader onClose={() => setShowEditModal(false)}>Update Screening Schedule</HsDialogHeader>
+          <form onSubmit={handleUpdateSchedule} className="modal-form-hs">
+            <div className="modal-body-hs">
+              <div className="form-group-hs">
+                <label htmlFor="hs-fld-7">Title</label>
+                <input id="hs-fld-7" type="text" required maxLength={150} value={editingSchedule.title || ''} onChange={e => setEditingSchedule({ ...editingSchedule, title: e.target.value })} />
+              </div>
+              <div className="form-group-hs">
+                <label htmlFor="hs-fld-8">Screening Type</label>
+                <select id="hs-fld-8"
+                  value={editingSchedule.screening_type}
+                  disabled={Number(editingSchedule.result_count) > 0 || isLegacySchedule(editingSchedule)}
+                  onChange={e => setEditingSchedule({ ...editingSchedule, screening_type: e.target.value })}
+                >
+                  {/* the schedule's own type stays in the list even when it is legacy or deactivated */}
+                  {!activeTypes.some(t => t.name === editingSchedule.screening_type) && (
+                    <option value={editingSchedule.screening_type}>{typeLabel(editingSchedule.screening_type)}{isLegacySchedule(editingSchedule) ? '' : ' (inactive)'}</option>
+                  )}
+                  {activeTypes.map(t => <option key={t.screening_type_id} value={t.name}>{t.name}</option>)}
+                </select>
+                {Number(editingSchedule.result_count) > 0 && <small className="hint-hs">Results were already recorded, so the type is locked.</small>}
+              </div>
+              <div className="form-group-hs">
+                <label htmlFor="hs-fld-9">Scheduled Date</label>
+                <input id="hs-fld-9" 
+                  type="date" 
+                  required 
+                  min={getTodayString()}
+                  value={editingSchedule.scheduled_date ? editingSchedule.scheduled_date.split('T')[0] : ''} 
+                  onChange={e => {
+                    const newDate = e.target.value;
+                    setEditingSchedule(prev => ({
+                      ...prev,
+                      scheduled_date: newDate,
+                      start_time: newDate === getTodayString() && prev.start_time < getCurrentTimeString() ? '' : prev.start_time,
+                      end_time: newDate === getTodayString() && prev.start_time < getCurrentTimeString() ? '' : prev.end_time
+                    }));
+                  }} 
+                />
+              </div>
+              <div className="form-grid-hs">
                 <div className="form-group-hs">
-                  <label>Title</label>
-                  <input type="text" required maxLength={150} value={editingSchedule.title || ''} onChange={e => setEditingSchedule({ ...editingSchedule, title: e.target.value })} />
-                </div>
-                <div className="form-group-hs">
-                  <label>Screening Type</label>
-                  <select
-                    value={editingSchedule.screening_type}
-                    disabled={Number(editingSchedule.result_count) > 0 || LEGACY_TYPES.includes(editingSchedule.screening_type)}
-                    onChange={e => setEditingSchedule({ ...editingSchedule, screening_type: e.target.value })}
-                  >
-                    {LEGACY_TYPES.includes(editingSchedule.screening_type) && <option value={editingSchedule.screening_type}>{typeLabel(editingSchedule.screening_type)}</option>}
-                    {SCREENING_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                  </select>
-                  {Number(editingSchedule.result_count) > 0 && <small className="hint-hs">Results were already recorded, so the type is locked.</small>}
-                </div>
-                <div className="form-group-hs">
-                  <label>Scheduled Date</label>
-                  <input 
-                    type="date" 
+                  <label htmlFor="hs-fld-10">Start Time</label>
+                  <input id="hs-fld-10" 
+                    type="time" 
                     required 
-                    min={getTodayString()}
-                    value={editingSchedule.scheduled_date ? editingSchedule.scheduled_date.split('T')[0] : ''} 
+                    min={editingSchedule.scheduled_date?.split('T')[0] === getTodayString() ? getCurrentTimeString() : undefined}
+                    max={editingSchedule.end_time || undefined}
+                    value={editingSchedule.start_time} 
                     onChange={e => {
-                      const newDate = e.target.value;
+                      const newStart = e.target.value;
                       setEditingSchedule(prev => ({
                         ...prev,
-                        scheduled_date: newDate,
-                        start_time: newDate === getTodayString() && prev.start_time < getCurrentTimeString() ? '' : prev.start_time,
-                        end_time: newDate === getTodayString() && prev.start_time < getCurrentTimeString() ? '' : prev.end_time
+                        start_time: newStart,
+                        end_time: prev.end_time && newStart && prev.end_time <= newStart ? '' : prev.end_time
                       }));
                     }} 
                   />
                 </div>
-                <div className="form-grid-hs">
-                  <div className="form-group-hs">
-                    <label>Start Time</label>
-                    <input 
-                      type="time" 
-                      required 
-                      min={editingSchedule.scheduled_date?.split('T')[0] === getTodayString() ? getCurrentTimeString() : undefined}
-                      max={editingSchedule.end_time || undefined}
-                      value={editingSchedule.start_time} 
-                      onChange={e => {
-                        const newStart = e.target.value;
-                        setEditingSchedule(prev => ({
-                          ...prev,
-                          start_time: newStart,
-                          end_time: prev.end_time && newStart && prev.end_time <= newStart ? '' : prev.end_time
-                        }));
-                      }} 
-                    />
-                  </div>
-                  <div className="form-group-hs">
-                    <label>End Time</label>
-                    <input 
-                      type="time" 
-                      required 
-                      disabled={!editingSchedule.start_time}
-                      min={getMinEndTime(editingSchedule.start_time)}
-                      value={editingSchedule.end_time} 
-                      onChange={e => {
-                        const newEnd = e.target.value;
-                        if (newEnd && editingSchedule.start_time && newEnd <= editingSchedule.start_time) {
-                          showAlert('End time must be after Start time.', 'Invalid Time Range', 'warning');
-                          setEditingSchedule(prev => ({ ...prev, end_time: '' }));
-                          return;
-                        }
-                        setEditingSchedule(prev => ({ ...prev, end_time: newEnd }));
-                      }} 
-                    />
-                  </div>
-                </div>
                 <div className="form-group-hs">
-                  <label>Announcement / Instructions</label>
-                  <textarea rows={3} value={editingSchedule.announcement || ''} onChange={e => setEditingSchedule({...editingSchedule, announcement: e.target.value})} />
+                  <label htmlFor="hs-fld-11">End Time</label>
+                  <input id="hs-fld-11" 
+                    type="time" 
+                    required 
+                    disabled={!editingSchedule.start_time}
+                    min={getMinEndTime(editingSchedule.start_time)}
+                    value={editingSchedule.end_time} 
+                    onChange={e => {
+                      const newEnd = e.target.value;
+                      if (newEnd && editingSchedule.start_time && newEnd <= editingSchedule.start_time) {
+                        showAlert('End time must be after Start time.', 'Invalid Time Range', 'warning');
+                        setEditingSchedule(prev => ({ ...prev, end_time: '' }));
+                        return;
+                      }
+                      setEditingSchedule(prev => ({ ...prev, end_time: newEnd }));
+                    }} 
+                  />
                 </div>
               </div>
-              <div className="modal-footer-hs">
-                <button type="button" className="btn-hs btn-secondary-hs" onClick={() => setShowEditModal(false)}>Cancel</button>
-                <button type="submit" className="btn-hs btn-primary-hs">Update &amp; Notify</button>
+              <div className="form-group-hs">
+                <label htmlFor="hs-fld-12">Announcement / Instructions</label>
+                <textarea id="hs-fld-12" rows={3} value={editingSchedule.announcement || ''} onChange={e => setEditingSchedule({...editingSchedule, announcement: e.target.value})} />
               </div>
-            </form>
-          </div>
-        </div>
+            </div>
+            <div className="modal-footer-hs">
+              <button type="button" className="btn-hs btn-secondary-hs" onClick={() => setShowEditModal(false)}>Cancel</button>
+              <button type="submit" className="btn-hs btn-primary-hs">Update &amp; Notify</button>
+            </div>
+          </form>
+        </HsDialog>
       )}
 
       {/* MODAL 4: View & Document Ongoing/Past Screening */}
       {showViewModal && activeSchedule && (
-        <div className="modal-overlay-hs">
-          <div className="modal-hs modal-lg-hs">
-            <div className="modal-header-hs">
-              <div>
-                <h2>{activeSchedule.title} - Participant List ({activeSchedule.screening_type})</h2>
-                <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                  Attendance Rate: <strong>
-                    {scheduleStudents.filter(st => st.attendance_status === 'PRESENT').length} / {scheduleStudents.length}
-                  </strong> Present
-                </div>
+        <HsDialog onClose={() => setShowViewModal(false)} size="lg">
+          <HsDialogHeader
+            onClose={() => setShowViewModal(false)}
+            sub={(
+              <div className="modal-sub-hs">
+                Attendance Rate: <strong>
+                  {scheduleStudents.filter(st => st.attendance_status === 'PRESENT').length} / {scheduleStudents.length}
+                </strong> Present
               </div>
-              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                <button 
-                  type="button" 
-                  className="btn-hs btn-secondary-hs" 
-                  onClick={handleExportSingleReport}
-                  style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                >
-                  <Printer size={16} /> export
+            )}
+            actions={(
+              <>
+                <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={handleExportSingleReport} title="Export participant list" aria-label="Export participant list">
+                  <Printer size={16} aria-hidden="true" />
                 </button>
-                <button type="button" className="btn-hs btn-secondary-hs" onClick={() => printResultsReport(activeSchedule)} style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px' }} title="Results report with summary">
-                  <FileText size={16} /> Results
+                <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => printResultsReport(activeSchedule)} title="Results report with summary" aria-label="Results report with summary">
+                  <FileText size={16} aria-hidden="true" />
                 </button>
-                <button type="button" className="btn-hs btn-secondary-hs" onClick={() => exportResultsCsv(activeSchedule)} style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px' }} title="Download results as CSV">
-                  <Download size={16} /> CSV
+                <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => exportResultsCsv(activeSchedule)} title="Download results as CSV" aria-label="Download results as CSV">
+                  <Download size={16} aria-hidden="true" />
                 </button>
-                {activeSchedule.status !== 'Cancelled' && (Number(activeSchedule.absent_count) + Number(activeSchedule.pending_count)) > 0 && getScheduleDateTime(activeSchedule.scheduled_date, activeSchedule.end_time) < now && SCREENING_TYPES.some(t => t.value === activeSchedule.screening_type) && (
-                  <button type="button" className="btn-hs btn-secondary-hs" onClick={() => openMakeup(activeSchedule)} style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                    <UserRoundPlus size={16} /> Make-up
+                {activeSchedule.status !== 'Cancelled' && (Number(activeSchedule.absent_count) + Number(activeSchedule.pending_count)) > 0 && screeningOver(activeSchedule) && activeSchedule.form_kind && !isLegacySchedule(activeSchedule) && (
+                  <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => openMakeup(activeSchedule)} title="Schedule a make-up session" aria-label="Schedule a make-up session">
+                    <UserRoundPlus size={16} aria-hidden="true" />
                   </button>
                 )}
-                <button type="button" className="close-btn-hs" onClick={() => setShowViewModal(false)}>
-                  <X size={20} />
-                </button>
-              </div>
-            </div>
-            <div className="modal-body-hs">
-              {activeSchedule.status === 'Cancelled' && (
-                <div className="cancelled-banner-hs">This screening was cancelled{activeSchedule.cancelled_reason ? ': ' + activeSchedule.cancelled_reason : ''}. Its record is kept, but attendance and results can no longer be changed.</div>
-              )}
-              {activeTab === 'ongoing' && (
-                <div className="qr-scanner-bar-hs">
-                  <button type="button" className="btn-hs btn-primary-hs" onClick={() => { setShowQrModal(true); setScanFeedback({ message: '', type: '' }); }}>
-                    <QrCode size={18} /> Scan Student QR Code
-                  </button>
-                  <p className="qr-hint-hs">Scan student QR code to mark attendance as PRESENT.</p>
-                </div>
-              )}
-
-              {scheduleStudents.length > PARTICIPANTS_PER_PAGE && (
-                <div className="folder-search-hs" style={{ marginBottom: '12px' }}>
-                  <Search size={16} />
-                  <input
-                    type="text"
-                    placeholder="Search participants by name, ID or section..."
-                    value={participantSearch}
-                    onChange={e => { setParticipantSearch(e.target.value); setParticipantPage(1); }}
-                  />
-                </div>
-              )}
-
-              <div className="table-wrapper-hs">
-                <table className="table-hs">
-                  <thead>
-                    <tr>
-                      <th>Student Name</th>
-                      <th>Program</th>
-                      <th>Year/Section</th>
-                      <th>Attendance Status</th>
-                      <th>Record Status</th>
-                      <th className="col-action-hs">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {participantPageData.items.map(st => {
-                      const isDocumented = hasResult(st);
-                      const activeEndDt = getScheduleDateTime(activeSchedule.scheduled_date, activeSchedule.end_time);
-                      const isScheduleEnded = activeEndDt ? now > activeEndDt : false;
-
-                      let effectiveAttendanceStatus = st.attendance_status || 'PENDING';
-                      if (isScheduleEnded && effectiveAttendanceStatus === 'PENDING') {
-                        effectiveAttendanceStatus = 'ABSENT';
-                      }
-
-                      const isPresent = effectiveAttendanceStatus === 'PRESENT';
-
-                      return (
-                        <tr key={st.student_id}>
-                          <td>{st.first_name} {st.last_name}</td>
-                          <td>{st.program_name}</td>
-                          <td>Yr {st.year_level} - {st.section}</td>
-                          <td>
-                            <span className={`badge-hs badge-status-${effectiveAttendanceStatus.toLowerCase()}-hs`}>
-                              {effectiveAttendanceStatus}
-                            </span>
-                            {st.attendance_note && <div className="sub-note-hs">{st.attendance_note}</div>}
-                          </td>
-                          <td>
-                            <span className={`badge-hs ${isDocumented ? 'badge-success-hs' : 'badge-warning-hs'}`}>
-                              {isDocumented ? 'Documented' : 'Pending'}
-                            </span>
-                            {isDocumented && Number(st.is_abnormal) === 1 && <span className="badge-hs badge-status-absent-hs" style={{ marginLeft: '6px' }}>Abnormal</span>}
-                            {st.referral_appointment_id && ['Scheduled', 'Waiting for Approval', 'Completed'].includes(st.referral_status) && (
-                              <div className="sub-note-hs">Referred to doctor ({st.referral_status}{st.referral_start_time ? ', ' + formatDate(String(st.referral_start_time).slice(0, 10)) : ''})</div>
-                            )}
-                          </td>
-                          <td className="col-action-hs">
-                            {(() => {
-                              const cancelled = activeSchedule.status === 'Cancelled';
-                              const key = st.student_id;
-                              const activeReferral = st.referral_appointment_id && ['Scheduled', 'Waiting for Approval'].includes(st.referral_status);
-                              const items = [];
-                              if (!cancelled) {
-                                if (effectiveAttendanceStatus !== 'PRESENT') items.push({ label: 'Mark Present (override)', onClick: () => overrideAttendance(st, 'PRESENT') });
-                                if (effectiveAttendanceStatus !== 'ABSENT' && !isDocumented) items.push({ label: 'Mark Absent', onClick: () => overrideAttendance(st, 'ABSENT') });
-                                if (isDocumented && !activeReferral) items.push({ label: 'Refer to doctor', onClick: () => openRefer(st) });
-                                if (isDocumented) items.push({ label: 'Delete result', danger: true, onClick: () => handleDeleteResult(st) });
-                              }
-                              items.push({ label: 'Screening history', onClick: () => openHistory(st) });
-                              return (
-                                <div className="row-actions-hs">
-                                  <button
-                                    type="button"
-                                    className={`btn-hs btn-icon-hs ${isPresent && !cancelled ? 'btn-primary-hs' : 'btn-disabled-hs'}`}
-                                    onClick={() => openDocumentModal({ ...st, attendance_status: effectiveAttendanceStatus })}
-                                    disabled={!isPresent || cancelled}
-                                    title={cancelled ? 'This screening was cancelled' : !isPresent ? 'Student must be marked PRESENT before documenting' : (isDocumented ? 'Edit result' : 'Document result')}
-                                    aria-label="Document Result"
-                                  >
-                                    <FileText size={16} />
-                                  </button>
-                                  <div className="row-menu-wrap-hs">
-                                    <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => setOpenMenuKey(openMenuKey === key ? null : key)} title="More actions" aria-label="More actions">
-                                      <MoreVertical size={16} />
-                                    </button>
-                                    {openMenuKey === key && (
-                                      <>
-                                        <div className="row-menu-backdrop-hs" onClick={() => setOpenMenuKey(null)} />
-                                        <div className="row-menu-hs">
-                                          {items.map(item => (
-                                            <button key={item.label} type="button" className={item.danger ? 'danger-hs' : ''} onClick={() => { setOpenMenuKey(null); item.onClick(); }}>
-                                              {item.label}
-                                            </button>
-                                          ))}
-                                        </div>
-                                      </>
-                                    )}
-                                  </div>
-                                </div>
-                              );
-                            })()}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              {participantPageData.total === 0 && <p className="hint-hs" style={{ textAlign: 'center' }}>No participants match your search.</p>}
-              <Pager page={participantPageData.page} pageCount={participantPageData.pageCount} total={participantPageData.total} pageSize={PARTICIPANTS_PER_PAGE} onPage={setParticipantPage} noun="students" />
-            </div>
-            <div className="modal-footer-hs">
-              <button type="button" className="btn-hs btn-secondary-hs" onClick={() => setShowViewModal(false)}>
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 5: Live Camera QR Code Scanner via jsQR */}
-      {showQrModal && activeSchedule && (
-        <div className="modal-overlay-hs">
-          <div className="modal-hs modal-sm-hs">
-            <div className="modal-header-hs">
-              <h2>Scan Student QR Code</h2>
-              <button type="button" className="close-btn-hs" onClick={() => setShowQrModal(false)}>
-                <X size={20} />
-              </button>
-            </div>
-            <div className="modal-body-hs text-center-hs">
-              <div className="qr-video-container-hs">
-                <video ref={videoRef} className="qr-video-hs" />
-                <canvas ref={canvasRef} className="qr-canvas-hs" />
-              </div>
-
-              {scanFeedback.message && (
-                <div className={`scan-alert-hs alert-${scanFeedback.type}-hs`}>
-                  {scanFeedback.type === 'error' && <AlertCircle size={16} />}
-                  {scanFeedback.type === 'success' && <CheckCircle size={16} />}
-                  <span>{scanFeedback.message}</span>
-                </div>
-              )}
-
-              <form onSubmit={handleManualScanSubmit} className="qr-input-form-hs">
-                <input 
-                  type="text" 
-                  placeholder="Or enter Student ID manually..." 
-                  value={qrInput} 
-                  onChange={e => setQrInput(e.target.value)}
-                  className="qr-text-input-hs"
+              </>
+            )}
+          >
+            {activeSchedule.title} - Participant List ({activeSchedule.screening_type})
+          </HsDialogHeader>
+          <div className="modal-body-hs">
+            {activeSchedule.status === 'Cancelled' && (
+              <div className="cancelled-banner-hs">This screening was cancelled{activeSchedule.cancelled_reason ? ': ' + activeSchedule.cancelled_reason : ''}. Its record is kept, but attendance and results can no longer be changed.</div>
+            )}
+            {scheduleStudents.length > PARTICIPANTS_PER_PAGE && (
+              <div className="folder-search-hs" style={{ marginBottom: '0.75rem' }}>
+                <Search size={16} aria-hidden="true" />
+                <input
+                  type="text"
+                  aria-label="Search participants"
+                  placeholder="Search participants by name, ID or section..."
+                  value={participantSearch}
+                  onChange={e => { setParticipantSearch(e.target.value); setParticipantPage(1); }}
                 />
-                <button type="submit" className="btn-hs btn-secondary-hs btn-full-hs">
-                  Submit Manual Input
-                </button>
-              </form>
+              </div>
+            )}
+
+            <div className="table-wrapper-hs">
+              <table className="table-hs">
+                <thead>
+                  <tr>
+                    <th>Student Name</th>
+                    <th>Class</th>
+                    <th>Attendance Status</th>
+                    <th>Record Status</th>
+                    <th className="col-action-hs">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {participantPageData.items.map(st => {
+                    const isDocumented = hasResult(st);
+                    const isScheduleEnded = screeningOver(activeSchedule);
+
+                    let effectiveAttendanceStatus = st.attendance_status || 'PENDING';
+                    if (isScheduleEnded && effectiveAttendanceStatus === 'PENDING') {
+                      effectiveAttendanceStatus = 'ABSENT';
+                    }
+
+                    const isPresent = effectiveAttendanceStatus === 'PRESENT';
+
+                    return (
+                      <tr key={st.student_id}>
+                        <td>{st.first_name} {st.last_name}</td>
+                        <td>{classLabel(st.program_id, st.year_level, st.section)}</td>
+                        <td>
+                          <span className={`badge-hs badge-status-${effectiveAttendanceStatus.toLowerCase()}-hs`}>
+                            {effectiveAttendanceStatus}
+                          </span>
+                          {isPresent && st.attended_at && <div className="sub-note-hs">Time in: {formatTime(st.attended_at)}</div>}
+                          {st.attendance_note && <div className="sub-note-hs">{st.attendance_note}</div>}
+                        </td>
+                        <td>
+                          <span className={`badge-hs ${isDocumented ? 'badge-success-hs' : 'badge-warning-hs'}`}>
+                            {isDocumented ? 'Documented' : 'Pending'}
+                          </span>
+                          {st.referral_appointment_id && ['Scheduled', 'Waiting for Approval', 'Completed'].includes(st.referral_status) && (
+                            <div className="sub-note-hs">Referred to doctor ({st.referral_status}{st.referral_start_time ? ', ' + formatDate(String(st.referral_start_time).slice(0, 10)) : ''})</div>
+                          )}
+                        </td>
+                        <td className="col-action-hs">
+                          {(() => {
+                            const cancelled = activeSchedule.status === 'Cancelled';
+
+                            return (
+                              <div className="row-actions-hs">
+                                <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => openHistory(st)} title="Screening records of this student" aria-label={`Screening records of ${st.first_name} ${st.last_name}`}>
+                                  <History size={16} aria-hidden="true" />
+                                </button>
+                                {activeTab === 'ongoing' && !cancelled && !isPresent && (
+                                  <button type="button" className="btn-hs btn-icon-hs btn-primary-hs" onClick={() => timeIn(st)} title={`Time in ${st.first_name} ${st.last_name} now`} aria-label={`Time in ${st.first_name} ${st.last_name}`}>
+                                    <LogIn size={16} aria-hidden="true" />
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  className={`btn-hs btn-icon-hs ${isPresent && !cancelled ? 'btn-primary-hs' : 'btn-disabled-hs'}`}
+                                  onClick={() => openDocumentModal({ ...st, attendance_status: effectiveAttendanceStatus })}
+                                  disabled={!isPresent || cancelled}
+                                  title={cancelled ? 'This screening was cancelled' : !isPresent ? 'Student must be marked PRESENT before documenting' : (isDocumented ? 'Edit result' : 'Document result')}
+                                  aria-label="Document Result"
+                                >
+                                  <FileText size={16} aria-hidden="true" />
+                                </button>
+                              </div>
+                            );
+                          })()}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
+            {participantPageData.total === 0 && <p className="hint-hs" style={{ textAlign: 'center' }}>No participants match your search.</p>}
+            <Pager page={participantPageData.page} pageCount={participantPageData.pageCount} total={participantPageData.total} pageSize={PARTICIPANTS_PER_PAGE} onPage={setParticipantPage} noun="students" />
           </div>
-        </div>
+          <div className="modal-footer-hs">
+            <button type="button" className="btn-hs btn-secondary-hs" onClick={() => setShowViewModal(false)}>
+              Close
+            </button>
+          </div>
+        </HsDialog>
       )}
 
       {/* MODAL 6: Dynamic Screening Entry Form */}
       {showDocModal && selectedStudent && activeSchedule && (
-        <div className="modal-overlay-hs">
-          <div className="modal-hs">
-            <div className="modal-header-hs">
-              <h2>Document Screening: {selectedStudent.first_name} {selectedStudent.last_name}</h2>
-              <button type="button" className="close-btn-hs" onClick={() => setShowDocModal(false)}>
-                <X size={20} />
-              </button>
-            </div>
-            <form onSubmit={handleDocSubmit} className="modal-form-hs">
-              <div className="modal-body-hs">
-                {/* BMI FORM */}
-                {activeSchedule.screening_type === 'BMI' && (
-                  <>
-                    <div className="form-group-hs">
-                      <label>Height (cm)</label>
-                      <input 
-                        type="number" step="0.1" required value={docData.height_cm} 
-                        onChange={e => {
-                          const h = e.target.value;
-                          const { bmi, category } = calculateBMI(h, docData.weight_kg);
-                          setDocData({...docData, height_cm: h, bmi_value: bmi, bmi_category: category});
-                        }} 
-                      />
-                    </div>
-                    <div className="form-group-hs">
-                      <label>Weight (kg)</label>
-                      <input 
-                        type="number" step="0.1" required value={docData.weight_kg} 
-                        onChange={e => {
-                          const w = e.target.value;
-                          const { bmi, category } = calculateBMI(docData.height_cm, w);
-                          setDocData({...docData, weight_kg: w, bmi_value: bmi, bmi_category: category});
-                        }} 
-                      />
-                    </div>
-                    <div className="form-group-hs">
-                      <label>Calculated BMI</label>
-                      <input type="text" readOnly value={docData.bmi_value} placeholder="Auto-calculated" />
-                    </div>
-                    <div className="form-group-hs">
-                      <label>BMI Category</label>
-                      <input type="text" readOnly value={docData.bmi_category} placeholder="Auto-categorized" />
-                    </div>
-                  </>
-                )}
-
-                {/* VITAL SIGNS FORM */}
-                {activeSchedule.screening_type === 'Vital Signs' && (
-                  <>
-                    <div className="form-group-hs">
-                      <label>Blood Pressure (mmHg)</label>
-                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        <input type="number" min="40" max="300" placeholder="Systolic" value={docData.bp_systolic} onChange={e => setDocData({...docData, bp_systolic: e.target.value})} />
-                        <span>/</span>
-                        <input type="number" min="20" max="200" placeholder="Diastolic" value={docData.bp_diastolic} onChange={e => setDocData({...docData, bp_diastolic: e.target.value})} />
+        <HsDialog onClose={docLocked ? undefined : () => setShowDocModal(false)}>
+          <HsDialogHeader onClose={docLocked ? undefined : () => setShowDocModal(false)}>Document Screening: {selectedStudent.first_name} {selectedStudent.last_name}</HsDialogHeader>
+          <form onSubmit={handleDocSubmit} className="modal-form-hs">
+            <div className="modal-body-hs">
+              {/* FORM TEMPLATE (CUSTOM) */}
+              {activeSchedule.form_kind === 'CUSTOM' && (
+                <>
+                  {!activeSchedule.template && <p className="hint-hs" role="alert">The form template of this screening type is missing. Edit the type and pick a template.</p>}
+                  {(activeSchedule.template?.fields || []).map((f) => {
+                    const id = `cf-${f.key}`;
+                    const value = docData.answers?.[f.key] ?? '';
+                    const setAnswer = (v) => setDocData(prev => ({ ...prev, answers: { ...(prev.answers || {}), [f.key]: v } }));
+                    const label = (
+                      <label htmlFor={id}>
+                        {f.label}{f.required ? ' *' : ''}{f.unit ? <span className="cf-unit-hs">({f.unit})</span> : null}
+                      </label>
+                    );
+                    if (f.type === 'calculated') {
+                      const calc = calculate(f, docData.answers);
+                      const abnormal = calc && ((f.min !== undefined && calc.value < f.min) || (f.max !== undefined && calc.value > f.max));
+                      return (
+                        <div className="form-group-hs" key={f.key}>
+                          {label}
+                          <input id={id} type="text" readOnly value={calc ? `${calc.value}${calc.label ? ` (${calc.label})` : ''}` : ''} placeholder="Worked out from the fields above" aria-describedby={abnormal ? `${id}-flag` : undefined} />
+                          {abnormal && (
+                            <small id={`${id}-flag`} style={{ color: flagColor('High'), fontWeight: 600 }}>
+                              Outside the normal range ({f.min !== undefined ? f.min : '...'} to {f.max !== undefined ? f.max : '...'}{f.unit ? ` ${f.unit}` : ''})
+                            </small>
+                          )}
+                        </div>
+                      );
+                    }
+                    if (f.type === 'select' || f.type === 'yesno') {
+                      return (
+                        <div className="form-group-hs" key={f.key}>
+                          {label}
+                          <select id={id} required={f.required} value={value} onChange={e => setAnswer(e.target.value)}>
+                            <option value="">-- Select --</option>
+                            {f.options.map(o => <option key={o} value={o}>{o}</option>)}
+                          </select>
+                        </div>
+                      );
+                    }
+                    const outside = f.type === 'number' && value !== '' && ((f.min !== undefined && Number(value) < f.min) || (f.max !== undefined && Number(value) > f.max));
+                    return (
+                      <div className="form-group-hs" key={f.key}>
+                        {label}
+                        <input
+                          id={id}
+                          type={f.type === 'number' ? 'number' : 'text'}
+                          step={f.type === 'number' ? 'any' : undefined}
+                          maxLength={f.type === 'text' ? 255 : undefined}
+                          required={f.required}
+                          value={value}
+                          onChange={e => setAnswer(e.target.value)}
+                          aria-describedby={outside ? `${id}-flag` : undefined}
+                        />
+                        {outside && (
+                          <small id={`${id}-flag`} style={{ color: flagColor('High'), fontWeight: 600 }}>
+                            Outside the normal range ({f.min !== undefined ? f.min : '...'} to {f.max !== undefined ? f.max : '...'}{f.unit ? ` ${f.unit}` : ''})
+                          </small>
+                        )}
                       </div>
-                      {vitalFlag('bp', docData.bp_systolic, docData.bp_diastolic) && (
-                        <small style={{ color: flagColor(vitalFlag('bp', docData.bp_systolic, docData.bp_diastolic)), fontWeight: 600 }}>
-                          {vitalFlag('bp', docData.bp_systolic, docData.bp_diastolic)}
-                        </small>
-                      )}
-                    </div>
-                    <div className="form-group-hs">
-                      <label>Pulse Rate (bpm)</label>
-                      <input type="number" min="20" max="250" value={docData.pulse_rate} onChange={e => setDocData({...docData, pulse_rate: e.target.value})} />
-                      {vitalFlag('pulse', docData.pulse_rate) && (
-                        <small style={{ color: flagColor(vitalFlag('pulse', docData.pulse_rate)), fontWeight: 600 }}>{vitalFlag('pulse', docData.pulse_rate)}</small>
-                      )}
-                    </div>
-                    <div className="form-group-hs">
-                      <label>Temperature (&deg;C)</label>
-                      <input type="number" step="0.1" min="30" max="45" value={docData.temperature_c} onChange={e => setDocData({...docData, temperature_c: e.target.value})} />
-                      {vitalFlag('temp', docData.temperature_c) && (
-                        <small style={{ color: flagColor(vitalFlag('temp', docData.temperature_c)), fontWeight: 600 }}>{vitalFlag('temp', docData.temperature_c)}</small>
-                      )}
-                    </div>
-                    <div className="form-group-hs">
-                      <label>Respiratory Rate (breaths/min)</label>
-                      <input type="number" min="5" max="80" value={docData.respiratory_rate} onChange={e => setDocData({...docData, respiratory_rate: e.target.value})} />
-                      {vitalFlag('resp', docData.respiratory_rate) && (
-                        <small style={{ color: flagColor(vitalFlag('resp', docData.respiratory_rate)), fontWeight: 600 }}>{vitalFlag('resp', docData.respiratory_rate)}</small>
-                      )}
-                    </div>
-                    <div className="form-group-hs">
-                      <label>Remarks</label>
-                      <textarea value={docData.remarks} onChange={e => setDocData({...docData, remarks: e.target.value})} rows={2} placeholder="Observations / advice..." />
-                    </div>
-                  </>
-                )}
+                    );
+                  })}
+                  <div className="form-group-hs">
+                    <label htmlFor="cf-remarks-hs">Remarks</label>
+                    <textarea id="cf-remarks-hs" value={docData.remarks} onChange={e => setDocData({...docData, remarks: e.target.value})} rows={2} placeholder="Observations / advice..." />
+                  </div>
+                </>
+              )}
 
-                {/* HEARING FORM */}
-                {activeSchedule.screening_type === 'Hearing' && (
-                  <>
-                    <div className="form-group-hs">
-                      <label>Left Ear</label>
-                      <select required value={docData.left_ear_result} onChange={e => setDocData({...docData, left_ear_result: e.target.value})}>
-                        <option value="">-- Select result --</option>
-                        <option value="Pass">Pass</option>
-                        <option value="Refer">Refer</option>
-                      </select>
-                    </div>
-                    <div className="form-group-hs">
-                      <label>Right Ear</label>
-                      <select required value={docData.right_ear_result} onChange={e => setDocData({...docData, right_ear_result: e.target.value})}>
-                        <option value="">-- Select result --</option>
-                        <option value="Pass">Pass</option>
-                        <option value="Refer">Refer</option>
-                      </select>
-                    </div>
-                    <div className="form-group-hs">
-                      <label>Remarks</label>
-                      <textarea value={docData.remarks} onChange={e => setDocData({...docData, remarks: e.target.value})} rows={2} placeholder="Referral notes / follow-up advice..." />
-                    </div>
-                  </>
-                )}
-              </div>
+              {/* HEARING FORM */}
+              {activeSchedule.form_kind === 'HEARING' && (
+                <>
+                  <div className="form-group-hs">
+                    <label htmlFor="hs-fld-13">Left Ear</label>
+                    <select id="hs-fld-13" required value={docData.left_ear_result} onChange={e => setDocData({...docData, left_ear_result: e.target.value})}>
+                      <option value="">-- Select result --</option>
+                      <option value="Pass">Pass</option>
+                      <option value="Refer">Refer</option>
+                    </select>
+                  </div>
+                  <div className="form-group-hs">
+                    <label htmlFor="hs-fld-14">Right Ear</label>
+                    <select id="hs-fld-14" required value={docData.right_ear_result} onChange={e => setDocData({...docData, right_ear_result: e.target.value})}>
+                      <option value="">-- Select result --</option>
+                      <option value="Pass">Pass</option>
+                      <option value="Refer">Refer</option>
+                    </select>
+                  </div>
+                  <div className="form-group-hs">
+                    <label htmlFor="hs-fld-15">Remarks</label>
+                    <textarea id="hs-fld-15" value={docData.remarks} onChange={e => setDocData({...docData, remarks: e.target.value})} rows={2} placeholder="Referral notes / follow-up advice..." />
+                  </div>
+                </>
+              )}
+            </div>
 
-              <div className="modal-footer-hs">
-                <button type="button" className="btn-hs btn-secondary-hs" onClick={() => setShowDocModal(false)}>Cancel</button>
-                <button type="submit" className="btn-hs btn-primary-hs">Save Document</button>
-              </div>
-            </form>
-          </div>
-        </div>
+            <div className="modal-footer-hs">
+              {docLocked
+                ? <p className="hint-hs" role="status">Fill in the required fields and save to continue.</p>
+                : <button type="button" className="btn-hs btn-secondary-hs" onClick={() => setShowDocModal(false)}>Cancel</button>}
+              <button type="submit" className="btn-hs btn-primary-hs">Save Document</button>
+            </div>
+          </form>
+        </HsDialog>
       )}
 
       {/* MODAL: Reason prompt (cancel screening / attendance override) */}
       {reasonModal && (
-        <div className="modal-overlay-hs" style={{ zIndex: 1050 }}>
-          <div className="modal-hs modal-sm-hs">
-            <div className="modal-header-hs">
-              <h2>{reasonModal.title}</h2>
-              <button type="button" className="close-btn-hs" onClick={() => setReasonModal(null)}><X size={20} /></button>
-            </div>
-            <div className="modal-body-hs">
-              {reasonModal.message && <p className="hint-hs">{reasonModal.message}</p>}
-              <div className="form-group-hs">
-                <label>{reasonModal.label}</label>
-                <textarea rows={3} autoFocus value={reasonText} onChange={e => setReasonText(e.target.value)} />
-              </div>
-            </div>
-            <div className="modal-footer-hs">
-              <button type="button" className="btn-hs btn-secondary-hs" onClick={() => setReasonModal(null)}>Back</button>
-              <button type="button" className="btn-hs btn-primary-hs" onClick={submitReason}>{reasonModal.confirmText}</button>
+        <HsDialog onClose={() => setReasonModal(null)} size="sm" zIndex={1050}>
+          <HsDialogHeader onClose={() => setReasonModal(null)}>{reasonModal.title}</HsDialogHeader>
+          <div className="modal-body-hs">
+            {reasonModal.message && <p className="hint-hs">{reasonModal.message}</p>}
+            <div className="form-group-hs">
+              <label htmlFor="hs-fld-16">{reasonModal.label}</label>
+              <textarea id="hs-fld-16" rows={3} autoFocus value={reasonText} onChange={e => setReasonText(e.target.value)} />
             </div>
           </div>
-        </div>
+          <div className="modal-footer-hs">
+            <button type="button" className="btn-hs btn-secondary-hs" onClick={() => setReasonModal(null)}>Back</button>
+            <button type="button" className="btn-hs btn-primary-hs" onClick={submitReason}>{reasonModal.confirmText}</button>
+          </div>
+        </HsDialog>
       )}
 
       {/* MODAL: Make-up session for absent students */}
       {makeupModal && (
-        <div className="modal-overlay-hs" style={{ zIndex: 1050 }}>
-          <div className="modal-hs">
-            <div className="modal-header-hs">
-              <h2>Schedule Make-up Session</h2>
-              <button type="button" className="close-btn-hs" onClick={() => setMakeupModal(null)}><X size={20} /></button>
+        <HsDialog onClose={() => setMakeupModal(null)} zIndex={1050}>
+          <HsDialogHeader onClose={() => setMakeupModal(null)}>Schedule Make-up Session</HsDialogHeader>
+          <form onSubmit={submitMakeup} className="modal-form-hs">
+            <div className="modal-body-hs">
+              <p className="hint-hs">
+                A new {makeupModal.schedule.screening_type} screening is created only for the students who were absent from
+                &quot;{makeupModal.schedule.title}&quot;. Students already booked into another make-up are skipped.
+              </p>
+              <div className="form-group-hs">
+                <label htmlFor="hs-fld-17">Title</label>
+                <input id="hs-fld-17" type="text" required maxLength={150} value={makeupModal.title} onChange={e => setMakeupModal({ ...makeupModal, title: e.target.value })} />
+              </div>
+              <div className="form-group-hs">
+                <label htmlFor="hs-fld-18">Date</label>
+                <input id="hs-fld-18" type="date" required min={getTodayString()} value={makeupModal.scheduled_date} onChange={e => setMakeupModal({ ...makeupModal, scheduled_date: e.target.value })} />
+              </div>
+              <div className="form-grid-hs">
+                <div className="form-group-hs">
+                  <label htmlFor="hs-fld-19">Start Time</label>
+                  <input id="hs-fld-19" type="time" required value={makeupModal.start_time} onChange={e => setMakeupModal({ ...makeupModal, start_time: e.target.value })} />
+                </div>
+                <div className="form-group-hs">
+                  <label htmlFor="hs-fld-20">End Time</label>
+                  <input id="hs-fld-20" type="time" required value={makeupModal.end_time} onChange={e => setMakeupModal({ ...makeupModal, end_time: e.target.value })} />
+                </div>
+              </div>
+              <div className="form-group-hs">
+                <label htmlFor="hs-fld-21">Announcement / Instructions</label>
+                <textarea id="hs-fld-21" rows={2} value={makeupModal.announcement} onChange={e => setMakeupModal({ ...makeupModal, announcement: e.target.value })} />
+              </div>
             </div>
-            <form onSubmit={submitMakeup} className="modal-form-hs">
-              <div className="modal-body-hs">
-                <p className="hint-hs">
-                  A new {makeupModal.schedule.screening_type} screening is created only for the students who were absent from
-                  &quot;{makeupModal.schedule.title}&quot;. Students already booked into another make-up are skipped.
-                </p>
-                <div className="form-group-hs">
-                  <label>Title</label>
-                  <input type="text" required maxLength={150} value={makeupModal.title} onChange={e => setMakeupModal({ ...makeupModal, title: e.target.value })} />
-                </div>
-                <div className="form-group-hs">
-                  <label>Date</label>
-                  <input type="date" required min={getTodayString()} value={makeupModal.scheduled_date} onChange={e => setMakeupModal({ ...makeupModal, scheduled_date: e.target.value })} />
-                </div>
-                <div className="form-grid-hs">
-                  <div className="form-group-hs">
-                    <label>Start Time</label>
-                    <input type="time" required value={makeupModal.start_time} onChange={e => setMakeupModal({ ...makeupModal, start_time: e.target.value })} />
-                  </div>
-                  <div className="form-group-hs">
-                    <label>End Time</label>
-                    <input type="time" required value={makeupModal.end_time} onChange={e => setMakeupModal({ ...makeupModal, end_time: e.target.value })} />
-                  </div>
-                </div>
-                <div className="form-group-hs">
-                  <label>Announcement / Instructions</label>
-                  <textarea rows={2} value={makeupModal.announcement} onChange={e => setMakeupModal({ ...makeupModal, announcement: e.target.value })} />
-                </div>
-              </div>
-              <div className="modal-footer-hs">
-                <button type="button" className="btn-hs btn-secondary-hs" onClick={() => setMakeupModal(null)}>Cancel</button>
-                <button type="submit" className="btn-hs btn-primary-hs">Create &amp; Notify</button>
-              </div>
-            </form>
-          </div>
-        </div>
+            <div className="modal-footer-hs">
+              <button type="button" className="btn-hs btn-secondary-hs" onClick={() => setMakeupModal(null)}>Cancel</button>
+              <button type="submit" className="btn-hs btn-primary-hs">Create &amp; Notify</button>
+            </div>
+          </form>
+        </HsDialog>
       )}
 
       {/* MODAL: Refer a student to a doctor */}
       {referModal && (
-        <div className="modal-overlay-hs" style={{ zIndex: 1050 }}>
-          <div className="modal-hs">
-            <div className="modal-header-hs">
-              <h2>Refer to Doctor: {referModal.student.first_name} {referModal.student.last_name}</h2>
-              <button type="button" className="close-btn-hs" onClick={() => setReferModal(null)}><X size={20} /></button>
-            </div>
-            <form onSubmit={submitRefer} className="modal-form-hs">
-              <div className="modal-body-hs">
-                <p className="hint-hs">Creates a Referral visit in the doctor&apos;s open schedule. The result of this screening is attached to the visit.</p>
-                <div className="form-group-hs">
-                  <label>Doctor</label>
-                  <select required value={referModal.doctor_id} onChange={e => setReferModal({ ...referModal, doctor_id: e.target.value, slot: null })}>
-                    <option value="">-- Select Doctor --</option>
-                    {referDoctors.map(d => <option key={d.doctor_id} value={d.doctor_id}>Dr. {d.first_name} {d.last_name} ({d.specialization})</option>)}
-                  </select>
-                </div>
-                <div className="form-group-hs">
-                  <label>Date</label>
-                  <input type="date" required min={getTodayString()} value={referModal.date} onChange={e => setReferModal({ ...referModal, date: e.target.value, slot: null })} />
-                </div>
-                {referModal.doctor_id && referModal.date && (
-                  <div className="form-group-hs">
-                    <label>Available Slots</label>
-                    {referSlotsLoading ? <p className="hint-hs">Loading slots...</p> : referSlots.length === 0 ? (
-                      <p className="hint-hs warn-hs">This doctor has no open schedule on that date. Set one up under Doctor Schedule.</p>
-                    ) : (
-                      <div className="slot-list-hs">
-                        {referSlots.map(s => (
-                          <button
-                            key={s.start_time}
-                            type="button"
-                            disabled={!s.available}
-                            className={`slot-btn-hs ${referModal.slot?.start_time === s.start_time ? 'slot-selected-hs' : ''}`}
-                            onClick={() => setReferModal({ ...referModal, slot: s })}
-                          >
-                            {time12(s.start_time.slice(11))}
-                            <small>{s.available ? 'Open' : s.past ? 'Passed' : 'Full'}</small>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-              <div className="modal-footer-hs">
-                <button type="button" className="btn-hs btn-secondary-hs" onClick={() => setReferModal(null)}>Cancel</button>
-                <button type="submit" className="btn-hs btn-primary-hs" disabled={!referModal.slot}>Schedule Referral</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: Student screening history */}
-      {historyModal && (
-        <div className="modal-overlay-hs" style={{ zIndex: 1050 }}>
-          <div className="modal-hs modal-lg-hs">
-            <div className="modal-header-hs">
-              <h2>Screening History: {historyModal.student.first_name} {historyModal.student.last_name} ({historyModal.student.student_id})</h2>
-              <button type="button" className="close-btn-hs" onClick={() => setHistoryModal(null)}><X size={20} /></button>
-            </div>
+        <HsDialog onClose={() => setReferModal(null)} zIndex={1050}>
+          <HsDialogHeader onClose={() => setReferModal(null)}>Refer to Doctor: {referModal.student.first_name} {referModal.student.last_name}</HsDialogHeader>
+          <form onSubmit={submitRefer} className="modal-form-hs">
             <div className="modal-body-hs">
-              {historyModal.loading ? <p className="hint-hs">Loading...</p> : historyModal.rows.length === 0 ? (
-                <p className="hint-hs">No screening results on record.</p>
-              ) : (
-                <div className="table-wrapper-hs">
-                  <table className="table-hs">
-                    <thead><tr><th>Date</th><th>Screening</th><th>Type</th><th>Result</th><th>Flag</th></tr></thead>
-                    <tbody>
-                      {historyModal.rows.map((h, i) => (
-                        <tr key={`${h.screening_schedule_id}-${h.screening_type}-${i}`}>
-                          <td>{h.date ? formatDate(String(h.date).split('T')[0]) : ''}</td>
-                          <td>{h.title}</td>
-                          <td>{h.screening_type}</td>
-                          <td>{h.summary || '-'}</td>
-                          <td>{h.is_abnormal ? <span className="badge-hs badge-status-absent-hs">Abnormal</span> : <span className="badge-hs badge-success-hs">Normal</span>}</td>
-                        </tr>
+              <p className="hint-hs">Creates a Referral visit in the doctor&apos;s open schedule. The result of this screening is attached to the visit.</p>
+              <div className="form-group-hs">
+                <label htmlFor="hs-fld-22">Doctor</label>
+                <select id="hs-fld-22" required value={referModal.doctor_id} onChange={e => setReferModal({ ...referModal, doctor_id: e.target.value, slot: null })}>
+                  <option value="">-- Select Doctor --</option>
+                  {referDoctors.map(d => <option key={d.doctor_id} value={d.doctor_id}>Dr. {d.first_name} {d.last_name} ({d.specialization})</option>)}
+                </select>
+              </div>
+              <div className="form-group-hs">
+                <label htmlFor="hs-fld-23">Date</label>
+                <input id="hs-fld-23" type="date" required min={getTodayString()} value={referModal.date} onChange={e => setReferModal({ ...referModal, date: e.target.value, slot: null })} />
+              </div>
+              {referModal.doctor_id && referModal.date && (
+                <div className="form-group-hs">
+                  <span className="list-title-hs" id="refer-slots-label-hs">Available Slots</span>
+                  {referSlotsLoading ? <p className="hint-hs">Loading slots...</p> : referSlots.length === 0 ? (
+                    <p className="hint-hs warn-hs">This doctor has no open schedule on that date. Set one up under Doctor Schedule.</p>
+                  ) : (
+                    <div className="slot-list-hs" role="group" aria-labelledby="refer-slots-label-hs">
+                      {referSlots.map(s => (
+                        <button
+                          key={s.start_time}
+                          type="button"
+                          aria-pressed={referModal.slot?.start_time === s.start_time}
+                          disabled={!s.available}
+                          className={`slot-btn-hs ${referModal.slot?.start_time === s.start_time ? 'slot-selected-hs' : ''}`}
+                          onClick={() => setReferModal({ ...referModal, slot: s })}
+                        >
+                          {time12(s.start_time.slice(11))}
+                          <small>{s.available ? 'Open' : s.past ? 'Passed' : 'Full'}</small>
+                        </button>
                       ))}
-                    </tbody>
-                  </table>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
             <div className="modal-footer-hs">
-              <button type="button" className="btn-hs btn-secondary-hs" onClick={() => setHistoryModal(null)}>Close</button>
+              <button type="button" className="btn-hs btn-secondary-hs" onClick={() => setReferModal(null)}>Cancel</button>
+              <button type="submit" className="btn-hs btn-primary-hs" disabled={!referModal.slot}>Schedule Referral</button>
             </div>
-          </div>
-        </div>
+          </form>
+        </HsDialog>
       )}
 
-      {/* MODAL 7: Unified Alert & Confirmation Dialog */}
-      {alertModal.show && (
-        <div className="modal-overlay-hs" style={{ zIndex: 1100 }}>
-          <div className="modal-hs modal-sm-hs" style={{ maxWidth: '420px', textAlign: 'center' }}>
-            <div className="modal-header-hs" style={{ justifyContent: 'center', borderBottom: 'none', paddingBottom: '0' }}>
-              <h2 style={{ fontSize: '1.125rem' }}>{alertModal.title}</h2>
-            </div>
-            <div className="modal-body-hs" style={{ paddingTop: '10px', paddingBottom: '20px' }}>
-              <div style={{ marginBottom: '15px', display: 'flex', justifyContent: 'center' }}>
-                {alertModal.type === 'success' && <CheckCircle size={48} color="var(--status-adequate-text)" />}
-                {alertModal.type === 'warning' && <AlertCircle size={48} color="var(--status-low-text)" />}
-                {alertModal.type === 'error' && <AlertCircle size={48} color="var(--status-critical-text)" />}
-                {alertModal.type === 'confirm' && <AlertCircle size={48} color="var(--text-brand)" />}
-                {alertModal.type === 'info' && <AlertCircle size={48} color="#0284c7" />}
-              </div>
-              <p style={{ fontSize: '0.875rem', color: 'var(--text-primary)', margin: 0, lineHeight: '1.5' }}>
-                {alertModal.message}
-              </p>
-            </div>
-            <div className="modal-footer-hs" style={{ justifyContent: 'center', gap: '10px', paddingTop: '10px' }}>
-              {alertModal.type === 'confirm' ? (
-                <>
-                  <button
-                    type="button"
-                    className="btn-hs btn-secondary-hs"
-                    onClick={closeAlertModal}
-                  >
-                    {alertModal.cancelText || 'Cancel'}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-hs btn-primary-hs"
-                    onClick={() => {
-                      const action = alertModal.onConfirm;
-                      closeAlertModal();
-                      if (action) action();
-                    }}
-                  >
-                    {alertModal.confirmText || 'Confirm'}
-                  </button>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  className="btn-hs btn-primary-hs"
-                  onClick={closeAlertModal}
-                  style={{ minWidth: '100px' }}
-                >
-                  OK
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+      {/* MODAL: Student screening history */}
+      {historyModal && (
+        <StudentScreeningHistoryModal student={historyModal.student} rows={historyModal.rows} loading={historyModal.loading} onClose={() => setHistoryModal(null)} />
+      )}
+
+      {showSchoolYearDialog && (
+        <SchoolYearDialog
+          info={schoolYearInfo}
+          apiBase={API_BASE}
+          senderId={userId}
+          onClose={() => setShowSchoolYearDialog(false)}
+          onSaved={(data) => {
+            setShowSchoolYearDialog(false);
+            fetchSchoolYears(true);
+            fetchSchedules();
+            showAlert(data.message, 'School Year Updated', 'success');
+          }}
+        />
+      )}
+
+      {/* MODAL 7: Unified Alert & Confirmation Dialog (shared modals: focus trap, Esc, focus return) */}
+      {alertModal.type === 'confirm' ? (
+        <ConfirmModal
+          isOpen={alertModal.show}
+          onCancel={closeAlertModal}
+          onConfirm={() => {
+            const action = alertModal.onConfirm;
+            closeAlertModal();
+            if (action) action();
+          }}
+          title={alertModal.title}
+          message={alertModal.message}
+          confirmLabel={alertModal.confirmText || 'Confirm'}
+          cancelLabel={alertModal.cancelText || 'Cancel'}
+        />
+      ) : (
+        <AlertModal
+          isOpen={alertModal.show}
+          onClose={closeAlertModal}
+          variant={alertModal.type}
+          title={alertModal.title}
+          message={alertModal.message}
+        />
       )}
     </div>
   );

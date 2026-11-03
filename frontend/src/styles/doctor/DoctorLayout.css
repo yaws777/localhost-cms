@@ -460,6 +460,9 @@
 .dp-table .nowrap { white-space: nowrap; }
 .dp-cell-clip { max-width: 280px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .dp-row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.dp-table .dp-row-actions { flex-wrap: nowrap; }
+.dp-table .dp-btn-icon, .dp-appt-actions .dp-btn-icon { width: 2.75rem; height: 2.75rem; flex: none; }
+.dp-table td { vertical-align: middle; }
 
 /* assessment history */
 .dp-history { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
@@ -480,6 +483,8 @@
 .dp-choice span { font-size: 0.875rem; color: var(--dp-muted); }
 .dp-choice:hover:not(:disabled), .dp-choice:focus-visible { border-color: var(--dp-accent); outline: none; }
 .dp-choice:disabled { opacity: 0.6; cursor: wait; }
+.dp-choice[aria-checked="true"] { border-color: var(--dp-accent); border-width: 0.125rem; background: var(--sti-blue-light); }
+.dp-choice:focus-visible { outline: 0.1875rem solid var(--sti-blue-primary); outline-offset: 0.125rem; }
 @media (max-width: 560px) { .dp-choice-grid { grid-template-columns: 1fr; } }
 
 /* detail blocks inside modals */

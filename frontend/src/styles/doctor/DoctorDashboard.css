@@ -58,6 +58,7 @@
   font-family: inherit;
   cursor: pointer;
   width: 100%;
+  max-width: none;
 }
 .dd-stat:hover { filter: brightness(0.98); }
 .dd-stat.blue { background: linear-gradient(160deg, var(--dp-tint-blue), #bcd8f4); }

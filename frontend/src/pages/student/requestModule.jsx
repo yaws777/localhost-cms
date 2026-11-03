@@ -1,13 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useOutletContext, useLocation } from 'react-router-dom';
 import { Eye } from 'lucide-react';
 import { io } from 'socket.io-client';
 import '../../styles/student/RequestModule.css';
-import { useAlert } from '../../context/AlertContext';
+import { useAlert } from '../../context/AlertContext';
 import { formatTime, formatDate, formatDateTime } from '../../utils/datetime';
 
 const API_BASE = 'http://localhost:3001/api';
 const BASE_URL = 'http://localhost:3001';
+
+const statusLabel = (status) =>
+  !status || status.toLowerCase() === 'pending' ? 'Waiting for Approval' : status;
 
 export default function RequestModule() {
   const location = useLocation();
@@ -414,7 +418,7 @@ export default function RequestModule() {
                   <td>{formatDate(new Date(req.created_at))}</td>
                   <td>
                     <span className={`sti-status status-${req.status ? req.status.toLowerCase() : 'pending'}`}>
-                      {req.status || 'Pending'}
+                      {statusLabel(req.status)}
                     </span>
                   </td>
                   <td>
@@ -435,7 +439,7 @@ export default function RequestModule() {
       </div>
 
       {/* Modal: Excuse Slip */}
-      {activeModal === 'excuse' && (
+      {activeModal === 'excuse' && createPortal(
         <div className="sti-modal-overlay">
           <div className="sti-modal-content">
             <div className="sti-modal-header">
@@ -545,11 +549,12 @@ export default function RequestModule() {
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Modal: Referral Slip */}
-      {activeModal === 'referral' && (
+      {activeModal === 'referral' && createPortal(
         <div className="sti-modal-overlay">
           <div className="sti-modal-content">
             <div className="sti-modal-header">
@@ -619,11 +624,12 @@ export default function RequestModule() {
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Modal: View Details & Notes */}
-      {activeModal === 'view' && selectedRequest && (
+      {activeModal === 'view' && selectedRequest && createPortal(
         <div className="sti-modal-overlay">
           <div className="sti-modal-content sti-modal-lg">
             <div className="sti-modal-header">
@@ -634,7 +640,7 @@ export default function RequestModule() {
             <div className="sti-details-section">
               <div className="sti-details-grid">
                 <p><strong>Type:</strong> {selectedRequest.request_type}</p>
-                <p><strong>Status:</strong> {selectedRequest.status || 'Pending'}</p>
+                <p><strong>Status:</strong> {statusLabel(selectedRequest.status)}</p>
                 <p><strong>Requested On:</strong> {formatDateTime(new Date(selectedRequest.created_at))}</p>
                 
                 {selectedRequest.request_type === 'Excuse Slip' ? (
@@ -704,7 +710,8 @@ export default function RequestModule() {
               </form>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

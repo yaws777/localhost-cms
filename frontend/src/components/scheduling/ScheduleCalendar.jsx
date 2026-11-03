@@ -8,7 +8,7 @@
 //   past     : closed, nothing can be appointed or changed any more
 // Every session lists its participants and its queue.
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, UserPlus, TimerReset, CalendarX, CalendarPlus, Edit, Trash2, CalendarClock, Ban, Users, ListPlus, Footprints, Megaphone, Send } from 'lucide-react';
+import { ChevronLeft, ChevronRight, UserPlus, TimerReset, CalendarX, CalendarPlus, Edit, Trash2, CalendarClock, Ban, Users, ListPlus, Footprints, Megaphone, Send, BellRing } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
 import { visitLabel, statusClass } from '../../utils/visitPurpose';
 import {
@@ -18,6 +18,7 @@ import { AppointModal, ExtendSessionModal, ExtendAppointmentModal, ParticipantsM
 import ScheduleFormModal from './ScheduleFormModal';
 import { ScheduleRequestModal } from './ScheduleRequests';
 import QueuePanel from './QueuePanel';
+import SessionEndPrompt from './SessionEndPrompt';
 import Modal from '../common/Modal';
 import { ReasonModal, RescheduleModal, WalkInModal } from '../doctor/AppointmentModals';
 import '../../styles/scheduling/Scheduling.css';
@@ -46,6 +47,7 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
     const [form, setForm] = useState(null); // { schedule, preset }
     const [appointFor, setAppointFor] = useState(null);
     const [extendSession, setExtendSession] = useState(null);
+    const [endFor, setEndFor] = useState(null);
     const [extendAppt, setExtendAppt] = useState(null);
     const [moveAppt, setMoveAppt] = useState(null);
     const [cancelAppt, setCancelAppt] = useState(null);
@@ -130,20 +132,22 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
         }
     };
 
-    const deleteSchedule = async (s) => {
+    const cancelSchedule = async (s) => {
         const series = s.recurrence === 'Weekly';
         const ok = await showConfirm(
-            `Delete the ${series ? 'weekly schedule this session belongs to (every day of it)' : 'schedule'} of ${s.doctor_name} on ${dayLabel(s.date)}? This cannot be undone.`,
-            { danger: true, confirmLabel: 'Delete', title: 'Delete schedule' }
+            `Cancel the ${series ? 'weekly schedule this session belongs to (every day of it)' : 'schedule'} of ${s.doctor_name} on ${dayLabel(s.date)}? The schedule and its session listing are removed and the students are told. Students of the advance listing go back to waiting for a schedule, and the advance listing opens again.`,
+            { danger: true, confirmLabel: 'Cancel schedule', title: 'Cancel schedule' }
         );
         if (!ok) return;
         try {
-            const res = await fetch(`${API}/api/doctor-schedules/${s.schedule_id}`, { method: 'DELETE' });
+            const res = await fetch(`${API}/api/doctor-schedules/${s.schedule_id}`, {
+                method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sender_id: userId })
+            });
             const json = await res.json();
             if (json.success) { showAlert(json.message, 'success'); changed(); }
-            else showAlert(json.message || 'Could not delete the schedule.', 'error');
+            else showAlert(json.message || 'Could not cancel the schedule.', 'error');
         } catch (e) {
-            showAlert('Server error deleting the schedule.', 'error');
+            showAlert('Server error cancelling the schedule.', 'error');
         }
     };
 
@@ -253,7 +257,7 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
                             </div>
                             <div className="session-meta-sc">
                                 {SCHEDULING_WAY_KEYS.map((k) => {
-                                    const n = k === 'appointment' ? s.by_appointment : s.by_walk_in;
+                                    const n = s[`by_${k}`];
                                     return <span key={k} className={`type-badge-sc ${SCHEDULING_WAYS[k].cls}`}>{n || 0} {SCHEDULING_WAYS[k].short.toLowerCase()}</span>;
                                 })}
                             </div>
@@ -271,6 +275,7 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
                                     <div className={`load-bar-sc ${st.full ? 'full-sc' : ''}`}><div style={{ width: `${st.pct}%` }} /></div>
                                     <div className="session-meta-sc">
                                         <span>{s.by_appointment} appointed of {s.capacity} places</span>
+                                        {s.by_advance > 0 && <span>Advance listing <b>{s.by_advance}</b>, then open places <b>{Math.max(s.by_listing, 0)}</b></span>}
                                     </div>
                                 </>
                             )}
@@ -286,6 +291,9 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
                                 )}
                                 {s.state === 'ongoing' && (
                                     <>
+                                        {s.awaiting_end && (
+                                            <button type="button" className="sti-btn-dv sti-btn-primary-dv btn-sm-sc" onClick={() => setEndFor(s)}><BellRing size={14} /> Confirm end time</button>
+                                        )}
                                         <button type="button" className="sti-btn-dv sti-btn-light-dv btn-sm-sc" onClick={() => setExtendSession(s)}><TimerReset size={14} /> Extend</button>
                                         {hasWalkIn(s) && (
                                             <button type="button" className="sti-btn-dv sti-btn-secondary-dv btn-sm-sc" onClick={() => setWalkInFor(s)}><Footprints size={14} /> Add walk-in</button>
@@ -297,7 +305,7 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
                                     <button type="button" className="sti-btn-dv sti-btn-light-dv btn-sm-sc" onClick={() => editSchedule(s)}><Edit size={14} /> {s.recurrence === 'Weekly' ? 'Edit series' : 'Edit'}</button>
                                 )}
                                 {s.state === 'upcoming' && !isNurse && (
-                                    <button type="button" className="sti-btn-dv sti-btn-light-dv btn-sm-sc" onClick={() => deleteSchedule(s)}><Trash2 size={14} /> Delete</button>
+                                    <button type="button" className="sti-btn-dv sti-btn-light-dv btn-sm-sc" onClick={() => cancelSchedule(s)}><Trash2 size={14} /> Cancel schedule</button>
                                 )}
                             </div>
                         </div>
@@ -318,7 +326,7 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
                                     {a.booking_reason && <small>Reason: {a.booking_reason}</small>}
                                 </div>
                                 <div className="row-actions-sc">
-                                    <span className={`type-badge-sc ${SCHEDULING_WAYS[wayOf(a.booking_source)].cls}`}>{SCHEDULING_WAYS[wayOf(a.booking_source)].label}</span>
+                                    <span className={`type-badge-sc ${SCHEDULING_WAYS[wayOf(a.booking_source, a.how)].cls}`}>{SCHEDULING_WAYS[wayOf(a.booking_source, a.how)].label}</span>
                                     <span className={`dp-chip ${statusClass(a.status)}`}>{a.status}</span>
                                     {a.status === 'Scheduled' && a.state === 'upcoming' && (
                                         <>
@@ -360,10 +368,26 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
             />
             <ParticipantsModal schedule={participantsFor} userId={userId} onClose={() => setParticipantsFor(null)} onChanged={changed} />
             <WalkInModal
-                isOpen={!!walkInFor} doctors={doctors} fixedDoctorId={walkInFor ? walkInFor.doctor_id : ''}
+                isOpen={!!walkInFor} doctors={doctors} fixedDoctorId={walkInFor ? walkInFor.doctor_id : ''} schedule={walkInFor}
                 creator={creator} userId={userId} onClose={() => setWalkInFor(null)} onCreated={changed}
             />
             <ExtendSessionModal schedule={extendSession} creator={creator} userId={userId} onClose={() => setExtendSession(null)} onDone={changed} />
+            {endFor && (
+                <SessionEndPrompt
+                    item={{ key: `${endFor.schedule_id}|${endFor.date}|${endFor.end_time}`, kind: 'check-up', endTime: endFor.end_time, title: `${endFor.doctor_name}'s session on ${dayLabel(endFor.date)}` }}
+                    onConfirm={async () => {
+                        const res = await putJson(`/api/doctor-schedules/${endFor.schedule_id}/end-session`, { sender_id: userId, created_by_doctor_id: creator.doctorId || undefined });
+                        if (!res.success) return res.message || 'Could not end the session.';
+                        showAlert(res.message, 'success'); setEndFor(null); changed(); return '';
+                    }}
+                    onExtend={async (minutes) => {
+                        const res = await putJson(`/api/doctor-schedules/${endFor.schedule_id}/extend`, { extra_minutes: minutes, sender_id: userId, created_by_doctor_id: creator.doctorId || undefined });
+                        if (!res.success) return res.message || 'Could not extend the session.';
+                        showAlert(res.message, 'success'); setEndFor(null); changed(); return '';
+                    }}
+                    onLater={() => setEndFor(null)}
+                />
+            )}
             <ExtendAppointmentModal appt={extendAppt} creator={creator} userId={userId} onClose={() => setExtendAppt(null)} onDone={changed} />
             {moveAppt && <RescheduleModal key={moveAppt.appointment_id} appt={moveAppt} onSubmit={rescheduleAppt} onClose={() => setMoveAppt(null)} />}
             <ReasonModal

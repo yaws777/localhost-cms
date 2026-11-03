@@ -26,28 +26,48 @@ const DoctorVisit = () => {
 
     const [tab, setTab] = useState('upcoming');
     const [doctors, setDoctors] = useState([]);
-    const [doctorsWithoutSchedule, setDoctorsWithoutSchedule] = useState(0);
+    const [newUpdates, setNewUpdates] = useState([]);
 
-    // the doctors, and which doctors have no open schedule (no student can be appointed to them)
     const loadSummary = useCallback(async () => {
         try {
-            const [doctorRes, scheduleRes] = await Promise.all([
-                fetch(`${API}/api/doctors`).then((r) => r.json()),
-                fetch(`${API}/api/doctor-schedules?status=Open`).then((r) => r.json())
-            ]);
-            if (doctorRes.success) {
-                setDoctors(doctorRes.doctors);
-                if (scheduleRes.success) {
-                    const withSchedule = new Set(scheduleRes.schedules.filter((s) => !s.is_expired).map((s) => s.doctor_id));
-                    setDoctorsWithoutSchedule(doctorRes.doctors.filter((d) => !withSchedule.has(d.doctor_id)).length);
-                }
-            }
+            const doctorRes = await fetch(`${API}/api/doctors`).then((r) => r.json());
+            if (doctorRes.success) setDoctors(doctorRes.doctors);
         } catch (err) {
             console.error('Error loading the doctor visit summary:', err);
         }
     }, []);
 
     useEffect(() => { loadSummary(); }, [loadSummary]);
+
+    // unread scheduling notifications = new updates (doctor set / changed a schedule, a student asked a place or reconfirmed)
+    const loadUpdates = useCallback(async () => {
+        if (!nurseId) return;
+        try {
+            const data = await fetch(`${API}/api/notifications/nurse/${nurseId}`).then((r) => r.json());
+            if (!data.success) return;
+            setNewUpdates((data.data || []).filter((n) => {
+                const unread = !(n.is_read === 1 || n.is_read === '1' || n.is_read === true);
+                const type = (n.type || '').toLowerCase();
+                return unread && (type.startsWith('schedule') || type === 'consultation_request' || type === 'consultation_reconfirmed');
+            }));
+        } catch (err) {
+            console.error('Error loading scheduling updates:', err);
+        }
+    }, [nurseId]);
+
+    useEffect(() => {
+        loadUpdates();
+        const timer = setInterval(loadUpdates, 10000);
+        return () => clearInterval(timer);
+    }, [loadUpdates]);
+
+    // opening Scheduling = the updates were seen
+    useEffect(() => {
+        if (section === 'visits' || newUpdates.length === 0) return;
+        const seen = newUpdates;
+        setNewUpdates([]);
+        Promise.all(seen.map((n) => fetch(`${API}/api/notifications/${n.notification_id}/read`, { method: 'PATCH' }).catch(() => null)));
+    }, [section, newUpdates]);
 
     return (
         <div className="container-dv">
@@ -64,8 +84,8 @@ const DoctorVisit = () => {
                 </button>
                 <button type="button" className={`section-tab-dv ${section !== 'visits' ? 'active-dv' : ''}`} onClick={() => goSection('availability')}>
                     <CalendarClock size={16} /> Scheduling
-                    {doctorsWithoutSchedule > 0 && (
-                        <span className="section-badge-dv warn-dv" title={`${doctorsWithoutSchedule} doctor(s) have no open schedule, so no student can be appointed to them`}>{doctorsWithoutSchedule}</span>
+                    {newUpdates.length > 0 && (
+                        <span className="section-badge-dv warn-dv" role="status" aria-label={`${newUpdates.length} new scheduling update${newUpdates.length === 1 ? '' : 's'}`} title={`${newUpdates.length} new scheduling update${newUpdates.length === 1 ? '' : 's'}`}>{newUpdates.length}</span>
                     )}
                 </button>
             </nav>

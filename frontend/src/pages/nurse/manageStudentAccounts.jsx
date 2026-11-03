@@ -1,6 +1,8 @@
 // manageStudentAccounts.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import { 
+import { useOutletContext } from 'react-router-dom';
+import {
+  CalendarRange,
   Search, 
   UserPlus, 
   Edit, 
@@ -26,12 +28,22 @@ import {
   XCircle
 } from 'lucide-react';
 
+import StudentSchoolYearModal, { schoolYearText } from '../../components/nurse/StudentSchoolYearModal';
 import stiLogo from '../../assets/sti-logof.png';
 import { formatDate } from '../../utils/datetime';
 import '../../styles/nurse/ManageStudentAccounts.css';
 
 const API_BASE = 'http://localhost:3001/api';
 const DOMAIN_EXTENSION = '@baliuag.sti.edu.ph';
+const SECTIONS = ['A', 'B', 'C'];
+const STATUS_FILTERS = [
+  { value: 'active', label: 'Active' },
+  { value: 'graduated', label: 'Graduated (inactive)' },
+  { value: 'drop', label: 'Drop (inactive)' },
+  { value: 'transfer', label: 'Transfer (inactive)' },
+  { value: 'other', label: 'Others (inactive)' }
+];
+const NO_FILTERS = { program_id: '', school_year: '', section: '', status: '' };
 
 // Helper function to validate Philippine phone number format (09XXXXXXXXX or +639XXXXXXXXX)
 const isValidPhPhone = (phone) => {
@@ -67,6 +79,16 @@ export default function ManageStudentAccounts() {
   const [programs, setPrograms] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const fileInputRef = useRef(null);
+  const { userId } = useOutletContext() || {};
+
+  // School years and list filters (program, school year, section, status)
+  const [schoolYearInfo, setSchoolYearInfo] = useState(null);
+  const [isSchoolYearOpen, setIsSchoolYearOpen] = useState(false);
+  const [filters, setFilters] = useState(NO_FILTERS);
+  const filtersRef = useRef(filters);
+  filtersRef.current = filters;
+  const fetchSeq = useRef(0);
+  const filtersActive = Object.values(filters).some(Boolean);
 
   // Calculate active students total count
   const activeStudentCount = Array.isArray(students)
@@ -132,6 +154,13 @@ export default function ManageStudentAccounts() {
     return type.includes('strand') ? 'strand' : 'course';
   };
 
+  // last year of the program: 2nd year of a strand, 4th year of a course
+  const isFinalYear = (programId, yearLevel) => Number(yearLevel) >= (getProgramType(programId) === 'strand' ? 2 : 4);
+  const originalActive = (studentId) => {
+    const found = students.find((s) => s.student_id === studentId);
+    return !found || Number(found.is_active) === 1;
+  };
+
   // Form State for Single Student Creation
   const [studentForm, setStudentForm] = useState({
     student_id: '02000',
@@ -142,6 +171,7 @@ export default function ManageStudentAccounts() {
     program_id: '',
     year_level: '1',
     section: 'A',
+    school_year: '',
     is_active: true
   });
 
@@ -178,7 +208,10 @@ export default function ManageStudentAccounts() {
     program_id: '',
     year_level: '1',
     section: 'A',
+    school_year: '',
     is_active: true,
+    inactive_reason: '',
+    inactive_reason_other: '',
     reset_password: false,
     current_parent_id: null,
     current_parent_name: '',
@@ -202,8 +235,27 @@ export default function ManageStudentAccounts() {
 
   useEffect(() => {
     fetchPrograms();
-    fetchStudents();
+    fetchSchoolYears();
   }, []);
+
+  // the list loads on start and again whenever a filter changes
+  useEffect(() => {
+    fetchStudents(searchQuery, filters);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters]);
+
+  const fetchSchoolYears = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/school-years`);
+      const data = await res.json();
+      if (!res.ok || !Array.isArray(data.years)) throw new Error(data?.error || 'Failed to load the school years');
+      setSchoolYearInfo(data);
+      setStudentForm(prev => (prev.school_year ? prev : { ...prev, school_year: data.current || '' }));
+    } catch (err) {
+      console.error('Error fetching school years:', err);
+      setSchoolYearInfo(null);
+    }
+  };
 
   const fetchPrograms = async () => {
     try {
@@ -223,16 +275,23 @@ export default function ManageStudentAccounts() {
     }
   };
 
-  const fetchStudents = async (query = '') => {
+  const fetchStudents = async (query = '', active = filtersRef.current) => {
+    const seq = ++fetchSeq.current;
+    const params = new URLSearchParams({ search: query });
+    Object.entries(active).forEach(([key, value]) => { if (value) params.set(key, value); });
     try {
-      const res = await fetch(`${API_BASE}/students/manageStudentAccounts?search=${encodeURIComponent(query)}`);
+      const res = await fetch(`${API_BASE}/students/manageStudentAccounts?${params.toString()}`);
       const data = await res.json();
+      if (seq !== fetchSeq.current) return; // a newer search or filter answered meanwhile
       setStudents(Array.isArray(data) ? data : []);
     } catch (err) {
+      if (seq !== fetchSeq.current) return;
       console.error('Error fetching students:', err);
       setStudents([]);
     }
   };
+
+  const setFilter = (key, value) => setFilters(prev => ({ ...prev, [key]: value }));
 
   // EXPORT REPORT FOR ALL STUDENT ACCOUNTS
   const handleExportAllReport = () => {
@@ -259,6 +318,7 @@ export default function ManageStudentAccounts() {
           <td><strong>${fullName}</strong></td>
           <td>${s.username || 'N/A'}</td>
           <td>${s.program_id || 'N/A'}</td>
+          <td>${s.school_year ? schoolYearText(s.school_year) : 'N/A'}</td>
           <td>${s.year_level || ''} - ${s.section || ''}</td>
           <td>${parentInfo}</td>
           <td>${statusStr}</td>
@@ -310,13 +370,14 @@ export default function ManageStudentAccounts() {
                       <th>Student Name</th>
                       <th>Username</th>
                       <th>Program</th>
+                      <th>School Year</th>
                       <th>Yr / Sec</th>
                       <th>Linked Parent</th>
                       <th>Status</th>
                   </tr>
               </thead>
               <tbody>
-                  ${tableRowsHtml || '<tr><td colspan="7">No student accounts found.</td></tr>'}
+                  ${tableRowsHtml || '<tr><td colspan="8">No student accounts found.</td></tr>'}
               </tbody>
           </table>
 
@@ -661,6 +722,22 @@ export default function ManageStudentAccounts() {
       return;
     }
 
+    // an account that is turned off needs the reason; Graduated is only for the last year (2nd year strand, 4th year course)
+    if (!editForm.is_active) {
+      if (!editForm.inactive_reason && originalActive(editForm.student_id)) {
+        showAlert('Validation Error', 'Choose the reason the account is inactive: Transfer, Graduated, Drop or Other.', 'warning');
+        return;
+      }
+      if (editForm.inactive_reason === 'Other' && !editForm.inactive_reason_other.trim()) {
+        showAlert('Validation Error', 'Specify the other reason.', 'warning');
+        return;
+      }
+      if (editForm.inactive_reason === 'Graduated' && !isFinalYear(editForm.program_id, editForm.year_level)) {
+        showAlert('Validation Error', 'Graduated is only for 2nd year strand and 4th year course students.', 'warning');
+        return;
+      }
+    }
+
     showConfirm(
       'Confirm Update',
       `Are you sure you want to save changes for student account ${editForm.student_id}?`,
@@ -921,7 +998,7 @@ export default function ManageStudentAccounts() {
 
     const headers = [
       'student_id','first_name','last_name','username','program_id',
-      'program_name','year_level','section','is_active','parent_id',
+      'program_name','school_year','year_level','section','is_active','inactive_reason','parent_id',
       'parent_username','parent_first_name','parent_last_name','parent_phone'
     ];
 
@@ -935,9 +1012,11 @@ export default function ManageStudentAccounts() {
         `"${s.username || ''}"`,
         `"${s.program_id || ''}"`,
         `"${s.program_name || ''}"`,
+        `"${s.school_year || ''}"`,
         `"${s.year_level || ''}"`,
         `"${s.section || ''}"`,
         `"${s.is_active}"`,
+        `"${s.inactive_reason || ''}"`,
         `"${s.parent_id || ''}"`,
         `"${s.parent_username || ''}"`,
         `"${s.parent_first_name || ''}"`,
@@ -983,7 +1062,10 @@ export default function ManageStudentAccounts() {
       program_id: student.program_id,
       year_level: yLevel,
       section: sec,
+      school_year: student.school_year || schoolYearInfo?.current || '',
       is_active: Number(student.is_active) === 1,
+      inactive_reason: student.inactive_reason || '',
+      inactive_reason_other: student.inactive_reason_other || '',
       reset_password: false,
       current_parent_id: student.parent_id,
       current_parent_name: student.parent_first_name ? `${student.parent_first_name} ${student.parent_last_name}` : '',
@@ -1015,6 +1097,7 @@ export default function ManageStudentAccounts() {
       program_id: Array.isArray(programs) && programs.length > 0 ? programs[0].program_id : '',
       year_level: '1',
       section: 'A',
+      school_year: schoolYearInfo?.current || '',
       is_active: true
     });
     setUseDefaultPassword(true);
@@ -1104,7 +1187,17 @@ export default function ManageStudentAccounts() {
               <span>Export CSV</span>
             </button>
 
-            <button 
+            <button
+              type="button"
+              className="btn-msa btn-secondary-msa"
+              onClick={() => setIsSchoolYearOpen(true)}
+              title="Set the school year, for example 2026 to 2027"
+            >
+              <CalendarRange size={18} aria-hidden="true" />
+              <span>School year: {schoolYearInfo?.current ? schoolYearText(schoolYearInfo.current) : 'not set'}</span>
+            </button>
+
+            <button
               type="button"
               className="btn-msa btn-primary-msa"
               onClick={() => { resetAddForm(); setIsAddModalOpen(true); }}
@@ -1120,6 +1213,53 @@ export default function ManageStudentAccounts() {
             <Users size={20} />
             <h2>Student Accounts List</h2>
           </div>
+
+          <div className="filters-bar-msa" role="group" aria-label="Filter student accounts">
+            <div className="filter-group-msa">
+              <label htmlFor="filter-program-msa">Program</label>
+              <select id="filter-program-msa" value={filters.program_id} onChange={(e) => setFilter('program_id', e.target.value)}>
+                <option value="">All programs</option>
+                {programs.map((p) => (
+                  <option key={p.program_id} value={p.program_id}>{p.program_id} - {p.program_name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="filter-group-msa">
+              <label htmlFor="filter-year-msa">School year</label>
+              <select id="filter-year-msa" value={filters.school_year} onChange={(e) => setFilter('school_year', e.target.value)}>
+                <option value="">All school years</option>
+                {(schoolYearInfo?.years || []).map((y) => (
+                  <option key={y.school_year} value={y.school_year}>
+                    {schoolYearText(y.school_year)}{y.is_current ? ' (current)' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="filter-group-msa">
+              <label htmlFor="filter-section-msa">Section</label>
+              <select id="filter-section-msa" value={filters.section} onChange={(e) => setFilter('section', e.target.value)}>
+                <option value="">All sections</option>
+                {SECTIONS.map((sec) => <option key={sec} value={sec}>Section {sec}</option>)}
+              </select>
+            </div>
+            <div className="filter-group-msa">
+              <label htmlFor="filter-status-msa">Status</label>
+              <select id="filter-status-msa" value={filters.status} onChange={(e) => setFilter('status', e.target.value)}>
+                <option value="">All statuses</option>
+                {STATUS_FILTERS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+              </select>
+            </div>
+            <button
+              type="button"
+              className="btn-msa btn-secondary-msa"
+              onClick={() => setFilters(NO_FILTERS)}
+              disabled={!filtersActive}
+            >
+              <X size={16} aria-hidden="true" />
+              <span>Clear filters</span>
+            </button>
+            <span className="filters-count-msa" role="status">{students.length} account(s) shown</span>
+          </div>
           <div className="table-container-msa">
             <table className="table-msa">
               <thead>
@@ -1128,6 +1268,7 @@ export default function ManageStudentAccounts() {
                   <th>Full Name</th>
                   <th>Username</th>
                   <th>Program</th>
+                  <th>School Year</th>
                   <th>Year / Section</th>
                   <th>Linked Parent</th>
                   <th>Status</th>
@@ -1146,6 +1287,7 @@ export default function ManageStudentAccounts() {
                           {student.program_id}
                         </span>
                       </td>
+                      <td>{student.school_year ? schoolYearText(student.school_year) : <span className="text-muted-msa">N/A</span>}</td>
                       <td>{student.year_level} - {student.section}</td>
                       <td>
                         {student.parent_id ? (
@@ -1170,7 +1312,7 @@ export default function ManageStudentAccounts() {
                           </span>
                         ) : (
                           <span className="badge-msa badge-danger-msa">
-                            <UserX size={12} /> Inactive
+                            <UserX size={12} /> Inactive{student.inactive_reason ? `: ${student.inactive_reason === 'Other' && student.inactive_reason_other ? student.inactive_reason_other : student.inactive_reason}` : ''}
                           </span>
                         )}
                       </td>
@@ -1198,8 +1340,8 @@ export default function ManageStudentAccounts() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan="8" className="empty-table-msa">
-                      No student accounts found.
+                    <td colSpan="9" className="empty-table-msa">
+                      {filtersActive || searchQuery ? 'No student accounts match the search and filters.' : 'No student accounts found.'}
                     </td>
                   </tr>
                 )}
@@ -1429,11 +1571,19 @@ export default function ManageStudentAccounts() {
                   <div><strong>Full Name:</strong> {selectedStudentView.first_name} {selectedStudentView.last_name}</div>
                   <div><strong>Username:</strong> {selectedStudentView.username}</div>
                   <div><strong>Program:</strong> {selectedStudentView.program_name || selectedStudentView.program_id}</div>
+                  <div><strong>School Year:</strong> {selectedStudentView.school_year ? schoolYearText(selectedStudentView.school_year) : 'N/A'}</div>
                   <div><strong>Year & Section:</strong> {selectedStudentView.year_level} - {selectedStudentView.section}</div>
                   <div>
                     <strong>Status: </strong>
                     {Number(selectedStudentView.is_active) === 1 ? 'Active' : 'Inactive'}
                   </div>
+                  {Number(selectedStudentView.is_active) !== 1 && selectedStudentView.inactive_reason && (
+                    <div>
+                      <strong>Reason: </strong>
+                      {selectedStudentView.inactive_reason === 'Other' && selectedStudentView.inactive_reason_other ? `Other - ${selectedStudentView.inactive_reason_other}` : selectedStudentView.inactive_reason}
+                      {selectedStudentView.graduated_school_year ? ` (${selectedStudentView.graduated_school_year})` : ''}
+                    </div>
+                  )}
                 </div>
 
                 <div className="section-title-msa mt-16-msa">Linked Parent Account Details</div>
@@ -1576,6 +1726,22 @@ export default function ManageStudentAccounts() {
                       <option value="A">A</option>
                       <option value="B">B</option>
                       <option value="C">C</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group-msa">
+                    <label htmlFor="add-school-year-msa">School Year *</label>
+                    <select
+                      id="add-school-year-msa"
+                      required
+                      value={studentForm.school_year}
+                      onChange={(e) => setStudentForm({ ...studentForm, school_year: e.target.value })}
+                    >
+                      {(schoolYearInfo?.years || []).map((y) => (
+                        <option key={y.school_year} value={y.school_year}>
+                          {schoolYearText(y.school_year)}{y.is_current ? ' (current)' : ''}
+                        </option>
+                      ))}
                     </select>
                   </div>
 
@@ -1849,16 +2015,65 @@ export default function ManageStudentAccounts() {
                     </select>
                   </div>
 
+                  <div className="form-group-msa">
+                    <label htmlFor="edit-school-year-msa">School Year</label>
+                    <select
+                      id="edit-school-year-msa"
+                      required
+                      value={editForm.school_year}
+                      onChange={(e) => setEditForm({ ...editForm, school_year: e.target.value })}
+                    >
+                      {[...new Set([editForm.school_year, ...(schoolYearInfo?.years || []).map((y) => y.school_year)].filter(Boolean))].map((label) => (
+                        <option key={label} value={label}>
+                          {schoolYearText(label)}{label === schoolYearInfo?.current ? ' (current)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
                   <div className="form-group-msa checkbox-group-msa">
                     <label>
                       <input
                         type="checkbox"
                         checked={editForm.is_active}
-                        onChange={(e) => setEditForm({ ...editForm, is_active: e.target.checked })}
+                        onChange={(e) => setEditForm({ ...editForm, is_active: e.target.checked, ...(e.target.checked ? { inactive_reason: '', inactive_reason_other: '' } : {}) })}
                       />
                       Is Active Account
                     </label>
                   </div>
+
+                  {!editForm.is_active && (
+                    <div className="form-group-msa col-span-2-msa">
+                      <label htmlFor="edit-inactive-reason-msa">Reason the account is inactive *</label>
+                      <select
+                        id="edit-inactive-reason-msa"
+                        required
+                        value={editForm.inactive_reason}
+                        onChange={(e) => setEditForm({ ...editForm, inactive_reason: e.target.value, inactive_reason_other: '' })}
+                        aria-describedby="edit-inactive-reason-note-msa"
+                      >
+                        <option value="">-- Select the reason --</option>
+                        <option value="Transfer">Transfer</option>
+                        {isFinalYear(editForm.program_id, editForm.year_level) && <option value="Graduated">Graduated</option>}
+                        <option value="Drop">Drop</option>
+                        <option value="Other">Other (specify)</option>
+                      </select>
+                      <small id="edit-inactive-reason-note-msa">
+                        Graduated is only offered to 2nd year strand and 4th year course students. A graduated student is kept in the screening Archive.
+                      </small>
+                      {editForm.inactive_reason === 'Other' && (
+                        <input
+                          type="text"
+                          required
+                          maxLength={150}
+                          aria-label="Specify the other reason"
+                          placeholder="Specify the reason"
+                          value={editForm.inactive_reason_other}
+                          onChange={(e) => setEditForm({ ...editForm, inactive_reason_other: e.target.value })}
+                        />
+                      )}
+                    </div>
+                  )}
 
                   <div className="form-group-msa checkbox-group-msa">
                     <label className={editForm.reset_password ? 'reset-active-msa' : ''}>
@@ -2063,6 +2278,23 @@ export default function ManageStudentAccounts() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Modal: Set School Year */}
+      {isSchoolYearOpen && (
+        <StudentSchoolYearModal
+          info={schoolYearInfo}
+          apiBase={API_BASE}
+          senderId={userId}
+          onClose={() => setIsSchoolYearOpen(false)}
+          onSaved={(data) => {
+            setIsSchoolYearOpen(false);
+            fetchSchoolYears();
+            fetchStudents(searchQuery);
+            setStudentForm(prev => ({ ...prev, school_year: data.school_year }));
+            showAlert('School Year Set', data.message, 'success');
+          }}
+        />
       )}
 
       {/* Modal: Custom Alert & Confirmation Modal */}
