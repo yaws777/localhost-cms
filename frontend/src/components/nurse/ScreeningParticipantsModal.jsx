@@ -22,6 +22,7 @@ const toMember = (st) => ({
 export default function ScreeningParticipantsModal({ schedule, programs, apiBase, senderId, onClose, onSaved, showAlert, showConfirm }) {
   const scheduleId = schedule.screening_schedule_id;
   const isMakeup = !!schedule.makeup_of;
+  const isCustom = !!schedule.folder_id; // custom folder: students from any class
   const [members, setMembers] = useState([]);
   const [savedIds, setSavedIds] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -86,15 +87,15 @@ export default function ScreeningParticipantsModal({ schedule, programs, apiBase
   const lockedClass = useMemo(() => {
     if (members.length === 0) return null;
     const keys = new Set(members.map(classKey));
-    return keys.size === 1 ? members[0] : null;
-  }, [members]);
+    return keys.size === 1 && !isCustom ? members[0] : null;
+  }, [members, isCustom]);
   const activeFilters = lockedClass
     ? { program_id: lockedClass.program_id, year_level: String(lockedClass.year_level), section: lockedClass.section }
     : filters;
 
   // students to pick from: the whole pool for the make-up search, the chosen class for a regular screening
   const loadPool = useCallback(async () => {
-    if (!isMakeup && (!activeFilters.program_id || !activeFilters.year_level)) { setPool([]); return; }
+    if (!isMakeup && !isCustom && (!activeFilters.program_id || !activeFilters.year_level)) { setPool([]); return; }
     try {
       const q = new URLSearchParams();
       if (activeFilters.program_id) q.append('program_id', activeFilters.program_id);
@@ -106,7 +107,7 @@ export default function ScreeningParticipantsModal({ schedule, programs, apiBase
       console.error('Error loading students:', err);
       setPool([]);
     }
-  }, [apiBase, isMakeup, activeFilters.program_id, activeFilters.year_level]);
+  }, [apiBase, isMakeup, isCustom, activeFilters.program_id, activeFilters.year_level]);
 
   useEffect(() => { loadPool(); }, [loadPool]);
 
@@ -116,13 +117,13 @@ export default function ScreeningParticipantsModal({ schedule, programs, apiBase
   );
 
   const visiblePool = useMemo(() => {
-    if (isMakeup || !activeFilters.section) return [];
+    if (isMakeup || (!isCustom && !activeFilters.section)) return [];
     const q = pickerSearch.trim().toLowerCase();
     return pool.filter((s) =>
-      s.section === activeFilters.section &&
+      (!activeFilters.section || s.section === activeFilters.section) &&
       (!q || `${s.first_name || ''} ${s.last_name || ''} ${s.student_id || ''}`.toLowerCase().includes(q))
     );
-  }, [pool, isMakeup, activeFilters.section, pickerSearch]);
+  }, [pool, isMakeup, isCustom, activeFilters.section, pickerSearch]);
 
   // make-up: absent students still to add, and a small search for any other student of the same class
   const absentToAdd = useMemo(() => absentees.filter((s) => !memberIds.has(s.student_id)), [absentees, memberIds]);
@@ -295,7 +296,9 @@ export default function ScreeningParticipantsModal({ schedule, programs, apiBase
           <>
             <span className="list-title-hs picker-title-hs">Add students</span>
             <p className="picker-note-hs">
-              {lockedClass
+              {isCustom
+                ? 'This screening is in a custom folder, so students from any program, year level and section can be added. Use the filters only to find students; tick the ones to add. Unticking a student removes them.'
+                : lockedClass
                 ? 'A screening is for one class, so only students of the same program, year level and section can be added. Tick the ones to add; unticking a student removes them.'
                 : 'Choose the program, year level and section to list the students, then tick the ones to add. Unticking a student removes them.'}
             </p>
@@ -303,14 +306,14 @@ export default function ScreeningParticipantsModal({ schedule, programs, apiBase
               <div className="form-group-hs">
                 <label htmlFor="part-program-hs">Academic Program</label>
                 <select id="part-program-hs" disabled={!!lockedClass} value={activeFilters.program_id} onChange={(e) => { setFilters({ program_id: e.target.value, year_level: '', section: '' }); setPickerPage(1); }}>
-                  <option value="">-- Select program --</option>
+                  <option value="">{isCustom ? '-- All programs --' : '-- Select program --'}</option>
                   {programs.map((p) => <option key={p.program_id} value={p.program_id}>{p.program_name}</option>)}
                 </select>
               </div>
               <div className="form-group-hs">
                 <label htmlFor="part-year-hs">Year Level</label>
-                <select id="part-year-hs" disabled={!!lockedClass || !activeFilters.program_id} value={activeFilters.year_level} onChange={(e) => { setFilters({ ...filters, year_level: e.target.value, section: '' }); setPickerPage(1); }}>
-                  <option value="">-- Select year --</option>
+                <select id="part-year-hs" disabled={!!lockedClass || (!isCustom && !activeFilters.program_id)} value={activeFilters.year_level} onChange={(e) => { setFilters({ ...filters, year_level: e.target.value, section: '' }); setPickerPage(1); }}>
+                  <option value="">{isCustom ? '-- All year levels --' : '-- Select year --'}</option>
                   <option value="1">1st Year</option>
                   <option value="2">2nd Year</option>
                   {String(programs.find((p) => p.program_id === activeFilters.program_id)?.type || '').toLowerCase() !== 'strand' && (
@@ -323,8 +326,8 @@ export default function ScreeningParticipantsModal({ schedule, programs, apiBase
               </div>
               <div className="form-group-hs">
                 <label htmlFor="part-section-hs">Section</label>
-                <select id="part-section-hs" disabled={!!lockedClass || !activeFilters.year_level} value={activeFilters.section} onChange={(e) => { setFilters({ ...filters, section: e.target.value }); setPickerPage(1); }}>
-                  <option value="">-- Select section --</option>
+                <select id="part-section-hs" disabled={!!lockedClass || (!isCustom && !activeFilters.year_level)} value={activeFilters.section} onChange={(e) => { setFilters({ ...filters, section: e.target.value }); setPickerPage(1); }}>
+                  <option value="">{isCustom ? '-- All sections --' : '-- Select section --'}</option>
                   {(lockedClass ? [lockedClass.section] : sections).map((sec) => <option key={sec} value={sec}>{sec}</option>)}
                 </select>
               </div>
@@ -351,7 +354,7 @@ export default function ScreeningParticipantsModal({ schedule, programs, apiBase
                 </thead>
                 <tbody>
                   {pickerData.total === 0 ? (
-                    <tr><td colSpan="3" className="empty-table-msg-hs">{activeFilters.section ? 'No students match the selected class or search.' : 'Select the program, year level and section to list the students.'}</td></tr>
+                    <tr><td colSpan="3" className="empty-table-msg-hs">{(isCustom || activeFilters.section) ? 'No students match the selected filters or search.' : 'Select the program, year level and section to list the students.'}</td></tr>
                   ) : pickerData.items.map((st) => (
                     <tr key={st.student_id}>
                       <td className="col-checkbox-hs">

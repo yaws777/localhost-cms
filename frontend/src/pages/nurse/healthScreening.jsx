@@ -4,7 +4,7 @@ import { useOutletContext } from 'react-router-dom';
 import { 
   Calendar, Clock, Users, Eye, Activity, Smile, HeartPulse, Ear, 
   X, CheckCircle, Edit3, Trash2, FileText, ArrowLeft, ArrowRight, Megaphone, Printer, Filter,
-  Play, UserRoundPlus, Download, Search, ClipboardList, BellRing, History, LogIn
+  Play, UserRoundPlus, Download, Search, ClipboardList, BellRing, History, LogIn, Plus, FolderPlus
 } from 'lucide-react';
 
 import { openReportWindow, writeReport, escapeHtml } from '../../utils/printReport';
@@ -85,7 +85,9 @@ const API_BASE = 'http://localhost:3001/api';
 // Query string for GET /api/screenings/page from the current folder / tab / type / search / dates
 const buildScreeningParams = (q) => {
   const p = new URLSearchParams();
-  if (q.view.kind === 'section') {
+  if (q.view.kind === 'custom') {
+    p.set('folder_id', String(q.view.folder_id));
+  } else if (q.view.kind === 'section') {
     p.set('program_id', q.view.program_id);
     p.set('year_level', q.view.year_level);
     p.set('section', q.view.section);
@@ -105,6 +107,7 @@ const buildScreeningParams = (q) => {
 
 const SCREENINGS_PER_PAGE = 12;
 const PARTICIPANTS_PER_PAGE = 15;
+const PICKER_PER_PAGE = 10;
 
 
 
@@ -182,10 +185,15 @@ export default function HealthScreening() {
     announcement: '',
     target_program_id: '',
     target_year_level: '',
-    target_section: ''
+    target_section: '',
+    grouping: 'SECTION', // 'SECTION' = one class (by-section folder) | 'CUSTOM' = a named folder, any mix of students
+    folder_id: '',       // existing custom folder id, or 'new'
+    folder_name: ''      // name of the new custom folder
   });
 
   const [filterStudents, setFilterStudents] = useState([]);
+  const [studentCache, setStudentCache] = useState({}); // every student seen in the picker, so picks from other filters stay listed
+  const [pickerPage, setPickerPage] = useState(1);
   const [selectedStudentIds, setSelectedStudentIds] = useState([]);
 
   // Active Schedule & Selected Student for Documentation
@@ -443,7 +451,7 @@ export default function HealthScreening() {
   }, [searchTerm]);
 
   const searching = debouncedSearch !== '';
-  const listMode = view.kind === 'section' || view.kind === 'all' || searching;
+  const listMode = view.kind === 'section' || view.kind === 'custom' || view.kind === 'all' || searching;
 
   const queryRef = useRef({});
   queryRef.current = { view, activeTab, search: debouncedSearch, filterType, filterStartDate, filterEndDate, page, schoolYear };
@@ -508,7 +516,7 @@ export default function HealthScreening() {
     fetchFolders();
     fetchCalendar();
     const q = queryRef.current;
-    const inList = q.view.kind === 'section' || q.view.kind === 'all' || q.search !== '';
+    const inList = q.view.kind === 'section' || q.view.kind === 'custom' || q.view.kind === 'all' || q.search !== '';
     if (!inList) {
       setSchedules([]);
       return;
@@ -565,8 +573,11 @@ export default function HealthScreening() {
   const openProgram = (p) => { setView({ kind: 'program', program_id: p.program_id, program_name: p.program_name }); setSearchTerm(''); };
   const openSection = (p, s) => { setClassTab('screenings'); setView({ kind: 'section', program_id: p.program_id, program_name: p.program_name, year_level: s.year_level, section: s.section }); setSearchTerm(''); };
 
+  const openCustomFolder = (f) => { setView({ kind: 'custom', folder_id: f.folder_id, folder_name: f.name }); setSearchTerm(''); };
+
   const crumbTrail = (() => {
     const trail = [{ label: 'Health Screening', onClick: goRoot }];
+    if (view.kind === 'custom') trail.push({ label: view.folder_name });
     if (view.kind === 'program' || view.kind === 'section') {
       trail.push({
         label: view.program_id,
@@ -576,7 +587,7 @@ export default function HealthScreening() {
     if (view.kind === 'section') trail.push({ label: sectionFolderName(view.program_id, view) });
     if (view.kind === 'all') trail.push({ label: 'All screenings' });
     if (view.kind === 'archive') trail.push({ label: 'Archive (graduated)' });
-    if (searching && view.kind !== 'section' && view.kind !== 'all') trail.push({ label: `Search: "${debouncedSearch}"` });
+    if (searching && view.kind !== 'section' && view.kind !== 'custom' && view.kind !== 'all') trail.push({ label: `Search: "${debouncedSearch}"` });
     return trail;
   })();
 
@@ -596,6 +607,14 @@ export default function HealthScreening() {
       subtitle: p.program_name,
       counts: p,
       onClick: () => openProgram(p)
+    }));
+    (folders.custom_folders || []).forEach(f => items.push({
+      key: `custom-${f.folder_id}`,
+      variant: 'custom',
+      title: f.name,
+      subtitle: 'Custom folder',
+      counts: f,
+      onClick: () => openCustomFolder(f)
     }));
     items.push({
       key: 'archive',
@@ -644,10 +663,13 @@ export default function HealthScreening() {
     }
   };
 
+  const isCustomGrouping = scheduleForm.grouping === 'CUSTOM';
+
   const handleFilterStudents = useCallback(async () => {
     try {
-      // a screening is for one class: nothing is listed until the program and the year level are chosen
-      if (!scheduleForm.target_program_id || !scheduleForm.target_year_level) {
+      // by section: a screening is for one class, so nothing is listed until the program and the year level are chosen.
+      // custom folder: the program and year level are only filters, everyone can be listed.
+      if (!isCustomGrouping && (!scheduleForm.target_program_id || !scheduleForm.target_year_level)) {
         setFilterStudents([]);
         return;
       }
@@ -661,25 +683,34 @@ export default function HealthScreening() {
 
       const studentArray = Array.isArray(data) ? data : (data.students || data.data || []);
       setFilterStudents(studentArray);
+      setStudentCache(prev => {
+        const next = { ...prev };
+        studentArray.forEach(st => { next[st.student_id] = st; });
+        return next;
+      });
     } catch (err) {
       console.error('Error filtering students:', err);
       setFilterStudents([]);
     }
-  }, [scheduleForm.target_program_id, scheduleForm.target_year_level]);
+  }, [scheduleForm.target_program_id, scheduleForm.target_year_level, isCustomGrouping]);
 
   // The sections to pick from are the ones the chosen program / year really has; the section and the search then narrow the list.
   const sectionOptions = Array.from(new Set(filterStudents.map(st => st.section).filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b)));
   const pickerQuery = pickerSearch.trim().toLowerCase();
-  const visibleStudents = !scheduleForm.target_section ? [] : filterStudents.filter(st =>
-    st.section === scheduleForm.target_section &&
+  const visibleStudents = (!isCustomGrouping && !scheduleForm.target_section) ? [] : filterStudents.filter(st =>
+    (!scheduleForm.target_section || st.section === scheduleForm.target_section) &&
     (!pickerQuery || `${st.first_name || ''} ${st.last_name || ''} ${st.student_id || ''}`.toLowerCase().includes(pickerQuery))
   );
+  const pickerPageData = paginate(visibleStudents, pickerPage, PICKER_PER_PAGE);
+  const pickedStudents = selectedStudentIds.map(id => studentCache[id]).filter(Boolean);
 
   useEffect(() => {
     if (showStudentSelectModal) {
       handleFilterStudents();
     }
   }, [showStudentSelectModal, handleFilterStudents]);
+
+  useEffect(() => { setPickerPage(1); }, [scheduleForm.target_program_id, scheduleForm.target_year_level, scheduleForm.target_section, pickerSearch]);
 
   const handleNextToStudents = (e) => {
     e.preventDefault();
@@ -697,6 +728,17 @@ export default function HealthScreening() {
     if (scheduleForm.end_time <= scheduleForm.start_time) {
       showAlert('End time must be after start time.', 'Invalid Time Range', 'warning');
       return;
+    }
+
+    if (isCustomGrouping) {
+      if (!scheduleForm.folder_id) {
+        showAlert('Choose a folder, or create a new one.', 'Folder Required', 'warning');
+        return;
+      }
+      if (scheduleForm.folder_id === 'new' && !scheduleForm.folder_name.trim()) {
+        showAlert('Type a name for the new folder.', 'Folder Name Required', 'warning');
+        return;
+      }
     }
 
     setShowScheduleModal(false);
@@ -732,7 +774,13 @@ export default function HealthScreening() {
       const res = await fetch(`${API_BASE}/screenings`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...scheduleForm, student_ids: selectedStudentIds, sender_id: userId })
+        body: JSON.stringify({
+          ...scheduleForm,
+          folder_id: scheduleForm.folder_id === 'new' ? '' : scheduleForm.folder_id,
+          folder_name: scheduleForm.folder_id === 'new' ? scheduleForm.folder_name.trim() : '',
+          student_ids: selectedStudentIds,
+          sender_id: userId
+        })
       });
 
       const data = await res.json();
@@ -1269,7 +1317,8 @@ export default function HealthScreening() {
   const resetScheduleForm = () => {
     setScheduleForm({
       title: '', screening_type: activeTypes[0]?.name || '', scheduled_date: '', start_time: '', end_time: '',
-      announcement: '', target_program_id: '', target_year_level: '', target_section: ''
+      announcement: '', target_program_id: '', target_year_level: '', target_section: '',
+      grouping: 'SECTION', folder_id: '', folder_name: ''
     });
     setSelectedStudentIds([]);
     setPickerSearch('');
@@ -1280,6 +1329,48 @@ export default function HealthScreening() {
     resetScheduleForm();
     setScheduleForm(prev => ({ ...prev, scheduled_date: day }));
     setShowScheduleModal(true);
+  };
+
+  // "New screening" button: inside a custom folder the form starts on that folder
+  const openNewScreening = () => {
+    resetScheduleForm();
+    if (view.kind === 'custom') {
+      setScheduleForm(prev => ({ ...prev, grouping: 'CUSTOM', folder_id: String(view.folder_id) }));
+    }
+    setShowScheduleModal(true);
+  };
+
+  // switching between by-section and custom starts the student picks again (the class rule differs)
+  const changeGrouping = (grouping) => {
+    if (grouping === scheduleForm.grouping) return;
+    setSelectedStudentIds([]);
+    setPickerSearch('');
+    setScheduleForm(prev => ({
+      ...prev, grouping, target_program_id: '', target_year_level: '', target_section: '',
+      folder_id: grouping === 'CUSTOM' ? prev.folder_id : '', folder_name: grouping === 'CUSTOM' ? prev.folder_name : ''
+    }));
+  };
+
+  const handleDeleteFolder = () => {
+    showConfirm(
+      `Delete the folder "${view.folder_name}"? It has no screenings. This cannot be undone.`,
+      async () => {
+        try {
+          const res = await fetch(`${API_BASE}/screening-folders/${view.folder_id}?sender_id=${encodeURIComponent(userId || '')}`, { method: 'DELETE' });
+          const data = await res.json();
+          if (res.ok) {
+            goRoot();
+            fetchFolders();
+            showAlert('Folder deleted.', 'Deleted', 'success');
+          } else {
+            showAlert(data.error || 'Failed to delete the folder.', 'Error', 'error');
+          }
+        } catch (err) {
+          showAlert('Failed to delete the folder.', 'Error', 'error');
+        }
+      },
+      'Delete Folder', 'Yes, Delete', 'Keep'
+    );
   };
 
   // the end time passed and nobody confirmed the end yet: the screening stays on going, with a question
@@ -1413,6 +1504,19 @@ export default function HealthScreening() {
 
       {/* Folders: Program > Year-Section */}
       {mainView === 'screenings' && <FolderCrumbs trail={crumbTrail} />}
+
+      {mainView === 'screenings' && view.kind !== 'archive' && (
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', margin: '0.5rem 0' }}>
+          <button type="button" className="btn-hs btn-primary-hs" onClick={openNewScreening}>
+            <Plus size={16} aria-hidden="true" /> New screening{view.kind === 'custom' ? ' in this folder' : ''}
+          </button>
+          {view.kind === 'custom' && tabCounts && tabCounts.total === 0 && (
+            <button type="button" className="btn-hs btn-danger-hs" onClick={handleDeleteFolder}>
+              <Trash2 size={16} aria-hidden="true" /> Delete empty folder
+            </button>
+          )}
+        </div>
+      )}
 
       {mainView === 'screenings' && view.kind === 'archive' && (
         <ScreeningArchive apiBase={API_BASE} programs={programs} onOpenRecords={openStudentRecords} />
@@ -1683,6 +1787,48 @@ export default function HealthScreening() {
                 />
               </div>
 
+              <fieldset className="form-group-hs" style={{ border: '1px solid var(--card-border)', borderRadius: '0.5rem', padding: '0.75rem' }}>
+                <legend style={{ padding: '0 0.25rem', fontWeight: 600 }}>Group this screening</legend>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minHeight: '2.75rem' }}>
+                  <input type="radio" name="hs-grouping" checked={!isCustomGrouping} onChange={() => changeGrouping('SECTION')} />
+                  <span><strong>By section</strong> - one class (program, year level and section). It goes in that section&apos;s folder.</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minHeight: '2.75rem' }}>
+                  <input type="radio" name="hs-grouping" checked={isCustomGrouping} onChange={() => changeGrouping('CUSTOM')} />
+                  <span><strong>Custom folder</strong> - any students, from different programs, year levels and sections (e.g. sports fest players).</span>
+                </label>
+
+                {isCustomGrouping && (
+                  <div style={{ marginTop: '0.5rem' }}>
+                    <label htmlFor="hs-folder-pick">Folder</label>
+                    <select
+                      id="hs-folder-pick"
+                      required
+                      value={scheduleForm.folder_id}
+                      onChange={e => setScheduleForm({ ...scheduleForm, folder_id: e.target.value })}
+                    >
+                      <option value="">-- Select a folder --</option>
+                      {(folders.custom_folders || []).map(f => <option key={f.folder_id} value={String(f.folder_id)}>{f.name}</option>)}
+                      <option value="new">+ Create a new folder...</option>
+                    </select>
+                    {scheduleForm.folder_id === 'new' && (
+                      <div style={{ marginTop: '0.5rem' }}>
+                        <label htmlFor="hs-folder-name">New folder name</label>
+                        <input
+                          id="hs-folder-name"
+                          type="text"
+                          required
+                          maxLength={80}
+                          value={scheduleForm.folder_name}
+                          onChange={e => setScheduleForm({ ...scheduleForm, folder_name: e.target.value })}
+                          placeholder="e.g. Sportsfest Player Screening"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </fieldset>
+
               <div className="form-group-hs">
                 <label htmlFor="hs-fld-2">Screening Type</label>
                 <select id="hs-fld-2"
@@ -1787,18 +1933,20 @@ export default function HealthScreening() {
           <form onSubmit={handleCreateSchedule} className="modal-form-hs">
             <div className="modal-body-hs">
               <p className="picker-note-hs">
-                A screening is for one class: choose the program, the year level and the section, then tick the students who take part. Everyone in a screening must be from the same program, year level and section; changing the class clears the ticks.
+                {isCustomGrouping
+                  ? `Folder: ${scheduleForm.folder_id === 'new' ? scheduleForm.folder_name.trim() : ((folders.custom_folders || []).find(f => String(f.folder_id) === String(scheduleForm.folder_id))?.name || '')}. Students can come from different programs, year levels and sections. Use the program, year level and section only to find students; the ticks stay when you change them. Everyone ticked is listed under "Selected students".`
+                  : 'A screening is for one class: choose the program, the year level and the section, then tick the students who take part. Everyone in a screening must be from the same program, year level and section; changing the class clears the ticks.'}
               </p>
               <div className="picker-bar-hs">
                 <div className="form-group-hs">
                   <label htmlFor="pick-program-hs">Academic Program</label>
                   <select
                     id="pick-program-hs"
-                    required
+                    required={!isCustomGrouping}
                     value={scheduleForm.target_program_id}
-                    onChange={e => { setSelectedStudentIds([]); setScheduleForm({...scheduleForm, target_program_id: e.target.value, target_year_level: '', target_section: ''}); }}
+                    onChange={e => { if (!isCustomGrouping) setSelectedStudentIds([]); setScheduleForm({...scheduleForm, target_program_id: e.target.value, target_year_level: '', target_section: ''}); }}
                   >
-                    <option value="">-- Select program --</option>
+                    <option value="">{isCustomGrouping ? '-- All programs --' : '-- Select program --'}</option>
                     {programs.map(p => <option key={p.program_id} value={p.program_id}>{p.program_name}</option>)}
                   </select>
                 </div>
@@ -1806,12 +1954,12 @@ export default function HealthScreening() {
                   <label htmlFor="pick-year-hs">Year Level</label>
                   <select
                     id="pick-year-hs"
-                    required
-                    disabled={!scheduleForm.target_program_id}
+                    required={!isCustomGrouping}
+                    disabled={!isCustomGrouping && !scheduleForm.target_program_id}
                     value={scheduleForm.target_year_level}
-                    onChange={e => { setSelectedStudentIds([]); setScheduleForm({...scheduleForm, target_year_level: e.target.value, target_section: ''}); }}
+                    onChange={e => { if (!isCustomGrouping) setSelectedStudentIds([]); setScheduleForm({...scheduleForm, target_year_level: e.target.value, target_section: ''}); }}
                   >
-                    <option value="">-- Select year --</option>
+                    <option value="">{isCustomGrouping ? '-- All year levels --' : '-- Select year --'}</option>
                     <option value="1">1st Year</option>
                     <option value="2">2nd Year</option>
                     {String(programs.find(p => p.program_id === scheduleForm.target_program_id)?.type || '').toLowerCase() !== 'strand' && (
@@ -1826,12 +1974,12 @@ export default function HealthScreening() {
                   <label htmlFor="pick-section-hs">Section</label>
                   <select
                     id="pick-section-hs"
-                    required
-                    disabled={!scheduleForm.target_year_level}
+                    required={!isCustomGrouping}
+                    disabled={!isCustomGrouping && !scheduleForm.target_year_level}
                     value={scheduleForm.target_section}
-                    onChange={e => { setSelectedStudentIds([]); setScheduleForm({...scheduleForm, target_section: e.target.value}); }}
+                    onChange={e => { if (!isCustomGrouping) setSelectedStudentIds([]); setScheduleForm({...scheduleForm, target_section: e.target.value}); }}
                   >
-                    <option value="">-- Select section --</option>
+                    <option value="">{isCustomGrouping ? '-- All sections --' : '-- Select section --'}</option>
                     {sectionOptions.map(sec => <option key={sec} value={sec}>{sec}</option>)}
                   </select>
                 </div>
@@ -1873,11 +2021,11 @@ export default function HealthScreening() {
                       {visibleStudents.length === 0 ? (
                         <tr>
                           <td colSpan="3" className="empty-table-msg-hs">
-                            {scheduleForm.target_section ? 'No students match the selected class or search.' : 'Select the program, year level and section to list the students.'}
+                            {(isCustomGrouping || scheduleForm.target_section) ? 'No students match the selected filters or search.' : 'Select the program, year level and section to list the students.'}
                           </td>
                         </tr>
                       ) : (
-                        visibleStudents.map(st => (
+                        pickerPageData.items.map(st => (
                           <tr key={st.student_id}>
                             <td className="col-checkbox-hs">
                               <input
@@ -1898,7 +2046,43 @@ export default function HealthScreening() {
                     </tbody>
                   </table>
                 </div>
+                <Pager page={pickerPageData.page} pageCount={pickerPageData.pageCount} total={pickerPageData.total} pageSize={PICKER_PER_PAGE} onPage={setPickerPage} noun="students" />
               </div>
+
+              {isCustomGrouping && (
+                <div className="student-select-list-hs">
+                  <span className="list-title-hs" role="status">Selected students ({selectedStudentIds.length})</span>
+                  {pickedStudents.length === 0 ? (
+                    <p className="hint-hs">No student selected yet.</p>
+                  ) : (
+                    <div className="table-wrapper-hs">
+                      <table className="table-hs">
+                        <thead>
+                          <tr><th scope="col">Student Name</th><th scope="col">Class</th><th scope="col">Action</th></tr>
+                        </thead>
+                        <tbody>
+                          {pickedStudents.map(st => (
+                            <tr key={st.student_id}>
+                              <td>{st.first_name} {st.last_name}</td>
+                              <td>{classLabel(st.program_id, st.year_level, st.section)}</td>
+                              <td>
+                                <button
+                                  type="button"
+                                  className="btn-hs btn-danger-hs"
+                                  aria-label={`Remove ${st.first_name} ${st.last_name}`}
+                                  onClick={() => setSelectedStudentIds(prev => prev.filter(id => id !== st.student_id))}
+                                >
+                                  <X size={16} aria-hidden="true" /> Remove
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="modal-footer-hs">

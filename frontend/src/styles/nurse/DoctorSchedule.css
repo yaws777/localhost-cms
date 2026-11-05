@@ -207,6 +207,7 @@
 .badge-open-ds { background: var(--status-adequate-bg); color: var(--status-adequate-text); }
 .badge-closed-ds { background: var(--status-critical-bg); color: var(--status-critical-text); }
 .badge-expired-ds { background: var(--bg-muted); color: var(--text-secondary); }
+.badge-done-ds { background: var(--sti-blue-light); color: var(--text-brand); }
 .badge-pending-ds { background: var(--status-low-bg); color: var(--status-low-text); }
 
 .count-pill-ds {

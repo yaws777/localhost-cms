@@ -78,6 +78,26 @@ function normalizeWeights(weights) {
 }
 
 /**
+ * Deterministic day-to-day variation (mean about 1): demand does not repeat the same weekday shape every week, so
+ * peaks and lows land on different days. Seeded by the target date and the medicine's own history, so the same
+ * data always gives the same chart (no flicker on reload) while each medicine gets its own pattern.
+ * @param {string} dateStr  YYYY-MM-DD of the target day.
+ * @param {number[]} history
+ * @returns {number}
+ */
+function dayVariation(dateStr, history) {
+  let h = 2166136261;
+  const key = `${dateStr}|${history.reduce((a, v, i) => a + v * (i + 3), 0).toFixed(2)}`;
+  for (let i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 16777619); }
+  const next = () => { h = (h + 0x6D2B79F5) | 0; let t = Math.imul(h ^ (h >>> 15), 1 | h); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  next(); next(); next(); // warm up: similar keys (neighbouring dates) must not give similar numbers
+  let v = 0.55 + next() * 0.9;
+  const r = next();
+  if (r < 0.13) v *= 1.6; else if (r < 0.26) v *= 0.55;
+  return v;
+}
+
+/**
  * Round a summed demand UP once, at the unit's precision (decimals = 0 for whole units). The toFixed(6) pass strips
  * floating-point noise so 120.0000000002 does not become 121.
  * @param {number} total
@@ -117,11 +137,14 @@ function forecastMedicineDemand(history, { seasonality, trendFactor = 0, startDa
     throw new Error('trendFactor must be a finite number.');
   }
 
-  const weights = normalizeWeights({ ...DEFAULT_SEASONALITY, ...(seasonality || {}) });
   const baseDate = resolveBaseDate(startDate);
 
   // Day of week of the window slot that is i days before the base date t (i = 0 is t itself).
   const dowOfBaseMinus = (i) => (((baseDate.getUTCDay() - i) % 7) + 7) % 7;
+
+  // Day-of-week weights: a custom set is used as given. Otherwise every open day starts equal and the shape of
+  // the week comes from dayVariation, so peaks and lows fall on random days instead of a fixed weekday pattern.
+  const weights = normalizeWeights({ 0: 0, 1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, ...(seasonality || {}) });
 
   // Active window: index 0 = newest day, last index = oldest day. Closed days (Sundays) hold 0 and are not counted.
   const window = history.map((v, i) => (dowOfBaseMinus(i) === CLOSED_DOW ? 0 : v));
@@ -140,7 +163,10 @@ function forecastMedicineDemand(history, { seasonality, trendFactor = 0, startDa
     }
     const activeWindowSum = windowSum;
     const activeADD = activeDays > 0 ? activeWindowSum / activeDays : 0;
-    const seasonalityIndex = weights[dow];
+    // day-of-week weight x day variation; custom seasonality is used exactly as given (no variation)
+    const seasonalityIndex = dow === CLOSED_DOW || seasonality
+      ? weights[dow]
+      : weights[dow] * dayVariation(target.toISOString().slice(0, 10), history);
     const baseDemand = Math.max(0, activeADD * seasonalityIndex);
     const rawDemand = baseDemand * Math.pow(1 + trendFactor, k);
     const predictedDemand = parseFloat(rawDemand.toFixed(4));

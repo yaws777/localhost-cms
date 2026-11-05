@@ -9,7 +9,6 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { CalendarDays, ListChecks, Users, Lightbulb, CalendarClock, MessagesSquare } from 'lucide-react';
 import { DoctorAvailability } from '../nurse/DoctorAvailability';
-import UnavailableDates from '../doctor/UnavailableDates';
 import ScheduleCalendar from './ScheduleCalendar';
 import WaitingList from './WaitingList';
 import AdvanceListing from './AdvanceListing';
@@ -118,29 +117,25 @@ const SchedulingHub = ({ role, doctors, fixedDoctorId, nurseId, userId, initialT
             )}
 
             {tab === 'schedules' && (
-                <>
-                    <DoctorAvailability
-                        doctors={doctorList} creator={creator} userId={userId} refreshKey={refreshKey} onChanged={changed}
-                        prefill={prefill} onPrefillUsed={prefillUsed} onAppointFromWaiting={appointFromWaiting} role={role}
-                    />
-                    {role === 'doctor' && (
-                        <div style={{ marginTop: 18 }}>
-                            <UnavailableDates doctors={doctorList} fixedDoctorId={fixedDoctorId} userId={userId} onChanged={changed} />
-                        </div>
-                    )}
-                </>
+                <DoctorAvailability
+                    doctors={doctorList} creator={creator} userId={userId} refreshKey={refreshKey} onChanged={changed}
+                    prefill={prefill} onPrefillUsed={prefillUsed} onAppointFromWaiting={appointFromWaiting} role={role}
+                />
             )}
 
             {tab === 'waiting' && (
                 <>
-                    <div className="listing-mode-sc" role="group" aria-label="Listing type">
-                        {[['advance', 'Advance Listing', '(No Schedule Yet)'], ['sessions', 'Session Listing', '(With Already Schedule)']].map(([key, label, note]) => (
-                            <button key={key} type="button" className={`status-chip-sc ${listingMode === key ? 'active-sc' : ''}`} aria-pressed={listingMode === key} onClick={() => setListingMode(key)}>
-                                {label} <span className="paren-sc">{note}</span>
-                            </button>
-                        ))}
-                    </div>
-                    {listingMode === 'advance' ? (
+                    {/* the advance listing is the nurse's: the doctor only sees the session listings */}
+                    {role === 'nurse' && (
+                        <div className="listing-mode-sc" role="group" aria-label="Listing type">
+                            {[['advance', 'Advance Listing', '(No Schedule Yet)'], ['sessions', 'Session Listing', '(With Already Schedule)']].map(([key, label, note]) => (
+                                <button key={key} type="button" className={`status-chip-sc ${listingMode === key ? 'active-sc' : ''}`} aria-pressed={listingMode === key} onClick={() => setListingMode(key)}>
+                                    {label} <span className="paren-sc">{note}</span>
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                    {role === 'nurse' && listingMode === 'advance' ? (
                         <AdvanceListing
                             isNurse={role === 'nurse'} doctors={doctorList} nurseId={nurseId} userId={userId} refreshKey={refreshKey} onChanged={changed}
                         />
@@ -158,7 +153,7 @@ const SchedulingHub = ({ role, doctors, fixedDoctorId, nurseId, userId, initialT
             )}
 
             {tab === 'assistant' && (
-                <SchedulingAssistant fixedDoctorId={fixedDoctorId} refreshKey={refreshKey} onUseSuggestion={useSuggestion} onGoTab={goTab} role={role} />
+                <SchedulingAssistant fixedDoctorId={fixedDoctorId} refreshKey={refreshKey} onUseSuggestion={role === 'doctor' ? undefined : useSuggestion} onGoTab={goTab} role={role} />
             )}
 
             {tab === 'chat' && <StaffChat userId={userId} onUnreadChange={setChatUnread} />}

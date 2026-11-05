@@ -4,7 +4,7 @@
 // number is being served; the nurse can also decline with a reason.
 import React, { useState, useEffect, useCallback } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { ClipboardList, X, Clock, Info, Stethoscope, MapPin, Repeat, FileText } from 'lucide-react';
+import { ClipboardList, X, Clock, Info, Stethoscope, MapPin, Repeat, FileText, Bell, Footprints } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatDateTime } from '../../utils/datetime';
 import { visitLabel, reasonPlaceholder } from '../../utils/visitPurpose';
@@ -17,6 +17,8 @@ const API = 'http://localhost:3001';
 
 const EMPTY_REQUEST = { visit_type: '', reason: '', preferred_note: '' };
 const FINISHED = ['Missed', 'Denied', 'Withdrawn']; // a fulfilled request shows under Past check-ups
+const LIVE_REFRESH_MS = 10000;
+const UPDATE_TYPES = /^(ADVANCE_LISTING|CONSULTATION_|QUEUE_|APPOINTMENT_|BOOKING_|SCHEDULE_UPDATE|ASSESSMENT_|DOCTOR_VISIT)/;
 
 const statusClass = (status) => `status-${String(status).toLowerCase().replace(/\s+/g, '-')}-bc`;
 
@@ -35,6 +37,7 @@ const BookCheckup = () => {
     const [advanceBusy, setAdvanceBusy] = useState(false);
     const [advanceOpen, setAdvanceOpen] = useState(false); // the request form opens only from the button
     const [history, setHistory] = useState([]);
+    const [updates, setUpdates] = useState([]);
     const [checkups, setCheckups] = useState({ past: [], scheduled: [], waiting: [] }); // repeats + past check-ups with their assessment
     const [assessmentOf, setAssessmentOf] = useState(null);
     const [requestFor, setRequestFor] = useState(null); // the listing the student is asking a place in
@@ -60,27 +63,55 @@ const BookCheckup = () => {
         } catch (e) { /* the section says the advance listing is not available */ }
     }, [studentId]);
 
-    const fetchHistory = useCallback(async () => {
+    // `silent` = a background refresh: no error alert
+    const fetchHistory = useCallback(async (silent = false) => {
         if (!studentId) return;
         try {
             const res = await fetch(`${API}/api/student/${studentId}/consultation-requests`);
             const data = await res.json();
             if (data.success) setHistory(data.requests.filter((r) => FINISHED.includes(r.status)));
-        } catch (e) { showAlert('Could not load your check-up history.', 'error'); }
+        } catch (e) { if (!silent) showAlert('Could not load your check-up history.', 'error'); }
     }, [studentId, showAlert]);
 
-    const fetchCheckups = useCallback(async () => {
+    const fetchCheckups = useCallback(async (silent = false) => {
         if (!studentId) return;
         try {
             const res = await fetch(`${API}/api/student/${studentId}/checkup-history`);
             const data = await res.json();
             if (data.success) setCheckups({ past: data.past, scheduled: data.scheduled, waiting: data.waiting });
-        } catch (e) { showAlert('Could not load your repeats and past check-ups.', 'error'); }
+        } catch (e) { if (!silent) showAlert('Could not load your repeats and past check-ups.', 'error'); }
     }, [studentId, showAlert]);
 
-    useEffect(() => { fetchListings(); fetchHistory(); fetchAdvance(); fetchCheckups(); }, [fetchListings, fetchHistory, fetchAdvance, fetchCheckups]);
+    // the latest check-up news (accepted, declined, moved to a session, cut off, schedule cancelled, called, result ready)
+    const fetchUpdates = useCallback(async () => {
+        if (!studentId) return;
+        try {
+            const res = await fetch(`${API}/api/notifications/student/${studentId}`);
+            const data = await res.json();
+            if (data.success) setUpdates((data.data || []).filter((n) => UPDATE_TYPES.test(n.type || '')).slice(0, 6));
+        } catch (e) { /* the list is a convenience */ }
+    }, [studentId]);
 
-    const reloadAll = () => { refresh(); fetchHistory(); fetchListings(); fetchAdvance(); fetchCheckups(); };
+    useEffect(() => { fetchListings(); fetchHistory(); fetchAdvance(); fetchCheckups(); fetchUpdates(); }, [fetchListings, fetchHistory, fetchAdvance, fetchCheckups, fetchUpdates]);
+
+    // everything on this page follows the clinic live: the queue hook polls by itself, the rest is refreshed every 10 s and when the tab comes back
+    useEffect(() => {
+        if (!studentId) return undefined;
+        const tick = () => {
+            if (document.hidden) return;
+            fetchListings(); fetchHistory(true); fetchAdvance(); fetchCheckups(true); fetchUpdates();
+        };
+        const timer = setInterval(tick, LIVE_REFRESH_MS);
+        window.addEventListener('focus', tick);
+        document.addEventListener('visibilitychange', tick);
+        return () => {
+            clearInterval(timer);
+            window.removeEventListener('focus', tick);
+            document.removeEventListener('visibilitychange', tick);
+        };
+    }, [studentId, fetchListings, fetchHistory, fetchAdvance, fetchCheckups, fetchUpdates]);
+
+    const reloadAll = () => { refresh(); fetchHistory(); fetchListings(); fetchAdvance(); fetchCheckups(); fetchUpdates(); };
 
     const registerAdvance = async (e) => {
         e.preventDefault();
@@ -192,21 +223,32 @@ const BookCheckup = () => {
                 ) : (
                     <>
                         <p className="muted-bc" style={{ marginBottom: 12 }}>Register before a doctor sets a schedule. You get the first queue numbers.</p>
-                        {advance.mine && (
+                        {advance.mine && advance.mine.status === 'Scheduled' && (
+                            <div className="booking-card-bc announce-bc" style={{ marginBottom: 14 }}>
+                                <div className="booking-top-bc">
+                                    <strong>{advance.mine.visit_type}: moved to the Session Listing</strong>
+                                    <span className="tag-bc">Scheduled</span>
+                                </div>
+                                <div className="booking-line-bc"><Info size={14} /> A doctor set a schedule, so you left the advance listing. Your queue number is under Session Listing. If the doctor cancels the schedule, you come back here.</div>
+                            </div>
+                        )}
+                        {advance.mine && advance.mine.status !== 'Scheduled' && (
                             <div className="booking-card-bc announce-bc" style={{ marginBottom: 14 }}>
                                 <div className="booking-top-bc">
                                     <strong>{advance.mine.visit_type}{advance.mine.label ? `: advance number ${advance.mine.label}` : ''}</strong>
-                                    <span className="tag-bc">{advance.mine.status === 'Pending' ? 'Under review' : advance.mine.status === 'Waiting' ? 'Waiting for a schedule' : `Queue number ${advance.mine.queue_label || ''}`}</span>
+                                    <span className="tag-bc">{advance.mine.status === 'Pending' ? 'Under review' : advance.mine.status === 'Waiting' ? 'Waiting for a schedule' : advance.mine.status === 'Cutoff' ? 'Cut off' : `Queue number ${advance.mine.queue_label || ''}`}</span>
                                 </div>
                                 <div className="booking-reason-bc">Reason: {advance.mine.reason}</div>
                                 {advance.mine.status === 'Scheduled' && advance.mine.session_date ? (
                                     <div className="booking-line-bc"><Clock size={14} /> {advance.mine.doctor_name}, {formatDate(advance.mine.session_date)}, {to12h(advance.mine.session_start)} - {to12h(advance.mine.session_end)}{advance.mine.location ? ` (${advance.mine.location})` : ''}</div>
                                 ) : advance.mine.status === 'Pending' ? (
                                     <div className="booking-line-bc"><Info size={14} /> The nurse is reviewing your request.</div>
+                                ) : advance.mine.status === 'Cutoff' ? (
+                                    <div className="booking-line-bc"><Info size={14} /> The session{advance.mine.cutoff_doctor_name ? ` of ${advance.mine.cutoff_doctor_name}` : ''}{advance.mine.cutoff_date ? ` on ${formatDate(advance.mine.cutoff_date)}` : ''} reached its listing limit, so you were cut off. The nurse moves you to the next advance listing. You can still ask for a place in an open session listing.</div>
                                 ) : (
                                     <div className="booking-line-bc"><Info size={14} /> Waiting for a doctor's schedule.</div>
                                 )}
-                                {(advance.mine.status === 'Waiting' || advance.mine.status === 'Pending') && (
+                                {(advance.mine.status === 'Waiting' || advance.mine.status === 'Pending' || advance.mine.status === 'Cutoff') && (
                                     <div className="booking-actions-bc"><button type="button" className="btn-bc btn-danger-bc" onClick={() => leaveAdvance(advance.mine)}>Cancel the advance listing</button></div>
                                 )}
                             </div>
@@ -226,9 +268,32 @@ const BookCheckup = () => {
 
             <section className="section-bc" aria-label="Session Listing (With Already Schedule)">
                 <h3>Session Listing <span className="paren-bc">(With Already Schedule)</span></h3>
+                {advance?.mine?.status === 'Cutoff' && (
+                    <div className="booking-card-bc announce-bc" style={{ marginBottom: 14 }}>
+                        <div className="booking-top-bc">
+                            <strong>Cut off by the listing limit</strong>
+                            <span className="tag-bc">Cut off</span>
+                        </div>
+                        <div className="booking-line-bc"><Info size={14} /> {advance.mine.cutoff_doctor_name ? `${advance.mine.cutoff_doctor_name}'s` : 'The'} session{advance.mine.cutoff_date ? ` on ${formatDate(advance.mine.cutoff_date)}` : ''} had no place left for you. Ask for a place in another open listing below, or wait for the nurse to move you to the next advance listing.</div>
+                    </div>
+                )}
                 {!listingsLoaded ? (
                     <div className="empty-bc">Loading...</div>
-                ) : inAdvance ? (
+                ) : advance?.mine?.status === 'Scheduled' ? (
+                    <div className="booking-card-bc announce-bc">
+                        <div className="booking-top-bc">
+                            <strong>{advance.mine.visit_type} session</strong>
+                            <span className="tag-bc">{advance.mine.queue_label ? `Your number: ${advance.mine.queue_label}` : 'You have a place'}</span>
+                        </div>
+                        <div className="booking-line-bc"><Info size={14} /> Moved here from the advance listing{advance.mine.label ? ` (${advance.mine.label})` : ''}.</div>
+                        {advance.mine.doctor_name && <div className="booking-line-bc"><Stethoscope size={14} /> {advance.mine.doctor_name}</div>}
+                        {advance.mine.session_date && (
+                            <div className="booking-line-bc"><Clock size={14} /> {formatDate(advance.mine.session_date)}, {to12h(advance.mine.session_start)} - {to12h(advance.mine.session_end)}</div>
+                        )}
+                        {advance.mine.location && <div className="booking-line-bc"><MapPin size={14} /> {advance.mine.location}</div>}
+                        <div className="muted-bc">Follow your number under My place in line.</div>
+                    </div>
+                ) : inAdvance && advance?.mine?.status !== 'Cutoff' ? (
                     <div className="empty-bc">
                         <ClipboardList size={28} />
                         <p>You are in the advance listing.</p>
@@ -253,6 +318,7 @@ const BookCheckup = () => {
                                     <Info size={14} /> {l.accepted} of {l.listing_limit} accepted
                                     {l.advance > 0 ? ` (${l.places_left} left)` : ''}
                                 </div>
+                                <div className="booking-line-bc"><Footprints size={14} /> {l.allow_walk_in === false ? 'No walk-in' : 'Walk-ins accepted'}</div>
                                 {l.notes && <div className="muted-bc">{l.notes}</div>}
                                 <div className="booking-actions-bc">
                                     <button type="button" className="btn-bc btn-primary-bc" disabled={!l.can_request} onClick={() => openRequestForm(l)}>
@@ -267,6 +333,23 @@ const BookCheckup = () => {
 
             </div>
             <div className="col-bc">
+            {updates.length > 0 && (
+                <section className="section-bc" aria-label="Latest updates" aria-live="polite">
+                    <h3><Bell size={16} /> Latest updates</h3>
+                    <div className="stack-bc stack-short-bc">
+                        {updates.map((n) => (
+                            <div key={n.notification_id} className="booking-card-bc request-card-bc">
+                                <div className="booking-top-bc">
+                                    <strong>{n.title}</strong>
+                                    <span className="muted-bc">{formatDateTime(n.created_at)}</span>
+                                </div>
+                                <p className="request-help-bc">{n.message}</p>
+                            </div>
+                        ))}
+                    </div>
+                </section>
+            )}
+
             <section className="section-bc" aria-label="My place in line">
                 <h3>My place in line</h3>
                 {loading ? (

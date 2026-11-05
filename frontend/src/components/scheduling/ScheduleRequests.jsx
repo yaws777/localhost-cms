@@ -9,7 +9,7 @@ import { Pager, paginate } from '../common/RecordFolders';
 import { useAlert } from '../../context/AlertContext';
 import { useSpecializations } from '../../hooks/useSpecializations';
 import { formatDate } from '../../utils/datetime';
-import { API, eligibleDoctors, to12h, todayKey, hhmm } from '../../utils/scheduling';
+import { API, eligibleDoctors, doctorOffers, to12h, todayKey, hhmm } from '../../utils/scheduling';
 import '../../styles/nurse/DoctorVisits.css';
 import '../../styles/nurse/DoctorSchedule.css';
 import '../../styles/doctor/DoctorLayout.css';
@@ -24,19 +24,44 @@ const REQUEST_FILTERS = [['Pending', 'Pending'], ['Scheduled', 'Scheduled'], ['D
 
 const EMPTY = { doctor_id: '', visit_type: 'Any', preferred_date: '', preferred_start: '', preferred_end: '', note: '' };
 
+const repeatKeyOf = (r) => `${r.appointment_id}|${r.student_id}`;
+const parseRepeats = (raw) => {
+    try { const list = typeof raw === 'string' ? JSON.parse(raw) : raw; return Array.isArray(list) ? list : []; } catch (e) { return []; }
+};
+
+// What a pending schedule request already covers, so the same students are not asked for twice:
+// the advance listing services with a pending request and the repeats (appointment|student) inside one.
+// trigger: any value that changes when the data must be read again (false = do not load)
+export const usePendingScheduleRequests = (trigger) => {
+    const [pending, setPending] = useState([]);
+    useEffect(() => {
+        if (trigger === false) return undefined;
+        let live = true;
+        fetch(`${API}/api/schedule-requests?status=Pending`)
+            .then((r) => r.json())
+            .then((d) => { if (live && d.success) setPending(d.requests); })
+            .catch(() => { /* a convenience: the server refuses a double request too */ });
+        return () => { live = false; };
+    }, [trigger]);
+    return useMemo(() => ({
+        advanceServices: new Set(pending.filter((r) => r.for_advance).map((r) => r.visit_type)),
+        repeatKeys: new Set(pending.flatMap((r) => parseRepeats(r.repeat_ids).map(repeatKeyOf)))
+    }), [pending]);
+};
+
 // The nurse's form
 export const ScheduleRequestModal = ({ isOpen, preset, doctors, nurseId, userId, onClose, onSent }) => {
     const { showAlert } = useAlert();
     const { visitTypes } = useSpecializations();
     const [form, setForm] = useState(EMPTY);
-    const [error, setError] = useState('');
     const [busy, setBusy] = useState(false);
     const [advanceServices, setAdvanceServices] = useState([]); // services of the advance listing with students waiting for a schedule
+    const requested = usePendingScheduleRequests(isOpen ? true : false);
+    const fail = (message) => showAlert(message, 'error');
 
     useEffect(() => {
         if (!isOpen) return;
         setForm({ ...EMPTY, ...preset });
-        setError('');
         setBusy(false);
         let live = true;
         fetch(`${API}/api/advance-listing`)
@@ -46,8 +71,46 @@ export const ScheduleRequestModal = ({ isOpen, preset, doctors, nurseId, userId,
         return () => { live = false; };
     }, [isOpen, preset]);
 
+    // the repeats of the chosen doctor that wait for a schedule: the nurse can move them into the schedule she asks for (they come before the advance listing)
+    const [waitingRepeats, setWaitingRepeats] = useState([]);
+    const [pickedRepeats, setPickedRepeats] = useState([]); // keys "appointment_id|student_id"
+    useEffect(() => {
+        setPickedRepeats([]);
+        if (!isOpen || !form.doctor_id) { setWaitingRepeats([]); return undefined; }
+        let live = true;
+        fetch(`${API}/api/follow-ups?state=needs_time&doctor_id=${encodeURIComponent(form.doctor_id)}`)
+            .then((r) => r.json())
+            .then((d) => { if (live && d.success) setWaitingRepeats(d.follow_ups); })
+            .catch(() => { /* the choice is a convenience */ });
+        return () => { live = false; };
+    }, [isOpen, form.doctor_id]);
+
+    const repeatKey = repeatKeyOf;
+    // only the repeats the check-up service of the request fits (Any = all of them); the ones inside a pending request cannot be asked for again
+    const repeatChoices = useMemo(
+        () => waitingRepeats.filter((r) => form.visit_type === 'Any' || r.visit_type === form.visit_type || ['Follow-up', 'Referral'].includes(r.visit_type)),
+        [waitingRepeats, form.visit_type]
+    );
+    const isRequested = useCallback((r) => requested.repeatKeys.has(repeatKeyOf(r)), [requested]);
+    useEffect(() => { setPickedRepeats((p) => p.filter((k) => repeatChoices.some((r) => repeatKey(r) === k && !isRequested(r)))); }, [repeatChoices, isRequested, repeatKey]);
+    const freeRepeats = repeatChoices.filter((r) => !isRequested(r));
+    const toggleRepeat = (key) => setPickedRepeats((p) => (p.includes(key) ? p.filter((k) => k !== key) : [...p, key]));
+
     const set = (patch) => setForm((f) => ({ ...f, ...patch }));
     const choices = form.visit_type === 'Any' ? doctors : eligibleDoctors(doctors, form.visit_type);
+    // the advance listing choices are the services this doctor covers (none = only a normal request); with no doctor picked yet every service shows
+    const chosenDoctor = doctors.find((d) => d.doctor_id === form.doctor_id);
+    const advanceChoices = chosenDoctor ? advanceServices.filter((s) => doctorOffers(chosenDoctor, s.visit_type)) : advanceServices;
+
+    const changeDoctor = (doctor_id) => {
+        const next = doctors.find((d) => d.doctor_id === doctor_id);
+        // an advance listing of a service the new doctor does not cover goes back to a normal request
+        if (form.advance_listing && next && !doctorOffers(next, form.visit_type)) {
+            set({ doctor_id, advance_listing: false, visit_type: 'Any', note: /advance listing$/.test(form.note || '') ? '' : form.note });
+        } else {
+            set({ doctor_id });
+        }
+    };
 
     const changeCategory = (visit_type) => {
         const stillOk = !form.doctor_id || visit_type === 'Any' || eligibleDoctors(doctors, visit_type).some((d) => d.doctor_id === form.doctor_id);
@@ -68,18 +131,22 @@ export const ScheduleRequestModal = ({ isOpen, preset, doctors, nurseId, userId,
 
     const submit = async (e) => {
         e.preventDefault();
-        setError('');
+        if (!form.doctor_id) { fail('Select a doctor.'); return; }
+        if (form.advance_listing && requested.advanceServices.has(form.visit_type)) { fail(`The ${form.visit_type} advance listing already has a pending schedule request.`); return; }
         setBusy(true);
         try {
             const res = await fetch(`${API}/api/schedule-requests`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ...form, nurse_id: nurseId, sender_id: userId })
+                body: JSON.stringify({
+                    ...form, nurse_id: nurseId, sender_id: userId,
+                    repeats: repeatChoices.filter((r) => pickedRepeats.includes(repeatKey(r))).map((r) => ({ appointment_id: r.appointment_id, student_id: r.student_id }))
+                })
             });
             const data = await res.json();
             if (data.success) { showAlert(data.message, 'success'); onSent?.(); onClose(); }
-            else setError(data.message || 'Could not send the request.');
+            else fail(data.message || 'Could not send the request.');
         } catch (err) {
-            setError('Could not reach the server.');
+            fail('Could not reach the server.');
         } finally {
             setBusy(false);
         }
@@ -88,20 +155,16 @@ export const ScheduleRequestModal = ({ isOpen, preset, doctors, nurseId, userId,
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="Request a schedule" icon={<Send size={20} />} size="md" closeOnBackdrop={false}>
             <form className="dp-form" onSubmit={submit}>
-                {form.advance_listing ? (
-                    <div className="dp-notice">This request is for the {form.visit_type} advance listing. When the doctor sets the schedule, the students registered in it take the first queue numbers and the places left open for the other students.</div>
-                ) : (
-                    <div className="dp-notice">The doctor gets your request and sets the schedule. When it is set, open its listing so students can ask for a place.</div>
-                )}
-                {error && <div className="dp-error" role="alert">{error}</div>}
                 <div className="dp-field">
-                    <label htmlFor="sr-advance">For the Advance Listing <span className="paren-sc">(No Schedule Yet)</span>?</label>
+                    <label htmlFor="sr-advance">Advance Listing</label>
                     <select id="sr-advance" className="dp-select" value={form.advance_listing ? form.visit_type : ''} onChange={(e) => changeAdvance(e.target.value)}>
-                        <option value="">No, a normal schedule request</option>
-                        {advanceServices.map((s) => <option key={s.visit_type} value={s.visit_type}>Yes, {s.visit_type} ({s.waiting} waiting)</option>)}
-                        {form.advance_listing && !advanceServices.some((s) => s.visit_type === form.visit_type) && <option value={form.visit_type}>Yes, {form.visit_type}</option>}
+                        <option value="">No, normal request</option>
+                        {advanceChoices.map((s) => {
+                            const asked = requested.advanceServices.has(s.visit_type);
+                            return <option key={s.visit_type} value={s.visit_type} disabled={asked}>Yes, {s.visit_type} ({s.waiting} waiting){asked ? ' - already requested' : ''}</option>;
+                        })}
+                        {form.advance_listing && !advanceChoices.some((s) => s.visit_type === form.visit_type) && <option value={form.visit_type}>Yes, {form.visit_type}</option>}
                     </select>
-                    {advanceServices.length === 0 && !form.advance_listing && <small className="dp-hint">Nobody is waiting in the Advance Listing, so every request is a normal one.</small>}
                 </div>
                 <div className="dp-row">
                     <div className="dp-field">
@@ -113,13 +176,39 @@ export const ScheduleRequestModal = ({ isOpen, preset, doctors, nurseId, userId,
                     </div>
                     <div className="dp-field">
                         <label htmlFor="sr-doctor">Doctor</label>
-                        <select id="sr-doctor" className="dp-select" required value={form.doctor_id} onChange={(e) => set({ doctor_id: e.target.value })}>
+                        <select id="sr-doctor" className="dp-select" value={form.doctor_id} onChange={(e) => changeDoctor(e.target.value)}>
                             <option value="">-- Select doctor --</option>
                             {choices.map((d) => <option key={d.doctor_id} value={d.doctor_id}>Dr. {d.first_name} {d.last_name} ({d.specialization})</option>)}
                         </select>
-                        {choices.length === 0 && <small className="dp-hint">No doctor covers {form.visit_type}.</small>}
                     </div>
                 </div>
+                {form.doctor_id && (
+                    <fieldset className="dp-field" style={{ border: 0, padding: 0, margin: 0 }}>
+                        <legend className="dp-label">Repeats waiting for a schedule</legend>
+                        {repeatChoices.length === 0 ? (
+                            <small className="dp-hint">No repeat of this doctor waits for a schedule{form.visit_type === 'Any' ? '' : ` for ${form.visit_type}`}.</small>
+                        ) : (
+                            <>
+                                <small className="dp-hint">Tick the students to move into this schedule. They take the first queue numbers, before the advance listing. A repeat already in a pending request cannot be picked again.</small>
+                                <div style={{ maxHeight: '10rem', overflowY: 'auto', display: 'grid', gap: '0.25rem', marginTop: '0.25rem' }}>
+                                    {repeatChoices.map((r) => (
+                                        <label key={repeatKey(r)} className="dp-check">
+                                            <input type="checkbox" disabled={isRequested(r)} checked={pickedRepeats.includes(repeatKey(r))} onChange={() => toggleRepeat(repeatKey(r))} />
+                                            {r.student_first_name} {r.student_last_name} ({r.student_id}) - {r.visit_type}{r.follow_up_date ? `, around ${formatDate(r.follow_up_date)}` : ''}
+                                            {isRequested(r) ? ' - already in a pending request' : ''}
+                                        </label>
+                                    ))}
+                                </div>
+                                {freeRepeats.length > 0 && (
+                                    <button
+                                        type="button" className="dp-btn dp-btn-ghost" style={{ marginTop: '0.25rem' }}
+                                        onClick={() => setPickedRepeats(pickedRepeats.length === freeRepeats.length ? [] : freeRepeats.map(repeatKey))}
+                                    >{pickedRepeats.length === freeRepeats.length ? 'Clear all' : 'Select all'} ({pickedRepeats.length} of {freeRepeats.length} picked)</button>
+                                )}
+                            </>
+                        )}
+                    </fieldset>
+                )}
                 <div className="dp-row">
                     <div className="dp-field">
                         <label htmlFor="sr-date">Preferred date (optional)</label>
@@ -140,7 +229,7 @@ export const ScheduleRequestModal = ({ isOpen, preset, doctors, nurseId, userId,
                 </div>
                 <div className="dp-modal-foot">
                     <button type="button" className="dp-btn dp-btn-ghost" onClick={onClose}>Cancel</button>
-                    <button type="submit" className="dp-btn dp-btn-primary" disabled={busy || !form.doctor_id}>{busy ? 'Sending...' : 'Send request'}</button>
+                    <button type="submit" className="dp-btn dp-btn-primary" disabled={busy}>{busy ? 'Sending...' : 'Send'}</button>
                 </div>
             </form>
         </Modal>
@@ -213,6 +302,7 @@ const ScheduleRequests = ({ role, fixedDoctorId, nurseId, userId, refreshKey, on
                                 <td>{role === 'doctor' ? (r.nurse_first_name ? `${r.nurse_first_name} ${r.nurse_last_name} (nurse)` : 'The clinic') : `Dr. ${r.doc_first_name} ${r.doc_last_name}`}</td>
                                 <td>
                                     {r.visit_type === 'Any' ? 'Any check-up' : r.visit_type}
+                                    {Number(r.repeat_count) > 0 && <div className="muted-ds">Repeats first: {r.repeat_count} student(s)</div>}
                                     {!!r.for_advance && <div className="muted-ds">Advance Listing <span className="paren-sc">(No Schedule Yet)</span>{r.advance_count ? `: ${r.advance_count} student(s)` : ''}</div>}
                                 </td>
                                 <td>
@@ -255,6 +345,7 @@ const ScheduleRequests = ({ role, fixedDoctorId, nurseId, userId, refreshKey, on
 export const presetFromRequest = (r) => ({
     doctor_id: r.doctor_id, visit_type: r.visit_type, schedule_request_id: r.schedule_request_id,
     ...(r.for_advance ? { advance_count: Number(r.advance_count) || 0 } : {}),
+    ...(Number(r.repeat_count) > 0 ? { repeat_count: Number(r.repeat_count) } : {}),
     ...(r.preferred_date ? { schedule_date: String(r.preferred_date).slice(0, 10) } : {}),
     ...(r.preferred_start ? { start_time: hhmm(r.preferred_start) } : {}),
     ...(r.preferred_end ? { end_time: hhmm(r.preferred_end) } : {})

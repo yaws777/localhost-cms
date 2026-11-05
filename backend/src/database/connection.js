@@ -7844,6 +7844,19 @@ const ensureScreeningEndColumns = () => {
       for (const [column, def] of SCREENING_END_COLUMNS) {
         if (!have.some((c) => c.COLUMN_NAME === column)) await pool.query(`ALTER TABLE screening_schedules ADD COLUMN \`${column}\` ${def}`);
       }
+      // custom folders (Sportsfest Player Screening ...): a screening in a folder is not tied to one class
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS screening_folders (
+          folder_id  INT NOT NULL AUTO_INCREMENT,
+          name       VARCHAR(80) NOT NULL,
+          created_by VARCHAR(50) NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (folder_id),
+          UNIQUE KEY uq_screening_folders_name (name)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+      if (!have.some((c) => c.COLUMN_NAME === 'folder_id')) {
+        await pool.query('ALTER TABLE screening_schedules ADD COLUMN folder_id INT NULL, ADD INDEX idx_screening_folder (folder_id)');
+      }
     })().catch((err) => { screeningEndReady = null; throw err; });
   }
   return screeningEndReady;
@@ -8367,7 +8380,7 @@ const screeningListSql = (whereSql = '', orderSql = 'ORDER BY s.scheduled_date D
     .map((t) => `COALESCE((SELECT SUM(is_abnormal) FROM ${t} WHERE screening_schedule_id = s.screening_schedule_id), 0)`).join(' + ');
 
   return `
-    SELECT s.*, p.program_name,
+    SELECT s.*, p.program_name, sf.name AS folder_name,
       COALESCE(stp.form_kind, CASE WHEN s.screening_type = 'Dental' THEN 'DENTAL' WHEN s.screening_type = 'Vision' THEN 'VISION' END) AS form_kind,
       COALESCE(stp.is_active, 0) AS type_active,
       (SELECT COUNT(*) FROM screening_schedule_participants WHERE screening_schedule_id = s.screening_schedule_id) AS total_students,
@@ -8380,6 +8393,7 @@ const screeningListSql = (whereSql = '', orderSql = 'ORDER BY s.scheduled_date D
     FROM screening_schedules s
     LEFT JOIN academic_programs p ON s.target_program_id = p.program_id
     LEFT JOIN screening_types stp ON stp.name = s.screening_type
+    LEFT JOIN screening_folders sf ON sf.folder_id = s.folder_id
     ${whereSql}
     ${orderSql}`;
 };
@@ -8439,7 +8453,25 @@ const screeningFolderSql = (groupBy, extraSelect = '') => `
   FROM pp
   JOIN sc ON sc.screening_schedule_id = pp.screening_schedule_id
   LEFT JOIN res r ON r.screening_schedule_id = pp.screening_schedule_id AND r.student_id = pp.student_id
+  WHERE sc.folder_id IS NULL
   GROUP BY ${groupBy}`;
+
+// Custom folders: one row per folder (empty folders too), counted by their own screenings, not by the participants' classes
+const customFolderSql = () => `
+  SELECT f.folder_id, f.name,
+         COUNT(DISTINCT sc.screening_schedule_id) AS total,
+         COUNT(DISTINCT CASE WHEN sc.tab = 'upcoming' THEN sc.screening_schedule_id END) AS upcoming,
+         COUNT(DISTINCT CASE WHEN sc.tab = 'ongoing' THEN sc.screening_schedule_id END) AS ongoing,
+         COUNT(DISTINCT CASE WHEN sc.tab = 'past' THEN sc.screening_schedule_id END) AS past,
+         COUNT(DISTINCT CASE WHEN sc.tab = 'upcoming' AND sc.scheduled_date = CURDATE() THEN sc.screening_schedule_id END) AS today_upcoming,
+         COUNT(DISTINCT CASE WHEN sc.tab = 'ongoing' AND sc.scheduled_date = CURDATE() THEN sc.screening_schedule_id END) AS today_ongoing,
+         COUNT(DISTINCT CASE WHEN sc.tab = 'past' AND sc.scheduled_date = CURDATE() AND sc.status <> 'Cancelled' THEN sc.screening_schedule_id END) AS today_past,
+         CAST(COALESCE(SUM(r.is_abnormal), 0) AS UNSIGNED) AS abnormal
+  FROM screening_folders f
+  LEFT JOIN sc ON sc.folder_id = f.folder_id
+  LEFT JOIN res r ON r.screening_schedule_id = sc.screening_schedule_id
+  GROUP BY f.folder_id, f.name
+  ORDER BY f.name`;
 
 app.get('/api/screenings/folders', async (req, res) => {
   try {
@@ -8463,8 +8495,11 @@ app.get('/api/screenings/folders', async (req, res) => {
         .sort((a, b) => (Number(a.year_level) - Number(b.year_level)) || String(a.section).localeCompare(String(b.section)))
     })).sort((a, b) => String(a.program_id).localeCompare(String(b.program_id)));
 
+    const [customRows] = await pool.query(`WITH ${cte.sql} ${customFolderSql()}`, cte.params);
+    const customFolders = customRows.map((r) => ({ folder_id: r.folder_id, name: r.name, ...num(r) }));
+
     const [[archived]] = await pool.query('SELECT COUNT(*) AS n FROM students WHERE graduated_at IS NOT NULL');
-    res.json({ programs, archived: Number(archived.n) });
+    res.json({ programs, custom_folders: customFolders, archived: Number(archived.n) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -8514,6 +8549,15 @@ app.get('/api/screenings/page', async (req, res) => {
     const where = ['sc.tab = ?'];
     const params = [...cte.params, tab];
 
+    const folderId = parseInt(req.query.folder_id, 10);
+    if (Number.isInteger(folderId) && folderId > 0) {
+      where.push('sc.folder_id = ?');
+      params.push(folderId);
+    } else if (program_id) {
+      // a class folder lists the by-section screenings only; custom folders have their own
+      where.push('sc.folder_id IS NULL');
+    }
+
     if (program_id) {
       const parts = ['pf.screening_schedule_id = sc.screening_schedule_id', 'pf.program_id = ?'];
       params.push(program_id);
@@ -8553,6 +8597,77 @@ app.get('/api/screenings/page', async (req, res) => {
   }
 });
 
+// ---------- Custom folders: a screening for a group that is not one class (sports fest players, club members ...) ----------
+const SCREENING_FOLDER_NAME_MAX = 80;
+const cleanFolderName = (v) => (textOrNull(v) || '').replace(/\s+/g, ' ');
+
+// Finds the folder with this name (case-insensitive) or makes it. Returns the row.
+const findOrCreateFolder = async (conn, name, createdBy = null) => {
+  const [[found]] = await conn.query('SELECT * FROM screening_folders WHERE LOWER(name) = LOWER(?)', [name]);
+  if (found) return found;
+  const [ins] = await conn.query('INSERT INTO screening_folders (name, created_by) VALUES (?, ?)', [name, createdBy]);
+  return { folder_id: ins.insertId, name };
+};
+
+app.get('/api/screening-folders', async (req, res) => {
+  try {
+    await ensureScreeningEndColumns();
+    const [rows] = await pool.query(
+      `SELECT f.folder_id, f.name, f.created_at, COUNT(s.screening_schedule_id) AS schedule_count
+       FROM screening_folders f LEFT JOIN screening_schedules s ON s.folder_id = f.folder_id
+       GROUP BY f.folder_id, f.name, f.created_at ORDER BY f.name`
+    );
+    res.json(rows.map((r) => ({ ...r, schedule_count: Number(r.schedule_count) })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/screening-folders', async (req, res) => {
+  try {
+    if (!(await requireNurse(req, res))) return;
+    await ensureScreeningEndColumns();
+    const name = cleanFolderName(req.body.name);
+    if (!name) return res.status(400).json({ error: 'A folder name is required.' });
+    if (name.length > SCREENING_FOLDER_NAME_MAX) return res.status(400).json({ error: `The folder name is too long (${SCREENING_FOLDER_NAME_MAX} characters max).` });
+    const [[dup]] = await pool.query('SELECT folder_id FROM screening_folders WHERE LOWER(name) = LOWER(?)', [name]);
+    if (dup) return res.status(409).json({ error: 'A folder with this name already exists.' });
+    const [ins] = await pool.query('INSERT INTO screening_folders (name, created_by) VALUES (?, ?)', [name, req.body.sender_id || null]);
+    res.status(201).json({ folder_id: ins.insertId, name });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/screening-folders/:id', async (req, res) => {
+  try {
+    if (!(await requireNurse(req, res))) return;
+    const name = cleanFolderName(req.body.name);
+    if (!name) return res.status(400).json({ error: 'A folder name is required.' });
+    if (name.length > SCREENING_FOLDER_NAME_MAX) return res.status(400).json({ error: `The folder name is too long (${SCREENING_FOLDER_NAME_MAX} characters max).` });
+    const [[dup]] = await pool.query('SELECT folder_id FROM screening_folders WHERE LOWER(name) = LOWER(?) AND folder_id <> ?', [name, req.params.id]);
+    if (dup) return res.status(409).json({ error: 'A folder with this name already exists.' });
+    const [r] = await pool.query('UPDATE screening_folders SET name = ? WHERE folder_id = ?', [name, req.params.id]);
+    if (r.affectedRows === 0) return res.status(404).json({ error: 'Folder not found.' });
+    res.json({ folder_id: Number(req.params.id), name });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/screening-folders/:id', async (req, res) => {
+  try {
+    if (!(await requireNurse(req, res))) return;
+    const [[used]] = await pool.query('SELECT COUNT(*) AS n FROM screening_schedules WHERE folder_id = ?', [req.params.id]);
+    if (Number(used.n) > 0) return res.status(409).json({ error: 'This folder still has screenings. Only an empty folder can be deleted.' });
+    const [r] = await pool.query('DELETE FROM screening_folders WHERE folder_id = ?', [req.params.id]);
+    if (r.affectedRows === 0) return res.status(404).json({ error: 'Folder not found.' });
+    res.json({ message: 'Folder deleted.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Shared validation of the schedule fields (create + edit + make-up). Returns { error } or { data }.
 const validateScreeningFields = (input) => {
   const title = textOrNull(input.title);
@@ -8575,10 +8690,21 @@ const validateScreeningFields = (input) => {
 // 4. Create New Screening Schedule (schedule + participants in one transaction)
 app.post('/api/screenings', async (req, res) => {
   const { sender_id, target_program_id, target_year_level, target_section, student_ids } = req.body;
+  // by section (one class) or a custom folder (any mix of programs, year levels and sections)
+  const isCustom = req.body.grouping === 'CUSTOM';
+  const folderName = cleanFolderName(req.body.folder_name);
+  const folderIdInput = parseInt(req.body.folder_id, 10);
 
   if (!student_ids || !Array.isArray(student_ids) || student_ids.length === 0) {
     return res.status(400).json({ error: 'At least one participant must be selected.' });
   }
+  if (isCustom && !(folderIdInput > 0) && !folderName) {
+    return res.status(400).json({ error: 'Choose a folder or type a name for a new folder.' });
+  }
+  if (isCustom && folderName.length > SCREENING_FOLDER_NAME_MAX) {
+    return res.status(400).json({ error: `The folder name is too long (${SCREENING_FOLDER_NAME_MAX} characters max).` });
+  }
+  try { await ensureScreeningEndColumns(); } catch (err) { return res.status(500).json({ error: err.message }); }
 
   const validated = validateScreeningFields(req.body);
   if (validated.error) return res.status(400).json({ error: validated.error });
@@ -8608,7 +8734,7 @@ app.post('/api/screenings', async (req, res) => {
     const groups = new Set(users.map((u) => `${u.program_id}|${u.year_level}|${u.section}`));
     const participantError = users.length !== uniqueIds.length ? 'One or more selected students no longer exist.'
       : users.some((u) => u.graduated_at) ? 'A graduated student cannot join a new screening.'
-      : groups.size > 1 ? 'The participants must all be from the same program, year level and section.' : null;
+      : (!isCustom && groups.size > 1) ? 'The participants must all be from the same program, year level and section.' : null;
     if (participantError) {
       await connection.rollback();
       connection.release();
@@ -8617,14 +8743,30 @@ app.post('/api/screenings', async (req, res) => {
     const group = users[0];
     recipientUserIds = users.map((u) => u.user_id).filter(Boolean);
 
+    // custom folder: use the chosen one, or make it (rolled back with the schedule if anything fails)
+    let folderId = null;
+    if (isCustom) {
+      if (folderIdInput > 0) {
+        const [[folder]] = await connection.query('SELECT folder_id FROM screening_folders WHERE folder_id = ?', [folderIdInput]);
+        if (!folder) {
+          await connection.rollback();
+          connection.release();
+          return res.status(400).json({ error: 'The chosen folder no longer exists.' });
+        }
+        folderId = folder.folder_id;
+      } else {
+        folderId = (await findOrCreateFolder(connection, folderName, sender_id || null)).folder_id;
+      }
+    }
+
     scheduleId = await generateCustomId('HSSCHED', 'screening_schedules', 'screening_schedule_id', connection);
     const schoolYear = await schoolYearForDate(connection, f.scheduled_date);
 
     await connection.query(
       `INSERT INTO screening_schedules
-      (screening_schedule_id, title, screening_type, target_program_id, target_year_level, target_section, scheduled_date, start_time, end_time, announcement, school_year)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [scheduleId, f.title, f.screening_type, group.program_id || null, group.year_level || null, group.section || null, f.scheduled_date, f.start_time, f.end_time, f.announcement, schoolYear]
+      (screening_schedule_id, title, screening_type, target_program_id, target_year_level, target_section, scheduled_date, start_time, end_time, announcement, school_year, folder_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [scheduleId, f.title, f.screening_type, isCustom ? null : (group.program_id || null), isCustom ? null : (group.year_level || null), isCustom ? null : (group.section || null), f.scheduled_date, f.start_time, f.end_time, f.announcement, schoolYear, folderId]
     );
 
     const participantValues = uniqueIds.map((sId) => [uuidv4(), scheduleId, sId, 'PENDING']);
@@ -8796,7 +8938,8 @@ app.put('/api/screenings/:id/participants', async (req, res) => {
          FROM screening_schedule_participants p JOIN students st ON st.student_id = p.student_id WHERE p.screening_schedule_id = ?`,
         [id]
       );
-      if (classes.size > 1 && !Number(wasMixed.mixed)) {
+      // a custom-folder screening is not tied to one class
+      if (classes.size > 1 && !Number(wasMixed.mixed) && !schedule.folder_id) {
         await connection.rollback(); connection.release();
         return res.status(400).json({ error: 'The participants must all be from the same program, year level and section.' });
       }
@@ -9450,9 +9593,9 @@ app.post('/api/screenings/:id/makeup', async (req, res) => {
     const makeupYear = await schoolYearForDate(connection, f.scheduled_date);
     await connection.query(
       `INSERT INTO screening_schedules
-         (screening_schedule_id, title, screening_type, target_program_id, target_year_level, target_section, scheduled_date, start_time, end_time, announcement, makeup_of, school_year)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [newId, f.title, f.screening_type, source.target_program_id, source.target_year_level, source.target_section, f.scheduled_date, f.start_time, f.end_time, f.announcement, id, makeupYear]
+         (screening_schedule_id, title, screening_type, target_program_id, target_year_level, target_section, scheduled_date, start_time, end_time, announcement, makeup_of, school_year, folder_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [newId, f.title, f.screening_type, source.target_program_id, source.target_year_level, source.target_section, f.scheduled_date, f.start_time, f.end_time, f.announcement, id, makeupYear, source.folder_id || null]
     );
     await connection.query(
       'INSERT INTO screening_schedule_participants (participant_id, screening_schedule_id, student_id, attendance_status) VALUES ?',
@@ -10434,6 +10577,10 @@ app.post('/api/doctor-schedules', async (req, res) => {
     if (!creatorDoctorId) return res.status(400).json({ success: false, message: 'Doctor ID is required.' });
     if (creatorDoctorId !== req.body.doctor_id) return res.status(403).json({ success: false, message: 'Doctors can only post their own schedule.' });
     const scheduleRequestId = req.body.schedule_request_id || null;
+    // A doctor does not add a schedule on their own: it always answers a nurse's schedule request.
+    if (!scheduleRequestId) {
+        return res.status(403).json({ success: false, message: 'A doctor sets a schedule only when the nurse asks for one. Answer a schedule request.' });
+    }
 
     const connection = await pool.getConnection();
     let fulfilled = null;
@@ -10483,16 +10630,22 @@ app.post('/api/doctor-schedules', async (req, res) => {
             });
         } catch (e) { console.error('Schedule notification failed:', e.message); }
 
-        // a schedule set for the advance listing: the registered students take the first numbers, the places left open for the others
+        // the repeats the nurse chose in the request come FIRST: they take the first queue numbers, before the advance listing
+        let repeats = null;
+        if (fulfilled && parseRepeatIds(fulfilled.repeat_ids).length > 0) {
+            try { repeats = await placeRepeatEntries(scheduleId, parseRepeatIds(fulfilled.repeat_ids), req.body.sender_id || null); } catch (e) { console.error('Placing the repeats failed:', e.message); }
+        }
+
+        // a schedule set for the advance listing: the registered students take the next numbers, the places left open for the others
         let advance = null;
         if (fulfilled && fulfilled.for_advance) {
             try { advance = await placeAdvanceEntries(scheduleId, req.body.sender_id || null); } catch (e) { console.error('Placing the advance listing failed:', e.message); }
         }
 
-        res.status(201).json({
-            success: true, schedule_id: scheduleId, advance,
-            message: advance ? `Doctor schedule created. ${advance.placed} advance listing student(s) got their numbers${advance.places_left > 0 ? `; ${advance.places_left} place(s) are open for other students` : ''}.` : 'Doctor schedule created.'
-        });
+        const parts = ['Doctor schedule created.'];
+        if (repeats) parts.push(`${repeats.placed} repeat student(s) got the first queue numbers${repeats.left > 0 ? `; ${repeats.left} could not be placed and still wait in the Repeats list` : ''}.`);
+        if (advance) parts.push(`${advance.placed} advance listing student(s) got their numbers${advance.places_left > 0 ? `; ${advance.places_left} place(s) are open for other students` : ''}${advance.cutoff > 0 ? `; ${advance.cutoff} student(s) over the listing limit were cut off` : ''}.`);
+        res.status(201).json({ success: true, schedule_id: scheduleId, advance, repeats, message: parts.join(' ') });
     } catch (error) {
         await connection.rollback();
         console.error('Error creating doctor schedule:', error);
@@ -10811,8 +10964,16 @@ app.delete('/api/doctor-schedules/:id', async (req, res) => {
                 [advance.map((e) => e.entry_id)]
             );
         }
-        returned = advance.length;
-        const advanceStudents = new Set(advance.map((e) => e.student_id));
+        // the students this schedule cut off (listing limit) come back too: the advance listing is whole again
+        const [cut] = await connection.query(`SELECT * FROM advance_listing_entries WHERE cutoff_schedule_id = ? AND status = 'Cutoff' FOR UPDATE`, [id]);
+        if (cut.length > 0) {
+            await connection.query(
+                `UPDATE advance_listing_entries SET status = 'Waiting', cutoff_schedule_id = NULL, cutoff_date = NULL WHERE entry_id IN (?)`, [cut.map((e) => e.entry_id)]
+            );
+        }
+        const restored = [...advance, ...cut];
+        returned = restored.length;
+        const advanceStudents = new Set(restored.map((e) => e.student_id));
 
         // session listing requests: the ones with a place (via the appointment) and the ones still waiting for the nurse
         if (appointmentIds.length > 0) await releaseRequestsOfAppointments(connection, appointmentIds, `Schedule cancelled: ${reason}`);
@@ -10832,6 +10993,7 @@ app.delete('/api/doctor-schedules/:id', async (req, res) => {
         const told = new Map();
         appointments.filter((a) => a.student_id && ['Scheduled', 'Waiting for Approval'].includes(a.status)).forEach((a) => told.set(a.student_id, 'place'));
         pending.forEach((r) => { if (!told.has(r.student_id)) told.set(r.student_id, 'request'); });
+        cut.forEach((e) => { if (!told.has(e.student_id)) told.set(e.student_id, 'cutoff'); });
         notices = [...told.entries()].map(([studentId, kind]) => ({ studentId, kind, advance: advanceStudents.has(studentId), when, reason }));
 
         if (appointmentIds.length > 0) {
@@ -10851,12 +11013,13 @@ app.delete('/api/doctor-schedules/:id', async (req, res) => {
 
         if (returned > 0 || answered.some((r) => r.for_advance)) {
             // the services of the students that came back, and the service of the schedule (when it is one service), take part again
-            const services = [...new Set([...advance.map((e) => e.visit_type), ...(schedule.visit_type && schedule.visit_type !== 'Any' ? [schedule.visit_type] : [])])];
-            if (services.length > 0) await connection.query(`UPDATE advance_listing_services SET is_open = 1 WHERE visit_type IN (?)`, [services]);
+            const services = [...new Set([...restored.map((e) => e.visit_type), ...(schedule.visit_type && schedule.visit_type !== 'Any' ? [schedule.visit_type] : [])])];
+            // the service is back in the advance listing: it is not moved to the Session Listing any more
+            if (services.length > 0) await connection.query(`UPDATE advance_listing_services SET is_open = 1, moved_at = NULL WHERE visit_type IN (?)`, [services]);
             const [[setting]] = await connection.query(`SELECT * FROM advance_listing_settings WHERE setting_id = 1 FOR UPDATE`);
             await connection.query(`UPDATE advance_listing_settings SET is_open = 1, closes_at = NULL WHERE setting_id = 1`);
             if (setting.current_listing_id) {
-                await connection.query(`UPDATE advance_listings SET closed_at = NULL, close_reason = NULL, closes_at = NULL WHERE listing_id = ?`, [setting.current_listing_id]);
+                await connection.query(`UPDATE advance_listings SET closed_at = NULL, close_reason = NULL, closes_at = NULL, completed_at = NULL WHERE listing_id = ?`, [setting.current_listing_id]);
             }
         }
         await connection.commit();
@@ -10946,6 +11109,12 @@ app.post('/api/schedule-requests', async (req, res) => {
     const forAdvance = toFlag(req.body.advance_listing) === 1;
     if (forAdvance && visitType === 'Any') return res.status(400).json({ success: false, message: 'Pick the check-up service of the advance listing.' });
 
+    // repeats waiting for a schedule that the nurse moves into this schedule: [{ appointment_id, student_id }]
+    const repeatPicks = Array.isArray(req.body.repeats) ? req.body.repeats
+        .filter((r) => r && r.appointment_id && r.student_id)
+        .map((r) => ({ appointment_id: String(r.appointment_id), student_id: String(r.student_id) })) : [];
+    if (repeatPicks.length > 200) return res.status(400).json({ success: false, message: 'Pick at most 200 repeats for one request.' });
+
     const connection = await pool.getConnection();
     let created = null;
     try {
@@ -10955,10 +11124,30 @@ app.post('/api/schedule-requests', async (req, res) => {
         if (!doctor) throw new BookingError('Doctor not found.', 404);
         const refusal = visitRefusal(doctor, visitType);
         if (refusal) throw new BookingError(refusal, 400);
+        // the doctor marked this day (or these hours) as unavailable: no schedule can be asked for it
+        if (date) {
+            const [absences] = await connection.query(`SELECT * FROM doctor_unavailable_dates WHERE doctor_id = ? AND start_date <= ? AND end_date >= ?`, [doctor_id, date, date]);
+            const blocked = start && end
+                ? absences.find((u) => unavailabilityApplies(u, `${date} ${start}:00`, `${date} ${end}:00`))
+                : absences.find((u) => !u.start_time); // no hours asked: only a whole-day absence blocks the date
+            if (blocked) throw new BookingError(`${doctorDisplayName(doctor)} is unavailable on that date: ${unavailabilityLabel(blocked)}. Pick another date.`, 409);
+        }
         const [[dupe]] = await connection.query(
             `SELECT COUNT(*) AS n FROM schedule_requests WHERE doctor_id = ? AND visit_type = ? AND status = 'Pending' AND preferred_date <=> ?`, [doctor_id, visitType, date]
         );
         if (dupe.n > 0) throw new BookingError('This doctor already has a pending request for the same category and date.');
+        // no double request: the advance listing of a service and a repeat can be inside ONE pending request only
+        if (forAdvance) {
+            const [[asked]] = await connection.query(`SELECT COUNT(*) AS n FROM schedule_requests WHERE for_advance = 1 AND visit_type = ? AND status = 'Pending'`, [visitType]);
+            if (asked.n > 0) throw new BookingError(`The ${visitType} advance listing already has a pending schedule request. Wait for the doctor to answer it, or cancel it first.`, 409);
+        }
+        if (repeatPicks.length > 0) {
+            const [pendingRows] = await connection.query(`SELECT repeat_ids FROM schedule_requests WHERE status = 'Pending' AND repeat_ids IS NOT NULL`);
+            const taken = new Set(pendingRows.flatMap((r) => parseRepeatIds(r.repeat_ids)).map((r) => `${r.appointment_id}|${r.student_id}`));
+            if (repeatPicks.some((p) => taken.has(`${p.appointment_id}|${p.student_id}`))) {
+                throw new BookingError('A repeat you picked is already inside a pending schedule request. Untick it or cancel that request first.', 409);
+            }
+        }
         let advanceCount = null;
         if (forAdvance) {
             const [[waiting]] = await connection.query(`SELECT COUNT(*) AS n FROM advance_listing_entries WHERE visit_type = ? AND status = 'Waiting'`, [visitType]);
@@ -10966,15 +11155,33 @@ app.post('/api/schedule-requests', async (req, res) => {
             if (advanceCount === 0) throw new BookingError(`Nobody is waiting in the ${visitType} advance listing, so there is nothing to schedule yet.`, 409);
         }
 
+        // every picked repeat must still wait for a schedule, belong to this doctor and fit the check-up service of the request
+        for (const pick of repeatPicks) {
+            const [[row]] = await connection.query(
+                `SELECT da.doctor_id, da.visit_type, a.follow_up_needed, a.follow_up_closed
+                 FROM doctor_assessments a JOIN doctor_appointments da ON da.appointment_id = a.appointment_id
+                 WHERE a.appointment_id = ? AND a.student_id = ?`, [pick.appointment_id, pick.student_id]
+            );
+            if (!row || !row.follow_up_needed || row.follow_up_closed) throw new BookingError('One of the repeats is not waiting for a schedule any more. Refresh the list and pick again.', 409);
+            if (row.doctor_id !== doctor_id) throw new BookingError('A repeat belongs to another doctor. Ask the doctor who documented it.', 400);
+            if (visitType !== 'Any' && row.visit_type !== visitType && !SYSTEM_VISIT_TYPES.includes(row.visit_type)) throw new BookingError(`A repeat is a ${row.visit_type} check-up, but this request is for ${visitType}.`, 400);
+            const [[active]] = await connection.query(
+                `SELECT fu.appointment_id FROM doctor_appointments fu JOIN doctor_appointment_students x ON x.appointment_id = fu.appointment_id AND x.student_id = ?
+                 WHERE fu.parent_appointment_id = ? AND fu.visit_type = 'Follow-up' AND fu.status IN ('Scheduled', 'Waiting for Approval', 'Completed') LIMIT 1`, [pick.student_id, pick.appointment_id]
+            );
+            if (active) throw new BookingError('One of the repeats already has an appointment.', 409);
+        }
+
         const id = await generateCustomIdWithRetry(connection, 'SCHREQ', 'schedule_requests', 'schedule_request_id', async (newId) => {
             await connection.query(
-                `INSERT INTO schedule_requests (schedule_request_id, doctor_id, visit_type, requested_by_nurse_id, preferred_date, preferred_start, preferred_end, note, for_advance, advance_count)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [newId, doctor_id, visitType, nurseId, date, start, end, note, forAdvance ? 1 : 0, advanceCount]
+                `INSERT INTO schedule_requests (schedule_request_id, doctor_id, visit_type, requested_by_nurse_id, preferred_date, preferred_start, preferred_end, note, for_advance, advance_count, repeat_ids, repeat_count)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [newId, doctor_id, visitType, nurseId, date, start, end, note, forAdvance ? 1 : 0, advanceCount,
+                    repeatPicks.length > 0 ? JSON.stringify(repeatPicks) : null, repeatPicks.length > 0 ? repeatPicks.length : null]
             );
         });
         await connection.commit();
-        created = { id, doctor, advanceCount };
+        created = { id, doctor, advanceCount, repeatCount: repeatPicks.length };
     } catch (error) {
         await connection.rollback();
         connection.release();
@@ -10988,8 +11195,9 @@ app.post('/api/schedule-requests', async (req, res) => {
         const [[waiting]] = await pool.query(`SELECT COUNT(*) AS n FROM consultation_requests WHERE status IN (${ACTIVE_STATUS_SQL}) ${visitType === 'Any' ? '' : 'AND visit_type = ?'}`, visitType === 'Any' ? [] : [visitType]);
         await notifyUsers({
             sender_id: senderId, recipient_ids: await getDoctorUserIds(doctor_id), title: 'Schedule Request',
-            message: `The clinic asks for a ${visitType === 'Any' ? '' : visitType + ' '}session${date ? ` on ${date}` : ''}${start ? ` around ${start}${end ? `-${end}` : ''}` : ''}. ${created.advanceCount !== null
-                ? `${created.advanceCount} student(s) are registered in the advance listing and take the first queue numbers of the schedule you set; the places left stay open for other students, so set the listing limit above ${created.advanceCount}.`
+            message: `The clinic asks for a ${visitType === 'Any' ? '' : visitType + ' '}session${date ? ` on ${date}` : ''}${start ? ` around ${start}${end ? `-${end}` : ''}` : ''}. `
+                + `${created.repeatCount > 0 ? `${created.repeatCount} repeat student(s) take the very first queue numbers. ` : ''}${created.advanceCount !== null
+                ? `${created.advanceCount} student(s) are registered in the advance listing and take the next queue numbers of the schedule you set; the places left stay open for other students, so set the listing limit above ${created.advanceCount + (created.repeatCount || 0)}.`
                 : `${waiting.n} student(s) are on the waiting list.`}${note ? ` Note: ${note}` : ''} Open My Schedule to set it.`,
             type: 'SCHEDULE_REQUEST', payloadData: { schedule_request_id: created.id }
         });
@@ -11568,8 +11776,10 @@ app.put('/api/consultation-requests/:id/accept', async (req, res) => {
             request_id: request.request_id, action: 'Accepted', from_status: request.status, to_status: 'Appointed',
             reason: `Listing accepted. Queue number #${appointed.queueNo}`, schedule_id: schedule.schedule_id, actor_user_id: sender_id, actor_role: 'Nurse', actor_name: actor.name
         });
+        // a cut off student who got a place here is not waiting in the advance listing any more
+        const leftAdvance = await leaveAdvanceForService(connection, request.student_id, request.visit_type, `Got a place in the ${request.visit_type} session listing (#${appointed.queueNo}).`);
         await connection.commit();
-        result = { request, appointed, doctor, queueNo: appointed.queueNo, actor };
+        result = { request, appointed, doctor, queueNo: appointed.queueNo, actor, leftAdvance };
     } catch (error) {
         await connection.rollback();
         connection.release();
@@ -11585,6 +11795,8 @@ app.put('/api/consultation-requests/:id/accept', async (req, res) => {
         appointed: result.appointed, studentId: r.student_id, visitType: r.visit_type, purposeOther: r.purpose_other,
         doctor: result.doctor, senderId: sender_id, actor: result.actor
     });
+
+    if (result.leftAdvance.length > 0) await notifyLeftAdvance(r.student_id, result.leftAdvance, `you got a place in the ${r.visit_type} session listing.`, sender_id);
 
     res.json({ success: true, queue_no: result.queueNo, message: `Listing accepted. The student's queue number is #${result.queueNo}.` });
 });
@@ -12064,6 +12276,7 @@ app.post('/api/doctor-schedules/:id/appoint', async (req, res) => {
     const { student_id } = req.body;
     const date = req.body.date;
     if ((!creator.nurseId && !creator.doctorId) || !student_id) return res.status(400).json({ success: false, message: 'Who is appointing and the student are required.' });
+    if (!creator.nurseId) return res.status(403).json({ success: false, message: 'Only the nurse appoints a student into a schedule.' });
     if (!isDateStr(date)) return res.status(400).json({ success: false, message: 'Pick the date of the session.' });
 
     const connection = await pool.getConnection();
@@ -12393,9 +12606,21 @@ app.put('/api/doctor-visits/extend/:appointment_id', async (req, res) => {
 const ADVANCE_COLUMNS = [
     ['schedule_requests', 'for_advance', 'tinyint(1) NOT NULL DEFAULT 0'],
     ['schedule_requests', 'advance_count', 'int NULL'],
+    // repeats (assessments flagged "repeat needed") the nurse moves into the requested schedule: JSON array of assessment appointment ids
+    ['schedule_requests', 'repeat_ids', 'TEXT NULL'],
+    ['schedule_requests', 'repeat_count', 'int NULL'],
     ['advance_listing_settings', 'current_listing_id', 'VARCHAR(45) NULL'],
     ['advance_listing_services', 'is_open', 'tinyint(1) NOT NULL DEFAULT 1'],
-    ['advance_listing_entries', 'listing_id', 'VARCHAR(45) NULL']
+    // when the service moved to the Session Listing (it got a schedule); cleared when that schedule is cancelled or a new batch starts
+    ['advance_listing_services', 'moved_at', 'DATETIME NULL'],
+    ['advance_listing_entries', 'listing_id', 'VARCHAR(45) NULL'],
+    // Cutoff: the doctor's listing limit was smaller than the advance list, so the students over the limit wait outside the batch
+    ['advance_listing_entries', 'cutoff_schedule_id', 'VARCHAR(45) NULL'],
+    ['advance_listing_entries', 'cutoff_date', 'DATE NULL'],
+    // Moved: a cut off student the nurse moved to a new advance listing (points to the new entry)
+    ['advance_listing_entries', 'moved_to_entry_id', 'VARCHAR(45) NULL'],
+    // a batch is complete when every one of its services is done (its session is over); only then can the nurse open the next advance listing
+    ['advance_listings', 'completed_at', 'DATETIME NULL']
 ];
 let advanceListingReady = null;
 const ensureAdvanceListing = () => {
@@ -12452,11 +12677,15 @@ const ensureAdvanceListing = () => {
             );
             const [have] = await pool.query(
                 `SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE()
-                 AND TABLE_NAME IN ('schedule_requests', 'advance_listing_settings', 'advance_listing_services', 'advance_listing_entries')`
+                 AND TABLE_NAME IN ('schedule_requests', 'advance_listing_settings', 'advance_listing_services', 'advance_listing_entries', 'advance_listings')`
             );
             for (const [table, column, def] of ADVANCE_COLUMNS) {
                 if (!have.some((c) => c.TABLE_NAME === table && c.COLUMN_NAME === column)) {
                     await pool.query(`ALTER TABLE \`${table}\` ADD COLUMN \`${column}\` ${def}`);
+                    // listings that were closed before batches existed count as complete
+                    if (table === 'advance_listings' && column === 'completed_at') {
+                        await pool.query(`UPDATE advance_listings SET completed_at = closed_at WHERE closed_at IS NOT NULL`);
+                    }
                 }
             }
             // rows from before the history existed belong to one earlier listing
@@ -12466,8 +12695,8 @@ const ensureAdvanceListing = () => {
                 const [svcRows] = await pool.query(`SELECT visit_type, listing_limit FROM advance_listing_services`);
                 const listingId = await generateCustomIdWithRetry(pool, 'ADVLS', 'advance_listings', 'listing_id', async (id) => {
                     await pool.query(
-                        `INSERT INTO advance_listings (listing_id, title, opened_at, closes_at, closed_at, close_reason, services_json) VALUES (?, ?, COALESCE(?, NOW()), ?, ?, ?, ?)`,
-                        [id, 'Advance listing', setting.opened_at || old.first, setting.is_open ? setting.closes_at : null, setting.is_open ? null : new Date(), setting.is_open ? null : 'manual', JSON.stringify(svcRows)]
+                        `INSERT INTO advance_listings (listing_id, title, opened_at, closes_at, closed_at, close_reason, services_json, completed_at) VALUES (?, ?, COALESCE(?, NOW()), ?, ?, ?, ?, ?)`,
+                        [id, 'Advance listing', setting.opened_at || old.first, setting.is_open ? setting.closes_at : null, setting.is_open ? null : new Date(), setting.is_open ? null : 'manual', JSON.stringify(svcRows), setting.is_open ? null : new Date()]
                     );
                 });
                 await pool.query(`UPDATE advance_listing_entries SET listing_id = ? WHERE listing_id IS NULL`, [listingId]);
@@ -12480,8 +12709,10 @@ const ensureAdvanceListing = () => {
 
 // A student's request is `Pending` until the nurse accepts it (then `Waiting`, with an advance number) or denies it (`Denied`).
 // Waiting for a schedule, or holding a number in a session that is not over (alias `e` = advance_listing_entries)
-const ADVANCE_ACTIVE_SQL = `(e.status = 'Waiting' OR (e.status = 'Scheduled' AND EXISTS (
-    SELECT 1 FROM doctor_appointments ada WHERE ada.appointment_id = e.appointment_id AND ada.status = 'Scheduled' AND ada.queue_state IN ('Waiting', 'Serving'))))`;
+// holds a queue number in a session that is not over
+const ADVANCE_SESSION_SQL = `(e.status = 'Scheduled' AND EXISTS (
+    SELECT 1 FROM doctor_appointments ada WHERE ada.appointment_id = e.appointment_id AND ada.status = 'Scheduled' AND ada.queue_state IN ('Waiting', 'Serving')))`;
+const ADVANCE_ACTIVE_SQL = `(e.status = 'Waiting' OR ${ADVANCE_SESSION_SQL})`;
 const advanceLabel = (no) => `A${no}`;
 
 const ADVANCE_ENTRY_SELECT = `
@@ -12489,18 +12720,33 @@ const ADVANCE_ENTRY_SELECT = `
            s.first_name AS student_first_name, s.last_name AS student_last_name, s.program_id, s.year_level, s.section, p.program_name,
            ds.start_time AS session_start, ds.end_time AS session_end, ds.location,
            d.first_name AS doc_first_name, d.last_name AS doc_last_name,
-           qa.queue_no, qa.queue_lane, qa.queue_state, qa.status AS appointment_status
+           cd.first_name AS cut_doc_first_name, cd.last_name AS cut_doc_last_name,
+           qa.queue_no, qa.queue_lane, qa.queue_state, qa.status AS appointment_status, qas.attendance_status,
+           al.title AS listing_title
     FROM advance_listing_entries e
     JOIN students s ON s.student_id = e.student_id
     LEFT JOIN academic_programs p ON p.program_id = s.program_id
     LEFT JOIN doctor_schedules ds ON ds.schedule_id = e.schedule_id
     LEFT JOIN doctors d ON d.doctor_id = ds.doctor_id
-    LEFT JOIN doctor_appointments qa ON qa.appointment_id = e.appointment_id`;
+    LEFT JOIN doctor_schedules cds ON cds.schedule_id = e.cutoff_schedule_id
+    LEFT JOIN doctors cd ON cd.doctor_id = cds.doctor_id
+    LEFT JOIN doctor_appointments qa ON qa.appointment_id = e.appointment_id
+    LEFT JOIN doctor_appointment_students qas ON qas.appointment_id = e.appointment_id AND qas.student_id = e.student_id
+    LEFT JOIN advance_listings al ON al.listing_id = e.listing_id`;
+
+// What became of a number in a session that is over: seen, a no show (the number was voided / never called, or the student was marked absent), or the place was cancelled
+const advanceOutcomeOf = (e) => {
+    if (e.appointment_status === 'Completed' || e.queue_state === 'Done') return 'Done';
+    if (e.queue_state === 'Void' || e.attendance_status === 'Absent') return 'No show';
+    return 'Ended';
+};
 
 const formatAdvanceEntry = (e) => ({
     entry_id: e.entry_id, student_id: e.student_id, visit_type: e.visit_type, reason: e.reason, advance_no: e.advance_no || null, label: e.advance_no ? advanceLabel(e.advance_no) : null,
-    // Waiting | Scheduled (holds a queue number) | Done | Ended (the place was cancelled / voided) | Withdrawn | Removed
-    status: e.status === 'Scheduled' && !e.is_active ? (e.appointment_status === 'Completed' || e.queue_state === 'Done' ? 'Done' : 'Ended') : e.status,
+    // Pending | Waiting | Scheduled (holds a queue number) | Done | No show | Ended (the place was cancelled) | Cutoff | Moved (cut off, now in a new advance listing) | Withdrawn | Removed | Denied
+    status: e.status === 'Scheduled' && !e.is_active ? advanceOutcomeOf(e) : e.status,
+    cutoff_date: e.cutoff_date || null, cutoff_schedule_id: e.cutoff_schedule_id || null,
+    cutoff_doctor_name: e.cut_doc_last_name ? `Dr. ${e.cut_doc_first_name} ${e.cut_doc_last_name}` : null, listing_id: e.listing_id || null, listing_title: e.listing_title || null,
     is_active: e.is_active ? 1 : 0, remove_reason: e.remove_reason, created_at: e.created_at,
     student_name: `${e.student_first_name || ''} ${e.student_last_name || ''}`.trim(),
     student_first_name: e.student_first_name, student_last_name: e.student_last_name, program_id: e.program_id, program_name: e.program_name, year_level: e.year_level, section: e.section,
@@ -12509,39 +12755,119 @@ const formatAdvanceEntry = (e) => ({
     queue_no: e.queue_no || null, queue_label: e.queue_no ? queueLabel(e.queue_lane, e.queue_no) : null
 });
 
-// The student's current advance entry (waiting or holding a number), or null
+// The student's current advance entry (waiting, holding a number, or cut off and waiting to be moved to a new advance listing), or null
 const advanceEntryOf = async (conn, studentId) => {
     await ensureAdvanceListing();
-    const [rows] = await conn.query(`${ADVANCE_ENTRY_SELECT} WHERE e.student_id = ? AND (${ADVANCE_ACTIVE_SQL} OR e.status = 'Pending') ORDER BY e.created_at DESC LIMIT 1`, [studentId]);
+    const [rows] = await conn.query(`${ADVANCE_ENTRY_SELECT} WHERE e.student_id = ? AND (${ADVANCE_ACTIVE_SQL} OR e.status IN ('Pending', 'Cutoff')) ORDER BY e.created_at DESC LIMIT 1`, [studentId]);
     return rows.length > 0 ? formatAdvanceEntry(rows[0]) : null;
 };
 
+// A student who walks in (or gets a place in a session listing) for a check-up service leaves the advance listing of that service: the waiting,
+// pending or cut off entry is removed. An entry that already holds a queue number in a session stays.
+const leaveAdvanceForService = async (conn, studentId, visitType, why) => {
+    await ensureAdvanceListing();
+    const [rows] = await conn.query(
+        `SELECT entry_id, visit_type, advance_no FROM advance_listing_entries
+         WHERE student_id = ? AND status IN ('Waiting', 'Pending', 'Cutoff') AND visit_type = ? FOR UPDATE`,
+        [studentId, visitType]
+    );
+    if (rows.length === 0) return [];
+    await conn.query(`UPDATE advance_listing_entries SET status = 'Removed', remove_reason = ? WHERE entry_id IN (?)`, [String(why).slice(0, 255), rows.map((r) => r.entry_id)]);
+    return rows;
+};
+const notifyLeftAdvance = async (studentId, rows, why, senderId = null) => {
+    for (const r of rows) {
+        try {
+            await notifyUsers({
+                sender_id: senderId, recipient_ids: await getStudentAndParentUserIds(studentId), title: 'Removed From the Advance Listing',
+                message: `You were taken off the ${r.visit_type} advance listing${r.advance_no ? ` (${advanceLabel(r.advance_no)})` : ''}: ${why}`, type: 'ADVANCE_LISTING', payloadData: { entry_id: r.entry_id }
+            });
+        } catch (e) { console.error('Advance listing removal notification failed:', e.message); }
+    }
+};
+
+// The advance listing (batch) in view now. A new batch never shows or counts the students of a previous one ('' matches nothing).
+const currentAdvanceListingId = async (conn) => {
+    const [[setting]] = await conn.query(`SELECT current_listing_id FROM advance_listing_settings WHERE setting_id = 1`);
+    return (setting && setting.current_listing_id) || '';
+};
+
+// Per check-up service: who waits for a schedule, who holds a number in a session that is not over (current batch only), who was cut off (any batch)
+const advanceServiceStats = async (conn) => {
+    const cur = await currentAdvanceListingId(conn);
+    const [rows] = await conn.query(
+        `SELECT e.visit_type, SUM(e.listing_id = ? AND e.status = 'Waiting') AS waiting, SUM(e.listing_id = ? AND e.status = 'Pending') AS pending,
+                SUM(e.status = 'Cutoff') AS cutoff, SUM(e.listing_id = ? AND ${ADVANCE_SESSION_SQL}) AS in_session
+         FROM advance_listing_entries e GROUP BY e.visit_type`, [cur, cur, cur]
+    );
+    const map = new Map();
+    rows.forEach((r) => map.set(r.visit_type, { waiting: Number(r.waiting || 0), pending: Number(r.pending || 0), cutoff: Number(r.cutoff || 0), in_session: Number(r.in_session || 0) }));
+    return map;
+};
+const NO_STATS = { waiting: 0, pending: 0, cutoff: 0, in_session: 0 };
+// A service is done when nobody waits for a schedule, no session of it is left and its registration is closed
+const advanceServiceDone = (svc, stat, hasSchedule, registrationOpen) =>
+    !hasSchedule && stat.waiting === 0 && stat.in_session === 0 && (!registrationOpen || !svc.is_open);
+
 // Open? (a closing time that passed counts as closed), the services with their limit and how many are registered
 // Check-up services that already have an upcoming schedule: the advance listing is for services without one (an `Any` schedule covers every service)
+// Only schedules of the CURRENT advance listing count: set after it opened, or holding / cutting off its students. A schedule of a previous advance
+// listing (or one that existed before) does not make a service of the new listing "Scheduled".
 const scheduledServicesOf = async (conn) => {
     const [open] = await conn.query(`SELECT * FROM doctor_schedules WHERE status = 'Open'`);
-    const upcoming = open.filter((s) => nextUpcomingOccurrence(s));
+    const [[setting]] = await conn.query(`SELECT current_listing_id FROM advance_listing_settings WHERE setting_id = 1`);
+    let since = null;
+    const linked = new Set();
+    if (setting && setting.current_listing_id) {
+        const [[batch]] = await conn.query(`SELECT opened_at FROM advance_listings WHERE listing_id = ?`, [setting.current_listing_id]);
+        since = batch && batch.opened_at ? new Date(batch.opened_at).getTime() : null;
+        const [rows] = await conn.query(
+            `SELECT schedule_id, cutoff_schedule_id FROM advance_listing_entries WHERE listing_id = ? AND (schedule_id IS NOT NULL OR cutoff_schedule_id IS NOT NULL)`, [setting.current_listing_id]
+        );
+        rows.forEach((r) => { if (r.schedule_id) linked.add(r.schedule_id); if (r.cutoff_schedule_id) linked.add(r.cutoff_schedule_id); });
+    }
+    const inBatch = (s) => since === null || linked.has(s.schedule_id) || (s.created_at && new Date(s.created_at).getTime() >= since);
+    const upcoming = open.filter((s) => inBatch(s) && nextUpcomingOccurrence(s));
     return { all: upcoming.some((s) => s.visit_type === 'Any'), types: new Set(upcoming.map((s) => s.visit_type)) };
 };
 
 // Closes what has to close by itself, and writes it down (history): the closing time passed, or every offered service already has a schedule
 // (a service with a schedule leaves the advance listing for the Session Listing). Called whenever the state is read.
+// The advance listing works in BATCHES. Each check-up service of the batch moves to the Session Listing when it gets a schedule (moved_at), and is done
+// when that session is over and nobody waits for a schedule any more. When every service is done the batch is complete (advance_listings.completed_at):
+// only then the nurse opens the next advance listing. Students over the doctor's listing limit are cut off and wait outside the batch.
 const syncAdvanceListing = async (conn, scheduledServices) => {
+    const hasSchedule = (t) => scheduledServices.all || scheduledServices.types.has(t);
     const [[setting]] = await conn.query(`SELECT * FROM advance_listing_settings WHERE setting_id = 1`);
-    const [services] = await conn.query(`SELECT visit_type, is_open FROM advance_listing_services`);
-    const moved = services.filter((s) => s.is_open && (scheduledServices.all || scheduledServices.types.has(s.visit_type)));
+    const [services] = await conn.query(`SELECT visit_type, is_open, moved_at FROM advance_listing_services`);
+    const moved = services.filter((s) => hasSchedule(s.visit_type) && (s.is_open || !s.moved_at));
     if (moved.length > 0) {
-        await conn.query(`UPDATE advance_listing_services SET is_open = 0 WHERE visit_type IN (?)`, [moved.map((s) => s.visit_type)]);
+        await conn.query(`UPDATE advance_listing_services SET is_open = 0, moved_at = COALESCE(moved_at, NOW()) WHERE visit_type IN (?)`, [moved.map((s) => s.visit_type)]);
+        moved.forEach((s) => { s.is_open = 0; s.moved_at = s.moved_at || new Date(); });
     }
-    if (!setting.is_open) return;
-    let reason = null;
-    if (setting.closes_at && String(setting.closes_at) <= nowManilaStr()) reason = 'time';
-    else if (services.length > 0 && services.every((s) => scheduledServices.all || scheduledServices.types.has(s.visit_type))) reason = 'scheduled';
-    if (!reason) return;
-    await conn.query(`UPDATE advance_listing_settings SET is_open = 0, closes_at = NULL WHERE setting_id = 1 AND is_open = 1`);
-    if (setting.current_listing_id) {
-        await conn.query(`UPDATE advance_listings SET closed_at = ?, close_reason = ? WHERE listing_id = ? AND closed_at IS NULL`, [reason === 'time' ? setting.closes_at : nowManilaStr(), reason, setting.current_listing_id]);
+    if (setting.is_open) {
+        let reason = null;
+        if (setting.closes_at && String(setting.closes_at) <= nowManilaStr()) reason = 'time';
+        else if (services.length > 0 && services.every((s) => s.moved_at || hasSchedule(s.visit_type))) reason = 'scheduled';
+        if (reason) {
+            await conn.query(`UPDATE advance_listing_settings SET is_open = 0, closes_at = NULL WHERE setting_id = 1 AND is_open = 1`);
+            if (setting.current_listing_id) {
+                await conn.query(`UPDATE advance_listings SET closed_at = ?, close_reason = ? WHERE listing_id = ? AND closed_at IS NULL`, [reason === 'time' ? setting.closes_at : nowManilaStr(), reason, setting.current_listing_id]);
+            }
+            setting.is_open = 0;
+        }
     }
+    // registration is over: is the batch complete?
+    if (setting.is_open || !setting.current_listing_id || services.length === 0) return;
+    const [[listing]] = await conn.query(`SELECT listing_id, completed_at FROM advance_listings WHERE listing_id = ?`, [setting.current_listing_id]);
+    if (!listing || listing.completed_at) return;
+    const stats = await advanceServiceStats(conn);
+    if (!services.every((s) => advanceServiceDone(s, stats.get(s.visit_type) || NO_STATS, hasSchedule(s.visit_type), false))) return;
+    await conn.query(`UPDATE advance_listings SET completed_at = NOW() WHERE listing_id = ? AND completed_at IS NULL`, [listing.listing_id]);
+    // a request nobody answered before the batch ended cannot be accepted any more
+    await conn.query(
+        `UPDATE advance_listing_entries SET status = 'Denied', remove_reason = 'The advance listing ended before this request was answered.' WHERE status = 'Pending'`
+    );
 };
 
 const advanceStateOf = async (conn = pool) => {
@@ -12553,31 +12879,46 @@ const advanceStateOf = async (conn = pool) => {
         ? await conn.query(`SELECT * FROM advance_listings WHERE listing_id = ?`, [setting.current_listing_id])
         : [[null]];
     const expired = !setting.is_open && !!listing && listing.close_reason === 'time';
-    const [services] = await conn.query(`SELECT visit_type, listing_limit, is_open FROM advance_listing_services ORDER BY visit_type`);
+    const [services] = await conn.query(`SELECT visit_type, listing_limit, is_open, moved_at FROM advance_listing_services ORDER BY visit_type`);
     const [counts] = await conn.query(
-        `SELECT e.visit_type, COUNT(*) AS registered, SUM(e.status = 'Waiting') AS waiting FROM advance_listing_entries e WHERE ${ADVANCE_ACTIVE_SQL} GROUP BY e.visit_type`
+        `SELECT e.visit_type, COUNT(*) AS registered, SUM(e.status = 'Waiting') AS waiting FROM advance_listing_entries e WHERE e.listing_id = ? AND ${ADVANCE_ACTIVE_SQL} GROUP BY e.visit_type`,
+        [await currentAdvanceListingId(conn)]
     );
-    const [pendingCounts] = await conn.query(`SELECT visit_type, COUNT(*) AS pending FROM advance_listing_entries WHERE status = 'Pending' GROUP BY visit_type`);
-    const countOf = (t) => ({ ...(counts.find((c) => c.visit_type === t) || { registered: 0, waiting: 0 }), pending: Number((pendingCounts.find((c) => c.visit_type === t) || {}).pending || 0) });
-    const all = [...new Set([...services.map((s) => s.visit_type), ...counts.map((c) => c.visit_type), ...pendingCounts.map((c) => c.visit_type)])].sort();
+    const stats = await advanceServiceStats(conn);
+    const countOf = (t) => ({ ...(counts.find((c) => c.visit_type === t) || { registered: 0, waiting: 0 }), ...(stats.get(t) || NO_STATS) });
+    const all = [...new Set([...services.map((s) => s.visit_type), ...counts.map((c) => c.visit_type), ...[...stats.entries()].filter(([, v]) => v.pending > 0 || v.cutoff > 0).map(([k]) => k)])].sort();
+    const rows = all.map((t) => {
+        const svc = services.find((s) => s.visit_type === t);
+        const c = countOf(t);
+        const limit = svc ? Number(svc.listing_limit) : null;
+        const scheduled = scheduledServices.all || scheduledServices.types.has(t);
+        const inSession = scheduled || c.in_session > 0;
+        const serviceOpen = !!svc && !!svc.is_open && !scheduled;
+        // finished = nothing left to wait for (used to complete the batch); done = it really ran in THIS batch: it got a schedule (moved_at is cleared
+        // when a new batch opens or the schedule is cancelled) and that session is over. A service nobody registered for, or that never got a schedule, is not Done.
+        const finished = !!svc && advanceServiceDone(svc, c, scheduled, !!setting.is_open);
+        const done = finished && !!svc.moved_at && !inSession;
+        return {
+            visit_type: t, offered: !!svc, listing_limit: limit, registered: Number(c.registered), waiting: Number(c.waiting || 0), pending: c.pending,
+            cutoff: c.cutoff, in_session: c.in_session,
+            scheduled: inSession, service_open: serviceOpen && !inSession, done, finished,
+            // Open | Closed (the nurse closed it, or the whole listing is closed, or it waits for another schedule) | Scheduled (moved to the Session Listing, its session is not over)
+            // | Done (its session is over: the advance listing of this service is finished)
+            status: inSession ? 'Scheduled' : done ? 'Done' : serviceOpen && setting.is_open ? 'Open' : 'Closed',
+            listing_full: limit !== null && Number(c.registered) >= limit, places_left: limit !== null ? Math.max(limit - Number(c.registered), 0) : 0
+        };
+    });
+    const offered = rows.filter((r) => r.offered);
+    const batchRunning = !!listing && !listing.completed_at;
     return {
         is_open: !!setting.is_open, closes_at: setting.is_open ? setting.closes_at || null : null, opened_at: listing ? listing.opened_at : null, expired,
         closed_reason: !setting.is_open && listing ? listing.close_reason : null,
-        listing: listing ? { listing_id: listing.listing_id, title: listing.title, opened_at: listing.opened_at, closed_at: listing.closed_at, close_reason: listing.close_reason } : null,
-        services: all.map((t) => {
-            const svc = services.find((s) => s.visit_type === t);
-            const c = countOf(t);
-            const limit = svc ? Number(svc.listing_limit) : null;
-            const scheduled = scheduledServices.all || scheduledServices.types.has(t);
-            const serviceOpen = !!svc && !!svc.is_open && !scheduled;
-            return {
-                visit_type: t, offered: !!svc, listing_limit: limit, registered: Number(c.registered), waiting: Number(c.waiting || 0), pending: c.pending,
-                scheduled, service_open: serviceOpen,
-                // Open | Closed (the nurse closed it, or the whole listing is closed) | Scheduled (has a schedule: moved to the Session Listing)
-                status: scheduled ? 'Scheduled' : serviceOpen && setting.is_open ? 'Open' : 'Closed',
-                listing_full: limit !== null && Number(c.registered) >= limit, places_left: limit !== null ? Math.max(limit - Number(c.registered), 0) : 0
-            };
-        })
+        listing: listing ? { listing_id: listing.listing_id, title: listing.title, opened_at: listing.opened_at, closed_at: listing.closed_at, close_reason: listing.close_reason, completed_at: listing.completed_at || null } : null,
+        // the batch: running until every check-up service of it is done; then the nurse opens a new advance listing
+        batch_running: batchRunning, batch_complete: !!listing && !!listing.completed_at,
+        batch_done_services: offered.filter((r) => r.finished).length, batch_services: offered.length,
+        cutoff_total: rows.reduce((n, r) => n + r.cutoff, 0),
+        services: rows
     };
 };
 
@@ -12614,6 +12955,12 @@ app.put('/api/advance-listing', async (req, res) => {
         const wasOpen = !!current.is_open;
         const title = textOrNull(req.body.title);
         if (title && title.length > 120) throw new BookingError('The title can be at most 120 characters.', 400);
+        // a batch that is not complete yet (some check-up service still waits for its session) is opened again as it is; a new batch only after it is complete
+        const [[runningBatch]] = current.current_listing_id
+            ? await connection.query(`SELECT listing_id FROM advance_listings WHERE listing_id = ? AND completed_at IS NULL`, [current.current_listing_id])
+            : [[null]];
+        const batchRunning = !!runningBatch;
+        const newBatch = req.body.is_open !== undefined && toFlag(req.body.is_open) === 1 && !wasOpen && !batchRunning;
 
         if (Array.isArray(req.body.services)) {
             const eligible = await eligibleCategories(connection);
@@ -12633,13 +12980,17 @@ app.put('/api/advance-listing', async (req, res) => {
                 const registered = (state.services.find((s) => s.visit_type === w.visitType) || {}).registered || 0;
                 if (w.limit < registered) throw new BookingError(`${registered} student(s) are already registered for ${w.visitType}, so its limit cannot be lower than ${registered}.`, 409);
             }
-            const [before] = await connection.query(`SELECT visit_type, is_open FROM advance_listing_services`);
+            const [before] = await connection.query(`SELECT visit_type, is_open, moved_at FROM advance_listing_services`);
             await connection.query(`DELETE FROM advance_listing_services`);
             for (const w of wanted) {
-                // a service the nurse closed stays closed while the listing keeps running; a new listing opens every service
-                const kept = wasOpen ? before.find((b) => b.visit_type === w.visitType) : null;
-                await connection.query(`INSERT INTO advance_listing_services (visit_type, listing_limit, is_open) VALUES (?, ?, ?)`, [w.visitType, w.limit, kept ? kept.is_open : 1]);
+                // a service the nurse closed stays closed while the listing keeps running; a service that moved to the Session Listing stays moved
+                // while its batch runs; a new batch opens every service from scratch
+                const kept = wasOpen || batchRunning ? before.find((b) => b.visit_type === w.visitType) : null;
+                const isOpen = kept ? (!wasOpen && kept.moved_at ? 0 : wasOpen ? kept.is_open : 1) : 1;
+                await connection.query(`INSERT INTO advance_listing_services (visit_type, listing_limit, is_open, moved_at) VALUES (?, ?, ?, ?)`, [w.visitType, w.limit, isOpen, kept ? kept.moved_at : null]);
             }
+        } else if (newBatch) {
+            await connection.query(`UPDATE advance_listing_services SET is_open = 1, moved_at = NULL`);
         }
 
         let closesAt = current.closes_at || null;
@@ -12657,11 +13008,17 @@ app.put('/api/advance-listing', async (req, res) => {
         if (wantOpen && Number(svcCount.n) === 0) throw new BookingError('Pick at least one check-up service, with its listing limit, before opening the advance listing.', 400);
         if (wantOpen && closesAt && closesAt <= nowManilaStr()) throw new BookingError('The closing time must be in the future.', 400);
 
-        if (wantOpen && !wasOpen && !title) throw new BookingError('Give the advance listing a title, e.g. "Advance listing for next month".', 400);
+        if (wantOpen && !wasOpen && !batchRunning && !title) throw new BookingError('Give the advance listing a title, e.g. "Advance listing for next month".', 400);
         const [svcNow] = await connection.query(`SELECT visit_type, listing_limit FROM advance_listing_services ORDER BY visit_type`);
         let listingId = current.current_listing_id;
-        if (wantOpen && !wasOpen) {
-            // a new listing: the one that was open before stays in the history
+        if (wantOpen && !wasOpen && batchRunning) {
+            // registration of a batch that is still running opens again: same batch, same history row
+            await connection.query(
+                `UPDATE advance_listings SET title = COALESCE(?, title), closes_at = ?, closed_at = NULL, close_reason = NULL, services_json = ? WHERE listing_id = ?`,
+                [title, closesAt, JSON.stringify(svcNow), listingId]
+            );
+        } else if (wantOpen && !wasOpen) {
+            // a new batch: the one that was complete before stays in the history
             listingId = await generateCustomIdWithRetry(connection, 'ADVLS', 'advance_listings', 'listing_id', async (id) => {
                 await connection.query(
                     `INSERT INTO advance_listings (listing_id, title, opened_at, closes_at, services_json, created_by_user_id) VALUES (?, ?, NOW(), ?, ?, ?)`,
@@ -12690,6 +13047,64 @@ app.put('/api/advance-listing', async (req, res) => {
     res.json({
         success: true,
         message: done.wantOpen ? (done.wasOpen ? 'Advance listing settings saved.' : 'Advance listing opened. Students can register for a check-up service now.') : 'Advance listing closed. Registered students keep their numbers.',
+        ...(await advanceStateOf(pool))
+    });
+});
+
+// The nurse drops the current advance listing: it moves to the past advance listings and leaves the current listing, so a new one can be created.
+// Every check-up service of it must be closed first (no service with status Open). Students who still wait for a schedule are not lost: they become
+// cut off (no schedule) and the nurse moves them into the new advance listing; unanswered requests are declined. Students with a queue number keep it.
+app.put('/api/advance-listing/drop', async (req, res) => {
+    const senderId = req.body.sender_id || null;
+    const connection = await pool.getConnection();
+    let waiting = [];
+    try {
+        await ensureAdvanceListing();
+        await connection.beginTransaction();
+        const actor = await resolveActor(connection, senderId);
+        if (actor.role !== 'Nurse') throw new BookingError('Only the nurse drops the advance listing.', 403);
+        await connection.query(`SELECT setting_id FROM advance_listing_settings WHERE setting_id = 1 FOR UPDATE`);
+        const state = await advanceStateOf(connection);
+        if (!state.listing || !state.batch_running) throw new BookingError('There is no current advance listing to drop.', 409);
+        const stillOpen = state.services.filter((s) => s.offered && s.status === 'Open').map((s) => s.visit_type);
+        if (stillOpen.length > 0) throw new BookingError(`Close every check-up service first. Still open: ${stillOpen.join(', ')}.`, 409);
+        const listingId = state.listing.listing_id;
+        await connection.query(
+            `UPDATE advance_listings SET closed_at = COALESCE(closed_at, NOW()), close_reason = 'dropped', completed_at = NOW() WHERE listing_id = ? AND completed_at IS NULL`, [listingId]
+        );
+        await connection.query(`UPDATE advance_listing_settings SET is_open = 0, closes_at = NULL, updated_by_user_id = ? WHERE setting_id = 1`, [senderId]);
+        await connection.query(
+            `UPDATE advance_listing_entries SET status = 'Denied', remove_reason = 'The advance listing was dropped before this request was answered.' WHERE status = 'Pending'`
+        );
+        const [rows] = await connection.query(`SELECT entry_id, student_id, visit_type, advance_no FROM advance_listing_entries WHERE status = 'Waiting' FOR UPDATE`);
+        waiting = rows;
+        if (rows.length > 0) {
+            await connection.query(
+                `UPDATE advance_listing_entries SET status = 'Cutoff', cutoff_schedule_id = NULL, cutoff_date = ? WHERE entry_id IN (?)`,
+                [nowManilaStr().slice(0, 10), rows.map((r) => r.entry_id)]
+            );
+        }
+        await connection.commit();
+    } catch (error) {
+        await connection.rollback();
+        connection.release();
+        if (error instanceof BookingError) return res.status(error.status).json({ success: false, message: error.message });
+        console.error('Error dropping the advance listing:', error);
+        return res.status(500).json({ success: false, message: 'Failed to drop the advance listing' });
+    }
+    connection.release();
+    for (const r of waiting) {
+        try {
+            await notifyUsers({
+                sender_id: senderId, recipient_ids: await getStudentAndParentUserIds(r.student_id), title: 'Advance Listing Dropped',
+                message: `The ${r.visit_type} advance listing was dropped before a schedule was set. You stay in the Cut off list and the clinic moves you into the next advance listing.`,
+                type: 'ADVANCE_LISTING', payloadData: { entry_id: r.entry_id }
+            });
+        } catch (e) { console.error('Advance listing drop notification failed:', e.message); }
+    }
+    res.json({
+        success: true,
+        message: `The advance listing was dropped and moved to the past advance listings.${waiting.length > 0 ? ` ${waiting.length} waiting student(s) are in the Cut off list: move them into the new advance listing.` : ''}`,
         ...(await advanceStateOf(pool))
     });
 });
@@ -12743,10 +13158,12 @@ app.get('/api/advance-listing/history', async (req, res) => {
     try {
         await ensureAdvanceListing();
         await advanceStateOf(pool);
-        const [listings] = await pool.query(`SELECT * FROM advance_listings WHERE closed_at IS NOT NULL ORDER BY closed_at DESC, opened_at DESC`);
+        // a past advance listing = a batch that is complete (every check-up service done)
+        const [listings] = await pool.query(`SELECT * FROM advance_listings WHERE completed_at IS NOT NULL ORDER BY completed_at DESC, opened_at DESC`);
         const [counts] = await pool.query(
-            `SELECT listing_id, visit_type, COUNT(*) AS requests, SUM(status IN ('Waiting', 'Scheduled', 'Removed')) AS registered, SUM(status = 'Scheduled') AS scheduled,
-                    SUM(status = 'Waiting') AS waiting, SUM(status = 'Denied') AS declined, SUM(status IN ('Withdrawn', 'Removed')) AS left_listing
+            `SELECT listing_id, visit_type, COUNT(*) AS requests, SUM(status IN ('Waiting', 'Scheduled', 'Removed', 'Cutoff', 'Moved')) AS registered, SUM(status = 'Scheduled') AS scheduled,
+                    SUM(status = 'Waiting') AS waiting, SUM(status = 'Denied') AS declined, SUM(status IN ('Withdrawn', 'Removed')) AS left_listing,
+                    SUM(status IN ('Cutoff', 'Moved')) AS cutoff
              FROM advance_listing_entries WHERE listing_id IS NOT NULL GROUP BY listing_id, visit_type`
         );
         res.json({
@@ -12759,12 +13176,12 @@ app.get('/api/advance-listing/history', async (req, res) => {
                 const services = types.map((t) => {
                     const r = rows.find((x) => x.visit_type === t) || {};
                     const s = snapshot.find((x) => x.visit_type === t);
-                    return { visit_type: t, listing_limit: s ? Number(s.listing_limit) : null, requests: Number(r.requests || 0), registered: Number(r.registered || 0), scheduled: Number(r.scheduled || 0), waiting: Number(r.waiting || 0), declined: Number(r.declined || 0), left_listing: Number(r.left_listing || 0) };
+                    return { visit_type: t, listing_limit: s ? Number(s.listing_limit) : null, requests: Number(r.requests || 0), registered: Number(r.registered || 0), scheduled: Number(r.scheduled || 0), waiting: Number(r.waiting || 0), declined: Number(r.declined || 0), left_listing: Number(r.left_listing || 0), cutoff: Number(r.cutoff || 0) };
                 });
                 const sum = (k) => services.reduce((n, s) => n + s[k], 0);
                 return {
-                    listing_id: l.listing_id, title: l.title, opened_at: l.opened_at, closed_at: l.closed_at, close_reason: l.close_reason, services,
-                    requests: sum('requests'), registered: sum('registered'), scheduled: sum('scheduled'), waiting: sum('waiting'), declined: sum('declined')
+                    listing_id: l.listing_id, title: l.title, opened_at: l.opened_at, closed_at: l.closed_at, completed_at: l.completed_at, close_reason: l.close_reason, services,
+                    requests: sum('requests'), registered: sum('registered'), scheduled: sum('scheduled'), waiting: sum('waiting'), declined: sum('declined'), cutoff: sum('cutoff')
                 };
             })
         });
@@ -12777,8 +13194,10 @@ app.get('/api/advance-listing/history', async (req, res) => {
 // The student registers in the advance listing for ONE check-up service and gets the next advance number of that service.
 // The nurse can also add a student by hand (manual = true): same number and limit rules, but it works while the listing is closed.
 const nextAdvanceNo = async (conn, visitType) => {
+    // numbers restart with every new advance listing
     const [[next]] = await conn.query(
-        `SELECT COALESCE(MAX(e.advance_no), 0) + 1 AS n FROM advance_listing_entries e WHERE e.visit_type = ? AND ${ADVANCE_ACTIVE_SQL}`, [visitType]
+        `SELECT COALESCE(MAX(e.advance_no), 0) + 1 AS n FROM advance_listing_entries e WHERE e.visit_type = ? AND e.listing_id = ? AND ${ADVANCE_ACTIVE_SQL}`,
+        [visitType, await currentAdvanceListingId(conn)]
     );
     return Number(next.n);
 };
@@ -12811,6 +13230,9 @@ const registerAdvance = async (req, res, manual) => {
         const service = state.services.find((s) => s.visit_type === visitType && s.offered);
         if (!service) throw new BookingError(`${visitType} is not offered in the advance listing.`);
         const mine = await advanceEntryOf(connection, student_id);
+        if (mine && mine.status === 'Cutoff') throw new BookingError(manual
+            ? `${student.first_name} ${student.last_name} was cut off from the ${mine.visit_type} advance listing. Move the student from the Cut off tab to the new advance listing.`
+            : `You were cut off from the ${mine.visit_type} advance listing because the session was full. The nurse moves you to the next advance listing, so you do not need to register again.`, 409);
         if (mine) throw new BookingError(manual
             ? `${student.first_name} ${student.last_name} is already in the advance listing (${mine.visit_type}, ${mine.label}).`
             : `You are already in the advance listing (${mine.visit_type}, ${mine.label}). You can register again after that check-up.`, 409);
@@ -12870,7 +13292,7 @@ app.put('/api/student/advance-listing/:id/withdraw', async (req, res) => {
     try {
         await ensureAdvanceListing();
         const [result] = await pool.query(
-            `UPDATE advance_listing_entries SET status = 'Withdrawn' WHERE entry_id = ? AND student_id = ? AND status IN ('Pending', 'Waiting')`, [req.params.id, student_id]
+            `UPDATE advance_listing_entries SET status = 'Withdrawn' WHERE entry_id = ? AND student_id = ? AND status IN ('Pending', 'Waiting', 'Cutoff')`, [req.params.id, student_id]
         );
         if (result.affectedRows === 0) return res.status(409).json({ success: false, message: 'You can only leave the advance listing while your request is pending or you wait for a schedule. Ask the nurse if you already have a queue number.' });
         res.json({ success: true, message: 'You left the advance listing.' });
@@ -12880,7 +13302,7 @@ app.put('/api/student/advance-listing/:id/withdraw', async (req, res) => {
     }
 });
 
-// The registered students, for the nurse and the doctor. ?visit_type= one service, ?scope=active (default) | all
+// The registered students, for the nurse and the doctor. ?visit_type= one service, ?scope=active (default) | all | cutoff (students cut off by a listing limit, any batch)
 app.get('/api/advance-listing/entries', async (req, res) => {
     try {
         await ensureAdvanceListing();
@@ -12888,8 +13310,14 @@ app.get('/api/advance-listing/entries', async (req, res) => {
         const params = [];
         if (req.query.visit_type) { where.push('e.visit_type = ?'); params.push(req.query.visit_type); }
         if (req.query.listing_id) { where.push('e.listing_id = ?'); params.push(req.query.listing_id); }
-        else if (req.query.scope === 'all') where.push(`(${ADVANCE_ACTIVE_SQL} OR e.status = 'Pending' OR e.updated_at >= DATE_SUB(NOW(), INTERVAL 60 DAY))`);
-        else where.push(`(${ADVANCE_ACTIVE_SQL} OR e.status IN ('Pending', 'Scheduled'))`); // students moved to a session stay in the list
+        else if (req.query.scope === 'cutoff') where.push(`e.status = 'Cutoff'`);
+        else {
+            // the current advance listing only: a new one never lists the students of a previous one (those are in its history)
+            where.push('e.listing_id = ?');
+            params.push(await currentAdvanceListingId(pool));
+            if (req.query.scope === 'all') where.push(`(${ADVANCE_ACTIVE_SQL} OR e.status = 'Pending' OR e.updated_at >= DATE_SUB(NOW(), INTERVAL 60 DAY))`);
+            else where.push(`(${ADVANCE_ACTIVE_SQL} OR e.status IN ('Pending', 'Scheduled'))`); // students moved to a session stay in the list
+        }
         const [rows] = await pool.query(`${ADVANCE_ENTRY_SELECT} WHERE ${where.join(' AND ')} ORDER BY e.visit_type ASC, (e.status = 'Pending') DESC, e.advance_no ASC, e.created_at ASC`, params);
         res.json({ success: true, entries: rows.map(formatAdvanceEntry) });
     } catch (error) {
@@ -12978,7 +13406,7 @@ app.put('/api/advance-listing/entries/:id/remove', async (req, res) => {
         const [[entry]] = await pool.query(`SELECT * FROM advance_listing_entries WHERE entry_id = ?`, [req.params.id]);
         if (!entry) return res.status(404).json({ success: false, message: 'Entry not found.' });
         const [result] = await pool.query(
-            `UPDATE advance_listing_entries SET status = 'Removed', remove_reason = ? WHERE entry_id = ? AND status = 'Waiting'`, [reason.slice(0, 255), entry.entry_id]
+            `UPDATE advance_listing_entries SET status = 'Removed', remove_reason = ? WHERE entry_id = ? AND status IN ('Waiting', 'Cutoff')`, [reason.slice(0, 255), entry.entry_id]
         );
         if (result.affectedRows === 0) return res.status(409).json({ success: false, message: 'This student already has a queue number or left the listing.' });
         try {
@@ -12994,8 +13422,151 @@ app.put('/api/advance-listing/entries/:id/remove', async (req, res) => {
     }
 });
 
+// The nurse moves cut off students to the advance listing that is open now (the new batch). Body: { sender_id, entry_ids: [...] }.
+// They take the next advance numbers of their check-up service, in the order they were cut off; the ones that do not fit the service limit stay cut off.
+app.put('/api/advance-listing/cutoff/move', async (req, res) => {
+    const senderId = req.body.sender_id || null;
+    const ids = Array.isArray(req.body.entry_ids) ? [...new Set(req.body.entry_ids.map(String))] : [];
+    if (ids.length === 0) return res.status(400).json({ success: false, message: 'Choose the cut off students to move.' });
+    const connection = await pool.getConnection();
+    const moved = [];
+    const stayed = [];
+    try {
+        await ensureAdvanceListing();
+        const actor = await resolveActor(pool, senderId);
+        if (actor.role !== 'Nurse') { connection.release(); return res.status(403).json({ success: false, message: 'Only the nurse moves cut off students to a new advance listing.' }); }
+        await connection.beginTransaction();
+        await connection.query(`SELECT setting_id FROM advance_listing_settings WHERE setting_id = 1 FOR UPDATE`);
+        const state = await advanceStateOf(connection);
+        if (!state.is_open || !state.listing) throw new BookingError('No advance listing is open. Open a new advance listing first, then move the cut off students into it.', 409);
+        const [entries] = await connection.query(
+            `SELECT * FROM advance_listing_entries WHERE entry_id IN (?) AND status = 'Cutoff' ORDER BY cutoff_date ASC, created_at ASC, advance_no ASC FOR UPDATE`, [ids]
+        );
+        if (entries.length === 0) throw new BookingError('These students are not cut off any more.', 409);
+        const left = new Map(); // places left per service
+        for (const entry of entries) {
+            const service = state.services.find((s) => s.visit_type === entry.visit_type && s.offered);
+            let why = null;
+            if (!service) why = `${entry.visit_type} is not offered in this advance listing.`;
+            else if (!service.service_open) why = `${entry.visit_type} is closed or already has a schedule.`;
+            else {
+                if (!left.has(entry.visit_type)) left.set(entry.visit_type, service.places_left);
+                if (left.get(entry.visit_type) <= 0) why = `The ${entry.visit_type} advance listing is full.`;
+            }
+            if (!why) {
+                const [other] = await connection.query(
+                    `SELECT e.entry_id FROM advance_listing_entries e WHERE e.student_id = ? AND e.entry_id <> ? AND (${ADVANCE_ACTIVE_SQL} OR e.status = 'Pending') LIMIT 1`, [entry.student_id, entry.entry_id]
+                );
+                if (other.length > 0) why = 'The student is already in the advance listing.';
+            }
+            if (why) { stayed.push({ entry, why }); continue; }
+            const advanceNo = await nextAdvanceNo(connection, entry.visit_type);
+            const newId = await generateCustomIdWithRetry(connection, 'ADVL', 'advance_listing_entries', 'entry_id', async (id) => {
+                await connection.query(
+                    `INSERT INTO advance_listing_entries (entry_id, student_id, visit_type, reason, advance_no, status, listing_id) VALUES (?, ?, ?, ?, ?, 'Waiting', ?)`,
+                    [id, entry.student_id, entry.visit_type, entry.reason, advanceNo, state.listing.listing_id]
+                );
+            });
+            await connection.query(`UPDATE advance_listing_entries SET status = 'Moved', moved_to_entry_id = ? WHERE entry_id = ?`, [newId, entry.entry_id]);
+            left.set(entry.visit_type, left.get(entry.visit_type) - 1);
+            moved.push({ entry, advanceNo });
+        }
+        if (moved.length === 0) throw new BookingError(stayed[0] ? stayed[0].why : 'Nobody could be moved.', 409);
+        await connection.commit();
+    } catch (error) {
+        await connection.rollback();
+        connection.release();
+        if (error instanceof BookingError) return res.status(error.status).json({ success: false, message: error.message });
+        console.error('Error moving cut off students:', error);
+        return res.status(500).json({ success: false, message: 'Failed to move the cut off students' });
+    }
+    connection.release();
+    for (const m of moved) {
+        try {
+            await notifyUsers({
+                sender_id: senderId, recipient_ids: await getStudentAndParentUserIds(m.entry.student_id), title: 'Moved to the New Advance Listing',
+                message: `You were cut off from the ${m.entry.visit_type} advance listing. The clinic moved you to the new one with number ${advanceLabel(m.advanceNo)}. You get your queue number when a doctor sets the schedule.`,
+                type: 'ADVANCE_LISTING', payloadData: { entry_id: m.entry.entry_id }
+            });
+        } catch (e) { console.error('Advance listing move notification failed:', e.message); }
+    }
+    res.json({
+        success: true, moved: moved.length, stayed: stayed.length,
+        message: `${moved.length} student(s) moved to the new advance listing.${stayed.length > 0 ? ` ${stayed.length} stayed cut off: ${[...new Set(stayed.map((s) => s.why))].join(' ')}` : ''}`
+    });
+});
+
+const parseRepeatIds = (raw) => {
+    if (!raw) return [];
+    try {
+        const list = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        return Array.isArray(list) ? list.filter((r) => r && r.appointment_id && r.student_id) : [];
+    } catch (e) { return []; }
+};
+
+// After the doctor set a schedule that answers a request the nurse made with repeats: those repeat students take the FIRST queue numbers of the session
+// (before the advance listing), in the order the nurse picked them, up to the listing limit. The ones that do not fit or are no longer waiting stay in
+// the Repeats list (the nurse can put them in another schedule).
+const placeRepeatEntries = async (scheduleId, picks, senderUserId) => {
+    const [[schedule]] = await pool.query(`SELECT * FROM doctor_schedules WHERE schedule_id = ?`, [scheduleId]);
+    const result = { placed: 0, left: picks.length };
+    if (!schedule || schedule.status !== 'Open') return result;
+    const date = nextUpcomingOccurrence(schedule);
+    if (!date) return result;
+    for (const pick of picks) {
+        const connection = await pool.getConnection();
+        let queued = null;
+        let full = false;
+        try {
+            await connection.beginTransaction();
+            const [[locked]] = await connection.query(`SELECT * FROM doctor_schedules WHERE schedule_id = ? FOR UPDATE`, [scheduleId]);
+            const { accepted } = await scheduleListingCounts(connection, scheduleId, date);
+            if (accepted >= listingLimitOf(locked)) { full = true; throw new BookingError('The session is full.'); }
+            const [[source]] = await connection.query(
+                `SELECT da.title, da.doctor_id, da.visit_type, a.follow_up_needed, a.follow_up_closed
+                 FROM doctor_assessments a JOIN doctor_appointments da ON da.appointment_id = a.appointment_id
+                 WHERE a.appointment_id = ? AND a.student_id = ?`, [pick.appointment_id, pick.student_id]
+            );
+            if (!source || !source.follow_up_needed || source.follow_up_closed) throw new BookingError('This repeat is not waiting any more.');
+            if (source.doctor_id !== locked.doctor_id) throw new BookingError('This repeat belongs to another doctor.');
+            if (locked.visit_type !== 'Any' && locked.visit_type !== source.visit_type && !SYSTEM_VISIT_TYPES.includes(source.visit_type)) throw new BookingError('This repeat is for another check-up service.');
+            const [[pending]] = await connection.query(
+                `SELECT fu.appointment_id FROM doctor_appointments fu JOIN doctor_appointment_students x ON x.appointment_id = fu.appointment_id AND x.student_id = ?
+                 WHERE fu.parent_appointment_id = ? AND fu.visit_type = 'Follow-up' AND fu.status IN ('Scheduled', 'Waiting for Approval', 'Completed') LIMIT 1`, [pick.student_id, pick.appointment_id]
+            );
+            if (pending) throw new BookingError('This repeat already has an appointment.');
+            const doctor = await lockDoctor(connection, locked.doctor_id);
+            const appointed = await appointIntoSchedule(connection, {
+                schedule: locked, doctor, studentId: pick.student_id, request: null, date, visitType: 'Follow-up', purposeOther: null,
+                reason: `Follow-up of ${source.visit_type}`, creator: { nurseId: null, doctorId: locked.doctor_id, userId: senderUserId, name: doctorDisplayName(doctor) },
+                how: 'Repeat moved into the requested schedule'
+            });
+            await connection.query(`UPDATE doctor_appointments SET parent_appointment_id = ? WHERE appointment_id = ?`, [pick.appointment_id, appointed.appointmentId]);
+            await connection.commit();
+            queued = { appointed, doctor };
+        } catch (error) {
+            await connection.rollback();
+            if (!(error instanceof BookingError)) console.error('Could not place a repeat:', error.message);
+        } finally {
+            connection.release();
+        }
+        if (queued) {
+            result.placed += 1;
+            await notifyAppointed({
+                appointed: queued.appointed, studentId: pick.student_id, visitType: 'Follow-up', purposeOther: null, doctor: queued.doctor,
+                senderId: senderUserId, actor: { role: 'Doctor', name: doctorDisplayName(queued.doctor) }
+            });
+        }
+        if (full) break;
+    }
+    result.left = picks.length - result.placed;
+    return result;
+};
+
 // After the doctor set a schedule that answers an advance listing request: the waiting students take the first queue numbers (order of their advance
 // number), up to the listing limit, and the places left are opened for the students who are not in the advance listing.
+// The students over the limit (the doctor's limit is smaller than the advance list) are CUT OFF: they leave the batch, wait in the Cut off list and
+// come back to the advance listing if this schedule is cancelled. The nurse can move them to a new advance listing.
 const placeAdvanceEntries = async (scheduleId, senderUserId) => {
     await ensureAdvanceListing();
     const [[schedule]] = await pool.query(`SELECT * FROM doctor_schedules WHERE schedule_id = ?`, [scheduleId]);
@@ -13009,7 +13580,9 @@ const placeAdvanceEntries = async (scheduleId, senderUserId) => {
     );
     let placed = 0;
     let doctorForNote = null;
-    for (const entry of entries) {
+    let cutFrom = -1; // index of the first student over the listing limit
+    for (let index = 0; index < entries.length; index += 1) {
+        const entry = entries[index];
         const connection = await pool.getConnection();
         let result = null;
         let full = false;
@@ -13047,7 +13620,28 @@ const placeAdvanceEntries = async (scheduleId, senderUserId) => {
                 doctor: result.doctor, senderId: senderUserId, actor: { role: 'Doctor', name: doctorDisplayName(result.doctor) }
             });
         }
-        if (full) break;
+        if (full) { cutFrom = index; break; }
+    }
+
+    // the students over the listing limit are cut off (the schedule is remembered: if it is cancelled they come back to the advance listing)
+    let cutoff = 0;
+    if (cutFrom >= 0) {
+        const cut = entries.slice(cutFrom);
+        const [upd] = await pool.query(
+            `UPDATE advance_listing_entries SET status = 'Cutoff', cutoff_schedule_id = ?, cutoff_date = ? WHERE entry_id IN (?) AND status = 'Waiting'`,
+            [scheduleId, date, cut.map((e) => e.entry_id)]
+        );
+        cutoff = upd.affectedRows;
+        for (const entry of cut) {
+            try {
+                await notifyUsers({
+                    sender_id: senderUserId, recipient_ids: await getStudentAndParentUserIds(entry.student_id), title: 'Cut Off From the Advance Listing',
+                    message: `The ${entry.visit_type} session of ${fmtSessionWhen(date, schedule.start_time, schedule.end_time)} has ${listingLimitOf(schedule)} places and they are taken, so you were cut off from the advance listing (${advanceLabel(entry.advance_no)}). `
+                        + 'The nurse can move you to the next advance listing. If this schedule is cancelled you come back to the advance listing.',
+                    type: 'ADVANCE_LISTING', payloadData: { entry_id: entry.entry_id }
+                });
+            } catch (e) { console.error('Advance listing cut off notification failed:', e.message); }
+        }
     }
 
     // the places left of the listing limit are for the students who are not in the advance listing: open the listing for them
@@ -13063,11 +13657,12 @@ const placeAdvanceEntries = async (scheduleId, senderUserId) => {
             sender_id: senderUserId, recipient_ids: await getNurseUserIds(), title: 'Advance Listing Scheduled',
             message: `${doctorForNote ? doctorDisplayName(doctorForNote) : 'The doctor'} set the ${schedule.visit_type === 'Any' ? '' : `${schedule.visit_type} `}session of ${fmtSessionWhen(date, schedule.start_time, schedule.end_time)}. `
                 + `${placed} advance listing student(s) got the first queue numbers. ${placesLeft > 0 ? `${placesLeft} place(s) are open for the students who are not in the advance listing.` : 'The session is full.'}`
+                + `${cutoff > 0 ? ` ${cutoff} student(s) were cut off by the listing limit: see the Cut off list, they can move to a new advance listing, and they come back here if the schedule is cancelled.` : ''}`
                 + `${Number(stillWaiting.n) > 0 ? ` ${stillWaiting.n} student(s) still wait in the advance listing: request another schedule.` : ''}`,
             type: 'SCHEDULE_UPDATE', payloadData: { schedule_id: scheduleId }
         });
     } catch (e) { console.error('Advance listing schedule notification failed:', e.message); }
-    return { placed, waiting_left: Number(stillWaiting.n), places_left: placesLeft };
+    return { placed, cutoff, waiting_left: Number(stillWaiting.n), places_left: placesLeft };
 };
 
 // ---- Announcements for students: walk-in and appointment sessions are not bookable, but students should know about them ----
@@ -13078,8 +13673,9 @@ app.get('/api/student/:studentId/open-listings', async (req, res) => {
     try {
         await ensureScheduleListingColumns();
         // a student in the advance listing already has a number (or waits for a schedule), so the open places are for the other students
+        // a cut off student is outside the batch (the session was full), so the open session listings stay available to them
         const inAdvance = await advanceEntryOf(pool, req.params.studentId);
-        if (inAdvance) return res.json({ success: true, listings: [], in_advance: true, advance: inAdvance });
+        if (inAdvance && inAdvance.status !== 'Cutoff') return res.json({ success: true, listings: [], in_advance: true, advance: inAdvance });
         const [schedules] = await pool.query(
             `SELECT ds.*, d.first_name AS doc_first_name, d.last_name AS doc_last_name, d.specialization, d.services_offered
              FROM doctor_schedules ds JOIN doctors d ON d.doctor_id = ds.doctor_id
@@ -13115,7 +13711,7 @@ app.get('/api/student/:studentId/open-listings', async (req, res) => {
                 visit_type: s.visit_type, purposes: s.visit_type === 'Any' ? covered : [s.visit_type],
                 start_time: s.start_time, end_time: s.end_time, location: s.location, notes: s.notes,
                 listing_limit: state.listing_limit, accepted: state.accepted, advance: state.advance, regular: state.regular, places_left: state.places_left,
-                listing_full: state.listing_full, can_request: state.can_request && !mine,
+                listing_full: state.listing_full, can_request: state.can_request && !mine, allow_walk_in: !!Number(s.allow_walk_in),
                 mine: mine ? { request_id: mine.request_id, status: mine.status, queue_no: mine.queue_no, label: mine.label || (mine.queue_no ? `#${mine.queue_no}` : null) } : null
             });
         }
@@ -13283,7 +13879,7 @@ app.get('/api/doctor-schedules/:id/participants', async (req, res) => {
 
         const [rows] = await pool.query(
             `SELECT da.appointment_id, da.start_time, da.end_time, da.status, da.visit_type, da.purpose_other, da.booking_source, da.booking_reason, da.extended_minutes,
-                    da.queue_lane, da.queue_no, da.queue_state, ${APPOINTED_HOW_SQL}, ale.advance_no,
+                    da.queue_lane, da.queue_no, da.queue_state, da.parent_appointment_id, ${APPOINTED_HOW_SQL}, ale.advance_no,
                     das.student_id, das.attendance_status, s.first_name, s.last_name, s.year_level, s.section, s.program_id, p.program_name
              FROM doctor_appointments da
              JOIN doctor_appointment_students das ON das.appointment_id = da.appointment_id
@@ -13303,7 +13899,9 @@ app.get('/api/doctor-schedules/:id/participants', async (req, res) => {
                 start_time: a.start_time, end_time: a.end_time, status: a.status, attendance_status: a.attendance_status,
                 visit_type: a.visit_type, purpose_other: a.purpose_other, booking_source: a.booking_source, booking_reason: a.booking_reason, extended_minutes: a.extended_minutes,
                 queue_lane: a.queue_lane, queue_no: a.queue_no, queue_state: a.queue_state, queue_label: a.queue_state ? queueLabel(a.queue_lane, a.queue_no) : null,
-                advance_label: a.advance_no ? advanceLabel(a.advance_no) : null
+                advance_label: a.advance_no ? advanceLabel(a.advance_no) : null,
+                // a repeat (follow-up) of an earlier check-up, moved in by the nurse's request or put there from the Repeats list
+                is_repeat: a.visit_type === 'Follow-up' && !!a.parent_appointment_id
             }))
         });
     } catch (error) {
@@ -13866,7 +14464,10 @@ const runPastVisitJobs = () => {
         .then(() => closeFinishedQueues())
         .catch((err) => console.error('Close finished queues job failed:', err.message))
         .then(() => markExpiredAppointmentsAbsent())
-        .catch((err) => console.error('Auto-absent job failed:', err.message));
+        .catch((err) => console.error('Auto-absent job failed:', err.message))
+        // the sessions that just ended may finish check-up services of the advance listing, and with them the batch
+        .then(() => advanceStateOf(pool))
+        .catch((err) => console.error('Advance listing batch job failed:', err.message));
 };
 cron.schedule('*/5 * * * *', runPastVisitJobs, { timezone: 'Asia/Manila' });
 runPastVisitJobs();
@@ -14081,10 +14682,22 @@ app.put('/api/doctor-visits/status/:appointment_id', async (req, res) => {
     }
 
     try {
-        const [[appt]] = await pool.query(`SELECT status FROM doctor_appointments WHERE appointment_id = ?`, [appointment_id]);
+        const [[appt]] = await pool.query(`SELECT status, schedule_id, queue_state, queue_lane, queue_no, DATE(start_time) AS day FROM doctor_appointments WHERE appointment_id = ?`, [appointment_id]);
         if (!appt) return res.status(404).json({ success: false, message: 'Appointment not found.' });
         if (['Cancelled', 'Declined', 'Waiting for Approval'].includes(appt.status)) {
             return res.status(409).json({ success: false, message: `Attendance cannot be changed while the appointment is ${appt.status.toLowerCase()}.` });
+        }
+        // the doctor records the time in only for the number in session
+        if (status === 'Present' && req.body.created_by_doctor_id && appt.queue_state && appt.queue_state !== 'Serving') {
+            const mark = (lane, no) => `${lane === 'Walk-in' ? 'W' : '#'}${no}`;
+            const [[current]] = await pool.query(
+                `SELECT queue_lane, queue_no FROM doctor_appointments WHERE schedule_id <=> ? AND DATE(start_time) = ? AND queue_state = 'Serving' LIMIT 1`,
+                [appt.schedule_id, appt.day]
+            );
+            return res.status(409).json({
+                success: false,
+                message: `${mark(appt.queue_lane, appt.queue_no)} is not the number in session. ${current ? `Now in session: ${mark(current.queue_lane, current.queue_no)}.` : 'Call the number first.'}`
+            });
         }
 
         const sets = ['attendance_status = ?'];
@@ -14395,8 +15008,10 @@ app.post('/api/doctor-assessments', async (req, res) => {
         let followUp = toFlag(req.body.follow_up_needed);
         let detail = null;
 
-        if (visitType === 'Dental') {
-            const d = dental || {};
+        // The Dental / Vision exam record is only saved when the form sends it. The check-up form no longer has a fixed exam section:
+        // the exam questions are a template (Dental / Vision) and their answers go to template_responses.
+        if (visitType === 'Dental' && dental) {
+            const d = dental;
             const hygiene = textOrNull(d.oral_hygiene);
             if (!hygiene) return fail(400, 'Oral hygiene rating is required for a dental examination.');
             if (!['Good', 'Fair', 'Poor'].includes(hygiene)) return fail(400, 'Oral hygiene must be Good, Fair or Poor.');
@@ -14425,8 +15040,8 @@ app.post('/api/doctor-assessments', async (req, res) => {
                 diagnosis = detail.caries_count > 0 ? 'Dental caries' : (hygiene === 'Poor' ? 'Poor oral hygiene' : 'No significant dental findings');
             }
             if (!textOrNull(treatment_recommendations) && detail.treatment_needed) treatment_recommendations = detail.treatment_needed;
-        } else if (visitType === 'Vision') {
-            const v = vision || {};
+        } else if (visitType === 'Vision' && vision) {
+            const v = vision;
             if (!textOrNull(v.visual_acuity_left) || !textOrNull(v.visual_acuity_right)) {
                 return fail(400, 'Visual acuity for both eyes is required for a vision examination.');
             }
@@ -14460,8 +15075,17 @@ app.post('/api/doctor-assessments', async (req, res) => {
                 else diagnosis = 'No significant vision findings';
             }
             if (!textOrNull(treatment_recommendations) && action !== 'No action') treatment_recommendations = action;
-        } else if (!textOrNull(clinical_findings) || !textOrNull(diagnosis)) {
-            return fail(400, 'Clinical findings and diagnosis are required.');
+        } else {
+            // the doctor's own standard form decides which of these four are asked and required (all four required by default)
+            await ensureStandardForms();
+            const [[formRow]] = await connection.query(`SELECT config FROM doctor_standard_forms WHERE doctor_id = ?`, [doctorId]);
+            const standardFields = mergeStandardForm(formRow ? parseJsonCol(formRow.config) : null).fields;
+            const values = { chief_complaint: req.body.chief_complaint, clinical_findings, diagnosis, treatment_recommendations };
+            const missing = standardFields.filter((f) => STANDARD_CORE.includes(f.key) && f.required && values[f.key] !== undefined && !textOrNull(values[f.key]));
+            if (missing.length > 0) return fail(400, `${missing.map((f) => f.label).join(', ')} ${missing.length === 1 ? 'is' : 'are'} required.`);
+            // a question the doctor took out of the form is saved empty (these two columns cannot be NULL)
+            if (!textOrNull(clinical_findings)) clinical_findings = '';
+            if (!textOrNull(diagnosis)) diagnosis = '';
         }
 
         const recommendations = textOrNull(treatment_recommendations);
@@ -14549,7 +15173,7 @@ app.post('/api/doctor-assessments', async (req, res) => {
             );
         }
 
-        if (visitType === 'Dental') {
+        if (visitType === 'Dental' && detail) {
             const [rec] = await connection.query(
                 `SELECT dental_record_id FROM dental_assessment_records WHERE appointment_id = ? AND student_id = ?`,
                 [appointment_id, student_id]
@@ -14578,7 +15202,7 @@ app.post('/api/doctor-assessments', async (req, res) => {
                      p.next_visit_recommendation, p.remarks, clinical_findings]
                 );
             }
-        } else if (visitType === 'Vision') {
+        } else if (visitType === 'Vision' && detail) {
             const [rec] = await connection.query(
                 `SELECT vision_record_id FROM vision_screening_records WHERE appointment_id = ? AND student_id = ?`,
                 [appointment_id, student_id]
@@ -14828,8 +15452,10 @@ app.post('/api/doctor-visits/walk-in', async (req, res) => {
                AND queue_state IN ('Waiting', 'Serving') AND appointment_id <> ?`,
             [schedule.schedule_id, entry.startStr.slice(0, 10), entry.appointmentId]
         );
+        // a student in the advance listing (waiting, pending or cut off) of this check-up service who walks in is not waiting for a schedule any more
+        const leftAdvance = await leaveAdvanceForService(connection, student_id, visitType, `Walked in for ${visitType} (W${entry.queueNo}).`);
         await connection.commit();
-        created = { appointmentId: entry.appointmentId, queueNo: entry.queueNo, student, doctor, ahead: Number(ahead.n) };
+        created = { appointmentId: entry.appointmentId, queueNo: entry.queueNo, student, doctor, ahead: Number(ahead.n), leftAdvance };
     } catch (error) {
         await connection.rollback();
         connection.release();
@@ -14838,6 +15464,7 @@ app.post('/api/doctor-visits/walk-in', async (req, res) => {
         return res.status(500).json({ success: false, message: 'Failed to register walk-in visit' });
     }
     connection.release();
+    if (created.leftAdvance.length > 0) await notifyLeftAdvance(student_id, created.leftAdvance, `you walked in for ${visitType}, so you do not wait for a schedule any more.`, req.body.sender_id || null);
     const queueNote = `Walk-in number W${created.queueNo}. ${created.ahead} student(s) are ahead: walk-ins are called after the listed students.`;
     if (created.doctor.user_id && created.doctor.user_id !== req.body.sender_id) {
         try {
@@ -14881,7 +15508,7 @@ const buildQueueSnapshot = async (conn, schedule, date) => {
     const waiting = entries.filter((e) => e.state === 'Waiting');
     return {
         schedule_id: schedule.schedule_id, date, minutes_per_patient: Number(schedule.slot_duration_min) || 15,
-        capacity: queueCapacity(schedule),
+        capacity: queueCapacity(schedule), allow_walk_in: !!Number(schedule.allow_walk_in),
         now_serving: serving ? { lane: serving.lane, queue_no: serving.queue_no, label: serving.label, student_name: serving.student_name, appointment_id: serving.appointment_id } : null,
         listed_waiting: waiting.filter((e) => e.lane === 'Listed').length,
         walkin_waiting: waiting.filter((e) => e.lane === 'Walk-in').length,
@@ -15333,6 +15960,8 @@ app.post('/api/doctor-visits/:appointment_id/follow-up', async (req, res) => {
     const queueScheduleId = textOrNull(req.body.schedule_id) && !startStr ? textOrNull(req.body.schedule_id) : null;
     const queueDate = queueScheduleId ? String(req.body.date || '').slice(0, 10) : null;
     if (!student_id || (!nurse_id && !creatorDoctorId)) return res.status(400).json({ success: false, message: 'Student and nurse or doctor are required.' });
+    // the doctor only flags a repeat in the assessment; the nurse schedules it
+    if (!nurse_id) return res.status(403).json({ success: false, message: 'Only the nurse schedules a repeat. The student waits in the Repeats list.' });
     if (queueScheduleId && !isDateStr(queueDate)) return res.status(400).json({ success: false, message: 'Pick the date of the session.' });
     if (!queueScheduleId && !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(startStr)) return res.status(400).json({ success: false, message: 'Pick a follow-up date and time.' });
 
@@ -15370,6 +15999,10 @@ app.post('/api/doctor-visits/:appointment_id/follow-up', async (req, res) => {
             const [[queueSchedule]] = await connection.query(`SELECT * FROM doctor_schedules WHERE schedule_id = ? FOR UPDATE`, [queueScheduleId]);
             if (!queueSchedule || queueSchedule.status !== 'Open') throw new BookingError('That schedule is no longer open.');
             if (queueSchedule.doctor_id !== doctorId) throw new BookingError('Pick a session of the same doctor.', 400);
+            // only a session that has not started: date and start time still to come (not on going, not awaiting its end, not past)
+            if (`${queueDate} ${String(queueSchedule.start_time).slice(0, 8)}` <= nowManilaStr() || (await liveStateOf(connection, queueSchedule)).is_ongoing) {
+                throw new BookingError('That session is on going or already past. Pick an upcoming session.', 400);
+            }
             // the repeat goes into a session of the same check-up service as the visit it repeats
             if (queueSchedule.visit_type !== 'Any' && queueSchedule.visit_type !== source.visit_type && !['Follow-up', 'Referral'].includes(source.visit_type)) {
                 throw new BookingError(`That session is for ${queueSchedule.visit_type} check-ups, but this repeat is a ${source.visit_type} check-up. Pick a session of the same check-up service.`, 400);
@@ -16732,6 +17365,119 @@ app.post('/api/doctor/:doctorId/templates/seed', async (req, res) => {
         res.status(500).json({ success: false, message: 'Failed to set up the starter templates' });
     } finally {
         connection.release();
+    }
+});
+
+// ---- Doctor: the standard check-up form is a list of fields the doctor edits like a template (any field can be changed, moved or removed) ----
+const STANDARD_CORE = ['chief_complaint', 'clinical_findings', 'diagnosis', 'treatment_recommendations'];
+const STANDARD_FORM_DEFAULT = {
+    fields: [
+        { key: 'chief_complaint', label: 'Why the student came (reason for the check-up)', type: 'text', required: true, hint: 'e.g. Headache and fever since yesterday', unit: '' },
+        { key: 'clinical_findings', label: 'Clinical findings', type: 'textarea', required: true, hint: '', unit: '' },
+        { key: 'diagnosis', label: 'Diagnosis', type: 'textarea', required: true, hint: '', unit: '' },
+        { key: 'treatment_recommendations', label: 'Treatment plan / recommendations', type: 'textarea', required: true, hint: '', unit: '' }
+    ],
+    prescription_enabled: true
+};
+const STANDARD_FORM_FIELD_TYPES = ['heading', 'text', 'textarea', 'number', 'date', 'select', 'radio', 'checkbox', 'yesno'];
+const STANDARD_FORM_MAX_FIELDS = 40;
+
+// The standard form is a list of fields. Four keys are the assessment's own columns (core); every other field is the doctor's question with
+// a key s1, s2 ... that stays the same once saved (its answer is stored under it). Any field can be edited, moved or removed.
+const cleanStandardFields = (raw) => {
+    const list = Array.isArray(raw) ? raw.slice(0, STANDARD_FORM_MAX_FIELDS) : [];
+    const used = new Set(list.map((f) => f && f.key).filter((k) => /^s\d+$/.test(String(k || ''))));
+    let next = Math.max(0, ...[...used].map((k) => parseInt(String(k).slice(1), 10))) + 1;
+    const out = [];
+    for (const f of list) {
+        if (!f || typeof f !== 'object') continue;
+        const core = STANDARD_CORE.includes(f.key);
+        if (core && out.some((o) => o.key === f.key)) continue;
+        const defaults = core ? STANDARD_FORM_DEFAULT.fields.find((d) => d.key === f.key) : null;
+        const label = textOrNull(f.label) ? String(f.label).trim().slice(0, 200) : (defaults ? defaults.label : null);
+        if (!label) continue;
+        let type = STANDARD_FORM_FIELD_TYPES.includes(f.type) ? f.type : (defaults ? defaults.type : 'text');
+        if (core && type === 'heading') type = defaults.type; // a core field holds an answer
+        let options;
+        if (['select', 'radio', 'checkbox'].includes(type)) {
+            options = [...new Set((Array.isArray(f.options) ? f.options : []).map((o) => String(o || '').trim().slice(0, 120)).filter(Boolean))].slice(0, 30);
+            if (options.length < 2) {
+                if (!core) continue;
+                type = defaults.type;
+                options = undefined;
+            }
+        }
+        let key = core ? f.key : (/^s\d+$/.test(String(f.key || '')) ? String(f.key) : null);
+        if (!core && (!key || out.some((o) => o.key === key))) {
+            while (used.has(`s${next}`) || out.some((o) => o.key === `s${next}`)) next++;
+            key = `s${next}`;
+            used.add(key);
+        }
+        out.push({
+            key, label, type,
+            required: type === 'heading' ? false : !!f.required,
+            options,
+            hint: type === 'heading' ? '' : String(f.hint || '').trim().slice(0, 200),
+            unit: type === 'number' ? String(f.unit || '').trim().slice(0, 20) : ''
+        });
+    }
+    return out;
+};
+
+const mergeStandardForm = (saved) => {
+    const out = { prescription_enabled: STANDARD_FORM_DEFAULT.prescription_enabled };
+    if (saved && Array.isArray(saved.fields)) {
+        out.fields = cleanStandardFields(saved.fields);
+    } else if (saved && typeof saved === 'object' && (saved.chief_complaint || saved.clinical_findings || saved.custom_fields)) {
+        // the first version of the form: four fixed questions with an `enabled` flag + custom_fields
+        const legacy = STANDARD_CORE
+            .filter((k) => !saved[k] || saved[k].enabled !== false)
+            .map((k) => ({ ...STANDARD_FORM_DEFAULT.fields.find((d) => d.key === k), ...(saved[k] || {}), key: k, type: STANDARD_FORM_DEFAULT.fields.find((d) => d.key === k).type }));
+        out.fields = cleanStandardFields([...legacy, ...(Array.isArray(saved.custom_fields) ? saved.custom_fields : [])]);
+    } else {
+        out.fields = STANDARD_FORM_DEFAULT.fields.map((f) => ({ ...f }));
+    }
+    if (saved && saved.prescription_enabled !== undefined) out.prescription_enabled = !!saved.prescription_enabled;
+    return out;
+};
+let standardFormReady = null;
+const ensureStandardForms = () => {
+    if (!standardFormReady) {
+        standardFormReady = pool.query(
+            `CREATE TABLE IF NOT EXISTS doctor_standard_forms (
+                doctor_id VARCHAR(45) NOT NULL PRIMARY KEY,
+                config TEXT NOT NULL,
+                updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
+        ).catch((e) => { standardFormReady = null; throw e; });
+    }
+    return standardFormReady;
+};
+
+app.get('/api/doctor/:doctorId/standard-form', async (req, res) => {
+    try {
+        await ensureStandardForms();
+        const [[row]] = await pool.query(`SELECT config FROM doctor_standard_forms WHERE doctor_id = ?`, [req.params.doctorId]);
+        res.json({ success: true, form: mergeStandardForm(row ? parseJsonCol(row.config) : null), customized: !!row });
+    } catch (error) {
+        console.error('Error loading the standard form:', error);
+        res.status(500).json({ success: false, message: 'Failed to load the standard check-up form' });
+    }
+});
+
+app.put('/api/doctor/:doctorId/standard-form', async (req, res) => {
+    try {
+        if (!req.body.doctor_id || req.body.doctor_id !== req.params.doctorId) return res.status(403).json({ success: false, message: 'Doctors can only edit their own standard form.' });
+        await ensureStandardForms();
+        const form = req.body.reset ? mergeStandardForm(null) : mergeStandardForm(req.body.form);
+        await pool.query(
+            `INSERT INTO doctor_standard_forms (doctor_id, config) VALUES (?, ?) ON DUPLICATE KEY UPDATE config = VALUES(config)`,
+            [req.params.doctorId, JSON.stringify(form)]
+        );
+        res.json({ success: true, message: req.body.reset ? 'The standard form is back to its default.' : 'Standard form saved.', form });
+    } catch (error) {
+        console.error('Error saving the standard form:', error);
+        res.status(500).json({ success: false, message: 'Failed to save the standard check-up form' });
     }
 });
 

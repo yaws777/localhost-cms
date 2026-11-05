@@ -8,7 +8,7 @@
 //   past     : closed, nothing can be appointed or changed any more
 // Every session lists its participants and its queue.
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, UserPlus, TimerReset, CalendarX, CalendarPlus, Edit, Trash2, CalendarClock, Ban, Users, ListPlus, Footprints, Megaphone, Send, BellRing } from 'lucide-react';
+import { ChevronLeft, ChevronRight, UserPlus, TimerReset, CalendarX, Edit, Trash2, CalendarClock, Ban, Users, ListPlus, Footprints, Megaphone, Send, BellRing } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
 import { visitLabel, statusClass } from '../../utils/visitPurpose';
 import {
@@ -20,6 +20,7 @@ import { ScheduleRequestModal } from './ScheduleRequests';
 import QueuePanel from './QueuePanel';
 import SessionEndPrompt from './SessionEndPrompt';
 import Modal from '../common/Modal';
+import UnavailableDates from '../doctor/UnavailableDates';
 import { ReasonModal, RescheduleModal, WalkInModal } from '../doctor/AppointmentModals';
 import '../../styles/scheduling/Scheduling.css';
 
@@ -114,9 +115,12 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
     // ---- schedule CRUD from the calendar ----
     const addSchedule = () => {
         const doctorId = fixedDoctorId || doctorFilter || '';
-        // the doctor sets the schedule; the nurse asks the doctor for it
+        // the doctor sets the schedule; the nurse asks the doctor for it (not on a day the doctor is away: the server refuses it too)
+        if (isNurse && doctorId && absentOn(selected).some((u) => !u.start_time && u.doctor_id === doctorId)) {
+            showAlert('The doctor is unavailable all day on this date, so a schedule cannot be requested for it. Pick another date.', 'warning');
+            return;
+        }
         if (isNurse) setRequestPreset({ doctor_id: doctorId, preferred_date: selected });
-        else setForm({ schedule: null, preset: { doctor_id: doctorId, schedule_date: selected, valid_from: selected, valid_until: selected } });
     };
 
     // the form needs the whole schedule (dates, slots, booking counts), which the calendar day does not carry
@@ -151,6 +155,20 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
         }
     };
 
+    // the doctor takes an unavailable period off the calendar (the nurse only sees it)
+    const removeAbsence = async (u) => {
+        const ok = await showConfirm('Remove these unavailable dates? The nurse can ask for a schedule on them again and students can book the doctor again.', { confirmLabel: 'Remove', title: 'Remove unavailable dates' });
+        if (!ok) return;
+        try {
+            const res = await fetch(`${API}/api/doctor-unavailable-dates/${u.unavailable_id}`, { method: 'DELETE' });
+            const json = await res.json();
+            if (json.success) { showAlert(json.message, 'success'); changed(); }
+            else showAlert(json.message || 'Could not remove.', 'error');
+        } catch (e) {
+            showAlert('Could not reach the server.', 'error');
+        }
+    };
+
     // ---- appointment actions ----
     const rescheduleAppt = async ({ start_time, end_time, reason }) => {
         const json = await putJson(`/api/doctor-visits/reschedule/${moveAppt.appointment_id}`, { sender_id: userId, start_time, end_time, reason });
@@ -178,6 +196,7 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
                             {doctors.map((d) => <option key={d.doctor_id} value={d.doctor_id}>Dr. {d.first_name} {d.last_name}</option>)}
                         </select>
                     )}
+                    {!isNurse && <UnavailableDates fixedDoctorId={fixedDoctorId} userId={userId} defaultDate={selected} onChanged={changed} />}
                     <div className="cal-nav-sc">
                         <button type="button" className="icon-btn-ds" onClick={() => goMonth(-1)} aria-label="Previous month"><ChevronLeft size={16} /></button>
                         <button type="button" className="sti-btn-dv sti-btn-light-dv" onClick={jumpToday}>Today</button>
@@ -217,9 +236,9 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
             <aside className="cal-card-sc day-panel-sc" aria-label="Selected day">
                 <div className="day-head-sc">
                     <h3>{dayLabel(selected, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}{selected === today ? ' (today)' : ''}</h3>
-                    {!isPast && (
+                    {!isPast && isNurse && (
                         <button type="button" className="sti-btn-dv sti-btn-primary-dv btn-sm-sc" onClick={addSchedule}>
-                            {isNurse ? <><Send size={14} /> Request schedule</> : <><CalendarPlus size={14} /> Add schedule</>}
+                            <Send size={14} /> Request schedule
                         </button>
                     )}
                 </div>
@@ -229,6 +248,10 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
                 {dayAbsences.map((u) => (
                     <div key={u.unavailable_id} className="absence-sc">
                         <strong>{u.doctor_name} is unavailable</strong> {u.start_time ? timeRange(u.start_time, u.end_time) : 'all day'}{u.reason ? ` - ${u.reason}` : ''}
+                        {u.start_date !== u.end_date && <span> ({dayLabel(u.start_date)} to {dayLabel(u.end_date)})</span>}
+                        {!isNurse && (
+                            <button type="button" className="sti-btn-dv sti-btn-light-dv btn-sm-sc" style={{ marginLeft: 8 }} onClick={() => removeAbsence(u)}><Trash2 size={14} /> Remove</button>
+                        )}
                     </div>
                 ))}
 
@@ -280,7 +303,7 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
                                 </>
                             )}
                             <div className="session-actions-sc">
-                                {s.state !== 'past' && (
+                                {s.state !== 'past' && isNurse && (
                                     <button type="button" className="sti-btn-dv sti-btn-primary-dv btn-sm-sc" onClick={() => setAppointFor(s)}><UserPlus size={14} /> Appoint</button>
                                 )}
                                 {s.state !== 'past' && (

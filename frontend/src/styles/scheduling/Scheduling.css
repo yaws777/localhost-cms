@@ -62,7 +62,8 @@
 :root[data-theme="dark"] .type-walkin-sc { background: #78350f; color: #fde68a; }
 :root[data-theme="dark"] .type-hybrid-sc { background: #4c1d95; color: #ddd6fe; }
 
-.icon-btn-ds:disabled { opacity: 0.4; cursor: not-allowed; }
+.icon-btn-ds:disabled, .icon-btn-ds[aria-disabled='true'] { opacity: 0.4; cursor: not-allowed; }
+.switch-sc[aria-disabled='true'], .switch-sc:disabled { opacity: 0.6; cursor: not-allowed; }
 
 /* ---- schedule type picker in the schedule form ---- */
 .type-picker-sc { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }

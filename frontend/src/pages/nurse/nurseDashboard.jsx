@@ -392,22 +392,13 @@ const generatePDFReport = (title, periodText, tableHeaders, tableRows, onError) 
 };
 
 /* --- CUSTOM CHART TOOLTIPS --- */
-// Shows both phases of the rolling forecast for the hovered target day
+// Hover card of the forecast: the day's predicted need and the stock left after it
 const ForecastTooltip = ({ active, payload }) => {
   if (!active || !payload || !payload.length) return null;
   const day = payload[0].payload;
   const p1 = day.phase1_prediction;
-  const p2 = day.phase2_windowShift;
   const fmt = (n) => parseFloat(Number(n).toFixed(2));
-  // Window for target day t+k is the 30 days before it (t+k-30 .. t+k-1); after the shift it is t+k-29 .. t+k.
-  const shiftDate = (dateStr, days) => {
-    const [y, m, d] = String(dateStr).slice(0, 10).split('-').map(Number);
-    return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
-  };
-  const oldestDate = shiftDate(day.targetDate, -30);
-  const activeWindowRange = `${formatDateBase(oldestDate)} – ${formatDateBase(shiftDate(day.targetDate, -1))}`;
-  const newWindowRange = `${formatDateBase(shiftDate(day.targetDate, -29))} – ${formatDateBase(day.targetDate)}`;
-  // e.g. "20 − 1 = 19"; when the day's demand exceeds the stock left, the result is floored at 0 ("4 − 7 = −3 → 0")
+  // e.g. "20 − 1 = 19"; when the day's need exceeds the stock left, the result is floored at 0 ("4 − 7 = −3 → 0")
   const stockDiff = parseFloat((day.stockBefore - p1.predictedDemand).toFixed(3));
   const stockLeftComputation = stockDiff < 0
     ? `${fmt(day.stockBefore)} − ${fmt(p1.predictedDemand)} = −${fmt(Math.abs(stockDiff))} → 0`
@@ -415,22 +406,11 @@ const ForecastTooltip = ({ active, payload }) => {
 
   return (
     <div className="custom-chart-tooltip-nd predictive-tooltip-width-nd">
-      <h4 className="tooltip-header-nd">Day +{day.dayOffset} · {formatDateBase(day.targetDate)} ({day.dayOfWeek})</h4>
+      <h4 className="tooltip-header-nd">{formatDateBase(day.targetDate)} ({day.dayOfWeek})</h4>
       <ul className="tooltip-items-list-standard-nd">
-        <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Predicted demand</span><span className="tooltip-item-value-nd" style={{ color: 'var(--status-low-text)' }}>{fmt(p1.predictedDemand)} {pluralizeUnit(day.unit, fmt(p1.predictedDemand))}</span></li>
+        <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Predicted need</span><span className="tooltip-item-value-nd" style={{ color: 'var(--status-low-text)' }}>{fmt(p1.predictedDemand)} {pluralizeUnit(day.unit, fmt(p1.predictedDemand))}</span></li>
         <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Stock left after this day</span><span className="tooltip-item-value-nd" style={{ color: 'var(--text-brand)' }}>{day.remainingStock} {pluralizeUnit(day.unit, day.remainingStock)}</span></li>
-        <li className="tooltip-item-nd tooltip-item-note-nd"><span className="tooltip-item-name-nd">Stock − predicted demand</span><span className="tooltip-item-value-nd">{stockLeftComputation}</span></li>
-        <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Window sum</span><span className="tooltip-item-value-nd">{fmt(p1.activeWindowSum)} {pluralizeUnit(day.unit, fmt(p1.activeWindowSum))}</span></li>
-        <li className="tooltip-item-nd tooltip-item-note-nd"><span className="tooltip-item-name-nd">Dates covered</span><span className="tooltip-item-value-nd">{activeWindowRange}</span></li>
-        <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Avg daily demand</span><span className="tooltip-item-value-nd">{fmt(p1.activeADD)} {pluralizeUnit(day.unit, fmt(p1.activeADD))}/day</span></li>
-        <li className="tooltip-item-nd tooltip-item-note-nd"><span className="tooltip-item-name-nd">Sundays excluded</span><span className="tooltip-item-value-nd">{fmt(p1.activeWindowSum)} ÷ {p1.activeDays} days</span></li>
-        <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Day-of-week index</span><span className="tooltip-item-value-nd">×{parseFloat(Number(p1.seasonalityIndex).toFixed(2))}</span></li>
-        <li className="tooltip-item-nd tooltip-item-note-nd"><span className="tooltip-item-name-nd">Avg daily demand × index</span><span className="tooltip-item-value-nd">{fmt(p1.activeADD)} × {parseFloat(Number(p1.seasonalityIndex).toFixed(2))} = {parseFloat(Number(p1.rawDemand).toFixed(3))}</span></li>
-        <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Dropped oldest</span><span className="tooltip-item-value-nd">{fmt(p2.droppedOldestValue)} {pluralizeUnit(day.unit, fmt(p2.droppedOldestValue))}</span></li>
-        <li className="tooltip-item-nd tooltip-item-note-nd"><span className="tooltip-item-name-nd">Date dropped</span><span className="tooltip-item-value-nd">{formatDateBase(oldestDate)}</span></li>
-        <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">New window sum</span><span className="tooltip-item-value-nd">{fmt(p2.newWindowSum)} {pluralizeUnit(day.unit, fmt(p2.newWindowSum))}</span></li>
-        <li className="tooltip-item-nd tooltip-item-note-nd"><span className="tooltip-item-name-nd">Dates covered</span><span className="tooltip-item-value-nd">{newWindowRange}</span></li>
-        <li className="tooltip-item-nd tooltip-item-note-nd"><span className="tooltip-item-name-nd">Window sum − dropped + predicted</span><span className="tooltip-item-value-nd">{fmt(p1.activeWindowSum)} − {fmt(p2.droppedOldestValue)} + {fmt(p2.appendedPrediction)} = {fmt(p2.newWindowSum)}</span></li>
+        <li className="tooltip-item-nd tooltip-item-note-nd"><span className="tooltip-item-name-nd">Stock − predicted need</span><span className="tooltip-item-value-nd">{stockLeftComputation}</span></li>
       </ul>
     </div>
   );

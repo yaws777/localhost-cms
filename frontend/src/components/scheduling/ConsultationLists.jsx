@@ -9,7 +9,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
     Search, CalendarClock, History, ClipboardPlus, UserX, Ban, FileText, Printer, Pill, Stethoscope, TimerReset,
-    FolderOpen, ChevronLeft, Eye, Repeat, Clock, QrCode, Users, BellRing
+    FolderOpen, ChevronLeft, ClipboardList, Eye, Repeat, Clock, QrCode, Users, BellRing
 } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatTime } from '../../utils/datetime';
@@ -18,6 +18,7 @@ import { printDocument, visitDocumentHtml } from '../../utils/doctorVisitDocumen
 import { useSpecializations } from '../../hooks/useSpecializations';
 import { ExtendAppointmentModal } from './SessionModals';
 import SessionEndPrompt from './SessionEndPrompt';
+import ExtendSessionModal from './ExtendSessionModal';
 import QueuePanel from './QueuePanel';
 import AttendanceScanModal from './AttendanceScanModal';
 import { RepeatModal } from './FollowUps';
@@ -92,6 +93,7 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
     const [repeatTarget, setRepeatTarget] = useState(null);
     const [walkInFor, setWalkInFor] = useState(null);
     const [extendTarget, setExtendTarget] = useState(null);
+    const [extendSession, setExtendSession] = useState(null);
     const [runningSessions, setRunningSessions] = useState([]);
     const [dismissedEnds, setDismissedEnds] = useState([]);
     const [scanning, setScanning] = useState(false);
@@ -300,6 +302,7 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
             buttons.push(act('sum', 'ghost', Printer, 'Summary', () => print(a, 'summary')));
             if (rxCount(a) > 0) buttons.push(act('rx', 'ghost', Pill, 'Prescription', () => print(a, 'prescription')));
         }
+        buttons.push(act('past', 'ghost', ClipboardList, 'Past assessments', () => setHistoryTarget(a), 'Past assessments of the student'));
         buttons.push(act('log', 'ghost', History, 'History', () => setLogTarget(a), 'History and reasons'));
         return buttons;
     };
@@ -307,8 +310,13 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
     // ---- the actions of a Past row ----
     const renderPastActions = (a) => {
         const documented = !!a.assessment_id;
-        // the nurse can only look: the assessment, or the details when nothing was documented
-        if (isNurse) return act('view', 'ghost', Eye, documented ? 'View assessment' : 'View details', () => setViewTarget(a));
+        // the nurse can only look: the assessment, or the details when nothing was documented, and the past assessments of the student
+        if (isNurse) {
+            return [
+                act('view', 'ghost', Eye, documented ? 'View assessment' : 'View details', () => setViewTarget(a)),
+                act('log', 'ghost', History, 'Past assessments', () => setHistoryTarget(a), 'Past assessments of the student')
+            ];
+        }
         const buttons = [];
         if (documented) {
             buttons.push(act('doc', 'ghost', ClipboardPlus, 'View / edit check-up', () => setConsultTarget(a)));
@@ -320,7 +328,7 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
             if (rxCount(a) > 0) buttons.push(act('rx', 'ghost', Pill, 'Prescription', () => print(a, 'prescription')));
             buttons.push(act('rp', 'accent', Repeat, 'Repeat', () => setRepeatTarget(a), 'Repeat: direct appointment, or wait for a schedule'));
         }
-        buttons.push(act('log', 'ghost', History, 'Assessment history', () => setHistoryTarget(a), 'Assessment history of the student'));
+        buttons.push(act('log', 'ghost', History, 'Past assessments', () => setHistoryTarget(a), 'Past assessments of the student'));
         return buttons;
     };
 
@@ -507,7 +515,7 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
                             <button type="button" className="dp-btn dp-btn-primary dp-btn-sm" onClick={() => setDismissedEnds((list) => list.filter((k) => k !== endKey(s)))}>Confirm or extend</button>
                         </div>
                     )}
-                    <QueuePanel scheduleId={s.schedule_id} date={s.date} creator={creator} userId={userId} refreshKey={queueKey} onChanged={refresh} onDocument={documentEntry} onView={viewEntry} onHistory={isNurse ? undefined : historyEntry} onWalkIn={() => setWalkInFor(s)} />
+                    <QueuePanel scheduleId={s.schedule_id} date={s.date} creator={creator} userId={userId} refreshKey={queueKey} onChanged={refresh} onDocument={documentEntry} onView={viewEntry} onHistory={historyEntry} onWalkIn={() => setWalkInFor(s)} onExtend={() => setExtendSession(s)} />
                 </section>
             ))}
 
@@ -544,6 +552,7 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
             <AssessmentViewModal appt={viewTarget} onClose={() => setViewTarget(null)} />
             <AssessmentHistoryModal appt={historyTarget} onClose={() => setHistoryTarget(null)} />
             <ExtendAppointmentModal appt={extendTarget} creator={creator} userId={userId} onClose={() => setExtendTarget(null)} onDone={refresh} />
+            <ExtendSessionModal session={extendSession} onExtend={(minutes) => extendEnd(extendSession, minutes)} onClose={() => setExtendSession(null)} />
             {endAsk && (
                 <SessionEndPrompt
                     item={{ key: endKey(endAsk), kind: 'check-up', endTime: endAsk.end_time, title: `${endAsk.doctor_name}'s ${endAsk.visit_type === 'Any' ? 'check-up' : endAsk.visit_type} session on ${formatDate(endAsk.date)}` }}

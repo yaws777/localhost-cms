@@ -7,13 +7,14 @@ import { QrCode } from 'lucide-react';
 import Modal from '../common/Modal';
 
 // entries: the queue entries of the session; onArrived(entry): marks the entry as arrived (resolves true when it worked)
-const AttendanceScanModal = ({ isOpen, entries, onArrived, onClose }) => {
+// servingOnly: only the number in session can time in (the doctor)
+const AttendanceScanModal = ({ isOpen, entries, onArrived, onClose, servingOnly = false }) => {
     const videoRef = useRef(null);
     const canvasRef = useRef(null);
-    const latest = useRef({ entries, onArrived });
+    const latest = useRef({ entries, onArrived, servingOnly });
     const [feedback, setFeedback] = useState({ message: 'Hold the QR code of the student in front of the camera.', type: 'info' });
 
-    useEffect(() => { latest.current = { entries, onArrived }; }, [entries, onArrived]);
+    useEffect(() => { latest.current = { entries, onArrived, servingOnly }; }, [entries, onArrived, servingOnly]);
 
     useEffect(() => {
         if (!isOpen) return undefined;
@@ -28,6 +29,11 @@ const AttendanceScanModal = ({ isOpen, entries, onArrived, onClose }) => {
             const entry = list.find((e) => e.student_id === studentId && ['Waiting', 'Serving'].includes(e.state));
             if (!entry) { setFeedback({ message: `${studentId || 'This code'} has no number waiting in this session.`, type: 'error' }); return; }
             if (entry.arrived) { setFeedback({ message: `${entry.student_name} (${entry.label}) already has a time in.`, type: 'info' }); return; }
+            if (latest.current.servingOnly && entry.state !== 'Serving') {
+                const now = list.find((e) => e.state === 'Serving');
+                setFeedback({ message: `${entry.student_name} (${entry.label}) is not the number in session.${now ? ` Now in session: ${now.label}.` : ' Call the number first.'}`, type: 'error' });
+                return;
+            }
             const ok = await mark(entry);
             setFeedback(ok
                 ? { message: `${entry.student_name} (${entry.label}) is marked as arrived.`, type: 'success' }

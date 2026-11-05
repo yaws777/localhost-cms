@@ -1,43 +1,19 @@
 // ConsultationModal.jsx
 // Clinical check-up documentation for one doctor visit: findings, diagnosis, treatment plan,
-// prescriptions and follow-up notes, plus the doctor's own template fields and the Dental / Vision forms.
+// prescriptions and follow-up notes, plus the doctor's own template fields. Exam questions (Dental / Vision examination) are templates, not fixed forms.
 import React, { useState, useEffect, useMemo } from 'react';
 import { ClipboardPlus, Plus, Trash2 } from 'lucide-react';
 import Modal from '../common/Modal';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatTime } from '../../utils/datetime';
 import { visitLabel, fullName, localDateStr } from '../../utils/visitPurpose';
-import { TemplateFields, emptyValue, missingRequired, toResponses } from './TemplateFields';
+import { TemplateFields, missingRequired, toResponses } from './TemplateFields';
+import { STANDARD_FORM_DEFAULT, isCoreKey, asText } from '../../utils/standardForm';
 import '../../styles/doctor/DoctorLayout.css';
 
 const API = 'http://localhost:3001';
 
 const EMPTY_RX = { medicine: '', dosage: '', frequency: '', duration: '', instructions: '' };
-
-const blankDental = () => ({
-    oral_hygiene: '', gum_condition: '', caries_count: 0, missing_count: 0, filled_count: 0, malocclusion: false,
-    tooth_notes: '', treatment_done: '', treatment_needed: '', referral_needed: false, referral_to: '', next_visit_recommendation: '', remarks: ''
-});
-const blankVision = () => ({
-    visual_acuity_left: '', visual_acuity_right: '', va_left_corrected: '', va_right_corrected: '', wears_eyeglasses: false,
-    wears_contacts: false, color_vision: '', eye_findings: '', recommended_action: 'No action', remarks: ''
-});
-
-const dentalFrom = (a) => ({
-    ...blankDental(),
-    oral_hygiene: a.oral_hygiene || '', gum_condition: a.gum_condition || '',
-    caries_count: a.caries_count ?? 0, missing_count: a.missing_count ?? 0, filled_count: a.filled_count ?? 0,
-    malocclusion: !!a.malocclusion, tooth_notes: a.tooth_notes || '', treatment_done: a.treatment_done || '',
-    treatment_needed: a.treatment_needed || '', referral_needed: !!a.referral_needed, referral_to: a.referral_to || '',
-    next_visit_recommendation: a.next_visit_recommendation || '', remarks: a.dental_remarks || ''
-});
-const visionFrom = (a) => ({
-    ...blankVision(),
-    visual_acuity_left: a.visual_acuity_left || '', visual_acuity_right: a.visual_acuity_right || '',
-    va_left_corrected: a.va_left_corrected || '', va_right_corrected: a.va_right_corrected || '',
-    wears_eyeglasses: !!a.wears_eyeglasses, wears_contacts: !!a.wears_contacts, color_vision: a.color_vision || '',
-    eye_findings: a.eye_findings || '', recommended_action: a.recommended_action || 'No action', remarks: a.vision_remarks || ''
-});
 
 // doctorId: whose templates are offered; nurseId is set when the nurse documents the visit instead of the doctor
 const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }) => {
@@ -47,10 +23,10 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
 
     const [templates, setTemplates] = useState([]);
     const [templateId, setTemplateId] = useState('');
+    const [std, setStd] = useState(STANDARD_FORM_DEFAULT);
     const [answers, setAnswers] = useState({});
+    const [vals, setVals] = useState({}); // answers to the fields of the doctor's standard form (the four core ones are saved in the assessment itself)
     const [form, setForm] = useState(null);
-    const [dental, setDental] = useState(blankDental());
-    const [vision, setVision] = useState(blankVision());
     const [followTime, setFollowTime] = useState('09:00');
     const [followDuration, setFollowDuration] = useState(15);
     const [bookFollowUp, setBookFollowUp] = useState(false);
@@ -61,96 +37,96 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
     useEffect(() => {
         if (!appt) return;
         setForm({
-            chief_complaint: appt.chief_complaint || appt.booking_reason || '',
-            clinical_findings: appt.clinical_findings || '',
-            diagnosis: appt.diagnosis || '',
-            treatment_recommendations: appt.treatment_recommendations || '',
             is_abnormal: !!appt.is_abnormal,
             follow_up_needed: !!appt.follow_up_needed,
             follow_up_date: appt.follow_up_date || '',
             follow_up_notes: appt.follow_up_notes || '',
             prescriptions: Array.isArray(appt.prescriptions) && appt.prescriptions.length > 0 ? appt.prescriptions.map((p) => ({ ...EMPTY_RX, ...p })) : []
         });
-        setDental(dentalFrom(appt));
-        setVision(visionFrom(appt));
         setAnswers({});
+        const saved = {
+            chief_complaint: appt.chief_complaint || appt.booking_reason || '',
+            clinical_findings: appt.clinical_findings || '',
+            diagnosis: appt.diagnosis || '',
+            treatment_recommendations: appt.treatment_recommendations || ''
+        };
+        // answers to the doctor's own questions are saved with the check-up under their keys (s1, s2 ...)
+        (Array.isArray(appt.template_responses) ? appt.template_responses : []).forEach((r) => { if (/^s\d+$/.test(String(r.key))) saved[r.key] = r.value; });
+        setVals(saved);
         setTemplateId('');
         setBookFollowUp(false);
         setError('');
         setBusy(false);
     }, [appt]);
 
-    // the doctor's templates that fit this purpose
+    // the doctor's standard check-up form (wording, required parts, prescription on / off)
     useEffect(() => {
         if (!appt || !doctorId) return undefined;
         let live = true;
-        // the template the doctor chose for the session is always offered, even when its purpose differs (e.g. a follow-up row)
-        fetch(`${API}/api/doctor/${doctorId}/templates?visit_type=${encodeURIComponent(visitType)}`)
+        fetch(`${API}/api/doctor/${doctorId}/standard-form`)
             .then((r) => r.json())
-            .then(async (d) => {
-                if (!d.success) return d;
-                const wanted = appt.schedule_template_id;
-                if (wanted && !d.templates.some((t) => t.template_id === wanted)) {
-                    const all = await fetch(`${API}/api/doctor/${doctorId}/templates`).then((r) => r.json());
-                    const extra = all.success ? all.templates.find((t) => t.template_id === wanted) : null;
-                    if (extra) return { ...d, templates: [extra, ...d.templates] };
-                }
-                return d;
-            })
             .then((d) => {
                 if (!live || !d.success) return;
-                setTemplates(d.templates);
-                const saved = d.templates.find((t) => t.template_id === appt.template_id);
-                const forSession = d.templates.find((t) => t.template_id === appt.schedule_template_id);
-                const pick = saved || (!editing ? forSession || d.templates.find((t) => t.is_default) : null);
-                if (pick) {
-                    setTemplateId(pick.template_id);
-                    if (saved && Array.isArray(appt.template_responses)) {
-                        const prefill = {};
-                        appt.template_responses.forEach((r) => { prefill[r.key] = r.value; });
-                        setAnswers(prefill);
-                    }
+                setStd(d.form);
+                // a core field that is a checklist now: the saved text goes back to the picked options
+                setVals((v) => {
+                    const next = { ...v };
+                    d.form.fields.forEach((f) => { if (f.type === 'checkbox' && typeof next[f.key] === 'string') next[f.key] = next[f.key] ? next[f.key].split(', ') : []; });
+                    return next;
+                });
+            })
+            .catch(() => {});
+        return () => { live = false; };
+    }, [appt, doctorId]);
+
+    // The doctor picks the template to use here, when documenting (optional). Active templates that fit the purpose of the check-up are offered;
+    // when an old check-up is edited, the template it was saved with is selected (even if it was archived since).
+    useEffect(() => {
+        if (!appt || !doctorId) return undefined;
+        const savedId = editing ? appt.template_id : '';
+        let live = true;
+        fetch(`${API}/api/doctor/${doctorId}/templates?include_inactive=1`)
+            .then((r) => r.json())
+            .then((d) => {
+                if (!live || !d.success) return;
+                const fits = (t) => t.template_id === savedId || (t.is_active && (!t.visit_type || t.visit_type === visitType));
+                setTemplates(d.templates.filter(fits));
+                const picked = savedId ? d.templates.find((t) => t.template_id === savedId) : null;
+                if (!picked) return;
+                setTemplateId(picked.template_id);
+                if (Array.isArray(appt.template_responses)) {
+                    const prefill = {};
+                    appt.template_responses.forEach((r) => { if (!/^s\d+$/.test(String(r.key))) prefill[r.key] = r.value; });
+                    setAnswers(prefill);
                 }
             })
             .catch(() => {});
         return () => { live = false; };
-    }, [appt, doctorId, visitType, editing]);
+    }, [appt, doctorId, editing, visitType]);
 
     const template = useMemo(() => templates.find((t) => t.template_id === templateId) || null, [templates, templateId]);
-
-    const chooseTemplate = (id) => {
-        setTemplateId(id);
-        const t = templates.find((x) => x.template_id === id);
-        const next = {};
-        (t?.fields || []).forEach((f) => { if (f.type !== 'heading') next[f.key] = answers[f.key] ?? emptyValue(f); });
-        setAnswers(next);
-    };
 
     if (!appt || !form) return null;
 
     const set = (patch) => setForm((f) => ({ ...f, ...patch }));
     const setRx = (i, patch) => set({ prescriptions: form.prescriptions.map((r, idx) => (idx === i ? { ...r, ...patch } : r)) });
-    const isDental = visitType === 'Dental';
-    const isVision = visitType === 'Vision';
 
     // a new check-up cannot be closed until the required fields are filled (Esc, the X and Cancel are off); editing one can be closed any time
-    const requiredFilled = !!form.chief_complaint.trim()
-        && (isDental ? !!dental.oral_hygiene : true)
-        && (isVision ? !!vision.visual_acuity_left.trim() && !!vision.visual_acuity_right.trim() : true)
-        && (isDental || isVision || (!!form.clinical_findings.trim() && !!form.diagnosis.trim() && !!form.treatment_recommendations.trim()))
+    // the fields of the doctor's standard form
+    const stdFields = Array.isArray(std.fields) ? std.fields : [];
+    const requiredFilled = missingRequired(stdFields, vals).length === 0
         && (!template || missingRequired(template.fields, answers).length === 0);
     const locked = !editing && !requiredFilled;
+
+    const coreText = (key, kept) => (stdFields.some((f) => f.key === key) ? asText(vals[key]) : kept);
 
     const submit = async (e) => {
         e.preventDefault();
         setError('');
 
         if (['Absent', 'Excused'].includes(appt.attendance_status)) { setError(`The student is marked ${appt.attendance_status}. Change the attendance first.`); return; }
-        if (!form.chief_complaint.trim()) { setError('Chief complaint is required.'); return; }
-        if (!isDental && !isVision) {
-            if (!form.clinical_findings.trim() || !form.diagnosis.trim()) { setError('Clinical findings and diagnosis are required.'); return; }
-            if (!form.treatment_recommendations.trim()) { setError('Add the treatment plan / recommendations.'); return; }
-        }
+        const missingStd = missingRequired(stdFields, vals);
+        if (missingStd.length > 0) { setError(`Please answer: ${missingStd.join(', ')}.`); return; }
         if (template) {
             const missing = missingRequired(template.fields, answers);
             if (missing.length > 0) { setError(`Please answer: ${missing.join(', ')}.`); return; }
@@ -176,20 +152,19 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
                 student_user_id: appt.student_user_id,
                 sender_id: userId,
                 documented_by_doctor_id: nurseId ? undefined : doctorId,
-                chief_complaint: form.chief_complaint,
-                clinical_findings: form.clinical_findings,
-                diagnosis: form.diagnosis,
-                treatment_recommendations: form.treatment_recommendations,
+                // a core question the doctor took out of the form keeps what was saved before
+                chief_complaint: coreText('chief_complaint', appt.chief_complaint || undefined),
+                clinical_findings: coreText('clinical_findings', appt.clinical_findings || ''),
+                diagnosis: coreText('diagnosis', appt.diagnosis || ''),
+                treatment_recommendations: coreText('treatment_recommendations', appt.treatment_recommendations || ''),
                 is_abnormal: form.is_abnormal,
                 follow_up_needed: form.follow_up_needed,
                 follow_up_date: form.follow_up_needed ? form.follow_up_date : '',
                 follow_up_notes: form.follow_up_needed ? form.follow_up_notes : '',
-                prescriptions: form.prescriptions,
+                prescriptions: std.prescription_enabled ? form.prescriptions : undefined,
                 template_id: template ? template.template_id : '',
                 template_name: template ? template.template_name : '',
-                template_responses: template ? toResponses(template.fields, answers) : [],
-                dental: isDental ? dental : undefined,
-                vision: isVision ? vision : undefined
+                template_responses: [...toResponses(stdFields.filter((f) => !isCoreKey(f.key)), vals), ...(template ? toResponses(template.fields, answers) : [])],
             };
             const res = await fetch(`${API}/api/doctor-assessments`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
             const data = await res.json();
@@ -230,105 +205,13 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
 
                 {templates.length > 0 && (
                     <div className="dp-field">
-                        <label htmlFor="consult-template">Assessment form template</label>
-                        <select id="consult-template" className="dp-select" value={templateId} onChange={(e) => chooseTemplate(e.target.value)}>
-                            <option value="">No template (standard form only)</option>
-                            {templates.map((t) => <option key={t.template_id} value={t.template_id}>{t.template_name}{t.template_id === appt.schedule_template_id ? ' (set for this session)' : t.is_default ? ' (in use)' : ''}</option>)}
+                        <label htmlFor="consult-template">Assessment template (optional)</label>
+                        <select id="consult-template" className="dp-select" value={templateId} onChange={(e) => { setTemplateId(e.target.value); setAnswers({}); }}>
+                            <option value="">None (standard check-up form only)</option>
+                            {templates.map((t) => <option key={t.template_id} value={t.template_id}>{t.template_name}{t.is_active ? '' : ' (archived)'}</option>)}
                         </select>
+                        <small className="dp-hint">Adds the questions of the template to this check-up. Manage templates in the Templates page.</small>
                     </div>
-                )}
-
-                {isDental && (
-                    <>
-                        <div className="dp-section-label">Dental examination</div>
-                        <div className="dp-row">
-                            <div className="dp-field">
-                                <label>Oral hygiene</label>
-                                <select className="dp-select" required value={dental.oral_hygiene} onChange={(e) => setDental({ ...dental, oral_hygiene: e.target.value })}>
-                                    <option value="">-- Select --</option>
-                                    <option>Good</option><option>Fair</option><option>Poor</option>
-                                </select>
-                            </div>
-                            <div className="dp-field">
-                                <label>Gum condition</label>
-                                <select className="dp-select" value={dental.gum_condition} onChange={(e) => setDental({ ...dental, gum_condition: e.target.value })}>
-                                    <option value="">-- Select --</option>
-                                    <option>Healthy</option><option>Gingivitis</option><option>Bleeding gums</option><option>Swollen gums</option><option>Periodontal concern</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div className="dp-row">
-                            {[['caries_count', 'Decayed'], ['missing_count', 'Missing'], ['filled_count', 'Filled']].map(([k, label]) => (
-                                <div className="dp-field" key={k}>
-                                    <label>{label}</label>
-                                    <input className="dp-input" type="number" min={0} max={32} value={dental[k]} onChange={(e) => setDental({ ...dental, [k]: e.target.value })} />
-                                </div>
-                            ))}
-                            <div className="dp-field">
-                                <label>DMFT index</label>
-                                <input className="dp-input" readOnly value={(parseInt(dental.caries_count, 10) || 0) + (parseInt(dental.missing_count, 10) || 0) + (parseInt(dental.filled_count, 10) || 0)} />
-                            </div>
-                        </div>
-                        <label className="dp-check"><input type="checkbox" checked={dental.malocclusion} onChange={(e) => setDental({ ...dental, malocclusion: e.target.checked })} /> Malocclusion observed</label>
-                        <div className="dp-field">
-                            <label>Tooth / area notes</label>
-                            <textarea className="dp-textarea" rows={2} value={dental.tooth_notes} onChange={(e) => setDental({ ...dental, tooth_notes: e.target.value })} placeholder="e.g. Caries on #16 and #26" />
-                        </div>
-                        <div className="dp-row">
-                            <div className="dp-field">
-                                <label>Treatment done</label>
-                                <textarea className="dp-textarea" rows={2} value={dental.treatment_done} onChange={(e) => setDental({ ...dental, treatment_done: e.target.value })} />
-                            </div>
-                            <div className="dp-field">
-                                <label>Treatment needed</label>
-                                <textarea className="dp-textarea" rows={2} value={dental.treatment_needed} onChange={(e) => setDental({ ...dental, treatment_needed: e.target.value })} />
-                            </div>
-                        </div>
-                        <div className="dp-row">
-                            <div className="dp-field">
-                                <label className="dp-check"><input type="checkbox" checked={dental.referral_needed} onChange={(e) => setDental({ ...dental, referral_needed: e.target.checked })} /> Referral needed</label>
-                                {dental.referral_needed && <input className="dp-input" placeholder="Refer to (clinic / specialist)" value={dental.referral_to} onChange={(e) => setDental({ ...dental, referral_to: e.target.value })} />}
-                            </div>
-                            <div className="dp-field">
-                                <label>Next visit recommendation</label>
-                                <input className="dp-input" value={dental.next_visit_recommendation} onChange={(e) => setDental({ ...dental, next_visit_recommendation: e.target.value })} placeholder="e.g. Return in 6 months" />
-                            </div>
-                        </div>
-                    </>
-                )}
-
-                {isVision && (
-                    <>
-                        <div className="dp-section-label">Vision examination</div>
-                        <div className="dp-row">
-                            <div className="dp-field"><label>Left eye (uncorrected)</label><input className="dp-input" required maxLength={10} placeholder="20/20" value={vision.visual_acuity_left} onChange={(e) => setVision({ ...vision, visual_acuity_left: e.target.value })} /></div>
-                            <div className="dp-field"><label>Right eye (uncorrected)</label><input className="dp-input" required maxLength={10} placeholder="20/20" value={vision.visual_acuity_right} onChange={(e) => setVision({ ...vision, visual_acuity_right: e.target.value })} /></div>
-                            <div className="dp-field"><label>Left eye (corrected)</label><input className="dp-input" maxLength={10} value={vision.va_left_corrected} onChange={(e) => setVision({ ...vision, va_left_corrected: e.target.value })} /></div>
-                            <div className="dp-field"><label>Right eye (corrected)</label><input className="dp-input" maxLength={10} value={vision.va_right_corrected} onChange={(e) => setVision({ ...vision, va_right_corrected: e.target.value })} /></div>
-                        </div>
-                        <div style={{ display: 'flex', gap: 22, flexWrap: 'wrap' }}>
-                            <label className="dp-check"><input type="checkbox" checked={vision.wears_eyeglasses} onChange={(e) => setVision({ ...vision, wears_eyeglasses: e.target.checked })} /> Wears eyeglasses</label>
-                            <label className="dp-check"><input type="checkbox" checked={vision.wears_contacts} onChange={(e) => setVision({ ...vision, wears_contacts: e.target.checked })} /> Wears contact lenses</label>
-                        </div>
-                        <div className="dp-row">
-                            <div className="dp-field">
-                                <label>Color vision</label>
-                                <select className="dp-select" value={vision.color_vision} onChange={(e) => setVision({ ...vision, color_vision: e.target.value })}>
-                                    <option value="">Not tested</option><option>Normal</option><option>Deficient</option>
-                                </select>
-                            </div>
-                            <div className="dp-field">
-                                <label>Recommended action</label>
-                                <select className="dp-select" value={vision.recommended_action} onChange={(e) => setVision({ ...vision, recommended_action: e.target.value })}>
-                                    <option>No action</option><option>Eyeglasses</option><option>Refer to ophthalmologist</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div className="dp-field">
-                            <label>Eye condition findings</label>
-                            <textarea className="dp-textarea" rows={2} value={vision.eye_findings} onChange={(e) => setVision({ ...vision, eye_findings: e.target.value })} />
-                        </div>
-                    </>
                 )}
 
                 {template && (
@@ -338,29 +221,16 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
                     </>
                 )}
 
-                <div className="dp-section-label">Chief complaint</div>
-                <div className="dp-field">
-                    <label htmlFor="consult-complaint">Why the student came (reason for the check-up) *</label>
-                    <input id="consult-complaint" className="dp-input" type="text" required aria-required="true" maxLength={255} value={form.chief_complaint} onChange={(e) => set({ chief_complaint: e.target.value })} placeholder="e.g. Headache and fever since yesterday" />
-                </div>
+                {stdFields.length > 0 && (
+                    <>
+                        <div className="dp-section-label">Check-up form</div>
+                        <TemplateFields fields={stdFields} values={vals} onChange={setVals} idPrefix="consult-std" />
+                    </>
+                )}
 
-                <div className="dp-section-label">Diagnosis and treatment plan</div>
-                <div className="dp-field">
-                    <label htmlFor="consult-findings">Clinical findings{isDental || isVision ? ' (optional, filled from the exam when empty)' : ' *'}</label>
-                    <textarea id="consult-findings" className="dp-textarea" rows={3} required={!isDental && !isVision} aria-required={!isDental && !isVision} value={form.clinical_findings} onChange={(e) => set({ clinical_findings: e.target.value })} />
-                </div>
-                <div className="dp-field">
-                    <label htmlFor="consult-diagnosis">Diagnosis{isDental || isVision ? ' (optional)' : ' *'}</label>
-                    <textarea id="consult-diagnosis" className="dp-textarea" rows={2} required={!isDental && !isVision} aria-required={!isDental && !isVision} value={form.diagnosis} onChange={(e) => set({ diagnosis: e.target.value })} />
-                </div>
-                <div className="dp-field">
-                    <label htmlFor="consult-plan">Treatment plan / recommendations{isDental || isVision ? ' (optional)' : ' *'}</label>
-                    <textarea id="consult-plan" className="dp-textarea" rows={3} required={!isDental && !isVision} aria-required={!isDental && !isVision} value={form.treatment_recommendations} onChange={(e) => set({ treatment_recommendations: e.target.value })} />
-                </div>
-
-                <div className="dp-section-label">Prescription</div>
-                {form.prescriptions.length === 0 && <p className="dp-hint" style={{ margin: 0 }}>No medicine prescribed.</p>}
-                {form.prescriptions.map((r, i) => (
+                {std.prescription_enabled && <div className="dp-section-label">Prescription</div>}
+                {std.prescription_enabled && form.prescriptions.length === 0 && <p className="dp-hint" style={{ margin: 0 }}>No medicine prescribed.</p>}
+                {std.prescription_enabled && form.prescriptions.map((r, i) => (
                     <div key={i} className="dp-card" style={{ padding: 12, boxShadow: 'none' }}>
                         <div className="dp-row">
                             <div className="dp-field" style={{ gridColumn: 'span 2' }}>
@@ -380,7 +250,7 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
                         </div>
                     </div>
                 ))}
-                <div><button type="button" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => set({ prescriptions: [...form.prescriptions, { ...EMPTY_RX }] })}><Plus size={15} /> Add medicine</button></div>
+                {std.prescription_enabled && <div><button type="button" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => set({ prescriptions: [...form.prescriptions, { ...EMPTY_RX }] })}><Plus size={15} /> Add medicine</button></div>}
 
                 <div className="dp-section-label">Repeat</div>
                 <div style={{ display: 'flex', gap: 22, flexWrap: 'wrap' }}>
@@ -399,8 +269,10 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
                                 <input className="dp-input" maxLength={500} value={form.follow_up_notes} onChange={(e) => set({ follow_up_notes: e.target.value })} placeholder="e.g. Return if the headache persists after 3 days" />
                             </div>
                         </div>
-                        <label className="dp-check"><input type="checkbox" checked={bookFollowUp} onChange={(e) => setBookFollowUp(e.target.checked)} /> Appoint the repeat now (direct appointment on that date). Without it the student waits in the Repeats list for a schedule.</label>
-                        {bookFollowUp && (
+                        {nurseId
+                            ? <label className="dp-check"><input type="checkbox" checked={bookFollowUp} onChange={(e) => setBookFollowUp(e.target.checked)} /> Appoint the repeat now (direct appointment on that date). Without it the student waits in the Repeats list for a schedule.</label>
+                            : <p className="dp-hint" style={{ margin: 0 }}>The student joins the Repeats list. The nurse puts the student in a schedule.</p>}
+                        {nurseId && bookFollowUp && (
                             <div className="dp-row">
                                 <div className="dp-field"><label>Time</label><input className="dp-input" type="time" value={followTime} onChange={(e) => setFollowTime(e.target.value)} /></div>
                                 <div className="dp-field"><label>Minutes</label><input className="dp-input" type="number" min={5} max={240} step={5} value={followDuration} onChange={(e) => setFollowDuration(e.target.value)} /></div>

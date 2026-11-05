@@ -30,6 +30,9 @@ const Modal = ({ isOpen, onClose, title, icon, footer, children, closeOnBackdrop
         }
 
         const handleKeyDown = (e) => {
+            // only the top dialog reacts (an alert or confirmation can sit over a form modal)
+            const panels = document.querySelectorAll('.shared-modal-panel');
+            if (panels.length > 0 && panels[panels.length - 1] !== panel) return;
             if (e.key === 'Escape') {
                 onCloseRef.current?.();
                 return;

@@ -17,14 +17,14 @@ import '../../styles/scheduling/Scheduling.css';
 const EMPTY = {
     doctor_id: '', visit_type: 'Any', recurrence: 'Once', schedule_date: '', day_of_week: 1, valid_from: '', valid_until: '',
     start_time: '09:00', end_time: '12:00', slot_duration_min: 15, max_patients_per_slot: 1, listing_limit: '', location: '', notes: '',
-    allow_walk_in: true, template_id: ''
+    allow_walk_in: true
 };
 
 const fromSchedule = (s) => ({
     doctor_id: s.doctor_id, visit_type: s.visit_type, recurrence: s.recurrence, schedule_date: s.schedule_date || '', day_of_week: s.day_of_week ?? 1,
     valid_from: s.valid_from || '', valid_until: s.valid_until || '', start_time: hhmm(s.start_time), end_time: hhmm(s.end_time),
     slot_duration_min: s.slot_duration_min, max_patients_per_slot: s.max_patients_per_slot, listing_limit: s.listing_limit ?? '', location: s.location || '', notes: s.notes || s.announcement || '',
-    allow_walk_in: hasWalkIn(s), template_id: s.template_id || ''
+    allow_walk_in: hasWalkIn(s)
 });
 
 // creator: { nurseId } or { doctorId }; schedule: the schedule being edited (none = add); preset: values for a new one
@@ -34,9 +34,6 @@ const ScheduleFormModal = ({ isOpen, schedule, preset, doctors, creator, userId,
     const [form, setForm] = useState(EMPTY);
     const [error, setError] = useState('');
     const [busy, setBusy] = useState(false);
-    const [templates, setTemplates] = useState([]);
-    const [templatesReady, setTemplatesReady] = useState(false);
-    const [templatePicked, setTemplatePicked] = useState(false);
 
     const editing = !!schedule;
     const running = !!(schedule && schedule.in_session_now);
@@ -56,38 +53,7 @@ const ScheduleFormModal = ({ isOpen, schedule, preset, doctors, creator, userId,
         setError('');
         setReason('');
         setBusy(false);
-        setTemplatePicked(false);
     }, [isOpen, schedule, preset, creator.doctorId]);
-
-    // the doctor's assessment templates (archived ones are not offered)
-    useEffect(() => {
-        setTemplatesReady(false);
-        if (!isOpen || !form.doctor_id) { setTemplates([]); return undefined; }
-        let live = true;
-        fetch(`${API}/api/doctor/${form.doctor_id}/templates`)
-            .then((r) => r.json())
-            .then((d) => { if (live && d.success) { setTemplates(d.templates); setTemplatesReady(true); } })
-            .catch(() => {});
-        return () => { live = false; };
-    }, [isOpen, form.doctor_id]);
-
-    // templates that fit the purpose of the session
-    const templateChoices = useMemo(
-        () => templates.filter((t) => !t.visit_type || form.visit_type === 'Any' || t.visit_type === form.visit_type),
-        [templates, form.visit_type]
-    );
-
-    // a new schedule starts with the template in use for its purpose; a template that no longer fits or was archived is dropped
-    useEffect(() => {
-        if (!isOpen || !templatesReady) return;
-        setForm((f) => {
-            if (f.template_id && templateChoices.some((t) => t.template_id === f.template_id)) return f;
-            if (f.template_id) return { ...f, template_id: '' };
-            if (editing || templatePicked) return f;
-            const inUse = templateChoices.find((t) => t.is_default && t.visit_type === f.visit_type) || templateChoices.find((t) => t.is_default);
-            return inUse ? { ...f, template_id: inUse.template_id } : f;
-        });
-    }, [isOpen, templatesReady, templateChoices, editing, templatePicked]);
 
     const set = (patch) => setForm((f) => ({ ...f, ...patch }));
 
@@ -161,14 +127,6 @@ const ScheduleFormModal = ({ isOpen, schedule, preset, doctors, creator, userId,
                         </select>
                     </div>
                 </div>
-                <div className="dp-field">
-                    <label htmlFor="sf-template">Assessment template</label>
-                    <select id="sf-template" className="dp-select" value={form.template_id} onChange={(e) => { setTemplatePicked(true); set({ template_id: e.target.value }); }}>
-                        <option value="">None (standard check-up form only)</option>
-                        {templateChoices.map((t) => <option key={t.template_id} value={t.template_id}>{t.template_name}{t.is_default ? ' (in use)' : ''}</option>)}
-                    </select>
-                    <small className="dp-hint">Used when a check-up of this session is documented. Manage templates in the Templates page.</small>
-                </div>
                 {doctor && <small className="dp-hint">Dr. {doctor.last_name} covers: {coveredTypes(doctor).join(', ')}.</small>}
                 {refusal && <div className="dp-error">{refusal}</div>}
 
@@ -224,20 +182,11 @@ const ScheduleFormModal = ({ isOpen, schedule, preset, doctors, creator, userId,
                     <label htmlFor="sf-limit" title="How many students the nurse can accept into this session">Listing limit</label>
                     <input
                         id="sf-limit" className="dp-input" type="number" min={Math.max(1, accepted)} max={500} required
-                        value={form.listing_limit} aria-describedby="sf-limit-hint"
+                        value={form.listing_limit}
                         onChange={(e) => set({ listing_limit: e.target.value })}
                     />
-                    <small id="sf-limit-hint" className="dp-hint">
-                        The nurse opens the listing and accepts students until this number is reached; each gets a queue number in the order of acceptance.
-                        {accepted > 0 ? `${accepted} already accepted. ` : ''}Walk-ins are called after the listed students.
-                    </small>
-                    {preset && preset.advance_count > 0 && !editing && (
-                        <small className="dp-notice" role="status">
-                            {preset.advance_count} student(s) are in the advance listing for this service. They take the first queue numbers (up to the limit). Set the limit above {preset.advance_count} to leave places open for the students who are not in the advance listing.
-                        </small>
-                    )}
                 </div>
-                <label className="dp-check"><input type="checkbox" checked={form.allow_walk_in} onChange={(e) => set({ allow_walk_in: e.target.checked })} /> Accept walk-ins while this check-up is in session (they are called after the appointed students)</label>
+                <label className="dp-check"><input type="checkbox" checked={form.allow_walk_in} onChange={(e) => set({ allow_walk_in: e.target.checked })} /> Accept Walk-ins</label>
 
                 <div className="dp-field">
                     <label htmlFor="sf-notes">Notes for Students (optional)</label>

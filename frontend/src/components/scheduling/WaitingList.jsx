@@ -32,7 +32,7 @@ const pageCountOf = (total) => Math.max(1, Math.ceil(total / PAGE_SIZE));
 
 const QUEUE_STATE_TEXT = { Waiting: 'Waiting', Serving: 'In session', Done: 'Done', Void: 'Void' };
 const QUEUE_STATE_CLASS = { Waiting: 'badge-pending-ds', Serving: 'badge-open-ds', Done: 'badge-open-ds', Void: 'badge-closed-ds' };
-const queueWayText = (p) => (p.advance_label ? `Advance listing ${p.advance_label}` : SCHEDULING_WAYS[wayOf(p.booking_source, p.how)].label);
+const queueWayText = (p) => (p.is_repeat ? 'Repeat list' : p.advance_label ? `Advance listing ${p.advance_label}` : SCHEDULING_WAYS[wayOf(p.booking_source, p.how)].label);
 
 const send = async (path, method, body) => {
     const res = await fetch(`${API}${path}`, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });

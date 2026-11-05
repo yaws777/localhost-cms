@@ -5,7 +5,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
-    CalendarPlus, Edit, Unlock, Trash2, Stethoscope,
+    Edit, Unlock, Trash2, Stethoscope,
     ChevronDown, ChevronRight, TimerReset, UserPlus, ListChecks, Send, DoorOpen, DoorClosed
 } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
@@ -23,7 +23,7 @@ const SCHEDULES_PER_PAGE = 8;
 
 const STATUS_FILTERS = [
     ['open', 'Active'],
-    ['inactive', 'No active'],
+    ['inactive', 'Past'],
     ['all', 'All']
 ];
 
@@ -65,7 +65,8 @@ export const DoctorAvailability = ({ doctors, creator, userId, onChanged, prefil
     const [statusFilter, setStatusFilter] = useState('open');
     const [pages, setPages] = useState({}); // page of the schedule table of each doctor
     // every doctor starts closed: the nurse opens the one she needs
-    const [expanded, setExpanded] = useState(() => new Set());
+    // (the doctor portal has one doctor, so it starts open and shows the empty text instead of an unexplained closed row)
+    const [expanded, setExpanded] = useState(() => new Set(creator.doctorId ? [creator.doctorId] : []));
 
     const isNurse = !creator.doctorId;
     const [form, setForm] = useState(null); // { schedule, preset }
@@ -90,10 +91,10 @@ export const DoctorAvailability = ({ doctors, creator, userId, onChanged, prefil
     // a change here also changes the visit lists and the numbers on the page tabs
     const changed = () => { fetchSchedules(); if (onChanged) onChanged(); };
 
-    // the doctor sets a schedule; the nurse asks the doctor for one
+    // the nurse asks a doctor for a schedule; the doctor does not add one on their own: they answer the request
+    // (Set schedule) and set repeat schedules from the Repeats tab
     const openCreate = useCallback((doctorId = '', preset = {}) => {
         if (isNurse) setRequestForm({ doctor_id: doctorId, ...preset });
-        else setForm({ schedule: null, preset: { doctor_id: doctorId, ...preset } });
     }, [isNurse]);
 
     // A suggestion of the scheduling assistant opens the form (or the request) already filled in
@@ -196,11 +197,14 @@ export const DoctorAvailability = ({ doctors, creator, userId, onChanged, prefil
                 const open = g.all.filter(s => scheduleState(s) === 'open');
                 return {
                     ...g,
-                    rows: g.all.filter(s => (statusFilter === 'all' || (statusFilter === 'open') === (scheduleState(s) === 'open'))).sort(compareSchedules),
+                    // Active = open, Past = ended only (closed ones are not past), All = everything
+                    rows: g.all.filter(s => statusFilter === 'all' || scheduleState(s) === (statusFilter === 'open' ? 'open' : 'ended')).sort(compareSchedules),
                     openCount: open.length,
                     upcoming: open.reduce((n, s) => n + (Number(s.active_bookings) || 0), 0)
                 };
             })
+            // Active / Past list only the doctors that have a schedule of that kind; All keeps every doctor
+            .filter(g => statusFilter === 'all' || g.rows.length > 0)
             .sort((a, b) => `${a.doctor.last_name} ${a.doctor.first_name}`.localeCompare(`${b.doctor.last_name} ${b.doctor.first_name}`));
     }, [doctors, schedules, doctorFilter, statusFilter]);
 
@@ -210,7 +214,7 @@ export const DoctorAvailability = ({ doctors, creator, userId, onChanged, prefil
         return next;
     });
 
-    const emptyText = statusFilter === 'open' ? 'No active schedule.' : statusFilter === 'all' ? 'No schedules yet.' : 'No past or closed schedules.';
+    const emptyText = statusFilter === 'open' ? 'No active schedule.' : statusFilter === 'all' ? 'No schedules yet.' : 'No past schedules.';
 
     return (
         <>
@@ -237,7 +241,7 @@ export const DoctorAvailability = ({ doctors, creator, userId, onChanged, prefil
             ) : groups.length === 0 ? (
                 <div className="empty-state-dv">
                     <Stethoscope size={36} />
-                    <p>No doctors yet. Create a doctor account first, then set up their schedule.</p>
+                    <p>{doctors.length === 0 ? 'No doctors yet. Create a doctor account first, then set up their schedule.' : emptyText}</p>
                 </div>
             ) : groups.map((g) => {
                 const id = g.doctor.doctor_id;
@@ -255,19 +259,19 @@ export const DoctorAvailability = ({ doctors, creator, userId, onChanged, prefil
                             </button>
                             <div className="group-chips-ds">
                                 {g.openCount === 0 && !g.removed
-                                    ? <span className="badge-ds badge-pending-ds" title="No students can be appointed to this doctor yet">No active schedule</span>
+                                    ? <span className="badge-ds badge-pending-ds" title={g.all.length > 0 ? 'This doctor has no active schedule' : 'This doctor has no schedule yet'}>
+                                        {g.all.length > 0 ? '0 active' : 'No schedule yet'}
+                                    </span>
                                     : <span className="badge-ds badge-open-ds">{g.openCount} active</span>}
                                 {g.upcoming > 0 && <span className="badge-ds badge-expired-ds">{g.upcoming} in queue</span>}
                             </div>
                             <div className="group-actions-ds">
                                 {!g.removed && (
-                                    isNurse ? (
+                                    isNurse && (
                                         <button
                                             type="button" className="sti-btn-dv sti-btn-secondary-dv icon-only-ds" onClick={() => openCreate(id)}
                                             title="Request schedule" aria-label={`Request a schedule from ${doctorName(g.doctor)}`}
                                         ><Send size={16} /></button>
-                                    ) : (
-                                        <button type="button" className="sti-btn-dv sti-btn-secondary-dv" onClick={() => openCreate(id)}><CalendarPlus size={14} /> Add schedule</button>
                                     )
                                 )}
                             </div>
@@ -331,7 +335,7 @@ export const DoctorAvailability = ({ doctors, creator, userId, onChanged, prefil
                                                                         {onAppointFromWaiting && (
                                                                             <button className="icon-btn-ds" title="Listing requests of this session" aria-label="Listing requests of this session" onClick={() => onAppointFromWaiting(s.schedule_id, s.next_date)}><ListChecks size={16} /></button>
                                                                         )}
-                                                                        <button className="icon-btn-ds" title="Appoint a student directly" aria-label="Appoint a student directly" onClick={() => setAppointTarget(s)}><UserPlus size={16} /></button>
+                                                                        {isNurse && <button className="icon-btn-ds" title="Appoint a student directly" aria-label="Appoint a student directly" onClick={() => setAppointTarget(s)}><UserPlus size={16} /></button>}
                                                                         {s.in_session_now && (
                                                                             <button className="icon-btn-ds" title="Extend the session (it is happening now)" onClick={() => setExtendTarget(s)}><TimerReset size={16} /></button>
                                                                         )}

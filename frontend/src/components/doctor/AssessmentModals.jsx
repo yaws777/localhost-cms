@@ -3,7 +3,7 @@
 //   - AssessmentViewModal: the assessment (or, when nothing was documented, the details) of one check-up
 //   - AssessmentHistoryModal: every assessment the clinic documented for one student
 import React, { useState, useEffect } from 'react';
-import { ClipboardList, History } from 'lucide-react';
+import { ClipboardList, Eye, History } from 'lucide-react';
 import Modal from '../common/Modal';
 import { formatDate, formatDateTime, formatTime } from '../../utils/datetime';
 import { visitLabel, sourceLabel, statusClass, statusLabel, fullName } from '../../utils/visitPurpose';
@@ -112,11 +112,13 @@ export const AssessmentViewModal = ({ appt, onClose }) => {
 // ---------------------------------------------------------------------------
 export const AssessmentHistoryModal = ({ appt, onClose }) => {
     const [rows, setRows] = useState(null);
+    const [selected, setSelected] = useState(null); // the assessment whose summary is open; null = the table
 
     useEffect(() => {
         if (!appt) return undefined;
         let live = true;
         setRows(null);
+        setSelected(null);
         fetch(`${API}/api/doctor/patients/${encodeURIComponent(appt.student_id)}/record`)
             .then((r) => r.json())
             .then((d) => { if (live) setRows(d.success ? d.consultations : []); })
@@ -124,33 +126,71 @@ export const AssessmentHistoryModal = ({ appt, onClose }) => {
         return () => { live = false; };
     }, [appt]);
 
+    const isCurrent = (r) => !!appt && r.appointment_id === appt.appointment_id;
+
     return (
-        <Modal isOpen={!!appt} onClose={onClose} title="Assessment history" icon={<History size={20} />} size="lg">
-            {appt && (
-                <div className="dp-notice" style={{ marginBottom: 14 }}>
-                    <strong>{fullName(appt.student_first_name, appt.student_last_name)}</strong> ({appt.student_id}) - every assessment documented for this student
-                </div>
-            )}
-            {rows === null ? <p className="dp-hint">Loading...</p> : rows.length === 0 ? (
-                <p className="dp-hint">No assessment was documented for this student yet.</p>
+        <Modal isOpen={!!appt} onClose={onClose} title={selected ? 'Assessment summary' : 'Past assessments'} icon={selected ? <ClipboardList size={20} /> : <History size={20} />} size="lg">
+            {appt && selected ? (
+                <>
+                    <div className="dp-notice">
+                        <strong>{fullName(selected.student_first_name || appt.student_first_name, selected.student_last_name || appt.student_last_name)}</strong> ({selected.student_id}) - {visitLabel(selected.visit_type, selected.purpose_other)}<br />
+                        {formatDate(selected.start_time)}, {formatTime(selected.start_time)} - {formatTime(selected.end_time)} - Dr. {selected.doc_first_name} {selected.doc_last_name}
+                    </div>
+                    {chipsOf(selected)}
+                    <AssessmentDetails a={selected} />
+                    <div className="dp-modal-foot">
+                        <button type="button" className="dp-btn dp-btn-ghost" onClick={() => setSelected(null)}>Back to list</button>
+                        <button type="button" className="dp-btn dp-btn-ghost" onClick={onClose}>Close</button>
+                    </div>
+                </>
             ) : (
-                <ul className="dp-history">
-                    {rows.map((r) => (
-                        <li key={`${r.appointment_id}-${r.student_id}`} className={appt && r.appointment_id === appt.appointment_id ? 'current' : ''}>
-                            <div className="dp-history-head">
-                                <strong>{formatDate(r.start_time)}</strong>
-                                <span>{visitLabel(r.visit_type, r.purpose_other)} - Dr. {r.doc_first_name} {r.doc_last_name}</span>
-                                {appt && r.appointment_id === appt.appointment_id && <span className="dp-chip source">This check-up</span>}
-                            </div>
-                            {chipsOf(r)}
-                            <AssessmentDetails a={r} />
-                        </li>
-                    ))}
-                </ul>
+                <>
+                    {appt && (
+                        <div className="dp-notice" style={{ marginBottom: 14 }}>
+                            <strong>{fullName(appt.student_first_name, appt.student_last_name)}</strong> ({appt.student_id}) - every assessment documented for this student
+                        </div>
+                    )}
+                    {rows === null ? <p className="dp-hint" role="status">Loading...</p> : rows.length === 0 ? (
+                        <p className="dp-hint">No assessment was documented for this student yet.</p>
+                    ) : (
+                        <div className="dp-card dp-table-wrap">
+                            <table className="dp-table">
+                                <caption className="sr-only">Past assessments of the student</caption>
+                                <thead>
+                                    <tr><th>Date</th><th>Purpose</th><th>Doctor</th><th>Diagnosis</th><th>Actions</th></tr>
+                                </thead>
+                                <tbody>
+                                    {rows.map((r) => (
+                                        <tr key={`${r.appointment_id}-${r.student_id}`} className={isCurrent(r) ? 'focus' : ''}>
+                                            <td className="nowrap">
+                                                {formatDate(r.start_time)}
+                                                {isCurrent(r) && <div><span className="dp-chip source">This check-up</span></div>}
+                                            </td>
+                                            <td>{visitLabel(r.visit_type, r.purpose_other)}</td>
+                                            <td>Dr. {r.doc_first_name} {r.doc_last_name}</td>
+                                            <td>
+                                                <div className="dp-cell-clip">{r.diagnosis || '-'}</div>
+                                                <div className="dp-appt-chips">
+                                                    {!!r.is_abnormal && <span className="dp-chip abnormal">Abnormal</span>}
+                                                    {!!r.follow_up_needed && <span className="dp-chip st-pending-approval">Repeat</span>}
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <button type="button" className="dp-btn dp-btn-ghost" onClick={() => setSelected(r)} aria-label={`View summary of the assessment on ${formatDate(r.start_time)}`}>
+                                                    <Eye size={16} /> View summary
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                    <div className="dp-modal-foot">
+                        <button type="button" className="dp-btn dp-btn-ghost" onClick={onClose}>Close</button>
+                    </div>
+                </>
             )}
-            <div className="dp-modal-foot">
-                <button type="button" className="dp-btn dp-btn-ghost" onClick={onClose}>Close</button>
-            </div>
         </Modal>
     );
 };

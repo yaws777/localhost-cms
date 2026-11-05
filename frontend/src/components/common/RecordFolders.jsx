@@ -125,11 +125,12 @@ export const scopeCounts = (folders, view, searching = false) => {
     }, { total: 0, upcoming: 0, ongoing: 0, past: 0, abnormal: 0 });
 
     if (view.kind === 'individual') return folders.individual || null;
+    if (view.kind === 'custom') return (folders.custom_folders || []).find(f => String(f.folder_id) === String(view.folder_id)) || null;
     if (view.kind === 'section') {
         const prog = (folders.programs || []).find(p => p.program_id === view.program_id);
         return (prog?.sections || []).find(s => String(s.year_level) === String(view.year_level) && String(s.section) === String(view.section)) || null;
     }
-    if (view.kind === 'all') return sum([...(folders.programs || []), ...(folders.individual ? [folders.individual] : [])]);
+    if (view.kind === 'all') return sum([...(folders.programs || []), ...(folders.custom_folders || []), ...(folders.individual ? [folders.individual] : [])]);
     return null;
 };
 

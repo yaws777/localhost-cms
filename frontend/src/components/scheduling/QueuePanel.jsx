@@ -4,7 +4,7 @@
 //   both   : Time in (manual) or Scan QR marks a student as arrived; the doctor records the check-up only after that. Accommodate a void number as a walk-in once the student shows up
 // Refreshes by itself every few seconds so both sides see the same numbers.
 import React, { useState, useEffect, useCallback } from 'react';
-import { Megaphone, Ban, Undo2, Clock, QrCode, Footprints, RefreshCw, Check, Stethoscope, Eye, History } from 'lucide-react';
+import { Megaphone, Ban, Undo2, Clock, QrCode, Footprints, RefreshCw, Check, Stethoscope, Eye, History, TimerReset } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
 import { ReasonModal } from '../doctor/AppointmentModals';
 import { visitLabel } from '../../utils/visitPurpose';
@@ -25,9 +25,10 @@ const STATE_CLASS = { Waiting: 'q-waiting-sc', Serving: 'q-serving-sc', Done: 'q
 const STATE_LABEL = { Serving: 'In session' };
 
 // scheduleId + date: the session day. creator: { nurseId } | { doctorId }. onDocument(entry): open the check-up of the number in session.
-// onWalkIn(): opens the walk-in form (the button sits beside Call next).
+// onWalkIn(): opens the walk-in form (the button sits beside Call next). onExtend(): opens the extend end time form.
+// Every button of the header is icon only (name in aria-label and title).
 // onView(entry): the assessment of this check-up (a Done number). onHistory(entry): every assessment of the student.
-const QueuePanel = ({ scheduleId, date, creator, userId, onChanged, onDocument, onView, onHistory, onWalkIn, refreshKey = 0, intervalMs = 5000 }) => {
+const QueuePanel = ({ scheduleId, date, creator, userId, onChanged, onDocument, onView, onHistory, onWalkIn, onExtend, refreshKey = 0, intervalMs = 5000 }) => {
     const { showAlert } = useAlert();
     const [queue, setQueue] = useState(null);
     const [busy, setBusy] = useState(false);
@@ -84,7 +85,7 @@ const QueuePanel = ({ scheduleId, date, creator, userId, onChanged, onDocument, 
 
     // openCheckup: the doctor's Time in button goes straight to the check-up form (the server stamps the time of the click)
     const markArrived = async (e, quiet = false, openCheckup = false) => {
-        const data = await send(`/api/doctor-visits/status/${e.appointment_id}`, 'PUT', { student_id: e.student_id, status: 'Present' });
+        const data = await send(`/api/doctor-visits/status/${e.appointment_id}`, 'PUT', { student_id: e.student_id, status: 'Present', ...(isDoctor ? { created_by_doctor_id: creator.doctorId } : {}) });
         if (data.success) {
             if (!quiet) showAlert(`${e.student_name} has a time in now.`, 'success');
             changed();
@@ -112,6 +113,12 @@ const QueuePanel = ({ scheduleId, date, creator, userId, onChanged, onDocument, 
     if (!queue) return <p className="dp-hint">Loading the queue...</p>;
 
     const hasWaiting = queue.listed_waiting + queue.walkin_waiting > 0;
+    // the number in session must have its check-up documented (or be voided) before the next one is called
+    const current = queue.now_serving ? queue.entries.find((e) => e.appointment_id === queue.now_serving.appointment_id) : null;
+    const callBlocked = !!current && !current.documented;
+    const callBlockedText = callBlocked ? `${current.label} ${current.student_name} is still in session. Document the check-up or void the number first.` : '';
+    // the doctor records a time in only for the number in session
+    const turnOf = (e) => !isDoctor || e.state === 'Serving';
 
     return (
         <div className="queue-panel-sc">
@@ -128,22 +135,15 @@ const QueuePanel = ({ scheduleId, date, creator, userId, onChanged, onDocument, 
                     <span><b>{queue.entries.filter((e) => e.state === 'Done').length}</b> done</span>
                 </div>
                 <div className="queue-actions-sc">
-                    {isDoctor && (
-                        <button type="button" className="sti-btn-dv sti-btn-primary-dv" disabled={busy || !hasWaiting} onClick={callNext} title="Calls the lowest listed number; walk-ins are called when no listed student is waiting">
-                            <Megaphone size={15} /> Call next
-                        </button>
-                    )}
-                    {onWalkIn && (
-                        <button type="button" className="sti-btn-dv sti-btn-secondary-dv" onClick={onWalkIn} title="Add a walk-in to the walk-in queue (W1, W2, ...)">
-                            <Footprints size={15} /> Walk-in
-                        </button>
-                    )}
-                    <button type="button" className="sti-btn-dv sti-btn-light-dv" disabled={!hasWaiting && !queue.now_serving} onClick={() => setScanning(true)} title="Scan the QR code of a student to record the time in">
-                        <QrCode size={15} /> Scan QR
-                    </button>
-                    <button type="button" className="icon-btn-ds" title="Refresh" aria-label="Refresh" onClick={load}><RefreshCw size={15} /></button>
+                    {isDoctor && iconBtn('next', 'primary', Megaphone, 'Call next', callNext, callBlocked ? callBlockedText : 'Call next: the lowest listed number; walk-ins are called when no listed student is waiting', busy || !hasWaiting || callBlocked)}
+                    {onWalkIn && queue.allow_walk_in !== false && iconBtn('walkin', 'secondary', Footprints, 'Walk-in', onWalkIn, 'Walk-in: add a student to the walk-in queue (W1, W2, ...)')}
+                    {iconBtn('scan', 'light', QrCode, 'Scan QR', () => setScanning(true), 'Scan QR: record the time in of a student', !hasWaiting && !queue.now_serving)}
+                    {onExtend && iconBtn('extend', 'light', TimerReset, 'Extend end time', onExtend, 'Extend the end time of this session')}
+                    {iconBtn('refresh', 'light', RefreshCw, 'Refresh', load)}
                 </div>
             </div>
+
+            {isDoctor && callBlocked && <p className="dp-hint" role="status">{callBlockedText}</p>}
 
             {queue.entries.length === 0 ? (
                 <p className="dp-hint">Nobody is in this session's queue yet.</p>
@@ -168,7 +168,9 @@ const QueuePanel = ({ scheduleId, date, creator, userId, onChanged, onDocument, 
                                     <td>
                                         <div className="row-actions-sc">
                                             {['Waiting', 'Serving'].includes(e.state) && !e.arrived && (
-                                                iconBtn('in', 'light', Clock, 'Time in', () => markArrived(e, false, true), 'Time in: record it now. The student is at the clinic and the check-up form opens')
+                                                iconBtn('in', 'light', Clock, 'Time in', () => markArrived(e, false, true),
+                                                    turnOf(e) ? 'Time in: record it now. The student is at the clinic and the check-up form opens' : `Time in is only for the number in session${queue.now_serving ? ` (${queue.now_serving.label})` : ''}. Call ${e.label} first.`,
+                                                    !turnOf(e))
                                             )}
                                             {isDoctor && ['Waiting', 'Serving'].includes(e.state) && !e.arrived && !e.documented && (
                                                 iconBtn('void', 'light', Ban, e.state === 'Serving' ? 'Void and call next' : 'Void', () => setVoidFor(e), e.state === 'Serving' ? 'The student is not here: the number becomes void and the next number is called' : 'The student is not here: the number becomes void')
@@ -185,7 +187,7 @@ const QueuePanel = ({ scheduleId, date, creator, userId, onChanged, onDocument, 
                                             {e.state === 'Void' && !e.accommodated_as && (
                                                 iconBtn('acc', 'secondary', Footprints, 'Accommodate', () => accommodate(e), 'The student arrived: they join the walk-in queue, after the listed students', busy)
                                             )}
-                                            {onHistory && iconBtn('hist', 'light', History, 'Assessment history', () => onHistory(e), 'Past assessments of this student')}
+                                            {onHistory && iconBtn('hist', 'light', History, 'Past assessments', () => onHistory(e), 'Past assessments of this student')}
                                         </div>
                                     </td>
                                 </tr>
@@ -200,7 +202,7 @@ const QueuePanel = ({ scheduleId, date, creator, userId, onChanged, onDocument, 
                 message={voidFor ? `${voidFor.label} ${voidFor.student_name} will be marked void. They stay in the list and can be accommodated as a walk-in if they arrive.` : ''}
                 placeholder="e.g. Called three times, not at the clinic" onSubmit={voidNumber} onClose={() => setVoidFor(null)}
             />
-            <AttendanceScanModal isOpen={scanning} entries={queue.entries} onArrived={(entry) => markArrived(entry, true, true)} onClose={() => setScanning(false)} />
+            <AttendanceScanModal isOpen={scanning} entries={queue.entries} servingOnly={isDoctor}onArrived={(entry) => markArrived(entry, true, true)} onClose={() => setScanning(false)} />
         </div>
     );
 };
