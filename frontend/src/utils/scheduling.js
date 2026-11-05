@@ -5,17 +5,17 @@ export const API = 'http://localhost:3001';
 
 // A schedule is a session with a queue: the nurse accepts the students who asked for a place in its listing (they get a queue number) and the only
 // switch is allow_walk_in. What is categorized is HOW A STUDENT GOT IN, from doctor_appointments.booking_source:
-//   accepted from the listing (the nurse accepted the student's request), appointed by a doctor, appointed by a nurse, or Walk-in (walk-in lane).
-// The server sends it as `how` (listing | doctor | nurse | walk_in); without it the booking source tells doctor / nurse / walk-in.
+//   advance listing, session listing, repeat, or walk-in (walk-in lane).
+// The server sends it as `how` (advance | session | repeat | walk_in); without it the booking source tells walk-in or session listing.
 export const SCHEDULING_WAYS = {
-    listing: { label: 'Accepted from the listing', short: 'From listing', cls: 'type-appointment-sc' },
-    doctor: { label: 'Appointed by a doctor', short: 'By doctor', cls: 'type-appointment-sc' },
-    nurse: { label: 'Appointed by a nurse', short: 'By nurse', cls: 'type-appointment-sc' },
+    advance: { label: 'Advance listing', short: 'Advance listing', cls: 'type-appointment-sc' },
+    session: { label: 'Session listing', short: 'Session listing', cls: 'type-appointment-sc' },
+    repeat: { label: 'Repeat', short: 'Repeats', cls: 'type-appointment-sc' },
     walk_in: { label: 'Walk-in', short: 'Walk-in', cls: 'type-walkin-sc' }
 };
 export const SCHEDULING_WAY_KEYS = Object.keys(SCHEDULING_WAYS);
 export const wayOf = (bookingSource, how) => (
-    SCHEDULING_WAYS[how] ? how : bookingSource === 'Walk-in' ? 'walk_in' : bookingSource === 'Doctor' ? 'doctor' : 'nurse'
+    SCHEDULING_WAYS[how] ? how : bookingSource === 'Walk-in' ? 'walk_in' : 'session'
 );
 
 // "BSIT - 4B": program id, year level and section

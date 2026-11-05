@@ -3174,10 +3174,16 @@ app.get('/api/inventory', async (req, res) => {
       JOIN medicines m ON b.medicine_id = m.medicine_id
       LEFT JOIN medicine_indications mi ON m.medicine_id = mi.medicine_id
       LEFT JOIN chief_complaints c ON mi.complaint_id = c.complaint_id
+      ${req.query.include_empty === '1' ? '' : `
+      WHERE b.current_stock > 0
+         OR (
+           NOT EXISTS (SELECT 1 FROM medicine_inventory_batches x WHERE x.medicine_id = b.medicine_id AND x.current_stock > 0)
+           AND b.batch_id = (SELECT y.batch_id FROM medicine_inventory_batches y WHERE y.medicine_id = b.medicine_id ORDER BY y.expiration_date DESC, y.created_at DESC LIMIT 1)
+         )`}
       GROUP BY b.batch_id
       ORDER BY b.expiration_date ASC
     `;
-    
+
     const [rows] = await connection.execute(query);
     const formatted = rows.map(item => {
       const convStrength = autoConvertUnit(item.strength_unit_value, item.strength_unit_of_measure);
@@ -5363,8 +5369,16 @@ app.get('/api/predictive-medicine', async (req, res) => {
     const parsedTrend = parseFloat(req.query.trendFactor);
     const trendFactor = Number.isFinite(parsedTrend) ? parsedTrend : 0;
 
-    const medicines = await getMedicineStockStatuses({ includeSeries: true, trendFactor });
-    const anchorStr = todayManilaStr();
+    // Optional snapshot day (YYYY-MM-DD, never in the future): forecast the 30 days after that day
+    const todayStr = todayManilaStr();
+    const asOfParam = typeof req.query.asOf === 'string' ? req.query.asOf.trim() : '';
+    if (asOfParam && !/^\d{4}-\d{2}-\d{2}$/.test(asOfParam)) {
+      return res.status(400).json({ error: 'asOf must be a date (YYYY-MM-DD).' });
+    }
+    const asOf = asOfParam && asOfParam < todayStr ? asOfParam : null;
+
+    const medicines = await getMedicineStockStatuses({ includeSeries: true, trendFactor, asOf });
+    const anchorStr = asOf || todayStr;
     const firstDay = medicines.find((m) => m.forecast_days && m.forecast_days.length)?.forecast_days[0]?.targetDate;
     const lastDay = medicines.find((m) => m.forecast_days && m.forecast_days.length)?.forecast_days.slice(-1)[0]?.targetDate;
 
@@ -5420,7 +5434,50 @@ const stockStatusOf = (usable, low, critical) => {
 };
 
 // Per-medicine stock status with expiry information, the 30-day forecast demand and a restock suggestion.
-async function getMedicineStockStatuses({ includeSeries = false, trendFactor = 0 } = {}) {
+// Usable stock (containers of the dosage form) as it stood at the end of asOfStr (YYYY-MM-DD, a past day).
+// There is no stock ledger, so it is rebuilt from today's batches: what is left now plus everything dispensed
+// from that batch after the day, for batches that already existed and were not expired on that day.
+async function getSnapshotUsableStock(asOfStr) {
+  const [batches] = await pool.query(`
+    SELECT b.batch_id, b.medicine_id, b.current_stock, b.remaining_volume,
+           m.dispense_unit_of_measure AS dispense_unit, m.strength_unit_value AS strength_value, m.strength_unit_of_measure AS strength_unit
+    FROM medicine_inventory_batches b
+    JOIN medicines m ON m.medicine_id = b.medicine_id
+    WHERE b.created_at <= ? AND b.expiration_date >= ?
+  `, [`${asOfStr} 23:59:59`, asOfStr]);
+
+  const [after] = await pool.query(`
+    SELECT d.batch_id, d.dosage_consumption_unit_value, d.dosage_consumption_unit_of_measure,
+           m.dispense_unit_of_measure AS dispense_unit, m.strength_unit_value AS strength_value, m.strength_unit_of_measure AS strength_unit
+    FROM (
+      SELECT batch_id, dosage_consumption_unit_value, dosage_consumption_unit_of_measure, dispensed_at FROM consultation_dispensation
+      UNION ALL
+      SELECT batch_id, dosage_consumption_unit_value, dosage_consumption_unit_of_measure, dispensed_at FROM direct_dispensation
+    ) d
+    JOIN medicine_inventory_batches b ON b.batch_id = d.batch_id
+    JOIN medicines m ON m.medicine_id = b.medicine_id
+    WHERE d.dispensed_at > ?
+  `, [`${asOfStr} 23:59:59`]);
+
+  const dispensedAfter = {};
+  after.forEach((row) => {
+    dispensedAfter[row.batch_id] = (dispensedAfter[row.batch_id] || 0) + dispensedInDispenseUnit(row);
+  });
+
+  const byMedicine = {};
+  batches.forEach((b) => {
+    const cs = containerStrengthInDispenseUnit(b.strength_value, b.strength_unit, b.dispense_unit) || 1;
+    const stock = Number(b.current_stock) || 0;
+    const discrete = DISCRETE_UNITS.includes(b.dispense_unit);
+    const baseNow = discrete ? stock : (stock > 0 ? (Number(b.remaining_volume) || 0) + (stock - 1) * cs : 0);
+    const baseThen = baseNow + (dispensedAfter[b.batch_id] || 0);
+    const containers = Math.max(0, Math.ceil(parseFloat((baseThen / cs).toFixed(6))));
+    byMedicine[b.medicine_id] = (byMedicine[b.medicine_id] || 0) + containers;
+  });
+  return byMedicine;
+}
+
+async function getMedicineStockStatuses({ includeSeries = false, trendFactor = 0, asOf = null } = {}) {
   const [rows] = await pool.query(`
     SELECT m.medicine_id, m.generic_name, m.brand_name, m.dosage_form, m.strength_unit_value, m.strength_unit_of_measure,
            m.dispense_unit_of_measure, m.low_stock_level, m.critical_stock_level, m.adequate_stock_level,
@@ -5435,11 +5492,13 @@ async function getMedicineStockStatuses({ includeSeries = false, trendFactor = 0
     ORDER BY m.generic_name ASC, m.brand_name ASC
   `);
 
-  const todayStr = todayManilaStr();
+  // asOf = snapshot of a past day: history and stock end on that day, the forecast covers the 30 days after it
+  const todayStr = asOf || todayManilaStr();
   const { byMedicineId } = await getDailyDispenseHistory(todayStr);
+  const snapshotStock = asOf ? await getSnapshotUsableStock(asOf) : null;
 
   return rows.map((m) => {
-    const usable = Number(m.usable_stock);
+    const usable = snapshotStock ? (snapshotStock[m.medicine_id] || 0) : Number(m.usable_stock);
     const low = Number(m.low_stock_level);
     const critical = Number(m.critical_stock_level);
     const adequate = Number(m.adequate_stock_level);
@@ -9761,10 +9820,22 @@ const SCHEDULE_VISIT_TYPES = [];
 // Visits that were saved as "Other: ..." before Other was removed keep reading the same in the history
 const visitLabel = (type, other) => (type === 'Other' && other ? `Other: ${other}` : type);
 
+// General Check Up is on every doctor's list until the nurse removes it (flag `general_removed` in clinic_flags); adding it again clears the flag
+let GENERAL_REMOVED = false;
+const setGeneralRemoved = async (conn, removed) => {
+    await conn.query(`CREATE TABLE IF NOT EXISTS clinic_flags (flag_key VARCHAR(60) PRIMARY KEY, flag_value TINYINT NOT NULL DEFAULT 0)`);
+    await conn.query(`INSERT INTO clinic_flags (flag_key, flag_value) VALUES ('general_removed', ?) ON DUPLICATE KEY UPDATE flag_value = VALUES(flag_value)`, [removed ? 1 : 0]);
+};
+
 const loadSpecializations = async () => {
     const [rows] = await pool.query(`SELECT specialization_id, name, visit_type, is_system FROM specializations ORDER BY is_system DESC, name ASC`);
+    try {
+        await pool.query(`CREATE TABLE IF NOT EXISTS clinic_flags (flag_key VARCHAR(60) PRIMARY KEY, flag_value TINYINT NOT NULL DEFAULT 0)`);
+        const [[flag]] = await pool.query(`SELECT COUNT(*) AS n FROM clinic_flags WHERE flag_key = 'general_removed' AND flag_value = 1`);
+        GENERAL_REMOVED = flag.n > 0;
+    } catch (e) { console.error('Could not read clinic_flags:', e.message); }
     SPECIALIZATIONS.splice(0, SPECIALIZATIONS.length, ...rows);
-    const purposes = [GENERAL_VISIT_TYPE, ...new Set(rows.map((r) => r.visit_type).filter((t) => t !== GENERAL_VISIT_TYPE))];
+    const purposes = [...(GENERAL_REMOVED ? [] : [GENERAL_VISIT_TYPE]), ...new Set(rows.map((r) => r.visit_type).filter((t) => t !== GENERAL_VISIT_TYPE))];
     VISIT_PURPOSES.splice(0, VISIT_PURPOSES.length, ...purposes);
     DOCTOR_VISIT_TYPES.splice(0, DOCTOR_VISIT_TYPES.length, ...purposes, ...SYSTEM_VISIT_TYPES);
     SCHEDULE_VISIT_TYPES.splice(0, SCHEDULE_VISIT_TYPES.length, 'Any', ...DOCTOR_VISIT_TYPES);
@@ -10063,8 +10134,8 @@ const doctorDisplayName = (d) => `Dr. ${d.first_name || ''} ${d.last_name || ''}
 // The visit types a specialization takes: General Check Up for everyone, plus the one its specialization adds
 const specializationVisitTypes = (specialization) => {
     const name = String(specialization || '').trim().toLowerCase();
-    const types = new Set([GENERAL_VISIT_TYPE]);
-    SPECIALIZATIONS.filter((x) => x.name.toLowerCase() === name).forEach((x) => types.add(x.visit_type));
+    const types = new Set(GENERAL_REMOVED ? [] : [GENERAL_VISIT_TYPE]);
+    SPECIALIZATIONS.filter((x) => x.name.toLowerCase() === name && !(GENERAL_REMOVED && x.visit_type === GENERAL_VISIT_TYPE)).forEach((x) => types.add(x.visit_type));
     Object.entries(LEGACY_SPECIALIZATION_RULES).forEach(([type, rule]) => { if (rule.test(name)) types.add(type); });
     return [...types];
 };
@@ -13792,8 +13863,6 @@ app.get('/api/schedule-calendar', async (req, res) => {
         );
 
         await ensureAdvanceListing();
-        const [advRows] = await pool.query(`SELECT appointment_id FROM advance_listing_entries WHERE appointment_id IS NOT NULL AND session_date BETWEEN ? AND ?`, [from, to]);
-        const advanceIds = new Set(advRows.map((r) => r.appointment_id));
         await ensureSessionEndTable();
         const [endRows] = await pool.query(`SELECT schedule_id, DATE_FORMAT(session_date, '%Y-%m-%d') AS day FROM session_end_confirmations WHERE session_date BETWEEN ? AND ?`, [from, to]);
         const endedKeys = new Set(endRows.map((r) => `${r.schedule_id}|${r.day}`));
@@ -13823,12 +13892,11 @@ app.get('/api/schedule-calendar', async (req, res) => {
                     capacity: queueCapacity(s),
                     // how the students of this session were scheduled: appointed by staff (listed queue) or walked in
                     by_appointment: inWindow.filter((a) => a.booking_source !== 'Walk-in').length,
-                    by_listing: inWindow.filter((a) => a.how === 'listing').length,
-                    by_nurse: inWindow.filter((a) => a.how === 'nurse').length,
-                    by_doctor: inWindow.filter((a) => a.how === 'doctor').length,
-                    by_walk_in: inWindow.filter((a) => a.booking_source === 'Walk-in').length,
+                    by_session: inWindow.filter((a) => a.how === 'session').length,
+                    by_repeat: inWindow.filter((a) => a.how === 'repeat').length,
+                    by_walk_in: inWindow.filter((a) => a.how === 'walk_in').length,
                     // advance listing students hold the first numbers; the students who asked for the places left come after them
-                    by_advance: inWindow.filter((a) => advanceIds.has(a.appointment_id) && a.status !== 'Cancelled' && a.queue_state !== 'Void').length,
+                    by_advance: inWindow.filter((a) => a.how === 'advance').length,
                     listing_open: !!s.listing_open, listing_limit: listingLimitOf(s),
                     booked: inWindow.length,
                     queue_serving: serving ? queueLabel(serving.queue_lane, serving.queue_no) : null,
@@ -13861,12 +13929,12 @@ app.get('/api/schedule-calendar', async (req, res) => {
 });
 
 // Everyone who has a place in one session (one date of one schedule): appointed (listed queue) or walked in (walk-in lane).
-// How a student got a place in a session: accepted from the listing (the appointment is linked to a listing request), put there by a doctor or a nurse, or walked in
+// How a student got a place in a session: walked in, a repeat (follow-up of an earlier check-up), from the advance listing, or from the session listing (everything else)
 const APPOINTED_HOW_SQL = `CASE
     WHEN da.booking_source = 'Walk-in' THEN 'walk_in'
-    WHEN EXISTS (SELECT 1 FROM consultation_requests cr WHERE cr.request_id = da.request_id AND cr.listing_schedule_id IS NOT NULL) THEN 'listing'
-    WHEN da.booking_source = 'Doctor' THEN 'doctor'
-    ELSE 'nurse'
+    WHEN da.visit_type = 'Follow-up' AND da.parent_appointment_id IS NOT NULL THEN 'repeat'
+    WHEN EXISTS (SELECT 1 FROM advance_listing_entries ale2 WHERE ale2.appointment_id = da.appointment_id) THEN 'advance'
+    ELSE 'session'
 END AS how`;
 
 app.get('/api/doctor-schedules/:id/participants', async (req, res) => {
@@ -14182,7 +14250,10 @@ app.get('/api/consultations-offered', async (req, res) => {
         res.json({
             success: true,
             consultations,
-            suggestions: CONSULTATION_SUGGESTIONS.filter((s) => !VISIT_PURPOSES.some((t) => t.toLowerCase() === s.visit_type.toLowerCase())),
+            suggestions: [
+                ...(GENERAL_REMOVED ? [{ visit_type: GENERAL_VISIT_TYPE, specializations: [], is_general: true }] : []),
+                ...CONSULTATION_SUGGESTIONS.filter((s) => !VISIT_PURPOSES.some((t) => t.toLowerCase() === s.visit_type.toLowerCase()))
+            ],
             specializations: [...new Set(SPECIALIZATIONS.map((x) => x.name))]
         });
     } catch (error) {
@@ -14203,7 +14274,8 @@ app.post('/api/consultations-offered', async (req, res) => {
     if (/^(any|other|follow-up|referral)$/i.test(visitTypeIn)) return res.status(400).json({ success: false, message: `"${visitTypeIn}" cannot be used as a check-up service.` });
     if (specNames.some((n) => n.length > 80)) return res.status(400).json({ success: false, message: 'A specialization can be at most 80 characters.' });
 
-    const visitType = VISIT_PURPOSES.find((t) => t.toLowerCase() === visitTypeIn.toLowerCase()) || visitTypeIn;
+    const visitType = VISIT_PURPOSES.find((t) => t.toLowerCase() === visitTypeIn.toLowerCase())
+        || (visitTypeIn.toLowerCase() === GENERAL_VISIT_TYPE.toLowerCase() ? GENERAL_VISIT_TYPE : visitTypeIn);
     const isGeneral = visitType === GENERAL_VISIT_TYPE;
     const isNew = !VISIT_PURPOSES.includes(visitType);
     if (!isGeneral && specNames.length === 0 && SPECIALIZATIONS.every((x) => x.visit_type !== visitType)) {
@@ -14228,6 +14300,8 @@ app.post('/api/consultations-offered', async (req, res) => {
             const listed = SPECIALIZATIONS.find((x) => x.name.toLowerCase() === spec.toLowerCase());
             await pool.query(`INSERT IGNORE INTO specializations (name, visit_type, is_system) VALUES (?, ?, 0)`, [listed ? listed.name : spec, visitType]);
         }
+        // adding General Check Up again after it was removed
+        if (isGeneral && GENERAL_REMOVED) await setGeneralRemoved(pool, false);
         await loadSpecializations();
 
         // assignment: doctors that can take it are on or off its list, saved as their services_offered
@@ -14295,14 +14369,12 @@ const keepSpecializationListed = async (conn, name) => {
 };
 
 // Removes a check-up service: its links to specializations go, and so does it from the list of check-ups a doctor covers.
-// Refused for the built-in ones, while something still uses it, or when a doctor would have no check-up left.
+// Refused for General Check Up and while something still uses it (schedules, waiting students, appointments, pending requests).
 app.delete('/api/consultations-offered/:visitType', async (req, res) => {
     const visitType = VISIT_PURPOSES.find((t) => t.toLowerCase() === String(req.params.visitType || '').trim().toLowerCase());
     if (!visitType) return res.status(404).json({ success: false, message: 'That check-up is not on the list.' });
     const rows = SPECIALIZATIONS.filter((x) => x.visit_type === visitType);
-    if (visitType === GENERAL_VISIT_TYPE || rows.some((x) => x.is_system)) {
-        return res.status(400).json({ success: false, message: `${visitType} is built in and cannot be removed.` });
-    }
+    const isGeneral = visitType === GENERAL_VISIT_TYPE;
 
     const conn = await pool.getConnection();
     try {
@@ -14311,15 +14383,35 @@ app.delete('/api/consultations-offered/:visitType', async (req, res) => {
         if (use.length > 0) throw new BookingError(`${visitType} cannot be removed yet: ${use.join(', ')}. Close or move those first.`, 409);
 
         const [doctors] = await conn.query(`SELECT doctor_id, first_name, last_name, specialization, services_offered FROM doctors FOR UPDATE`);
+
+        // General Check Up is every doctor's base: removing it only turns it off (the specialization rows stay so the names stay listed),
+        // and every doctor must keep another check-up through their specialization
+        if (isGeneral) {
+            const stranded = doctors.filter((d) => specializationVisitTypes(d.specialization).filter((t) => t !== GENERAL_VISIT_TYPE).length === 0);
+            if (stranded.length > 0) throw new BookingError(`${stranded.map(doctorDisplayName).join(', ')} would have no check-up left. Link their specialization to another check-up first.`, 400);
+            for (const d of doctors) {
+                const saved = parseServices(d.services_offered);
+                if (!saved || !saved.includes(visitType)) continue;
+                const next = saved.filter((t) => t !== visitType);
+                await conn.query(`UPDATE doctors SET services_offered = ? WHERE doctor_id = ?`, [next.length === 0 ? null : JSON.stringify(next), d.doctor_id]);
+            }
+            await setGeneralRemoved(conn, true);
+            await conn.commit();
+            await loadSpecializations();
+            await ensureServiceListingTable();
+            await pool.query(`DELETE FROM consultation_service_listing WHERE visit_type = ?`, [visitType]);
+            return res.json({ success: true, message: `${visitType} removed.` });
+        }
+
         for (const d of doctors) {
             const saved = parseServices(d.services_offered);
             if (!saved || !saved.includes(visitType)) continue;
             const next = saved.filter((t) => t !== visitType);
-            if (next.length === 0) throw new BookingError(`${doctorDisplayName(d)} would have no check-up left. Assign them another check-up first.`, 400);
-            await conn.query(`UPDATE doctors SET services_offered = ? WHERE doctor_id = ?`, [JSON.stringify(next), d.doctor_id]);
+            // none left: the list is cleared and the doctor follows the specialization, which falls back to General Check Up
+            await conn.query(`UPDATE doctors SET services_offered = ? WHERE doctor_id = ?`, [next.length === 0 ? null : JSON.stringify(next), d.doctor_id]);
         }
 
-        await conn.query(`DELETE FROM specializations WHERE visit_type = ? AND is_system = 0`, [visitType]);
+        await conn.query(`DELETE FROM specializations WHERE visit_type = ?`, [visitType]);
         for (const name of new Set(rows.map((x) => x.name))) await keepSpecializationListed(conn, name);
         await conn.commit();
         await loadSpecializations();
@@ -15857,7 +15949,7 @@ app.get('/api/student/:studentId/queue-status', async (req, res) => {
             const sessionOver = phase ? phase.state === 'past' : String(m.end_time) <= nowStr;
             const ahead = snap && me && me.state === 'Waiting' ? peopleAhead(snap, me) : 0;
             appointments.push({
-                appointment_id: m.appointment_id, visit_type: m.visit_type, doctor_name: `Dr. ${m.doc_first_name} ${m.doc_last_name}`, location: m.location,
+                appointment_id: m.appointment_id, schedule_id: m.schedule_id, visit_type: m.visit_type, doctor_name: `Dr. ${m.doc_first_name} ${m.doc_last_name}`, location: m.location,
                 date, session_start: m.session_start || String(m.start_time).slice(11, 19), session_end: m.session_end || String(m.end_time).slice(11, 19),
                 lane: m.queue_lane, queue_no: m.queue_no, label: queueLabel(m.queue_lane, m.queue_no), state: m.queue_state, arrived: m.attendance_status === 'Present' ? 1 : 0,
                 in_session: phase ? (phase.state === 'ongoing' ? 1 : 0) : (String(m.start_time) <= nowStr && nowStr < String(m.end_time) ? 1 : 0),
@@ -17302,7 +17394,8 @@ app.post('/api/doctor-templates/:templateId/duplicate', async (req, res) => {
 // The seed row stops them from coming back after the doctor archives them. A doctor who already has templates gets none.
 // version 2: the set follows the specialization, so a doctor seeded under version 1 (everyone got the General one) has the sets that do not fit
 // archived once (retire_names) and gets the missing fitting ones.
-const TEMPLATE_SEED_VERSION = 2;
+// version 3: one preset per specialization (the doctor gets the one for theirs, others are archived once).
+const TEMPLATE_SEED_VERSION = 3;
 const templateSeedReady = (async () => {
     await pool.query(`
         CREATE TABLE IF NOT EXISTS doctor_template_seed (

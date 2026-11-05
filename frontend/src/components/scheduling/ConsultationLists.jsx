@@ -515,11 +515,11 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
                             <button type="button" className="dp-btn dp-btn-primary dp-btn-sm" onClick={() => setDismissedEnds((list) => list.filter((k) => k !== endKey(s)))}>Confirm or extend</button>
                         </div>
                     )}
-                    <QueuePanel scheduleId={s.schedule_id} date={s.date} creator={creator} userId={userId} refreshKey={queueKey} onChanged={refresh} onDocument={documentEntry} onView={viewEntry} onHistory={historyEntry} onWalkIn={() => setWalkInFor(s)} onExtend={() => setExtendSession(s)} />
+                    <QueuePanel scheduleId={s.schedule_id} date={s.date} creator={creator} userId={userId} refreshKey={queueKey} onChanged={refresh} onDocument={documentEntry} onView={viewEntry} onHistory={historyEntry} onWalkIn={isNurse ? undefined : () => setWalkInFor(s)} onExtend={() => setExtendSession(s)} />
                 </section>
             ))}
 
-            {tab === 'ongoing' && items.some((a) => !a.queue_state && a.status === 'Scheduled' && a.attendance_status === 'Pending') && (
+            {tab === 'ongoing' && !isNurse && items.some((a) => !a.queue_state && a.status === 'Scheduled' && a.attendance_status === 'Pending') && (
                 <div className="dp-actions" style={{ marginBottom: 12 }}>
                     <button type="button" className="dp-btn dp-btn-ghost" onClick={() => setScanning(true)} title="Scan the QR code of a student to record the time in"><QrCode size={17} /> Scan QR for attendance</button>
                 </div>

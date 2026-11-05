@@ -4,7 +4,7 @@ import { useOutletContext } from 'react-router-dom';
 import { 
   Calendar, Clock, Users, Eye, Activity, Smile, HeartPulse, Ear, 
   X, CheckCircle, Edit3, Trash2, FileText, ArrowLeft, ArrowRight, Megaphone, Printer, Filter,
-  Play, UserRoundPlus, Download, Search, ClipboardList, BellRing, History, LogIn, Plus, FolderPlus
+  Play, UserRoundPlus, Download, Search, ClipboardList, BellRing, History, LogIn, FolderPlus
 } from 'lucide-react';
 
 import { openReportWindow, writeReport, escapeHtml } from '../../utils/printReport';
@@ -1331,15 +1331,6 @@ export default function HealthScreening() {
     setShowScheduleModal(true);
   };
 
-  // "New screening" button: inside a custom folder the form starts on that folder
-  const openNewScreening = () => {
-    resetScheduleForm();
-    if (view.kind === 'custom') {
-      setScheduleForm(prev => ({ ...prev, grouping: 'CUSTOM', folder_id: String(view.folder_id) }));
-    }
-    setShowScheduleModal(true);
-  };
-
   // switching between by-section and custom starts the student picks again (the class rule differs)
   const changeGrouping = (grouping) => {
     if (grouping === scheduleForm.grouping) return;
@@ -1505,16 +1496,17 @@ export default function HealthScreening() {
       {/* Folders: Program > Year-Section */}
       {mainView === 'screenings' && <FolderCrumbs trail={crumbTrail} />}
 
-      {mainView === 'screenings' && view.kind !== 'archive' && (
+      {mainView === 'screenings' && view.kind === 'custom' && tabCounts && tabCounts.total === 0 && (
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', margin: '0.5rem 0' }}>
-          <button type="button" className="btn-hs btn-primary-hs" onClick={openNewScreening}>
-            <Plus size={16} aria-hidden="true" /> New screening{view.kind === 'custom' ? ' in this folder' : ''}
+          <button
+            type="button"
+            className="btn-hs btn-danger-hs hs-icon-btn"
+            onClick={handleDeleteFolder}
+            aria-label="Delete empty folder"
+            title="Delete empty folder"
+          >
+            <Trash2 size={18} aria-hidden="true" />
           </button>
-          {view.kind === 'custom' && tabCounts && tabCounts.total === 0 && (
-            <button type="button" className="btn-hs btn-danger-hs" onClick={handleDeleteFolder}>
-              <Trash2 size={16} aria-hidden="true" /> Delete empty folder
-            </button>
-          )}
         </div>
       )}
 
@@ -1787,16 +1779,18 @@ export default function HealthScreening() {
                 />
               </div>
 
-              <fieldset className="form-group-hs" style={{ border: '1px solid var(--card-border)', borderRadius: '0.5rem', padding: '0.75rem' }}>
-                <legend style={{ padding: '0 0.25rem', fontWeight: 600 }}>Group this screening</legend>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minHeight: '2.75rem' }}>
-                  <input type="radio" name="hs-grouping" checked={!isCustomGrouping} onChange={() => changeGrouping('SECTION')} />
-                  <span><strong>By section</strong> - one class (program, year level and section). It goes in that section&apos;s folder.</span>
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minHeight: '2.75rem' }}>
-                  <input type="radio" name="hs-grouping" checked={isCustomGrouping} onChange={() => changeGrouping('CUSTOM')} />
-                  <span><strong>Custom folder</strong> - any students, from different programs, year levels and sections (e.g. sports fest players).</span>
-                </label>
+              <fieldset className="form-group-hs hs-group-fieldset">
+                <legend>Group</legend>
+                <div className="hs-choice-row">
+                  <label className="hs-choice">
+                    <input type="radio" name="hs-grouping" checked={!isCustomGrouping} onChange={() => changeGrouping('SECTION')} />
+                    <span>By section</span>
+                  </label>
+                  <label className="hs-choice">
+                    <input type="radio" name="hs-grouping" checked={isCustomGrouping} onChange={() => changeGrouping('CUSTOM')} />
+                    <span>Custom folder</span>
+                  </label>
+                </div>
 
                 {isCustomGrouping && (
                   <div style={{ marginTop: '0.5rem' }}>
@@ -1834,15 +1828,17 @@ export default function HealthScreening() {
                 <select id="hs-fld-2"
                   value={scheduleForm.screening_type}
                   required
-                  aria-describedby="screening-type-help-hs"
+                  aria-describedby={typesError ? 'screening-type-help-hs' : undefined}
                   onChange={e => setScheduleForm({...scheduleForm, screening_type: e.target.value})}
                 >
                   {activeTypes.length === 0 && <option value="">No active screening type</option>}
                   {activeTypes.map(t => <option key={t.screening_type_id} value={t.name}>{t.name}</option>)}
                 </select>
-                <small id="screening-type-help-hs" style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '0.25rem' }}>
-                  {typesError || 'Dental and Vision examinations are scheduled under Doctor Visits.'}
-                </small>
+                {typesError && (
+                  <small id="screening-type-help-hs" style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '0.25rem' }}>
+                    {typesError}
+                  </small>
+                )}
               </div>
 
               <div className="form-group-hs">

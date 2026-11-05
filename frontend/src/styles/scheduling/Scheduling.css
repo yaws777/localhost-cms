@@ -319,6 +319,10 @@
 .row-actions-sc { display: flex; gap: 6px; flex-wrap: wrap; }
 
 .btn-sm-sc { padding: 6px 10px; font-size: 0.875rem; }
+/* icon-only action buttons: one neutral look (dark fill, border, plain icon) whatever the action */
+.btn-icon-sc { display: inline-flex; align-items: center; justify-content: center; min-width: 2.75rem; min-height: 2.75rem; padding: 0.5rem; background: var(--bg-card); border: 1px solid var(--sti-border); border-radius: 0.5rem; color: var(--text-primary); cursor: pointer; }
+.btn-icon-sc:hover { background: var(--sti-light-bg); }
+.btn-icon-sc:focus-visible { outline: 0.1875rem solid var(--sti-blue-primary); outline-offset: 0.125rem; }
 
 /* icon-only action button (the label is in aria-label / title) */
 .btn-icon-sc { justify-content: center; padding: 0; min-width: 2.75rem; min-height: 2.75rem; }
@@ -568,3 +572,6 @@
 .schedule-requests-sc .chip-filter-ds { margin-left: auto; flex-wrap: wrap; }
 .schedule-requests-sc .chip-filter-ds button { min-height: 2.75rem; }
 .schedule-requests-sc .chip-filter-ds button:focus-visible { outline: 0.1875rem solid var(--sti-blue-primary); outline-offset: 0.125rem; }
+
+/* icon-only buttons in modal footers: 2.75rem target */
+.dp-modal-foot .dp-btn-icon { width: 2.75rem; height: 2.75rem; flex: none; }

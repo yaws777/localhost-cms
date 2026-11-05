@@ -117,8 +117,8 @@ const StudentDashboard = () => {
 
   // the student's numbers in the check-up waiting list and in a session queue; refreshed every few seconds
   const queue = useQueueStatus(studentId, { intervalMs: LIVE_REFRESH_MS });
-  // a number stays on the dashboard (marked Done once the check-up is documented) until its session is over: the end confirmed, or the date passed
-  const liveAppointments = queue.appointments.filter((a) => !a.session_over);
+  // a number leaves the dashboard once its check-up is done (documented) or its session is over: the end confirmed, or the date passed
+  const liveAppointments = queue.appointments.filter((a) => !a.session_over && !a.documented && a.state !== 'Done');
 
   // API Data States
   const [visitsData, setVisitsData] = useState({ clinic_visits: [], direct_dispensations: [] });

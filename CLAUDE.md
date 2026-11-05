@@ -14,6 +14,10 @@ The imported `AGENTS.md` is the source of truth for structure, commands, ports, 
 ## Working rules
 - New endpoints go inline in `backend/src/database/connection.js`; new routes in `frontend/src/index.js`.
 - Replies and commit messages: follow the Caveman style (terse) when the plugin is active, but never apply it to code, SQL, commit bodies or file contents.
+- **UI rule (user's standing order), every new or changed interface:**
+  - **Buttons are icon only** (`lucide-react` icon, `aria-label` + `title` carry the name, 2.75rem target, e.g. `dp-btn dp-btn-icon`). No text label on action buttons. Modal form footers may keep a short Cancel / Save.
+  - **Avoid long text**: no intro paragraphs, helper notes or repeated explanations; one short line at most, labels of 1-3 words.
+  - **Every message is a modal, never inline text or a toast**: confirmation, warning, error and success go through `useAlert()` (`showConfirm(message, { danger, confirmLabel, title })` before any delete / deactivate / irreversible action; `showAlert(message, 'success' | 'warning' | 'error')` for results). Keep these messages short too.
 
 ## Structure
 - `backend/src/database/connection.js` — the entire Express API + MySQL pool + listen. `backend/src/routes/server.js` is dead commented-out code; `backend/src/services/` (`login.js`, `forgotpassword.js`) is unused. Do not add routes elsewhere.

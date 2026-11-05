@@ -68,7 +68,8 @@ const SettingsModal = ({ isOpen, state, userId, onClose, onSaved }) => {
     useEffect(() => {
         if (!isOpen || !state) return;
         const next = {};
-        state.services.filter((s) => s.offered).forEach((s) => { next[s.visit_type] = String(s.listing_limit); });
+        // only services a doctor still covers: an old one (no doctor covers it now) is not in the list, so it must not be sent
+        state.services.filter((s) => s.offered && state.eligible.includes(s.visit_type)).forEach((s) => { next[s.visit_type] = String(s.listing_limit); });
         // a batch that still runs is opened again with its own title; a new batch (the last one is complete) starts with an empty title
         setTitle((state.is_open || state.batch_running) && state.listing ? state.listing.title : '');
         setPicked(next);

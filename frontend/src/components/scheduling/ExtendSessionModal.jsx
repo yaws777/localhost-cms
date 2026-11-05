@@ -44,7 +44,7 @@ const ExtendSessionModal = ({ session, onExtend, onClose }) => {
         <Modal isOpen onClose={onClose} title="Extend end time" icon={<TimerReset size={20} />} size="sm">
             <form className="dp-form" onSubmit={submit}>
                 <div className="dp-notice">
-                    <strong>{session.doctor_name}</strong> ends at {to12h(session.end_time)}. An extension runs until today only.
+                    <strong>{session.doctor_name}</strong> ends at {to12h(session.end_time)}.
                 </div>
                 {error && <div className="dp-error" role="alert">{error}</div>}
                 {options.length > 0 ? (
@@ -55,7 +55,7 @@ const ExtendSessionModal = ({ session, onExtend, onClose }) => {
                         </select>
                     </div>
                 ) : (
-                    <div className="dp-hint">Too little of today is left to extend.</div>
+                    <div className="dp-hint">No time left today to extend.</div>
                 )}
                 <div className="dp-modal-foot">
                     <button type="button" className="dp-btn dp-btn-ghost" onClick={onClose} disabled={busy}>Cancel</button>

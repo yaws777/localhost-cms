@@ -392,7 +392,41 @@ const generatePDFReport = (title, periodText, tableHeaders, tableRows, onError) 
 };
 
 /* --- CUSTOM CHART TOOLTIPS --- */
-// Hover card of the forecast: the day's predicted need and the stock left after it
+// Hover card of the forecast overview: one medicine, its 30-day total demand, current stock and predicted need
+// (all in the medicine's dosage form, same numbers as the table / export)
+const ForecastOverviewTooltip = ({ active, payload }) => {
+  if (!active || !payload || !payload.length) return null;
+  const med = payload[0].payload;
+  const raw = (n) => parseFloat(Number(n).toFixed(2));
+  const form = med.dosageForm;
+  const rows = [
+    { key: 'demand', name: 'Total Predicted Demand', color: '#3B82F6', shown: Math.ceil(med.totalDemand), exact: raw(med.totalDemand) },
+    { key: 'stock', name: 'Current Stock', color: '#10B981', shown: med.currentStock },
+    { key: 'need', name: 'Predicted Need', color: '#F97316', shown: med.predictedNeed }
+  ];
+
+  return (
+    <div className="custom-chart-tooltip-nd predictive-tooltip-width-nd">
+      <h4 className="tooltip-header-nd">{med.name}</h4>
+      <ul className="tooltip-items-list-standard-nd">
+        {rows.map((row) => (
+          <li key={row.key} className="tooltip-item-nd">
+            <div className="tooltip-item-left-nd">
+              <span className="tooltip-marker-nd" style={{ backgroundColor: row.color }} />
+              <span className="tooltip-item-name-nd">{row.name}</span>
+            </div>
+            <span className="tooltip-item-value-nd" style={{ color: row.color }}>
+              <strong>{row.shown}</strong>
+              {row.exact !== undefined && row.exact !== row.shown ? ` (${row.exact})` : ''} {pluralize(form, row.shown)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+};
+
+// Hover card of one medicine's daily forecast: the day's predicted need and the stock left after it
 const ForecastTooltip = ({ active, payload }) => {
   if (!active || !payload || !payload.length) return null;
   const day = payload[0].payload;
@@ -608,7 +642,10 @@ const NurseDashboard = () => {
   const [predictiveTitle, setPredictiveTitle] = useState("");
   const [predictivePeriod, setPredictivePeriod] = useState("");
   const [isPredictiveLoading, setIsPredictiveLoading] = useState(true);
-  const [selectedForecastMedicineId, setSelectedForecastMedicineId] = useState("");
+  // "all" = overview of every medicine (grouped bars); a medicine id = daily forecast of that medicine
+  const [selectedForecastMedicineId, setSelectedForecastMedicineId] = useState("all");
+  // Snapshot day (YYYY-MM-DD): forecast the 30 days after that past day; empty = today
+  const [forecastAsOf, setForecastAsOf] = useState("");
   const [forecastStartDate, setForecastStartDate] = useState("");
 
   // 4. Frequent Complaint Alerts State
@@ -992,7 +1029,8 @@ const NurseDashboard = () => {
   const fetchPredictiveDemand = useCallback(async () => {
     setIsPredictiveLoading(true);
     try {
-      const response = await fetch('http://localhost:3001/api/predictive-medicine');
+      const query = forecastAsOf ? `?asOf=${encodeURIComponent(forecastAsOf)}` : '';
+      const response = await fetch(`http://localhost:3001/api/predictive-medicine${query}`);
       if (!response.ok) throw new Error("Network issue fetching predictive calculation");
       const result = await response.json();
       setPredictiveData(result.data || []);
@@ -1004,7 +1042,7 @@ const NurseDashboard = () => {
     } finally {
       setIsPredictiveLoading(false);
     }
-  }, []);
+  }, [forecastAsOf]);
 
   // Fetch Frequent Complaint Alerts
   const fetchFrequentAlerts = useCallback(async () => {
@@ -1283,10 +1321,14 @@ const NurseDashboard = () => {
     fetchNurseDashboard();
     fetchHealthTrends();
     fetchMedicineDispensed();
-    fetchPredictiveDemand();
     fetchFrequentAlerts();
     fetchAnnouncements();
-  }, [fetchNurseDashboard, fetchHealthTrends, fetchMedicineDispensed, fetchPredictiveDemand, fetchFrequentAlerts, fetchAnnouncements]);
+  }, [fetchNurseDashboard, fetchHealthTrends, fetchMedicineDispensed, fetchFrequentAlerts, fetchAnnouncements]);
+
+  // The forecast has its own effect so picking a snapshot day does not reload the rest of the dashboard
+  useEffect(() => {
+    fetchPredictiveDemand();
+  }, [fetchPredictiveDemand]);
 
   const activeComplaintsInGraph = visibleComplaints.filter(complaint =>
     trendData.some(dataPoint => (Number(dataPoint[complaint]) || 0) > 0)
@@ -1315,8 +1357,9 @@ const NurseDashboard = () => {
   const forecastMedicines = predictiveData.filter(med =>
     Array.isArray(med.forecast) && (med.history || []).some(v => Number(v) > 0)
   );
+  // Only set when one medicine is picked in the filter; "all" shows the overview chart instead
   const selectedForecastMedicine =
-    forecastMedicines.find(med => String(med.id) === String(selectedForecastMedicineId)) || forecastMedicines[0];
+    forecastMedicines.find(med => String(med.id) === String(selectedForecastMedicineId));
   // Current stock is counted in containers of the dosage form; demand is in dispense units, so convert stock to dispense units
   const forecastContainerStrength = selectedForecastMedicine?.containerStrength || 1;
   const forecastStockBase = parseFloat(((Number(selectedForecastMedicine?.currentStock) || 0) * forecastContainerStrength).toFixed(3));
@@ -1369,6 +1412,17 @@ const NurseDashboard = () => {
     forecastCoversFull = !forecastStockOutDay;
     forecastDaysCovered = forecastCoversFull ? forecastChartData.length : parseFloat(forecastDaysCovered.toFixed(1));
   }
+  // Today (local date, YYYY-MM-DD): the snapshot date picker stops here
+  const forecastNow = new Date();
+  const forecastTodayStr = `${forecastNow.getFullYear()}-${String(forecastNow.getMonth() + 1).padStart(2, '0')}-${String(forecastNow.getDate()).padStart(2, '0')}`;
+  // Overview chart: one group of three bars per medicine, all in the dosage form (same values as the table / export)
+  const demandOverviewData = predictiveData.map(med => ({
+    name: med.name,
+    dosageForm: med.dosageForm || 'unit',
+    totalDemand: Number(med.forecast30d) || 0,
+    currentStock: Number(med.currentStock) || 0,
+    predictedNeed: Number(med.suggestedRestock) || 0
+  }));
   const yearOptions = Array.from({ length: 6 }, (_, i) => (new Date().getFullYear() - i).toString());
 
   const viewAllBtnStyle = {
@@ -1631,6 +1685,9 @@ const NurseDashboard = () => {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <span className="count-badge-nd count-badge-red-nd">{nurseDashboardData.medicineStockAlerts.length}</span>
+                <button type="button" className="export-btn-nd" onClick={() => navigate('/ReportsAnalytics?tab=inventory')}>
+                  <Pill size={16} /> Restock Report
+                </button>
                 <button
                   style={viewAllBtnStyle}
                   onClick={() => navigate('/ReportsAnalytics?tab=inventory')}
@@ -2002,9 +2059,6 @@ const NurseDashboard = () => {
         <h2 className="dashboard-title-nd">{predictiveTitle}</h2>
         <div className="filter-group-nd">
           {predictivePeriod && <span className="filter-label-nd">Next 30 days: <strong>{predictivePeriod}</strong></span>}
-          <button type="button" className="export-btn-nd" onClick={() => navigate('/ReportsAnalytics?tab=inventory')}>
-            <Pill size={16} /> Restock Report
-          </button>
           <button type="button" className="export-btn-nd" onClick={handleExportPredictiveDemand}>
             <Download size={16} /> Export
           </button>
@@ -2017,44 +2071,85 @@ const NurseDashboard = () => {
             <div className="spinner-nd"></div>
             <p className="loading-text-nd">Calculating predictive medicine demand stock requirements...</p>
           </div>
-        ) : !selectedForecastMedicine ? (
-          <div className="no-data-container-nd"><h3 className="no-data-title-nd">No Dispensing Records In The Last 30 Days To Forecast From</h3></div>
+        ) : predictiveData.length === 0 ? (
+          <div className="no-data-container-nd"><h3 className="no-data-title-nd">No Medicines To Forecast</h3></div>
         ) : (
           <>
             <div className="filter-group-nd" style={{ justifyContent: 'center', marginBottom: 12 }}>
-              <label className="filter-label-nd">Medicine: </label>
+              <label className="filter-label-nd" htmlFor="forecast-medicine-filter">Medicine: </label>
               <select
+                id="forecast-medicine-filter"
                 className="filter-input-nd"
-                value={selectedForecastMedicine.id}
+                value={selectedForecastMedicine ? selectedForecastMedicine.id : 'all'}
                 onChange={(e) => setSelectedForecastMedicineId(e.target.value)}
               >
+                <option value="all">All medicines</option>
                 {forecastMedicines.map(med => (
                   <option key={med.id} value={med.id}>{med.name}</option>
                 ))}
               </select>
-              <span className="filter-label-nd">
-                30-day total: <strong>{forecastTotalBase} {selectedForecastMedicine.unitOfMeasure}</strong> = {forecastTotal} {pluralize(forecastDosageForm, forecastTotal)} ({selectedForecastMedicine.packageStrength} per {forecastDosageForm})
-                {forecastStartDate && <> · from {formatDateBase(forecastStartDate)}</>}
+              <label className="filter-label-nd" htmlFor="forecast-snapshot-date">Forecast from: </label>
+              <input
+                id="forecast-snapshot-date"
+                type="date"
+                className="filter-input-nd"
+                value={forecastAsOf}
+                max={forecastTodayStr}
+                onChange={(e) => setForecastAsOf(e.target.value && e.target.value < forecastTodayStr ? e.target.value : '')}
+              />
+              {forecastAsOf && (
+                <button type="button" className="export-btn-nd" onClick={() => setForecastAsOf('')}>
+                  <Clock size={16} /> Back to today
+                </button>
+              )}
+              <span className="filter-label-nd" role="status">
+                {forecastAsOf ? `Snapshot of ${formatDateBase(forecastAsOf)}: ` : ''}
+                {selectedForecastMedicine ? (
+                  <>
+                    30-day total: <strong>{forecastTotalBase} {selectedForecastMedicine.unitOfMeasure}</strong> = {forecastTotal} {pluralize(forecastDosageForm, forecastTotal)} ({selectedForecastMedicine.packageStrength} per {forecastDosageForm})
+                    {forecastStartDate && <> · from {formatDateBase(forecastStartDate)}</>}
+                  </>
+                ) : (
+                  forecastStartDate && <>next 30 days from {formatDateBase(forecastStartDate)}</>
+                )}
               </span>
             </div>
             <div className="chart-wrapper-nd scrollable-chart-nd">
               {/* Tall enough that the hover tooltip (~350px) pinned to the top never reaches the axis labels or legend */}
-              <div style={{ width: '100%', minWidth: 800, margin: '0 auto', height: 550 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={forecastChartData} margin={{ top: 20, right: 10, left: 10, bottom: 60 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
-                    <XAxis dataKey="label" interval={0} angle={-45} textAnchor="end" height={70} tick={{ fontSize: '0.875rem', fill: 'var(--text-secondary)', fontWeight: 500 }} tickLine={false} />
-                    <YAxis yAxisId="demand" allowDecimals={forecastChartData.some(day => !Number.isInteger(day.predictedDemand))} tick={{ fill: '#F97316', fontSize: '0.875rem' }} axisLine={false} tickLine={false} />
-                    <YAxis yAxisId="stock" orientation="right" allowDecimals={false} tick={{ fill: 'var(--text-brand)', fontSize: '0.875rem' }} axisLine={false} tickLine={false} />
-                    <Tooltip content={<ForecastTooltip />} position={{ y: 10 }} cursor={{ fill: 'var(--bg-muted)', opacity: 0.4 }} />
-                    <Legend verticalAlign="bottom" height={36} iconType="rect" iconSize={14} wrapperStyle={{ paddingTop: '20px' }} />
-                    <Bar yAxisId="demand" dataKey="predictedDemand" name={`Predicted Daily Demand (${selectedForecastMedicine.unitOfMeasure})`} fill="#F97316" radius={[4, 4, 0, 0]} />
-                    <Line yAxisId="stock" type="monotone" dataKey="remainingStock" name={`Remaining Stock (${selectedForecastMedicine.unitOfMeasure})`} stroke="#0250A3" strokeWidth={2.5} dot={false} />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </div>
+              {selectedForecastMedicine ? (
+                <div style={{ width: '100%', minWidth: 800, margin: '0 auto', height: 550 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={forecastChartData} margin={{ top: 20, right: 10, left: 10, bottom: 60 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
+                      <XAxis dataKey="label" interval={0} angle={-45} textAnchor="end" height={70} tick={{ fontSize: '0.875rem', fill: 'var(--text-secondary)', fontWeight: 500 }} tickLine={false} />
+                      <YAxis yAxisId="demand" allowDecimals={forecastChartData.some(day => !Number.isInteger(day.predictedDemand))} tick={{ fill: '#F97316', fontSize: '0.875rem' }} axisLine={false} tickLine={false} />
+                      <YAxis yAxisId="stock" orientation="right" allowDecimals={false} tick={{ fill: 'var(--text-brand)', fontSize: '0.875rem' }} axisLine={false} tickLine={false} />
+                      <Tooltip content={<ForecastTooltip />} position={{ y: 10 }} cursor={{ fill: 'var(--bg-muted)', opacity: 0.4 }} />
+                      <Legend verticalAlign="bottom" height={36} iconType="rect" iconSize={14} wrapperStyle={{ paddingTop: '20px' }} />
+                      <Bar yAxisId="demand" dataKey="predictedDemand" name={`Predicted Daily Demand (${selectedForecastMedicine.unitOfMeasure})`} fill="#F97316" radius={[4, 4, 0, 0]} />
+                      <Line yAxisId="stock" type="monotone" dataKey="remainingStock" name={`Remaining Stock (${selectedForecastMedicine.unitOfMeasure})`} stroke="#0250A3" strokeWidth={2.5} dot={false} />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div style={{ width: '100%', minWidth: Math.max(800, demandOverviewData.length * 90), margin: '0 auto', height: 550 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={demandOverviewData} margin={{ top: 20, right: 10, left: 10, bottom: 60 }} barCategoryGap="20%">
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
+                      <XAxis dataKey="name" interval={0} angle={-20} textAnchor="end" height={70} tick={{ fontSize: '0.875rem', fill: 'var(--text-secondary)', fontWeight: 500 }} tickLine={false} />
+                      <YAxis allowDecimals={false} tick={{ fill: 'var(--text-secondary)', fontSize: '0.875rem' }} axisLine={false} tickLine={false} />
+                      <Tooltip content={<ForecastOverviewTooltip />} cursor={{ fill: 'var(--bg-muted)', opacity: 0.4 }} />
+                      <Legend verticalAlign="bottom" height={36} iconType="rect" iconSize={14} wrapperStyle={{ paddingTop: '20px' }} />
+                      <Bar dataKey="totalDemand" name="Total Predicted Demand" fill="#3B82F6" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="currentStock" name="Current Stock" fill="#10B981" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="predictedNeed" name="Predicted Need" fill="#F97316" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
             </div>
 
+            {selectedForecastMedicine && (
             <div className="forecast-compare-nd">
               <div className="forecast-compare-item-nd">
                 <span className="forecast-compare-label-nd">Current stock</span>
@@ -2093,6 +2188,7 @@ const NurseDashboard = () => {
                 </span>
               </div>
             </div>
+            )}
           </>
         )}
       </div>

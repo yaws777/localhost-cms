@@ -3,7 +3,7 @@
 // or extend the end time. An extension runs until the same date only; after it passes the question comes again.
 // When the date passes the session ends by itself (the server does that), so there is nothing to confirm any more.
 import React, { useEffect, useState } from 'react';
-import { TimerReset, CheckCircle2, BellRing } from 'lucide-react';
+import { TimerReset, CheckCircle2, BellRing, Clock } from 'lucide-react';
 import Modal from '../common/Modal';
 import { to12h } from '../../utils/scheduling';
 import '../../styles/doctor/DoctorLayout.css';
@@ -56,9 +56,7 @@ const SessionEndPrompt = ({ item, onConfirm, onExtend, onLater }) => {
         <Modal isOpen onClose={onLater} title="The end time has passed" icon={<BellRing size={20} />} size="sm">
             <div className="dp-form">
                 <div className="dp-notice">
-                    <strong>{item.title}</strong> was set to end at {to12h(item.endTime)}.
-                    {' '}Confirm that it has ended to move it to {past}, or extend the end time.
-                    {' '}An extension runs until today only; when the date passes it ends by itself.
+                    <strong>{item.title}</strong> ended at {to12h(item.endTime)}.
                 </div>
                 {error && <div className="dp-error" role="alert">{error}</div>}
                 {options.length > 0 ? (
@@ -69,17 +67,19 @@ const SessionEndPrompt = ({ item, onConfirm, onExtend, onLater }) => {
                         </select>
                     </div>
                 ) : (
-                    <div className="dp-hint">Too little of today is left to extend. Confirm the end.</div>
+                    <div className="dp-hint">No time left today to extend.</div>
                 )}
                 <div className="dp-modal-foot">
-                    <button type="button" className="dp-btn dp-btn-ghost" onClick={onLater} disabled={busy}>Ask me later</button>
+                    <button type="button" className="dp-btn dp-btn-ghost dp-btn-icon" onClick={onLater} disabled={busy} aria-label="Ask me later" title="Ask me later">
+                        <Clock size={18} aria-hidden="true" />
+                    </button>
                     {options.length > 0 && (
-                        <button type="button" className="dp-btn dp-btn-ghost" disabled={busy} onClick={() => run(() => onExtend(chosen))}>
-                            <TimerReset size={16} aria-hidden="true" /> Extend end time
+                        <button type="button" className="dp-btn dp-btn-ghost dp-btn-icon" disabled={busy} onClick={() => run(() => onExtend(chosen))} aria-label="Extend end time" title="Extend end time">
+                            <TimerReset size={18} aria-hidden="true" />
                         </button>
                     )}
-                    <button type="button" className="dp-btn dp-btn-primary" disabled={busy} onClick={() => run(onConfirm)}>
-                        <CheckCircle2 size={16} aria-hidden="true" /> {busy ? 'Saving...' : 'Confirm end time'}
+                    <button type="button" className="dp-btn dp-btn-primary dp-btn-icon" disabled={busy} onClick={() => run(onConfirm)} aria-label={`Confirm end time, move to ${past}`} title="Confirm end time">
+                        <CheckCircle2 size={18} aria-hidden="true" />
                     </button>
                 </div>
             </div>

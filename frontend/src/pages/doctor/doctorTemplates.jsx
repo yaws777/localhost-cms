@@ -13,40 +13,39 @@ import '../../styles/doctor/DoctorLayout.css';
 
 const API = 'http://localhost:3001';
 
-// Ready-made templates, one set per check-up purpose. The doctor sees the ones for their specialization.
-const LIBRARY = [
-    {
+// Ready-made templates, one per specialization. Each one is copied to the doctor's list once and is theirs to edit, duplicate or archive.
+const opts = (...o) => o.join('\n');
+const PRESETS = {
+    'General Physician': {
         name: 'General check-up (vitals and history)',
-        visit_type: 'General Check Up',
-        description: 'History and a basic physical exam for any general visit.',
+        description: 'History and basic exam.',
         fields: [
             { type: 'heading', label: 'History' },
             { type: 'textarea', label: 'Chief complaint' },
             { type: 'number', label: 'Duration of symptoms', unit: 'days' },
-            { type: 'checkbox', label: 'Associated symptoms', optionsText: 'Fever\nCough\nHeadache\nVomiting\nBody pain' },
+            { type: 'checkbox', label: 'Associated symptoms', optionsText: opts('Fever', 'Cough', 'Headache', 'Vomiting', 'Body pain') },
             { type: 'yesno', label: 'Taking any medication now?' },
             { type: 'heading', label: 'Physical exam' },
-            { type: 'select', label: 'General appearance', optionsText: 'Well-appearing\nMildly ill\nIll-looking' },
+            { type: 'select', label: 'General appearance', optionsText: opts('Well-appearing', 'Mildly ill', 'Ill-looking') },
             { type: 'textarea', label: 'Other exam findings' }
         ]
     },
-    {
+    Dentist: {
         name: 'Dental examination',
-        visit_type: 'Dental',
-        description: 'Teeth, gums and oral habits, with the DMFT count.',
+        description: 'Teeth, gums, DMFT count.',
         fields: [
             { type: 'heading', label: 'History' },
             { type: 'text', label: 'Tooth pain location' },
-            { type: 'radio', label: 'Brushing frequency', optionsText: 'Once a day\nTwice a day\nLess than once a day' },
+            { type: 'radio', label: 'Brushing frequency', optionsText: opts('Once a day', 'Twice a day', 'Less than once a day') },
             { type: 'yesno', label: 'Wears braces or retainers?' },
             { type: 'heading', label: 'Dental examination' },
-            { type: 'select', label: 'Oral hygiene', optionsText: 'Good\nFair\nPoor' },
-            { type: 'select', label: 'Gum condition', optionsText: 'Healthy\nGingivitis\nBleeding gums\nSwollen gums\nPeriodontal concern' },
+            { type: 'select', label: 'Oral hygiene', optionsText: opts('Good', 'Fair', 'Poor') },
+            { type: 'select', label: 'Gum condition', optionsText: opts('Healthy', 'Gingivitis', 'Bleeding gums', 'Swollen gums', 'Periodontal concern') },
             { type: 'number', label: 'Decayed teeth', unit: 'teeth' },
             { type: 'number', label: 'Missing teeth', unit: 'teeth' },
             { type: 'number', label: 'Filled teeth', unit: 'teeth' },
             { type: 'yesno', label: 'Malocclusion observed?' },
-            { type: 'checkbox', label: 'Findings', optionsText: 'Cavities\nPlaque or tartar\nBleeding gums\nSensitivity\nMisaligned teeth' },
+            { type: 'checkbox', label: 'Findings', optionsText: opts('Cavities', 'Plaque or tartar', 'Bleeding gums', 'Sensitivity', 'Misaligned teeth') },
             { type: 'textarea', label: 'Tooth / area notes' },
             { type: 'textarea', label: 'Treatment done' },
             { type: 'textarea', label: 'Treatment advised' },
@@ -55,13 +54,12 @@ const LIBRARY = [
             { type: 'text', label: 'Next visit recommendation' }
         ]
     },
-    {
+    Optometrist: {
         name: 'Vision examination',
-        visit_type: 'Vision',
-        description: 'Eye complaints, visual acuity, glasses and eye findings.',
+        description: 'Acuity, glasses, eye findings.',
         fields: [
             { type: 'heading', label: 'History' },
-            { type: 'checkbox', label: 'Eye complaints', optionsText: 'Blurred vision\nEye strain\nHeadache\nRedness\nItching' },
+            { type: 'checkbox', label: 'Eye complaints', optionsText: opts('Blurred vision', 'Eye strain', 'Headache', 'Redness', 'Itching') },
             { type: 'yesno', label: 'Wears eyeglasses?' },
             { type: 'yesno', label: 'Wears contact lenses?' },
             { type: 'date', label: 'Date of last eye exam' },
@@ -70,50 +68,211 @@ const LIBRARY = [
             { type: 'text', label: 'Right eye (uncorrected)', hint: '20/20' },
             { type: 'text', label: 'Left eye (corrected)' },
             { type: 'text', label: 'Right eye (corrected)' },
-            { type: 'select', label: 'Color vision', optionsText: 'Not tested\nNormal\nDeficient' },
-            { type: 'select', label: 'Eye alignment', optionsText: 'Normal\nSuspected misalignment' },
+            { type: 'select', label: 'Color vision', optionsText: opts('Not tested', 'Normal', 'Deficient') },
+            { type: 'select', label: 'Eye alignment', optionsText: opts('Normal', 'Suspected misalignment') },
             { type: 'textarea', label: 'Eye condition findings' },
-            { type: 'select', label: 'Recommended action', optionsText: 'No action\nEyeglasses\nRefer to ophthalmologist' }
+            { type: 'select', label: 'Recommended action', optionsText: opts('No action', 'Eyeglasses', 'Refer to ophthalmologist') }
         ]
     },
-    {
-        name: 'Counselling referral',
-        visit_type: '',
-        description: 'Reasons and urgency when the student is referred for counselling.',
+    Ophthalmologist: {
+        name: 'Eye disease assessment',
+        description: 'Eye symptoms, pressure, findings.',
+        fields: [
+            { type: 'heading', label: 'History' },
+            { type: 'checkbox', label: 'Symptoms', optionsText: opts('Eye pain', 'Redness', 'Discharge', 'Light sensitivity', 'Floaters', 'Vision loss') },
+            { type: 'radio', label: 'Onset', optionsText: opts('Sudden', 'Gradual') },
+            { type: 'yesno', label: 'Eye injury?' },
+            { type: 'heading', label: 'Eye exam' },
+            { type: 'text', label: 'Visual acuity (right)', hint: '20/20' },
+            { type: 'text', label: 'Visual acuity (left)', hint: '20/20' },
+            { type: 'number', label: 'Eye pressure (right)', unit: 'mmHg' },
+            { type: 'number', label: 'Eye pressure (left)', unit: 'mmHg' },
+            { type: 'select', label: 'Front of the eye', optionsText: opts('Normal', 'Abnormal') },
+            { type: 'select', label: 'Back of the eye', optionsText: opts('Normal', 'Abnormal', 'Not done') },
+            { type: 'textarea', label: 'Findings' },
+            { type: 'select', label: 'Plan', optionsText: opts('Observe', 'Medication', 'Refer for surgery') }
+        ]
+    },
+    Cardiologist: {
+        name: 'Heart assessment',
+        description: 'Heart symptoms, BP, rhythm.',
+        fields: [
+            { type: 'heading', label: 'History' },
+            { type: 'checkbox', label: 'Symptoms', optionsText: opts('Chest pain', 'Palpitations', 'Shortness of breath', 'Dizziness', 'Fainting', 'Leg swelling') },
+            { type: 'yesno', label: 'Family history of heart disease?' },
+            { type: 'heading', label: 'Exam' },
+            { type: 'number', label: 'Systolic BP', unit: 'mmHg' },
+            { type: 'number', label: 'Diastolic BP', unit: 'mmHg' },
+            { type: 'number', label: 'Heart rate', unit: 'bpm' },
+            { type: 'select', label: 'Heart rhythm', optionsText: opts('Regular', 'Irregular') },
+            { type: 'select', label: 'Heart sounds', optionsText: opts('Normal', 'Murmur', 'Other') },
+            { type: 'yesno', label: 'ECG done?' },
+            { type: 'textarea', label: 'ECG / other findings' }
+        ]
+    },
+    Dermatologist: {
+        name: 'Skin assessment',
+        description: 'Skin complaint and lesion.',
+        fields: [
+            { type: 'heading', label: 'History' },
+            { type: 'checkbox', label: 'Complaint', optionsText: opts('Rash', 'Itching', 'Acne', 'Dryness', 'Lesion', 'Hair loss') },
+            { type: 'text', label: 'Body area' },
+            { type: 'number', label: 'Duration', unit: 'days' },
+            { type: 'yesno', label: 'Allergy history?' },
+            { type: 'heading', label: 'Skin exam' },
+            { type: 'select', label: 'Lesion type', optionsText: opts('Macule', 'Papule', 'Vesicle', 'Pustule', 'Plaque', 'Scale') },
+            { type: 'radio', label: 'Spread', optionsText: opts('Localized', 'Widespread') },
+            { type: 'yesno', label: 'Signs of infection?' },
+            { type: 'textarea', label: 'Notes' }
+        ]
+    },
+    'ENT Specialist': {
+        name: 'ENT assessment',
+        description: 'Ear, nose and throat.',
+        fields: [
+            { type: 'heading', label: 'History' },
+            { type: 'checkbox', label: 'Symptoms', optionsText: opts('Ear pain', 'Hearing loss', 'Nasal congestion', 'Sore throat', 'Hoarseness', 'Dizziness') },
+            { type: 'yesno', label: 'Hearing concern?' },
+            { type: 'heading', label: 'ENT exam' },
+            { type: 'select', label: 'Ear', optionsText: opts('Normal', 'Wax', 'Redness', 'Discharge') },
+            { type: 'select', label: 'Nose', optionsText: opts('Normal', 'Congested', 'Discharge', 'Deviated septum') },
+            { type: 'select', label: 'Throat', optionsText: opts('Normal', 'Red', 'Swollen tonsils', 'Exudate') },
+            { type: 'textarea', label: 'Notes' }
+        ]
+    },
+    Nutritionist: {
+        name: 'Nutrition assessment',
+        description: 'Body measures and diet.',
+        fields: [
+            { type: 'heading', label: 'Measures' },
+            { type: 'number', label: 'Height', unit: 'cm' },
+            { type: 'number', label: 'Weight', unit: 'kg' },
+            { type: 'number', label: 'BMI', unit: 'kg/m²' },
+            { type: 'number', label: 'Waist', unit: 'cm' },
+            { type: 'select', label: 'Nutritional status', optionsText: opts('Underweight', 'Normal', 'Overweight', 'Obese') },
+            { type: 'heading', label: 'Diet' },
+            { type: 'number', label: 'Meals per day', unit: 'meals' },
+            { type: 'select', label: 'Water per day', optionsText: opts('Under 4 glasses', '4 to 8 glasses', 'Over 8 glasses') },
+            { type: 'checkbox', label: 'Diet concerns', optionsText: opts('Skipped meals', 'Fast food', 'Few fruits or vegetables', 'Sugary drinks', 'Food allergy') },
+            { type: 'textarea', label: 'Diet plan' }
+        ]
+    },
+    'OB-GYN': {
+        name: "Women's health assessment",
+        description: 'Cycle and symptoms.',
+        fields: [
+            { type: 'date', label: 'Last menstrual period' },
+            { type: 'number', label: 'Cycle length', unit: 'days' },
+            { type: 'radio', label: 'Cycle', optionsText: opts('Regular', 'Irregular') },
+            { type: 'select', label: 'Menstrual pain', optionsText: opts('None', 'Mild', 'Moderate', 'Severe') },
+            { type: 'checkbox', label: 'Symptoms', optionsText: opts('Heavy bleeding', 'Missed period', 'Discharge', 'Pelvic pain', 'Breast concern') },
+            { type: 'yesno', label: 'Pregnancy possible?' },
+            { type: 'textarea', label: 'Notes' }
+        ]
+    },
+    'Orthopedic Doctor': {
+        name: 'Bone and joint assessment',
+        description: 'Injury, pain, movement.',
+        fields: [
+            { type: 'heading', label: 'History' },
+            { type: 'select', label: 'Body area', optionsText: opts('Neck', 'Shoulder', 'Back', 'Hip', 'Knee', 'Ankle', 'Hand or wrist', 'Other') },
+            { type: 'radio', label: 'Side', optionsText: opts('Left', 'Right', 'Both') },
+            { type: 'radio', label: 'Cause', optionsText: opts('Injury', 'Sports', 'Overuse', 'Unknown') },
+            { type: 'number', label: 'Pain score (0 to 10)', unit: '/10' },
+            { type: 'heading', label: 'Exam' },
+            { type: 'checkbox', label: 'Findings', optionsText: opts('Swelling', 'Bruising', 'Limited movement', 'Tenderness', 'Deformity') },
+            { type: 'select', label: 'Range of motion', optionsText: opts('Full', 'Limited', 'Not possible') },
+            { type: 'yesno', label: 'X-ray needed?' },
+            { type: 'textarea', label: 'Notes' }
+        ]
+    },
+    Pediatrician: {
+        name: 'Pediatric assessment',
+        description: 'Growth, vitals, symptoms.',
+        fields: [
+            { type: 'heading', label: 'Measures' },
+            { type: 'number', label: 'Temperature', unit: '°C' },
+            { type: 'number', label: 'Weight', unit: 'kg' },
+            { type: 'number', label: 'Height', unit: 'cm' },
+            { type: 'select', label: 'Growth', optionsText: opts('Normal', 'Below expected', 'Above expected') },
+            { type: 'heading', label: 'History' },
+            { type: 'checkbox', label: 'Symptoms', optionsText: opts('Fever', 'Cough', 'Colds', 'Vomiting', 'Diarrhea', 'Rash') },
+            { type: 'select', label: 'Immunization', optionsText: opts('Complete', 'Incomplete', 'Unknown') },
+            { type: 'textarea', label: 'Notes' }
+        ]
+    },
+    Psychiatrist: {
+        name: 'Mental health assessment',
+        description: 'Mood, sleep, risk.',
+        fields: [
+            { type: 'checkbox', label: 'Concerns', optionsText: opts('Anxiety', 'Low mood', 'Sleep problems', 'Panic', 'Mood swings', 'Substance use') },
+            { type: 'select', label: 'Mood', optionsText: opts('Stable', 'Low', 'Anxious', 'Irritable', 'Elevated') },
+            { type: 'select', label: 'Sleep', optionsText: opts('Good', 'Fair', 'Poor') },
+            { type: 'yesno', label: 'Thoughts of self-harm?' },
+            { type: 'radio', label: 'Risk level', optionsText: opts('Low', 'Moderate', 'High') },
+            { type: 'yesno', label: 'On psychiatric medication?' },
+            { type: 'yesno', label: 'Parent informed?' },
+            { type: 'select', label: 'Plan', optionsText: opts('Follow-up', 'Counselling', 'Refer') },
+            { type: 'textarea', label: 'Notes' }
+        ]
+    },
+    Psychologist: {
+        name: 'Counselling assessment',
+        description: 'Concern, urgency, next step.',
         fields: [
             { type: 'textarea', label: 'Presenting concern' },
-            { type: 'radio', label: 'Urgency', optionsText: 'Routine\nSoon\nUrgent' },
+            { type: 'checkbox', label: 'Areas', optionsText: opts('Academic stress', 'Family', 'Peers', 'Emotions', 'Behavior', 'Self-esteem') },
+            { type: 'select', label: 'Mood', optionsText: opts('Stable', 'Low', 'Anxious', 'Irritable') },
+            { type: 'radio', label: 'Urgency', optionsText: opts('Routine', 'Soon', 'Urgent') },
+            { type: 'yesno', label: 'Safety concern?' },
             { type: 'yesno', label: 'Parent informed?' },
-            { type: 'text', label: 'Referred to' }
+            { type: 'text', label: 'Referred to' },
+            { type: 'select', label: 'Next step', optionsText: opts('Follow-up session', 'Refer', 'Close case') }
+        ]
+    },
+    Pulmonologist: {
+        name: 'Lung assessment',
+        description: 'Breathing symptoms and exam.',
+        fields: [
+            { type: 'heading', label: 'History' },
+            { type: 'checkbox', label: 'Symptoms', optionsText: opts('Cough', 'Wheezing', 'Shortness of breath', 'Chest tightness', 'Phlegm') },
+            { type: 'number', label: 'Cough duration', unit: 'days' },
+            { type: 'yesno', label: 'Asthma history?' },
+            { type: 'yesno', label: 'Smokes or vapes?' },
+            { type: 'heading', label: 'Exam' },
+            { type: 'number', label: 'Respiratory rate', unit: 'breaths/min' },
+            { type: 'number', label: 'Oxygen saturation', unit: '%' },
+            { type: 'select', label: 'Breath sounds', optionsText: opts('Clear', 'Wheeze', 'Crackles', 'Decreased') },
+            { type: 'textarea', label: 'Notes' }
         ]
     }
-];
+};
+const PRESET_BY_NAME = Object.fromEntries(Object.entries(PRESETS).map(([k, v]) => [k.toLowerCase(), v]));
+// names of the ready-made templates, current and older ones; those that do not fit the doctor are archived once
+const PRESET_NAMES = [...Object.values(PRESETS).map((p) => p.name), 'Counselling referral'];
 
-// Starter for a specialization that has no ready-made template of its own (added by the nurse)
+// A specialization with no preset (added by the nurse) gets a short generic one
 const genericSample = (visitType, specialization) => ({
-    name: `${specialization || visitType} assessment`,
-    visit_type: visitType,
-    description: `Basic findings and advice for ${visitType} visits.`,
+    name: `${specialization || visitType} assessment`.slice(0, 120),
+    description: 'Findings and advice.',
     fields: [
         { type: 'textarea', label: 'History related to the concern' },
         { type: 'textarea', label: 'Examination findings' },
-        { type: 'select', label: 'Severity', optionsText: 'Mild\nModerate\nSevere' },
+        { type: 'select', label: 'Severity', optionsText: opts('Mild', 'Moderate', 'Severe') },
         { type: 'textarea', label: 'Advice given' }
     ]
 });
 
-// Every doctor can take General Check Up, but the ready-made templates are only for what the specialization itself adds:
-// a General Physician gets the General one, a Dentist the Dental one, and so on. A specialization with no ready-made template gets a generic one.
+// Doctors can take General Check Up plus what the specialization adds; the preset is for the specialization itself
 const COUNSELLING = /counsel|psycholog|guidance|mental/i;
 const purposesOf = (types) => {
     const own = types.filter((t) => t !== GENERAL_VISIT_TYPE);
     return own.length > 0 ? own : [GENERAL_VISIT_TYPE];
 };
 const libraryFor = (types, specialization) => {
-    const mine = purposesOf(types);
-    const out = LIBRARY.filter((s) => (s.visit_type ? mine.includes(s.visit_type) : COUNSELLING.test(specialization)));
-    mine.filter((t) => !LIBRARY.some((s) => s.visit_type === t)).forEach((t) => out.push(genericSample(t, specialization)));
-    return out;
+    const visitType = purposesOf(types)[0];
+    const preset = PRESET_BY_NAME[(specialization || '').trim().toLowerCase()] || genericSample(visitType, specialization);
+    return [{ ...preset, visit_type: visitType }];
 };
 
 // Placeholders follow the purpose being edited, which comes from the doctor's specialization
@@ -170,7 +329,7 @@ const DoctorTemplates = () => {
                 const keep = new Set(library.map((s) => s.name));
                 seeded.current = fetch(`${API}/api/doctor/${doctorId}/templates/seed`, {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ templates: library.map(toStarter), retire_names: LIBRARY.map((s) => s.name).filter((n) => !keep.has(n)) })
+                    body: JSON.stringify({ templates: library.map(toStarter), retire_names: PRESET_NAMES.filter((n) => !keep.has(n)) })
                 });
             }
             await seeded.current;
@@ -241,7 +400,7 @@ const DoctorTemplates = () => {
     // the standard form as a look-only template (same View window as any template)
     const openStandardView = () => {
         const cur = standard || STANDARD_FORM_DEFAULT;
-        setViewing({ standard: true, template_name: 'Standard check-up form', visit_type: null, description: 'Shown in every check-up.', is_active: true, fields: cur.fields, prescription_enabled: cur.prescription_enabled !== false });
+        setViewing({ standard: true, template_name: 'Standard check-up form', visit_type: null, description: '', is_active: true, fields: cur.fields, prescription_enabled: cur.prescription_enabled !== false });
         setViewValues({});
     };
     // Duplicate = a new template with the same fields (the four built-in questions become ordinary template fields)
@@ -329,7 +488,6 @@ const DoctorTemplates = () => {
             <div className="dp-page-head">
                 <div>
                     <h2>Assessment Templates</h2>
-                    <p>Templates add questions to the check-up form{specialization ? ` for ${specialization}` : ''}, and the answers are saved with the check-up. The doctor picks which template to use when documenting a check-up. The standard form is always shown.</p>
                 </div>
                 <div className="dp-actions">
                     <button className="dp-btn dp-btn-primary dp-btn-icon" onClick={openNew} style={{ width: '2.75rem', height: '2.75rem' }} aria-label="New template" title="New template"><Plus size={18} /></button>
@@ -357,7 +515,7 @@ const DoctorTemplates = () => {
                             <tr>
                                 <td style={{ overflowWrap: 'anywhere' }}>
                                     <strong>Standard check-up form</strong>
-                                    <div className="dp-hint" style={{ margin: 0 }}>Chief complaint, findings, diagnosis, treatment plan and prescription. Shown in every check-up.</div>
+                                    <div className="dp-hint" style={{ margin: 0 }}>Always shown.</div>
                                 </td>
                                 <td><span className="dp-chip">All purposes</span></td>
                                 <td className="nowrap">{standardCount}</td>
@@ -374,7 +532,7 @@ const DoctorTemplates = () => {
                         {loading ? (
                             <tr><td colSpan={5} className="dp-hint">Loading...</td></tr>
                         ) : shown.length === 0 ? (
-                            <tr><td colSpan={5} className="dp-hint">{showArchived ? 'No archived templates.' : 'No templates. Use the plus button to add one.'}</td></tr>
+                            <tr><td colSpan={5} className="dp-hint">{showArchived ? 'No archived templates.' : 'No templates.'}</td></tr>
                         ) : shown.map((t) => (
                             <tr key={t.template_id}>
                                 <td style={{ overflowWrap: 'anywhere' }}>
@@ -459,7 +617,6 @@ const DoctorTemplates = () => {
                         {viewing.description && <p className="dp-hint" style={{ margin: 0 }}>{viewing.description}</p>}
                         <div className="dp-section-label">How it looks in the check-up form</div>
                         <TemplateFields fields={viewing.fields} values={viewValues} onChange={setViewValues} idPrefix="view" />
-                        {viewing.standard && viewing.prescription_enabled && <p className="dp-hint" style={{ margin: 0 }}>The prescription part follows these questions.</p>}
                         <div className="dp-modal-foot">
                             <button type="button" className="dp-btn dp-btn-ghost" onClick={() => setViewing(null)}>Close</button>
                             {viewing.is_active && <button type="button" className="dp-btn dp-btn-primary" onClick={() => { const t = viewing; setViewing(null); if (t.standard) openStandard(); else openEdit(t); }}><Edit size={15} /> Edit</button>}
@@ -483,7 +640,6 @@ const DoctorTemplates = () => {
                                 <select id="tpl-purpose" className="dp-select" required value={form.visit_type} onChange={(e) => setForm({ ...form, visit_type: e.target.value })}>
                                     {typeChoices.map((p) => <option key={p} value={p}>{p}</option>)}
                                 </select>
-                                {specialization && <small>Purposes {specialization} can take.</small>}
                             </div>
                         </div>
                         <div className="dp-field">

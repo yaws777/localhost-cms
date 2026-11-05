@@ -44,7 +44,7 @@ const ConsultationsOffered = ({ doctors, onChanged }) => {
     useEffect(() => { load(); }, [load, doctors]);
 
     const existing = useMemo(() => data.consultations.find((c) => c.visit_type === form?.pick) || null, [data, form?.pick]);
-    const isGeneral = !!existing?.is_general;
+    const isGeneral = !!existing?.is_general || !!data.suggestions.find((s) => s.visit_type === form?.pick && s.is_general);
     const visitType = form ? (form.pick === OTHER ? form.other.trim() : form.pick) : '';
 
     // doctors that could take it: the specialization is one of the ticked ones (or the one typed under "another specialization")
@@ -108,12 +108,11 @@ const ConsultationsOffered = ({ doctors, onChanged }) => {
         if (onChanged) onChanged();
     };
 
-    // built-in check-ups (General Check Up, Dental, Vision ...) stay
-    const removable = (c) => !!c && !c.is_general && !c.is_system;
+    const removable = (c) => !!c;
 
     const remove = async (c) => {
         const ok = await showConfirm(
-            `Remove ${c.visit_type} from the check-up services? Students will no longer see it as a purpose of check-up. Past visits keep their record.`,
+            `Remove ${c.visit_type}? Students can no longer pick it. Past visits keep their record.${c.is_general ? ' Every doctor needs another check-up.' : ''}`,
             { danger: true, confirmLabel: 'Remove', title: 'Remove check-up service' }
         );
         if (!ok) return;
@@ -156,10 +155,10 @@ const ConsultationsOffered = ({ doctors, onChanged }) => {
             <div className="dp-page-head mda-card-head">
                 <div>
                     <h3 className="mda-heading"><ClipboardList size={18} className="mda-heading-icon" aria-hidden="true" />Check-up Services</h3>
-                    <p className="dp-hint mda-lead">Each check-up service belongs to one or more specializations. Only doctors with that specialization can be assigned to it, and only those doctors can set a schedule for it. Listings are opened per schedule, in the Listings tab of Doctor Visit.</p>
+                    <p className="dp-hint mda-lead">Only doctors with a linked specialization can take a check-up service.</p>
                 </div>
                 <div className="dp-actions">
-                    <button type="button" className="dp-btn dp-btn-primary" onClick={() => openForm()}><Plus size={17} /> Add check-up service</button>
+                    <button type="button" className="dp-btn dp-btn-primary dp-btn-icon" onClick={() => openForm()} aria-label="Add check-up service" title="Add check-up service"><Plus size={18} aria-hidden="true" /></button>
                 </div>
             </div>
 
@@ -177,8 +176,12 @@ const ConsultationsOffered = ({ doctors, onChanged }) => {
                                         <td>{assigned.length === 0 ? <span className="dp-hint">No doctor yet</span> : assigned.map((d) => `Dr. ${d.last_name}`).join(', ')}</td>
                                         <td>
                                             <div className="dp-row-actions">
-                                                <button type="button" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => openForm(c)}><Edit size={14} /> Edit</button>
-                                                {removable(c) && <button type="button" className="dp-btn dp-btn-danger dp-btn-sm" disabled={busy} onClick={() => remove(c)}><Trash2 size={14} /> Remove</button>}
+                                                <button type="button" className="dp-btn dp-btn-ghost dp-btn-icon" onClick={() => openForm(c)} aria-label={`Edit ${c.visit_type}`} title="Edit"><Edit size={18} aria-hidden="true" /></button>
+                                                <button
+                                                    type="button" className="dp-btn dp-btn-danger dp-btn-icon" disabled={busy || !removable(c)} onClick={() => remove(c)}
+                                                    aria-label={removable(c) ? `Remove ${c.visit_type}` : `${c.visit_type} cannot be removed`}
+                                                    title={removable(c) ? 'Remove' : 'Cannot be removed'}
+                                                ><Trash2 size={18} aria-hidden="true" /></button>
                                             </div>
                                         </td>
                                     </tr>
@@ -213,7 +216,6 @@ const ConsultationsOffered = ({ doctors, onChanged }) => {
                             <div className="dp-field">
                                 <label htmlFor="co-other">Specify the check-up service</label>
                                 <input id="co-other" className="dp-input" maxLength={30} required value={form.other} onChange={(e) => setForm({ ...form, other: e.target.value })} placeholder="e.g. Asthma Care" />
-                                <small>Students will see this as a check-up they can wait for.</small>
                             </div>
                         )}
 
@@ -231,7 +233,6 @@ const ConsultationsOffered = ({ doctors, onChanged }) => {
                                         );
                                     })}
                                 </div>
-                                <small>Already set. Only doctors with this specialization can be assigned.</small>
                             </div>
                         )}
 
@@ -249,7 +250,6 @@ const ConsultationsOffered = ({ doctors, onChanged }) => {
                                 )}
                                 <label htmlFor="co-newspec">Not on the list? Type a new specialization</label>
                                 <input id="co-newspec" className="dp-input" maxLength={80} value={form.newSpec} onChange={(e) => setForm({ ...form, newSpec: e.target.value })} placeholder="e.g. Pulmonologist" />
-                                <small>{form.pick === OTHER ? 'Pick the specialization(s) that give this check-up, or type a new one.' : 'It is added to this check-up. '}Only doctors with a linked specialization can be assigned.</small>
                             </fieldset>
                         )}
 
@@ -269,12 +269,11 @@ const ConsultationsOffered = ({ doctors, onChanged }) => {
                                         ))}
                                     </div>
                                 )}
-                                <small>Only doctors whose specialization is linked to this check-up are listed.</small>
                             </div>
                         )}
 
                         <div className="dp-modal-foot">
-                            {removable(existing) && <button type="button" className="dp-btn dp-btn-danger mda-push-left" disabled={busy} onClick={() => remove(existing)}><Trash2 size={15} /> Remove check-up service</button>}
+                            {removable(existing) && <button type="button" className="dp-btn dp-btn-danger dp-btn-icon mda-push-left" disabled={busy} onClick={() => remove(existing)} aria-label="Remove check-up service" title="Remove check-up service"><Trash2 size={18} aria-hidden="true" /></button>}
                             <button type="button" className="dp-btn dp-btn-ghost" onClick={() => setForm(null)}>Cancel</button>
                             <button type="submit" className="dp-btn dp-btn-primary" disabled={busy || !form.pick}>{busy ? 'Saving...' : existing ? 'Save' : 'Add check-up service'}</button>
                         </div>

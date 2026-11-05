@@ -3,7 +3,7 @@
 // the doctor adds their own phone number (used for password recovery) the first time they log in.
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { UserPlus, Edit, KeyRound, Power, Search, Stethoscope, Copy, CheckCircle2 } from 'lucide-react';
+import { UserPlus, Edit, KeyRound, Power, Search, Stethoscope, Copy, CheckCircle2, RefreshCw } from 'lucide-react';
 import Modal from '../../components/common/Modal';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate } from '../../utils/datetime';
@@ -106,7 +106,6 @@ const SpecializationPicker = ({ id, value, onChange }) => {
                             <input id={`${id}-offered-other`} className="dp-input" maxLength={30} required value={other} onChange={(e) => setOther(e.target.value)} placeholder="e.g. Asthma Care" />
                         </div>
                     )}
-                    <small>Students will see this check-up when they pick the purpose of their check-up.</small>
                     <div className="dp-modal-foot">
                         <button type="button" className="dp-btn dp-btn-ghost" onClick={reset}>Cancel</button>
                         <button type="button" className="dp-btn dp-btn-primary" disabled={busy || !name.trim() || !visitType} onClick={add}>{busy ? 'Adding...' : 'Add specialization'}</button>
@@ -247,10 +246,10 @@ const ManageDoctorAccounts = () => {
             <div className="dp-page-head">
                 <div>
                     <h2><Stethoscope size={22} className="mda-heading-icon" aria-hidden="true" />Manage Doctor Accounts</h2>
-                    <p>Create the login of a visiting doctor. The doctor signs in with the default password, sets a new one and is asked for a phone number before the dashboard opens. That number is what verifies a forgotten password.</p>
+                    <p>Create and manage the logins of visiting doctors.</p>
                 </div>
                 <div className="dp-actions">
-                    <button className="dp-btn dp-btn-primary" onClick={() => openCreate()}><UserPlus size={17} /> Create doctor account</button>
+                    <button type="button" className="dp-btn dp-btn-primary dp-btn-icon" onClick={() => openCreate()} aria-label="Create doctor account" title="Create doctor account"><UserPlus size={18} aria-hidden="true" /></button>
                 </div>
             </div>
 
@@ -266,14 +265,14 @@ const ManageDoctorAccounts = () => {
             {loading ? <div className="dp-card dp-empty" role="status" aria-live="polite">Loading...</div> : loadError ? (
                 <div className="dp-card dp-empty">
                     <div className="dp-error" role="alert">{loadError}</div>
-                    <p><button type="button" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => { setLoading(true); load(); }}>Try again</button></p>
+                    <p><button type="button" className="dp-btn dp-btn-ghost dp-btn-icon" onClick={() => { setLoading(true); load(); }} aria-label="Try again" title="Try again"><RefreshCw size={18} aria-hidden="true" /></button></p>
                 </div>
             ) : visible.length === 0 ? (
                 doctors.length === 0 ? (
                     <div className="dp-card dp-empty">
                         <Stethoscope size={36} />
                         <p>No doctor accounts yet.</p>
-                        <p><button type="button" className="dp-btn dp-btn-primary dp-btn-sm" onClick={() => openCreate()}><UserPlus size={15} /> Create doctor account</button></p>
+                        <p><button type="button" className="dp-btn dp-btn-primary dp-btn-icon" onClick={() => openCreate()} aria-label="Create doctor account" title="Create doctor account"><UserPlus size={18} aria-hidden="true" /></button></p>
                     </div>
                 ) : (
                     <div className="dp-card dp-empty"><Stethoscope size={36} /><p>No doctor matches your search.</p></div>
@@ -299,14 +298,14 @@ const ManageDoctorAccounts = () => {
                             <div className="dp-appt-actions">
                                 {d.has_account ? (
                                     <>
-                                        <button className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => openEdit(d)}><Edit size={15} /> Edit</button>
-                                        <button className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => { setResetting(d); setResetPhone(false); }}><KeyRound size={15} /> Reset password</button>
-                                        <button className={`dp-btn dp-btn-sm ${d.is_active ? 'dp-btn-danger' : 'dp-btn-success'}`} onClick={() => toggleActive(d)}><Power size={15} /> {d.is_active ? 'Deactivate' : 'Activate'}</button>
+                                        <button type="button" className="dp-btn dp-btn-ghost dp-btn-icon" onClick={() => openEdit(d)} aria-label={`Edit Dr. ${d.last_name}`} title="Edit"><Edit size={18} aria-hidden="true" /></button>
+                                        <button type="button" className="dp-btn dp-btn-ghost dp-btn-icon" onClick={() => { setResetting(d); setResetPhone(false); }} aria-label={`Reset password of Dr. ${d.last_name}`} title="Reset password"><KeyRound size={18} aria-hidden="true" /></button>
+                                        <button type="button" className={`dp-btn dp-btn-icon ${d.is_active ? 'dp-btn-danger' : 'dp-btn-success'}`} onClick={() => toggleActive(d)} aria-label={`${d.is_active ? 'Deactivate' : 'Activate'} the account of Dr. ${d.last_name}`} title={d.is_active ? 'Deactivate' : 'Activate'}><Power size={18} aria-hidden="true" /></button>
                                     </>
                                 ) : (
                                     <>
-                                        <button className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => openEdit(d)}><Edit size={15} /> Edit</button>
-                                        <button className="dp-btn dp-btn-primary dp-btn-sm" onClick={() => openCreate(d)}><UserPlus size={15} /> Create login</button>
+                                        <button type="button" className="dp-btn dp-btn-ghost dp-btn-icon" onClick={() => openEdit(d)} aria-label={`Edit Dr. ${d.last_name}`} title="Edit"><Edit size={18} aria-hidden="true" /></button>
+                                        <button type="button" className="dp-btn dp-btn-primary dp-btn-icon" onClick={() => openCreate(d)} aria-label={`Create login for Dr. ${d.last_name}`} title="Create login"><UserPlus size={18} aria-hidden="true" /></button>
                                     </>
                                 )}
                             </div>
@@ -332,7 +331,7 @@ const ManageDoctorAccounts = () => {
                                 <span className="dp-hint mda-domain">{DOMAIN}</span>
                             </div>
                         </div>
-                        <div className="dp-notice">The account starts with the default password <strong>123</strong>. The doctor must change it and add a phone number at the first login.</div>
+                        <div className="dp-notice">Default password: <strong>123</strong>.</div>
                         <div className="dp-modal-foot">
                             <button type="button" className="dp-btn dp-btn-ghost" onClick={() => setForm(null)}>Cancel</button>
                             <button type="submit" className="dp-btn dp-btn-primary" disabled={busy}>{busy ? 'Creating...' : 'Create account'}</button>
@@ -349,9 +348,9 @@ const ManageDoctorAccounts = () => {
                             Username: <strong>{created.username}</strong><br />
                             Password: <strong>{created.default_password}</strong> (default)
                         </div>
-                        <p className="dp-hint mda-flush">Give these to the doctor. At the first login they set a new password and add their phone number.</p>
+                        <p className="dp-hint mda-flush">Give these to the doctor.</p>
                         <div className="dp-modal-foot">
-                            <button className="dp-btn dp-btn-ghost" onClick={copyCredentials}><Copy size={15} /> Copy</button>
+                            <button type="button" className="dp-btn dp-btn-ghost dp-btn-icon" onClick={copyCredentials} aria-label="Copy credentials" title="Copy"><Copy size={18} aria-hidden="true" /></button>
                             <button className="dp-btn dp-btn-primary" onClick={() => setCreated(null)}>Done</button>
                         </div>
                     </div>
@@ -373,7 +372,6 @@ const ManageDoctorAccounts = () => {
                                     <input id="da-user-edit" className="dp-input" required minLength={3} maxLength={60} value={editing.username} onChange={(e) => setEditing({ ...editing, username: e.target.value.replace(/@.*/, '') })} />
                                     <span className="dp-hint mda-domain">{DOMAIN}</span>
                                 </div>
-                                <small>Letters, numbers, dots, dashes and underscores. The doctor signs in with the new username after you save.</small>
                             </div>
                         )}
                         <SpecializationPicker id="da-spec-edit" value={editing.specialization || ''} onChange={(specialization) => setEditing({ ...editing, specialization })} />
@@ -386,7 +384,7 @@ const ManageDoctorAccounts = () => {
                 {editing && (
                     <div className="mda-section">
                         <h4 className="mda-section-title">Check-ups covered</h4>
-                        <p className="dp-hint mda-flush">The choices follow the saved specialization. Save a changed specialization first.</p>
+                        <p className="dp-hint mda-flush">Save a changed specialization first.</p>
                         <DoctorServices doctor={editing} compact onSaved={() => load()} />
                     </div>
                 )}
@@ -396,8 +394,8 @@ const ManageDoctorAccounts = () => {
             <Modal isOpen={!!resetting} onClose={() => setResetting(null)} title="Reset password" icon={<KeyRound size={20} />} size="sm">
                 {resetting && (
                     <div className="dp-form">
-                        <div className="dp-notice">Dr. {resetting.last_name}'s password goes back to the default <strong>123</strong>. The doctor has to choose a new one at the next login.</div>
-                        <label className="dp-check"><input type="checkbox" checked={resetPhone} onChange={(e) => setResetPhone(e.target.checked)} /> Also ask the doctor to confirm the phone number again</label>
+                        <div className="dp-notice">Dr. {resetting.last_name}'s password goes back to <strong>123</strong>.</div>
+                        <label className="dp-check"><input type="checkbox" checked={resetPhone} onChange={(e) => setResetPhone(e.target.checked)} /> Also ask for the phone number again</label>
                         <div className="dp-modal-foot">
                             <button className="dp-btn dp-btn-ghost" onClick={() => setResetting(null)}>Cancel</button>
                             <button className="dp-btn dp-btn-primary" onClick={confirmReset} disabled={busy}>{busy ? 'Resetting...' : 'Reset password'}</button>

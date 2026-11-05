@@ -153,7 +153,7 @@ export const ScheduleRequestModal = ({ isOpen, preset, doctors, nurseId, userId,
     };
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Request a schedule" icon={<Send size={20} />} size="md" closeOnBackdrop={false}>
+        <Modal isOpen={isOpen} onClose={onClose} title="Request a schedule" icon={<Send size={20} />} size="lg" closeOnBackdrop={false}>
             <form className="dp-form" onSubmit={submit}>
                 <div className="dp-field">
                     <label htmlFor="sr-advance">Advance Listing</label>
@@ -186,10 +186,10 @@ export const ScheduleRequestModal = ({ isOpen, preset, doctors, nurseId, userId,
                     <fieldset className="dp-field" style={{ border: 0, padding: 0, margin: 0 }}>
                         <legend className="dp-label">Repeats waiting for a schedule</legend>
                         {repeatChoices.length === 0 ? (
-                            <small className="dp-hint">No repeat of this doctor waits for a schedule{form.visit_type === 'Any' ? '' : ` for ${form.visit_type}`}.</small>
+                            <small className="dp-hint">No repeats waiting.</small>
                         ) : (
                             <>
-                                <small className="dp-hint">Tick the students to move into this schedule. They take the first queue numbers, before the advance listing. A repeat already in a pending request cannot be picked again.</small>
+                                <small className="dp-hint">Tick students to put first in this schedule.</small>
                                 <div style={{ maxHeight: '10rem', overflowY: 'auto', display: 'grid', gap: '0.25rem', marginTop: '0.25rem' }}>
                                     {repeatChoices.map((r) => (
                                         <label key={repeatKey(r)} className="dp-check">

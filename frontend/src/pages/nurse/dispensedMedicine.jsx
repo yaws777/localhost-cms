@@ -17,7 +17,9 @@ import {
   Clock,
   Printer,
   HelpCircle,
-  Info
+  Info,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import jsQR from 'jsqr';
 import stiLogo from '../../assets/sti-logof.png';
@@ -219,6 +221,15 @@ const isBatchLinkedToComplaint = (batch, complaintId) => {
   return String(batch.complaint_ids || '').split(',').includes(String(complaintId));
 };
 
+// a batch that can still be used: stock left and not past its expiration date (end of that day)
+const isLiveBatch = (b) => {
+  if (!b || !(Number(b.current_stock) > 0)) return false;
+  const exp = new Date(b.expiration_date);
+  if (isNaN(exp)) return true;
+  exp.setHours(23, 59, 59, 999);
+  return exp >= new Date();
+};
+
 const getStockStatus = (stock, lowThreshold = 10, criticalThreshold = 5) => {
   if (stock <= criticalThreshold) return { label: 'Critical', class: 'critical-dm' };
   if (stock <= lowThreshold) return { label: 'Low Stock', class: 'status-low-dm' };
@@ -257,7 +268,9 @@ const DispensedMedicine = () => {
   const [selectedMedicineId, setSelectedMedicineId] = useState('');
   const [availableBatches, setAvailableBatches] = useState([]);
   const [selectedBatchId, setSelectedBatchId] = useState('');
-  
+  const [inventorySearch, setInventorySearch] = useState('');
+  const [openGroups, setOpenGroups] = useState({}); // medicine ids whose batches are open; all closed at first
+
   // Dosage Consumption States
   const [dosageValue, setDosageValue] = useState('');
   const [dosageUnit, setDosageUnit] = useState('');
@@ -485,7 +498,7 @@ const DispensedMedicine = () => {
     if (selectedMedicineId && selectedComplaintId && Array.isArray(inventory)) {
       const batches = inventory.filter(b =>
         b.medicine_id === selectedMedicineId &&
-        b.current_stock > 0 &&
+        isLiveBatch(b) &&
         isBatchLinkedToComplaint(b, selectedComplaintId)
       );
       setAvailableBatches(batches);
@@ -925,6 +938,27 @@ const DispensedMedicine = () => {
     });
   }, [history]);
 
+  // Inventory batches grouped by medicine: one row per medicine, its batches open on demand (soonest expiry first)
+  const inventoryGroups = useMemo(() => {
+    if (!Array.isArray(inventory)) return [];
+    const map = new Map();
+    inventory.forEach((b) => {
+      if (!map.has(b.medicine_id)) map.set(b.medicine_id, { medicine_id: b.medicine_id, name: b.medicine_name, batches: [], sample: b });
+      // only live batches (stock left, not expired); emptied and expired ones stay in the database for the history and forecast
+      if (isLiveBatch(b)) map.get(b.medicine_id).batches.push(b);
+    });
+    const groups = Array.from(map.values());
+    groups.forEach((g) => g.batches.sort((a, b) => new Date(a.expiration_date) - new Date(b.expiration_date)));
+    return groups.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  }, [inventory]);
+
+  const visibleGroups = useMemo(() => {
+    const q = inventorySearch.trim().toLowerCase();
+    return q ? inventoryGroups.filter((g) => String(g.name).toLowerCase().includes(q)) : inventoryGroups;
+  }, [inventoryGroups, inventorySearch]);
+
+  const toggleGroup = (id) => setOpenGroups((prev) => ({ ...prev, [id]: !prev[id] }));
+
   const activeBatch = inventory.find(b => b.batch_id === selectedBatchId);
   const isMeasured = isMeasuredUnitFn(dosageUnit);
   const activeMedicine = inventory.find(b => b.medicine_id === selectedMedicineId);
@@ -1178,7 +1212,7 @@ const DispensedMedicine = () => {
                 {Array.isArray(inventory) && Array.from(
                   new Set(
                     inventory
-                      .filter(item => Number(item.current_stock) >= 1 && isBatchLinkedToComplaint(item, selectedComplaintId))
+                      .filter(item => isLiveBatch(item) && isBatchLinkedToComplaint(item, selectedComplaintId))
                       .map(item => item.medicine_id)
                   )
                 ).map(medId => {
@@ -1187,7 +1221,7 @@ const DispensedMedicine = () => {
                 })}
               </select>
               {selectedComplaintId && Array.isArray(inventory) &&
-                !inventory.some(item => Number(item.current_stock) >= 1 && isBatchLinkedToComplaint(item, selectedComplaintId)) && (
+                !inventory.some(item => isLiveBatch(item) && isBatchLinkedToComplaint(item, selectedComplaintId)) && (
                 <small className="field-help-text-dm">No medicine in stock is linked to this medical condition.</small>
               )}
             </div>
@@ -1291,41 +1325,76 @@ const DispensedMedicine = () => {
               <RefreshCw size={16} />
             </button>
           </div>
-          <div className="table-responsive-dm">
+          <div className="inv-search-dm">
+            <input
+              type="search"
+              value={inventorySearch}
+              onChange={(e) => setInventorySearch(e.target.value)}
+              placeholder="Search medicine"
+              aria-label="Search medicine"
+            />
+          </div>
+          <div className="table-responsive-dm inv-scroll-dm">
             <table className="custom-table-dm">
               <thead>
                 <tr>
-                  <th>Medicine Name</th>
-                  <th>Current Stock</th>
-                  <th>Remaining Vol/Pcs</th>
-                  <th>Expiration Date</th>
+                  <th>Medicine</th>
+                  <th>Stock</th>
+                  <th>Nearest expiry</th>
                   <th>Status</th>
+                  <th className="action-column-dm"><span className="sr-only-dm">Batches</span></th>
                 </tr>
               </thead>
               <tbody>
-                {!Array.isArray(inventory) || inventory.length === 0 ? (
+                {visibleGroups.length === 0 ? (
                   <tr>
-                    <td colSpan="5" className="text-center-empty-dm">No medicine items found in inventory.</td>
+                    <td colSpan="5" className="text-center-empty-dm">{inventorySearch ? 'No match.' : 'No medicine in inventory.'}</td>
                   </tr>
                 ) : (
-                  inventory.map((item) => {
-                    // judged on the medicine's total stock across its batches, not this batch alone
-                    const status = getStockStatus(Number(item.medicine_total_stock ?? item.current_stock), item.low_stock_level, item.critical_stock_level);
-                    const showVolume = isMeasuredUnitFn(item.dispense_unit_of_measure);
-                    const isBox = isBoxUnit(item);
-
+                  visibleGroups.map((g) => {
+                    const first = g.batches[0] || g.sample;
+                    // judged on the medicine's total stock across its batches, not one batch alone
+                    const total = Number(first.medicine_total_stock ?? g.batches.reduce((s, b) => s + Number(b.current_stock || 0), 0));
+                    const status = getStockStatus(total, first.low_stock_level, first.critical_stock_level);
+                    const isOpen = !!openGroups[g.medicine_id];
+                    const panelId = `inv-batches-${g.medicine_id}`;
                     return (
-                      <tr key={item.batch_id}>
-                        <td><strong>{item.medicine_name}</strong></td>
-                        <td>
-                          <span className={isBox ? "stock-box-badge-dm" : ""}>
-                            {formatCurrentStock(item)}
-                          </span>
-                        </td>
-                        <td>{showVolume ? `${item.remaining_volume} ${item.strength_unit_of_measure}` : 'N/A'}</td>
-                        <td>{formatDate(new Date(item.expiration_date))}</td>
-                        <td><span className={`status-tag-dm ${status.class}`}>{status.label}</span></td>
-                      </tr>
+                      <React.Fragment key={g.medicine_id}>
+                        <tr className="inv-group-row-dm">
+                          <td><strong>{g.name}</strong> <span className="inv-count-dm">{g.batches.length} {g.batches.length === 1 ? 'batch' : 'batches'}</span></td>
+                          <td>{total} {getStockLabel(first)}</td>
+                          <td>{g.batches.length ? formatDate(new Date(first.expiration_date)) : 'None'}</td>
+                          <td><span className={`status-tag-dm ${status.class}`}>{status.label}</span></td>
+                          <td className="action-column-dm">
+                            {g.batches.length > 0 && <button
+                              type="button"
+                              className="btn-icon-row-dm inv-toggle-dm"
+                              onClick={() => toggleGroup(g.medicine_id)}
+                              aria-expanded={isOpen}
+                              aria-controls={panelId}
+                              aria-label={`${isOpen ? 'Hide' : 'Show'} batches of ${g.name}`}
+                              title={isOpen ? 'Hide batches' : 'Show batches'}
+                            >
+                              {isOpen ? <ChevronUp size={17} aria-hidden="true" /> : <ChevronDown size={17} aria-hidden="true" />}
+                            </button>}
+                          </td>
+                        </tr>
+                        {isOpen && g.batches.map((item, i) => {
+                          const showVolume = isMeasuredUnitFn(item.dispense_unit_of_measure);
+                          return (
+                            <tr key={item.batch_id} id={i === 0 ? panelId : undefined} className="inv-batch-row-dm">
+                              <td className="inv-batch-label-dm">Batch {i + 1}</td>
+                              <td>
+                                <span className={isBoxUnit(item) ? 'stock-box-badge-dm' : ''}>{formatCurrentStock(item)}</span>
+                                {showVolume && <span className="inv-vol-dm"> / {item.remaining_volume} {item.strength_unit_of_measure} left</span>}
+                              </td>
+                              <td>{formatDate(new Date(item.expiration_date))}</td>
+                              <td></td>
+                              <td></td>
+                            </tr>
+                          );
+                        })}
+                      </React.Fragment>
                     );
                   })
                 )}

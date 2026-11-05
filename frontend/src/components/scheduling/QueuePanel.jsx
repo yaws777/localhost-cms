@@ -137,7 +137,7 @@ const QueuePanel = ({ scheduleId, date, creator, userId, onChanged, onDocument, 
                 <div className="queue-actions-sc">
                     {isDoctor && iconBtn('next', 'primary', Megaphone, 'Call next', callNext, callBlocked ? callBlockedText : 'Call next: the lowest listed number; walk-ins are called when no listed student is waiting', busy || !hasWaiting || callBlocked)}
                     {onWalkIn && queue.allow_walk_in !== false && iconBtn('walkin', 'secondary', Footprints, 'Walk-in', onWalkIn, 'Walk-in: add a student to the walk-in queue (W1, W2, ...)')}
-                    {iconBtn('scan', 'light', QrCode, 'Scan QR', () => setScanning(true), 'Scan QR: record the time in of a student', !hasWaiting && !queue.now_serving)}
+                    {isDoctor && iconBtn('scan', 'light', QrCode, 'Scan QR', () => setScanning(true), 'Scan QR: record the time in of a student', !hasWaiting && !queue.now_serving)}
                     {onExtend && iconBtn('extend', 'light', TimerReset, 'Extend end time', onExtend, 'Extend the end time of this session')}
                     {iconBtn('refresh', 'light', RefreshCw, 'Refresh', load)}
                 </div>

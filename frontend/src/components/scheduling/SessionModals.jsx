@@ -318,7 +318,6 @@ export const ExtendSessionModal = ({ schedule, creator, userId, onClose, onDone 
                     <div className="dp-notice">
                         Now {to12h(schedule.start_time)} to {to12h(schedule.end_time)}.
                         {schedule.extended_minutes > 0 ? ` Already extended by ${schedule.extended_minutes} min.` : ''}
-                        {' '}Appointments, open slots and walk-ins can all use the extra time.
                     </div>
                     {error && <div className="dp-error">{error}</div>}
                     <div className="dp-field">

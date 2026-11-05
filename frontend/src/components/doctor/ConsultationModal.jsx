@@ -114,8 +114,10 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
     // a new check-up cannot be closed until the required fields are filled (Esc, the X and Cancel are off); editing one can be closed any time
     // the fields of the doctor's standard form
     const stdFields = Array.isArray(std.fields) ? std.fields : [];
-    const requiredFilled = missingRequired(stdFields, vals).length === 0
-        && (!template || missingRequired(template.fields, answers).length === 0);
+    // one assessment form only: the picked template, or the standard check-up form when none is picked
+    const requiredFilled = template
+        ? missingRequired(template.fields, answers).length === 0
+        : missingRequired(stdFields, vals).length === 0;
     const locked = !editing && !requiredFilled;
 
     const coreText = (key, kept) => (stdFields.some((f) => f.key === key) ? asText(vals[key]) : kept);
@@ -125,16 +127,13 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
         setError('');
 
         if (['Absent', 'Excused'].includes(appt.attendance_status)) { setError(`The student is marked ${appt.attendance_status}. Change the attendance first.`); return; }
-        const missingStd = missingRequired(stdFields, vals);
-        if (missingStd.length > 0) { setError(`Please answer: ${missingStd.join(', ')}.`); return; }
-        if (template) {
-            const missing = missingRequired(template.fields, answers);
-            if (missing.length > 0) { setError(`Please answer: ${missing.join(', ')}.`); return; }
-        }
+        const missing = missingRequired(template ? template.fields : stdFields, template ? answers : vals);
+        if (missing.length > 0) { setError(`Please answer: ${missing.join(', ')}.`); return; }
         if (form.prescriptions.some((r) => (r.dosage || r.frequency || r.duration || r.instructions) && !r.medicine.trim())) {
             setError('Every prescription line needs a medicine name.');
             return;
         }
+
         if (form.follow_up_needed && bookFollowUp && !form.follow_up_date) { setError('Pick the repeat date to book it.'); return; }
 
         setBusy(true);
@@ -153,10 +152,11 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
                 sender_id: userId,
                 documented_by_doctor_id: nurseId ? undefined : doctorId,
                 // a core question the doctor took out of the form keeps what was saved before
-                chief_complaint: coreText('chief_complaint', appt.chief_complaint || undefined),
-                clinical_findings: coreText('clinical_findings', appt.clinical_findings || ''),
-                diagnosis: coreText('diagnosis', appt.diagnosis || ''),
-                treatment_recommendations: coreText('treatment_recommendations', appt.treatment_recommendations || ''),
+                // with a template the standard form is not used: the core columns are not sent (the server skips their required check)
+                chief_complaint: template ? (appt.chief_complaint || undefined) : coreText('chief_complaint', appt.chief_complaint || undefined),
+                clinical_findings: template ? undefined : coreText('clinical_findings', appt.clinical_findings || ''),
+                diagnosis: template ? undefined : coreText('diagnosis', appt.diagnosis || ''),
+                treatment_recommendations: template ? undefined : coreText('treatment_recommendations', appt.treatment_recommendations || ''),
                 is_abnormal: form.is_abnormal,
                 follow_up_needed: form.follow_up_needed,
                 follow_up_date: form.follow_up_needed ? form.follow_up_date : '',
@@ -164,7 +164,7 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
                 prescriptions: std.prescription_enabled ? form.prescriptions : undefined,
                 template_id: template ? template.template_id : '',
                 template_name: template ? template.template_name : '',
-                template_responses: [...toResponses(stdFields.filter((f) => !isCoreKey(f.key)), vals), ...(template ? toResponses(template.fields, answers) : [])],
+                template_responses: template ? toResponses(template.fields, answers) : toResponses(stdFields.filter((f) => !isCoreKey(f.key)), vals),
             };
             const res = await fetch(`${API}/api/doctor-assessments`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
             const data = await res.json();
@@ -205,12 +205,12 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
 
                 {templates.length > 0 && (
                     <div className="dp-field">
-                        <label htmlFor="consult-template">Assessment template (optional)</label>
+                        <label htmlFor="consult-template">Assessment form</label>
                         <select id="consult-template" className="dp-select" value={templateId} onChange={(e) => { setTemplateId(e.target.value); setAnswers({}); }}>
-                            <option value="">None (standard check-up form only)</option>
+                            <option value="">Standard check-up form</option>
                             {templates.map((t) => <option key={t.template_id} value={t.template_id}>{t.template_name}{t.is_active ? '' : ' (archived)'}</option>)}
                         </select>
-                        <small className="dp-hint">Adds the questions of the template to this check-up. Manage templates in the Templates page.</small>
+                        <small className="dp-hint">Choose one: the standard check-up form or one template. Manage templates in the Templates page.</small>
                     </div>
                 )}
 
@@ -221,7 +221,7 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
                     </>
                 )}
 
-                {stdFields.length > 0 && (
+                {!template && stdFields.length > 0 && (
                     <>
                         <div className="dp-section-label">Check-up form</div>
                         <TemplateFields fields={stdFields} values={vals} onChange={setVals} idPrefix="consult-std" />
@@ -254,7 +254,6 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
 
                 <div className="dp-section-label">Repeat</div>
                 <div style={{ display: 'flex', gap: 22, flexWrap: 'wrap' }}>
-                    <label className="dp-check"><input type="checkbox" checked={form.is_abnormal} onChange={(e) => set({ is_abnormal: e.target.checked })} /> Abnormal finding</label>
                     <label className="dp-check"><input type="checkbox" checked={form.follow_up_needed} onChange={(e) => set({ follow_up_needed: e.target.checked })} /> Repeat needed</label>
                 </div>
                 {form.follow_up_needed && (
