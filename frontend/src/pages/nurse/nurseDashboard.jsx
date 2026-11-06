@@ -1391,27 +1391,10 @@ const NurseDashboard = () => {
   const forecastOpenDays = forecastChartData.filter(day => day.dayOfWeek !== 'Sun').length;
   const forecastAvgDaily = forecastTotalBase / (forecastOpenDays || 1);
   const forecastDifference = parseFloat((forecastStockBase - forecastTotalBase).toFixed(3));
-  const forecastStockOutDay = forecastChartData.find(day => day.remainingStock <= 0);
-  // Days of stock left: walk the daily forecast until the stock is used up. On the stock-out day (day k) the stock
-  // left before it covers only a fraction of that day's demand, so days = (k - 1) + stockLeft / demandOfDayK.
-  // null = no forecast demand; forecastCoversFull = stock outlasts the 30 forecast days (shown as "30+").
-  let forecastDaysCovered = null;
-  let forecastCoversFull = false;
-  if (forecastTotalBase > 0) {
-    let stockLeft = forecastStockBase;
-    forecastDaysCovered = 0;
-    for (let i = 0; i < forecastChartData.length; i++) {
-      const demand = forecastChartData[i].predictedDemand;
-      if (demand > 0 && stockLeft <= demand) {
-        forecastDaysCovered = i + stockLeft / demand;
-        break;
-      }
-      stockLeft -= demand;
-      forecastDaysCovered = i + 1;
-    }
-    forecastCoversFull = !forecastStockOutDay;
-    forecastDaysCovered = forecastCoversFull ? forecastChartData.length : parseFloat(forecastDaysCovered.toFixed(1));
-  }
+  // Days of stock left = current stock / average daily demand (both in the dispense unit). null = no forecast demand.
+  const forecastDaysCovered = forecastAvgDaily > 0
+    ? parseFloat((forecastStockBase / forecastAvgDaily).toFixed(1))
+    : null;
   // Today (local date, YYYY-MM-DD): the snapshot date picker stops here
   const forecastNow = new Date();
   const forecastTodayStr = `${forecastNow.getFullYear()}-${String(forecastNow.getMonth() + 1).padStart(2, '0')}-${String(forecastNow.getDate()).padStart(2, '0')}`;
@@ -2175,8 +2158,8 @@ const NurseDashboard = () => {
               </div>
               <div className="forecast-compare-item-nd">
                 <span className="forecast-compare-label-nd">Days of stock left</span>
-                <strong>{forecastDaysCovered === null ? 'No demand' : forecastCoversFull ? `${forecastDaysCovered}+ days` : `${forecastDaysCovered} ${forecastDaysCovered === 1 ? 'day' : 'days'}`}</strong>
-                <span className="forecast-compare-sub-nd">{forecastStockOutDay ? `Runs out ${forecastStockOutDay.label}` : 'Lasts the full 30 days'}</span>
+                <strong>{forecastDaysCovered === null ? 'No demand' : `${forecastDaysCovered} ${forecastDaysCovered === 1 ? 'day' : 'days'}`}</strong>
+                <span className="forecast-compare-sub-nd">{forecastDaysCovered === null ? 'No forecast demand' : `${forecastStockBase} ÷ ${parseFloat(forecastAvgDaily.toFixed(2))} per day`}</span>
               </div>
               <div className="forecast-compare-item-nd forecast-compare-need-nd">
                 <span className="forecast-compare-label-nd">Predicted need</span>
