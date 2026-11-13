@@ -24,6 +24,7 @@ import {
 import jsQR from 'jsqr';
 import stiLogo from '../../assets/sti-logof.png';
 import { formatDate, formatDateTime } from '../../utils/datetime';
+import SearchableSelect from '../../components/common/SearchableSelect';
 import '../../styles/nurse/DispensedMedicine.css';
 
 // Measured units allow continuous decimal values (liquids, weights, volumes)
@@ -214,6 +215,18 @@ const formatCurrentStock = (item) => {
   return `${item.current_stock} ${stockUnit}${strengthInfo ? ` ${strengthInfo}` : ''}`;
 };
 
+// stock count only (no strength per dosage form), for the dispense form
+const formatStockOnly = (item) => (item ? `${item.current_stock} ${getStockLabel(item)}` : '0 units');
+
+// conditions that need the nurse to say what it is (same list as the clinic visit form)
+const CONDITIONAL_COMPLAINT_NAMES = ['injury', 'others', 'gastrointestinal issues', 'body pain'];
+
+// "Injury (cut on left hand)" for the log tables, report and detail
+const conditionText = (log) => {
+  if (!log || !log.complaint_name) return '—';
+  return log.specify_complaint_text ? `${log.complaint_name} (${log.specify_complaint_text})` : log.complaint_name;
+};
+
 // A batch is dispensable for a medical condition only if its medicine is linked to it
 // through medicine_indications (the API returns the linked ids as `complaint_ids`).
 const isBatchLinkedToComplaint = (batch, complaintId) => {
@@ -265,6 +278,7 @@ const DispensedMedicine = () => {
   const [inventory, setInventory] = useState([]);
   const [complaints, setComplaints] = useState([]);
   const [selectedComplaintId, setSelectedComplaintId] = useState('');
+  const [specifyComplaintText, setSpecifyComplaintText] = useState('');
   const [selectedMedicineId, setSelectedMedicineId] = useState('');
   const [availableBatches, setAvailableBatches] = useState([]);
   const [selectedBatchId, setSelectedBatchId] = useState('');
@@ -567,6 +581,7 @@ const DispensedMedicine = () => {
           nurse_id: nurseId,
           batch_id: selectedBatchId,
           complaint_id: selectedComplaintId,
+          specify_complaint_text: isSpecifyRequired ? specifyComplaintText.trim() : null,
           dosage_consumption_unit_value: parseFloat(dosageValue),
           dosage_consumption_unit_of_measure: dosageUnit
         })
@@ -580,6 +595,7 @@ const DispensedMedicine = () => {
         setSelectedStudent(null);
         setSearchStudent('');
         setSelectedComplaintId('');
+        setSpecifyComplaintText('');
         setSelectedMedicineId('');
         setSelectedBatchId('');
         setDosageValue('');
@@ -611,6 +627,11 @@ const DispensedMedicine = () => {
 
     if (!selectedComplaintId) {
       showAlertModal('Validation Error', 'Please select the medical condition the medicine is dispensed for.', 'warning');
+      return;
+    }
+
+    if (isSpecifyRequired && !specifyComplaintText.trim()) {
+      showAlertModal('Validation Error', 'Please specify the medical condition.', 'warning');
       return;
     }
 
@@ -738,7 +759,7 @@ const DispensedMedicine = () => {
           <td>${stId}</td>
           <td><strong>${stName}</strong></td>
           <td>${medName}</td>
-          <td>${log.complaint_name || '—'}</td>
+          <td>${conditionText(log)}</td>
           <td>${qty}</td>
           <td>${dispType}</td>
         </tr>
@@ -958,6 +979,10 @@ const DispensedMedicine = () => {
   }, [inventoryGroups, inventorySearch]);
 
   const toggleGroup = (id) => setOpenGroups((prev) => ({ ...prev, [id]: !prev[id] }));
+
+  const selectedComplaint = complaints.find(c => String(c.complaint_id) === String(selectedComplaintId));
+  const isSpecifyRequired = Boolean(selectedComplaint) &&
+    CONDITIONAL_COMPLAINT_NAMES.includes(String(selectedComplaint.complaint_name).trim().toLowerCase());
 
   const activeBatch = inventory.find(b => b.batch_id === selectedBatchId);
   const isMeasured = isMeasuredUnitFn(dosageUnit);
@@ -1180,22 +1205,35 @@ const DispensedMedicine = () => {
 
             <div className="form-group-dm">
               <label htmlFor="complaint-select">Medical Condition</label>
-              <select
+              <SearchableSelect
                 id="complaint-select"
+                placeholder="-- Choose Medical Condition --"
                 value={selectedComplaintId}
-                onChange={(e) => {
-                  setSelectedComplaintId(e.target.value);
+                options={complaints.map((c) => ({ value: c.complaint_id, label: c.complaint_name }))}
+                onChange={(next) => {
+                  if (String(next) === String(selectedComplaintId)) return;
+                  setSelectedComplaintId(next);
+                  setSpecifyComplaintText('');
                   setSelectedMedicineId('');
                   setSelectedBatchId('');
                 }}
-                required
-              >
-                <option value="">-- Choose Medical Condition --</option>
-                {complaints.map((c) => (
-                  <option key={c.complaint_id} value={c.complaint_id}>{c.complaint_name}</option>
-                ))}
-              </select>
+              />
             </div>
+
+            {isSpecifyRequired && (
+              <div className="form-group-dm">
+                <label htmlFor="specify-complaint">Specify Medical Condition</label>
+                <input
+                  id="specify-complaint"
+                  type="text"
+                  maxLength={255}
+                  placeholder="Specify the medical condition"
+                  value={specifyComplaintText}
+                  onChange={(e) => setSpecifyComplaintText(e.target.value)}
+                  required
+                />
+              </div>
+            )}
 
             <div className="form-group-dm">
               <label htmlFor="medicine-select">Select Medicine</label>
@@ -1227,7 +1265,7 @@ const DispensedMedicine = () => {
             </div>
 
             <div className="form-group-dm">
-              <label htmlFor="batch-select">Available Expiration Date</label>
+              <label htmlFor="batch-select">Batch Expiration Date</label>
               <select
                 id="batch-select"
                 value={selectedBatchId}
@@ -1235,21 +1273,12 @@ const DispensedMedicine = () => {
                 disabled={!selectedMedicineId}
                 required
               >
-                <option value="">-- Choose Expiration Date --</option>
-                {availableBatches.map((batch) => {
-                  const batchIsMeasured = isMeasuredUnitFn(batch.dispense_unit_of_measure);
-                  const stockLabel = formatCurrentStock(batch);
-
-                  const stockInfo = batchIsMeasured
-                    ? `Stock: ${stockLabel} | Rem. Vol: ${batch.remaining_volume} ${batch.strength_unit_of_measure}`
-                    : `Stock: ${stockLabel}`;
-
-                  return (
-                    <option key={batch.batch_id} value={batch.batch_id}>
-                      {formatDate(new Date(batch.expiration_date))} ({stockInfo})
-                    </option>
-                  );
-                })}
+                <option value="">-- Choose Batch Expiration Date --</option>
+                {availableBatches.map((batch) => (
+                  <option key={batch.batch_id} value={batch.batch_id}>
+                    {formatDate(new Date(batch.expiration_date))} (Stock: {formatStockOnly(batch)})
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -1258,7 +1287,7 @@ const DispensedMedicine = () => {
                 <p>
                   <strong>Current Stock:</strong>{' '}
                   <span className={isBoxUnit(activeBatch) ? "stock-box-badge-dm" : ""}>
-                    {formatCurrentStock(activeBatch)}
+                    {formatStockOnly(activeBatch)}
                   </span>
                 </p>
                 {isMeasuredUnitFn(activeBatch.dispense_unit_of_measure) && (
@@ -1444,7 +1473,7 @@ const DispensedMedicine = () => {
                     <td><code>{log.student_id}</code></td>
                     <td>{log.first_name} {log.last_name}</td>
                     <td>{log.medicine_name}</td>
-                    <td>{log.complaint_name || '—'}</td>
+                    <td>{conditionText(log)}</td>
                     <td><strong>{formatUnitValue(log.dosage_consumption_unit_value, log.dosage_consumption_unit_of_measure)} {log.dosage_consumption_unit_of_measure}</strong></td>
                     <td className="action-column-dm">
                       <button
@@ -1581,7 +1610,7 @@ const DispensedMedicine = () => {
                           <td><code>{log.student_id}</code></td>
                           <td>{log.first_name} {log.last_name}</td>
                           <td>{log.medicine_name}</td>
-                          <td>{log.complaint_name || '—'}</td>
+                          <td>{conditionText(log)}</td>
                           <td><strong>{formatUnitValue(log.dosage_consumption_unit_value, log.dosage_consumption_unit_of_measure)} {log.dosage_consumption_unit_of_measure}</strong></td>
                           <td className="action-column-dm">
                             <button 
@@ -1653,7 +1682,7 @@ const DispensedMedicine = () => {
               </div>
               <div className="detail-item-dm">
                 <span className="detail-label-dm">Medical Condition:</span>
-                <span className="detail-value-dm">{selectedLogDetail.complaint_name || '—'}</span>
+                <span className="detail-value-dm">{conditionText(selectedLogDetail)}</span>
               </div>
               <div className="detail-item-dm">
                 <span className="detail-label-dm">Dispensed Amount:</span>

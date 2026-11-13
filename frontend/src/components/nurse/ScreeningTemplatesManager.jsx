@@ -314,12 +314,6 @@ export default function ScreeningTemplatesManager({ templates, loading, loadErro
               />
             </div>
 
-            {editor.resultCount > 0 && (
-              <p className="hint-hs" role="status">
-                {editor.resultCount} result(s) were recorded with this template. Its fields can be reworded and get new ranges, and new fields can be added, but a recorded field cannot be removed or change its answer type. Results already saved keep the flags they were saved with.
-              </p>
-            )}
-
             <h3 className="tpl-heading-hs"><ClipboardList size={18} aria-hidden="true" /> Form fields ({editor.fields.length} of {MAX_FIELDS})</h3>
 
             <ol className="tpl-fields-hs">

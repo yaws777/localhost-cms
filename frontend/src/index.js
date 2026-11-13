@@ -34,7 +34,8 @@ import ManageDoctorAccounts from './pages/nurse/manageDoctorAccounts';
 import DoctorVisit from './pages/nurse/doctorVisits';
 import BookCheckup from './pages/student/bookCheckup';
 import DocumentIssuance from './pages/nurse/documentIssuance';
-import HealthRecords from './pages/nurse/healthRecords';  
+import HealthRecords from './pages/nurse/healthRecords';
+import StudentClinicLogs from './pages/nurse/studentClinicLogs';
 import HealthScreening from './pages/nurse/healthScreening';  
 import IncidentReport from './pages/nurse/incidentReports';    
 import InsuranceVault from './pages/nurse/insuranceVault';
@@ -113,6 +114,7 @@ root.render(
             <Route path="/DoctorSchedule" element={<DoctorScheduleRedirect />} />
             <Route path="/DocumentIssuance" element={<DocumentIssuance />} />
             <Route path="/HealthRecords" element={<HealthRecords />} />
+            <Route path="/health-records/logs/:studentId" element={<StudentClinicLogs />} />
             <Route path="/HealthScreening" element={<HealthScreening />} />
             <Route path="/IncidentReport" element={<IncidentReport />} />
             <Route path="/InsuranceVault" element={<InsuranceVault />} />

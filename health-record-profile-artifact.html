@@ -1,0 +1,653 @@
+<title>Health Record Profile Redesign</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: mock switch on top, then either the improved nurse profile page (banner, summary strip, tabs, parent modal) or the list of code changes with file:line refs. Tokens are the STI Clinic ones from theme.css. */
+:root {
+  --sti-blue-dark: #002f6c;
+  --sti-blue-primary: #004b87;
+  --sti-blue-light: #e6f0fa;
+  --sti-yellow: #ffcc00;
+  --bg-page: #f8fafc;
+  --bg-card: #ffffff;
+  --bg-subtle: #f1f5f9;
+  --card-border: #d0d5dd;
+  --text-primary: #1d2939;
+  --text-secondary: #556070;
+  --text-on-brand: #ffffff;
+  --status-adequate-bg: #dcfce7; --status-adequate-text: #166534; --status-adequate-bar: #4aa56b;
+  --status-low-bg: #fef3c7;      --status-low-text: #8a4b08;      --status-low-bar: #e0a02e;
+  --status-critical-bg: #fee2e2; --status-critical-text: #991b1b; --status-critical-bar: #d4584f;
+  --backdrop: rgba(15, 23, 42, 0.6);
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --sti-blue-dark: #0a3d75; --sti-blue-primary: #3b82c4; --sti-blue-light: #16304a;
+    --bg-page: #0f172a; --bg-card: #1e293b; --bg-subtle: #172033; --card-border: #475569;
+    --text-primary: #e2e8f0; --text-secondary: #a3b1c6;
+    --status-adequate-bg: #14391f; --status-adequate-text: #86efac;
+    --status-low-bg: #43300c; --status-low-text: #fcd34d;
+    --status-critical-bg: #4a1a1a; --status-critical-text: #fca5a5;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --sti-blue-dark: #0a3d75; --sti-blue-primary: #3b82c4; --sti-blue-light: #16304a;
+  --bg-page: #0f172a; --bg-card: #1e293b; --bg-subtle: #172033; --card-border: #475569;
+  --text-primary: #e2e8f0; --text-secondary: #a3b1c6;
+  --status-adequate-bg: #14391f; --status-adequate-text: #86efac;
+  --status-low-bg: #43300c; --status-low-text: #fcd34d;
+  --status-critical-bg: #4a1a1a; --status-critical-text: #fca5a5;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg-page); color: var(--text-primary);
+  font-family: var(--font-sans); font-size: 1rem; line-height: 1.5;
+  padding-block: 1.5rem 3rem;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 68rem; margin: 0 auto; display: flex; flex-direction: column; gap: 1.25rem; }
+h1, h2, h3, h4, p, dl, dd, ul { margin: 0; padding: 0; }
+ul { list-style: none; }
+h2 { font-size: 1.125rem; font-weight: 700; }
+h3 { font-size: 1rem; font-weight: 600; }
+.muted { color: var(--text-secondary); font-size: 0.875rem; }
+.mono { font-family: var(--font-mono); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+svg.i { width: 1.125rem; height: 1.125rem; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+:focus-visible { outline: 0.1875rem solid var(--sti-blue-primary); outline-offset: 0.125rem; }
+.banner :focus-visible, .btn-solid:focus-visible { outline-color: var(--sti-yellow); }
+
+/* mock switch */
+.mock { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; align-items: center; padding: 0.75rem 1rem;
+  background: var(--sti-blue-light); border: 1px dashed var(--sti-blue-primary); border-radius: 0.5rem; }
+.mock .lbl { font-size: 0.875rem; font-weight: 600; }
+.mock .note { font-size: 0.875rem; color: var(--text-secondary); margin-left: auto; }
+.seg { display: inline-flex; border: 1px solid var(--sti-blue-primary); border-radius: 0.5rem; overflow: hidden; background: var(--bg-card); }
+.seg button { min-height: 2.75rem; min-width: 2.75rem; padding: 0 1rem; border: 0; background: transparent; color: var(--text-primary);
+  font: inherit; font-size: 0.9375rem; font-weight: 500; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--sti-blue-primary); }
+.seg button[aria-pressed="true"] { background: var(--sti-blue-dark); color: var(--text-on-brand); font-weight: 700; }
+.seg button:focus-visible { outline-offset: -0.25rem; }
+
+/* buttons */
+.btn-icon { min-width: 2.75rem; min-height: 2.75rem; display: inline-grid; place-items: center; border-radius: 0.5rem;
+  border: 1px solid var(--sti-blue-primary); background: var(--bg-card); color: var(--sti-blue-primary); cursor: pointer; padding: 0; }
+.btn-icon:hover { background: var(--sti-blue-light); }
+.btn-icon.solid { background: var(--sti-blue-dark); color: var(--text-on-brand); }
+.btn-icon.solid:hover { background: var(--sti-blue-primary); }
+.btn-solid { min-height: 2.75rem; padding: 0 1.25rem; border-radius: 0.5rem; border: 1px solid var(--sti-blue-dark); background: var(--sti-blue-dark);
+  color: var(--text-on-brand); font: inherit; font-weight: 600; cursor: pointer; }
+
+/* chips: status = colour + icon + text */
+.chip { display: inline-flex; align-items: center; gap: 0.375rem; padding: 0.1875rem 0.625rem; border-radius: 9999px; font-size: 0.875rem; font-weight: 600; white-space: nowrap; }
+.chip svg.i { width: 1rem; height: 1rem; }
+.chip.ok { background: var(--status-adequate-bg); color: var(--status-adequate-text); }
+.chip.warn { background: var(--status-low-bg); color: var(--status-low-text); }
+.chip.bad { background: var(--status-critical-bg); color: var(--status-critical-text); }
+.chip.neutral { background: var(--bg-subtle); color: var(--text-secondary); border: 1px solid var(--card-border); }
+.chip.brand { background: var(--sti-blue-light); color: var(--sti-blue-primary); border: 1px solid var(--sti-blue-primary); }
+
+/* page */
+.action-bar { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; }
+.crumbs { flex: 1; min-width: 0; font-size: 0.875rem; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.banner { display: flex; align-items: center; gap: 1rem; padding: 1.25rem; background: var(--sti-blue-dark); color: var(--text-on-brand);
+  border-radius: 0.75rem; border-left: 0.375rem solid var(--sti-yellow); flex-wrap: wrap; }
+.avatar { width: 3.5rem; height: 3.5rem; border-radius: 50%; background: var(--sti-yellow); color: var(--sti-blue-dark); display: grid; place-items: center; font-weight: 700; font-size: 1.25rem; flex: none; }
+.banner .who { flex: 1 1 14rem; min-width: 0; display: flex; flex-direction: column; gap: 0.25rem; }
+.banner .name-row { display: flex; align-items: center; flex-wrap: wrap; gap: 0.625rem; }
+.banner h1 { font-size: 1.5rem; font-weight: 700; line-height: 1.25; }
+.banner .meta { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; font-size: 0.9375rem; }
+.banner .id { background: rgba(0,0,0,0.3); padding: 0.125rem 0.625rem; border-radius: 0.25rem; font-weight: 700; font-size: 0.9375rem; }
+.banner .lock { display: inline-flex; align-items: center; gap: 0.375rem; background: var(--sti-yellow); color: var(--sti-blue-dark); padding: 0.375rem 0.75rem; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 700; }
+.banner .chip.bad { background: var(--status-critical-bg); color: var(--status-critical-text); }
+
+.summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); gap: 1rem; }
+.tile { background: var(--bg-card); border: 1px solid var(--card-border); border-radius: 0.75rem; padding: 1rem 1.125rem; display: flex; flex-direction: column; gap: 0.625rem; min-width: 0; }
+.tile-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; min-height: 2.75rem; }
+.tile-head h2 { font-size: 0.9375rem; font-weight: 600; color: var(--text-secondary); display: flex; align-items: center; gap: 0.5rem; }
+.flags { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.prog-num { font-size: 1.75rem; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.prog-num small { font-size: 1rem; font-weight: 500; color: var(--text-secondary); }
+.bar { height: 0.625rem; border-radius: 9999px; background: var(--bg-subtle); border: 1px solid var(--card-border); overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--status-adequate-bar); }
+.parent-line { font-weight: 600; }
+
+.tabs { display: flex; gap: 0.25rem; border-bottom: 2px solid var(--card-border); overflow-x: auto; }
+.tabs button { position: relative; min-height: 2.75rem; padding: 0 1.125rem; border: 0; background: none; color: var(--text-secondary);
+  font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 0.5rem; }
+.tabs button:hover { color: var(--sti-blue-primary); }
+.tabs button[aria-selected="true"] { color: var(--sti-blue-primary); }
+.tabs button[aria-selected="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: -2px; height: 0.25rem; background: var(--sti-yellow); border-radius: 0.25rem 0.25rem 0 0; }
+.tabs button:focus-visible { outline-offset: -0.25rem; }
+.count { background: var(--status-critical-bg); color: var(--status-critical-text); border-radius: 9999px; font-size: 0.875rem; padding: 0 0.5rem; font-variant-numeric: tabular-nums; }
+
+.panel { display: flex; flex-direction: column; gap: 1rem; }
+.card { background: var(--bg-card); border: 1px solid var(--card-border); border-radius: 0.75rem; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+.card > h3 { display: flex; align-items: center; gap: 0.5rem; color: var(--sti-blue-primary); }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr)); gap: 1rem; }
+dl.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: 1rem 1.25rem; }
+dl.fields .full { grid-column: 1 / -1; }
+dl.fields dt { font-size: 0.875rem; color: var(--text-secondary); }
+dl.fields dd { font-weight: 600; overflow-wrap: anywhere; }
+dl.fields dd.empty { color: var(--text-secondary); font-weight: 400; }
+
+.cond-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: 1rem; }
+.cond { border: 1px solid var(--card-border); border-radius: 0.75rem; background: var(--bg-subtle); padding: 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.cond-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; }
+.cond-head h3 { display: flex; align-items: center; gap: 0.5rem; }
+.none-recorded { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.meas { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 1rem; }
+.big { background: var(--bg-subtle); border: 1px solid var(--card-border); border-radius: 0.75rem; padding: 0.875rem 1rem; display: flex; flex-direction: column; gap: 0.25rem; align-items: flex-start; }
+.big .k { font-size: 0.875rem; color: var(--text-secondary); }
+.big .v { font-size: 2rem; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.big .v small { font-size: 1rem; font-weight: 500; color: var(--text-secondary); }
+.big .sub { font-size: 0.875rem; color: var(--text-secondary); }
+
+.filters { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.filters button { min-height: 2.75rem; padding: 0 1rem; border-radius: 9999px; border: 1px solid var(--sti-blue-primary); background: var(--bg-card); color: var(--sti-blue-primary);
+  font: inherit; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.5rem; }
+.filters button[aria-pressed="true"] { background: var(--sti-blue-dark); color: var(--text-on-brand); border-color: var(--sti-blue-dark); }
+.filters .n { font-variant-numeric: tabular-nums; font-weight: 700; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--card-border); border-radius: 0.5rem; }
+table { width: 100%; border-collapse: collapse; min-width: 44rem; }
+th { background: var(--sti-blue-dark); color: var(--text-on-brand); text-align: left; font-size: 0.875rem; font-weight: 600; padding: 0.75rem 1rem; }
+tbody th { background: none; color: var(--text-primary); font-size: 0.9375rem; padding: 0.75rem 1rem; border-top: 1px solid var(--card-border); }
+td { padding: 0.75rem 1rem; border-top: 1px solid var(--card-border); vertical-align: middle; font-size: 0.9375rem; }
+td .sub { display: block; font-size: 0.875rem; color: var(--text-secondary); }
+td .sub.bad { color: var(--status-critical-text); font-weight: 600; }
+td .sub.warn { color: var(--status-low-text); font-weight: 600; }
+.empty-state { text-align: center; padding: 2rem 1rem; color: var(--text-secondary); }
+
+/* modal */
+.backdrop { position: fixed; inset: 0; background: var(--backdrop); display: grid; place-items: center; padding: 1rem; z-index: 50; }
+.modal { background: var(--bg-card); color: var(--text-primary); width: min(100%, 32rem); border-radius: 0.75rem; overflow: hidden; border: 1px solid var(--card-border); }
+.modal-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.75rem 1rem 0.75rem 1.25rem; background: var(--sti-blue-dark); color: var(--text-on-brand); }
+.modal-head h2 { font-size: 1.0625rem; display: flex; align-items: center; gap: 0.5rem; }
+.modal-head .btn-icon { background: transparent; border-color: transparent; color: var(--text-on-brand); }
+.modal-head .btn-icon:hover { background: rgba(255,255,255,0.15); }
+.modal-head :focus-visible { outline-color: var(--sti-yellow); }
+.modal-body { padding: 1.25rem; }
+.modal-foot { display: flex; justify-content: flex-end; padding: 0.75rem 1.25rem; background: var(--bg-subtle); border-top: 1px solid var(--card-border); }
+
+/* changes view */
+.group { display: flex; flex-direction: column; gap: 0.75rem; }
+.group > h2 { color: var(--sti-blue-primary); }
+.change { background: var(--bg-card); border: 1px solid var(--card-border); border-radius: 0.75rem; padding: 1rem 1.25rem; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.375rem; }
+.change .where { font-family: var(--font-mono); font-size: 0.875rem; color: var(--sti-blue-primary); }
+.change .bad-line { color: var(--status-critical-text); }
+.change .fix-line { color: var(--status-adequate-text); }
+.change .bad-line, .change .fix-line { display: flex; gap: 0.5rem; align-items: baseline; }
+.change .tag { font-size: 0.875rem; font-weight: 700; flex: none; }
+pre { margin: 0.25rem 0 0; background: var(--bg-subtle); border: 1px solid var(--card-border); border-radius: 0.5rem; padding: 0.75rem 1rem; overflow-x: auto; font-family: var(--font-mono); font-size: 0.875rem; line-height: 1.5; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .bar i { transition: width 0.4s ease; }
+}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-xcircle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-heart" viewBox="0 0 24 24"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></symbol>
+</svg>
+
+<div class="wrap">
+  <div class="mock">
+    <span class="lbl">Preview</span>
+    <div class="seg" role="group" aria-label="Preview">
+      <button type="button" id="v-improved" aria-pressed="true">Improved page</button>
+      <button type="button" id="v-changes" aria-pressed="false">What changed</button>
+    </div>
+    <span class="note">Example data. Mock of <span class="mono">healthRecordProfile.jsx</span>.</span>
+  </div>
+
+  <!-- ============ IMPROVED PAGE ============ -->
+  <main id="view-improved" class="wrap" style="gap:1.25rem">
+    <div class="action-bar">
+      <button type="button" class="btn-icon" aria-label="Back to records" title="Back to records"><svg class="i" aria-hidden="true"><use href="#i-back"/></svg></button>
+      <p class="crumbs">Health Records / Santos, Maria Clara</p>
+      <button type="button" class="btn-icon solid" aria-label="Export health report" title="Export health report"><svg class="i" aria-hidden="true"><use href="#i-download"/></svg></button>
+    </div>
+
+    <header class="banner">
+      <div class="avatar" aria-hidden="true">MS</div>
+      <div class="who">
+        <div class="name-row"><h1>Maria Clara Santos</h1></div>
+        <div class="meta">
+          <span>BSIT &middot; 2nd Year</span>
+          <span class="id mono">02000123456</span>
+        </div>
+      </div>
+      <span class="lock"><svg class="i" aria-hidden="true"><use href="#i-lock"/></svg> Read only</span>
+    </header>
+
+    <section class="summary" aria-label="Summary">
+      <article class="tile">
+        <div class="tile-head"><h2><svg class="i" aria-hidden="true"><use href="#i-heart"/></svg> Health flags</h2></div>
+        <ul class="flags" id="flags"></ul>
+      </article>
+      <article class="tile">
+        <div class="tile-head"><h2><svg class="i" aria-hidden="true"><use href="#i-list"/></svg> Requirements</h2></div>
+        <p class="prog-num" id="prog-num"></p>
+        <div class="bar" role="progressbar" id="prog-bar" aria-label="Requirements complete"><i id="prog-fill"></i></div>
+        <div class="flags" id="prog-chips"></div>
+      </article>
+      <article class="tile">
+        <div class="tile-head">
+          <h2><svg class="i" aria-hidden="true"><use href="#i-user"/></svg> Parent account</h2>
+          <button type="button" class="btn-icon" id="open-parent" aria-label="View parent account" title="View parent account" aria-haspopup="dialog"><svg class="i" aria-hidden="true"><use href="#i-user"/></svg></button>
+        </div>
+        <p class="parent-line">Rosario Santos</p>
+        <p class="muted mono">0917 555 0142</p>
+      </article>
+    </section>
+
+    <div class="tabs" role="tablist" aria-label="Record sections" id="tablist">
+      <button type="button" role="tab" id="tab-personal" aria-controls="panel-personal" aria-selected="true">Personal</button>
+      <button type="button" role="tab" id="tab-health" aria-controls="panel-health" aria-selected="false" tabindex="-1">Health</button>
+      <button type="button" role="tab" id="tab-req" aria-controls="panel-req" aria-selected="false" tabindex="-1">Requirements <span class="count" id="tab-count"></span></button>
+    </div>
+
+    <section id="panel-personal" class="panel" role="tabpanel" aria-labelledby="tab-personal"></section>
+    <section id="panel-health" class="panel" role="tabpanel" aria-labelledby="tab-health" hidden></section>
+    <section id="panel-req" class="panel" role="tabpanel" aria-labelledby="tab-req" hidden></section>
+  </main>
+
+  <!-- ============ CHANGES ============ -->
+  <div id="view-changes" class="wrap" style="gap:1.5rem" hidden>
+
+    <section class="group">
+      <h2>Project rules</h2>
+      <article class="change">
+        <span class="where">L138-333 &middot; inline &lt;style&gt;</span>
+        <p class="bad-line"><span class="tag">Now</span> 200 lines of CSS inside the JSX, raw hex (<span class="mono">#004487</span>, <span class="mono">#fee2e2</span>, <span class="mono">#ffffff</span>), px sizes. <span class="mono">#004487</span> is not even the brand blue.</p>
+        <p class="fix-line"><span class="tag">Fix</span> Move to <span class="mono">HealthRecordProfile.css</span>, use tokens (<span class="mono">--sti-blue-dark</span>, <span class="mono">--status-*</span>), rem units. Same for <span class="mono">.btn-back-link</span> (<span class="mono">#475569</span>) and <span class="mono">.btn-document-link</span> (<span class="mono">#22c55e</span>) in the CSS file.</p>
+      </article>
+      <article class="change">
+        <span class="where">L336-358 &middot; back and export buttons</span>
+        <p class="bad-line"><span class="tag">Now</span> Text buttons, export styled with 12 inline style props.</p>
+        <p class="fix-line"><span class="tag">Fix</span> Icon only <span class="mono">btn-icon</span>, <span class="mono">aria-label</span> + <span class="mono">title</span>, 2.75rem target.</p>
+      </article>
+      <article class="change">
+        <span class="where">L73, L76, L388, L556 &middot; errors</span>
+        <p class="bad-line"><span class="tag">Now</span> Inline <span class="mono">.error-message</span> with jargon: "Exception fault connecting to profile network infrastructure."</p>
+        <p class="fix-line"><span class="tag">Fix</span> <span class="mono">showAlert('Cannot load profile.', 'error')</span> through <span class="mono">useAlert()</span>. Parent modal errors the same way.</p>
+      </article>
+      <article class="change">
+        <span class="where">L467-468 &middot; requirements header</span>
+        <p class="bad-line"><span class="tag">Now</span> Heading plus an intro sentence.</p>
+        <p class="fix-line"><span class="tag">Fix</span> Drop the sentence. Filter chips and counts say it.</p>
+      </article>
+    </section>
+
+    <section class="group">
+      <h2>Accessibility</h2>
+      <article class="change">
+        <span class="where">L382-386 &middot; tabs</span>
+        <p class="bad-line"><span class="tag">Now</span> Plain buttons, no roles, no arrow keys, no panel link.</p>
+        <p class="fix-line"><span class="tag">Fix</span> <span class="mono">role="tablist" / "tab" / "tabpanel"</span>, <span class="mono">aria-selected</span>, roving <span class="mono">tabIndex</span>, Left/Right/Home/End.</p>
+      </article>
+      <article class="change">
+        <span class="where">L541-607 &middot; parent modal</span>
+        <p class="bad-line"><span class="tag">Now</span> No <span class="mono">role="dialog"</span>, no Esc, no focus trap, no focus return, close icon has no label.</p>
+        <p class="fix-line"><span class="tag">Fix</span> <span class="mono">role="dialog" aria-modal aria-labelledby</span>, focus the close button on open, trap Tab, Esc closes, return focus to the opener. Try it in the improved page.</p>
+      </article>
+      <article class="change">
+        <span class="where">L398-450 &middot; personal info</span>
+        <p class="bad-line"><span class="tag">Now</span> 13 <span class="mono">disabled</span> inputs and selects show read-only data. Low contrast, announced as disabled, look editable.</p>
+        <p class="fix-line"><span class="tag">Fix</span> A <span class="mono">&lt;dl&gt;</span> grouped by Identity, Contact, Family (Body moved to Health). Empty value shows a muted dash.</p>
+      </article>
+      <article class="change">
+        <span class="where">L510, CSS L328-331 &middot; status and tags</span>
+        <p class="bad-line"><span class="tag">Now</span> Status is coloured text only. <span class="mono">.classification-tag.program</span> is white text on <span class="mono">--sti-blue-light</span>, nearly invisible.</p>
+        <p class="fix-line"><span class="tag">Fix</span> Status chip: colour + icon + word. Tag uses <span class="mono">--sti-blue-primary</span> on <span class="mono">--sti-blue-light</span>.</p>
+      </article>
+      <article class="change">
+        <span class="where">CSS L26-43, L342-357 &middot; focus</span>
+        <p class="bad-line"><span class="tag">Now</span> No <span class="mono">:focus-visible</span> on back link, tabs, document link.</p>
+        <p class="fix-line"><span class="tag">Fix</span> <span class="mono">outline: 0.1875rem solid var(--sti-blue-primary)</span>, yellow on the blue banner.</p>
+      </article>
+    </section>
+
+    <section class="group">
+      <h2>Data and code</h2>
+      <article class="change">
+        <span class="where">L42-71 &middot; loading</span>
+        <p class="bad-line"><span class="tag">Now</span> Header, then profile, one after the other. If profile returns <span class="mono">success: false</span> nothing is shown and no error is set.</p>
+        <p class="fix-line"><span class="tag">Fix</span> Fetch both together, alert if either fails. Fetch requirements here too, so the summary strip has them.</p>
+<pre>const [h, p, r] = await Promise.all([
+  fetch(`${API}/health-records/student-header/${studentId}`).then(x =&gt; x.json()),
+  fetch(`${API}/profile/${studentId}`).then(x =&gt; x.json()),
+  fetch(`${API}/students/${studentId}/full-requirements`).then(x =&gt; x.json()),
+]);
+if (!h.success || !p.success) return showAlert('Cannot load profile.', 'error');</pre>
+      </article>
+      <article class="change">
+        <span class="where">L62-66 &middot; 1/0 to boolean</span>
+        <p class="bad-line"><span class="tag">Now</span> Loops over every key. Any numeric field that equals 1 or 0 becomes <span class="mono">true</span> / <span class="mono">false</span>.</p>
+        <p class="fix-line"><span class="tag">Fix</span> Convert only flag keys: <span class="mono">key.startsWith('has_')</span> (plus the few named flags).</p>
+      </article>
+      <article class="change">
+        <span class="where">L85-103 &middot; requirements fetch</span>
+        <p class="bad-line"><span class="tag">Now</span> Refetched every time the tab opens. Summary cannot show progress before the tab is opened.</p>
+        <p class="fix-line"><span class="tag">Fix</span> Load once with the profile, filter in memory.</p>
+      </article>
+      <article class="change">
+        <span class="where">L499 &middot; row key</span>
+        <p class="bad-line"><span class="tag">Now</span> <span class="mono">key={req.requirement_name}</span>. A Program and a Special requirement with the same name collide.</p>
+        <p class="fix-line"><span class="tag">Fix</span> <span class="mono">key={req.requirement_id ?? `${req.type}-${req.requirement_name}`}</span>.</p>
+      </article>
+      <article class="change">
+        <span class="where">L655-656 &middot; print report</span>
+        <p class="bad-line"><span class="tag">Now</span> "Marilou H. Balarao" is hardcoded as preparer. No print date, no requirements.</p>
+        <p class="fix-line"><span class="tag">Fix</span> Preparer from the signed-in nurse, print date, requirements summary line. Move the inline styles to a <span class="mono">.report-*</span> class set.</p>
+      </article>
+      <article class="change">
+        <span class="where">L422-450 &middot; family fields</span>
+        <p class="bad-line"><span class="tag">Now</span> Father, mother, then parent first name, last name, phone as separate inputs. Parent data repeated in three places.</p>
+        <p class="fix-line"><span class="tag">Fix</span> Family block for father and mother. Parent account is one tile with its name, phone and the modal button.</p>
+      </article>
+    </section>
+
+    <section class="group">
+      <h2>Body, check-ups, screenings (Health tab)</h2>
+      <article class="change">
+        <span class="where">L416-421 &middot; height and weight</span>
+        <p class="bad-line"><span class="tag">Now</span> Height and weight are typed once in the profile (<span class="mono">student_personal_info.height_cm / weight_kg</span>) and never change. A new BMI screening does not touch them.</p>
+        <p class="fix-line"><span class="tag">Fix</span> Remove from Personal. Health tab shows a Body card: height, weight, BMI with category, source date, change since the previous reading.</p>
+      </article>
+      <article class="change">
+        <span class="where">Backend &middot; BMI screening document</span>
+        <p class="fix-line"><span class="tag">Add</span> When <span class="mono">POST /api/screenings/:id/document</span> saves a BMI result (template fields f1 height, f2 weight, f3 BMI), update <span class="mono">height_cm / weight_kg</span> of that student in the same transaction. Only when the screening date is the newest one for that student. Student My Profile stops editing these two fields (read only, "from BMI screening").</p>
+      </article>
+      <article class="change">
+        <span class="where">New &middot; latest check-up per service</span>
+        <p class="bad-line"><span class="tag">Now</span> No assessment is visible on this page. <span class="mono">GET /api/doctor/patients/:studentId/record</span> returns up to 100 assessments, all services mixed.</p>
+        <p class="fix-line"><span class="tag">Fix</span> One card per <span class="mono">visit_type</span> (Check-up service): doctor, date, complaint, diagnosis, plan, "Repeat needed" chip. Services with no assessment collapse into one "No check-up yet" row.</p>
+<pre>// backend: newest assessment per visit_type
+SELECT * FROM (
+  ${DOCTOR_VISIT_SELECT} WHERE das.student_id = ? AND da_assessment.assessment_id IS NOT NULL
+) v WHERE v.assessment_date = (SELECT MAX(...) /* same student + visit_type */)</pre>
+      </article>
+      <article class="change">
+        <span class="where">New &middot; latest screening per type</span>
+        <p class="bad-line"><span class="tag">Now</span> <span class="mono">GET /api/students/:studentId/screening-history</span> returns every result, newest first.</p>
+        <p class="fix-line"><span class="tag">Fix</span> Keep the first row of each <span class="mono">screening_type</span> (client side, no new endpoint). Card: type, date, result summary, Normal / Abnormal chip (icon + word), remarks. Active types with no result go in a "Not screened yet" row. Each card opens the full history already built in <span class="mono">StudentScreeningHistoryModal</span> and the doctor record.</p>
+<pre>const latest = {};
+history.forEach(h => { if (h.attendance_status === 'PRESENT' &amp;&amp; !latest[h.screening_type]) latest[h.screening_type] = h; });</pre>
+      </article>
+      <article class="change">
+        <span class="where">L456-461 &middot; HealthInfoView</span>
+        <p class="fix-line"><span class="tag">Order</span> Row 1: Body next to Health history (two columns, stacks on phone). Then Latest check-up per service, then Latest screening per type. Print report gets the same Body line and the newest result of each screening type.</p>
+      </article>
+    </section>
+
+    <section class="group">
+      <h2>Added</h2>
+      <article class="change">
+        <span class="where">New &middot; summary strip</span>
+        <p class="fix-line"><span class="tag">Add</span> Health flags, requirements progress, parent contact above the tabs. The nurse sees allergies and overdue items without opening a tab.</p>
+      </article>
+      <article class="change">
+        <span class="where">New &middot; requirements filter</span>
+        <p class="fix-line"><span class="tag">Add</span> All / Pending / Overdue / Complete chips with counts. Overdue count shows on the tab. Deadline says "Overdue by 12 days" or "Due in 3 days".</p>
+      </article>
+      <article class="change">
+        <span class="where">New &middot; Health tab</span>
+        <p class="fix-line"><span class="tag">Add</span> Health history shows only recorded conditions as cards. Unrecorded ones are not listed (changes <span class="mono">HealthInfoView</span>).</p>
+      </article>
+    </section>
+  </div>
+</div>
+
+<script>
+(function () {
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var ic = function (n) { return '<svg class="i" aria-hidden="true"><use href="#i-' + n + '"/></svg>'; };
+  var esc = function (s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+
+  /* ---------- example data ---------- */
+  var DAY = 86400000, today = new Date(); today.setHours(0, 0, 0, 0);
+  var inDays = function (n) { return new Date(today.getTime() + n * DAY); };
+  var fmt = function (d) { return d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }); };
+
+  var personal = {
+    gender: 'Female', birth: new Date(2006, 2, 14), age: 20, contact: '0917 555 0142',
+    address: '24 Gil Carlos St., Poblacion, Baliuag, Bulacan', height: 158, weight: 52,
+    father: 'Ernesto Santos', mother: 'Rosario Santos'
+  };
+  var conditions = [
+    { icon: 'alert', tone: 'bad', title: 'Allergies', rows: [['Food', 'Peanuts'], ['Medicine', 'Penicillin']] },
+    { icon: 'alert', tone: 'warn', title: 'Asthma', rows: [['Triggers', 'Dust, cold air']] },
+    { icon: 'heart', tone: 'neutral', title: 'Surgery', rows: [['Procedure', 'Appendectomy'], ['Date', 'Mar 9, 2023']] }
+  ];
+  var reqs = [
+    { id: 1, name: 'Annual physical exam', type: 'Program', due: 30, status: 'Submitted', remarks: '', file: true },
+    { id: 2, name: 'Chest X-ray', type: 'Program', due: 21, status: 'Submitted', remarks: 'Clear', file: true },
+    { id: 3, name: 'Hepatitis B vaccine', type: 'Special', due: 3, status: 'Pending', remarks: '', file: false },
+    { id: 4, name: 'Urinalysis', type: 'Program', due: -12, status: 'Late', remarks: 'Ask for resubmission', file: false },
+    { id: 5, name: 'Dental clearance', type: 'Program', due: 9, status: 'Submitted', remarks: '', file: true },
+    { id: 6, name: 'Drug test', type: 'Special', due: -4, status: 'Missing', remarks: '', file: false },
+    { id: 7, name: 'Medical certificate', type: 'Program', due: 14, status: 'Submitted', remarks: '', file: true }
+  ];
+  var parent = { id: 'PAR-2025-0041', name: 'Rosario Santos', phone: '0917 555 0142', user: 'rsantos', sms: true, active: true };
+
+  var kind = function (r) {
+    var s = r.status.toLowerCase();
+    if (s === 'submitted' || s === 'completed') return 'complete';
+    if (['late', 'overdue', 'missing'].indexOf(s) > -1) return 'danger';
+    return 'warning';
+  };
+  var STATUS = {
+    complete: { cls: 'ok', icon: 'check' },
+    warning: { cls: 'warn', icon: 'clock' },
+    danger: { cls: 'bad', icon: 'alert' }
+  };
+  var counts = { all: reqs.length, warning: 0, danger: 0, complete: 0 };
+  reqs.forEach(function (r) { counts[kind(r)]++; });
+
+  /* ---------- summary strip ---------- */
+  $('#flags').innerHTML = conditions.map(function (c) {
+    return '<li><span class="chip ' + c.tone + '">' + ic(c.icon) + esc(c.title) + ': ' + esc(c.rows[0][1]) + '</span></li>';
+  }).join('');
+  $('#prog-num').innerHTML = counts.complete + '<small> of ' + counts.all + ' complete</small>';
+  var pct = Math.round(counts.complete / counts.all * 100);
+  $('#prog-fill').style.width = pct + '%';
+  var bar = $('#prog-bar');
+  bar.setAttribute('aria-valuemin', 0); bar.setAttribute('aria-valuemax', counts.all); bar.setAttribute('aria-valuenow', counts.complete);
+  $('#prog-chips').innerHTML =
+    (counts.danger ? '<span class="chip bad">' + ic('alert') + counts.danger + ' overdue</span>' : '') +
+    (counts.warning ? '<span class="chip warn">' + ic('clock') + counts.warning + ' pending</span>' : '');
+  $('#tab-count').textContent = counts.danger;
+  $('#tab-count').hidden = !counts.danger;
+  $('#tab-count').setAttribute('aria-label', counts.danger + ' overdue');
+
+  /* ---------- personal ---------- */
+  var f = function (label, val, unit, full) {
+    var has = val !== '' && val != null;
+    return '<div' + (full ? ' class="full"' : '') + '><dt>' + label + '</dt><dd' + (has ? '' : ' class="empty"') + '>' + (has ? esc(val) + (unit ? ' ' + unit : '') : '&mdash;') + '</dd></div>';
+  };
+  $('#panel-personal').innerHTML =
+    '<div class="grid2">' +
+      '<div class="card"><h3>Identity</h3><dl class="fields">' + f('Gender', personal.gender) + f('Date of birth', fmt(personal.birth)) + f('Age', personal.age) + '</dl></div>' +
+      '<div class="card"><h3>Contact</h3><dl class="fields">' + f('Contact no.', personal.contact) + f('Address', personal.address, '', true) + '</dl></div>' +
+      '<div class="card"><h3>Family</h3><dl class="fields">' + f("Father's name", personal.father) + f("Mother's name", personal.mother) + '</dl></div>' +
+    '</div>';
+
+  /* ---------- health ---------- */
+  var body = { height: 158, weight: 52, bmi: 20.8, label: 'Normal', date: inDays(-18), prevWeight: 50.5, prevDate: inDays(-120), prevHeight: 158 };
+  var checkups = [
+    { service: 'General Check Up', doctor: 'Dr. Reyes', days: -6, complaint: 'Cough, 3 days', dx: 'Acute bronchitis', plan: 'Rest, fluids, salbutamol as needed', repeat: true },
+    { service: 'Dental', doctor: 'Dr. Cruz', days: -75, complaint: 'Toothache', dx: 'Dental caries, tooth 36', plan: 'Filling done', repeat: false },
+    { service: 'Vision', doctor: 'Dr. Lim', days: -200, complaint: 'Blurred distance vision', dx: 'Myopia', plan: 'Corrective lenses', repeat: false }
+  ];
+  var noCheckup = ['Dermatology', 'Pediatrics'];
+  var screenings = [
+    { type: 'BMI', days: -18, summary: 'BMI 20.8 (Normal), 158 cm, 52 kg', abnormal: false },
+    { type: 'Vital Signs', days: -18, summary: 'BP 118/76, pulse 82, temp 36.8 °C', abnormal: false },
+    { type: 'Hearing', days: -140, summary: 'Left 25 dB, right 40 dB', abnormal: true, remarks: 'Right ear above normal. Refer.' }
+  ];
+  var noScreening = ['Dental screening'];
+  var delta = function (a, b, u) { var d = Math.round((a - b) * 10) / 10; return d === 0 ? 'no change' : (d > 0 ? '+' : '') + d + ' ' + u; };
+  var big = function (k, v, u, sub) { return '<div class="big"><span class="k">' + k + '</span><span class="v">' + v + '<small> ' + u + '</small></span>' + (sub ? '<span class="sub">' + sub + '</span>' : '') + '</div>'; };
+
+  var bodyCard =
+    '<div class="card"><div class="cond-head"><h3>' + ic('heart') + ' Body measurements</h3>' +
+      '<span class="chip brand">' + ic('check') + 'From BMI screening &middot; ' + fmt(body.date) + '</span></div>' +
+      '<div class="meas">' +
+        big('Height', body.height, 'cm', delta(body.height, body.prevHeight, 'cm') + ' since ' + fmt(body.prevDate)) +
+        big('Weight', body.weight, 'kg', delta(body.weight, body.prevWeight, 'kg') + ' since ' + fmt(body.prevDate)) +
+        '<div class="big"><span class="k">BMI</span><span class="v">' + body.bmi + '</span><span class="chip ok">' + ic('check') + body.label + '</span></div>' +
+      '</div></div>';
+
+  var checkCard =
+    '<div class="card"><h3>' + ic('user') + ' Latest check-up per service</h3><div class="cond-list">' + checkups.map(function (c) {
+      return '<article class="cond"><div class="cond-head"><h3>' + esc(c.service) + '</h3>' + (c.repeat ? '<span class="chip warn">' + ic('clock') + 'Repeat needed</span>' : '') + '</div>' +
+        '<p class="muted">' + esc(c.doctor) + ' &middot; ' + fmt(inDays(c.days)) + '</p>' +
+        '<dl class="fields">' + f('Complaint', c.complaint, '', true) + f('Diagnosis', c.dx, '', true) + f('Plan', c.plan, '', true) + '</dl></article>';
+    }).join('') + '</div>' +
+      '<div class="none-recorded"><span class="muted">No check-up yet:</span>' + noCheckup.map(function (n) { return '<span class="chip neutral">' + esc(n) + '</span>'; }).join('') + '</div></div>';
+
+  var screenCard =
+    '<div class="card"><h3>' + ic('list') + ' Latest screening per type</h3><div class="cond-list">' + screenings.map(function (s) {
+      return '<article class="cond"><div class="cond-head"><h3>' + esc(s.type) + '</h3>' +
+        (s.abnormal ? '<span class="chip bad">' + ic('alert') + 'Abnormal</span>' : '<span class="chip ok">' + ic('check') + 'Normal</span>') + '</div>' +
+        '<p class="muted">' + fmt(inDays(s.days)) + '</p>' +
+        '<dl class="fields">' + f('Result', s.summary, '', true) + (s.remarks ? f('Remarks', s.remarks, '', true) : '') + '</dl></article>';
+    }).join('') + '</div>' +
+      '<div class="none-recorded"><span class="muted">Not screened yet:</span>' + noScreening.map(function (n) { return '<span class="chip neutral">' + esc(n) + '</span>'; }).join('') + '</div></div>';
+
+  var historyCard =
+    '<div class="card"><h3>' + ic('alert') + ' Health history</h3><div class="cond-list">' + conditions.map(function (c) {
+      return '<article class="cond"><div class="cond-head"><h3>' + esc(c.title) + '</h3><span class="chip ' + c.tone + '">' + ic(c.icon) + (c.tone === 'bad' ? 'Alert' : c.tone === 'warn' ? 'Monitor' : 'History') + '</span></div>' +
+        '<dl class="fields">' + c.rows.map(function (r) { return f(r[0], r[1]); }).join('') + '</dl></article>';
+    }).join('') + '</div>' +
+    '</div>';
+
+  $('#panel-health').innerHTML = '<div class="grid2">' + bodyCard + historyCard + '</div>' + checkCard + screenCard;
+
+  /* ---------- requirements ---------- */
+  var filter = 'all';
+  var FILTERS = [['all', 'All'], ['warning', 'Pending'], ['danger', 'Overdue'], ['complete', 'Complete']];
+  function renderReqs() {
+    var rows = reqs.filter(function (r) { return filter === 'all' || kind(r) === filter; });
+    var chips = FILTERS.map(function (x) {
+      return '<button type="button" data-f="' + x[0] + '" aria-pressed="' + (filter === x[0]) + '">' + x[1] + ' <span class="n">' + counts[x[0]] + '</span></button>';
+    }).join('');
+    var body = rows.map(function (r) {
+      var k = kind(r), s = STATUS[k], d = inDays(r.due), sub = '';
+      if (k !== 'complete') {
+        if (r.due < 0) sub = '<span class="sub bad">Overdue by ' + (-r.due) + ' days</span>';
+        else if (r.due <= 7) sub = '<span class="sub warn">Due in ' + r.due + ' days</span>';
+      }
+      return '<tr><th scope="row">' + esc(r.name) + '</th>' +
+        '<td><span class="chip ' + (r.type === 'Special' ? 'warn' : 'brand') + '">' + esc(r.type) + '</span></td>' +
+        '<td>' + fmt(d) + sub + '</td>' +
+        '<td><span class="chip ' + s.cls + '">' + ic(s.icon) + esc(r.status) + '</span></td>' +
+        '<td>' + (r.remarks ? esc(r.remarks) : '<span class="muted">&mdash;</span>') + '</td>' +
+        '<td>' + (r.file
+          ? '<a class="btn-icon" href="#" data-open="' + r.id + '" aria-label="Open ' + esc(r.name) + ' file" title="Open file">' + ic('file') + '</a>'
+          : '<span class="muted">No file</span>') + '</td></tr>';
+    }).join('');
+    $('#panel-req').innerHTML =
+      '<div class="filters" role="group" aria-label="Filter by status">' + chips + '</div>' +
+      (rows.length
+        ? '<div class="table-wrap"><table><caption class="sr-only">Requirements</caption><thead><tr><th>Requirement</th><th>Type</th><th>Deadline</th><th>Status</th><th>Remarks</th><th>File</th></tr></thead><tbody>' + body + '</tbody></table></div>'
+        : '<div class="empty-state">Nothing here.</div>');
+    var active = document.activeElement && document.activeElement.getAttribute && document.activeElement.getAttribute('data-f');
+    if (active) { var b = $('#panel-req [data-f="' + active + '"]'); if (b) b.focus(); }
+  }
+  $('#panel-req').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-f]');
+    if (b) { filter = b.getAttribute('data-f'); renderReqs(); var nb = $('#panel-req [data-f="' + filter + '"]'); if (nb) nb.focus(); return; }
+    var a = e.target.closest('[data-open]');
+    if (a) e.preventDefault();
+  });
+  renderReqs();
+
+  /* ---------- tabs (roving tabindex, arrow keys) ---------- */
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
+  function select(tab, focus) {
+    tabs.forEach(function (t) {
+      var on = t === tab;
+      t.setAttribute('aria-selected', on); t.tabIndex = on ? 0 : -1;
+      document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+    });
+    if (focus) tab.focus();
+  }
+  tabs.forEach(function (t, i) {
+    t.addEventListener('click', function () { select(t); });
+    t.addEventListener('keydown', function (e) {
+      var n = null;
+      if (e.key === 'ArrowRight') n = tabs[(i + 1) % tabs.length];
+      else if (e.key === 'ArrowLeft') n = tabs[(i - 1 + tabs.length) % tabs.length];
+      else if (e.key === 'Home') n = tabs[0];
+      else if (e.key === 'End') n = tabs[tabs.length - 1];
+      if (n) { e.preventDefault(); select(n, true); }
+    });
+  });
+
+  /* ---------- parent modal ---------- */
+  var opener = null, backdrop = null;
+  function closeModal() {
+    if (!backdrop) return;
+    backdrop.remove(); backdrop = null;
+    document.removeEventListener('keydown', onKey);
+    if (opener) opener.focus();
+  }
+  function onKey(e) {
+    if (e.key === 'Escape') { e.preventDefault(); closeModal(); return; }
+    if (e.key !== 'Tab' || !backdrop) return;
+    var els = backdrop.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+    var first = els[0], last = els[els.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
+  $('#open-parent').addEventListener('click', function (e) {
+    opener = e.currentTarget;
+    backdrop = document.createElement('div');
+    backdrop.className = 'backdrop';
+    backdrop.innerHTML =
+      '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="pm-title">' +
+        '<div class="modal-head"><h2 id="pm-title">' + ic('user') + ' Parent profile</h2>' +
+        '<button type="button" class="btn-icon" id="pm-x" aria-label="Close" title="Close">' + ic('x') + '</button></div>' +
+        '<div class="modal-body"><dl class="fields">' +
+          f('Parent ID', parent.id) + f('Full name', parent.name) + f('Primary contact', parent.phone) + f('Username', parent.user) +
+          '<div><dt>SMS</dt><dd>' + (parent.sms ? '<span class="chip ok">' + ic('shield') + 'Verified</span>' : '<span class="chip neutral">Not verified</span>') + '</dd></div>' +
+          '<div><dt>Account</dt><dd>' + (parent.active ? '<span class="chip ok">' + ic('check') + 'Active</span>' : '<span class="chip bad">' + ic('xcircle') + 'Inactive</span>') + '</dd></div>' +
+        '</dl></div>' +
+        '<div class="modal-foot"><button type="button" class="btn-solid" id="pm-close">Close</button></div>' +
+      '</div>';
+    document.body.appendChild(backdrop);
+    backdrop.addEventListener('mousedown', function (ev) { if (ev.target === backdrop) closeModal(); });
+    $('#pm-x', backdrop).addEventListener('click', closeModal);
+    $('#pm-close', backdrop).addEventListener('click', closeModal);
+    document.addEventListener('keydown', onKey);
+    $('#pm-x', backdrop).focus();
+  });
+
+  /* ---------- preview switch ---------- */
+  var vi = $('#v-improved'), vc = $('#v-changes');
+  function show(which) {
+    var imp = which === 'improved';
+    vi.setAttribute('aria-pressed', imp); vc.setAttribute('aria-pressed', !imp);
+    $('#view-improved').hidden = !imp; $('#view-changes').hidden = imp;
+  }
+  vi.addEventListener('click', function () { show('improved'); });
+  vc.addEventListener('click', function () { show('changes'); });
+})();
+</script>

@@ -18,13 +18,14 @@ import {
     Check, 
     RefreshCw,
     Camera,
-    Printer
+    Printer,
+    Pill
 } from 'lucide-react';
 import jsQR from 'jsqr';
 
 import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/IncidentReports.css';
-import { useAlert } from '../../context/AlertContext';
+import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatDateTime } from '../../utils/datetime';
 
 const IncidentReport = () => {
@@ -65,6 +66,11 @@ const IncidentReport = () => {
         first_aid_administered: '',
         current_physical_situation: ''
     });
+
+    // Medicine dispensed for the incident (optional, logged in consultation_dispensation)
+    const [batches, setBatches] = useState([]);
+    const [dispenseMedicineId, setDispenseMedicineId] = useState('');
+    const [dispenseData, setDispenseData] = useState({ batch_id: '', quantity: '', unit: '' });
 
     // Hotline Form State (For adding/editing)
     const [editingHotlineId, setEditingHotlineId] = useState(null);
@@ -152,10 +158,52 @@ const IncidentReport = () => {
         }
     }, []);
 
+    const fetchBatches = useCallback(async () => {
+        try {
+            const res = await fetch('http://localhost:3001/api/medicines/batches');
+            const data = await res.json();
+            setBatches(Array.isArray(data) ? data : []);
+        } catch (error) {
+            console.error('Error fetching medicine batches:', error);
+        }
+    }, []);
+
     useEffect(() => {
         fetchIncidentReports();
         fetchHotlines();
     }, [fetchIncidentReports, fetchHotlines]);
+
+    useEffect(() => {
+        if (showAddIncidentModal) fetchBatches();
+    }, [showAddIncidentModal, fetchBatches]);
+
+    const medicineOptions = Array.from(
+        new Map(batches.map(b => [b.medicine_id, { id: b.medicine_id, name: b.medicine_name }])).values()
+    ).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    const medicineBatches = batches
+        .filter(b => b.medicine_id === dispenseMedicineId)
+        .sort((a, b) => new Date(a.expiration_date) - new Date(b.expiration_date));
+    const activeBatch = batches.find(b => b.batch_id === dispenseData.batch_id);
+    const dispenseLimit = parseFloat(activeBatch?.dispense_limit) || 0;
+
+    const handleMedicineChange = (medicineId) => {
+        setDispenseMedicineId(medicineId);
+        setDispenseData({ batch_id: '', quantity: '', unit: '' });
+    };
+
+    const handleBatchChange = (batchId) => {
+        const batch = batches.find(b => b.batch_id === batchId);
+        if (!batch) {
+            setDispenseData({ batch_id: '', quantity: '', unit: '' });
+            return;
+        }
+        const limit = parseFloat(batch.dispense_limit);
+        setDispenseData({
+            batch_id: batchId,
+            quantity: limit > 0 ? String(Math.max(1, Math.round(limit))) : '1',
+            unit: batch.dispense_unit_of_measure || batch.strength_unit_of_measure || 'pcs.'
+        });
+    };
 
     // EXPORT REPORT FOR ALL INCIDENT REPORTS
     const handleExportAllReport = () => {
@@ -183,6 +231,7 @@ const IncidentReport = () => {
                     <td>${r.incident_location || 'N/A'}</td>
                     <td>${r.incident_description || 'N/A'}</td>
                     <td>${r.first_aid_administered || 'N/A'}</td>
+                    <td>${r.medicine_name ? `${r.medicine_name} - ${Math.round(r.dosage_consumption_unit_value)} ${r.dosage_consumption_unit_of_measure}` : 'None'}</td>
                 </tr>
             `;
         }).join('');
@@ -294,10 +343,11 @@ const IncidentReport = () => {
                             <th>Location</th>
                             <th>Description</th>
                             <th>First Aid Administered</th>
+                            <th>Medicine Dispensed</th>
                         </tr>
                     </thead>
                     <tbody>
-                        ${tableRowsHtml || '<tr><td colspan="7">No incident reports found.</td></tr>'}
+                        ${tableRowsHtml || '<tr><td colspan="8">No incident reports found.</td></tr>'}
                     </tbody>
                 </table>
 
@@ -458,6 +508,7 @@ const IncidentReport = () => {
                             <th>Location</th>
                             <th>Incident Description</th>
                             <th>First Aid Administered</th>
+                            <th>Medicine Dispensed</th>
                             <th>Current Situation / Disposition</th>
                         </tr>
                     </thead>
@@ -466,6 +517,7 @@ const IncidentReport = () => {
                             <td>${selectedReport.incident_location || 'N/A'}</td>
                             <td>${selectedReport.incident_description || 'N/A'}</td>
                             <td>${selectedReport.first_aid_administered || 'N/A'}</td>
+                            <td>${selectedReport.medicine_name ? `${selectedReport.medicine_name} - ${Math.round(selectedReport.dosage_consumption_unit_value)} ${selectedReport.dosage_consumption_unit_of_measure}` : 'None'}</td>
                             <td>${selectedReport.current_physical_situation || 'N/A'}</td>
                         </tr>
                     </tbody>
@@ -626,11 +678,27 @@ const IncidentReport = () => {
             return;
         }
 
+        if (dispenseData.batch_id) {
+            const qty = Number(dispenseData.quantity);
+            if (!Number.isInteger(qty) || qty <= 0) {
+                showAlert('Quantity must be a whole number above 0.', 'warning');
+                return;
+            }
+            if (dispenseLimit > 0 && qty > dispenseLimit) {
+                showAlert(`Limit is ${dispenseLimit} ${dispenseData.unit} per dispense.`, 'warning');
+                return;
+            }
+        }
+
         try {
             const payload = {
                 student_id: sId,
                 nurse_id: nurseId,
-                ...incidentData
+                ...incidentData,
+                ...(dispenseData.batch_id && {
+                    batch_id: dispenseData.batch_id,
+                    dosage_consumption_unit_value: dispenseData.quantity
+                })
             };
 
             const res = await fetch(`http://localhost:3001/api/incident-reports`, {
@@ -659,6 +727,8 @@ const IncidentReport = () => {
         setSelectedStudent(null);
         setStudentSearch('');
         setStudentResults([]);
+        setDispenseMedicineId('');
+        setDispenseData({ batch_id: '', quantity: '', unit: '' });
         setIncidentData({
             incident_datetime: '',
             incident_location: '',
@@ -960,6 +1030,61 @@ const IncidentReport = () => {
                                 />
                             </div>
 
+                            <div className="form-group">
+                                <label htmlFor="incident-medicine"><Pill size={16} /> Medicine</label>
+                                <select
+                                    id="incident-medicine"
+                                    className="form-control"
+                                    value={dispenseMedicineId}
+                                    onChange={(e) => handleMedicineChange(e.target.value)}
+                                >
+                                    <option value="">None</option>
+                                    {medicineOptions.map(m => (
+                                        <option key={m.id} value={m.id}>{m.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {dispenseMedicineId && (
+                                <div className="form-grid-2">
+                                    <div className="form-group">
+                                        <label htmlFor="incident-batch">Batch expiry *</label>
+                                        <select
+                                            id="incident-batch"
+                                            className="form-control"
+                                            required
+                                            value={dispenseData.batch_id}
+                                            onChange={(e) => handleBatchChange(e.target.value)}
+                                        >
+                                            <option value="">Select</option>
+                                            {medicineBatches.map(b => (
+                                                <option key={b.batch_id} value={b.batch_id}>
+                                                    {formatDate(new Date(b.expiration_date))} (Stock: {b.current_stock})
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    {dispenseData.batch_id && (
+                                        <div className="form-group">
+                                            <label htmlFor="incident-qty">
+                                                Quantity ({dispenseData.unit}){dispenseLimit > 0 ? ` max ${dispenseLimit}` : ''} *
+                                            </label>
+                                            <input
+                                                id="incident-qty"
+                                                type="number"
+                                                min="1"
+                                                step="1"
+                                                max={dispenseLimit > 0 ? dispenseLimit : undefined}
+                                                className="form-control"
+                                                required
+                                                value={dispenseData.quantity}
+                                                onChange={(e) => setDispenseData({ ...dispenseData, quantity: e.target.value ? String(Math.max(1, Math.floor(Number(e.target.value)))) : '' })}
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
                             <div className="modal-footer">
                                 <button type="button" className="btn btn-light" onClick={() => { stopCameraScan(); setShowAddIncidentModal(false); }}>Cancel</button>
                                 <button type="submit" className="btn btn-primary">Save Incident Report</button>
@@ -1050,6 +1175,15 @@ const IncidentReport = () => {
                             <div className="detail-section">
                                 <label>Current Physical Situation / Disposition</label>
                                 <div className="detail-text">{selectedReport.current_physical_situation || 'None recorded.'}</div>
+                            </div>
+
+                            <div className="detail-section">
+                                <label>Medicine Dispensed</label>
+                                <div className="detail-text">
+                                    {selectedReport.medicine_name
+                                        ? `${selectedReport.medicine_name} - ${Math.round(selectedReport.dosage_consumption_unit_value)} ${selectedReport.dosage_consumption_unit_of_measure}`
+                                        : 'None.'}
+                                </div>
                             </div>
 
                             <div className="detail-section text-muted small">

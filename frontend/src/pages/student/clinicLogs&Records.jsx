@@ -7,12 +7,15 @@ import {
   Activity, 
   Stethoscope, 
   Calendar, 
-  Eye, 
-  X, 
-  Filter
+  Eye,
+  X,
+  Filter,
+  FileDown
 } from 'lucide-react';
+import { useAlert } from '../../context/AlertContext';
+import { exportClinicRecords, exportClinicRecord } from '../../utils/clinicRecordExport';
 import { Pager, paginate } from '../../components/common/RecordFolders';
-import { DoctorVisitDetail, ScreeningDetail, VisitStatus, ScreeningStatus, visitDoctor, visitTitle } from '../../components/common/ClinicRecordViews';
+import { ClinicVisitForm, DoctorVisitDetail, ScreeningDetail, VisitStatus, ScreeningStatus, visitDoctor, visitTitle } from '../../components/common/ClinicRecordViews';
 import { formatTime, formatDate as formatDateBase, formatDateTime } from '../../utils/datetime';
 import '../../styles/student/ClinicLogs&Records.css';
 
@@ -65,8 +68,11 @@ const formatKeyLabel = (key) => {
     .join(' ');
 };
 
-export default function ClinicLogsAndRecords() {
-  const { studentId } = useOutletContext();
+// studentId prop: the nurse opens this same screen for any student (outside the student layout)
+export default function ClinicLogsAndRecords({ studentId: studentIdProp }) {
+  const outlet = useOutletContext();
+  const { showAlert } = useAlert();
+  const studentId = studentIdProp || outlet?.studentId;
 
   const [activeTab, setActiveTab] = useState('clinic-visits');
   const [records, setRecords] = useState([]);
@@ -118,6 +124,17 @@ export default function ClinicLogsAndRecords() {
     fetchLogs('', '');
   };
 
+  const onBlocked = () => showAlert('Allow popups to preview the PDF.', 'warning');
+  const studentLabel = `Student ID: ${studentId || 'N/A'}`;
+
+  const handleExport = () => {
+    if (records.length === 0) {
+      showAlert('No records to export.', 'warning');
+      return;
+    }
+    exportClinicRecords({ tab: activeTab, records, studentLabel, range: { startDate, endDate }, onBlocked });
+  };
+
   return (
     <div className="container-clr">
       {/* STI Header Banner */}
@@ -153,6 +170,15 @@ export default function ClinicLogsAndRecords() {
             </button>
             <button type="button" onClick={clearFilter} className="btn-clr btn-secondary-clr">
               Clear
+            </button>
+            <button
+              type="button"
+              onClick={handleExport}
+              className="btn-clr btn-secondary-clr btn-export-clr"
+              aria-label="Export PDF"
+              title="Export PDF"
+            >
+              <FileDown size={18} aria-hidden="true" />
             </button>
           </div>
         </form>
@@ -221,7 +247,12 @@ export default function ClinicLogsAndRecords() {
 
       {/* Record Details Modal */}
       {selectedRecord && (
-        <Modal tab={activeTab} record={selectedRecord} onClose={() => setSelectedRecord(null)} />
+        <Modal
+          tab={activeTab}
+          record={selectedRecord}
+          onClose={() => setSelectedRecord(null)}
+          onExport={() => exportClinicRecord({ tab: activeTab, record: selectedRecord, studentLabel, onBlocked })}
+        />
       )}
     </div>
   );
@@ -405,7 +436,7 @@ function renderTableRow(tab, item, index, onViewDetails) {
 }
 
 // Modal Component
-function Modal({ tab, record, onClose }) {
+function Modal({ tab, record, onClose, onExport }) {
   return (
     <div className="modal-overlay-clr">
       <div className="modal-content-clr">
@@ -414,7 +445,7 @@ function Modal({ tab, record, onClose }) {
           <button className="modal-close-clr" onClick={onClose}><X size={20} /></button>
         </div>
         <div className="modal-body-clr">
-          {tab === 'doctor-visits' ? <DoctorVisitDetail record={record} /> : tab === 'health-screenings' ? <ScreeningDetail record={record} /> : Object.entries(record).map(([key, value]) => (
+          {tab === 'clinic-visits' ? <ClinicVisitForm record={record} /> : tab === 'doctor-visits' ? <DoctorVisitDetail record={record} /> : tab === 'health-screenings' ? <ScreeningDetail record={record} /> : Object.entries(record).map(([key, value]) => (
             <div className="modal-field-clr" key={key}>
               <span className="field-key-clr">{formatKeyLabel(key)}:</span>
               <span className="field-value-clr">
@@ -426,6 +457,9 @@ function Modal({ tab, record, onClose }) {
           ))}
         </div>
         <div className="modal-footer-clr">
+          <button type="button" className="btn-clr btn-primary-clr btn-export-clr" onClick={onExport} aria-label="Export PDF" title="Export PDF">
+            <FileDown size={18} aria-hidden="true" />
+          </button>
           <button className="btn-clr btn-secondary-clr" onClick={onClose}>Close</button>
         </div>
       </div>

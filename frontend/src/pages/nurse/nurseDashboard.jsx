@@ -455,10 +455,11 @@ const CustomTooltip = ({ active, payload, label, unitLabel = "case", medicinesUn
     const totalCases = payload.reduce((sum, entry) => sum + (Number(entry.value) || 0), 0);
     const activePayload = payload.filter((entry) => (Number(entry.value) || 0) > 0);
 
-    // One day -> "Oct. 23, 2026"; a week or month bucket -> "Oct. 1, 2026 – Oct. 7, 2026"
+    // One day -> "Oct. 23, 2026 (Fri)"; a week or month bucket -> "Oct. 1, 2026 – Oct. 7, 2026"
     const { start, end } = payload[0].payload || {};
+    const weekdayOf = (ymd) => new Date(`${String(ymd).slice(0, 10)}T00:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
     const dateHeader = start
-      ? (!end || start === end ? formatDateBase(start) : `${formatDateBase(start)} – ${formatDateBase(end)}`)
+      ? (!end || start === end ? `${formatDateBase(start)} (${weekdayOf(start)})` : `${formatDateBase(start)} – ${formatDateBase(end)}`)
       : label;
 
     return (
@@ -635,6 +636,8 @@ const NurseDashboard = () => {
   const [dispensedMedicineFilter, setDispensedMedicineFilter] = useState(""); // "" = all medicines
   const [dispensedFromDate, setDispensedFromDate] = useState(`${maxCurrentMonth}-01`);
   const [dispensedToDate, setDispensedToDate] = useState(getTodayString);
+  // "Past 30 days" ends on this day (same window as the predictive demand history); Sundays are closed days there
+  const [dispensedLast30End, setDispensedLast30End] = useState(getTodayString);
   const [isDispensedLoading, setIsDispensedLoading] = useState(true);
 
   // 3. Predictive Demand State
@@ -714,7 +717,7 @@ const NurseDashboard = () => {
 
   // Daily-style (stacked) bars: day-by-day views and custom ranges of up to 31 days
   const isTrendStacked = filterType === 'daily' || (filterType === 'range' && isDailyRange(trendFromDate, trendToDate));
-  const isDispensedStacked = dispensedFilterType === 'daily' || (dispensedFilterType === 'range' && isDailyRange(dispensedFromDate, dispensedToDate));
+  const isDispensedStacked = dispensedFilterType === 'daily' || dispensedFilterType === 'last30' || (dispensedFilterType === 'range' && isDailyRange(dispensedFromDate, dispensedToDate));
 
   // Sum of every bar in the selected window, per medicine (zero totals left out)
   const visibleDispensedMedicines = dispensedMedicineFilter
@@ -1002,6 +1005,8 @@ const NurseDashboard = () => {
         ? `${dispensedSelectedYear}-01-01`
         : dispensedFilterType === 'range'
         ? getTodayString()
+        : dispensedFilterType === 'last30'
+        ? dispensedLast30End
         : `${dispensedSelectedMonth}-01`;
 
       const params = new URLSearchParams({ filterType: dispensedFilterType, date: apiDate });
@@ -1023,7 +1028,7 @@ const NurseDashboard = () => {
     } finally {
       setIsDispensedLoading(false);
     }
-  }, [dispensedFilterType, dispensedSelectedMonth, dispensedSelectedYear, dispensedFromDate, dispensedToDate]);
+  }, [dispensedFilterType, dispensedSelectedMonth, dispensedSelectedYear, dispensedFromDate, dispensedToDate, dispensedLast30End]);
 
   // Fetch Predictive Medicine Demand
   const fetchPredictiveDemand = useCallback(async () => {
@@ -1874,6 +1879,7 @@ const NurseDashboard = () => {
             <option value="daily">Daily (day by day of a month)</option>
             <option value="weekly">Weekly (week by week of a month)</option>
             <option value="monthly">Monthly (month by month of a year)</option>
+            <option value="last30">Past 30 days</option>
             <option value="range">Custom Date Range</option>
           </select>
           <select
@@ -1907,9 +1913,22 @@ const NurseDashboard = () => {
               />
             </>
           )}
+          {dispensedFilterType === 'last30' && (
+            <>
+              <label className="filter-label-nd" htmlFor="dispensed-last30-end">Ending</label>
+              <input
+                id="dispensed-last30-end"
+                type="date"
+                value={dispensedLast30End}
+                max={getTodayString()}
+                onChange={(e) => e.target.value && setDispensedLast30End(e.target.value)}
+                className="filter-input-nd date-picker-nd"
+              />
+            </>
+          )}
           {(dispensedFilterType === 'daily' || dispensedFilterType === 'weekly') && (
             <input
-              type="month" 
+              type="month"
               value={dispensedSelectedMonth} 
               max={maxCurrentMonth} 
               onChange={(e) => {
@@ -2021,7 +2040,7 @@ const NurseDashboard = () => {
       {!isDispensedLoading && dispensedWindowTotals.length > 0 && (
         <div className="averages-container-nd">
           <h4 className="averages-title-nd">
-            Total Dispensed in Window{dispensedFilterType === 'range' ? ` (${dispensedFromDate} to ${dispensedToDate})` : ''}
+            Total Dispensed in Window{dispensedFilterType === 'range' ? ` (${dispensedFromDate} to ${dispensedToDate})` : ''} · Sundays excluded
           </h4>
           <div className="averages-badges-wrapper-nd">
             {dispensedWindowTotals.map(({ medicine, total }) => (

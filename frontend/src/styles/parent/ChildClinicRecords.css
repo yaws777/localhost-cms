@@ -420,3 +420,20 @@ body {
   .field-key-ccr { width: 40%; font-size: 0.875rem; }
   .field-value-ccr { width: 60%; font-size: 0.875rem; }
 }
+/* icon-only export button */
+.btn-export-ccr {
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  padding: 0.5rem;
+}
+
+.btn-export-ccr:focus-visible {
+  outline: 0.1875rem solid var(--sti-blue-primary, #004b87);
+  outline-offset: 0.125rem;
+}
+
+.modal-footer-ccr {
+  gap: 0.5rem;
+}
+
+.modal-footer-ccr .btn-export-ccr { width: auto; }

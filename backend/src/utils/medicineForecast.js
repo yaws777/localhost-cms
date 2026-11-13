@@ -78,23 +78,30 @@ function normalizeWeights(weights) {
 }
 
 /**
- * Deterministic day-to-day variation (mean about 1): demand does not repeat the same weekday shape every week, so
- * peaks and lows land on different days. Seeded by the target date and the medicine's own history, so the same
- * data always gives the same chart (no flicker on reload) while each medicine gets its own pattern.
- * @param {string} dateStr  YYYY-MM-DD of the target day.
- * @param {number[]} history
- * @returns {number}
+ * Measure the day-of-week seasonal index from the history itself (plain ratio, no smoothing).
+ *   index[d] = mean demand on weekday d / average daily demand (ADD) over all open days
+ * Sundays (closed) are skipped. A weekday with no sample, or no demand at all, gives index 1 (flat).
+ * Example: Wednesdays 5, 5, 7, 8 -> mean 6.25; ADD 84 / 26 = 3.23; index = 6.25 / 3.23 = 1.93.
+ * @param {number[]} history   [D_0 ... D_29], D_0 = base date.
+ * @param {(i:number)=>number} dowOf  Weekday (0 = Sun) of history slot i.
+ * @returns {Object<number, number>}
  */
-function dayVariation(dateStr, history) {
-  let h = 2166136261;
-  const key = `${dateStr}|${history.reduce((a, v, i) => a + v * (i + 3), 0).toFixed(2)}`;
-  for (let i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 16777619); }
-  const next = () => { h = (h + 0x6D2B79F5) | 0; let t = Math.imul(h ^ (h >>> 15), 1 | h); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
-  next(); next(); next(); // warm up: similar keys (neighbouring dates) must not give similar numbers
-  let v = 0.55 + next() * 0.9;
-  const r = next();
-  if (r < 0.13) v *= 1.6; else if (r < 0.26) v *= 0.55;
-  return v;
+function measureSeasonality(history, dowOf) {
+  const sum = {}; const count = {};
+  let total = 0; let n = 0;
+  history.forEach((v, i) => {
+    const d = dowOf(i);
+    if (d === CLOSED_DOW) return;
+    sum[d] = (sum[d] || 0) + v; count[d] = (count[d] || 0) + 1;
+    total += v; n++;
+  });
+  const add = n > 0 ? total / n : 0;
+  const index = { [CLOSED_DOW]: 0 };
+  for (let d = 0; d < 7; d++) {
+    if (d === CLOSED_DOW) continue;
+    index[d] = add > 0 && count[d] ? (sum[d] / count[d]) / add : 1;
+  }
+  return index;
 }
 
 /**
@@ -142,9 +149,11 @@ function forecastMedicineDemand(history, { seasonality, trendFactor = 0, startDa
   // Day of week of the window slot that is i days before the base date t (i = 0 is t itself).
   const dowOfBaseMinus = (i) => (((baseDate.getUTCDay() - i) % 7) + 7) % 7;
 
-  // Day-of-week weights: a custom set is used as given. Otherwise every open day starts equal and the shape of
-  // the week comes from dayVariation, so peaks and lows fall on random days instead of a fixed weekday pattern.
-  const weights = normalizeWeights({ 0: 0, 1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, ...(seasonality || {}) });
+  // Day-of-week weights: a custom set is used as given (rescaled to average 1). Otherwise the seasonal index is
+  // measured from the history (original 30 days, before any prediction is added to the window).
+  const weights = seasonality
+    ? normalizeWeights({ 0: 0, 1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, ...seasonality })
+    : measureSeasonality(history, dowOfBaseMinus);
 
   // Active window: index 0 = newest day, last index = oldest day. Closed days (Sundays) hold 0 and are not counted.
   const window = history.map((v, i) => (dowOfBaseMinus(i) === CLOSED_DOW ? 0 : v));
@@ -163,10 +172,7 @@ function forecastMedicineDemand(history, { seasonality, trendFactor = 0, startDa
     }
     const activeWindowSum = windowSum;
     const activeADD = activeDays > 0 ? activeWindowSum / activeDays : 0;
-    // day-of-week weight x day variation; custom seasonality is used exactly as given (no variation)
-    const seasonalityIndex = dow === CLOSED_DOW || seasonality
-      ? weights[dow]
-      : weights[dow] * dayVariation(target.toISOString().slice(0, 10), history);
+    const seasonalityIndex = weights[dow];
     const baseDemand = Math.max(0, activeADD * seasonalityIndex);
     const rawDemand = baseDemand * Math.pow(1 + trendFactor, k);
     const predictedDemand = parseFloat(rawDemand.toFixed(4));

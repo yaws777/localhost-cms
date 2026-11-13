@@ -9,6 +9,7 @@ import {
 import jsQR from 'jsqr';
 import stiLogo from '../../assets/sti-logof.png';
 import { formatTime, formatDate } from '../../utils/datetime';
+import SearchableSelect from '../../components/common/SearchableSelect';
 import '../../styles/nurse/VisitLogConsultation.css';
 
 const MEASURED_UNITS = ['mg', 'g', 'mcg', 'mL', 'L'];
@@ -17,6 +18,8 @@ const DISCRETE_UNITS = [
     'Prefilled Syringe', 'Spray/s', 'Inhaler', 'Box/es', 'pcs.'
 ];
 const VOLUME_UNITS = ['mg', 'g', 'mcg', 'mL', 'L', 'pcs.'];
+
+const EMPTY_OUT_VITALS = { blood_pressure: '', temperature: '', pulse_rate: '', respiratory_rate: '', nurse_note: '' };
 
 const CONDITIONAL_COMPLAINT_NAMES = [
     'injury', 
@@ -56,18 +59,6 @@ const formatDosageForm = (dosageForm, count = 1) => {
     return `${dosageForm}s`;
 };
 
-const formatDosageFormWithStrength = (batch) => {
-    if (!batch) return '';
-    const dosageForm = batch.dosage_form || 'Unit';
-    const strengthVal = batch.strength_unit_value;
-    const strengthUnit = batch.strength_unit_of_measure || batch.dispense_unit_of_measure || '';
-    
-    if (strengthVal && strengthUnit) {
-        return `${dosageForm}(${strengthVal} ${strengthUnit} per ${dosageForm.toLowerCase()})`;
-    }
-    return dosageForm;
-};
-
 const formatExpirationDate = (dateString) => {
     if (!dateString) return '';
     const date = new Date(dateString);
@@ -83,6 +74,15 @@ const formatDateDisplay = (dateString) => {
 const formatTimeDisplay = (timeStr) => {
     if (!timeStr) return '--:--';
     return formatTime(timeStr) || timeStr;
+};
+
+// a batch that can still be dispensed: stock left and not past its expiration date (end of that day)
+const isLiveBatch = (b) => {
+    if (!b || !(parseInt(b.current_stock, 10) > 0)) return false;
+    const exp = new Date(b.expiration_date);
+    if (isNaN(exp)) return true;
+    exp.setHours(23, 59, 59, 999);
+    return exp >= new Date();
 };
 
 const isVisitDocumented = (visit) => Boolean(visit?.complaint_id || visit?.complaint_name || visit?.nursing_intervention);
@@ -123,6 +123,8 @@ const VisitLogConsultation = () => {
     const [complaintFilter, setComplaintFilter] = useState('');
 
     const [documentingVisit, setDocumentingVisit] = useState(null);
+    // medicine picked before its batch (the batch select lists that medicine's expiration dates)
+    const [dispenseMedicineId, setDispenseMedicineId] = useState('');
     const [formData, setFormData] = useState({
         complaint_id: '',
         specify_complaint_text: '',
@@ -142,6 +144,11 @@ const VisitLogConsultation = () => {
 
     const [qrTimeoutVisit, setQrTimeoutVisit] = useState(null);
     const [qrTimeoutInput, setQrTimeoutInput] = useState('');
+
+    // Vital signs taken again when the student leaves (the time-in set is recorded in the documentation form)
+    const [timeoutVitalsVisit, setTimeoutVitalsVisit] = useState(null);
+    const [outVitals, setOutVitals] = useState(EMPTY_OUT_VITALS);
+    const isSubmittingTimeout = useRef(false);
 
     const [feedbackModal, setFeedbackModal] = useState({
         isOpen: false,
@@ -330,6 +337,7 @@ const VisitLogConsultation = () => {
             : '';
 
         setDocumentingVisit(visit);
+        setDispenseMedicineId('');
         setFormData({
             complaint_id: visit.complaint_id || '',
             specify_complaint_text: visit.specify_complaint_text || visit.specify_complaints_text || '',
@@ -484,54 +492,92 @@ const VisitLogConsultation = () => {
         }
     };
 
-    const handleManualTimeout = useCallback(async (visitId, customTime = null) => {
+    // Time out always asks for the vital signs again: this opens the time-out vitals form
+    const handleManualTimeout = useCallback((visitId) => {
         const target = [...todayVisits, ...allVisits].find(v => v.visit_id === visitId);
-        if (target && !isVisitDocumented(target)) {
+        if (!target) return;
+        if (!isVisitDocumented(target)) {
             showAlertModal('Document First', 'Fill up the visit documentation before timing the student out.', 'warning');
             return;
         }
-        const now = new Date();
-        const currentTime = customTime || now.toTimeString().split(' ')[0].substring(0, 5);
-        const formattedCurrentTime = formatTimeDisplay(currentTime);
+        setOutVitals(EMPTY_OUT_VITALS);
+        setTimeoutVitalsVisit(target);
+    }, [todayVisits, allVisits, showAlertModal]);
 
-        const performTimeout = async () => {
-            try {
-                const res = await fetch(`http://localhost:3001/api/clinic-visits/${visitId}/timeout`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ time_out: currentTime })
-                });
-                const data = await res.json();
-                if (data.success) {
-                    showAlertModal('Time Out Success', `Student successfully timed out at ${formattedCurrentTime}.`, 'success');
-                    fetchTodayVisits();
-                    if (showAllLogsModal) fetchAllVisits();
-                    if (documentingVisit && documentingVisit.visit_id === visitId) {
-                        setFormData(prev => ({ ...prev, time_out: currentTime }));
-                        setDocumentingVisit(prev => ({ ...prev, time_out: currentTime }));
-                    }
-                } else {
-                    showAlertModal('Time Out Error', data.error || "Failed to update time out status.", 'error');
-                }
-            } catch (err) {
-                console.error(err);
-                showAlertModal('Network Error', "Failed to connect to backend server for time out.", 'error');
-            }
+    const handleCloseTimeoutVitals = () => {
+        setTimeoutVitalsVisit(null);
+        setOutVitals(EMPTY_OUT_VITALS);
+    };
+
+    const handleSubmitTimeoutVitals = async (e) => {
+        e.preventDefault();
+        const visit = timeoutVitalsVisit;
+        if (!visit || isSubmittingTimeout.current) return;
+
+        const v = outVitals;
+        if (!v.blood_pressure.trim() || !v.temperature || !v.pulse_rate || !v.respiratory_rate) {
+            showAlertModal('Missing Vital Signs', 'Record all time-out vital signs before timing the student out.', 'warning');
+            return;
+        }
+        if (!v.nurse_note.trim()) {
+            showAlertModal('Nurse Note Required', "Write the student's health condition after the visit.", 'warning');
+            return;
+        }
+        if (!/^\d{2,3}\/\d{2,3}$/.test(v.blood_pressure.trim())) {
+            showAlertModal('Invalid Blood Pressure', 'Use the format 120/80.', 'warning');
+            return;
+        }
+        const outOfRange = (val, min, max) => Number(val) < min || Number(val) > max;
+        if (outOfRange(v.temperature, 30, 45) || outOfRange(v.pulse_rate, 30, 250) || outOfRange(v.respiratory_rate, 8, 60)) {
+            showAlertModal('Vital Sign Out of Range', 'Check temperature (30-45), pulse (30-250) and respiratory rate (8-60).', 'warning');
+            return;
+        }
+
+        const currentTime = new Date().toTimeString().split(' ')[0].substring(0, 5);
+        const payload = {
+            time_out: currentTime,
+            out_blood_pressure: v.blood_pressure.trim(),
+            out_temperature: v.temperature,
+            out_pulse_rate: v.pulse_rate,
+            out_respiratory_rate: v.respiratory_rate,
+            out_nurse_note: v.nurse_note.trim()
         };
 
-        if (customTime) {
-            await performTimeout();
-        } else {
-            showConfirmDialog(
-                'Confirm Time Out',
-                `Set Time Out based on current time (${formattedCurrentTime}) for this student visit?`,
-                performTimeout,
-                'Time Out Now',
-                'Cancel',
-                'confirm'
-            );
+        isSubmittingTimeout.current = true;
+        try {
+            const res = await fetch(`http://localhost:3001/api/clinic-visits/${visit.visit_id}/timeout`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            if (data.success) {
+                handleCloseTimeoutVitals();
+                showAlertModal('Time Out Success', `Student successfully timed out at ${formatTimeDisplay(currentTime)}.`, 'success');
+                fetchTodayVisits();
+                if (showAllLogsModal) fetchAllVisits();
+                if (documentingVisit && documentingVisit.visit_id === visit.visit_id) {
+                    setFormData(prev => ({ ...prev, time_out: currentTime }));
+                    setDocumentingVisit(prev => ({
+                        ...prev,
+                        time_out: currentTime,
+                        out_blood_pressure: payload.out_blood_pressure,
+                        out_temperature: payload.out_temperature,
+                        out_pulse_rate: payload.out_pulse_rate,
+                        out_respiratory_rate: payload.out_respiratory_rate,
+                        out_nurse_note: payload.out_nurse_note
+                    }));
+                }
+            } else {
+                showAlertModal('Time Out Error', data.error || "Failed to update time out status.", 'error');
+            }
+        } catch (err) {
+            console.error(err);
+            showAlertModal('Network Error', "Failed to connect to backend server for time out.", 'error');
+        } finally {
+            isSubmittingTimeout.current = false;
         }
-    }, [fetchTodayVisits, fetchAllVisits, showAllLogsModal, documentingVisit, todayVisits, allVisits, showAlertModal, showConfirmDialog]);
+    };
 
     useEffect(() => {
         let animationFrameId;
@@ -560,11 +606,10 @@ const VisitLogConsultation = () => {
                         if (scannedVal.toUpperCase() === qrTimeoutVisitRef.current.student_id.toUpperCase()) {
                             isProcessingScan.current = true;
                             stopCameraScan();
-                            const currentTime = new Date().toTimeString().split(' ')[0].substring(0, 5);
                             const targetVisitId = qrTimeoutVisitRef.current.visit_id;
                             setQrTimeoutVisit(null);
                             setQrTimeoutInput('');
-                            await handleManualTimeout(targetVisitId, currentTime);
+                            handleManualTimeout(targetVisitId);
                             isProcessingScan.current = false;
                         } else {
                             showAlertModal('QR Code Mismatch', `Scanned ID "${scannedVal}" does not match active student ID "${qrTimeoutVisitRef.current.student_id}".`, 'error');
@@ -703,6 +748,16 @@ const VisitLogConsultation = () => {
         }
     };
 
+    const handleMedicineChange = (medicineId) => {
+        setDispenseMedicineId(medicineId);
+        setFormData({
+            ...formData,
+            batch_id: '',
+            dosage_consumption_unit_value: '',
+            dosage_consumption_unit_of_measure: ''
+        });
+    };
+
     const getTotalAvailableStock = (batch) => {
         if (!batch) return 0;
         const unit = batch.dispense_unit_of_measure || batch.strength_unit_of_measure;
@@ -720,6 +775,14 @@ const VisitLogConsultation = () => {
 
     const activeBatchInfo = batches.find(b => b.batch_id === formData.batch_id);
     const eligibleBatches = batches.filter(b => isBatchLinkedToComplaint(b, formData.complaint_id));
+    const liveBatches = eligibleBatches.filter(isLiveBatch);
+    const medicineOptions = Array.from(
+        new Map(liveBatches.map(b => [b.medicine_id, { id: b.medicine_id, name: b.medicine_name }])).values()
+    ).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    const selectedMedicineId = activeBatchInfo?.medicine_id || dispenseMedicineId;
+    const medicineBatches = liveBatches
+        .filter(b => b.medicine_id === selectedMedicineId)
+        .sort((a, b) => new Date(a.expiration_date) - new Date(b.expiration_date));
     const dispenseLimit = parseFloat(activeBatchInfo?.dispense_limit) || 0;
     const activeBatchUnit = activeBatchInfo
         ? (activeBatchInfo.dispense_unit_of_measure || activeBatchInfo.strength_unit_of_measure)
@@ -845,10 +908,9 @@ const VisitLogConsultation = () => {
             return;
         }
 
-        const currentTime = new Date().toTimeString().split(' ')[0].substring(0, 5);
         const visitId = qrTimeoutVisit.visit_id;
         handleCloseQrTimeoutModal();
-        await handleManualTimeout(visitId, currentTime);
+        handleManualTimeout(visitId);
     };
 
     const filteredAllVisits = allVisits.filter(visit => {
@@ -1391,6 +1453,89 @@ const VisitLogConsultation = () => {
                 </div>
             )}
 
+            {timeoutVitalsVisit && (
+                <div className="modal-viewport-backdrop-vlc" style={{ zIndex: 1300 }}>
+                    <div className="modal-body-container-vlc">
+                        <div className="modal-header-accent-vlc">
+                            <h3><Activity size={18} /> Time-Out Vital Signs</h3>
+                            <button type="button" className="modal-dismiss-btn-vlc" aria-label="Close" title="Close" onClick={handleCloseTimeoutVitals}><XCircle size={22} /></button>
+                        </div>
+                        <form onSubmit={handleSubmitTimeoutVitals} className="confirm-modal-body-vlc" noValidate>
+                            <p className="qr-timeout-notice-vlc">
+                                <strong>{timeoutVitalsVisit.first_name} {timeoutVitalsVisit.last_name}</strong> (ID: <code>{timeoutVitalsVisit.student_id}</code>)
+                            </p>
+                            <p className="confirm-notice-vlc">
+                                Time In vitals: BP {timeoutVitalsVisit.blood_pressure || '--'} | Temp {timeoutVitalsVisit.temperature || '--'} °C | Pulse {timeoutVitalsVisit.pulse_rate || '--'} | Resp {timeoutVitalsVisit.respiratory_rate || '--'}
+                            </p>
+                            <div className="form-fields-grid-layout-vlc four-col-layout-vlc">
+                                <div className="form-input-element-vlc">
+                                    <label htmlFor="out-bp">BP (mmHg) <span className="required-star-vlc">*</span></label>
+                                    <input
+                                        id="out-bp"
+                                        type="text"
+                                        autoFocus
+                                        placeholder="120/80"
+                                        value={outVitals.blood_pressure}
+                                        onChange={e => setOutVitals({ ...outVitals, blood_pressure: e.target.value })}
+                                    />
+                                </div>
+                                <div className="form-input-element-vlc">
+                                    <label htmlFor="out-temp">Temp (°C) <span className="required-star-vlc">*</span></label>
+                                    <input
+                                        id="out-temp"
+                                        type="number"
+                                        step="0.1"
+                                        min="30"
+                                        max="45"
+                                        placeholder="36.5"
+                                        value={outVitals.temperature}
+                                        onChange={e => setOutVitals({ ...outVitals, temperature: e.target.value })}
+                                    />
+                                </div>
+                                <div className="form-input-element-vlc">
+                                    <label htmlFor="out-pulse">Pulse (bpm) <span className="required-star-vlc">*</span></label>
+                                    <input
+                                        id="out-pulse"
+                                        type="number"
+                                        min="30"
+                                        max="250"
+                                        placeholder="72"
+                                        value={outVitals.pulse_rate}
+                                        onChange={e => setOutVitals({ ...outVitals, pulse_rate: e.target.value })}
+                                    />
+                                </div>
+                                <div className="form-input-element-vlc">
+                                    <label htmlFor="out-resp">Resp Rate <span className="required-star-vlc">*</span></label>
+                                    <input
+                                        id="out-resp"
+                                        type="number"
+                                        min="8"
+                                        max="60"
+                                        placeholder="18"
+                                        value={outVitals.respiratory_rate}
+                                        onChange={e => setOutVitals({ ...outVitals, respiratory_rate: e.target.value })}
+                                    />
+                                </div>
+                            </div>
+                            <div className="form-input-element-vlc full-width-field-vlc">
+                                <label htmlFor="out-note">Student Condition After Time-out <span className="required-star-vlc">*</span></label>
+                                <textarea
+                                    id="out-note"
+                                    rows={3}
+                                    placeholder="Condition of the student after time-out..."
+                                    value={outVitals.nurse_note}
+                                    onChange={e => setOutVitals({ ...outVitals, nurse_note: e.target.value })}
+                                />
+                            </div>
+                            <div className="modal-action-footer-vlc">
+                                <button type="button" className="btn-cancel-action-vlc" onClick={handleCloseTimeoutVitals}>Cancel</button>
+                                <button type="submit" className="btn-confirm-action-vlc">Confirm Time Out</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
             {showAllLogsModal && (
                 <div className="modal-viewport-backdrop-vlc logs-fullscreen-backdrop-vlc">
                     <div className="modal-body-container-vlc logs-modal-responsive-vlc">
@@ -1441,15 +1586,12 @@ const VisitLogConsultation = () => {
 
                                 <div className="filter-input-group-vlc">
                                     <label><Filter size={14} /> Medical Condition</label>
-                                    <select 
-                                        value={complaintFilter} 
-                                        onChange={(e) => setComplaintFilter(e.target.value)}
-                                    >
-                                        <option value="">All Medical Condition</option>
-                                        {complaints.map(c => (
-                                            <option key={c.complaint_id} value={c.complaint_id}>{c.complaint_name}</option>
-                                        ))}
-                                    </select>
+                                    <SearchableSelect
+                                        ariaLabel="Filter by medical condition"
+                                        value={complaintFilter}
+                                        onChange={setComplaintFilter}
+                                        options={[{ value: '', label: 'All Medical Condition' }, ...complaints.map(c => ({ value: c.complaint_id, label: c.complaint_name }))]}
+                                    />
                                 </div>
 
                                 <div className="filter-input-group-vlc reset-btn-group-vlc" style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
@@ -1664,13 +1806,16 @@ const VisitLogConsultation = () => {
                                     </div>
                                     <div className="form-input-element-vlc full-width-field-vlc">
                                         <label>Medical Condition <span className="required-star-vlc">*</span></label>
-                                        <select 
-                                            required 
-                                            value={formData.complaint_id} 
-                                            onChange={e => {
-                                                const nextComplaintId = e.target.value;
+                                        <SearchableSelect
+                                            ariaLabel="Medical Condition"
+                                            placeholder="-- Choose matching medical condition --"
+                                            value={formData.complaint_id}
+                                            options={complaints.map(c => ({ value: c.complaint_id, label: c.complaint_name }))}
+                                            onChange={nextComplaintId => {
+                                                if (String(nextComplaintId) === String(formData.complaint_id)) return;
                                                 // Changing the condition clears a medicine that is not indicated for it
                                                 const keepBatch = isAlreadyDispensed || isBatchLinkedToComplaint(activeBatchInfo, nextComplaintId);
+                                                if (!keepBatch) setDispenseMedicineId('');
                                                 setFormData({
                                                     ...formData,
                                                     complaint_id: nextComplaintId,
@@ -1682,12 +1827,7 @@ const VisitLogConsultation = () => {
                                                     })
                                                 });
                                             }}
-                                        >
-                                            <option value="">-- Choose matching medical condition --</option>
-                                            {complaints.map(c => (
-                                                <option key={c.complaint_id} value={c.complaint_id}>{c.complaint_name}</option>
-                                            ))}
-                                        </select>
+                                        />
                                     </div>
 
                                     {isSpecifyComplaintRequired && (
@@ -1708,7 +1848,7 @@ const VisitLogConsultation = () => {
                             </div>
 
                             <div className="form-content-section-vlc">
-                                <h4 className="section-subtitle-indicator-vlc"><Activity size={16} /> Vital Signs <span className="required-star-vlc">*</span></h4>
+                                <h4 className="section-subtitle-indicator-vlc"><Activity size={16} /> Vital Signs - Time In <span className="required-star-vlc">*</span></h4>
                                 <div className="form-fields-grid-layout-vlc four-col-layout-vlc">
                                     <div className="form-input-element-vlc">
                                         <label>BP (mmHg) <span className="required-star-vlc">*</span></label>
@@ -1761,6 +1901,34 @@ const VisitLogConsultation = () => {
                                 </div>
                             </div>
 
+                            {documentingVisit.time_out && (
+                                <div className="form-content-section-vlc">
+                                    <h4 className="section-subtitle-indicator-vlc"><Activity size={16} /> Vital Signs - Time Out</h4>
+                                    <div className="form-fields-grid-layout-vlc four-col-layout-vlc">
+                                        <div className="form-input-element-vlc">
+                                            <label htmlFor="doc-out-bp">BP (mmHg)</label>
+                                            <input id="doc-out-bp" type="text" readOnly value={documentingVisit.out_blood_pressure || '--'} />
+                                        </div>
+                                        <div className="form-input-element-vlc">
+                                            <label htmlFor="doc-out-temp">Temp (°C)</label>
+                                            <input id="doc-out-temp" type="text" readOnly value={documentingVisit.out_temperature || '--'} />
+                                        </div>
+                                        <div className="form-input-element-vlc">
+                                            <label htmlFor="doc-out-pulse">Pulse (bpm)</label>
+                                            <input id="doc-out-pulse" type="text" readOnly value={documentingVisit.out_pulse_rate || '--'} />
+                                        </div>
+                                        <div className="form-input-element-vlc">
+                                            <label htmlFor="doc-out-resp">Resp Rate</label>
+                                            <input id="doc-out-resp" type="text" readOnly value={documentingVisit.out_respiratory_rate || '--'} />
+                                        </div>
+                                        <div className="form-input-element-vlc full-width-field-vlc">
+                                            <label htmlFor="doc-out-note">Student Condition After Time-out</label>
+                                            <textarea id="doc-out-note" rows={2} readOnly value={documentingVisit.out_nurse_note || '--'} />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
                             <div className="form-content-section-vlc">
                                 <h4 className="section-subtitle-indicator-vlc"><ShieldAlert size={16} /> Intervention & Dispensation</h4>
                                 <div className="form-fields-grid-layout-vlc">
@@ -1787,7 +1955,7 @@ const VisitLogConsultation = () => {
 
                                     <div className="form-input-element-vlc full-width-field-vlc">
                                         <label>
-                                            Dispense Medicine 
+                                            Select Medicine
                                             {isAlreadyDispensed && <span className="dispensed-flag-vlc">(Dispensed / Read-Only)</span>}
                                         </label>
                                         {isAlreadyDispensed ? (
@@ -1805,43 +1973,42 @@ const VisitLogConsultation = () => {
                                             />
                                         ) : (
                                             <select
-                                                value={formData.batch_id}
-                                                onChange={e => handleBatchChange(e.target.value)}
+                                                aria-label="Select Medicine"
+                                                value={selectedMedicineId}
+                                                onChange={e => handleMedicineChange(e.target.value)}
                                                 disabled={!formData.complaint_id}
                                             >
                                                 <option value="">
                                                     {formData.complaint_id
-                                                        ? (eligibleBatches.length ? '-- No medication needed --' : '-- No medicine linked to this medical condition --')
+                                                        ? (medicineOptions.length ? '-- No medication needed --' : '-- No medicine in stock for this medical condition --')
                                                         : '-- Select a medical condition first --'}
                                                 </option>
-                                                {eligibleBatches.map(b => {
-                                                    const isExpired = new Date(b.expiration_date) < new Date();
-                                                    const formattedExp = formatExpirationDate(b.expiration_date);
-                                                    const unit = b.dispense_unit_of_measure || b.strength_unit_of_measure || 'pcs.';
-                                                    const totalAvailable = getTotalAvailableStock(b);
-                                                    const isVol = VOLUME_UNITS.includes(unit);
-                                                    
-                                                    const dosageFormPlural = formatDosageForm(b.dosage_form, b.current_stock);
-                                                    const dosageWithStrength = formatDosageFormWithStrength(b);
-
-                                                    const stockText = isVol 
-                                                        ? `Stock: ${b.current_stock} ${dosageFormPlural.toLowerCase()} (${b.remaining_volume} ${unit} open)` 
-                                                        : `Stock: ${b.current_stock} ${dosageFormPlural.toLowerCase()}`;
-
-                                                    return (
-                                                        <option key={b.batch_id} value={b.batch_id} disabled={isExpired || totalAvailable <= 0}>
-                                                            {b.medicine_name} ({dosageWithStrength}) — Exp: {formattedExp} {isExpired ? '(EXPIRED)' : `(${stockText})`}
-                                                        </option>
-                                                    );
-                                                })}
+                                                {medicineOptions.map(m => (
+                                                    <option key={m.id} value={m.id}>{m.name}</option>
+                                                ))}
                                             </select>
                                         )}
                                     </div>
 
-                                    {activeBatchInfo && !isAlreadyDispensed && (
-                                        <div className="stock-info-banner-vlc">
-                                            <strong>Current Stock:</strong> {activeBatchInfo.current_stock} {formatDosageForm(activeBatchInfo.dosage_form, activeBatchInfo.current_stock).toLowerCase()}
-                                            {isVolumeUnit ? ` (${activeBatchInfo.remaining_volume} ${activeBatchUnit} remaining in open ${formatDosageFormWithStrength(activeBatchInfo)})` : ''}.
+                                    {!isAlreadyDispensed && selectedMedicineId && (
+                                        <div className="form-input-element-vlc full-width-field-vlc">
+                                            <label htmlFor="doc-batch">Batch Expiration Date <span className="required-star-vlc">*</span></label>
+                                            <select
+                                                id="doc-batch"
+                                                required
+                                                value={formData.batch_id}
+                                                onChange={e => handleBatchChange(e.target.value)}
+                                            >
+                                                <option value="">-- Choose Batch Expiration Date --</option>
+                                                {medicineBatches.map(b => (
+                                                    <option key={b.batch_id} value={b.batch_id}>
+                                                        {formatExpirationDate(b.expiration_date)} (Stock: {b.current_stock} {formatDosageForm(b.dosage_form, b.current_stock).toLowerCase()})
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            {activeBatchInfo && isVolumeUnit && (
+                                                <small>Remaining volume: {activeBatchInfo.remaining_volume} {activeBatchInfo.strength_unit_of_measure}</small>
+                                            )}
                                         </div>
                                     )}
 

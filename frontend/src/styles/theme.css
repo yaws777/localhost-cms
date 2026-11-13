@@ -38,6 +38,10 @@
   --bg-muted: #e9edf2;
   --tint-violet-bg: #f1edfd;
   --focus-ring: #004b87;
+  /* Control borders (3:1 on card), filled primary button, modal scrim */
+  --input-border: #7b8798;
+  --btn-primary-bg: #004b87;
+  --scrim: rgba(15, 23, 42, 0.55);
   /* Red fill for count badges / destructive buttons: white text 4.8:1 */
   --danger-fill: #d92d20;
   /* Text on an STI yellow fill (never light text on yellow) */
@@ -116,6 +120,9 @@
   --bg-muted: #334155;
   --tint-violet-bg: #2a2550;
   --focus-ring: #8cc2f5;
+  --input-border: #78879c;
+  --btn-primary-bg: #0a3d75;
+  --scrim: rgba(2, 6, 23, 0.7);
   --text-on-yellow: #0f2744;
 
   --status-adequate-bg: #0b2e21;

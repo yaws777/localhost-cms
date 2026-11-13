@@ -459,8 +459,46 @@
 }
 
 .col-checkbox-hs {
-  width: 50px;
+  width: 2.75rem;
+  min-width: 2.75rem;
+  height: 2.75rem;
   text-align: center;
+}
+
+.req-hs {
+  color: var(--status-critical-text);
+  font-weight: 700;
+  margin-left: 0.125rem;
+}
+
+.ack-hs {
+  margin: 0;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.folder-actions-hs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+}
+
+/* progress meter beside the attendance chips in the participant list */
+.sum-hs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+
+.sum-hs .sc-meter-hs {
+  flex: 1 1 10rem;
+  padding: 0;
+}
+
+.badge-hs svg {
+  vertical-align: -0.15em;
 }
 
 .col-checkbox-hs input[type="checkbox"] {
@@ -1336,4 +1374,389 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+/* ==========================================================================
+   Redesign: header, chips, screening rows, step dots, short modals
+   ========================================================================== */
+.title-group-hs h1 {
+  margin-bottom: 0;
+}
+
+.header-hs {
+  padding: 1rem 1.25rem;
+}
+
+.header-actions-hs {
+  flex-wrap: nowrap;
+}
+
+/* chips (type filter and status labels) */
+.chips-hs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
+.chip-btn-hs {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: 2.75rem;
+  padding: 0 0.875rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.chip-btn-hs:hover {
+  background: var(--bg-muted);
+}
+
+.chip-btn-hs[aria-pressed='true'] {
+  background: var(--sti-blue-light);
+  border-color: var(--sti-blue-primary);
+  color: var(--text-brand);
+  font-weight: 700;
+}
+
+.chip-hs {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-muted);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.chip-info-hs { background: var(--sti-blue-light); color: var(--text-brand); border-color: transparent; }
+.chip-ok-hs { background: var(--status-adequate-bg); color: var(--status-adequate-text); border-color: transparent; }
+.chip-warn-hs { background: var(--status-low-bg); color: var(--status-low-text); border-color: transparent; }
+.chip-bad-hs { background: var(--status-critical-bg); color: var(--status-critical-text); border-color: transparent; }
+
+.pill-count-hs {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-right: auto;
+  padding: 0.125rem 0.625rem;
+  border-radius: 999px;
+  background: var(--sti-blue-light);
+  color: var(--text-brand);
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+
+/* screening rows */
+.rows-hs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.sc-hs {
+  display: grid;
+  grid-template-columns: 0.375rem minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0 1rem;
+  background: var(--sti-card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+.sc-bar-hs {
+  align-self: stretch;
+  background: var(--sti-blue-primary);
+}
+
+.sc-ongoing-hs .sc-bar-hs { background: var(--status-adequate-bar); }
+.sc-awaiting-hs .sc-bar-hs { background: var(--status-low-bar); }
+.sc-past-hs .sc-bar-hs { background: var(--border-color); }
+.sc-cancel-hs .sc-bar-hs { background: var(--status-critical-bar); }
+
+.sc-main-hs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.75rem 0;
+  min-width: 0;
+}
+
+.sc-top-hs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sc-title-hs {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.sc-meta-hs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 1rem;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+.sc-meta-hs > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.sc-note-hs {
+  max-width: 18rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sc-meter-hs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 7.5rem;
+}
+
+.sc-count-hs {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.sc-count-hs small {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.sc-chips-hs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.track-hs {
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-color);
+  overflow: hidden;
+}
+
+.track-hs > i {
+  display: block;
+  height: 100%;
+  background: var(--status-adequate-bar);
+}
+
+.sc-actions-hs {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.25rem;
+  padding: 0.5rem 0.75rem 0.5rem 0;
+}
+
+.no-records-hs {
+  display: grid;
+  justify-items: center;
+  gap: 0.5rem;
+}
+
+/* two-dot step bar under a dialog title */
+.steps-hs {
+  display: inline-flex;
+  gap: 0.375rem;
+  margin-top: 0.375rem;
+}
+
+.steps-hs > i {
+  width: 1.5rem;
+  height: 0.375rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.steps-hs > i.on-hs {
+  background: var(--sti-yellow);
+}
+
+.modal-header-hs .chip-hs {
+  margin-left: 0.5rem;
+  vertical-align: middle;
+}
+
+.modal-sub-hs {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.hs-subfield {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  margin-top: 0.5rem;
+}
+
+.picker-chip-hs {
+  margin-bottom: 0.75rem;
+}
+
+.participant-search-hs {
+  max-width: none;
+  margin-bottom: 0.75rem;
+}
+
+.hint-center-hs {
+  text-align: center;
+}
+
+.hint-hs svg {
+  vertical-align: -0.125rem;
+}
+
+.flag-hs {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  color: var(--status-critical-text);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+@media (max-width: 40rem) {
+  .sc-hs {
+    grid-template-columns: 0.375rem minmax(0, 1fr);
+  }
+
+  .sc-meter-hs,
+  .sc-actions-hs {
+    grid-column: 2;
+    padding: 0 0.75rem 0.5rem 0;
+  }
+
+  .sc-actions-hs {
+    justify-content: flex-start;
+  }
+
+  .sc-note-hs {
+    max-width: 100%;
+  }
+}
+
+/* folder cards: icon tile, name, one line, state pills with icon + number */
+.fld-grid-hs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 0.75rem;
+}
+
+.fld-hs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: 2.75rem;
+  padding: 1rem;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 0.75rem;
+  cursor: pointer;
+}
+
+.fld-hs:hover {
+  border-color: var(--sti-blue-primary);
+}
+
+.fld-hs:focus-visible {
+  outline: 0.1875rem solid var(--sti-blue-primary);
+  outline-offset: 0.125rem;
+}
+
+.fld-top-hs {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.fld-ico-hs {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 0.5rem;
+  background: var(--sti-blue-light);
+  color: var(--sti-blue-primary);
+}
+
+.fld-text-hs {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.fld-title-hs {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.fld-sub-hs {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+
+.fld-dot-hs {
+  flex: none;
+  width: 0.625rem;
+  height: 0.625rem;
+  margin-left: auto;
+  border-radius: 50%;
+  background: var(--status-adequate-bar);
+}
+
+.fld-counts-hs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
+.sr-only-hs {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .fld-hs {
+    transition: border-color 0.15s;
+  }
 }

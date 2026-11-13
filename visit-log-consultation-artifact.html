@@ -1,0 +1,714 @@
+<title>Today's Clinic Visit</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: one working page, header, check-in entry card, today's table; modals stack above. Tokens follow the STI Clinic system. */
+:root {
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sti-blue-dark: #002f6c;
+  --sti-blue-primary: #004b87;
+  --sti-blue-light: #e6f0fa;
+  --sti-yellow: #ffcc00;
+  --bg-page: #f8fafc;
+  --bg-card: #ffffff;
+  --bg-elevated: #f1f5f9;
+  --card-border: #e4e7ec;
+  --input-border: #667085;
+  --text-primary: #1d2939;
+  --text-secondary: #566074;
+  --text-on-brand: #ffffff;
+  --btn-bg: #004b87;
+  --table-header-bg: #e6f0fa;
+  --table-header-text: #002f6c;
+  --ok-bg: #dcfae6; --ok-text: #05603a; --ok-solid: #067647;
+  --warn-bg: #fef0c7; --warn-text: #7a3b06; --warn-solid: #b45309;
+  --crit-bg: #fee4e2; --crit-text: #912018; --crit-solid: #b42318;
+  --info-bg: #e6f0fa; --info-text: #002f6c;
+  --backdrop: rgba(15, 23, 42, .55);
+  --focus: #004b87;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --sti-blue-dark: #0a3d75; --sti-blue-primary: #3b82c4; --sti-blue-light: #16304a;
+    --bg-page: #0f172a; --bg-card: #1e293b; --bg-elevated: #273449; --card-border: #334155;
+    --input-border: #94a3b8; --text-primary: #e2e8f0; --text-secondary: #a3b2c7;
+    --btn-bg: #0a3d75; --table-header-bg: #16304a; --table-header-text: #e2e8f0;
+    --ok-bg: #0b3a26; --ok-text: #a6f4c5; --ok-solid: #067647;
+    --warn-bg: #4a2d08; --warn-text: #fedf89; --warn-solid: #b45309;
+    --crit-bg: #4a1612; --crit-text: #fecdca; --crit-solid: #b42318;
+    --info-bg: #16304a; --info-text: #cfe3f7; --backdrop: rgba(2, 6, 23, .7); --focus: #3b82c4;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --sti-blue-dark: #0a3d75; --sti-blue-primary: #3b82c4; --sti-blue-light: #16304a;
+  --bg-page: #0f172a; --bg-card: #1e293b; --bg-elevated: #273449; --card-border: #334155;
+  --input-border: #94a3b8; --text-primary: #e2e8f0; --text-secondary: #a3b2c7;
+  --btn-bg: #0a3d75; --table-header-bg: #16304a; --table-header-text: #e2e8f0;
+  --ok-bg: #0b3a26; --ok-text: #a6f4c5; --ok-solid: #067647;
+  --warn-bg: #4a2d08; --warn-text: #fedf89; --warn-solid: #b45309;
+  --crit-bg: #4a1612; --crit-text: #fecdca; --crit-solid: #b42318;
+  --info-bg: #16304a; --info-text: #cfe3f7; --backdrop: rgba(2, 6, 23, .7); --focus: #3b82c4;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg-page); color: var(--text-primary);
+  font-family: var(--font-sans); font-size: 1rem; line-height: 1.5;
+  padding-block: 1.5rem 3rem;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 72rem; margin: 0 auto; display: flex; flex-direction: column; gap: 1.25rem; }
+h1, h2, h3, h4, p { margin: 0; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 0.1875rem solid var(--focus); outline-offset: 0.125rem; }
+svg.ic { flex-shrink: 0; }
+
+/* Header */
+.head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
+.head h1 { font-size: 1.75rem; font-weight: 700; line-height: 1.2; text-wrap: balance; }
+.head p { color: var(--text-secondary); margin-top: .25rem; max-width: 40rem; }
+.sample-note { font-size: .875rem; color: var(--text-secondary); margin-top: .25rem; }
+
+/* Buttons */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: .5rem;
+  min-height: 2.75rem; min-width: 2.75rem; padding: .5rem 1rem; border-radius: .5rem;
+  border: 1px solid transparent; font-weight: 600; font-size: .9375rem; white-space: nowrap;
+}
+.btn-primary { background: var(--btn-bg); color: var(--text-on-brand); }
+.btn-primary:hover { filter: brightness(1.12); }
+.btn-outline { background: var(--bg-card); color: var(--text-primary); border-color: var(--input-border); }
+.btn-outline:hover { background: var(--bg-elevated); }
+.btn-ghost { background: transparent; color: var(--text-primary); border-color: transparent; }
+.btn-ghost:hover { background: var(--bg-elevated); }
+.btn-danger { background: var(--crit-solid); color: #fff; }
+.icon-btn {
+  position: relative; display: inline-flex; align-items: center; justify-content: center;
+  min-width: 2.75rem; min-height: 2.75rem; border-radius: .5rem;
+  background: var(--bg-card); border: 1px solid var(--input-border); color: var(--text-primary);
+}
+.icon-btn:hover { background: var(--bg-elevated); }
+.icon-btn.needs-doc { border-color: var(--warn-solid); color: var(--warn-text); background: var(--warn-bg); }
+.icon-btn .dot { position: absolute; top: .3rem; right: .3rem; width: .55rem; height: .55rem; border-radius: 50%; background: var(--crit-solid); }
+
+/* Cards */
+.card { background: var(--bg-card); border: 1px solid var(--card-border); border-radius: .75rem; padding: 1.25rem; }
+.entry { display: flex; flex-direction: column; gap: 1rem; }
+.entry h2 { font-size: 1.25rem; font-weight: 700; }
+.entry-btns { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: .75rem; }
+.entry-btn {
+  display: flex; align-items: center; gap: .75rem; min-height: 4rem; padding: .75rem 1rem;
+  border-radius: .625rem; border: 1px solid var(--input-border); background: var(--bg-card);
+  font-weight: 600; text-align: left;
+}
+.entry-btn:hover { background: var(--sti-blue-light); border-color: var(--sti-blue-primary); }
+.entry-btn .tile { width: 2.5rem; height: 2.5rem; border-radius: .5rem; display: grid; place-items: center; background: var(--sti-blue-light); color: var(--sti-blue-primary); }
+.entry-btn.yellow .tile { background: var(--sti-yellow); color: var(--sti-blue-dark); }
+
+.search-head { display: flex; justify-content: space-between; align-items: center; gap: .75rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.field-row { position: relative; display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.field-row .ic-in { position: absolute; left: .85rem; top: 50%; transform: translateY(-50%); color: var(--text-secondary); pointer-events: none; }
+.field-row input { flex: 1 1 14rem; padding-left: 2.6rem; }
+input[type=text], input[type=number], input[type=time], input[type=date], select, textarea {
+  width: 100%; min-height: 2.75rem; padding: .5rem .75rem; border-radius: .5rem;
+  border: 1px solid var(--input-border); background: var(--bg-card); color: var(--text-primary);
+}
+textarea { resize: vertical; min-height: 4.5rem; }
+input[readonly], input:disabled, select:disabled { background: var(--bg-elevated); color: var(--text-secondary); }
+.results { margin-top: .75rem; display: flex; flex-direction: column; border: 1px solid var(--card-border); border-radius: .5rem; overflow: hidden; }
+.results:empty { display: none; }
+.result-row { display: flex; align-items: center; gap: .75rem; padding: .625rem .875rem; min-height: 3.25rem; background: var(--bg-card); border: 0; border-bottom: 1px solid var(--card-border); text-align: left; width: 100%; }
+.result-row:last-child { border-bottom: 0; }
+.result-row:hover { background: var(--sti-blue-light); }
+.avatar { width: 2.25rem; height: 2.25rem; border-radius: 50%; background: var(--sti-blue-light); color: var(--sti-blue-primary); display: grid; place-items: center; flex-shrink: 0; }
+.rname { font-weight: 600; display: block; }
+.rmeta { font-size: .875rem; color: var(--text-secondary); display: block; }
+.chips { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-top: .75rem; font-size: .875rem; color: var(--text-secondary); }
+.chip { min-height: 2.75rem; padding: .25rem .75rem; border-radius: 999px; border: 1px solid var(--input-border); background: var(--bg-card); font-family: var(--font-mono); font-size: .875rem; }
+.chip:hover { background: var(--sti-blue-light); }
+
+/* Table */
+.sec-title { display: flex; justify-content: space-between; align-items: center; gap: .75rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.sec-title h2 { font-size: 1.125rem; font-weight: 700; display: flex; align-items: center; gap: .5rem; }
+.sec-title h2 svg { color: var(--sti-blue-primary); }
+.scroller { overflow-x: auto; border: 1px solid var(--card-border); border-radius: .5rem; }
+table { width: 100%; border-collapse: collapse; min-width: 52rem; }
+th { background: var(--table-header-bg); color: var(--table-header-text); text-align: left; font-size: .875rem; font-weight: 700; padding: .75rem; white-space: nowrap; }
+td { padding: .75rem; border-top: 1px solid var(--card-border); vertical-align: middle; font-size: .9375rem; }
+tr.locked td { background: color-mix(in srgb, var(--bg-elevated) 55%, transparent); }
+.cell-stack { display: flex; flex-direction: column; }
+.cell-stack small, td small { color: var(--text-secondary); font-size: .875rem; }
+.empty { text-align: center; color: var(--text-secondary); padding: 2rem 1rem; }
+.pill { display: inline-flex; align-items: center; gap: .35rem; padding: .25rem .625rem; border-radius: 999px; font-size: .875rem; font-weight: 600; white-space: nowrap; }
+.pill.ok { background: var(--ok-bg); color: var(--ok-text); }
+.pill.warn { background: var(--warn-bg); color: var(--warn-text); }
+.pill.info { background: var(--info-bg); color: var(--info-text); }
+.pill.crit { background: var(--crit-bg); color: var(--crit-text); }
+.badge { display: inline-block; padding: .2rem .6rem; border-radius: .375rem; background: var(--bg-elevated); font-size: .875rem; font-weight: 500; }
+.muted { color: var(--text-secondary); }
+.actions { display: flex; gap: .5rem; justify-content: center; }
+.tc { text-align: center; }
+.mono { font-family: var(--font-mono); }
+
+/* Modals */
+.layer:empty { display: none; }
+.backdrop { position: fixed; inset: 0; background: var(--backdrop); display: grid; place-items: center; padding: 1rem; overflow-y: auto; }
+.layer.l-small .backdrop { z-index: 900; }
+.layer.l-logs .backdrop { z-index: 1000; }
+.layer.l-doc .backdrop { z-index: 1100; }
+.layer.l-fb .backdrop { z-index: 2000; }
+.modal { width: 100%; max-width: 30rem; background: var(--bg-card); color: var(--text-primary); border-radius: .75rem; overflow: hidden; box-shadow: 0 1.5rem 3rem rgba(0,0,0,.3); max-height: calc(100vh - 2rem); display: flex; flex-direction: column; }
+.modal.wide { max-width: 46rem; }
+.modal.xwide { max-width: 72rem; }
+.mh { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: .75rem 1rem; background: var(--sti-blue-dark); color: #fff; }
+.mh h3 { font-size: 1.0625rem; font-weight: 700; display: flex; align-items: center; gap: .5rem; }
+.mh.error { background: var(--crit-solid); } .mh.warning { background: var(--warn-solid); } .mh.success { background: var(--ok-solid); }
+.mh .x { background: transparent; border: 0; color: #fff; min-width: 2.75rem; min-height: 2.75rem; border-radius: .5rem; display: grid; place-items: center; }
+.mh .x:hover { background: rgba(255,255,255,.18); }
+.mh .x:focus-visible { outline-color: var(--sti-yellow); }
+.mb { padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem; overflow-y: auto; }
+.mf { display: flex; justify-content: flex-end; gap: .75rem; flex-wrap: wrap; }
+.mf.sticky { padding: .75rem 1.25rem; border-top: 1px solid var(--card-border); background: var(--bg-card); }
+.profile { text-align: center; display: flex; flex-direction: column; align-items: center; gap: .25rem; padding: 1rem; background: var(--bg-elevated); border-radius: .625rem; }
+.profile svg { color: var(--sti-blue-primary); }
+.profile h4 { font-size: 1.125rem; }
+.timein { display: inline-flex; gap: .4rem; align-items: center; margin-top: .35rem; font-weight: 700; color: var(--sti-blue-primary); }
+.alert-box { padding: .75rem 1rem; border-radius: .5rem; background: var(--warn-bg); color: var(--warn-text); display: flex; flex-direction: column; gap: .35rem; }
+.alert-box .t { display: flex; gap: .5rem; align-items: center; font-weight: 700; }
+.banner { display: flex; gap: .625rem; align-items: flex-start; padding: .75rem 1rem; border-radius: .5rem; background: var(--crit-bg); color: var(--crit-text); }
+.banner svg { margin-top: .15rem; }
+.scan-box { height: 11rem; border-radius: .625rem; background: #0b1220; position: relative; display: grid; place-items: center; color: #94a3b8; overflow: hidden; }
+.scan-box::before, .scan-box::after { content: ""; position: absolute; width: 2rem; height: 2rem; border: .2rem solid var(--sti-yellow); }
+.scan-box::before { top: 1rem; left: 1rem; border-right: 0; border-bottom: 0; }
+.scan-box::after { bottom: 1rem; right: 1rem; border-left: 0; border-top: 0; }
+
+/* Form */
+form.doc { overflow-y: auto; display: flex; flex-direction: column; }
+.fs { padding: 1.25rem; border-bottom: 1px solid var(--card-border); display: flex; flex-direction: column; gap: .75rem; }
+.fs h4 { display: flex; align-items: center; gap: .5rem; font-size: 1rem; color: var(--sti-blue-primary); }
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .875rem; }
+.grid.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.full { grid-column: 1 / -1; }
+.f { display: flex; flex-direction: column; gap: .3rem; min-width: 0; }
+.f label { font-weight: 600; font-size: .9375rem; }
+.f small { color: var(--text-secondary); font-size: .875rem; }
+.req { color: var(--crit-solid); }
+.stock { padding: .625rem .875rem; border-radius: .5rem; background: var(--info-bg); color: var(--info-text); font-size: .9375rem; }
+.flag { font-weight: 500; color: var(--text-secondary); margin-left: .5rem; }
+
+/* Logs */
+.toolbar { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: .75rem; align-items: end; }
+.toolbar .f.grow { grid-column: span 2; }
+.summary { font-size: .9375rem; color: var(--text-secondary); }
+
+@media (max-width: 40rem) {
+  .grid, .grid.four { grid-template-columns: 1fr; }
+  .toolbar .f.grow { grid-column: auto; }
+  .head h1 { font-size: 1.5rem; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .btn, .icon-btn, .result-row, .entry-btn { transition: background-color .15s, filter .15s; }
+}
+</style>
+
+<div class="wrap">
+  <header class="head">
+    <div>
+      <h1>Today's Clinic Visit</h1>
+      <p>Manage check-ins, record vital signs, dispense medicine, and handle time-outs for today's visits.</p>
+      <p class="sample-note">Sample data. Nothing is saved.</p>
+    </div>
+    <button class="btn btn-outline" data-act="open-logs" title="View All Clinic Visit Logs" aria-label="View logs"><span data-ic="history"></span><span>View Logs</span></button>
+  </header>
+
+  <section id="entry" class="card"></section>
+
+  <section class="card">
+    <div class="sec-title">
+      <h2><span data-ic="clock"></span><span id="today-title"></span></h2>
+      <button class="btn btn-outline" data-act="refresh" aria-label="Refresh" title="Refresh"><span data-ic="refresh"></span><span>Refresh</span></button>
+    </div>
+    <div class="scroller" id="today-table"></div>
+  </section>
+</div>
+
+<div class="layer l-small" id="layer-small"></div>
+<div class="layer l-logs" id="layer-logs"></div>
+<div class="layer l-doc" id="layer-doc"></div>
+<div class="layer l-fb" id="layer-fb" aria-live="polite"></div>
+
+<script>
+(function () {
+  /* ---------- icons ---------- */
+  var P = {
+    search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+    qr: '<rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/><path d="M3 12h.01"/><path d="M12 3h.01"/><path d="M12 16v.01"/><path d="M16 12h1"/><path d="M21 12v.01"/><path d="M12 21v-1"/>',
+    user: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+    clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+    x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+    xc: '<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>',
+    check: '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+    file: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+    logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>',
+    refresh: '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
+    alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+    history: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>',
+    activity: '<path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/>',
+    pill: '<path d="m10.5 20.5 10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7Z"/><path d="m8.5 8.5 7 7"/>',
+    info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+    filter: '<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>',
+    reset: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>',
+    camera: '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/>'
+  };
+  function ic(n, s) {
+    s = s || 18;
+    return '<svg class="ic" xmlns="http://www.w3.org/2000/svg" width="' + s + '" height="' + s + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + P[n] + '</svg>';
+  }
+  function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function $(id) { return document.getElementById(id); }
+
+  /* ---------- helpers ---------- */
+  function ymd(d) { d = new Date(d); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+  function nowHM() { return new Date().toTimeString().slice(0, 5); }
+  function fmtTime(t) { if (!t) return '--:--'; var p = t.split(':'), h = +p[0], m = p[1]; return ((h % 12) || 12) + ':' + m + ' ' + (h >= 12 ? 'PM' : 'AM'); }
+  function fmtDate(s) { var p = s.split('-'); return new Date(+p[0], +p[1] - 1, +p[2]).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }); }
+  function daysAgo(n) { var d = new Date(); d.setDate(d.getDate() - n); return ymd(d); }
+  var TODAY = ymd(new Date());
+
+  /* ---------- sample data ---------- */
+  var COMPLAINTS = [
+    { id: 1, name: 'Fever' }, { id: 2, name: 'Headache' }, { id: 3, name: 'Dysmenorrhea' },
+    { id: 4, name: 'Injury' }, { id: 5, name: 'Body pain' }, { id: 6, name: 'Gastrointestinal issues' }, { id: 7, name: 'Others' }
+  ];
+  var CONDITIONAL = ['injury', 'others', 'gastrointestinal issues', 'body pain'];
+  var STUDENTS = [
+    { id: '02000412345', first: 'Mika', last: 'Dela Cruz', program: 'BSIT', year: 2, active: true },
+    { id: '02000318820', first: 'Joaquin', last: 'Ramos', program: 'BSHM', year: 3, active: true },
+    { id: '02000507144', first: 'Bea', last: 'Santiago', program: 'STEM', year: 1, active: true },
+    { id: '02000229305', first: 'Carla', last: 'Mendoza', program: 'BSBA', year: 4, active: true },
+    { id: '02000130522', first: 'Luis', last: 'Navarro', program: 'BSIT', year: 4, active: false }
+  ];
+  var BATCHES = [
+    { id: 'B-PARA-01', name: 'Paracetamol', form: 'Tablet', sv: 500, su: 'mg', du: 'Tablet/s', limit: 2, stock: 118, rem: 0, exp: daysAgo(-240), ids: '1,2,3' },
+    { id: 'B-IBU-02', name: 'Ibuprofen', form: 'Tablet', sv: 200, su: 'mg', du: 'Tablet/s', limit: 2, stock: 60, rem: 0, exp: daysAgo(-180), ids: '2,3,5' },
+    { id: 'B-LOP-01', name: 'Loperamide', form: 'Capsule', sv: 2, su: 'mg', du: 'Capsule/s', limit: 2, stock: 40, rem: 0, exp: daysAgo(-300), ids: '6' },
+    { id: 'B-POV-01', name: 'Povidone-iodine 10%', form: 'Bottle', sv: 60, su: 'mL', du: 'mL', limit: 10, stock: 3, rem: 40, exp: daysAgo(-120), ids: '4' },
+    { id: 'B-PARA-00', name: 'Paracetamol', form: 'Tablet', sv: 500, su: 'mg', du: 'Tablet/s', limit: 2, stock: 20, rem: 0, exp: daysAgo(14), ids: '1,2,3' },
+    { id: 'B-MEF-01', name: 'Mefenamic acid', form: 'Capsule', sv: 500, su: 'mg', du: 'Capsule/s', limit: 1, stock: 0, rem: 0, exp: daysAgo(-90), ids: '3' }
+  ];
+  var VOL = ['mg', 'g', 'mcg', 'mL', 'L', 'pcs.'];
+  var seq = 100;
+  function V(o) { o.id = 'V-' + (++seq); return o; }
+  var VISITS = [
+    V({ sid: '02000318820', first: 'Joaquin', last: 'Ramos', program: 'BSHM', date: TODAY, tin: '08:12', tout: '08:31', cid: 1, specify: '', bp: '110/70', temp: '38.2', pulse: '92', rr: '19', iv: 'Cold compress, rest, fluids', as: 'Mild fever, advised to go home if it persists', batch: 'B-PARA-01', qty: 2, unit: 'Tablet/s' }),
+    V({ sid: '02000229305', first: 'Carla', last: 'Mendoza', program: 'BSBA', date: TODAY, tin: '09:40', tout: '', cid: 3, specify: '', bp: '100/60', temp: '36.6', pulse: '78', rr: '17', iv: 'Warm compress, rest', as: 'Menstrual cramps, stable', batch: 'B-IBU-02', qty: 1, unit: 'Tablet/s' }),
+    V({ sid: '02000507144', first: 'Bea', last: 'Santiago', program: 'STEM', date: daysAgo(1), tin: '10:05', tout: '10:25', cid: 2, specify: '', bp: '110/70', temp: '36.8', pulse: '80', rr: '18', iv: 'Rest in clinic', as: 'Tension headache', batch: '', qty: '', unit: '' }),
+    V({ sid: '02000412345', first: 'Mika', last: 'Dela Cruz', program: 'BSIT', date: daysAgo(2), tin: '13:20', tout: '13:50', cid: 4, specify: 'Scraped knee', bp: '120/80', temp: '36.5', pulse: '74', rr: '16', iv: 'Wound cleaned and dressed', as: 'Minor abrasion', batch: 'B-POV-01', qty: 10, unit: 'mL' }),
+    V({ sid: '02000318820', first: 'Joaquin', last: 'Ramos', program: 'BSHM', date: daysAgo(4), tin: '07:55', tout: '08:20', cid: 6, specify: 'Loose stool x3', bp: '110/70', temp: '36.9', pulse: '84', rr: '18', iv: 'Oral rehydration', as: 'Mild gastroenteritis', batch: 'B-LOP-01', qty: 1, unit: 'Capsule/s' }),
+    V({ sid: '02000229305', first: 'Carla', last: 'Mendoza', program: 'BSBA', date: daysAgo(6), tin: '15:10', tout: '15:35', cid: 5, specify: 'Lower back', bp: '110/70', temp: '36.4', pulse: '76', rr: '17', iv: 'Rest, stretching advice', as: 'Muscle strain', batch: 'B-IBU-02', qty: 1, unit: 'Tablet/s' })
+  ];
+  var mode = null, query = '', logs = { search: '', from: '', to: '', cond: '' };
+  var pending = null, checkInTime = '', prevCount = 0, docVisit = null, fd = {}, timeoutVisit = null, fb = null, logsOpen = false;
+  var openers = [];
+
+  function documented(v) { return !!(v.cid || v.iv); }
+  function complaintName(id) { var c = COMPLAINTS.find(function (x) { return String(x.id) === String(id); }); return c ? c.name : ''; }
+  function condLabel(v) { if (!v.cid) return 'General Checkup'; var n = complaintName(v.cid); return v.specify ? n + ' (' + v.specify + ')' : n; }
+  function batchOf(id) { return BATCHES.find(function (b) { return b.id === id; }); }
+  function linked(b, cid) { return !!b && !!cid && b.ids.split(',').indexOf(String(cid)) > -1; }
+  function unitOf(b) { return b.du || b.su || 'pcs.'; }
+  function isVol(b) { return VOL.indexOf(unitOf(b)) > -1; }
+  function totalAvail(b) { if (isVol(b)) { if (b.stock <= 0) return 0; return b.rem + (b.stock - 1) * b.sv; } return b.stock; }
+  function plural(f, n) { var l = f.toLowerCase(); if (n === 1) return l; if (/s$/.test(l)) return l; if (/(x|ch)$/.test(l)) return l + 'es'; return l + 's'; }
+  function withStrength(b) { return b.form + ' (' + b.sv + ' ' + b.su + ' per ' + b.form.toLowerCase() + ')'; }
+  function medText(v) {
+    var b = batchOf(v.batch); if (!b) return '';
+    return b.name + (v.qty ? ' (' + v.qty + ' ' + (v.unit || '') + ')' : '');
+  }
+
+  /* ---------- feedback modal ---------- */
+  function closeFb() { fb = null; renderFb(); }
+  function alertModal(title, message, type) { fb = { type: type || 'error', title: title, message: message, confirmText: 'OK', cancelText: '', onConfirm: closeFb }; renderFb(); }
+  function confirmModal(title, message, action, confirmText, type) {
+    fb = { type: type || 'confirm', title: title, message: message, confirmText: confirmText || 'Confirm', cancelText: 'Cancel', onConfirm: function () { closeFb(); if (action) action(); } };
+    renderFb();
+  }
+  function renderFb() {
+    var el = $('layer-fb');
+    if (!fb) { el.innerHTML = ''; return; }
+    var icon = fb.type === 'error' ? 'xc' : fb.type === 'warning' ? 'alert' : fb.type === 'success' ? 'check' : 'info';
+    var solid = fb.type === 'error' ? 'var(--crit-solid)' : fb.type === 'warning' ? 'var(--warn-solid)' : fb.type === 'success' ? 'var(--ok-solid)' : 'var(--btn-bg)';
+    el.innerHTML =
+      '<div class="backdrop"><div class="modal" role="alertdialog" aria-modal="true" aria-labelledby="fb-t">' +
+      '<div class="mh ' + fb.type + '"><h3 id="fb-t">' + ic(icon, 20) + esc(fb.title) + '</h3>' +
+      '<button class="x" data-act="fb-close" aria-label="Close" title="Close">' + ic('x', 20) + '</button></div>' +
+      '<div class="mb"><p>' + esc(fb.message) + '</p><div class="mf">' +
+      (fb.cancelText ? '<button class="btn btn-outline" data-act="fb-close">' + esc(fb.cancelText) + '</button>' : '') +
+      '<button class="btn" style="background:' + solid + ';color:#fff" data-act="fb-confirm" id="fb-ok">' + esc(fb.confirmText) + '</button>' +
+      '</div></div></div></div>';
+    var ok = $('fb-ok'); if (ok) ok.focus();
+  }
+
+  /* ---------- today table ---------- */
+  function rowHtml(v, showDate) {
+    var out = !!v.tout, doc = documented(v), med = medText(v);
+    return '<tr class="' + (out ? 'locked' : '') + '">' +
+      (showDate ? '<td>' + esc(fmtDate(v.date)) + '</td>' : '') +
+      '<td><div class="cell-stack"><span>' + esc(v.first + ' ' + v.last) + '</span><small>' + esc(v.sid) + (showDate ? ' | ' + esc(v.program) : '') + '</small></div></td>' +
+      '<td>' + (doc ? '<span class="badge">' + esc(condLabel(v)) + '</span>' : '<span class="pill warn">' + ic('alert', 14) + 'Not Documented</span>') + '</td>' +
+      '<td>' + (med ? '<span class="badge">' + esc(med) + '</span>' : '<span class="muted">None</span>') + '</td>' +
+      (showDate ? '<td><div class="cell-stack"><span>In: ' + fmtTime(v.tin) + '</span><small>Out: ' + fmtTime(v.tout) + '</small></div></td>'
+                : '<td>' + fmtTime(v.tin) + '</td><td>' + fmtTime(v.tout) + '</td>') +
+      '<td>' + (out ? '<span class="pill ok">' + ic('check', 14) + 'Timed Out</span>' : '<span class="pill info">' + ic('clock', 14) + 'In Clinic</span>') + '</td>' +
+      '<td><div class="actions">' +
+      '<button class="icon-btn' + (doc ? '' : ' needs-doc') + '" data-act="open-doc" data-id="' + v.id + '" title="' + (doc ? 'View or edit documentation' : 'Needs documentation') + '" aria-label="Document visit for ' + esc(v.first + ' ' + v.last) + '">' + ic('file', 18) + (doc ? '' : '<span class="dot"></span>') + '</button>' +
+      (out ? '' :
+        '<button class="icon-btn" data-act="timeout-qr" data-id="' + v.id + '" title="Scan QR to time out" aria-label="Scan QR to time out ' + esc(v.first) + '">' + ic('qr', 18) + '</button>' +
+        '<button class="icon-btn" data-act="timeout-manual" data-id="' + v.id + '" title="Manual time out (current time)" aria-label="Manual time out ' + esc(v.first) + '">' + ic('logout', 18) + '</button>') +
+      '</div></td></tr>';
+  }
+  function todayVisits() {
+    return VISITS.filter(function (v) { return v.date === TODAY; }).sort(function (a, b) {
+      if (a.tin === b.tin) return b.id.localeCompare(a.id);
+      return b.tin.localeCompare(a.tin);
+    });
+  }
+  function renderToday() {
+    $('today-title').textContent = "Today's Clinic Visits (" + fmtDate(TODAY) + ')';
+    var rows = todayVisits();
+    $('today-table').innerHTML = '<table><thead><tr><th>Student Identity</th><th>Medical Condition</th><th>Medicine Dispensed</th><th>Time In</th><th>Time Out</th><th>Status</th><th class="tc">Actions</th></tr></thead><tbody>' +
+      (rows.length ? rows.map(function (v) { return rowHtml(v, false); }).join('') : '<tr><td colspan="7" class="empty">No clinic visits logged today.</td></tr>') + '</tbody></table>';
+  }
+
+  /* ---------- entry / search ---------- */
+  function renderEntry() {
+    var el = $('entry');
+    if (!mode) {
+      el.className = 'card entry';
+      el.innerHTML = '<h2>Log New Clinic Visit</h2><div class="entry-btns">' +
+        '<button class="entry-btn" data-act="mode" data-mode="search"><span class="tile">' + ic('search', 20) + '</span><span>Search Student</span></button>' +
+        '<button class="entry-btn yellow" data-act="mode" data-mode="qr"><span class="tile">' + ic('qr', 20) + '</span><span>Scan QR Code</span></button></div>';
+      return;
+    }
+    el.className = 'card';
+    var body = mode === 'search'
+      ? '<div class="field-row"><span class="ic-in">' + ic('search', 18) + '</span><input type="text" id="q" autocomplete="off" aria-label="Search student" placeholder="Student ID, first name, or last name" value="' + esc(query) + '"></div>'
+      : '<form id="qr-form"><div class="field-row"><span class="ic-in">' + ic('qr', 18) + '</span><input type="text" id="qr-in" autocomplete="off" aria-label="Student ID" placeholder="Scan QR or enter Student ID"><button class="btn btn-primary" type="submit" aria-label="Scan QR" title="Scan QR">' + ic('camera', 18) + '<span>Scan QR</span></button></div></form>' +
+        '<div class="chips"><span>Sample IDs</span>' + STUDENTS.map(function (s) { return '<button class="chip" type="button" data-act="fill-id" data-id="' + s.id + '" aria-label="Use ' + s.id + ' for ' + esc(s.first) + '">' + s.id + '</button>'; }).join('') + '</div>';
+    el.innerHTML = '<div class="search-head"><button class="btn btn-ghost" data-act="back">&larr; Change Option</button><span>Mode: <strong>' + (mode === 'search' ? 'Search Bar' : 'QR Scanner') + '</strong></span></div>' + body + '<div class="results" id="results"></div>';
+    if (mode === 'search') { renderResults(); $('q').focus(); } else { $('qr-in').focus(); }
+  }
+  function renderResults() {
+    var el = $('results'); if (!el) return;
+    var q = query.trim().toLowerCase();
+    if (!q) { el.innerHTML = ''; return; }
+    var list = STUDENTS.filter(function (s) { return s.active && (s.id.toLowerCase().indexOf(q) > -1 || (s.first + ' ' + s.last).toLowerCase().indexOf(q) > -1); });
+    el.innerHTML = list.map(function (s) {
+      return '<button class="result-row" data-act="pick" data-id="' + s.id + '"><span class="avatar">' + ic('user', 16) + '</span><span><span class="rname">' + esc(s.first + ' ' + s.last) + '</span><span class="rmeta">ID: ' + s.id + ' | ' + s.program + ' - Year ' + s.year + '</span></span></button>';
+    }).join('') || '<div class="empty">No student found.</div>';
+  }
+
+  /* ---------- check-in flow ---------- */
+  function selectStudent(st) {
+    if (!st.active) { alertModal('Inactive Account Warning', 'Cannot process ' + st.first + ' ' + st.last + ' (ID: ' + st.id + '). The account is INACTIVE.', 'error'); return; }
+    var tv = todayVisits();
+    var undoc = tv.find(function (v) { return !documented(v); });
+    if (undoc) {
+      alertModal('Finish Documentation First', undoc.first + ' ' + undoc.last + ' (ID: ' + undoc.sid + ') still has an undocumented visit. Complete it before attending another student.', 'warning');
+      openDoc(undoc); return;
+    }
+    var active = tv.find(function (v) { return v.sid === st.id && !v.tout; });
+    if (active) {
+      confirmModal('Active Visit Detected', st.first + ' ' + st.last + ' is already checked into the clinic. Process Time-Out now?', function () { openTimeoutQr(active); }, 'Process Time-Out', 'warning');
+      return;
+    }
+    checkInTime = nowHM(); pending = st;
+    prevCount = tv.filter(function (v) { return v.sid === st.id; }).length;
+    renderCheckIn();
+  }
+  function renderCheckIn() {
+    var el = $('layer-small');
+    if (timeoutVisit) return;
+    if (!pending) { el.innerHTML = ''; return; }
+    var st = pending, rep = prevCount > 0;
+    el.innerHTML = '<div class="backdrop"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="ci-t">' +
+      '<div class="mh ' + (rep ? 'warning' : '') + '"><h3 id="ci-t">' + (rep ? 'Multiple Visit Authorization' : 'Confirm Student Check-In') + '</h3><button class="x" data-act="ci-deny" aria-label="Close" title="Close">' + ic('x', 20) + '</button></div>' +
+      '<div class="mb"><div class="profile">' + ic('user', 40) + '<h4>' + esc(st.first + ' ' + st.last) + '</h4><span><strong>Student ID:</strong> ' + st.id + '</span><span><strong>Program &amp; Year:</strong> ' + st.program + ' - Year ' + st.year + '</span><span class="timein">' + ic('clock', 15) + 'Time In: ' + fmtTime(checkInTime) + '</span></div>' +
+      (rep ? '<div class="alert-box" role="alert"><span class="t">' + ic('alert', 18) + 'Repeat Visit Alert (' + prevCount + ' prior today)</span><span>Grant or deny entry?</span></div>' : '<p>Grant check-in for <strong>' + esc(st.first + ' ' + st.last) + '</strong>?</p>') +
+      '<div class="mf"><button class="btn btn-outline" data-act="ci-deny">Deny</button><button class="btn btn-primary" data-act="ci-ok" id="ci-ok">Confirm Check-In</button></div></div></div></div>';
+    $('ci-ok').focus();
+  }
+  function confirmCheckIn() {
+    var st = pending; if (!st) return;
+    var v = V({ sid: st.id, first: st.first, last: st.last, program: st.program, date: TODAY, tin: checkInTime, tout: '', cid: '', specify: '', bp: '', temp: '', pulse: '', rr: '', iv: '', as: '', batch: '', qty: '', unit: '' });
+    VISITS.push(v);
+    pending = null; mode = null; query = ''; renderCheckIn(); renderEntry(); renderToday();
+    alertModal('Check-In Granted', 'Check-in logged at ' + fmtTime(v.tin) + ' for ' + v.first + ' ' + v.last + '. Fill up the visit documentation now.', 'success');
+    openDoc(v);
+  }
+
+  /* ---------- time out ---------- */
+  function visitById(id) { return VISITS.find(function (v) { return v.id === id; }); }
+  function manualTimeout(v) {
+    if (!documented(v)) { alertModal('Document First', 'Fill up the visit documentation before timing the student out.', 'warning'); return; }
+    var t = nowHM();
+    confirmModal('Confirm Time Out', 'Set Time Out at current time (' + fmtTime(t) + ') for ' + v.first + ' ' + v.last + '?', function () { doTimeout(v, t); }, 'Time Out Now');
+  }
+  function doTimeout(v, t) {
+    v.tout = t; renderToday(); if (logsOpen) renderLogs();
+    alertModal('Time Out Success', v.first + ' ' + v.last + ' timed out at ' + fmtTime(t) + '.', 'success');
+  }
+  function openTimeoutQr(v) {
+    if (!documented(v)) { alertModal('Document First', 'Fill up the visit documentation before timing the student out.', 'warning'); return; }
+    timeoutVisit = v; renderTimeoutQr();
+  }
+  function renderTimeoutQr() {
+    var el = $('layer-small'), v = timeoutVisit;
+    if (!v) { renderCheckIn(); return; }
+    el.innerHTML = '<div class="backdrop"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="to-t">' +
+      '<div class="mh"><h3 id="to-t">' + ic('camera', 18) + 'Scan QR to Time Out</h3><button class="x" data-act="to-cancel" aria-label="Close" title="Close">' + ic('x', 20) + '</button></div>' +
+      '<form id="to-form" class="mb"><p>QR for <strong>' + esc(v.first + ' ' + v.last) + '</strong> (ID: <span class="mono">' + v.sid + '</span>)</p>' +
+      '<div class="scan-box">' + ic('qr', 48) + '</div>' +
+      '<input type="text" id="to-in" autocomplete="off" aria-label="Student ID" placeholder="Camera is off here. Enter the Student ID">' +
+      '<div class="mf"><button type="button" class="btn btn-outline" data-act="to-cancel">Cancel</button><button type="submit" class="btn btn-primary">Confirm Time Out</button></div></form></div></div>';
+    $('to-in').focus();
+  }
+
+  /* ---------- documentation modal ---------- */
+  function openDoc(v) {
+    docVisit = v;
+    fd = {
+      cid: v.cid ? String(v.cid) : '', specify: v.specify || '', tin: v.tin, tout: v.tout || '',
+      bp: v.bp || '', temp: v.temp || '', pulse: v.pulse || '', rr: v.rr || '', iv: v.iv || '', as: v.as || '',
+      batch: v.batch || '', qty: v.qty ? String(v.qty) : '', unit: v.unit || ''
+    };
+    renderDoc();
+  }
+  function dispensed() { return !!(docVisit && docVisit.batch); }
+  function locked() { return docVisit && !documented(docVisit); }
+  function specifyReq() { var n = complaintName(fd.cid).toLowerCase(); return CONDITIONAL.indexOf(n) > -1; }
+  function renderDoc() {
+    var el = $('layer-doc');
+    if (!docVisit) { el.innerHTML = ''; return; }
+    var v = docVisit;
+    el.innerHTML = '<div class="backdrop"><div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="doc-t">' +
+      '<div class="mh"><h3 id="doc-t">Document Visit - ' + esc(v.first + ' ' + v.last) + '</h3><button class="x" data-act="doc-close" aria-label="Close documentation" title="Close">' + ic('x', 20) + '</button></div>' +
+      '<form class="doc" id="doc-form" novalidate>' +
+      (locked() ? '<div class="banner" role="alert" style="margin:1.25rem 1.25rem 0">' + ic('alert', 18) + '<span>This visit is <strong>not yet documented</strong>. Save all required fields before closing or checking in another student.</span></div>' : '') +
+      '<div class="fs"><h4>' + ic('user', 16) + 'Student &amp; Time Info</h4><div class="grid">' +
+      '<div class="f"><label for="d-name">Full Name</label><input type="text" id="d-name" readonly value="' + esc(v.first + ' ' + v.last) + '"></div>' +
+      '<div class="f"><label for="d-sid">Student ID</label><input type="text" id="d-sid" readonly value="' + esc(v.sid) + '"></div>' +
+      '<div class="f"><label for="d-in">Time In</label><input type="time" id="d-in" readonly value="' + esc(fd.tin) + '"></div>' +
+      '<div class="f"><label for="d-out">Time Out</label><input type="time" id="d-out" readonly value="' + esc(fd.tout) + '">' + (fd.tout ? '' : '<small>Set with Time Out after saving.</small>') + '</div>' +
+      '<div class="f full"><label for="cid">Medical Condition <span class="req">*</span></label><select id="cid" name="cid"><option value="">-- Choose matching medical condition --</option>' +
+      COMPLAINTS.map(function (c) { return '<option value="' + c.id + '"' + (String(c.id) === fd.cid ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('') + '</select></div>' +
+      '<div class="f full" id="specify-wrap"></div></div></div>' +
+      '<div class="fs"><h4>' + ic('activity', 16) + 'Vital Signs <span class="req">*</span></h4><div class="grid four">' +
+      fld('bp', 'BP (mmHg)', 'text', '120/80') + fld('temp', 'Temp (°C)', 'number', '36.5', 'step="0.1" min="30" max="45"') +
+      fld('pulse', 'Pulse (bpm)', 'number', '72', 'min="30" max="250"') + fld('rr', 'Resp Rate', 'number', '18', 'min="8" max="60"') + '</div></div>' +
+      '<div class="fs"><h4>' + ic('pill', 16) + 'Intervention &amp; Dispensation</h4><div class="grid">' +
+      '<div class="f full"><label for="iv">Nursing Intervention <span class="req">*</span></label><textarea id="iv" name="iv" rows="2" placeholder="Interventions applied...">' + esc(fd.iv) + '</textarea></div>' +
+      '<div class="f full"><label for="as">Assessment <span class="req">*</span></label><textarea id="as" name="as" rows="2" placeholder="Assessment provided...">' + esc(fd.as) + '</textarea></div>' +
+      '</div><div class="grid" id="med-wrap"></div></div>' +
+      '<div class="mf sticky"><button type="button" class="btn btn-outline" data-act="doc-close">Cancel</button><button type="submit" class="btn btn-primary">Save Documentation</button></div>' +
+      '</form></div></div>';
+    renderSpecify(); renderMed();
+    var c = $('cid'); if (c) c.focus();
+  }
+  function fld(name, label, type, ph, extra) {
+    return '<div class="f"><label for="' + name + '">' + label + ' <span class="req">*</span></label><input type="' + type + '" id="' + name + '" name="' + name + '" placeholder="' + ph + '" ' + (extra || '') + ' value="' + esc(fd[name]) + '"' + (type === 'text' ? ' inputmode="numeric" autocomplete="off"' : '') + '></div>';
+  }
+  function renderSpecify() {
+    var w = $('specify-wrap'); if (!w) return;
+    w.innerHTML = specifyReq() ? '<label for="specify">Specify Medical Condition Details <span class="req">*</span></label><input type="text" id="specify" name="specify" placeholder="Specific details of the condition" value="' + esc(fd.specify) + '">' : '';
+    w.style.display = specifyReq() ? '' : 'none';
+  }
+  function renderMed() {
+    var w = $('med-wrap'); if (!w) return;
+    var done = dispensed(), b = batchOf(fd.batch);
+    var eligible = BATCHES.filter(function (x) { return linked(x, fd.cid); });
+    var html = '<div class="f full"><label for="batch">Dispense Medicine' + (done ? '<span class="flag">(Dispensed / Read-Only)</span>' : '') + '</label>';
+    if (done) {
+      html += '<input type="text" id="batch" readonly disabled value="' + esc(b ? b.name : 'No medication dispensed') + '">';
+    } else {
+      html += '<select id="batch" name="batch"' + (fd.cid ? '' : ' disabled') + '><option value="">' +
+        (fd.cid ? (eligible.length ? '-- No medication needed --' : '-- No medicine linked to this condition --') : '-- Select a medical condition first --') + '</option>' +
+        eligible.map(function (x) {
+          var exp = new Date(x.exp) < new Date(), tot = totalAvail(x);
+          var st = isVol(x) ? 'Stock: ' + x.stock + ' ' + plural(x.form, x.stock) + ' (' + x.rem + ' ' + unitOf(x) + ' open)' : 'Stock: ' + x.stock + ' ' + plural(x.form, x.stock);
+          return '<option value="' + x.id + '"' + (x.id === fd.batch ? ' selected' : '') + ((exp || tot <= 0) ? ' disabled' : '') + '>' + esc(x.name) + ' (' + esc(withStrength(x)) + ') - Exp: ' + fmtDate(x.exp) + ' ' + (exp ? '(EXPIRED)' : '(' + st + ')') + '</option>';
+        }).join('') + '</select>';
+    }
+    html += '</div>';
+    if (b && !done) {
+      html += '<div class="stock full">Current stock: ' + b.stock + ' ' + plural(b.form, b.stock) + (isVol(b) ? ' (' + b.rem + ' ' + unitOf(b) + ' remaining in open ' + b.form.toLowerCase() + ')' : '') + '.</div>';
+    }
+    if (fd.batch || done) {
+      html += '<div class="f"><label for="qty">Dosage / Quantity' + (done ? '' : ' <span class="req">*</span>') + (!done && b && b.limit ? '<span class="flag">(max ' + b.limit + ' ' + fd.unit + ')</span>' : '') + '</label>' +
+        '<input type="number" id="qty" name="qty" step="1" min="1"' + (!done && b && b.limit ? ' max="' + b.limit + '"' : '') + (done ? ' readonly disabled' : '') + ' value="' + esc(fd.qty) + '"></div>' +
+        '<div class="f"><label for="unit">Unit of Measure</label><input type="text" id="unit" readonly' + (done ? ' disabled' : '') + ' value="' + esc(fd.unit) + '"></div>';
+    }
+    w.innerHTML = html;
+  }
+  function onBatchChange(id) {
+    var b = batchOf(id);
+    if (b) { fd.batch = id; fd.unit = unitOf(b); fd.qty = String(Math.max(1, Math.round(b.limit || 1))); }
+    else { fd.batch = ''; fd.qty = ''; fd.unit = ''; }
+    renderMed();
+  }
+  function closeDoc() {
+    if (locked()) { alertModal('Documentation Required', 'Complete and save the visit documentation before closing or checking in another student.', 'warning'); return; }
+    docVisit = null; renderDoc();
+  }
+  function submitDoc(e) {
+    e.preventDefault();
+    if (!docVisit) return;
+    var f = fd;
+    if (!f.cid || (specifyReq() && !f.specify.trim()) || !f.bp.trim() || !f.temp || !f.pulse || !f.rr || !f.iv.trim() || !f.as.trim()) {
+      alertModal('Missing Required Fields', 'All required visit documentation fields must be filled out before saving.', 'warning'); return;
+    }
+    if (!/^\d{2,3}\/\d{2,3}$/.test(f.bp.trim())) { alertModal('Invalid Blood Pressure', 'Use the format 120/80.', 'warning'); return; }
+    if (+f.temp < 30 || +f.temp > 45) { alertModal('Invalid Temperature', 'Temperature must be between 30 and 45 °C.', 'warning'); return; }
+    if (+f.pulse < 30 || +f.pulse > 250) { alertModal('Invalid Pulse', 'Pulse must be between 30 and 250 bpm.', 'warning'); return; }
+    if (+f.rr < 8 || +f.rr > 60) { alertModal('Invalid Respiratory Rate', 'Respiratory rate must be between 8 and 60.', 'warning'); return; }
+    var b = batchOf(f.batch);
+    if (!dispensed() && b && f.qty) {
+      var val = Number(f.qty);
+      if (isNaN(val) || val <= 0 || Math.floor(val) !== val) { alertModal('Invalid Quantity', 'Medicine dosage quantity must be a whole number greater than 0.', 'warning'); return; }
+      if (new Date(b.exp) < new Date()) { alertModal('Expired Medicine', 'Cannot dispense medicine from an expired batch.', 'error'); return; }
+      if (!linked(b, f.cid)) { alertModal('Medicine Not Indicated', 'The selected medicine is not linked to the selected medical condition.', 'warning'); return; }
+      if (b.limit > 0 && val > b.limit) { alertModal('Dispense Limit Exceeded', 'Only up to ' + b.limit + ' ' + f.unit + ' can be dispensed at once.', 'warning'); return; }
+      if (isVol(b) && val > totalAvail(b)) { alertModal('Stock Deficit', 'Requested ' + val + ' ' + f.unit + ' exceeds available stock.', 'error'); return; }
+      if (!isVol(b) && val > b.stock) { alertModal('Stock Deficit', 'Requested ' + val + ' exceeds available stock (' + b.stock + ').', 'error'); return; }
+    }
+    var v = docVisit;
+    confirmModal('Confirm Documentation', 'Save consultation details for ' + v.first + ' ' + v.last + '?', function () {
+      var wasDispensed = dispensed();
+      v.cid = +f.cid; v.specify = specifyReq() ? f.specify.trim() : '';
+      v.bp = f.bp.trim(); v.temp = f.temp; v.pulse = f.pulse; v.rr = f.rr; v.iv = f.iv.trim(); v.as = f.as.trim();
+      if (!wasDispensed && b && f.qty) {
+        var q = Number(f.qty);
+        if (isVol(b)) { b.rem -= q; while (b.rem < 0 && b.stock > 1) { b.stock--; b.rem += b.sv; } if (b.rem <= 0 && b.stock <= 1) { b.stock = Math.max(0, b.stock - 1); b.rem = b.stock ? b.sv : 0; } }
+        else b.stock -= q;
+        v.batch = b.id; v.qty = q; v.unit = f.unit;
+      }
+      docVisit = null; renderDoc(); renderToday(); if (logsOpen) renderLogs();
+      alertModal('Documentation Saved', 'Visit documentation updated.', 'success');
+    }, 'Save Details');
+  }
+
+  /* ---------- logs modal ---------- */
+  function filteredLogs() {
+    var q = logs.search.toLowerCase().trim();
+    return VISITS.filter(function (v) {
+      var name = (v.first + ' ' + v.last).toLowerCase();
+      if (q && name.indexOf(q) < 0 && v.sid.toLowerCase().indexOf(q) < 0) return false;
+      if (logs.from && v.date < logs.from) return false;
+      if (logs.to && v.date > logs.to) return false;
+      if (logs.cond && String(v.cid) !== logs.cond) return false;
+      return true;
+    }).sort(function (a, b) { return a.date === b.date ? b.tin.localeCompare(a.tin) : b.date.localeCompare(a.date); });
+  }
+  function openLogs() { logsOpen = true; renderLogs(true); }
+  function renderLogs(first) {
+    var el = $('layer-logs');
+    if (!logsOpen) { el.innerHTML = ''; return; }
+    var list = filteredLogs(), any = logs.search || logs.from || logs.to || logs.cond;
+    if (first || !$('logs-body')) {
+      el.innerHTML = '<div class="backdrop"><div class="modal xwide" role="dialog" aria-modal="true" aria-labelledby="lg-t">' +
+        '<div class="mh"><h3 id="lg-t">' + ic('history', 20) + 'All Clinic Visit Logs History</h3><button class="x" data-act="logs-close" aria-label="Close logs" title="Close">' + ic('x', 20) + '</button></div>' +
+        '<div class="mb"><div class="toolbar">' +
+        '<div class="f grow"><label for="l-search">Search Student</label><input type="text" id="l-search" placeholder="Name or student ID" value="' + esc(logs.search) + '"></div>' +
+        '<div class="f"><label for="l-from">From Date</label><input type="date" id="l-from" value="' + esc(logs.from) + '"></div>' +
+        '<div class="f"><label for="l-to">To Date</label><input type="date" id="l-to" value="' + esc(logs.to) + '"></div>' +
+        '<div class="f"><label for="l-cond">Medical Condition</label><select id="l-cond"><option value="">All</option>' + COMPLAINTS.map(function (c) { return '<option value="' + c.id + '"' + (String(c.id) === logs.cond ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('') + '</select></div>' +
+        '<div class="f" id="reset-wrap"></div></div>' +
+        '<p class="summary" id="l-sum" role="status"></p><div class="scroller" id="logs-body"></div></div>' +
+        '<div class="mf sticky"><button class="btn btn-outline" data-act="logs-close">Close Logs</button></div></div></div>';
+    }
+    $('reset-wrap').innerHTML = any ? '<button class="btn btn-outline" type="button" data-act="logs-reset" aria-label="Reset filters" title="Reset filters">' + ic('reset', 16) + '<span>Reset</span></button>' : '';
+    $('l-sum').innerHTML = 'Showing <strong>' + list.length + '</strong> of <strong>' + VISITS.length + '</strong> clinic visit records';
+    $('logs-body').innerHTML = '<table><thead><tr><th>Visit Date</th><th>Student Identity</th><th>Medical Condition</th><th>Medicine Dispensed</th><th>Time In / Out</th><th>Status</th><th class="tc">Actions</th></tr></thead><tbody>' +
+      (list.length ? list.map(function (v) { return rowHtml(v, true); }).join('') : '<tr><td colspan="7" class="empty">No visit logs match the selected search or filter criteria.</td></tr>') + '</tbody></table>';
+  }
+
+  /* ---------- events ---------- */
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest('[data-act]'); if (!t) return;
+    var act = t.getAttribute('data-act'), id = t.getAttribute('data-id');
+    if (act === 'mode') { mode = t.getAttribute('data-mode'); query = ''; renderEntry(); }
+    else if (act === 'back') { mode = null; query = ''; renderEntry(); }
+    else if (act === 'fill-id') { $('qr-in').value = id; $('qr-in').focus(); }
+    else if (act === 'pick') { selectStudent(STUDENTS.find(function (s) { return s.id === id; })); }
+    else if (act === 'refresh') { renderToday(); }
+    else if (act === 'open-logs') { openLogs(); }
+    else if (act === 'logs-close') { logsOpen = false; renderLogs(); }
+    else if (act === 'logs-reset') { logs = { search: '', from: '', to: '', cond: '' }; renderLogs(true); }
+    else if (act === 'open-doc') { openDoc(visitById(id)); }
+    else if (act === 'doc-close') { closeDoc(); }
+    else if (act === 'timeout-qr') { openTimeoutQr(visitById(id)); }
+    else if (act === 'timeout-manual') { manualTimeout(visitById(id)); }
+    else if (act === 'to-cancel') { timeoutVisit = null; $('layer-small').innerHTML = ''; }
+    else if (act === 'ci-deny') { pending = null; renderCheckIn(); }
+    else if (act === 'ci-ok') { confirmCheckIn(); }
+    else if (act === 'fb-close') { closeFb(); }
+    else if (act === 'fb-confirm') { if (fb && fb.onConfirm) fb.onConfirm(); }
+  });
+  document.addEventListener('submit', function (e) {
+    var id = e.target.id;
+    if (id === 'doc-form') submitDoc(e);
+    else if (id === 'qr-form') {
+      e.preventDefault();
+      var val = $('qr-in').value.trim();
+      if (!val) { alertModal('Enter Student ID', 'Camera is off in this preview. Type or pick a Student ID.', 'warning'); return; }
+      var st = STUDENTS.find(function (s) { return s.id.toLowerCase() === val.toLowerCase(); });
+      if (!st) { alertModal('Student Not Found', 'No student found matching "' + val + '".', 'warning'); return; }
+      selectStudent(st);
+    } else if (id === 'to-form') {
+      e.preventDefault();
+      var inp = $('to-in').value.trim(), v = timeoutVisit;
+      if (!inp) return;
+      if (inp.toUpperCase() !== v.sid.toUpperCase()) { alertModal('QR Code Mismatch', 'Scanned "' + inp + '" but expected ID ' + v.sid + '.', 'error'); $('to-in').value = ''; return; }
+      timeoutVisit = null; $('layer-small').innerHTML = ''; doTimeout(v, nowHM());
+    }
+  });
+  document.addEventListener('input', function (e) {
+    var t = e.target, id = t.id;
+    if (id === 'q') { query = t.value; renderResults(); }
+    else if (docVisit && t.closest('#doc-form') && t.name) {
+      if (t.name === 'qty') {
+        var n = t.value ? String(Math.max(1, Math.floor(Number(t.value)))) : '';
+        fd.qty = n; if (t.value !== n) t.value = n;
+      } else if (t.name !== 'batch' && t.name !== 'cid') fd[t.name] = t.value;
+    }
+    else if (id === 'l-search') { logs.search = t.value; renderLogs(); }
+  });
+  document.addEventListener('change', function (e) {
+    var t = e.target, id = t.id;
+    if (docVisit && id === 'cid') {
+      fd.cid = t.value; fd.specify = '';
+      var keep = dispensed() || linked(batchOf(fd.batch), fd.cid);
+      if (!keep) { fd.batch = ''; fd.qty = ''; fd.unit = ''; }
+      renderSpecify(); renderMed();
+    } else if (docVisit && id === 'batch') { onBatchChange(t.value); }
+    else if (id === 'l-from') { logs.from = t.value; renderLogs(); }
+    else if (id === 'l-to') { logs.to = t.value; renderLogs(); }
+    else if (id === 'l-cond') { logs.cond = t.value; renderLogs(); }
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    if (fb) closeFb();
+    else if (timeoutVisit) { timeoutVisit = null; $('layer-small').innerHTML = ''; }
+    else if (pending) { pending = null; renderCheckIn(); }
+    else if (docVisit) closeDoc();
+    else if (logsOpen) { logsOpen = false; renderLogs(); }
+  });
+
+  /* ---------- boot ---------- */
+  document.querySelectorAll('[data-ic]').forEach(function (n) { n.innerHTML = ic(n.getAttribute('data-ic'), 18); });
+  renderEntry(); renderToday();
+})();
+</script>

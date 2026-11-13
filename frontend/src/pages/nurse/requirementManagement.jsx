@@ -1,13 +1,14 @@
 // requirementManagement.jsx
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useOutletContext, useLocation } from 'react-router-dom';
-import { 
-    Search, Calendar, Edit, Trash2, X, Plus, 
-    FileText, CheckCircle, Clock, Eye, AlertCircle, FileCheck, Printer 
+import {
+    Search, Calendar, Pencil, Trash2, X, Plus, Check, Ban, RotateCcw,
+    FileText, CheckCircle, Clock, Eye, AlertCircle, FileCheck, Printer, ClipboardList
 } from 'lucide-react';
 
 import stiLogo from '../../assets/sti-logof.png';
 import { formatDate } from '../../utils/datetime';
+import { useAlert } from '../../context/AlertContext';
 import '../../styles/nurse/RequirementManagement.css';
 
 export const RequirementManagement = () => {
@@ -28,20 +29,9 @@ export const RequirementManagement = () => {
     const [medicalRequirements, setMedicalRequirements] = useState([]);
     const [isMedReqModalOpen, setIsMedReqModalOpen] = useState(false);
     const [newMedReqName, setNewMedReqName] = useState('');
-    const [medReqError, setMedReqError] = useState('');
     const [editingMedReq, setEditingMedReq] = useState(null);
 
-    // Confirmation & Alert Modal State for CRUD
-    const [confirmModal, setConfirmModal] = useState({
-        isOpen: false,
-        title: '',
-        message: '',
-        details: null,
-        onConfirm: null,
-        confirmText: 'Confirm',
-        type: 'primary', // 'primary' | 'danger' | 'warning' | 'error'
-        hideCancel: false
-    });
+    const { showAlert, showConfirm } = useAlert();
 
     // Program Configuration States
     const [programs, setPrograms] = useState([]);
@@ -73,34 +63,23 @@ export const RequirementManagement = () => {
     // Nested Requirement Editor Configuration State
     const [editingReq, setEditingReq] = useState(null);
 
-    const openConfirmModal = (title, message, onConfirm, confirmText = 'Confirm', type = 'primary', details = null) => {
-        setConfirmModal({
-            isOpen: true,
-            title,
-            message,
-            details,
-            onConfirm,
-            confirmText,
-            type,
-            hideCancel: false
-        });
+    // Every message is a modal (useAlert). `details` (cascade warning) is folded into the text.
+    const openConfirmModal = async (title, message, onConfirm, confirmText = 'Confirm', type = 'primary', details = null) => {
+        let text = message;
+        if (details) {
+            const parts = [];
+            if (details.program_ids?.length) parts.push(`Programs: ${details.program_ids.join(', ')}`);
+            if (details.submission_ids?.length) parts.push(`Submissions: ${details.submission_ids.length}`);
+            if (details.service_ids?.length) parts.push(`Facility services: ${details.service_ids.length}`);
+            if (parts.length) text = `${message} (${parts.join(' | ')})`;
+        }
+        const ok = await showConfirm(text, { danger: type === 'danger', confirmLabel: confirmText, title });
+        if (ok && onConfirm) await onConfirm();
     };
 
     const showAlertModal = (title, message, type = 'primary') => {
-        setConfirmModal({
-            isOpen: true,
-            title,
-            message,
-            details: null,
-            onConfirm: null,
-            confirmText: 'OK',
-            type,
-            hideCancel: true
-        });
-    };
-
-    const closeConfirmModal = () => {
-        setConfirmModal(prev => ({ ...prev, isOpen: false, onConfirm: null, details: null }));
+        const variant = type === 'primary' ? 'success' : type;
+        showAlert(message, variant, { title });
     };
 
     const parseJsonResponse = async (res) => {
@@ -653,10 +632,9 @@ export const RequirementManagement = () => {
     };
 
     const handleAddMedicalRequirement = async () => {
-        setMedReqError('');
         const trimmed = newMedReqName.trim();
         if (!trimmed) {
-            setMedReqError("Requirement name cannot be empty.");
+            showAlertModal("Validation Error", "Name is required.", "warning");
             return;
         }
 
@@ -665,7 +643,7 @@ export const RequirementManagement = () => {
         );
 
         if (exists) {
-            setMedReqError(`Duplicate Error: Medical requirement "${trimmed}" already exists.`);
+            showAlertModal("Duplicate Error", `"${trimmed}" already exists.`, "error");
             return;
         }
 
@@ -683,17 +661,16 @@ export const RequirementManagement = () => {
                     const data = await parseJsonResponse(response);
 
                     if (!response.ok || !data || !data.success) {
-                        setMedReqError(data?.error || `Server Error (${response.status}): Failed to add medical requirement.`);
+                        showAlertModal("Add Error", data?.error || `Server Error (${response.status}): Failed to add medical requirement.`, "error");
                         return;
                     }
 
                     setNewMedReqName('');
-                    setMedReqError('');
                     fetchMedicalRequirements();
-                    showAlertModal("Success", `Medical requirement "${trimmed}" added successfully.`, "primary");
+                    showAlertModal("Success", `"${trimmed}" added.`, "primary");
                 } catch (error) {
                     console.error("Error adding medical requirement:", error);
-                    setMedReqError("Network error adding medical requirement.");
+                    showAlertModal("Network Error", "Could not add the requirement.", "error");
                 }
             },
             "Add Requirement",
@@ -1099,20 +1076,20 @@ export const RequirementManagement = () => {
         const s = status?.toLowerCase();
         switch (s) {
             case 'completed':
-                return { color: 'var(--status-adequate-text)', backgroundColor: 'var(--status-adequate-bg)', border: '1px solid #86efac' };
+                return { color: 'var(--status-adequate-text)', backgroundColor: 'var(--status-adequate-bg)' };
             case 'submitted':
             case 'waiting for approval':
             case 'late':
             case 'submitted late':
-                return { color: 'var(--text-brand)', backgroundColor: 'var(--sti-blue-light)', border: '1px solid #93c5fd' };
+                return { color: 'var(--text-brand)', backgroundColor: 'var(--sti-blue-light)' };
             case 'rejected':
-                return { color: 'var(--status-critical-text)', backgroundColor: 'var(--status-critical-bg)', border: '1px solid #fca5a5' };
+                return { color: 'var(--status-critical-text)', backgroundColor: 'var(--status-critical-bg)' };
             case 'missed':
             case 'not submitted':
-                return { color: 'var(--text-primary)', backgroundColor: 'var(--bg-subtle)', border: '1px solid var(--card-border)' };
+                return { color: 'var(--text-primary)', backgroundColor: 'var(--bg-muted)' };
             case 'pending':
             default:
-                return { color: 'var(--status-low-text)', backgroundColor: 'var(--status-low-bg)', border: '1px solid #fde047' };
+                return { color: 'var(--status-low-text)', backgroundColor: 'var(--status-low-bg)' };
         }
     };
 
@@ -1218,40 +1195,50 @@ export const RequirementManagement = () => {
 
     return (
         <div className="req-container-rm">
-            {/* HEADER SECTION - Styled matching Insurance Vault Card Theme */}
             <div className="req-header-section-rm">
-                <div>
-                    <h2>Requirement Management</h2>
-                    <p>Manage, configure, and track student medical compliance requirements.</p>
-                </div>
-                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                    <button 
+                <h2>Requirement Management</h2>
+                <div className="req-header-actions-rm">
+                    <button
                         type="button"
-                        className="btn-manage-med-reqs-rm"
+                        className="btn-rm btn-icon-rm"
                         onClick={handleExportAllReport}
-                        style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                        aria-label="Export report"
+                        title="Export report"
                     >
-                        <Printer size={16} /> export
+                        <Printer size={20} />
                     </button>
-                    <button 
-                        className="btn-manage-med-reqs-rm"
-                        onClick={() => {
-                            setIsMedReqModalOpen(true);
-                            setMedReqError('');
-                        }}
-                        style={{ width: 'auto' }}
+                    <button
+                        type="button"
+                        className="btn-rm btn-icon-rm"
+                        onClick={() => setIsMedReqModalOpen(true)}
+                        aria-label="Manage medical requirements"
+                        title="Manage medical requirements"
                     >
-                        <FileText size={16} /> Manage Medical Requirements
+                        <ClipboardList size={20} />
                     </button>
                 </div>
             </div>
 
-            <div className="tabs-rm">
-                <button className={`tab-btn-rm ${activeTab === 'student' ? 'active' : ''}`} onClick={() => setActiveTab('student')}>
+            <div className="tabs-rm" role="tablist" aria-label="Requirement views">
+                <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activeTab === 'student'}
+                    className={`tab-btn-rm ${activeTab === 'student' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('student')}
+                >
                     Student Requirements
+                    <span className="tab-count-rm">{students.length}</span>
                 </button>
-                <button className={`tab-btn-rm ${activeTab === 'course' ? 'active' : ''}`} onClick={() => setActiveTab('course')}>
+                <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activeTab === 'course'}
+                    className={`tab-btn-rm ${activeTab === 'course' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('course')}
+                >
                     Course / Strand Requirements
+                    <span className="tab-count-rm">{programs.length}</span>
                 </button>
             </div>
 
@@ -1259,49 +1246,69 @@ export const RequirementManagement = () => {
             {activeTab === 'student' && (
                 <div className="tab-content-rm">
                     <div className="dashboard-summary-cards-rm">
-                        <div 
-                            className={`summary-card-rm card-blue-rm ${statusFilter === 'waiting' ? 'active-card-filter-rm' : ''}`}
+                        <button
+                            type="button"
+                            className={`summary-card-rm ${statusFilter === 'waiting' ? 'active-card-filter-rm' : ''}`}
+                            aria-pressed={statusFilter === 'waiting'}
                             onClick={() => setStatusFilter(statusFilter === 'waiting' ? 'default' : 'waiting')}
-                            title="Click to filter students waiting for approval"
+                            title="Filter: waiting"
                         >
-                            <div className="summary-card-number-rm text-blue-rm">{submittedRequirementsCount}</div>
-                            <div className="summary-card-label-rm">Waiting for Approval</div>
-                        </div>
-                        <div 
-                            className={`summary-card-rm card-orange-rm ${statusFilter === 'incomplete' ? 'active-card-filter-rm' : ''}`}
+                            <span className="summary-badge-rm tone-blue-rm"><Clock size={20} /></span>
+                            <span>
+                                <span className="summary-card-number-rm">{submittedRequirementsCount}</span>
+                                <span className="summary-card-label-rm">Waiting</span>
+                            </span>
+                        </button>
+                        <button
+                            type="button"
+                            className={`summary-card-rm ${statusFilter === 'incomplete' ? 'active-card-filter-rm' : ''}`}
+                            aria-pressed={statusFilter === 'incomplete'}
                             onClick={() => setStatusFilter(statusFilter === 'incomplete' ? 'default' : 'incomplete')}
-                            title="Click to filter incomplete students"
+                            title="Filter: incomplete"
                         >
-                            <div className="summary-card-number-rm text-orange-rm">{incompleteStudentsCount}</div>
-                            <div className="summary-card-label-rm">Incomplete</div>
-                        </div>
-                        <div 
-                            className={`summary-card-rm card-green-rm ${statusFilter === 'complete' ? 'active-card-filter-rm' : ''}`}
+                            <span className="summary-badge-rm tone-amber-rm"><AlertCircle size={20} /></span>
+                            <span>
+                                <span className="summary-card-number-rm">{incompleteStudentsCount}</span>
+                                <span className="summary-card-label-rm">Incomplete</span>
+                            </span>
+                        </button>
+                        <button
+                            type="button"
+                            className={`summary-card-rm ${statusFilter === 'complete' ? 'active-card-filter-rm' : ''}`}
+                            aria-pressed={statusFilter === 'complete'}
                             onClick={() => setStatusFilter(statusFilter === 'complete' ? 'default' : 'complete')}
-                            title="Click to filter complete students"
+                            title="Filter: complete"
                         >
-                            <div className="summary-card-number-rm text-green-rm">{completeStudentsCount}</div>
-                            <div className="summary-card-label-rm">Complete</div>
-                        </div>
+                            <span className="summary-badge-rm tone-green-rm"><CheckCircle size={20} /></span>
+                            <span>
+                                <span className="summary-card-number-rm">{completeStudentsCount}</span>
+                                <span className="summary-card-label-rm">Complete</span>
+                            </span>
+                        </button>
                     </div>
 
                     <div className="filter-toolbar-rm">
-                        <div className="search-wrapper-rm">
-                            <Search className="search-icon-rm" size={18} />
-                            <input 
-                                type="text" 
-                                placeholder="Search active students by name, ID, section..." 
-                                className="search-bar-rm" 
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                            />
+                        <div className="filter-item-rm filter-item-search-rm">
+                            <label className="filter-label-rm" htmlFor="rm-search">Search</label>
+                            <div className="search-wrapper-rm">
+                                <Search className="search-icon-rm" size={18} />
+                                <input
+                                    id="rm-search"
+                                    type="search"
+                                    placeholder="Name, ID, section"
+                                    className="search-bar-rm"
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                />
+                            </div>
                         </div>
 
                         <div className="filter-grid-rm">
                             <div className="filter-item-rm">
-                                <label className="filter-label-rm">Course / Strand</label>
-                                <select 
-                                    value={courseFilter} 
+                                <label className="filter-label-rm" htmlFor="rm-course">Course / Strand</label>
+                                <select
+                                    id="rm-course"
+                                    value={courseFilter}
                                     onChange={(e) => setCourseFilter(e.target.value)}
                                     className="filter-select-rm"
                                 >
@@ -1315,9 +1322,10 @@ export const RequirementManagement = () => {
                             </div>
 
                             <div className="filter-item-rm">
-                                <label className="filter-label-rm">Year Level</label>
-                                <select 
-                                    value={yearFilter} 
+                                <label className="filter-label-rm" htmlFor="rm-year">Year Level</label>
+                                <select
+                                    id="rm-year"
+                                    value={yearFilter}
                                     onChange={(e) => setYearFilter(e.target.value)}
                                     className="filter-select-rm"
                                 >
@@ -1331,9 +1339,10 @@ export const RequirementManagement = () => {
                             </div>
 
                             <div className="filter-item-rm">
-                                <label className="filter-label-rm">Section</label>
-                                <select 
-                                    value={sectionFilter} 
+                                <label className="filter-label-rm" htmlFor="rm-section">Section</label>
+                                <select
+                                    id="rm-section"
+                                    value={sectionFilter}
                                     onChange={(e) => setSectionFilter(e.target.value)}
                                     className="filter-select-rm"
                                 >
@@ -1347,9 +1356,10 @@ export const RequirementManagement = () => {
                             </div>
 
                             <div className="filter-item-rm">
-                                <label className="filter-label-rm">Requirement</label>
-                                <select 
-                                    value={requirementFilter} 
+                                <label className="filter-label-rm" htmlFor="rm-requirement">Requirement</label>
+                                <select
+                                    id="rm-requirement"
+                                    value={requirementFilter}
                                     onChange={(e) => setRequirementFilter(e.target.value)}
                                     className="filter-select-rm"
                                 >
@@ -1363,17 +1373,18 @@ export const RequirementManagement = () => {
                             </div>
 
                             <div className="filter-item-rm">
-                                <label className="filter-label-rm">Compliance Status</label>
-                                <select 
-                                    value={statusFilter} 
+                                <label className="filter-label-rm" htmlFor="rm-status">Status</label>
+                                <select
+                                    id="rm-status"
+                                    value={statusFilter}
                                     onChange={(e) => setStatusFilter(e.target.value)}
                                     className="filter-select-rm"
                                 >
-                                    <option value="default">Default (Waiting & Incomplete)</option>
-                                    <option value="all">All Statuses (Including Complete)</option>
-                                    <option value="waiting">Waiting for Approval Only</option>
-                                    <option value="incomplete">Incomplete Only</option>
-                                    <option value="complete">Complete Only</option>
+                                    <option value="default">Needs attention</option>
+                                    <option value="all">All</option>
+                                    <option value="waiting">Waiting</option>
+                                    <option value="incomplete">Incomplete</option>
+                                    <option value="complete">Complete</option>
                                     <option value="missed">Missed</option>
                                     <option value="rejected">Rejected</option>
                                     <option value="resubmit">Resubmit</option>
@@ -1382,7 +1393,10 @@ export const RequirementManagement = () => {
 
                             {(courseFilter !== 'all' || sectionFilter !== 'all' || yearFilter !== 'all' || requirementFilter !== 'all' || statusFilter !== 'default' || searchTerm !== '') && (
                                 <div className="filter-item-rm filter-reset-action-rm">
-                                    <button 
+                                    <button
+                                        type="button"
+                                        aria-label="Reset filters"
+                                        title="Reset filters"
                                         onClick={() => {
                                             setCourseFilter('all');
                                             setSectionFilter('all');
@@ -1391,9 +1405,9 @@ export const RequirementManagement = () => {
                                             setStatusFilter('default');
                                             setSearchTerm('');
                                         }}
-                                        className="btn-clear-filters-rm"
+                                        className="btn-rm btn-icon-rm"
                                     >
-                                        Reset Filters
+                                        <RotateCcw size={20} />
                                     </button>
                                 </div>
                             )}
@@ -1407,7 +1421,7 @@ export const RequirementManagement = () => {
                                     <th>Student</th>
                                     <th>Course/Section/Year</th>
                                     <th>Requirements Overview</th>
-                                    <th className="text-center-rm">Action</th>
+                                    <th className="text-center-rm">View</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -1430,21 +1444,23 @@ export const RequirementManagement = () => {
                                             <td>
                                                 {student.stats && (
                                                     <div className="stats-overview-rm">
-                                                        <div>
-                                                            {Number(student.stats.total) === 0 ? (
-                                                                <span className="text-muted-rm">No Requirements (0/0)</span>
-                                                            ) : Number(student.stats.completed) === Number(student.stats.total) ? (
-                                                                <span className="stat-complete-rm">
-                                                                    <CheckCircle size={14} style={{ display: 'inline', marginRight: '4px' }}/> 
-                                                                    {student.stats.completed}/{student.stats.total} Complete
+                                                        {Number(student.stats.total) === 0 ? (
+                                                            <span className="text-muted-rm">No requirements (0/0)</span>
+                                                        ) : (
+                                                            <div className="progress-row-rm">
+                                                                <div
+                                                                    className={`progress-bar-rm ${Number(student.stats.completed) === Number(student.stats.total) ? 'is-complete-rm' : ''}`}
+                                                                    role="img"
+                                                                    aria-label={`${Math.round((Number(student.stats.completed) / Number(student.stats.total)) * 100)}% complete`}
+                                                                >
+                                                                    <i style={{ width: `${Math.round((Number(student.stats.completed) / Number(student.stats.total)) * 100)}%` }} />
+                                                                </div>
+                                                                <span className="progress-label-rm">
+                                                                    {student.stats.completed}/{student.stats.total}{' '}
+                                                                    {Number(student.stats.completed) === Number(student.stats.total) ? 'Complete' : 'Incomplete'}
                                                                 </span>
-                                                            ) : (
-                                                                <span className="stat-incomplete-rm">
-                                                                    <Clock size={14} style={{ display: 'inline', marginRight: '4px' }}/> 
-                                                                    {student.stats.completed}/{student.stats.total} Incomplete
-                                                                </span>
-                                                            )}
-                                                        </div>
+                                                            </div>
+                                                        )}
                                                         <div className="status-tags-container-rm">
                                                             {(Number(student.stats.waiting || 0) > 0 || (Number(student.stats.submitted || 0) + Number(student.stats.late || 0)) > 0) && (
                                                                 <span className="status-tag-chip-rm chip-waiting-rm">
@@ -1472,13 +1488,14 @@ export const RequirementManagement = () => {
                                                 )}
                                             </td>
                                             <td className="text-center-rm">
-                                                <button 
-                                                    onClick={() => handleManageStudent(student)} 
-                                                    className="btn-action-icon-rm" 
-                                                    title="Manage Student Requirements"
-                                                    aria-label="Manage Student Requirements"
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleManageStudent(student)}
+                                                    className="btn-rm btn-icon-rm"
+                                                    title={`Manage ${student.first_name} ${student.last_name}`}
+                                                    aria-label={`Manage ${student.first_name} ${student.last_name}`}
                                                 >
-                                                    <Eye size={18} />
+                                                    <Eye size={20} />
                                                 </button>
                                             </td>
                                         </tr>
@@ -1486,7 +1503,7 @@ export const RequirementManagement = () => {
                                 ) : (
                                     <tr>
                                         <td colSpan="4" className="empty-table-cell-rm">
-                                            No active student records matched the active search and filter criteria.
+                                            No match
                                         </td>
                                     </tr>
                                 )}
@@ -1504,66 +1521,97 @@ export const RequirementManagement = () => {
                         const progYearLevelOptions = getYearLevelOptions(prog);
 
                         return (
-                            <div className="program-card-rm" key={prog.program_id}>
+                            <article
+                                className={`program-card-rm ${isNewMode[prog.program_id] ? 'is-editing-rm' : ''}`}
+                                key={prog.program_id}
+                                aria-label={prog.program_name}
+                            >
                                 <div className="program-header-rm">
-                                    <h3>{prog.program_name}</h3>
-                                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                        <button 
+                                    <span className="program-id-rm">{prog.program_id}</span>
+                                    <div className="program-title-rm">
+                                        <h3>{prog.program_name}</h3>
+                                        <p>{progYearLevelOptions.length === 2 ? 'Strand' : 'Course'} · {progYearLevelOptions.length} yrs · {assignedConfigs.length} req.</p>
+                                    </div>
+                                    <div className="program-actions-rm">
+                                        <button
                                             type="button"
-                                            className="btn-add-primary-sm-rm"
+                                            className="btn-rm btn-icon-rm btn-ghost-rm"
                                             onClick={() => {
                                                 setAssignCourseModalProgram(prog);
                                                 setCourseModalInput({ name: '', year_level: '', deadline: '', allowLate: false });
                                             }}
-                                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                            aria-label={`Assign requirement to ${prog.program_id}`}
+                                            title={`Assign requirement to ${prog.program_id}`}
                                         >
-                                            <Plus size={14} /> Assign Requirement
+                                            <Plus size={20} />
                                         </button>
-                                        <button 
-                                            className="btn-edit-toggle-rm" 
-                                            onClick={() => setIsNewMode({...isNewMode, [prog.program_id]: !isNewMode[prog.program_id]})}
+                                        <button
+                                            type="button"
+                                            className="btn-rm btn-icon-rm btn-ghost-rm"
+                                            aria-pressed={!!isNewMode[prog.program_id]}
+                                            onClick={() => {
+                                                setIsNewMode({...isNewMode, [prog.program_id]: !isNewMode[prog.program_id]});
+                                                setInlineEditingConfigId(null);
+                                            }}
+                                            aria-label={isNewMode[prog.program_id] ? `Done editing ${prog.program_id}` : `Edit ${prog.program_id} requirements`}
+                                            title={isNewMode[prog.program_id] ? `Done editing ${prog.program_id}` : `Edit ${prog.program_id} requirements`}
                                         >
-                                            {isNewMode[prog.program_id] ? <><X size={14} /> Close Edit</> : <><Edit size={14} /> Edit</>}
+                                            {isNewMode[prog.program_id] ? <X size={20} /> : <Pencil size={20} />}
                                         </button>
                                     </div>
                                 </div>
-                                
+
+                                {assignedConfigs.length === 0 && <div className="program-empty-rm">None yet</div>}
                                 <ul className="req-list-rm">
                                     {assignedConfigs.map((req, index) => {
                                         const isThisRowBeingEdited = inlineEditingConfigId === req.config_id;
                                         const formattedDeadline = req.submission_deadline ? formatDate(req.submission_deadline) : 'No Target Set';
                                         
                                         return (
-                                            <li key={req.config_id || index} className="req-item-rm">
+                                            <li key={req.config_id || index} className={`req-item-rm ${isThisRowBeingEdited ? 'req-item-edit-rm' : ''}`}>
                                                 {!isThisRowBeingEdited ? (
                                                     <div className="req-item-content-rm">
+                                                        <FileCheck size={20} className="check-icon-rm" aria-hidden="true" />
                                                         <div className="req-item-details-rm">
                                                             <span className="req-text-rm">
-                                                                <FileCheck size={16} className="check-icon-rm"/>  
-                                                                <b>{req.requirement_name}</b>  
-                                                                {req.year_level && <span className="year-badge-rm">Year {req.year_level}</span>}
+                                                                {req.requirement_name}
+                                                                <span className="year-badge-rm">{req.year_level ? `Year ${req.year_level}` : 'All years'}</span>
                                                             </span>
                                                             <div className="req-meta-rm">
-                                                                <span><Calendar size={12}/> Deadline: {formattedDeadline}</span>
+                                                                <span><Calendar size={14}/> {formattedDeadline}</span>
                                                                 <span className={`late-badge-rm ${req.allow_late_submission ? 'allowed' : 'blocked'}`}>
+                                                                    {req.allow_late_submission ? <Check size={14} /> : <Ban size={14} />}
                                                                     {req.allow_late_submission ? 'Late Allowed' : 'Late Blocked'}
                                                                 </span>
                                                             </div>
                                                         </div>
                                                         {isNewMode[prog.program_id] && (
                                                             <div className="req-actions-rm">
-                                                                <button onClick={() => startInlineEditingConfig(req)} className="btn-icon-rm btn-edit-rm" title="Edit Requirement"><Edit size={14}/></button>
-                                                                <button onClick={() => deleteProgramRequirement(prog.program_id, req.config_id, req.requirement_name)} className="btn-icon-rm btn-delete-x-rm" title="Delete Requirement"><Trash2 size={14}/></button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => startInlineEditingConfig(req)}
+                                                                    className="btn-rm btn-icon-rm btn-ghost-rm"
+                                                                    aria-label={`Edit ${req.requirement_name}`}
+                                                                    title={`Edit ${req.requirement_name}`}
+                                                                ><Pencil size={20}/></button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => deleteProgramRequirement(prog.program_id, req.config_id, req.requirement_name)}
+                                                                    className="btn-rm btn-icon-rm btn-ghost-rm btn-danger-rm"
+                                                                    aria-label={`Delete ${req.requirement_name}`}
+                                                                    title={`Delete ${req.requirement_name}`}
+                                                                ><Trash2 size={20}/></button>
                                                             </div>
                                                         )}
                                                     </div>
                                                 ) : (
                                                     <div className="inline-edit-box-rm">
                                                         <div className="inline-edit-inputs-rm">
-                                                            <select 
+                                                            <select
+                                                                aria-label="Requirement"
                                                                 value={inlineEditForm.requirement_name}
                                                                 onChange={(e) => setInlineEditForm({...inlineEditForm, requirement_name: e.target.value})}
-                                                                className="flex-2-rm filter-select-rm"
+                                                                className="filter-select-rm"
                                                             >
                                                                 <option value="">Select Requirement</option>
                                                                 {medicalRequirements.map((medReq, idx) => (
@@ -1572,34 +1620,47 @@ export const RequirementManagement = () => {
                                                                     </option>
                                                                 ))}
                                                             </select>
-                                                            <select 
+                                                            <select
+                                                                aria-label="Year level"
                                                                 value={inlineEditForm.year_level}
                                                                 onChange={(e) => setInlineEditForm({...inlineEditForm, year_level: e.target.value})}
-                                                                className="flex-1-rm filter-select-rm"
+                                                                className="filter-select-rm"
                                                             >
-                                                                <option value="">Year Level</option>
+                                                                <option value="">All years</option>
                                                                 {progYearLevelOptions.map(y => (
                                                                     <option key={y} value={y}>{y}{y === 1 ? 'st' : y === 2 ? 'nd' : y === 3 ? 'rd' : 'th'} Year</option>
                                                                 ))}
                                                             </select>
-                                                            <input 
-                                                                type="date" 
+                                                            <input
+                                                                type="date"
+                                                                aria-label="Deadline"
                                                                 value={inlineEditForm.submission_deadline}
                                                                 onChange={(e) => setInlineEditForm({...inlineEditForm, submission_deadline: e.target.value})}
-                                                                className="flex-1-rm"
                                                             />
                                                         </div>
                                                         <div className="inline-edit-footer-rm">
                                                             <label className="checkbox-label-rm">
-                                                                <input 
+                                                                <input
                                                                     type="checkbox"
                                                                     checked={inlineEditForm.allow_late_submission}
                                                                     onChange={(e) => setInlineEditForm({...inlineEditForm, allow_late_submission: e.target.checked})}
-                                                                /> Allow late submission
+                                                                /> Late Allowed
                                                             </label>
                                                             <div className="inline-edit-actions-rm">
-                                                                <button onClick={() => saveInlineRequirementUpdate(prog.program_id, req.config_id)} className="btn-save-sm-rm">Save</button>
-                                                                <button onClick={() => setInlineEditingConfigId(null)} className="btn-cancel-sm-rm">Cancel</button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setInlineEditingConfigId(null)}
+                                                                    className="btn-rm btn-icon-rm"
+                                                                    aria-label="Cancel"
+                                                                    title="Cancel"
+                                                                ><X size={20} /></button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => saveInlineRequirementUpdate(prog.program_id, req.config_id)}
+                                                                    className="btn-rm btn-icon-rm btn-primary-rm"
+                                                                    aria-label="Save"
+                                                                    title="Save"
+                                                                ><Check size={20} /></button>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -1608,7 +1669,7 @@ export const RequirementManagement = () => {
                                         );
                                     })}
                                 </ul>
-                            </div>
+                            </article>
                         );
                     })}
                 </div>
@@ -1616,20 +1677,23 @@ export const RequirementManagement = () => {
 
             {/* MODAL: ASSIGN / ADD MEDICAL REQUIREMENT TO SPECIFIC COURSE */}
             {assignCourseModalProgram && (
-                <div className="modal-overlay-rm">
-                    <div className="modal-content-rm medium-modal-rm">
+                <div className="modal-overlay-rm" onKeyDown={(e) => { if (e.key === 'Escape') { setAssignCourseModalProgram(null); } }}>
+                    <div className="modal-content-rm medium-modal-rm" role="dialog" aria-modal="true" aria-labelledby="rm-assign-title">
                         <div className="modal-header-rm">
                             <div>
-                                <h3>Assign Requirement to Course</h3>
-                                <p className="modal-subtitle-rm">{assignCourseModalProgram.program_name} ({assignCourseModalProgram.program_id})</p>
+                                <h3 id="rm-assign-title">Assign to {assignCourseModalProgram.program_id}</h3>
+                                <p className="modal-subtitle-rm">{assignCourseModalProgram.program_name}</p>
                             </div>
-                            <button 
+                            <button
+                                type="button"
                                 onClick={() => {
                                     setAssignCourseModalProgram(null);
                                     setCourseModalInput({ name: '', year_level: '', deadline: '', allowLate: false });
-                                }} 
-                                className="btn-close-rm" 
-                                title="Close Modal"
+                                }}
+                                className="btn-rm btn-icon-rm btn-ghost-rm"
+                                aria-label="Close"
+                                title="Close"
+                                autoFocus
                             >
                                 <X size={20}/>
                             </button>
@@ -1637,16 +1701,16 @@ export const RequirementManagement = () => {
 
                         <div className="modal-body-rm">
                             <div className="add-special-req-form-rm">
-                                <h4>Add Medical Requirement</h4>
                                 <div className="form-grid-2-rm">
                                     <div className="form-group-rm">
-                                        <label>Select Medical Requirement</label>
-                                        <select 
+                                        <label htmlFor="rm-assign-name">Requirement</label>
+                                        <select
+                                            id="rm-assign-name"
                                             value={courseModalInput.name}
                                             onChange={(e) => setCourseModalInput({ ...courseModalInput, name: e.target.value })}
                                             className="form-control-rm"
                                         >
-                                            <option value="">-- Select Requirement --</option>
+                                            <option value="">Select</option>
                                             {medicalRequirements.map((medReq, idx) => (
                                                 <option key={medReq.requirement_name || idx} value={medReq.requirement_name}>
                                                     {medReq.requirement_name}
@@ -1655,13 +1719,14 @@ export const RequirementManagement = () => {
                                         </select>
                                     </div>
                                     <div className="form-group-rm">
-                                        <label>Target Year Level</label>
-                                        <select 
+                                        <label htmlFor="rm-assign-year">Year level</label>
+                                        <select
+                                            id="rm-assign-year"
                                             value={courseModalInput.year_level}
                                             onChange={(e) => setCourseModalInput({ ...courseModalInput, year_level: e.target.value })}
                                             className="form-control-rm"
                                         >
-                                            <option value="">All Year Levels</option>
+                                            <option value="">All years</option>
                                             {getYearLevelOptions(assignCourseModalProgram).map(y => (
                                                 <option key={y} value={y}>
                                                     {y}{y === 1 ? 'st' : y === 2 ? 'nd' : y === 3 ? 'rd' : 'th'} Year
@@ -1673,42 +1738,43 @@ export const RequirementManagement = () => {
 
                                 <div className="form-grid-2-rm mt-2-rm">
                                     <div className="form-group-rm">
-                                        <label>Submission Deadline</label>
-                                        <input 
+                                        <label htmlFor="rm-assign-deadline">Deadline</label>
+                                        <input
+                                            id="rm-assign-deadline"
                                             type="date"
                                             value={courseModalInput.deadline}
                                             onChange={(e) => setCourseModalInput({ ...courseModalInput, deadline: e.target.value })}
                                             className="form-control-rm"
                                         />
                                     </div>
-                                    <div className="form-group-rm" style={{ display: 'flex', alignItems: 'center', paddingTop: '22px' }}>
+                                    <div className="form-group-rm">
                                         <label className="checkbox-label-rm">
-                                            <input 
+                                            <input
                                                 type="checkbox"
                                                 checked={courseModalInput.allowLate}
                                                 onChange={(e) => setCourseModalInput({ ...courseModalInput, allowLate: e.target.checked })}
-                                            /> Allow late submission?
+                                            /> Late Allowed
                                         </label>
                                     </div>
                                 </div>
 
                                 <div className="form-actions-rm space-top-rm">
-                                    <button 
-                                        type="button"
-                                        onClick={() => addProgramRequirement(assignCourseModalProgram.program_id, courseModalInput)} 
-                                        className="btn-save-rm"
-                                    >
-                                        <Plus size={16}/> Assign to Course
-                                    </button>
-                                    <button 
+                                    <button
                                         type="button"
                                         onClick={() => {
                                             setAssignCourseModalProgram(null);
                                             setCourseModalInput({ name: '', year_level: '', deadline: '', allowLate: false });
-                                        }} 
+                                        }}
                                         className="btn-cancel-rm"
                                     >
                                         Cancel
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => addProgramRequirement(assignCourseModalProgram.program_id, courseModalInput)}
+                                        className="btn-save-rm"
+                                    >
+                                        Assign
                                     </button>
                                 </div>
                             </div>
@@ -1719,17 +1785,16 @@ export const RequirementManagement = () => {
 
             {/* MODAL: MEDICAL REQUIREMENTS MASTERLIST (CRUD) */}
             {isMedReqModalOpen && (
-                <div className="modal-overlay-rm">
-                    <div className="modal-content-rm medium-modal-rm">
+                <div className="modal-overlay-rm" onKeyDown={(e) => { if (e.key === 'Escape') { setIsMedReqModalOpen(false); setEditingMedReq(null); } }}>
+                    <div className="modal-content-rm medium-modal-rm" role="dialog" aria-modal="true" aria-labelledby="rm-med-title">
                         <div className="modal-header-rm">
-                            <div>
-                                <h3>Manage Medical Requirements</h3>
-                                <p className="modal-subtitle-rm">Manage medical requirements in the system</p>
-                            </div>
-                            <button 
-                                onClick={() => { setIsMedReqModalOpen(false); setMedReqError(''); setEditingMedReq(null); }} 
-                                className="btn-close-rm" 
-                                title="Close Modal"
+                            <h3 id="rm-med-title">Medical Requirements</h3>
+                            <button
+                                type="button"
+                                onClick={() => { setIsMedReqModalOpen(false); setEditingMedReq(null); }}
+                                className="btn-rm btn-icon-rm btn-ghost-rm"
+                                aria-label="Close"
+                                title="Close"
                             >
                                 <X size={20}/>
                             </button>
@@ -1737,34 +1802,33 @@ export const RequirementManagement = () => {
 
                         <div className="modal-body-rm">
                             <div className="add-med-req-form-rm">
-                                <h4>Add New Medical Requirement</h4>
+                                <label className="filter-label-rm" htmlFor="rm-med-new">New requirement</label>
                                 <div className="inline-add-group-rm">
-                                    <input 
-                                        type="text" 
-                                        placeholder="Requirement Name (e.g. CBC, Chest X-Ray)"
+                                    <input
+                                        id="rm-med-new"
+                                        type="text"
+                                        placeholder="e.g. CBC, Chest X-Ray"
                                         value={newMedReqName}
-                                        onChange={(e) => {
-                                            setNewMedReqName(e.target.value);
-                                            setMedReqError('');
-                                        }}
+                                        onChange={(e) => setNewMedReqName(e.target.value)}
                                         className="form-control-rm"
+                                        autoFocus
                                     />
-                                    <button onClick={handleAddMedicalRequirement} className="btn-add-primary-sm-rm">
-                                        <Plus size={16}/> Add
+                                    <button
+                                        type="button"
+                                        onClick={handleAddMedicalRequirement}
+                                        className="btn-rm btn-icon-rm btn-primary-rm"
+                                        aria-label="Add requirement"
+                                        title="Add requirement"
+                                    >
+                                        <Plus size={20}/>
                                     </button>
                                 </div>
-                                {medReqError && (
-                                    <div className="error-banner-rm">
-                                        <AlertCircle size={16} />
-                                        <span>{medReqError}</span>
-                                    </div>
-                                )}
                             </div>
 
                             <div className="med-req-list-section-rm">
-                                <h4>Existing Medical Requirements ({medicalRequirements.length})</h4>
+                                <h4>Existing ({medicalRequirements.length})</h4>
                                 {medicalRequirements.length === 0 ? (
-                                    <p className="empty-text-rm">No medical requirements found in database.</p>
+                                    <p className="empty-text-rm">None yet</p>
                                 ) : (
                                     <ul className="med-req-list-rm">
                                         {medicalRequirements.map((item, idx) => {
@@ -1778,41 +1842,53 @@ export const RequirementManagement = () => {
                                                                 <b>{item.requirement_name}</b>
                                                             </span>
                                                             <div className="med-req-actions-rm">
-                                                                <button 
+                                                                <button
+                                                                    type="button"
                                                                     onClick={() => setEditingMedReq({ original_name: item.requirement_name, new_name: item.requirement_name })}
-                                                                    className="btn-icon-rm btn-edit-rm"
-                                                                    title="Edit Requirement Name"
+                                                                    className="btn-rm btn-icon-rm btn-ghost-rm"
+                                                                    aria-label={`Rename ${item.requirement_name}`}
+                                                                    title={`Rename ${item.requirement_name}`}
                                                                 >
-                                                                    <Edit size={14}/>
+                                                                    <Pencil size={20}/>
                                                                 </button>
-                                                                <button 
+                                                                <button
+                                                                    type="button"
                                                                     onClick={() => handleDeleteMedicalRequirement(item.requirement_name)}
-                                                                    className="btn-icon-rm btn-delete-x-rm"
-                                                                    title="Delete Requirement"
+                                                                    className="btn-rm btn-icon-rm btn-ghost-rm btn-danger-rm"
+                                                                    aria-label={`Delete ${item.requirement_name}`}
+                                                                    title={`Delete ${item.requirement_name}`}
                                                                 >
-                                                                    <Trash2 size={14}/>
+                                                                    <Trash2 size={20}/>
                                                                 </button>
                                                             </div>
                                                         </>
                                                     ) : (
                                                         <div className="inline-edit-med-req-rm">
-                                                            <input 
-                                                                type="text" 
+                                                            <input
+                                                                type="text"
+                                                                aria-label="Requirement name"
                                                                 value={editingMedReq.new_name}
                                                                 onChange={(e) => setEditingMedReq({ ...editingMedReq, new_name: e.target.value })}
                                                                 className="form-control-rm"
+                                                                autoFocus
                                                             />
-                                                            <button 
-                                                                onClick={() => handleUpdateMedicalRequirement(editingMedReq.original_name, editingMedReq.new_name)}
-                                                                className="btn-save-sm-rm"
-                                                            >
-                                                                Save
-                                                            </button>
-                                                            <button 
+                                                            <button
+                                                                type="button"
                                                                 onClick={() => setEditingMedReq(null)}
-                                                                className="btn-cancel-sm-rm"
+                                                                className="btn-rm btn-icon-rm"
+                                                                aria-label="Cancel"
+                                                                title="Cancel"
                                                             >
-                                                                Cancel
+                                                                <X size={20}/>
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleUpdateMedicalRequirement(editingMedReq.original_name, editingMedReq.new_name)}
+                                                                className="btn-rm btn-icon-rm btn-primary-rm"
+                                                                aria-label="Save"
+                                                                title="Save"
+                                                            >
+                                                                <Check size={20}/>
                                                             </button>
                                                         </div>
                                                     )}
@@ -1829,30 +1905,44 @@ export const RequirementManagement = () => {
 
             {/* MODAL: SELECTED STUDENT CONTROL BOARD */}
             {selectedStudent && (
-                <div className="modal-overlay-rm">
-                    <div className="modal-content-rm large-modal-rm">
+                <div className="modal-overlay-rm" onKeyDown={(e) => { if (e.key === 'Escape' && !editingReq) { setSelectedStudent(null); setHighlightedReqName(null); setIsAddModalOpen(false); } }}>
+                    <div className="modal-content-rm large-modal-rm" role="dialog" aria-modal="true" aria-labelledby="rm-student-title">
                         <div className="modal-header-rm">
                             <div>
-                                <h3>Manage Submissions</h3>
+                                <h3 id="rm-student-title">Manage Submissions</h3>
                                 <p className="modal-subtitle-rm">{selectedStudent.first_name} {selectedStudent.last_name} ({selectedStudent.student_id})</p>
                             </div>
-                            <button onClick={() => { setSelectedStudent(null); setHighlightedReqName(null); }} className="btn-close-rm" title="Close Modal"><X size={20}/></button>
+                            <button
+                                type="button"
+                                onClick={() => { setSelectedStudent(null); setHighlightedReqName(null); setIsAddModalOpen(false); }}
+                                className="btn-rm btn-icon-rm btn-ghost-rm"
+                                aria-label="Close"
+                                title="Close"
+                                autoFocus
+                            ><X size={20}/></button>
                         </div>
-                        
+
                         <div className="modal-body-rm">
                             {!isAddModalOpen ? (
                                 <>
-                                    <div className="modal-toolbar-rm" style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                                        <button className="btn-add-primary-rm" onClick={() => setIsAddModalOpen(true)}>
-                                            <Plus size={16}/> Assign Special Requirement
-                                        </button>
-                                        <button 
+                                    <div className="modal-toolbar-rm">
+                                        <button
                                             type="button"
-                                            className="btn-add-primary-rm" 
-                                            onClick={handleExportStudentReport}
-                                            style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                                            className="btn-rm btn-icon-rm btn-primary-rm"
+                                            onClick={() => setIsAddModalOpen(true)}
+                                            aria-label="Assign special requirement"
+                                            title="Assign special requirement"
                                         >
-                                            <Printer size={16} /> export
+                                            <Plus size={20}/>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="btn-rm btn-icon-rm"
+                                            onClick={handleExportStudentReport}
+                                            aria-label="Export student report"
+                                            title="Export student report"
+                                        >
+                                            <Printer size={20} />
                                         </button>
                                     </div>
                                     
@@ -1874,10 +1964,9 @@ export const RequirementManagement = () => {
                                             const isHighlighted = highlightedReqName && req.requirement_name === highlightedReqName;
 
                                             return (
-                                                <div 
-                                                    className={`req-card-rm ${isHighlighted ? 'highlighted-req-card-rm' : ''}`} 
+                                                <div
+                                                    className={`req-card-rm ${isHighlighted ? 'highlighted-req-card-rm' : ''}`}
                                                     key={req.requirement_name || i}
-                                                    style={isHighlighted ? { border: '2px solid #2563eb', boxShadow: '0 0 10px rgba(37,99,235,0.3)' } : {}}
                                                 >
                                                     <div className="req-card-header-rm">
                                                         <div className="req-card-title-group-rm">
@@ -1909,13 +1998,25 @@ export const RequirementManagement = () => {
                                                             )}
                                                         </div>
                                                         <div className="card-actions-rm">
-                                                            <button className="btn-icon-rm btn-edit-rm" title="Edit Parameters" onClick={() => setEditingReq({
-                                                                ...req,
-                                                                status: req.status || 'Pending',
-                                                                override_allow_late_submission: isLateAllowed
-                                                            })}><Edit size={14}/></button>
+                                                            <button
+                                                                type="button"
+                                                                className="btn-rm btn-icon-rm btn-ghost-rm"
+                                                                aria-label={`Edit ${req.requirement_name}`}
+                                                                title={`Edit ${req.requirement_name}`}
+                                                                onClick={() => setEditingReq({
+                                                                    ...req,
+                                                                    status: req.status || 'Pending',
+                                                                    override_allow_late_submission: isLateAllowed
+                                                                })}
+                                                            ><Pencil size={20}/></button>
                                                             {isSpecial && (
-                                                                <button className="btn-icon-rm btn-delete-x-rm" title="Delete Special Requirement" onClick={() => handleDeleteSpecialRequirement(req.requirement_name)}><Trash2 size={14}/></button>
+                                                                <button
+                                                                    type="button"
+                                                                    className="btn-rm btn-icon-rm btn-ghost-rm btn-danger-rm"
+                                                                    aria-label={`Delete ${req.requirement_name}`}
+                                                                    title={`Delete ${req.requirement_name}`}
+                                                                    onClick={() => handleDeleteSpecialRequirement(req.requirement_name)}
+                                                                ><Trash2 size={20}/></button>
                                                             )}
                                                         </div>
                                                     </div>
@@ -1941,16 +2042,17 @@ export const RequirementManagement = () => {
                                 </>
                             ) : (
                                 <div className="add-special-req-form-rm">
-                                    <h4>Add Special Requirement to Student Profile</h4>
+                                    <h4>Special requirement</h4>
                                     <div className="form-grid-2-rm">
                                         <div className="form-group-rm">
-                                            <label>Requirement Name</label>
-                                            <select 
+                                            <label htmlFor="rm-special-name">Requirement</label>
+                                            <select
+                                                id="rm-special-name"
                                                 value={newReqInput.name}
                                                 onChange={e => setNewReqInput({...newReqInput, name: e.target.value})}
                                                 className="form-control-rm"
                                             >
-                                                <option value="">-- Select Medical Requirement --</option>
+                                                <option value="">Select</option>
                                                 {medicalRequirements.map((medReq, idx) => (
                                                     <option key={medReq.requirement_name || idx} value={medReq.requirement_name}>
                                                         {medReq.requirement_name}
@@ -1959,9 +2061,10 @@ export const RequirementManagement = () => {
                                             </select>
                                         </div>
                                         <div className="form-group-rm">
-                                            <label>Submission Deadline</label>
-                                            <input 
-                                                type="date" 
+                                            <label htmlFor="rm-special-deadline">Deadline</label>
+                                            <input
+                                                id="rm-special-deadline"
+                                                type="date"
                                                 value={newReqInput.deadline}
                                                 onChange={e => setNewReqInput({...newReqInput, deadline: e.target.value})}
                                             />
@@ -1972,11 +2075,11 @@ export const RequirementManagement = () => {
                                             type="checkbox" 
                                             checked={newReqInput.allowLate}
                                             onChange={e => setNewReqInput({...newReqInput, allowLate: e.target.checked})}
-                                        /> Allow Late Submission
+                                        /> Late Allowed
                                     </label>
                                     <div className="form-actions-rm space-top-rm">
-                                        <button onClick={handleAddSpecialRequirement} className="btn-save-rm">Assign to Student</button>
-                                        <button onClick={() => setIsAddModalOpen(false)} className="btn-cancel-rm">Cancel</button>
+                                        <button type="button" onClick={() => setIsAddModalOpen(false)} className="btn-cancel-rm">Cancel</button>
+                                        <button type="button" onClick={handleAddSpecialRequirement} className="btn-save-rm">Assign</button>
                                     </div>
                                 </div>
                             )}
@@ -1987,14 +2090,21 @@ export const RequirementManagement = () => {
 
             {/* NESTED MODAL: EDIT PARAMETERS */}
             {editingReq && (
-                <div className="modal-overlay-rm nested-overlay-rm">
-                    <div className="modal-content-rm small-modal-rm">
+                <div className="modal-overlay-rm nested-overlay-rm" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setEditingReq(null); } }}>
+                    <div className="modal-content-rm small-modal-rm" role="dialog" aria-modal="true" aria-labelledby="rm-edit-title">
                         <div className="modal-header-rm">
                             <div>
-                                <h3>Modify Student Parameters</h3>
+                                <h3 id="rm-edit-title">Edit requirement</h3>
                                 <p className="modal-subtitle-rm">{editingReq.requirement_name}</p>
                             </div>
-                            <button className="btn-close-rm" onClick={() => setEditingReq(null)} title="Close Modal"><X size={20}/></button>
+                            <button
+                                type="button"
+                                className="btn-rm btn-icon-rm btn-ghost-rm"
+                                onClick={() => setEditingReq(null)}
+                                aria-label="Close"
+                                title="Close"
+                                autoFocus
+                            ><X size={20}/></button>
                         </div>
                         
                         <div className="modal-body-rm">
@@ -2020,9 +2130,10 @@ export const RequirementManagement = () => {
                             >
                                 <div className="form-grid-2-rm">
                                     <div className="form-group-rm">
-                                        <label>Requirement Action Status</label>
-                                        <select 
-                                            value={editingReq.status || 'Pending'} 
+                                        <label htmlFor="rm-edit-status">Status</label>
+                                        <select
+                                            id="rm-edit-status"
+                                            value={editingReq.status || 'Pending'}
                                             onChange={(e) => setEditingReq({...editingReq, status: e.target.value})}
                                             className="form-control-rm"
                                         >
@@ -2038,9 +2149,10 @@ export const RequirementManagement = () => {
                                     </div>
 
                                     <div className="form-group-rm">
-                                        <label>Override Deadline:</label>
-                                        <input 
-                                            type="date" 
+                                        <label htmlFor="rm-edit-deadline">Deadline</label>
+                                        <input
+                                            id="rm-edit-deadline"
+                                            type="date"
                                             value={formatDeadlineDate(editingReq.submission_deadline)} 
                                             onChange={(e) => setEditingReq({...editingReq, submission_deadline: e.target.value})}
                                         />
@@ -2057,23 +2169,23 @@ export const RequirementManagement = () => {
                                                 override_allow_late_submission: e.target.checked
                                             })} 
                                         />
-                                        Allow Late Submission
+                                        Late Allowed
                                     </label>
                                 </div>
 
                                 <div className="form-group-rm mt-2-rm">
-                                    <label>Nurse Remarks / Feedback:</label>
-                                    <textarea 
-                                        value={editingReq.nurse_remarks || ''}  
+                                    <label htmlFor="rm-edit-remarks">Remarks</label>
+                                    <textarea
+                                        id="rm-edit-remarks"
+                                        value={editingReq.nurse_remarks || ''}
                                         onChange={(e) => setEditingReq({...editingReq, nurse_remarks: e.target.value})}
-                                        placeholder="Add formal remarks profile log text details here..."
                                         rows="3"
                                     />
                                 </div>
 
                                 <div className="form-actions-rm space-top-rm">
-                                    <button type="submit" className="btn-save-rm">Save Adjustments</button>
                                     <button type="button" className="btn-cancel-rm" onClick={() => setEditingReq(null)}>Cancel</button>
+                                    <button type="submit" className="btn-save-rm">Save</button>
                                 </div>
                             </form>
                         </div>
@@ -2081,60 +2193,6 @@ export const RequirementManagement = () => {
                 </div>
             )}
 
-            {/* CONFIRMATION / ALERT MODAL FOR ALL OPERATIONS & CASCADE WARNINGS */}
-            {confirmModal.isOpen && (
-                <div className="modal-overlay-rm confirm-overlay-rm">
-                    <div className="modal-content-rm confirm-modal-rm">
-                        <div className="modal-header-rm">
-                            <div>
-                                <h3>{confirmModal.title || "Message"}</h3>
-                            </div>
-                            <button onClick={closeConfirmModal} className="btn-close-rm" title="Close">
-                                <X size={18} />
-                            </button>
-                        </div>
-                        <div className="modal-body-rm">
-                            <p className="confirm-message-rm">{confirmModal.message}</p>
-
-                            {confirmModal.details && (
-                                <div className="connection-details-box-rm" style={{ margin: '12px 0', padding: '10px', background: 'var(--status-critical-bg)', border: '1px solid #fca5a5', borderRadius: '6px' }}>
-                                    <h5 style={{ margin: '0 0 6px 0', color: 'var(--status-critical-text)' }}>Connected Dependencies Found:</h5>
-                                    <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '0.875rem', color: 'var(--status-critical-text)' }}>
-                                        {confirmModal.details.program_ids.length > 0 && (
-                                            <li><b>Program IDs ({confirmModal.details.program_ids.length}):</b> {confirmModal.details.program_ids.join(', ')}</li>
-                                        )}
-                                        {confirmModal.details.submission_ids.length > 0 && (
-                                            <li><b>Submission IDs ({confirmModal.details.submission_ids.length}):</b> {confirmModal.details.submission_ids.slice(0, 5).join(', ')}{confirmModal.details.submission_ids.length > 5 ? '...' : ''}</li>
-                                        )}
-                                        {confirmModal.details.service_ids.length > 0 && (
-                                            <li><b>Facility Service IDs ({confirmModal.details.service_ids.length}):</b> {confirmModal.details.service_ids.join(', ')}</li>
-                                        )}
-                                    </ul>
-                                </div>
-                            )}
-
-                            <div className="confirm-actions-rm">
-                                <button 
-                                    onClick={async () => {
-                                        if (confirmModal.onConfirm) {
-                                            await confirmModal.onConfirm();
-                                        }
-                                        closeConfirmModal();
-                                    }} 
-                                    className={confirmModal.type === 'danger' ? "btn-confirm-danger-rm" : "btn-confirm-rm"}
-                                >
-                                    {confirmModal.confirmText || "OK"}
-                                </button>
-                                {!confirmModal.hideCancel && (
-                                    <button onClick={closeConfirmModal} className="btn-cancel-rm">
-                                        Cancel
-                                    </button>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     );
 };

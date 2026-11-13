@@ -1,27 +1,88 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { 
-    ArrowLeft, Folder, Lock, FileText, Download, AlertCircle, 
-    User, X, ShieldCheck, CheckCircle, XCircle 
+import {
+    ArrowLeft, Download, Lock, FileText, AlertTriangle, Clock,
+    User, X, ShieldCheck, CheckCircle, XCircle, HeartPulse, ListChecks
 } from 'lucide-react';
 import stiLogo from '../../assets/sti-logof.png';
 import { formatDate } from '../../utils/datetime';
-import HealthProofList from '../../components/common/HealthProofList';
+import { useAlert } from '../../context/AlertContext';
+import HealthInfoView from '../../components/common/HealthInfoView';
 import '../../styles/nurse/HealthRecordProfile.css';
+import '../../styles/nurse/HealthRecordProfilePage.css';
+
+const API = 'http://localhost:3001';
 
 // doctors open this page from their Patient Records, so "back" returns there
 const viewerIsDoctor = () => {
     try { return JSON.parse(sessionStorage.getItem('user') || 'null')?.role === 'doctor'; } catch (e) { return false; }
 };
 
+// The health table stores checkboxes as 1 / 0. Only those columns become true / false; text and number columns stay as they are.
+const FLAG_KEY = /^(has_|reaction_(?!others)|blood_disorder_|digestive_(?!medication)|metabolic_|vision_with_)/;
+
+// Conditions that show as a chip in the summary strip. tone: bad = needs attention first.
+const FLAG_CHIPS = [
+    ['has_allergies', 'Allergies', 'bad'],
+    ['has_asthma', 'Asthma', 'bad'],
+    ['has_heart_problems', 'Heart problems', 'bad'],
+    ['has_seizure_episode', 'Seizures', 'bad'],
+    ['has_blood_disorders', 'Blood disorders', 'warn'],
+    ['has_kidney_bladder_problems', 'Kidney / bladder', 'warn'],
+    ['has_digestive_disorders', 'Digestive', 'warn'],
+    ['has_metabolic_diseases', 'Metabolic', 'warn'],
+    ['has_other_respiratory', 'Respiratory', 'warn'],
+    ['has_vision_problem', 'Vision', 'warn'],
+    ['has_hearing_problem', 'Hearing', 'warn'],
+    ['has_surgery', 'Surgery', 'warn']
+];
+
+const DAY_MS = 86400000;
+
+// complete = submitted, danger = late or missing, warning = everything else (still pending)
+const requirementKind = (req) => {
+    const s = (req.status || '').toLowerCase();
+    if (['completed', 'submitted'].includes(s)) return 'complete';
+    if (['late', 'submitted late', 'overdue', 'missing'].includes(s)) return 'danger';
+    return 'warning';
+};
+
+const KIND_CHIP = {
+    complete: { cls: 'ok', Icon: CheckCircle },
+    warning: { cls: 'warn', Icon: Clock },
+    danger: { cls: 'bad', Icon: AlertTriangle }
+};
+
+const FILTERS = [['all', 'All'], ['warning', 'Pending'], ['danger', 'Overdue'], ['complete', 'Complete']];
+
+const daysUntil = (value) => {
+    if (!value) return null;
+    const due = new Date(value);
+    if (Number.isNaN(due.getTime())) return null;
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    due.setHours(0, 0, 0, 0);
+    return Math.round((due.getTime() - start.getTime()) / DAY_MS);
+};
+
+function Field({ label, value, full }) {
+    const has = value !== null && value !== undefined && String(value).trim() !== '';
+    return (
+        <div className={full ? 'full' : undefined}>
+            <dt>{label}</dt>
+            <dd className={has ? undefined : 'empty'}>{has ? value : '—'}</dd>
+        </div>
+    );
+}
+
 export default function HealthRecordsProfile() {
-    const { studentId } = useParams(); 
+    const { studentId } = useParams();
     const navigate = useNavigate();
+    const { showAlert } = useAlert();
 
     const [activeTab, setActiveTab] = useState('personal');
     const [loading, setLoading] = useState(true);
-    const [reqLoading, setReqLoading] = useState(false);
-    const [errorMsg, setErrorMsg] = useState('');
+    const [reqFilter, setReqFilter] = useState('all');
 
     const [studentHeader, setStudentHeader] = useState(null);
     const [personalInfo, setPersonalInfo] = useState({});
@@ -29,93 +90,80 @@ export default function HealthRecordsProfile() {
     const [healthProofs, setHealthProofs] = useState({});
     const [requirementsList, setRequirementsList] = useState([]);
 
-    // Modal state for viewing Parent Profile
+    // Connected parent profile modal
     const [showParentModal, setShowParentModal] = useState(false);
     const [parentDetails, setParentDetails] = useState(null);
     const [parentLoading, setParentLoading] = useState(false);
     const [parentError, setParentError] = useState('');
+    const parentOpenerRef = useRef(null);
+    const modalRef = useRef(null);
+    const tabRefs = useRef({});
 
+    // header, profile and requirements load together; the summary strip needs all three
     useEffect(() => {
-        const loadStudentData = async () => {
+        if (!studentId) return undefined;
+        let cancelled = false;
+        const load = async () => {
+            setLoading(true);
             try {
-                setLoading(true);
-                const headerRes = await fetch(`http://localhost:3001/api/health-records/student-header/${studentId}`);
-                const headerData = await headerRes.json();
+                const id = encodeURIComponent(studentId);
+                const [headerData, profileData, reqData] = await Promise.all([
+                    fetch(`${API}/api/health-records/student-header/${id}`).then((r) => r.json()),
+                    fetch(`${API}/api/profile/${id}`).then((r) => r.json()),
+                    fetch(`${API}/api/students/${id}/full-requirements`).then((r) => r.json()).catch(() => [])
+                ]);
+                if (cancelled) return;
 
-                if (headerData.success) {
-                    setStudentHeader(headerData.student);
-
-                    const profileRes = await fetch(`http://localhost:3001/api/profile/${studentId}`);
-                    const profileData = await profileRes.json();
-
-                    if (profileData.success) {
-                        if (profileData.personalInfo?.birth_date) {
-                            profileData.personalInfo.birth_date = profileData.personalInfo.birth_date.split('T')[0];
-                        }
-                        if (profileData.healthInfo?.seizure_last_episode_date) {
-                            profileData.healthInfo.seizure_last_episode_date = profileData.healthInfo.seizure_last_episode_date.split('T')[0];
-                        }
-                        if (profileData.healthInfo?.surgery_date) {
-                            profileData.healthInfo.surgery_date = profileData.healthInfo.surgery_date.split('T')[0];
-                        }
-
-                        const parsedHealth = { ...profileData.healthInfo };
-                        for (let key in parsedHealth) {
-                            if (parsedHealth[key] === 1) parsedHealth[key] = true;
-                            if (parsedHealth[key] === 0) parsedHealth[key] = false;
-                        }
-
-                        setPersonalInfo(profileData.personalInfo || {});
-                        setHealthInfo(parsedHealth || {});
-                        setHealthProofs(profileData.healthProofs || {});
-                    }
-                } else {
-                    setErrorMsg("Target student system database metadata master row missing.");
+                if (!headerData.success || !profileData.success) {
+                    showAlert('Cannot load this profile.', 'error');
+                    return;
                 }
+
+                const personal = { ...(profileData.personalInfo || {}) };
+                if (personal.birth_date) personal.birth_date = String(personal.birth_date).split('T')[0];
+
+                const health = { ...(profileData.healthInfo || {}) };
+                ['seizure_last_episode_date', 'surgery_date'].forEach((k) => {
+                    if (health[k]) health[k] = String(health[k]).split('T')[0];
+                });
+                Object.keys(health).forEach((key) => {
+                    if (FLAG_KEY.test(key) && (health[key] === 1 || health[key] === 0)) health[key] = health[key] === 1;
+                });
+
+                setStudentHeader(headerData.student);
+                setPersonalInfo(personal);
+                setHealthInfo(health);
+                setHealthProofs(profileData.healthProofs || {});
+                setRequirementsList(Array.isArray(reqData) ? reqData : []);
             } catch (err) {
-                setErrorMsg("Exception fault connecting to profile network infrastructure.");
+                if (!cancelled) showAlert('Cannot load this profile.', 'error');
             } finally {
-                setLoading(false);
+                if (!cancelled) setLoading(false);
             }
         };
-
-        if (studentId) loadStudentData();
+        load();
+        return () => { cancelled = true; };
+        // showAlert is stable (useCallback in AlertContext)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [studentId]);
 
-    useEffect(() => {
-        const fetchStudentRequirements = async () => {
-            if (activeTab !== 'requirements' || !studentId) return;
-            setReqLoading(true);
-            try {
-                const response = await fetch(`http://localhost:3001/api/students/${studentId}/full-requirements`);
-                const data = await response.json();
-                if (Array.isArray(data)) {
-                    setRequirementsList(data);
-                }
-            } catch (err) {
-                console.error("Failed pipeline loading file requirements structural layout context:", err);
-            } finally {
-                setReqLoading(false);
-            }
-        };
-
-        fetchStudentRequirements();
-    }, [activeTab, studentId]);
-
-    const handleOpenParentModal = async () => {
+    const handleOpenParentModal = async (e) => {
+        parentOpenerRef.current = e.currentTarget;
         setShowParentModal(true);
         setParentLoading(true);
         setParentError('');
         try {
-            const res = await fetch(`http://localhost:3001/api/health-records/parent-profile/${studentId}`);
+            const res = await fetch(`${API}/api/health-records/parent-profile/${encodeURIComponent(studentId)}`);
             const data = await res.json();
             if (data.success) {
                 setParentDetails(data.parent);
             } else {
-                setParentError(data.message || 'No parent profile associated with this student.');
+                setParentDetails(null);
+                setParentError(data.message || 'No parent account.');
             }
         } catch (err) {
-            setParentError('Error loading parent profile from backend service.');
+            setParentDetails(null);
+            setParentError('Cannot load the parent profile.');
         } finally {
             setParentLoading(false);
         }
@@ -123,617 +171,339 @@ export default function HealthRecordsProfile() {
 
     const handleCloseParentModal = () => {
         setShowParentModal(false);
+        if (parentOpenerRef.current) parentOpenerRef.current.focus();
     };
 
-    const handleExport = () => {
-        window.print();
+    // modal: focus the close button, Esc closes, Tab stays inside
+    useEffect(() => {
+        if (!showParentModal) return undefined;
+        const root = modalRef.current;
+        const first = root && root.querySelector('button');
+        if (first) first.focus();
+        const onKey = (e) => {
+            if (e.key === 'Escape') { e.preventDefault(); handleCloseParentModal(); return; }
+            if (e.key !== 'Tab' || !root) return;
+            const items = root.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+            if (!items.length) return;
+            const head = items[0];
+            const tail = items[items.length - 1];
+            if (e.shiftKey && document.activeElement === head) { e.preventDefault(); tail.focus(); }
+            else if (!e.shiftKey && document.activeElement === tail) { e.preventDefault(); head.focus(); }
+        };
+        document.addEventListener('keydown', onKey);
+        return () => document.removeEventListener('keydown', onKey);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [showParentModal]);
+
+    const TABS = [['personal', 'Personal'], ['health', 'Health'], ['requirements', 'Requirements']];
+    const onTabKey = (e, index) => {
+        let next = null;
+        if (e.key === 'ArrowRight') next = (index + 1) % TABS.length;
+        else if (e.key === 'ArrowLeft') next = (index - 1 + TABS.length) % TABS.length;
+        else if (e.key === 'Home') next = 0;
+        else if (e.key === 'End') next = TABS.length - 1;
+        if (next === null) return;
+        e.preventDefault();
+        const key = TABS[next][0];
+        setActiveTab(key);
+        if (tabRefs.current[key]) tabRefs.current[key].focus();
     };
 
-    if (loading) return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>Loading student medical file index...</div>;
+    if (loading) return <div className="hrp-loading" role="status">Loading student record...</div>;
 
     const isInactive = studentHeader?.is_active === 0 || studentHeader?.is_active === false;
+    const fullName = `${studentHeader?.first_name || ''} ${studentHeader?.last_name || ''}`.trim();
+    const initials = `${(studentHeader?.first_name || '?')[0]}${(studentHeader?.last_name || '')[0] || ''}`.toUpperCase();
+
+    const flagChips = FLAG_CHIPS.filter(([key]) => healthInfo[key]);
+
+    const counts = { all: requirementsList.length, warning: 0, danger: 0, complete: 0 };
+    requirementsList.forEach((r) => { counts[requirementKind(r)] += 1; });
+    const shownRequirements = requirementsList.filter((r) => reqFilter === 'all' || requirementKind(r) === reqFilter);
+
+    const parentName = studentHeader?.parent_first_name
+        ? `${studentHeader.parent_first_name} ${studentHeader.parent_last_name || ''}`.trim()
+        : null;
 
     return (
-        <div className="profile-viewer-wrapper">
-            <style>{`
-                @media print {
-                    body * {
-                        visibility: hidden;
-                    }
-                    .printable-health-report, .printable-health-report * {
-                        visibility: visible;
-                    }
-                    .printable-health-report {
-                        position: absolute;
-                        left: 0;
-                        top: 0;
-                        width: 100%;
-                        padding: 20px;
-                        color: #000;
-                        background: #fff;
-                    }
-                    .no-print {
-                        display: none !important;
-                    }
-                }
-                .printable-health-report {
-                    display: none;
-                }
-                @media print {
-                    .printable-health-report {
-                        display: block;
-                    }
-                }
-                .inactive-badge {
-                    display: inline-flex;
-                    align-items: center;
-                    gap: 4px;
-                    background-color: #fee2e2;
-                    color: #dc2626;
-                    border: 1px solid #fca5a5;
-                    padding: 2px 10px;
-                    border-radius: 9999px;
-                    font-size: 0.78rem;
-                    font-weight: 700;
-                    margin-left: 10px;
-                }
-                .btn-view-parent {
-                    display: inline-flex;
-                    align-items: center;
-                    gap: 6px;
-                    background-color: #004487;
-                    color: #ffffff;
-                    border: none;
-                    padding: 6px 14px;
-                    border-radius: 6px;
-                    font-size: 0.85rem;
-                    font-weight: 600;
-                    cursor: pointer;
-                    transition: background-color 0.2s ease;
-                }
-                .btn-view-parent:hover {
-                    background-color: #002b54;
-                }
-
-                /* Modal Overlay Styling */
-                .modal-backdrop-overlay {
-                    position: fixed;
-                    top: 0;
-                    left: 0;
-                    width: 100vw;
-                    height: 100vh;
-                    background: rgba(15, 23, 42, 0.6);
-                    backdrop-filter: blur(3px);
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    z-index: 9999;
-                    padding: 16px;
-                }
-                .modal-content-card {
-                    background: #ffffff;
-                    border-radius: 12px;
-                    width: 100%;
-                    max-width: 520px;
-                    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
-                    overflow: hidden;
-                    animation: modalSlideIn 0.2s ease-out;
-                }
-                @keyframes modalSlideIn {
-                    from { opacity: 0; transform: translateY(12px) scale(0.98); }
-                    to { opacity: 1; transform: translateY(0) scale(1); }
-                }
-                .modal-header-bar {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    padding: 16px 20px;
-                    background-color: #004487;
-                    color: #ffffff;
-                }
-                .modal-header-bar h3 {
-                    margin: 0;
-                    font-size: 1.1rem;
-                    font-weight: 600;
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
-                    color: #ffffff !important;
-                    border-bottom: none !important;
-                    padding-bottom: 0 !important;
-                }
-                .btn-modal-close {
-                    background: transparent;
-                    border: none;
-                    color: #ffffff;
-                    cursor: pointer;
-                    padding: 4px;
-                    border-radius: 4px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    opacity: 0.85;
-                }
-                .btn-modal-close:hover {
-                    opacity: 1;
-                    background-color: rgba(255, 255, 255, 0.15);
-                }
-                .modal-body-content {
-                    padding: 20px 24px;
-                }
-                .parent-profile-grid {
-                    display: grid;
-                    grid-template-columns: repeat(2, 1fr);
-                    gap: 16px;
-                }
-                .parent-info-field {
-                    display: flex;
-                    flex-direction: column;
-                    gap: 4px;
-                }
-                .parent-info-field label {
-                    font-size: 0.75rem;
-                    font-weight: 700;
-                    color: #64748b;
-                    text-transform: uppercase;
-                    letter-spacing: 0.5px;
-                }
-                .parent-info-field p {
-                    margin: 0;
-                    font-size: 0.95rem;
-                    font-weight: 600;
-                    color: #1e293b;
-                }
-                .status-pill {
-                    display: inline-flex;
-                    align-items: center;
-                    gap: 4px;
-                    padding: 3px 10px;
-                    border-radius: 9999px;
-                    font-size: 0.8rem;
-                    font-weight: 600;
-                    width: fit-content;
-                }
-                .status-pill.status-verified {
-                    background-color: #dcfce7;
-                    color: #15803d;
-                }
-                .status-pill.status-unverified {
-                    background-color: #f1f5f9;
-                    color: #64748b;
-                }
-                .status-pill.status-active {
-                    background-color: #dbeafe;
-                    color: #1d4ed8;
-                }
-                .status-pill.status-inactive {
-                    background-color: #fee2e2;
-                    color: #b91c1c;
-                }
-                .modal-footer-bar {
-                    padding: 12px 24px;
-                    background-color: #f8fafc;
-                    border-top: 1px solid #e2e8f0;
-                    display: flex;
-                    justify-content: flex-end;
-                }
-                .btn-modal-dismiss {
-                    padding: 8px 18px;
-                    background-color: #64748b;
-                    color: #ffffff;
-                    border: none;
-                    border-radius: 6px;
-                    font-weight: 600;
-                    cursor: pointer;
-                    font-size: 0.88rem;
-                }
-                .btn-modal-dismiss:hover {
-                    background-color: #475569;
-                }
-            `}</style>
-
-            <div className="navigation-action-bar no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <button onClick={() => navigate(viewerIsDoctor() ? '/DoctorPatients' : '/HealthRecords')} className="btn-back-link">
-                    <ArrowLeft size={16} /> Back to Records Directory
-                </button>
-                <button 
-                    onClick={handleExport} 
-                    className="btn-export-pdf"
-                    style={{
-                        width: 'auto',
-                        minWidth: 'fit-content',
-                        padding: '8px 16px',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        backgroundColor: '#0284c7',
-                        color: '#ffffff',
-                        border: 'none',
-                        borderRadius: '6px',
-                        fontWeight: '600',
-                        cursor: 'pointer'
-                    }}
+        <div className="hrp-page">
+            <div className="hrp-actions hrp-no-print">
+                <button
+                    type="button"
+                    className="hrp-btn-icon"
+                    onClick={() => navigate(viewerIsDoctor() ? '/DoctorPatients' : '/HealthRecords')}
+                    aria-label="Back to records"
+                    title="Back to records"
                 >
-                    <Download size={16} /> Export
+                    <ArrowLeft size={18} aria-hidden="true" />
+                </button>
+                <p className="hrp-crumbs">Health Records / {studentHeader?.last_name}, {studentHeader?.first_name}</p>
+                <button
+                    type="button"
+                    className="hrp-btn-icon solid"
+                    onClick={() => window.print()}
+                    aria-label="Export health report"
+                    title="Export health report"
+                >
+                    <Download size={18} aria-hidden="true" />
                 </button>
             </div>
 
-            <div className="profile-identity-banner no-print">
-                <div className="avatar-icon-housing">
-                    <Folder size={26} />
-                </div>
-                <div className="identity-details-block">
-                    <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
-                        <h2>{studentHeader?.first_name} {studentHeader?.last_name}</h2>
-                        {isInactive && (
-                            <span className="inactive-badge">
-                                <AlertCircle size={13} /> Inactive Account
-                            </span>
-                        )}
+            <header className="hrp-banner hrp-no-print">
+                <div className="hrp-avatar" aria-hidden="true">{initials}</div>
+                <div className="hrp-who">
+                    <div className="hrp-name-row">
+                        <h1>{fullName}</h1>
+                        {isInactive && <span className="hrp-chip bad"><AlertTriangle size={14} aria-hidden="true" /> Inactive account</span>}
                     </div>
-                    <p>{studentHeader?.program_id} - {studentHeader?.year_level} Year</p>
-                    <span className="student-id-pill">{studentId}</span>
+                    <div className="hrp-meta">
+                        <span>{studentHeader?.program_id} - {studentHeader?.year_level} Year</span>
+                        <span className="hrp-id">{studentId}</span>
+                    </div>
                 </div>
-                <div className="badge-system-lock">
-                    <Lock size={14} /> READ-ONLY VIEW
-                </div>
+                <span className="hrp-lock"><Lock size={14} aria-hidden="true" /> Read only</span>
+            </header>
+
+            <section className="hrp-summary hrp-no-print" aria-label="Summary">
+                <article className="hrp-tile">
+                    <div className="hrp-tile-head"><h2><HeartPulse size={18} aria-hidden="true" /> Health flags</h2></div>
+                    {flagChips.length === 0 ? (
+                        <span className="hrp-chip ok"><CheckCircle size={14} aria-hidden="true" /> None recorded</span>
+                    ) : (
+                        <ul className="hrp-flags">
+                            {flagChips.map(([key, label, tone]) => (
+                                <li key={key}><span className={`hrp-chip ${tone}`}><AlertTriangle size={14} aria-hidden="true" /> {label}</span></li>
+                            ))}
+                        </ul>
+                    )}
+                </article>
+
+                <article className="hrp-tile">
+                    <div className="hrp-tile-head"><h2><ListChecks size={18} aria-hidden="true" /> Requirements</h2></div>
+                    {counts.all === 0 ? (
+                        <p className="hrp-muted">None assigned.</p>
+                    ) : (
+                        <>
+                            <p className="hrp-prog-num">{counts.complete}<small> of {counts.all} complete</small></p>
+                            <div
+                                className="hrp-bar"
+                                role="progressbar"
+                                aria-label="Requirements complete"
+                                aria-valuemin={0}
+                                aria-valuemax={counts.all}
+                                aria-valuenow={counts.complete}
+                            >
+                                <i style={{ width: `${Math.round((counts.complete / counts.all) * 100)}%` }} />
+                            </div>
+                            <div className="hrp-flags">
+                                {counts.danger > 0 && <span className="hrp-chip bad"><AlertTriangle size={14} aria-hidden="true" /> {counts.danger} overdue</span>}
+                                {counts.warning > 0 && <span className="hrp-chip warn"><Clock size={14} aria-hidden="true" /> {counts.warning} pending</span>}
+                            </div>
+                        </>
+                    )}
+                </article>
+
+                <article className="hrp-tile">
+                    <div className="hrp-tile-head">
+                        <h2><User size={18} aria-hidden="true" /> Parent account</h2>
+                        <button
+                            type="button"
+                            className="hrp-btn-icon"
+                            onClick={handleOpenParentModal}
+                            aria-label="View parent account"
+                            title="View parent account"
+                            aria-haspopup="dialog"
+                        >
+                            <User size={18} aria-hidden="true" />
+                        </button>
+                    </div>
+                    {parentName ? (
+                        <>
+                            <p className="hrp-parent-name">{parentName}</p>
+                            <p className="hrp-muted">{studentHeader?.parent_phone || 'No number'}</p>
+                        </>
+                    ) : (
+                        <p className="hrp-muted">No parent account.</p>
+                    )}
+                </article>
+            </section>
+
+            <div className="hrp-tabs hrp-no-print" role="tablist" aria-label="Record sections">
+                {TABS.map(([key, label], i) => (
+                    <button
+                        key={key}
+                        type="button"
+                        role="tab"
+                        id={`hrp-tab-${key}`}
+                        aria-controls={`hrp-panel-${key}`}
+                        aria-selected={activeTab === key}
+                        tabIndex={activeTab === key ? 0 : -1}
+                        ref={(el) => { tabRefs.current[key] = el; }}
+                        onClick={() => setActiveTab(key)}
+                        onKeyDown={(e) => onTabKey(e, i)}
+                    >
+                        {label}
+                        {key === 'requirements' && counts.danger > 0 && (
+                            <span className="hrp-count" aria-label={`${counts.danger} overdue`}>{counts.danger}</span>
+                        )}
+                    </button>
+                ))}
             </div>
 
-            <div className="profile-segment-tabs no-print">
-                <button className={activeTab === 'personal' ? 'active' : ''} onClick={() => setActiveTab('personal')}>Personal Info</button>
-                <button className={activeTab === 'health' ? 'active' : ''} onClick={() => setActiveTab('health')}>Health Information</button>
-                <button className={activeTab === 'requirements' ? 'active' : ''} onClick={() => setActiveTab('requirements')}>Requirements Checklist</button>
-            </div>
-
-            {errorMsg && <div className="error-message no-print">{errorMsg}</div>}
-
-            <div className="profile-content-area no-print">
-                
-                {/* 1. PERSONAL INFO TAB */}
-                {activeTab === 'personal' && (
-                    <div className="profile-details-form-card">
-                        <h3>Personal Information</h3>
-                        <div className="form-grid-blueprint">
-                            <label>Gender
-                                <select name="gender" value={personalInfo.gender || ''} disabled={true}>
-                                    <option value="">Not Specified</option>
-                                    <option value="Male">Male</option>
-                                    <option value="Female">Female</option>
-                                </select>
-                            </label>
-                            <label>Date of Birth
-                                <input type="date" name="birth_date" value={personalInfo.birth_date || ''} disabled={true} />
-                            </label>
-                            <label>Age
-                                <input type="number" name="age" value={personalInfo.age || ''} disabled={true} />
-                            </label>
-                            <label>Contact No.
-                                <input type="text" name="contact_number" value={personalInfo.contact_number || ''} disabled={true} />
-                            </label>
-                            <label className="column-full-width">Address
-                                <input type="text" name="address" value={personalInfo.address || ''} disabled={true} />
-                            </label>
-                            <label>Height (cm)
-                                <input type="number" step="0.01" name="height_cm" value={personalInfo.height_cm || ''} disabled={true} />
-                            </label>
-                            <label>Weight (kg)
-                                <input type="number" step="0.01" name="weight_kg" value={personalInfo.weight_kg || ''} disabled={true} />
-                            </label>
-                            <label>Father's Name
-                                <input type="text" name="father_name" value={personalInfo.father_name || ''} disabled={true} />
-                            </label>
-                            <label>Mother's Name
-                                <input type="text" name="mother_name" value={personalInfo.mother_name || ''} disabled={true} />
-                            </label>
-
-                            {/* Connected Parent Account Header & View Modal Button */}
-                            <div className="column-full-width" style={{ marginTop: '16px', borderTop: '1px solid var(--card-border)', paddingTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <h4 style={{ margin: 0, color: 'var(--text-primary)', fontSize: '1rem', fontWeight: '600' }}>
-                                    Connected Parent Account Details
-                                </h4>
-                                <button 
-                                    type="button" 
-                                    onClick={handleOpenParentModal}
-                                    className="btn-view-parent"
-                                >
-                                    <User size={15} /> View Parent Account
-                                </button>
-                            </div>
-                            <label>Parent First Name
-                                <input type="text" value={studentHeader?.parent_first_name || 'N/A'} disabled={true} />
-                            </label>
-                            <label>Parent Last Name
-                                <input type="text" value={studentHeader?.parent_last_name || 'N/A'} disabled={true} />
-                            </label>
-                            <label>Parent Contact Number
-                                <input type="text" value={studentHeader?.parent_phone || 'N/A'} disabled={true} />
-                            </label>
+            <div className="hrp-no-print">
+                {/* PERSONAL */}
+                <section id="hrp-panel-personal" role="tabpanel" aria-labelledby="hrp-tab-personal" className="hrp-panel" hidden={activeTab !== 'personal'}>
+                    <div className="hrp-grid">
+                        <div className="hrp-card">
+                            <h3>Identity</h3>
+                            <dl className="hrp-fields">
+                                <Field label="Gender" value={personalInfo.gender} />
+                                <Field label="Date of birth" value={personalInfo.birth_date ? formatDate(personalInfo.birth_date) : ''} />
+                                <Field label="Age" value={personalInfo.age} />
+                            </dl>
+                        </div>
+                        <div className="hrp-card">
+                            <h3>Contact</h3>
+                            <dl className="hrp-fields">
+                                <Field label="Contact no." value={personalInfo.contact_number} />
+                                <Field label="Address" value={personalInfo.address} full />
+                            </dl>
+                        </div>
+                        <div className="hrp-card">
+                            <h3>Family</h3>
+                            <dl className="hrp-fields">
+                                <Field label="Father's name" value={personalInfo.father_name} />
+                                <Field label="Mother's name" value={personalInfo.mother_name} />
+                            </dl>
                         </div>
                     </div>
-                )}
+                </section>
 
-                {/* 2. HEALTH INFORMATION TAB */}
-                {activeTab === 'health' && (
-                    <div className="profile-details-form-card scrollable-health-history">
-                        <h3>Health History Index</h3>
-                        <HealthProofList proofs={healthProofs} />
-                        
-                        <div className="medical-condition-block">
-                            <label className="condition-main-checkbox"><input type="checkbox" name="has_allergies" checked={healthInfo.has_allergies || false} disabled={true} /> History of Allergies</label>
-                            {healthInfo.has_allergies && (
-                                <div className="medical-sub-fields">
-                                    <label>Food: <input type="text" name="allergy_food" value={healthInfo.allergy_food || ''} disabled={true} /></label>
-                                    <label>Medicine: <input type="text" name="allergy_medicine" value={healthInfo.allergy_medicine || ''} disabled={true} /></label>
-                                    <label>Insect Sting: <input type="text" name="allergy_insect_sting" value={healthInfo.allergy_insect_sting || ''} disabled={true} /></label>
-                                    <label>Environmental: <input type="text" name="allergy_environmental" value={healthInfo.allergy_environmental || ''} disabled={true} /></label>
-                                    <label>Others: <input type="text" name="allergy_others" value={healthInfo.allergy_others || ''} disabled={true} /></label>
-                                    
-                                    <h4>Reactions:</h4>
-                                    <div className="nested-checkbox-matrix">
-                                        <label><input type="checkbox" checked={healthInfo.reaction_diarrhea || false} disabled={true} /> Diarrhea</label>
-                                        <label><input type="checkbox" checked={healthInfo.reaction_hives || false} disabled={true} /> Hives</label>
-                                        <label><input type="checkbox" checked={healthInfo.reaction_local || false} disabled={true} /> Local Reaction</label>
-                                        <label><input type="checkbox" checked={healthInfo.reaction_rash || false} disabled={true} /> Rash</label>
-                                        <label><input type="checkbox" checked={healthInfo.reaction_swelling || false} disabled={true} /> Swelling</label>
-                                        <label><input type="checkbox" checked={healthInfo.reaction_trouble_breathing || false} disabled={true} /> Trouble Breathing</label>
-                                    </div>
-                                    <label style={{marginTop: '8px'}}>Other Reaction: <input type="text" value={healthInfo.reaction_others || ''} disabled={true} /></label>
-                                    <label>Medication Taken: <input type="text" value={healthInfo.allergy_medication_taken || ''} disabled={true} /></label>
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="medical-condition-block">
-                            <label className="condition-main-checkbox"><input type="checkbox" checked={healthInfo.has_asthma || false} disabled={true} /> Asthma</label>
-                            {healthInfo.has_asthma && (
-                                <div className="medical-sub-fields">
-                                    <label>Triggers: <input type="text" value={healthInfo.asthma_triggers || ''} disabled={true} /></label>
-                                    <label>Medication Taken: <input type="text" value={healthInfo.asthma_medication_taken || ''} disabled={true} /></label>
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="medical-condition-block">
-                            <label className="condition-main-checkbox"><input type="checkbox" checked={healthInfo.has_other_respiratory || false} disabled={true} /> Other Respiratory Problems</label>
-                            {healthInfo.has_other_respiratory && (
-                                <div className="medical-sub-fields">
-                                    <label>Specify: <input type="text" value={healthInfo.other_respiratory_specify || ''} disabled={true} /></label>
-                                    <label>Medication Taken: <input type="text" value={healthInfo.other_respiratory_medication || ''} disabled={true} /></label>
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="medical-condition-block">
-                            <label className="condition-main-checkbox"><input type="checkbox" checked={healthInfo.has_blood_disorders || false} disabled={true} /> Blood Disorders</label>
-                            {healthInfo.has_blood_disorders && (
-                                <div className="medical-sub-fields nested-checkbox-matrix">
-                                    <label><input type="checkbox" checked={healthInfo.blood_disorder_anemia || false} disabled={true} /> Anemia</label>
-                                    <label><input type="checkbox" checked={healthInfo.blood_disorder_leukopenia || false} disabled={true} /> Leukopenia</label>
-                                    <label><input type="checkbox" checked={healthInfo.blood_disorder_thrombocytopenia || false} disabled={true} /> Thrombocytopenia</label>
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="medical-condition-block">
-                            <label className="condition-main-checkbox"><input type="checkbox" checked={healthInfo.has_chicken_pox || false} disabled={true} /> Chicken Pox</label>
-                            {healthInfo.has_chicken_pox && (
-                                <div className="medical-sub-fields">
-                                    <label>Age: <input type="number" value={healthInfo.chicken_pox_age || ''} disabled={true} /></label>
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="medical-condition-block">
-                            <label className="condition-main-checkbox"><input type="checkbox" checked={healthInfo.has_digestive_disorders || false} disabled={true} /> Digestive Disorders</label>
-                            {healthInfo.has_digestive_disorders && (
-                                <div className="medical-sub-fields">
-                                    <div className="nested-checkbox-matrix">
-                                        <label><input type="checkbox" checked={healthInfo.digestive_ulcer || false} disabled={true} /> Ulcer</label>
-                                        <label><input type="checkbox" checked={healthInfo.digestive_appendicitis || false} disabled={true} /> Appendicitis</label>
-                                        <label><input type="checkbox" checked={healthInfo.digestive_gastritis || false} disabled={true} /> Gastritis</label>
-                                        <label><input type="checkbox" checked={healthInfo.digestive_hemorrhoids || false} disabled={true} /> Hemorrhoids</label>
-                                    </div>
-                                    <label style={{marginTop: '10px'}}>Medication Taken: <input type="text" value={healthInfo.digestive_medication_taken || ''} disabled={true} /></label>
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="medical-condition-block">
-                            <label className="condition-main-checkbox"><input type="checkbox" checked={healthInfo.has_heart_problems || false} disabled={true} /> Heart Problems</label>
-                            {healthInfo.has_heart_problems && (
-                                <div className="medical-sub-fields">
-                                    <label>Specify: <input type="text" value={healthInfo.heart_problems_specify || ''} disabled={true} /></label>
-                                    <label>Medication: <input type="text" value={healthInfo.heart_problems_medication || ''} disabled={true} /></label>
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="medical-condition-block">
-                            <label className="condition-main-checkbox"><input type="checkbox" checked={healthInfo.has_kidney_bladder_problems || false} disabled={true} /> Kidney/Bladder Problems</label>
-                            {healthInfo.has_kidney_bladder_problems && (
-                                <div className="medical-sub-fields">
-                                    <label>Specify: <input type="text" value={healthInfo.kidney_bladder_specify || ''} disabled={true} /></label>
-                                    <label>Medication: <input type="text" value={healthInfo.kidney_bladder_medication || ''} disabled={true} /></label>
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="medical-condition-block">
-                            <label className="condition-main-checkbox"><input type="checkbox" checked={healthInfo.has_seizure_episode || false} disabled={true} /> Seizure Episode</label>
-                            {healthInfo.has_seizure_episode && (
-                                <div className="medical-sub-fields">
-                                    <label>Last Episode Date: <input type="date" value={healthInfo.seizure_last_episode_date || ''} disabled={true} /></label>
-                                    <label>Medication: <input type="text" value={healthInfo.seizure_medication_taken || ''} disabled={true} /></label>
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="medical-condition-block">
-                            <label className="condition-main-checkbox"><input type="checkbox" checked={healthInfo.has_surgery || false} disabled={true} /> History of Surgery</label>
-                            {healthInfo.has_surgery && (
-                                <div className="medical-sub-fields">
-                                    <label>Specify: <input type="text" value={healthInfo.surgery_specify || ''} disabled={true} /></label>
-                                    <label>Date: <input type="date" value={healthInfo.surgery_date || ''} disabled={true} /></label>
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="medical-condition-block">
-                            <label className="condition-main-checkbox"><input type="checkbox" checked={healthInfo.has_vision_problem || false} disabled={true} /> Vision Problem</label>
-                            {healthInfo.has_vision_problem && (
-                                <div className="medical-sub-fields">
-                                    <label>Specify: <input type="text" value={healthInfo.vision_specify || ''} disabled={true} /></label>
-                                    <div className="nested-checkbox-matrix">
-                                        <label><input type="checkbox" checked={healthInfo.vision_with_eyeglasses || false} disabled={true} /> Wears Eyeglasses</label>
-                                        <label><input type="checkbox" checked={healthInfo.vision_with_contact_lens || false} disabled={true} /> Wears Contact Lenses</label>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
+                {/* HEALTH: body, history, latest check-up per service, latest screening per type */}
+                <section id="hrp-panel-health" role="tabpanel" aria-labelledby="hrp-tab-health" className="hrp-panel" hidden={activeTab !== 'health'}>
+                    <div className="hrp-card">
+                        <HealthInfoView studentId={studentId} healthInfo={healthInfo} healthProofs={healthProofs} showCheckups />
                     </div>
-                )}
+                </section>
 
-                {/* 3. REQUIREMENTS TAB CHECKLIST */}
-                {activeTab === 'requirements' && (
-                    <div className="profile-details-form-card requirements-tab-layout">
-                        <div>
-                            <h3>Medical Requirements Progress Tracking</h3>
-                            <p>Review active documentation uploads and submission statuses below.</p>
-                        </div>
-
-                        {reqLoading ? (
-                            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)' }}>Updating checklist criteria view logs...</div>
-                        ) : requirementsList.length === 0 ? (
-                            <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-secondary)' }}>No academic profile file configurations mapped to this account.</div>
-                        ) : (
-                            <div className="table-responsive-wrapper">
-                                <table className="profile-data-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Requirement Name</th>
-                                            <th>Classification</th>
-                                            <th>Submission Deadline</th>
-                                            <th>Status</th>
-                                            <th>Nurse Remarks</th>
-                                            <th>File Reference</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {requirementsList.map((req) => {
-                                            const deadlineDate = req.submission_deadline ? new Date(req.submission_deadline) : null;
-                                            const fileIsPresent = !!req.file_url;
-                                            const statusLower = req.status?.toLowerCase() || '';
-
-                                            let statusClass = 'warning';
-                                            if (['completed', 'submitted'].includes(statusLower)) statusClass = 'complete';
-                                            if (['late', 'submitted late', 'overdue', 'missing'].includes(statusLower)) statusClass = 'danger';
-
-                                            return (
-                                                <tr key={req.requirement_name}>
-                                                    <td style={{ fontWeight: '500' }}>{req.requirement_name}</td>
-                                                    <td>
-                                                        <span className={`classification-tag ${req.type === 'Special' ? 'special' : 'program'}`}>
-                                                            {req.type || 'Program'}
-                                                        </span>
-                                                    </td>
-                                                    <td>
-                                                        {deadlineDate ? formatDate(deadlineDate) : 'No Deadline'}
-                                                    </td>
-                                                    <td>
-                                                        <span className={`submission-status-label ${statusClass}`}>
-                                                            {req.status || 'Pending'}
-                                                        </span>
-                                                    </td>
-                                                    <td style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
-                                                        {req.nurse_remarks || <span style={{ color: '#cbd5e1' }}>—</span>}
-                                                    </td>
-                                                    <td>
-                                                        {fileIsPresent ? (
-                                                            <a 
-                                                                href={req.file_url} target="_blank" rel="noopener noreferrer"
-                                                                className="btn-document-link"
-                                                            >
-                                                                <FileText size={14} /> Open Document
-                                                            </a>
-                                                        ) : (
-                                                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', fontStyle: 'italic' }}>No Upload Found</span>
-                                                        )}
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
+                {/* REQUIREMENTS */}
+                <section id="hrp-panel-requirements" role="tabpanel" aria-labelledby="hrp-tab-requirements" className="hrp-panel" hidden={activeTab !== 'requirements'}>
+                    <div className="hrp-filters" role="group" aria-label="Filter by status">
+                        {FILTERS.map(([key, label]) => (
+                            <button key={key} type="button" aria-pressed={reqFilter === key} onClick={() => setReqFilter(key)}>
+                                {label} <span className="n">{counts[key]}</span>
+                            </button>
+                        ))}
                     </div>
-                )}
+
+                    {shownRequirements.length === 0 ? (
+                        <div className="hrp-empty">Nothing here.</div>
+                    ) : (
+                        <div className="hrp-table-wrap">
+                            <table className="hrp-table">
+                                <caption className="hrp-sr-only">Requirements</caption>
+                                <thead>
+                                    <tr>
+                                        <th>Requirement</th>
+                                        <th>Type</th>
+                                        <th>Deadline</th>
+                                        <th>Status</th>
+                                        <th>Remarks</th>
+                                        <th>File</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {shownRequirements.map((req) => {
+                                        const kind = requirementKind(req);
+                                        const { cls, Icon } = KIND_CHIP[kind];
+                                        const left = daysUntil(req.submission_deadline);
+                                        let hint = null;
+                                        if (kind !== 'complete' && left !== null) {
+                                            if (left < 0) hint = <span className="sub bad">Overdue by {-left} {left === -1 ? 'day' : 'days'}</span>;
+                                            else if (left <= 7) hint = <span className="sub warn">Due in {left} {left === 1 ? 'day' : 'days'}</span>;
+                                        }
+                                        return (
+                                            <tr key={req.config_id ?? `${req.type}-${req.requirement_name}`}>
+                                                <th scope="row">{req.requirement_name}</th>
+                                                <td>
+                                                    <span className={`hrp-chip ${req.type === 'Special' ? 'warn' : 'brand'}`}>{req.type || 'Program'}</span>
+                                                </td>
+                                                <td>
+                                                    {req.submission_deadline ? formatDate(new Date(req.submission_deadline)) : 'No deadline'}
+                                                    {hint}
+                                                </td>
+                                                <td>
+                                                    <span className={`hrp-chip ${cls}`}><Icon size={14} aria-hidden="true" /> {req.status || 'Pending'}</span>
+                                                </td>
+                                                <td>{req.nurse_remarks || <span className="hrp-muted">—</span>}</td>
+                                                <td>
+                                                    {req.file_url ? (
+                                                        <a
+                                                            className="hrp-btn-icon"
+                                                            href={req.file_url}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            aria-label={`Open file of ${req.requirement_name}`}
+                                                            title="Open file"
+                                                        >
+                                                            <FileText size={18} aria-hidden="true" />
+                                                        </a>
+                                                    ) : (
+                                                        <span className="hrp-muted">No file</span>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </section>
             </div>
 
             {/* CONNECTED PARENT PROFILE MODAL */}
             {showParentModal && (
-                <div className="modal-backdrop-overlay no-print" onClick={handleCloseParentModal}>
-                    <div className="modal-content-card" onClick={(e) => e.stopPropagation()}>
-                        <div className="modal-header-bar">
-                            <h3><User size={20} /> Connected Parent Profile</h3>
-                            <button className="btn-modal-close" onClick={handleCloseParentModal}>
-                                <X size={18} />
+                <div className="hrp-backdrop hrp-no-print" onMouseDown={(e) => { if (e.target === e.currentTarget) handleCloseParentModal(); }}>
+                    <div className="hrp-modal" role="dialog" aria-modal="true" aria-labelledby="hrp-parent-title" ref={modalRef}>
+                        <div className="hrp-modal-head">
+                            <h2 id="hrp-parent-title"><User size={20} aria-hidden="true" /> Parent profile</h2>
+                            <button type="button" className="hrp-btn-icon" onClick={handleCloseParentModal} aria-label="Close" title="Close">
+                                <X size={18} aria-hidden="true" />
                             </button>
                         </div>
-                        <div className="modal-body-content">
+                        <div className="hrp-modal-body">
                             {parentLoading ? (
-                                <div style={{ textAlign: 'center', padding: '30px', color: 'var(--text-secondary)' }}>
-                                    Loading parent details...
-                                </div>
+                                <p className="hrp-muted" role="status">Loading...</p>
                             ) : parentError ? (
-                                <div className="error-message" style={{ margin: 0 }}>
-                                    {parentError}
-                                </div>
+                                <p className="hrp-chip bad" role="alert"><AlertTriangle size={14} aria-hidden="true" /> {parentError}</p>
                             ) : parentDetails ? (
-                                <div className="parent-profile-grid">
-                                    <div className="parent-info-field">
-                                        <label>Parent ID</label>
-                                        <p>{parentDetails.parent_id}</p>
+                                <dl className="hrp-fields">
+                                    <Field label="Parent ID" value={parentDetails.parent_id} />
+                                    <Field label="Full name" value={`${parentDetails.first_name} ${parentDetails.last_name}`} />
+                                    <Field label="Primary contact" value={parentDetails.primary_phone} />
+                                    <Field label="Username" value={parentDetails.username} />
+                                    <div>
+                                        <dt>SMS</dt>
+                                        <dd>
+                                            {parentDetails.is_sms_verified
+                                                ? <span className="hrp-chip ok"><ShieldCheck size={14} aria-hidden="true" /> Verified</span>
+                                                : <span className="hrp-chip neutral">Not verified</span>}
+                                        </dd>
                                     </div>
-                                    <div className="parent-info-field">
-                                        <label>Full Name</label>
-                                        <p>{parentDetails.first_name} {parentDetails.last_name}</p>
+                                    <div>
+                                        <dt>Account</dt>
+                                        <dd>
+                                            {parentDetails.is_active === 1 || parentDetails.is_active === true
+                                                ? <span className="hrp-chip ok"><CheckCircle size={14} aria-hidden="true" /> Active</span>
+                                                : <span className="hrp-chip bad"><XCircle size={14} aria-hidden="true" /> Inactive</span>}
+                                        </dd>
                                     </div>
-                                    <div className="parent-info-field">
-                                        <label>Primary Contact</label>
-                                        <p>{parentDetails.primary_phone || 'N/A'}</p>
-                                    </div>
-                                    <div className="parent-info-field">
-                                        <label>Username</label>
-                                        <p>{parentDetails.username || 'N/A'}</p>
-                                    </div>
-                                    <div className="parent-info-field">
-                                        <label>SMS Verification</label>
-                                        <p>
-                                            {parentDetails.is_sms_verified ? (
-                                                <span className="status-pill status-verified"><ShieldCheck size={14} /> Verified</span>
-                                            ) : (
-                                                <span className="status-pill status-unverified">Not Verified</span>
-                                            )}
-                                        </p>
-                                    </div>
-                                    <div className="parent-info-field">
-                                        <label>Account Status</label>
-                                        <p>
-                                            {parentDetails.is_active === 1 || parentDetails.is_active === true ? (
-                                                <span className="status-pill status-active"><CheckCircle size={14} /> Active</span>
-                                            ) : (
-                                                <span className="status-pill status-inactive"><XCircle size={14} /> Inactive</span>
-                                            )}
-                                        </p>
-                                    </div>
-                                </div>
+                                </dl>
                             ) : null}
                         </div>
-                        <div className="modal-footer-bar">
-                            <button className="btn-modal-dismiss" onClick={handleCloseParentModal}>
-                                Close
-                            </button>
+                        <div className="hrp-modal-foot">
+                            <button type="button" className="hrp-btn-text" onClick={handleCloseParentModal}>Close</button>
                         </div>
                     </div>
                 </div>
@@ -741,32 +511,33 @@ export default function HealthRecordsProfile() {
 
             {/* PRINTABLE PDF REPORT CONTAINER */}
             <div className="printable-health-report">
-                <div style={{ textAlign: 'center', marginBottom: '20px', borderBottom: '2px solid #0f172a', paddingBottom: '12px' }}>
-                    <img src={stiLogo} alt="STI Logo" style={{ height: '60px', marginBottom: '8px' }} />
-                    <h2 style={{ margin: '0', fontSize: '1.125rem', fontWeight: 'bold' }}>STI College Baliuag</h2>
-                    <p style={{ margin: '4px 0', fontSize: '0.875rem', color: 'var(--text-primary)' }}>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan.</p>
-                    <h3 style={{ margin: '12px 0 0 0', fontSize: '1rem', letterSpacing: '0.5px' }}>HEALTH PROFILE REPORT</h3>
+                <div className="hrp-report-head">
+                    <img src={stiLogo} alt="STI Logo" />
+                    <h2>STI College Baliuag</h2>
+                    <p>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan.</p>
+                    <h3>HEALTH PROFILE REPORT</h3>
                 </div>
 
-                <div style={{ marginBottom: '20px' }}>
-                    <h4 style={{ margin: '0 0 8px 0', fontSize: '0.875rem', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px' }}>Student Information</h4>
-                    <p style={{ margin: '3px 0', fontSize: '0.875rem' }}><strong>Student ID:</strong> {studentId} {isInactive ? '(Inactive Account)' : ''}</p>
-                    <p style={{ margin: '3px 0', fontSize: '0.875rem' }}><strong>Name:</strong> {studentHeader?.first_name} {studentHeader?.last_name}</p>
-                    <p style={{ margin: '3px 0', fontSize: '0.875rem' }}><strong>Program & Year:</strong> {studentHeader?.program_id} - {studentHeader?.year_level} Year</p>
-                    <p style={{ margin: '3px 0', fontSize: '0.875rem' }}><strong>Gender:</strong> {personalInfo.gender || 'N/A'} | <strong>Age:</strong> {personalInfo.age || 'N/A'} | <strong>Date of Birth:</strong> {personalInfo.birth_date ? formatDate(personalInfo.birth_date) : 'N/A'}</p>
-                    <p style={{ margin: '3px 0', fontSize: '0.875rem' }}><strong>Contact No.:</strong> {personalInfo.contact_number || 'N/A'}</p>
-                    <p style={{ margin: '3px 0', fontSize: '0.875rem' }}><strong>Address:</strong> {personalInfo.address || 'N/A'}</p>
+                <div className="hrp-report-block">
+                    <h4>Student Information</h4>
+                    <p><strong>Student ID:</strong> {studentId} {isInactive ? '(Inactive Account)' : ''}</p>
+                    <p><strong>Name:</strong> {fullName}</p>
+                    <p><strong>Program & Year:</strong> {studentHeader?.program_id} - {studentHeader?.year_level} Year</p>
+                    <p><strong>Gender:</strong> {personalInfo.gender || 'N/A'} | <strong>Age:</strong> {personalInfo.age || 'N/A'} | <strong>Date of Birth:</strong> {personalInfo.birth_date ? formatDate(personalInfo.birth_date) : 'N/A'}</p>
+                    <p><strong>Contact No.:</strong> {personalInfo.contact_number || 'N/A'}</p>
+                    <p><strong>Address:</strong> {personalInfo.address || 'N/A'}</p>
+                    <p><strong>Height / Weight:</strong> {personalInfo.height_cm ? `${personalInfo.height_cm} cm` : 'N/A'} / {personalInfo.weight_kg ? `${personalInfo.weight_kg} kg` : 'N/A'}</p>
                 </div>
 
-                <div style={{ marginBottom: '20px' }}>
-                    <h4 style={{ margin: '0 0 8px 0', fontSize: '0.875rem', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px' }}>Connected Parent Information</h4>
-                    <p style={{ margin: '3px 0', fontSize: '0.875rem' }}><strong>Parent Name:</strong> {studentHeader?.parent_first_name ? `${studentHeader.parent_first_name} ${studentHeader.parent_last_name}` : 'N/A'}</p>
-                    <p style={{ margin: '3px 0', fontSize: '0.875rem' }}><strong>Parent Contact No.:</strong> {studentHeader?.parent_phone || 'N/A'}</p>
+                <div className="hrp-report-block">
+                    <h4>Connected Parent Information</h4>
+                    <p><strong>Parent Name:</strong> {parentName || 'N/A'}</p>
+                    <p><strong>Parent Contact No.:</strong> {studentHeader?.parent_phone || 'N/A'}</p>
                 </div>
 
-                <div style={{ marginBottom: '30px' }}>
-                    <h4 style={{ margin: '0 0 8px 0', fontSize: '0.875rem', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px' }}>Health Profile Summary</h4>
-                    <ul style={{ margin: '4px 0', paddingLeft: '18px', fontSize: '0.875rem' }}>
+                <div className="hrp-report-block">
+                    <h4>Health Profile Summary</h4>
+                    <ul>
                         {healthInfo.has_allergies && <li>Allergies (Food: {healthInfo.allergy_food || 'None'}, Meds: {healthInfo.allergy_medicine || 'None'})</li>}
                         {healthInfo.has_asthma && <li>Asthma (Triggers: {healthInfo.asthma_triggers || 'N/A'})</li>}
                         {healthInfo.has_other_respiratory && <li>Respiratory Conditions ({healthInfo.other_respiratory_specify || 'Specified'})</li>}
@@ -777,16 +548,19 @@ export default function HealthRecordsProfile() {
                         {healthInfo.has_seizure_episode && <li>Seizure Episodes (Last: {healthInfo.seizure_last_episode_date ? formatDate(healthInfo.seizure_last_episode_date) : 'N/A'})</li>}
                         {healthInfo.has_surgery && <li>History of Surgery ({healthInfo.surgery_specify || 'Specified'})</li>}
                         {healthInfo.has_vision_problem && <li>Vision Problem ({healthInfo.vision_specify || 'Specified'})</li>}
-                        {!healthInfo.has_allergies && !healthInfo.has_asthma && !healthInfo.has_other_respiratory && !healthInfo.has_blood_disorders && !healthInfo.has_digestive_disorders && !healthInfo.has_heart_problems && !healthInfo.has_kidney_bladder_problems && !healthInfo.has_seizure_episode && !healthInfo.has_surgery && !healthInfo.has_vision_problem && (
-                            <li>No critical medical conditions or allergies recorded.</li>
-                        )}
+                        {flagChips.length === 0 && <li>No critical medical conditions or allergies recorded.</li>}
                     </ul>
                 </div>
 
-                <div style={{ marginTop: '50px', textAlign: 'left' }}>
-                    <p style={{ margin: '0 0 35px 0', fontSize: '0.875rem' }}><strong>Prepared by:</strong></p>
-                    <p style={{ margin: '0', fontSize: '0.875rem', fontWeight: 'bold', textDecoration: 'underline' }}>Marilou H. Balarao</p>
-                    <p style={{ margin: '2px 0 0 0', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>School Nurse</p>
+                <div className="hrp-report-block">
+                    <h4>Requirements</h4>
+                    <p>{counts.all === 0 ? 'None assigned.' : `${counts.complete} of ${counts.all} complete, ${counts.danger} overdue, ${counts.warning} pending.`}</p>
+                </div>
+
+                <div className="hrp-report-sign">
+                    <p className="by"><strong>Prepared by:</strong></p>
+                    <p className="nurse">Marilou H. Balarao</p>
+                    <p>School Nurse</p>
                 </div>
             </div>
         </div>

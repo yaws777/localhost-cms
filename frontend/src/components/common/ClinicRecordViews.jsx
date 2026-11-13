@@ -3,7 +3,7 @@
 // a status pill for the table rows and a structured detail view for the modal, so the doctor's assessment and the screening result
 // show as sections instead of a raw list of fields.
 import React from 'react';
-import { Stethoscope, Activity, Pill, FileText, Repeat, AlertTriangle, CheckCircle2, Clock, XCircle } from 'lucide-react';
+import { Stethoscope, Activity, Pill, FileText, Repeat, AlertTriangle, CheckCircle2, Clock, XCircle, User, ShieldAlert } from 'lucide-react';
 import { formatDate as formatDateBase, formatTime, formatDateTime } from '../../utils/datetime';
 import '../../styles/common/ClinicRecordViews.css';
 
@@ -160,8 +160,84 @@ export function DoctorVisitDetail({ record: v }) {
     );
 }
 
+// Clinic visit: the nurse's documentation form, read only (same sections and labels as Visit Log > Document Visit)
+const FormField = ({ id, label, value, wide, area }) => (
+    <div className={`field-crv${wide ? ' wide-crv' : ''}`}>
+        <label htmlFor={id}>{label}</label>
+        {area
+            ? <textarea id={id} rows={2} readOnly value={value} />
+            : <input id={id} type="text" readOnly value={value} />}
+    </div>
+);
+
+const FormSection = ({ icon: Icon, title, cols, children }) => (
+    <section className="section-crv">
+        <h4><Icon size={15} aria-hidden="true" /> {title}</h4>
+        <div className={`grid-crv${cols === 4 ? ' four-crv' : ''}`}>{children}</div>
+    </section>
+);
+
+const orDash = (v) => (v === null || v === undefined || v === '' ? '--' : String(v));
+
+export function ClinicVisitForm({ record: v }) {
+    const uid = React.useId();
+    const id = (name) => `${uid}-${name}`;
+    const fullName = [v.student_first_name || v.first_name, v.student_last_name || v.last_name].filter(Boolean).join(' ') || '--';
+    const nurse = v.nurse_first_name && v.nurse_last_name ? `${v.nurse_first_name} ${v.nurse_last_name}` : v.nurse_id;
+    const condition = v.complaint_name || v.complaint_id;
+    const specify = v.specify_complaint_text || v.specify_complaints_text;
+    const dispensed = Boolean(v.batch_id || v.medicine_name);
+    const qty = v.dosage_consumption_unit_value ? String(Math.round(parseFloat(v.dosage_consumption_unit_value))) : '';
+
+    return (
+        <div className="detail-crv">
+            <div className="head-crv">
+                <div>
+                    <strong>Visit {v.visit_id}</strong>
+                    <div className="sub-crv">{v.visit_date ? dayOnly(v.visit_date) : 'N/A'}{nurse ? ` | Nurse ${nurse}` : ''}</div>
+                </div>
+                <StatusPill tone={v.time_out ? 'ok' : 'info'}>{v.time_out ? 'Timed out' : 'In clinic'}</StatusPill>
+            </div>
+
+            <FormSection icon={User} title="Student & Time Info">
+                <FormField id={id('name')} label="Full Name" value={fullName} />
+                <FormField id={id('sid')} label="Student ID" value={orDash(v.student_id)} />
+                <FormField id={id('tin')} label="Time In" value={v.time_in ? formatTime(v.time_in) : '--'} />
+                <FormField id={id('tout')} label="Time Out" value={v.time_out ? formatTime(v.time_out) : '--'} />
+                <FormField id={id('cond')} label="Medical Condition" value={orDash(condition)} wide />
+                {specify ? <FormField id={id('spec')} label="Specify Medical Condition Details" value={specify} wide /> : null}
+            </FormSection>
+
+            <FormSection icon={Activity} title="Vital Signs - Time In" cols={4}>
+                <FormField id={id('bp')} label="BP (mmHg)" value={orDash(v.blood_pressure)} />
+                <FormField id={id('temp')} label="Temp (°C)" value={orDash(v.temperature)} />
+                <FormField id={id('pulse')} label="Pulse (bpm)" value={orDash(v.pulse_rate)} />
+                <FormField id={id('resp')} label="Resp Rate" value={orDash(v.respiratory_rate)} />
+            </FormSection>
+
+            {v.time_out ? (
+                <FormSection icon={Activity} title="Vital Signs - Time Out" cols={4}>
+                    <FormField id={id('obp')} label="BP (mmHg)" value={orDash(v.out_blood_pressure)} />
+                    <FormField id={id('otemp')} label="Temp (°C)" value={orDash(v.out_temperature)} />
+                    <FormField id={id('opulse')} label="Pulse (bpm)" value={orDash(v.out_pulse_rate)} />
+                    <FormField id={id('oresp')} label="Resp Rate" value={orDash(v.out_respiratory_rate)} />
+                    <FormField id={id('onote')} label="Student Condition After Time-out" value={orDash(v.out_nurse_note)} wide area />
+                </FormSection>
+            ) : null}
+
+            <FormSection icon={ShieldAlert} title="Intervention & Dispensation">
+                <FormField id={id('int')} label="Nursing Intervention" value={orDash(v.nursing_intervention)} wide area />
+                <FormField id={id('assess')} label="Assessment" value={orDash(v.assessment || v.health_advice)} wide area />
+                <FormField id={id('med')} label="Dispensed Medicine" value={dispensed ? orDash(v.medicine_name || v.batch_id) : 'No medication dispensed'} wide />
+                {dispensed ? <FormField id={id('qty')} label="Dosage / Quantity" value={orDash(qty)} /> : null}
+                {dispensed ? <FormField id={id('unit')} label="Unit of Measure" value={orDash(v.dosage_consumption_unit_of_measure)} /> : null}
+            </FormSection>
+        </div>
+    );
+}
+
 // "Left ear: Normal | Right ear: Normal" -> [{label, value}] (older results are stored as one text)
-const detailPairs = (details) => String(details || '').split(' | ').map((part) => {
+export const detailPairs = (details) => String(details || '').split(' | ').map((part) => {
     const i = part.indexOf(':');
     return i > 0 && i < 30 ? { label: part.slice(0, i).trim(), value: part.slice(i + 1).trim() } : { label: '', value: part.trim() };
 }).filter((p) => p.value);

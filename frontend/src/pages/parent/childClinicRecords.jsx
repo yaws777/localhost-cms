@@ -13,10 +13,13 @@ import {
   X, 
   Filter,
   ExternalLink,
-  User 
+  User,
+  FileDown
 } from 'lucide-react';
+import { useAlert } from '../../context/AlertContext';
+import { exportClinicRecords, exportClinicRecord } from '../../utils/clinicRecordExport';
 import { formatTime, formatDate as formatDateBase, formatDateTime } from '../../utils/datetime';
-import { DoctorVisitDetail, ScreeningDetail, VisitStatus, ScreeningStatus, visitDoctor, visitTitle } from '../../components/common/ClinicRecordViews';
+import { ClinicVisitForm, DoctorVisitDetail, ScreeningDetail, VisitStatus, ScreeningStatus, visitDoctor, visitTitle } from '../../components/common/ClinicRecordViews';
 import '../../styles/parent/ChildClinicRecords.css';
 
 const API_BASE = 'http://localhost:3001';
@@ -82,6 +85,7 @@ const formatKeyLabel = (key) => {
 
 export default function ChildClinicRecords() {
   const context = useOutletContext();
+  const { showAlert } = useAlert();
 
   const linkedStudents = useMemo(() => {
     if (context?.linkedStudents && Array.isArray(context.linkedStudents) && context.linkedStudents.length > 0) {
@@ -168,6 +172,25 @@ export default function ChildClinicRecords() {
     fetchLogs('', '', 'ALL');
   };
 
+  const onBlocked = () => showAlert('Allow popups to preview the PDF.', 'warning');
+
+  const studentName = (st) => (st.first_name ? `${st.first_name} ${st.last_name} (${st.student_id})` : st.student_id);
+  const studentLabelOf = (id) => {
+    const st = linkedStudents.find((s) => s.student_id === id);
+    return st ? studentName(st) : id;
+  };
+  const exportLabel = selectedStudentId === 'ALL'
+    ? `All Linked Students (${linkedStudents.map((s) => s.student_id).join(', ')})`
+    : studentLabelOf(selectedStudentId);
+
+  const handleExport = () => {
+    if (records.length === 0) {
+      showAlert('No records to export.', 'warning');
+      return;
+    }
+    exportClinicRecords({ tab: activeTab, records, studentLabel: exportLabel, range: { startDate, endDate }, onBlocked });
+  };
+
   return (
     <div className="container-ccr">
       <header className="header-ccr">
@@ -218,6 +241,15 @@ export default function ChildClinicRecords() {
           </button>
           <button type="button" onClick={clearFilter} className="btn-ccr btn-secondary-ccr">
             Clear
+          </button>
+          <button
+            type="button"
+            onClick={handleExport}
+            className="btn-ccr btn-secondary-ccr btn-export-ccr"
+            aria-label="Export PDF"
+            title="Export PDF"
+          >
+            <FileDown size={18} aria-hidden="true" />
           </button>
         </form>
 
@@ -293,7 +325,12 @@ export default function ChildClinicRecords() {
       </div>
 
       {selectedRecord && (
-        <Modal tab={activeTab} record={selectedRecord} onClose={() => setSelectedRecord(null)} />
+        <Modal
+          tab={activeTab}
+          record={selectedRecord}
+          onClose={() => setSelectedRecord(null)}
+          onExport={() => exportClinicRecord({ tab: activeTab, record: selectedRecord, studentLabel: studentLabelOf(selectedRecord.student_id), onBlocked })}
+        />
       )}
     </div>
   );
@@ -540,7 +577,7 @@ function renderTableRow(tab, item, index, onViewDetails) {
   }
 }
 
-function Modal({ tab, record, onClose }) {
+function Modal({ tab, record, onClose, onExport }) {
   const isFileKey = (key, value) => {
     if (typeof value !== 'string') return false;
     const k = key.toLowerCase();
@@ -571,7 +608,7 @@ function Modal({ tab, record, onClose }) {
         </div>
 
         <div className="modal-body-ccr">
-          {tab === 'doctor-visits' ? <DoctorVisitDetail record={record} /> : tab === 'health-screenings' ? <ScreeningDetail record={record} /> : Object.entries(record).map(([key, value]) => {
+          {tab === 'clinic-visits' ? <ClinicVisitForm record={record} /> : tab === 'doctor-visits' ? <DoctorVisitDetail record={record} /> : tab === 'health-screenings' ? <ScreeningDetail record={record} /> : Object.entries(record).map(([key, value]) => {
             if (value === null || value === undefined || value === '') {
               return (
                 <div className="modal-field-ccr" key={key}>
@@ -626,6 +663,9 @@ function Modal({ tab, record, onClose }) {
         </div>
 
         <div className="modal-footer-ccr">
+          <button type="button" className="btn-ccr btn-primary-ccr btn-export-ccr" onClick={onExport} aria-label="Export PDF" title="Export PDF">
+            <FileDown size={18} aria-hidden="true" />
+          </button>
           <button className="btn-ccr btn-secondary-ccr" onClick={onClose}>Close</button>
         </div>
       </div>

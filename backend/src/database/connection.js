@@ -1273,9 +1273,283 @@ app.get('/api/profile/:studentId', async (req, res) => {
     }
 });
 
+// Body readings (height, weight, BMI) taken from screening results whose template has Height / Weight number fields
+// (the BMI template). Newest first. The newest one is the student's current height and weight.
+const readingStamp = (x) => {
+    const day = x.date instanceof Date ? x.date.toISOString().slice(0, 10) : String(x.date || '').slice(0, 10);
+    const at = x.recorded_at instanceof Date ? x.recorded_at.toISOString() : String(x.recorded_at || '');
+    return `${day}|${at}`;
+};
+const bodyReadingsOf = async (conn, studentId) => {
+    await screeningTemplatesReady;
+    const [rows] = await conn.query(
+        `SELECT r.answers, r.recorded_at, tp.fields, s.scheduled_date
+         FROM screening_custom_results r
+         JOIN screening_schedules s ON s.screening_schedule_id = r.screening_schedule_id
+         LEFT JOIN screening_form_templates tp ON tp.template_id = r.template_id
+         WHERE r.student_id = ?`,
+        [studentId]
+    );
+    const readings = [];
+    rows.forEach((r) => {
+        const a = jsonOf(r.answers) || {};
+        const fields = jsonOf(r.fields) || [];
+        const pick = (re, type) => fields.find((f) => re.test(f.label || '') && (!type || f.type === type));
+        const hf = pick(/height/i, 'number');
+        const wf = pick(/weight/i, 'number');
+        const bf = pick(/bmi/i);
+        const height = hf ? Number(a[hf.key]) : NaN;
+        const weight = wf ? Number(a[wf.key]) : NaN;
+        if (!(height > 0) && !(weight > 0)) return;
+        const bmi = bf && a[bf.key] !== undefined && a[bf.key] !== '' ? Number(a[bf.key]) : null;
+        readings.push({
+            height_cm: height > 0 ? height : null,
+            weight_kg: weight > 0 ? weight : null,
+            bmi: Number.isFinite(bmi) ? bmi : null,
+            bmi_label: bf ? (a[`${bf.key}__label`] || null) : null,
+            date: r.scheduled_date,
+            recorded_at: r.recorded_at
+        });
+    });
+    readings.sort((x, y) => readingStamp(y).localeCompare(readingStamp(x)));
+    return readings;
+};
+// Keep student_personal_information.height_cm / weight_kg equal to the newest screening reading.
+const syncBodyFromScreening = async (conn, studentId) => {
+    const [latest] = await bodyReadingsOf(conn, studentId);
+    if (!latest) return;
+    await conn.query(
+        'UPDATE student_personal_information SET height_cm = COALESCE(?, height_cm), weight_kg = COALESCE(?, weight_kg) WHERE student_id = ?',
+        [latest.height_cm, latest.weight_kg, studentId]
+    );
+};
+
+// --- HEALTH SUMMARY: latest result of each screening type (BMI, Vital Signs, Hearing, nurse templates) ---
+// Read-only. Shown in the Health Information tab of the nurse, student and parent profile pages.
+// `body` = current height / weight / BMI (from the newest BMI screening, else what the student reported) + the previous reading.
+app.get('/api/students/:studentId/health-summary', async (req, res) => {
+    const { studentId } = req.params;
+    try {
+        await screeningTemplatesReady;
+        const latest = new Map();
+        const keep = (item) => {
+            const key = String(item.screening_type || '').trim().toLowerCase();
+            const old = latest.get(key);
+            const stamp = (x) => `${String(x.date || '')}|${String(x.recorded_at || '')}`;
+            if (!old || stamp(item) > stamp(old)) latest.set(key, item);
+        };
+
+        const [custom] = await pool.query(
+            `SELECT r.answers, r.is_abnormal, r.remarks, r.recorded_at, tp.name AS template_name, tp.fields,
+                    s.scheduled_date, s.screening_type
+             FROM screening_custom_results r
+             JOIN screening_schedules s ON s.screening_schedule_id = r.screening_schedule_id
+             LEFT JOIN screening_form_templates tp ON tp.template_id = r.template_id
+             WHERE r.student_id = ?`,
+            [studentId]
+        );
+        // Vital sign candidates: screenings whose template has blood pressure / pulse / temperature / respiratory fields,
+        // and the time-in / time-out vitals of clinic visits. The newest one is the "last vital signs record".
+        const vitalCandidates = [];
+        const dayOfValue = (d) => (d instanceof Date ? d.toISOString().slice(0, 10) : String(d || '').slice(0, 10));
+        const hasValue = (v) => v !== null && v !== undefined && String(v).trim() !== '';
+        custom.forEach((r) => {
+            const a = jsonOf(r.answers) || {};
+            const fieldList = jsonOf(r.fields) || [];
+            const findField = (re) => fieldList.find((f) => re.test(f.label || ''));
+            const sys = findField(/systolic/i), dia = findField(/diastolic/i), pul = findField(/pulse|heart rate/i), tmp = findField(/temp/i), rsp = findField(/respir/i);
+            if ([sys, dia, pul, tmp, rsp].filter(Boolean).length >= 2) {
+                const val = (f) => (f && hasValue(a[f.key]) ? Number(a[f.key]) : null);
+                const s = val(sys), d = val(dia);
+                const vit = {
+                    blood_pressure: s != null && d != null ? `${s}/${d}` : null,
+                    pulse_rate: val(pul),
+                    temperature: val(tmp),
+                    respiratory_rate: val(rsp)
+                };
+                if (Object.values(vit).some((v) => v != null)) {
+                    const recorded = r.recorded_at ? new Date(r.recorded_at).getTime() : NaN;
+                    vitalCandidates.push({
+                        source: 'screening',
+                        label: r.screening_type || r.template_name || 'Vital signs screening',
+                        date: dayOfValue(r.scheduled_date),
+                        ts: Number.isFinite(recorded) ? recorded : new Date(`${dayOfValue(r.scheduled_date)}T00:00:00`).getTime(),
+                        is_abnormal: r.is_abnormal ? 1 : 0,
+                        ...vit
+                    });
+                }
+            }
+            const items = fieldList
+                .filter((f) => a[f.key] !== undefined && a[f.key] !== '')
+                .map((f) => ({ label: f.label, value: `${a[f.key]}${f.unit ? ` ${f.unit}` : ''}`, note: a[`${f.key}__label`] || null }));
+            if (items.length === 0) return;
+            const name = r.screening_type || r.template_name || 'Screening';
+            keep({
+                screening_type: name,
+                is_bmi: /bmi/i.test(name) || /bmi/i.test(r.template_name || ''),
+                date: r.scheduled_date,
+                recorded_at: r.recorded_at,
+                is_abnormal: r.is_abnormal ? 1 : 0,
+                remarks: r.remarks || null,
+                items
+            });
+        });
+
+        const [hearing] = await pool.query(
+            `SELECT h.left_ear_result, h.right_ear_result, h.is_abnormal, h.remarks, h.recorded_at, s.scheduled_date, s.screening_type
+             FROM hearing_screening_records h
+             JOIN screening_schedules s ON s.screening_schedule_id = h.screening_schedule_id
+             WHERE h.student_id = ?`,
+            [studentId]
+        );
+        hearing.forEach((h) => keep({
+            screening_type: h.screening_type || 'Hearing',
+            is_bmi: false,
+            date: h.scheduled_date,
+            recorded_at: h.recorded_at,
+            is_abnormal: h.is_abnormal ? 1 : 0,
+            remarks: h.remarks || null,
+            items: [
+                { label: 'Left ear', value: h.left_ear_result, note: null },
+                { label: 'Right ear', value: h.right_ear_result, note: null }
+            ]
+        }));
+
+        const screenings = [...latest.values()]
+            .sort((a, b) => (b.is_bmi - a.is_bmi) || String(b.date).localeCompare(String(a.date)))
+            .map(({ recorded_at, ...rest }) => rest);
+
+        try {
+            await ensureVisitOutVitalsColumns();
+            const [visits] = await pool.query(
+                `SELECT visit_date, time_in, time_out, temperature, respiratory_rate, pulse_rate, blood_pressure,
+                        out_temperature, out_respiratory_rate, out_pulse_rate, out_blood_pressure
+                 FROM clinic_visits WHERE student_id = ? ORDER BY visit_date DESC, time_in DESC LIMIT 20`,
+                [studentId]
+            );
+            const clock = (t) => { const m = String(t || '').match(/(\d{1,2}):(\d{2})/); return m ? `${m[1].padStart(2, '0')}:${m[2]}:00` : '00:00:00'; };
+            visits.forEach((v) => {
+                const day = dayOfValue(v.visit_date);
+                const sets = [
+                    { at: v.time_in, t: v.temperature, r: v.respiratory_rate, p: v.pulse_rate, b: v.blood_pressure },
+                    { at: v.time_out, t: v.out_temperature, r: v.out_respiratory_rate, p: v.out_pulse_rate, b: v.out_blood_pressure }
+                ];
+                sets.forEach((x, i) => {
+                    if (![x.t, x.r, x.p, x.b].some(hasValue)) return;
+                    const num = (n) => (hasValue(n) && Number.isFinite(Number(n)) ? Number(n) : null);
+                    vitalCandidates.push({
+                        source: 'clinic_visit',
+                        label: i === 0 ? 'Clinic visit, time in' : 'Clinic visit, time out',
+                        date: day,
+                        ts: new Date(`${day}T${clock(x.at)}`).getTime(),
+                        is_abnormal: null,
+                        blood_pressure: hasValue(x.b) ? String(x.b).trim() : null,
+                        pulse_rate: num(x.p),
+                        temperature: num(x.t),
+                        respiratory_rate: num(x.r)
+                    });
+                });
+            });
+        } catch (vitalErr) {
+            console.error('Could not read clinic visit vitals:', vitalErr.message);
+        }
+        const lastVitals = vitalCandidates
+            .filter((c) => Number.isFinite(c.ts))
+            .sort((x, y) => y.ts - x.ts)[0] || null;
+        const vitals = lastVitals ? (({ ts, ...rest }) => rest)(lastVitals) : null;
+
+        const readings = await bodyReadingsOf(pool, studentId);
+        let body = null;
+        if (readings.length) {
+            const strip = ({ recorded_at, ...rest }) => rest;
+            body = { source: 'screening', ...strip(readings[0]), previous: readings[1] ? strip(readings[1]) : null };
+        } else {
+            const [[p]] = await pool.query('SELECT height_cm, weight_kg FROM student_personal_information WHERE student_id = ?', [studentId]);
+            if (p && (p.height_cm || p.weight_kg)) {
+                body = { source: 'reported', height_cm: p.height_cm, weight_kg: p.weight_kg, bmi: null, bmi_label: null, date: null, previous: null };
+            }
+        }
+        res.json({ success: true, screenings, body, vitals });
+    } catch (error) {
+        console.error('Error fetching health summary:', error);
+        res.status(500).json({ success: false, message: 'Database error.' });
+    }
+});
+
+// --- Latest doctor assessment of each check-up service (visit type) for one student. Nurse / doctor view. ---
+app.get('/api/health-records/:studentId/latest-checkups', async (req, res) => {
+    const { studentId } = req.params;
+    try {
+        const [rows] = await pool.query(
+            `${DOCTOR_VISIT_SELECT} WHERE das.student_id = ? AND da_assessment.assessment_id IS NOT NULL
+             ORDER BY da_assessment.assessment_date DESC LIMIT 300`,
+            [studentId]
+        );
+        const seen = new Set();
+        const checkups = [];
+        rows.forEach((r) => {
+            const type = r.assessment_visit_type || r.visit_type;
+            if (!type || seen.has(type)) return;
+            seen.add(type);
+            checkups.push({
+                visit_type: visitLabel(type, r.purpose_other),
+                appointment_id: r.appointment_id,
+                date: r.assessment_date,
+                doctor_name: [r.doc_first_name, r.doc_last_name].filter(Boolean).join(' '),
+                specialization: r.specialization,
+                chief_complaint: r.chief_complaint,
+                clinical_findings: r.clinical_findings,
+                diagnosis: r.diagnosis,
+                treatment_recommendations: r.treatment_recommendations,
+                is_abnormal: r.is_abnormal ? 1 : 0,
+                follow_up_needed: r.follow_up_needed ? 1 : 0
+            });
+        });
+        res.json({ success: true, checkups });
+    } catch (error) {
+        console.error('Error fetching latest check-ups:', error);
+        res.status(500).json({ success: false, message: 'Database error.' });
+    }
+});
+
 // --- UPDATE PROFILE DATA ---
-app.put('/api/update-profile', async (req, res) => {
-    const { student_id, personalInfo, healthInfo } = req.body;
+// JSON body = personal info only (or both, old clients). Multipart body = health history with proof files:
+// student_id first, personalInfo / healthInfo as JSON strings, files as `proof_<has_* flag>`.
+// Every condition that is ticked needs a proof: a new file in this request or one already saved.
+app.put('/api/update-profile', upload.any(), async (req, res) => {
+    const parseJsonField = (v) => (typeof v === 'string' ? JSON.parse(v) : v);
+    let student_id, personalInfo, healthInfo;
+    try {
+        student_id = req.body.student_id;
+        personalInfo = parseJsonField(req.body.personalInfo);
+        healthInfo = parseJsonField(req.body.healthInfo);
+    } catch (parseErr) {
+        (req.files || []).forEach(f => fs.unlink(f.path, () => {}));
+        return res.status(400).json({ success: false, message: 'Invalid form data.' });
+    }
+    const dropAllFiles = () => (req.files || []).forEach(f => fs.unlink(f.path, () => {}));
+    const proofKeyOf = (f) => f.fieldname.slice('proof_'.length);
+    const proofFiles = (req.files || []).filter(f =>
+        f.fieldname.startsWith('proof_') && HEALTH_PROOF_CONDITIONS.includes(proofKeyOf(f)) && healthInfo?.[proofKeyOf(f)]
+    );
+    let existingProofs = [];
+    if (healthInfo) {
+        try {
+            await ensureHealthProofsTable();
+            [existingProofs] = await pool.query('SELECT condition_key, file_url FROM student_health_proofs WHERE student_id = ?', [student_id]);
+        } catch (proofErr) {
+            dropAllFiles();
+            console.error('Health proofs lookup failed:', proofErr);
+            return res.status(500).json({ success: false, message: 'Failed to update profile.' });
+        }
+        const have = new Set([...existingProofs.map(p => p.condition_key), ...proofFiles.map(proofKeyOf)]);
+        const missing = HEALTH_PROOF_CONDITIONS.filter(key => healthInfo[key] && !have.has(key));
+        if (missing.length > 0) {
+            dropAllFiles();
+            return res.status(400).json({ success: false, message: 'Upload a proof file for each condition you ticked.', missing });
+        }
+    }
+    const staleFiles = [];
     const connection = await pool.getConnection();
 
     try {
@@ -1340,12 +1614,37 @@ app.put('/api/update-profile', async (req, res) => {
                 h.has_other_condition ? 1 : 0, h.other_condition_specify,
                 student_id
             ]);
+
+            // Proofs: new files replace the old one, a condition that is no longer ticked loses its proof
+            for (const f of proofFiles) {
+                const key = proofKeyOf(f);
+                const old = existingProofs.find(p => p.condition_key === key);
+                if (old) staleFiles.push(old.file_url);
+                await connection.execute(
+                    `INSERT INTO student_health_proofs (proof_id, student_id, condition_key, file_url, original_name)
+                     VALUES (?, ?, ?, ?, ?)
+                     ON DUPLICATE KEY UPDATE file_url = VALUES(file_url), original_name = VALUES(original_name), uploaded_at = NOW()`,
+                    [uuidv4(), student_id, key, `/uploads/${f.filename}`, f.originalname]
+                );
+            }
+            for (const old of existingProofs) {
+                if (HEALTH_PROOF_CONDITIONS.includes(old.condition_key) && !healthInfo[old.condition_key]) {
+                    await connection.execute('DELETE FROM student_health_proofs WHERE student_id = ? AND condition_key = ?', [student_id, old.condition_key]);
+                    staleFiles.push(old.file_url);
+                }
+            }
         }
 
         await connection.commit();
+        // files that no longer belong to any proof (only ones inside /uploads)
+        staleFiles.forEach(url => {
+            if (typeof url === 'string' && url.startsWith('/uploads/')) fs.unlink(path.join(uploadDir, path.basename(url)), () => {});
+        });
+        (req.files || []).filter(f => !proofFiles.includes(f)).forEach(f => fs.unlink(f.path, () => {}));
         res.json({ success: true, message: "Profile updated successfully!" });
     } catch (error) {
         await connection.rollback();
+        dropAllFiles();
         console.error("Update error:", error);
         res.status(500).json({ success: false, message: "Failed to update profile." });
     } finally {
@@ -3539,6 +3838,8 @@ app.get('/api/inventory/batches', async (req, res) => {
 app.get('/api/dispensation/history', async (req, res) => {
   const { fromDate, toDate, date, student, medicine } = req.query;
   try {
+    await ensureDirectDispenseSpecifyColumn();
+    await ensureIncidentDispenseColumns();
     const whereClauses = [];
     const params = [];
 
@@ -3584,7 +3885,8 @@ app.get('/api/dispensation/history', async (req, res) => {
           d.dosage_consumption_unit_of_measure,
           d.dispensed_at,
           'Direct Dispensation' AS dispensation_type,
-          cc.complaint_name
+          cc.complaint_name,
+          d.specify_complaint_text
         FROM direct_dispensation d
         JOIN students s ON d.student_id = s.student_id
         JOIN medicine_inventory_batches b ON d.batch_id = b.batch_id
@@ -3603,13 +3905,34 @@ app.get('/api/dispensation/history', async (req, res) => {
           c.dosage_consumption_unit_of_measure,
           c.dispensed_at,
           'Consultation Dispensation' AS dispensation_type,
-          cc.complaint_name
+          cc.complaint_name,
+          v.specify_complaint_text
         FROM consultation_dispensation c
         JOIN clinic_visits v ON c.visit_id = v.visit_id
         JOIN students s ON v.student_id = s.student_id
         JOIN medicine_inventory_batches b ON c.batch_id = b.batch_id
         JOIN medicines m ON b.medicine_id = m.medicine_id
         LEFT JOIN chief_complaints cc ON v.complaint_id = cc.complaint_id
+
+        UNION ALL
+
+        SELECT
+          c.consultation_dispense_id AS id,
+          ir.student_id,
+          s.first_name,
+          s.last_name,
+          CONCAT(m.brand_name, ' (', m.generic_name, ')') AS medicine_name,
+          c.dosage_consumption_unit_value,
+          c.dosage_consumption_unit_of_measure,
+          c.dispensed_at,
+          'Consultation Dispensation' AS dispensation_type,
+          'Incident Report' AS complaint_name,
+          ir.incident_location AS specify_complaint_text
+        FROM consultation_dispensation c
+        JOIN incident_reports ir ON c.incident_id = ir.incident_id
+        JOIN students s ON ir.student_id = s.student_id
+        JOIN medicine_inventory_batches b ON c.batch_id = b.batch_id
+        JOIN medicines m ON b.medicine_id = m.medicine_id
       ) AS combined_history
       ${whereSql}
       ORDER BY dispensed_at DESC
@@ -3638,6 +3961,24 @@ app.post('/api/dispensation', async (req, res) => {
 
   if (!complaint_id) {
     return res.status(400).json({ error: 'Medical condition is required for dispensation.' });
+  }
+
+  let specifyText = null;
+  try {
+    await ensureDirectDispenseSpecifyColumn();
+    const [complaintRows] = await pool.query('SELECT complaint_name FROM chief_complaints WHERE complaint_id = ?', [complaint_id]);
+    if (complaintRows.length === 0) {
+      return res.status(400).json({ error: 'Unknown medical condition.' });
+    }
+    if (CONDITIONS_TO_SPECIFY.includes(String(complaintRows[0].complaint_name).trim().toLowerCase())) {
+      specifyText = String(req.body.specify_complaint_text || '').trim().slice(0, 255);
+      if (!specifyText) {
+        return res.status(400).json({ error: `Please specify the medical condition (${complaintRows[0].complaint_name}).` });
+      }
+    }
+  } catch (err) {
+    console.error('Dispensation condition check failed:', err.message);
+    return res.status(500).json({ error: 'Could not verify the medical condition.' });
   }
 
   if (isNaN(numericVal) || numericVal <= 0) {
@@ -3771,14 +4112,15 @@ app.post('/api/dispensation', async (req, res) => {
 
     await connection.execute(
       `INSERT INTO direct_dispensation 
-       (direct_dispense_id, student_id, nurse_id, batch_id, complaint_id, dosage_consumption_unit_value, dosage_consumption_unit_of_measure, dispensed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+       (direct_dispense_id, student_id, nurse_id, batch_id, complaint_id, specify_complaint_text, dosage_consumption_unit_value, dosage_consumption_unit_of_measure, dispensed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
       [
         direct_dispense_id,
         student_id,
         nurse_id,
         batch_id,
         complaint_id,
+        specifyText,
         numericVal,
         dosage_consumption_unit_of_measure
       ]
@@ -4262,16 +4604,74 @@ app.post('/api/clinic-visits', async (req, res) => {
 });
 
 
-// PATCH: Edit / Update Time Out field ONLY
+// What the medical condition of a direct dispensation is, for the conditions that need it (Injury, Others, ...)
+let directDispenseSpecifyReady = null;
+const ensureDirectDispenseSpecifyColumn = () => {
+    if (!directDispenseSpecifyReady) {
+        directDispenseSpecifyReady = (async () => {
+            const [have] = await pool.query(
+                `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'direct_dispensation' AND COLUMN_NAME = 'specify_complaint_text'`
+            );
+            if (have.length === 0) {
+                await pool.query('ALTER TABLE direct_dispensation ADD COLUMN specify_complaint_text varchar(255) NULL');
+            }
+        })().catch((err) => { directDispenseSpecifyReady = null; throw err; });
+    }
+    return directDispenseSpecifyReady;
+};
+const CONDITIONS_TO_SPECIFY = ['injury', 'others', 'gastrointestinal issues', 'body pain'];
+
+// Vital signs taken again at time out (the time-in set stays in temperature / respiratory_rate / pulse_rate / blood_pressure)
+let visitOutVitalsReady = null;
+const ensureVisitOutVitalsColumns = () => {
+    if (!visitOutVitalsReady) {
+        visitOutVitalsReady = (async () => {
+            const [have] = await pool.query(
+                `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'clinic_visits'`
+            );
+            for (const [column, def] of [
+                ['out_temperature', 'varchar(45) NULL'], ['out_respiratory_rate', 'varchar(45) NULL'],
+                ['out_pulse_rate', 'varchar(45) NULL'], ['out_blood_pressure', 'varchar(45) NULL'],
+                ['out_nurse_note', 'text NULL']
+            ]) {
+                if (!have.some((c) => c.COLUMN_NAME === column)) {
+                    await pool.query(`ALTER TABLE clinic_visits ADD COLUMN \`${column}\` ${def}`);
+                }
+            }
+        })().catch((err) => { visitOutVitalsReady = null; throw err; });
+    }
+    return visitOutVitalsReady;
+};
+
+// PATCH: Edit / Update Time Out field and the time-out vital signs
 app.patch('/api/clinic-visits/:id/timeout', async (req, res) => {
     const { id } = req.params;
     const { time_out } = req.body;
+    const outTemp = String(req.body.out_temperature ?? '').trim();
+    const outRr = String(req.body.out_respiratory_rate ?? '').trim();
+    const outPulse = String(req.body.out_pulse_rate ?? '').trim();
+    const outBp = String(req.body.out_blood_pressure ?? '').trim();
+    const outNote = String(req.body.out_nurse_note ?? '').trim();
 
     if (!time_out) {
         return res.status(400).json({ success: false, error: "Time Out is required" });
     }
+    if (!outTemp || !outRr || !outPulse || !outBp) {
+        return res.status(400).json({ success: false, error: "Record the time-out vital signs (BP, temperature, pulse, respiratory rate)." });
+    }
+    if (!outNote) {
+        return res.status(400).json({ success: false, error: "Add a nurse note on the student's health condition after time out." });
+    }
+    if (!/^\d{2,3}\/\d{2,3}$/.test(outBp)) {
+        return res.status(400).json({ success: false, error: "Blood pressure must look like 120/80." });
+    }
+    const inRange = (v, lo, hi) => Number.isFinite(Number(v)) && Number(v) >= lo && Number(v) <= hi;
+    if (!inRange(outTemp, 30, 45) || !inRange(outPulse, 30, 250) || !inRange(outRr, 8, 60)) {
+        return res.status(400).json({ success: false, error: "A time-out vital sign is out of range." });
+    }
 
     try {
+        await ensureVisitOutVitalsColumns();
         const [rows] = await pool.execute(
             'SELECT time_out, complaint_id, nursing_intervention, assessment FROM clinic_visits WHERE visit_id = ?',
             [id]
@@ -4288,7 +4688,12 @@ app.patch('/api/clinic-visits/:id/timeout', async (req, res) => {
             return res.status(400).json({ success: false, error: "Document the visit before timing the student out." });
         }
 
-        await pool.execute('UPDATE clinic_visits SET time_out = ? WHERE visit_id = ?', [time_out, id]);
+        await pool.execute(
+            `UPDATE clinic_visits
+             SET time_out = ?, out_temperature = ?, out_respiratory_rate = ?, out_pulse_rate = ?, out_blood_pressure = ?, out_nurse_note = ?
+             WHERE visit_id = ?`,
+            [time_out, outTemp, outRr, outPulse, outBp, outNote, id]
+        );
 
         // --- System, Push & PhilSMS Notification Logic (Time Out) ---
         let smsNotificationSent = false;
@@ -4818,10 +5223,11 @@ function buildTrendBuckets(granularity, year, month) {
   }
   const last = daysInMonth(year, month);
   if (granularity === 'daily') {
+    // Sundays are closed days: no bar, no data
     return Array.from({ length: last }, (_, i) => {
       const d = `${year}-${pad2(month)}-${pad2(i + 1)}`;
       return { name: String(i + 1), start: d, end: d };
-    });
+    }).filter((b) => dayOfWeekOf(b.start) !== 0);
   }
   // weekly: Monday to Sunday weeks, clipped to the month
   const buckets = [];
@@ -4851,11 +5257,12 @@ function buildRangeBuckets(fromStr, toStr) {
   const fmt = (ms) => new Date(ms).toISOString().slice(0, 10);
 
   if (dayCount <= 31) {
+    // Sundays are closed days: no bar, no data, and they do not count in the daily average
     return Array.from({ length: dayCount }, (_, i) => {
       const d = fmt(fromMs + i * 86400000);
       const [, m, day] = d.split('-').map(Number);
       return { name: `${TREND_MONTHS[m - 1]} ${day}`, start: d, end: d };
-    });
+    }).filter((b) => dayOfWeekOf(b.start) !== 0);
   }
 
   const buckets = [];
@@ -4880,7 +5287,7 @@ async function getDoctorDiagnosisCounts(startStr, endStr) {
   const [rows] = await pool.query(
     `SELECT TRIM(a.diagnosis) AS diagnosis, COUNT(DISTINCT a.student_id, DATE_FORMAT(a.assessment_date, '%Y-%m')) AS cnt, COUNT(DISTINCT a.student_id) AS students
      FROM doctor_assessments a
-     WHERE DATE(a.assessment_date) BETWEEN ? AND ? AND a.diagnosis IS NOT NULL AND TRIM(a.diagnosis) <> ''
+     WHERE DATE(a.assessment_date) BETWEEN ? AND ? AND DAYOFWEEK(a.assessment_date) <> 1 AND a.diagnosis IS NOT NULL AND TRIM(a.diagnosis) <> ''
      GROUP BY LOWER(TRIM(a.diagnosis)), TRIM(a.diagnosis)`,
     [startStr, endStr]
   );
@@ -4904,7 +5311,7 @@ async function getClinicConditionCounts(startStr, endStr) {
   const [rows] = await pool.query(
     `SELECT cc.complaint_name AS name, COUNT(DISTINCT cv.student_id, DATE_FORMAT(cv.visit_date, '%Y-%m')) AS cnt, COUNT(DISTINCT cv.student_id) AS students
      FROM clinic_visits cv JOIN chief_complaints cc ON cv.complaint_id = cc.complaint_id
-     WHERE cv.visit_date BETWEEN ? AND ?
+     WHERE cv.visit_date BETWEEN ? AND ? AND DAYOFWEEK(cv.visit_date) <> 1
      GROUP BY cc.complaint_id, cc.complaint_name`,
     [startStr, endStr]
   );
@@ -4958,8 +5365,9 @@ app.get('/api/health-trends', async (req, res) => {
     }
 
     const buckets = granularity === 'range' ? buildRangeBuckets(rangeFrom, rangeTo) : buildTrendBuckets(granularity, year, month);
-    const startStr = buckets[0].start;
-    const endStr = buckets[buckets.length - 1].end;
+    // a range of Sundays only has no bucket left, so the window comes from the range itself
+    const startStr = buckets.length ? buckets[0].start : rangeFrom;
+    const endStr = buckets.length ? buckets[buckets.length - 1].end : rangeTo;
 
     const [complaints] = await pool.query('SELECT complaint_name FROM chief_complaints ORDER BY complaint_name ASC');
     const complaintNames = complaints.map((c) => c.complaint_name);
@@ -4975,7 +5383,7 @@ app.get('/api/health-trends', async (req, res) => {
     const [visits] = await pool.query(
       `SELECT cc.complaint_name, DATE_FORMAT(MIN(cv.visit_date), '%Y-%m-%d') AS d
        FROM clinic_visits cv JOIN chief_complaints cc ON cv.complaint_id = cc.complaint_id
-       WHERE cv.visit_date BETWEEN ? AND ?
+       WHERE cv.visit_date BETWEEN ? AND ? AND DAYOFWEEK(cv.visit_date) <> 1
        GROUP BY cc.complaint_id, cc.complaint_name, cv.student_id, DATE_FORMAT(cv.visit_date, '%Y-%m')`,
       [startStr, endStr]
     );
@@ -5009,7 +5417,9 @@ app.get('/api/health-trends', async (req, res) => {
         : granularity === 'monthly'
         ? `Month-by-month breakdown of medical conditions for ${year}`
         : `${granularity === 'daily' ? 'Day-by-day' : 'Week-by-week (Monday to Sunday)'} breakdown of medical conditions for ${periodWord}`,
-      averagesLabel: `Average per ${unit} (${periodWord}, ${elapsed} ${unit}${elapsed === 1 ? '' : 's'} so far)`,
+      averagesLabel: unit === 'day'
+        ? `Average per day (${periodWord}, ${elapsed} operating day${elapsed === 1 ? '' : 's'}, Sundays excluded)`
+        : `Average per ${unit} (${periodWord}, ${elapsed} ${unit}${elapsed === 1 ? '' : 's'} so far)`,
       averageUnit: unit,
       complaintsList: complaintNames,
       data,
@@ -5090,8 +5500,15 @@ app.get('/api/medicine-dispensed-overview', async (req, res) => {
 
     const targetYear = targetDate.getFullYear();
 
+    // Sundays are closed days: always left out (bars, totals, averages), same as the Predictive Medicine Demand window.
+    const isSundayStamp = (value) => {
+      const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value || ''));
+      return !!m && new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).getUTCDay() === 0;
+    };
+    const skipSunday = (value) => isSundayStamp(formatDate(value));
+
     const [medicines] = await pool.query(`
-      SELECT 
+      SELECT
         CONCAT(generic_name, ' (', brand_name, ')') AS medicine_name,
         dosage_form,
         strength_unit_of_measure,
@@ -5155,6 +5572,7 @@ app.get('/api/medicine-dispensed-overview', async (req, res) => {
       `, [`${formatDate(startDate)} 00:00:00`, `${formatDate(endDate)} 23:59:59`]);
 
       dispensations.forEach(item => {
+        if (skipSunday(item.dispensed_at)) return;
         const day = new Date(item.dispensed_at).getDate();
         let weekIndex = Math.floor((day - 1) / 7);
         if (weekIndex >= numWeeks) weekIndex = numWeeks - 1;
@@ -5165,8 +5583,9 @@ app.get('/api/medicine-dispensed-overview', async (req, res) => {
           graphData[weekIndex][name] = parseFloat((graphData[weekIndex][name] + baseVal).toFixed(3));
         }
       });
-    } else if (filterType === 'range' || filterType === 'daily') {
+    } else if (filterType === 'range' || filterType === 'daily' || filterType === 'last30') {
       // Daily: every day of the chosen month. Range: custom From -> To window, one bar per day up to 31 days, otherwise one bar per month.
+      // last30: the 30 days ending on `date` (same window as the Predictive Medicine Demand "Forecast from" history).
       const parseRangeDate = (value) => {
         const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || '');
         if (!m) return null;
@@ -5178,6 +5597,10 @@ app.get('/api/medicine-dispensed-overview', async (req, res) => {
       if (filterType === 'daily') {
         startDate = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
         endDate = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0);
+      } else if (filterType === 'last30') {
+        endDate = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate());
+        if (endDate > today) endDate = today;
+        startDate = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate() - 29);
       } else {
         startDate = parseRangeDate(req.query.from) || new Date(today.getFullYear(), today.getMonth(), 1);
         endDate = parseRangeDate(req.query.to) || today;
@@ -5194,6 +5617,9 @@ app.get('/api/medicine-dispensed-overview', async (req, res) => {
         const monthFormatted = targetDate.toLocaleString('default', { month: 'long', year: 'numeric' });
         periodLabel = `Daily Overview: ${monthFormatted}`;
         timelineLabel = `Day-by-day breakdown of medicine dispensations for ${monthFormatted}`;
+      } else if (filterType === 'last30') {
+        periodLabel = `Past 30 Days Overview: ${rangeText} (Sundays excluded)`;
+        timelineLabel = 'Day-by-day breakdown of medicine dispensations for the past 30 days';
       } else {
         periodLabel = `Custom Range Overview: ${rangeText}`;
         timelineLabel = isDaily
@@ -5207,6 +5633,7 @@ app.get('/api/medicine-dispensed-overview', async (req, res) => {
         ? new Date(startDate)
         : new Date(startDate.getFullYear(), startDate.getMonth(), 1);
       while (cursor <= endDate) {
+        if (isDaily && cursor.getDay() === 0) { cursor.setDate(cursor.getDate() + 1); continue; } // no Sunday bar
         const key = isDaily ? formatDate(cursor) : formatDate(cursor).slice(0, 7);
         const label = isDaily
           ? (filterType === 'daily' ? String(cursor.getDate()) : `${monthNames[cursor.getMonth()]} ${cursor.getDate()}`)
@@ -5250,6 +5677,7 @@ app.get('/api/medicine-dispensed-overview', async (req, res) => {
       `, [`${formatDate(startDate)} 00:00:00`, `${formatDate(endDate)} 23:59:59`]);
 
       dispensations.forEach(item => {
+        if (skipSunday(item.dispensed_at)) return;
         const stamp = formatDate(item.dispensed_at);
         const idx = bucketIndex[isDaily ? stamp : stamp.slice(0, 7)];
         const name = item.medicine_name;
@@ -5293,6 +5721,7 @@ app.get('/api/medicine-dispensed-overview', async (req, res) => {
       `, [`${formatDate(startDate)} 00:00:00`, `${formatDate(endDate)} 23:59:59`]);
 
       dispensations.forEach(item => {
+        if (skipSunday(item.dispensed_at)) return;
         const m = new Date(item.dispensed_at).getMonth();
         const name = item.medicine_name;
         const baseVal = dispensedInDispenseUnit(item);
@@ -5309,7 +5738,8 @@ app.get('/api/medicine-dispensed-overview', async (req, res) => {
     const avgEndDateTime = `${avgEndDate} 23:59:59`;
 
     const [avgDispenseRows] = await pool.query(`
-      SELECT 
+      SELECT
+        d.dispensed_at,
         CONCAT(m.generic_name, ' (', m.brand_name, ')') AS medicine_name,
         d.dosage_consumption_unit_value,
         d.dosage_consumption_unit_of_measure,
@@ -5328,6 +5758,7 @@ app.get('/api/medicine-dispensed-overview', async (req, res) => {
 
     const totalBaseDispensedMap = {};
     avgDispenseRows.forEach(row => {
+      if (skipSunday(row.dispensed_at)) return;
       const baseVal = dispensedInDispenseUnit(row);
       const key = row.medicine_name.trim();
       totalBaseDispensedMap[key] = (totalBaseDispensedMap[key] || 0) + baseVal;
@@ -6008,7 +6439,9 @@ app.get('/api/reports-analytics', async (req, res) => {
   if (lengthDays > 400) return res.status(400).json({ error: 'The report period is too long (400 days at most).' });
 
   // the same-length period right before this one, for the comparison
-  const prevEnd = addDaysStr(startDate, -1);
+  // the clinic is closed on Sunday, so a single Monday is compared with the Saturday before it
+  const isMonday = new Date(`${startDate}T00:00:00Z`).getUTCDay() === 1;
+  const prevEnd = addDaysStr(startDate, lengthDays === 1 && isMonday ? -2 : -1);
   const prevStart = addDaysStr(prevEnd, -(lengthDays - 1));
 
   // TIMESTAMP columns need full bounds
@@ -8142,11 +8575,16 @@ const screeningResultSummary = (formKind, r, templateFields = null) => {
 // Participants still PENDING after the screening ended become ABSENT. Same rule as the page (end date + time),
 // run by a job instead of as a hidden write inside GET requests.
 const markExpiredScreeningsAbsent = async () => {
+  // a screening past its end time stays on going until the nurse confirms the end (or extends it), so only
+  // confirmed screenings and screenings of a past date turn their pending students absent
+  await ensureScreeningEndColumns();
   const [result] = await pool.query(`
     UPDATE screening_schedule_participants p
     JOIN screening_schedules s ON s.screening_schedule_id = p.screening_schedule_id
     SET p.attendance_status = 'ABSENT'
-    WHERE p.attendance_status = 'PENDING' AND s.status <> 'Cancelled' AND TIMESTAMP(s.scheduled_date, s.end_time) < NOW()
+    WHERE p.attendance_status = 'PENDING' AND s.status <> 'Cancelled'
+      AND (s.end_confirmed_at IS NOT NULL OR s.scheduled_date < CURDATE())
+      AND TIMESTAMP(s.scheduled_date, s.end_time) < NOW()
   `);
   return result.affectedRows;
 };
@@ -9488,6 +9926,8 @@ app.post('/api/screenings/:id/document', async (req, res) => {
         ON DUPLICATE KEY UPDATE template_id = VALUES(template_id), answers = VALUES(answers),
           is_abnormal = VALUES(is_abnormal), remarks = VALUES(remarks), recorded_at = NOW()
       `, [recordId, student_id, id, template.template_id, JSON.stringify(checked.answers), abnormal, textOrNull(formData.remarks)]);
+      // a BMI result moves the student's height and weight (only when it is the newest reading)
+      try { await syncBodyFromScreening(pool, student_id); } catch (e) { console.error('Body sync failed:', e.message); }
     }
 
     // Tell the student and parents when a result is abnormal (once, not on every re-save)
@@ -9523,6 +9963,7 @@ app.delete('/api/screenings/:id/students/:studentId/result', async (req, res) =>
 
     const [result] = await pool.query(`DELETE FROM ${resultTable.table} WHERE screening_schedule_id = ? AND student_id = ?`, [id, studentId]);
     if (result.affectedRows === 0) return res.status(404).json({ error: 'No result is recorded for this student.' });
+    try { await syncBodyFromScreening(pool, studentId); } catch (e) { console.error('Body sync failed:', e.message); }
     res.json({ message: 'Result deleted.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -15093,6 +15534,16 @@ app.post('/api/doctor-assessments', async (req, res) => {
         if (apptRows.length === 0) return fail(404, 'Appointment not found.');
         const visitType = apptRows[0].visit_type || 'General Check Up';
         const doctorId = apptRows[0].doctor_id;
+        // a doctor files only for their own appointment, and only for a student of it who has a time in
+        if (req.body.documented_by_doctor_id && req.body.documented_by_doctor_id !== doctorId) {
+            return fail(403, 'Doctors can only document their own check-ups.');
+        }
+        const [[member]] = await connection.query(
+            `SELECT attendance_status FROM doctor_appointment_students WHERE appointment_id = ? AND student_id = ?`,
+            [appointment_id, student_id]
+        );
+        if (!member) return fail(400, 'This student is not part of the appointment.');
+        if (member.attendance_status !== 'Present') return fail(400, 'Time in the student first, then document the check-up.');
         // what the student came for; the form may change it, otherwise it is the booking reason
         const defaultComplaint = textOrNull(apptRows[0].booking_reason) || textOrNull(apptRows[0].announcement);
 
@@ -15345,8 +15796,13 @@ app.post('/api/doctor-assessments', async (req, res) => {
         await connection.commit();
         release();
 
-        // Parents are told as well when the result is abnormal or needs a follow-up
-        let resultRecipients = student_user_id ? [student_user_id] : [];
+        // The student's user comes from the database, never from the client. Parents are told as well when the result is abnormal or needs a follow-up.
+        // The notice carries no diagnosis or treatment: the details stay in the record.
+        let resultRecipients = [];
+        try {
+            const [[stu]] = await pool.query('SELECT user_id FROM students WHERE student_id = ?', [student_id]);
+            if (stu && stu.user_id) resultRecipients.push(stu.user_id);
+        } catch (_) {}
         if (isAbnormal || followUp) {
             try { resultRecipients = [...new Set([...resultRecipients, ...await getConnectedParentUserIds([student_id])])]; } catch (_) {}
         }
@@ -15355,7 +15811,7 @@ app.post('/api/doctor-assessments', async (req, res) => {
                 sender_id: sender_id || null,
                 recipient_ids: resultRecipients,
                 title: `${visitType} Result Filed`,
-                message: `Diagnosis: ${diagnosis || 'N/A'}. Recommendations: ${recommendations || 'None'}.${isAbnormal ? ' Please follow up with the clinic.' : ''}`,
+                message: `Your ${visitType} check-up result was filed.${isAbnormal || followUp ? ' Please follow up with the clinic.' : ' See your clinic records for details.'}`,
                 type: 'ASSESSMENT_COMPLETED',
                 payloadData: { appointment_id }
             });
@@ -17628,13 +18084,36 @@ const generateId = (prefix) => `${prefix}-${Date.now()}-${Math.floor(Math.random
 // 1. INCIDENT REPORTS API
 // ----------------================================================--
 
+// Medicine given for an incident is recorded in consultation_dispensation (incident_id set, visit_id empty)
+let incidentDispenseReady = null;
+const ensureIncidentDispenseColumns = () => {
+    if (!incidentDispenseReady) {
+        incidentDispenseReady = (async () => {
+            const [have] = await pool.query(
+                `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'consultation_dispensation'`
+            );
+            if (!have.some((c) => c.COLUMN_NAME === 'incident_id')) {
+                await pool.query('ALTER TABLE consultation_dispensation ADD COLUMN incident_id varchar(45) NULL AFTER visit_id');
+                await pool.query('ALTER TABLE consultation_dispensation ADD KEY incident_id (incident_id)');
+                await pool.query(
+                    `ALTER TABLE consultation_dispensation
+                     ADD CONSTRAINT consultation_dispensation_incident_fk FOREIGN KEY (incident_id) REFERENCES incident_reports (incident_id) ON DELETE CASCADE`
+                );
+            }
+            await pool.query('ALTER TABLE consultation_dispensation MODIFY visit_id varchar(45) NULL');
+        })().catch((err) => { incidentDispenseReady = null; throw err; });
+    }
+    return incidentDispenseReady;
+};
+
 // GET: Fetch Incident Reports with student, program, and nurse details
 app.get('/api/incident-reports', async (req, res) => {
     try {
+        await ensureIncidentDispenseColumns();
         const { search, date } = req.query;
-        
+
         let query = `
-            SELECT 
+            SELECT
                 ir.*,
                 s.first_name AS student_first_name,
                 s.last_name AS student_last_name,
@@ -17642,11 +18121,18 @@ app.get('/api/incident-reports', async (req, res) => {
                 s.section,
                 ap.program_name,
                 n.first_name AS nurse_first_name,
-                n.last_name AS nurse_last_name
+                n.last_name AS nurse_last_name,
+                cd.batch_id AS dispensed_batch_id,
+                CONCAT(m.brand_name, ' (', m.generic_name, ')') AS medicine_name,
+                cd.dosage_consumption_unit_value,
+                cd.dosage_consumption_unit_of_measure
             FROM incident_reports ir
             LEFT JOIN students s ON ir.student_id = s.student_id
             LEFT JOIN academic_programs ap ON s.program_id = ap.program_id
             LEFT JOIN nurses n ON ir.nurse_id = n.nurse_id
+            LEFT JOIN consultation_dispensation cd ON cd.incident_id = ir.incident_id
+            LEFT JOIN medicine_inventory_batches b ON cd.batch_id = b.batch_id
+            LEFT JOIN medicines m ON b.medicine_id = m.medicine_id
             WHERE 1=1
         `;
         const params = [];
@@ -17690,31 +18176,128 @@ app.post('/api/incident-reports', async (req, res) => {
             incident_location,
             incident_description,
             first_aid_administered,
-            current_physical_situation
+            current_physical_situation,
+            batch_id,
+            dosage_consumption_unit_value
         } = req.body;
 
         if (!student_id || !nurse_id || !incident_datetime || !incident_location) {
             return res.status(400).json({ success: false, message: 'Missing required fields' });
         }
 
+        await ensureIncidentDispenseColumns();
+
+        let dispenseQty = null;
+        if (batch_id) {
+            dispenseQty = parseInt(dosage_consumption_unit_value, 10);
+            if (isNaN(dispenseQty) || dispenseQty <= 0) {
+                return res.status(400).json({ success: false, message: 'Dosage value must be a whole integer greater than zero.' });
+            }
+        }
+
         const incident_id = await generateDailyId('INC', 'incident_reports', 'incident_id');
 
         const insertQuery = `
-            INSERT INTO incident_reports 
+            INSERT INTO incident_reports
             (incident_id, student_id, nurse_id, incident_datetime, incident_location, incident_description, first_aid_administered, current_physical_situation, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
         `;
 
-        await pool.query(insertQuery, [
-            incident_id,
-            student_id,
-            nurse_id,
-            incident_datetime,
-            incident_location,
-            incident_description,
-            first_aid_administered,
-            current_physical_situation
-        ]);
+        const connection = await pool.getConnection();
+        try {
+            await connection.beginTransaction();
+
+            await connection.execute(insertQuery, [
+                incident_id,
+                student_id,
+                nurse_id,
+                incident_datetime,
+                incident_location,
+                incident_description,
+                first_aid_administered,
+                current_physical_situation
+            ]);
+
+            // Medicine given (optional): reduces batch stock and is logged in consultation_dispensation
+            if (batch_id) {
+                const [batchRows] = await connection.execute(
+                    `SELECT mib.current_stock, mib.remaining_volume, mib.expiration_date,
+                            m.strength_unit_value, m.strength_unit_of_measure, m.dispense_unit_of_measure
+                     FROM medicine_inventory_batches mib
+                     JOIN medicines m ON mib.medicine_id = m.medicine_id
+                     WHERE mib.batch_id = ? FOR UPDATE`,
+                    [batch_id]
+                );
+                if (batchRows.length === 0) throw Object.assign(new Error('Medicine batch not found.'), { userFacing: true });
+
+                const batch = batchRows[0];
+                const unit = batch.dispense_unit_of_measure || batch.strength_unit_of_measure || 'pcs.';
+                const currentStock = parseInt(batch.current_stock, 10);
+                const remainingVolume = parseFloat(batch.remaining_volume);
+                const strengthUnitVal = parseFloat(batch.strength_unit_value);
+
+                if (new Date(batch.expiration_date) < new Date()) {
+                    throw Object.assign(new Error('Cannot dispense medicine from an expired batch.'), { userFacing: true });
+                }
+
+                if (['mg', 'g', 'mcg', 'mL', 'L', 'pcs.'].includes(unit)) {
+                    const totalAvailable = currentStock > 0 ? remainingVolume + (currentStock - 1) * strengthUnitVal : 0;
+                    if (dispenseQty > totalAvailable) {
+                        throw Object.assign(new Error(`Insufficient quantity. Requested ${dispenseQty} ${unit}, but total available is ${totalAvailable} ${unit}.`), { userFacing: true });
+                    }
+
+                    let newRemaining = remainingVolume - dispenseQty;
+                    let newStock = currentStock;
+                    while (newRemaining <= 0 && newStock > 0) {
+                        newStock -= 1;
+                        if (newRemaining === 0) {
+                            if (newStock >= 1) newRemaining = strengthUnitVal;
+                            break;
+                        } else {
+                            if (newStock >= 1) newRemaining = strengthUnitVal + newRemaining;
+                            else { newRemaining = 0; break; }
+                        }
+                    }
+                    await connection.execute(
+                        'UPDATE medicine_inventory_batches SET current_stock = ?, remaining_volume = ? WHERE batch_id = ?',
+                        [newStock, newRemaining, batch_id]
+                    );
+                } else {
+                    if (dispenseQty > currentStock) {
+                        throw Object.assign(new Error(`Insufficient stock quantity. Requested ${dispenseQty}, but only ${currentStock} left.`), { userFacing: true });
+                    }
+                    await connection.execute(
+                        'UPDATE medicine_inventory_batches SET current_stock = current_stock - ? WHERE batch_id = ?',
+                        [dispenseQty, batch_id]
+                    );
+                }
+
+                // Same DISP-MMDDYYXXX numbering as the clinic visit dispensation
+                const now = new Date();
+                const dispPrefix = `${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}${String(now.getFullYear()).slice(-2)}`;
+                const [dispCountRows] = await connection.execute(
+                    `SELECT COUNT(*) AS totalToday FROM consultation_dispensation WHERE DATE(dispensed_at) = CURDATE() FOR UPDATE`
+                );
+                const dispensation_id = `DISP-${dispPrefix}${String(dispCountRows[0].totalToday + 1).padStart(3, '0')}`;
+
+                await connection.execute(
+                    `INSERT INTO consultation_dispensation
+                     (consultation_dispense_id, visit_id, incident_id, batch_id, dosage_consumption_unit_value, dosage_consumption_unit_of_measure, dispensed_at)
+                     VALUES (?, NULL, ?, ?, ?, ?, NOW())`,
+                    [dispensation_id, incident_id, batch_id, dispenseQty, unit]
+                );
+            }
+
+            await connection.commit();
+        } catch (txError) {
+            await connection.rollback();
+            if (txError.userFacing) {
+                return res.status(400).json({ success: false, message: txError.message });
+            }
+            throw txError;
+        } finally {
+            connection.release();
+        }
 
         // Query student details and nurse sender ID[cite: 4]
         const [studentData] = await pool.query(
@@ -18156,10 +18739,19 @@ app.get('/clinic-visits/clinicLogs&Records', async (req, res) => {
         s.first_name AS student_first_name,
         s.last_name AS student_last_name,
         n.first_name AS nurse_first_name,
-        n.last_name AS nurse_last_name
+        n.last_name AS nurse_last_name,
+        cc.complaint_name,
+        cd.batch_id,
+        cd.dosage_consumption_unit_value,
+        cd.dosage_consumption_unit_of_measure,
+        CONCAT(m.brand_name, ' (', m.generic_name, ')') AS medicine_name
       FROM clinic_visits cv
       LEFT JOIN students s ON cv.student_id = s.student_id
       LEFT JOIN nurses n ON cv.nurse_id = n.nurse_id
+      LEFT JOIN chief_complaints cc ON cv.complaint_id = cc.complaint_id
+      LEFT JOIN consultation_dispensation cd ON cv.visit_id = cd.visit_id
+      LEFT JOIN medicine_inventory_batches mib ON cd.batch_id = mib.batch_id
+      LEFT JOIN medicines m ON mib.medicine_id = m.medicine_id
       WHERE cv.student_id = ?
     `;
     const params = [studentId];
@@ -19207,7 +19799,53 @@ app.put('/api/students/:student_id/manageStudentAccounts', async (req, res) => {
   }
 });
 
-// ManageParentAccounts.jsx API  
+// Move the picked students up one year level. Strand stops at 2nd year, course at 4th year: students already in their last
+// year (and inactive accounts) are skipped and reported, never changed. POST (not PUT) so it cannot match '/:student_id/...'.
+app.post('/api/students/move-up/manageStudentAccounts', async (req, res) => {
+  const ids = Array.isArray(req.body.student_ids) ? [...new Set(req.body.student_ids.map(String))] : [];
+  if (!ids.length) return res.status(400).json({ error: 'Pick at least one student.' });
+  if (ids.length > 1000) return res.status(400).json({ error: 'Too many students at once (1000 max).' });
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [rows] = await connection.query(
+      `SELECT s.student_id, s.year_level, ap.type AS program_type, u.is_active
+       FROM students s
+       LEFT JOIN academic_programs ap ON ap.program_id = s.program_id
+       LEFT JOIN users u ON u.user_id = s.user_id
+       WHERE s.student_id IN (?) FOR UPDATE`,
+      [ids]
+    );
+    const moving = [];
+    const atFinal = [];
+    const inactive = [];
+    rows.forEach((r) => {
+      if (!Number(r.is_active)) inactive.push(r.student_id);
+      else if (isFinalYear(r.program_type, r.year_level)) atFinal.push(r.student_id);
+      else moving.push(r);
+    });
+    for (const r of moving) {
+      await connection.query('UPDATE students SET year_level = ? WHERE student_id = ?', [Number(r.year_level) + 1, r.student_id]);
+    }
+    await connection.commit();
+    res.json({
+      message: `${moving.length} student(s) moved up.`,
+      moved: moving.length,
+      skipped_final_year: atFinal.length,
+      skipped_inactive: inactive.length,
+      not_found: ids.length - rows.length
+    });
+  } catch (err) {
+    await connection.rollback();
+    console.error(err);
+    res.status(500).json({ error: err.message || 'Failed to move students up' });
+  } finally {
+    connection.release();
+  }
+});
+
+// ManageParentAccounts.jsx API
 app.get('/manageParentAccount', async (req, res) => {
   const search = req.query.search || '';
   try {
@@ -22301,6 +22939,8 @@ app.delete('/api/announcements/:id', async (req, res) => {
 // the listing columns must exist before the first request list is read
 ensureScheduleListingColumns().catch((err) => console.error('Could not prepare the schedule listing columns:', err.message));
 ensureAdvanceListing().catch((err) => console.error('Could not prepare the advance listing:', err.message));
+ensureVisitOutVitalsColumns().catch((err) => console.error('Could not prepare the visit time-out vital columns:', err.message));
+ensureDirectDispenseSpecifyColumn().catch((err) => console.error('Could not prepare the direct dispensation condition column:', err.message));
 ensureSessionEndTable().catch((err) => console.error('Could not prepare the session end table:', err.message));
 ensureScreeningEndColumns().catch((err) => console.error('Could not prepare the screening end columns:', err.message));
 ensureSchoolYears().catch((err) => console.error('Could not prepare the school years:', err.message));

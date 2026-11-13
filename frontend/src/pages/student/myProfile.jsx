@@ -2,15 +2,21 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatDate } from '../../utils/datetime';
-import HealthProofList from '../../components/common/HealthProofList';
-import '../../styles/student/MyProfile.css'; 
+import { AlertTriangle, CheckCircle, Clock, ExternalLink, FileText, Hourglass, Inbox, Lock, MessageSquare, Pencil, Send, Trash2, Upload, X, XCircle } from 'lucide-react';
+import { CONDITION_LABELS } from '../../components/common/HealthProofList';
+import ProofPreview from '../../components/common/ProofPreview';
+import HealthInfoView from '../../components/common/HealthInfoView';
+import { useAlert } from '../../context/AlertContext';
+import '../../styles/student/MyProfile.css';
 
 export default function MyProfile() {
     const navigate = useNavigate();
+    const { showAlert, showConfirm } = useAlert();
     const [activeTab, setActiveTab] = useState('personal');
+    const [editingHealth, setEditingHealth] = useState(false);
+    const [healthBackup, setHealthBackup] = useState(null);
     const [loading, setLoading] = useState(true);
     const [errorMsg, setErrorMsg] = useState('');
-    const [successMsg, setSuccessMsg] = useState('');
 
     const [studentHeader, setStudentHeader] = useState(null);
     const [studentId, setStudentId] = useState(null);
@@ -18,10 +24,18 @@ export default function MyProfile() {
     const [personalInfo, setPersonalInfo] = useState({});
     const [healthInfo, setHealthInfo] = useState({});
     const [healthProofs, setHealthProofs] = useState({});
+    // New proof files picked while editing the health history, keyed by the condition's has_* flag
+    const [proofFiles, setProofFiles] = useState({});
+    // bumped on Remove so the native file input is remounted and forgets its file
+    const [proofInputKeys, setProofInputKeys] = useState({});
+    const [showReview, setShowReview] = useState(false);
+    const [saving, setSaving] = useState(false);
 
     const [requirementsList, setRequirementsList] = useState([]);
     const [reqLoading, setReqLoading] = useState(false);
     const [uploadFiles, setUploadFiles] = useState({});
+    const [reqFilter, setReqFilter] = useState('all');
+    const [dragOver, setDragOver] = useState(null);
 
     useEffect(() => {
         const loadData = async () => {
@@ -116,17 +130,18 @@ export default function MyProfile() {
         setUploadFiles(prev => ({ ...prev, [reqName]: file }));
     };
 
-    const handleUploadSubmit = async (e, reqName, isPastDeadline) => {
-        e.preventDefault();
+    const handleUploadSubmit = async (reqName, isPastDeadline, hasCurrentFile) => {
         const targetFile = uploadFiles[reqName];
 
         if (!targetFile) {
-            setErrorMsg("Please select a local file to upload.");
+            showAlert('Choose a file first.', 'warning');
             return;
         }
 
-        setErrorMsg('');
-        setSuccessMsg('');
+        if (hasCurrentFile) {
+            const ok = await showConfirm('The current file is replaced.', { confirmLabel: 'Replace', title: 'Replace file?' });
+            if (!ok) return;
+        }
 
         try {
             const formData = new FormData();
@@ -140,63 +155,159 @@ export default function MyProfile() {
             const data = await response.json();
 
             if (data.success) {
-                setSuccessMsg(`Document for "${reqName}" uploaded successfully.`);
+                showAlert(`${reqName} submitted.`, 'success');
                 setUploadFiles(prev => ({ ...prev, [reqName]: null }));
-                e.target.reset();
-                fetchStudentRequirements(studentId); 
-                setTimeout(() => setSuccessMsg(''), 4000);
+                fetchStudentRequirements(studentId);
             } else {
-                setErrorMsg(data.error || "Failed to process target structural upload requirement request.");
-                window.scrollTo({ top: 0, behavior: 'smooth' });
+                showAlert(data.error || 'Cannot submit the file.', 'error');
             }
         } catch (err) {
-            setErrorMsg("Network execution layout exception error connecting to service.");
+            showAlert('Cannot reach the server.', 'error');
         }
     };
 
+    const REQ_GROUPS = {
+        todo: { label: 'To do', tone: 'req-tone-todo', Icon: Clock },
+        waiting: { label: 'Waiting for approval', tone: 'req-tone-waiting', Icon: Hourglass },
+        rejected: { label: 'Rejected', tone: 'req-tone-rejected', Icon: XCircle },
+        done: { label: 'Completed', tone: 'req-tone-done', Icon: CheckCircle },
+        closed: { label: 'Closed', tone: 'req-tone-closed', Icon: Lock }
+    };
+    const REQ_ORDER = { todo: 0, waiting: 1, closed: 2, done: 3 };
+    const DAY_MS = 86400000;
+    const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    const relativeDays = (n) => {
+        if (n === 0) return 'Today';
+        if (n === 1) return 'Tomorrow';
+        if (n > 1) return `In ${n} days`;
+        if (n === -1) return 'Yesterday';
+        return `${Math.abs(n)} days ago`;
+    };
+    const fileSizeText = (bytes) => (bytes < 1048576 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1048576).toFixed(1)} MB`);
+
+    // One row of the checklist -> status, lock and filter group
+    const describeRequirement = (req) => {
+        const status = req.status?.toLowerCase();
+        const deadlineDate = req.submission_deadline ? new Date(req.submission_deadline) : null;
+        const days = deadlineDate ? Math.round((startOfDay(deadlineDate) - startOfDay(new Date())) / DAY_MS) : null;
+        const isPast = days !== null && days < 0;
+        const allowsLate = req.allow_late_submission === 1 || req.allow_late_submission === true || req.allow_late_submission === '1';
+        const isCompleted = status === 'completed';
+        const isWaiting = status === 'submitted' || status === 'waiting for approval';
+        const locked = isCompleted || (isPast && !allowsLate && !isWaiting);
+        let group = 'todo';
+        if (isCompleted) group = 'done';
+        else if (locked) group = 'closed';
+        else if (isWaiting) group = 'waiting';
+        const view = group === 'todo' && status === 'rejected' ? 'rejected' : group;
+        return { deadlineDate, days, isPast, allowsLate, locked, group, view };
+    };
+
+    const requirementRows = requirementsList
+        .map((req) => ({ req, info: describeRequirement(req) }))
+        .sort((a, b) => {
+            const g = REQ_ORDER[a.info.group] - REQ_ORDER[b.info.group];
+            if (g) return g;
+            if (a.info.group === 'todo') {
+                const ar = a.info.view === 'rejected' ? 0 : 1;
+                const br = b.info.view === 'rejected' ? 0 : 1;
+                if (ar !== br) return ar - br;
+            }
+            return (a.info.deadlineDate?.getTime() ?? Infinity) - (b.info.deadlineDate?.getTime() ?? Infinity);
+        });
+    const reqCounts = { all: requirementRows.length, todo: 0, waiting: 0, done: 0, closed: 0 };
+    requirementRows.forEach((row) => { reqCounts[row.info.group] += 1; });
+    const reqPercent = reqCounts.all ? Math.round((reqCounts.done / reqCounts.all) * 100) : 0;
+    const visibleRequirements = requirementRows.filter((row) => reqFilter === 'all' || row.info.group === reqFilter);
+
+    // Ticked conditions: each one needs a proof (a file picked now, or one already saved)
+    const tickedConditions = Object.keys(CONDITION_LABELS).filter((key) => healthInfo[key]);
+    const missingProofs = () => tickedConditions.filter((key) => !proofFiles[key] && !healthProofs[key]);
+
+    const handleProofChange = (key, file) => setProofFiles((prev) => ({ ...prev, [key]: file || null }));
+    const removeProof = (key) => {
+        handleProofChange(key, null);
+        setProofInputKeys((prev) => ({ ...prev, [key]: (prev[key] || 0) + 1 }));
+    };
+
+    const leaveHealthEdit = () => {
+        setEditingHealth(false);
+        setProofFiles({});
+        setShowReview(false);
+    };
+
+    // Esc closes the review window
+    useEffect(() => {
+        if (!showReview) return undefined;
+        const onKey = (e) => { if (e.key === 'Escape' && !saving) setShowReview(false); };
+        document.addEventListener('keydown', onKey);
+        return () => document.removeEventListener('keydown', onKey);
+    }, [showReview, saving]);
+
+    // Personal tab: JSON with the personal info only, so a student with an old health history is never blocked here
     const handleSaveChanges = async (e) => {
         e.preventDefault();
         setErrorMsg('');
-        setSuccessMsg('');
 
         try {
             const response = await fetch('http://localhost:3001/api/update-profile', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    student_id: studentId,
-                    personalInfo,
-                    healthInfo
-                })
+                body: JSON.stringify({ student_id: studentId, personalInfo })
             });
             const data = await response.json();
             if (data.success) {
-                setSuccessMsg("Changes saved successfully!");
-                setTimeout(() => setSuccessMsg(''), 3000);
+                showAlert('Changes saved.', 'success');
             } else {
-                setErrorMsg(data.message);
+                showAlert(data.message || 'Cannot save the changes.', 'error');
             }
         } catch (error) {
-            setErrorMsg("Network error saving changes.");
+            showAlert('Cannot reach the server.', 'error');
         }
     };
 
-    const getStatusColor = (statusStr) => {
-        const status = statusStr?.toLowerCase();
-        switch (status) {
-            case 'completed':
-                return '#16a34a';
-            case 'submitted':
-            case 'waiting for approval':
-                return '#2563eb';
-            case 'rejected':
-                return '#dc2626';
-            case 'late':
-            case 'submitted late':
-                return '#ea580c';
-            case 'pending':
-            default:
-                return '#ca8a04';
+    // Health tab, step 1: every ticked condition needs a proof, then the student reviews the files before sending
+    const handleReviewHealth = (e) => {
+        e.preventDefault();
+        const missing = missingProofs();
+        if (missing.length > 0) {
+            showAlert(`Upload a proof file for: ${missing.map((k) => CONDITION_LABELS[k]).join(', ')}.`, 'warning');
+            return;
+        }
+        setShowReview(true);
+    };
+
+    // Health tab, step 2: multipart. student_id goes first because the upload file name is built from it.
+    const handleSubmitHealth = async () => {
+        setSaving(true);
+        try {
+            const formData = new FormData();
+            formData.append('student_id', studentId);
+            formData.append('healthInfo', JSON.stringify(healthInfo));
+            tickedConditions.forEach((key) => {
+                if (proofFiles[key]) formData.append(`proof_${key}`, proofFiles[key]);
+            });
+
+            const response = await fetch('http://localhost:3001/api/update-profile', { method: 'PUT', body: formData });
+            const data = await response.json();
+            if (data.success) {
+                const profileRes = await fetch(`http://localhost:3001/api/profile/${studentId}`);
+                const profileData = await profileRes.json();
+                if (profileData.success) setHealthProofs(profileData.healthProofs || {});
+                leaveHealthEdit();
+                showAlert('Health history saved.', 'success');
+            } else if (Array.isArray(data.missing) && data.missing.length > 0) {
+                setShowReview(false);
+                showAlert(`Upload a proof file for: ${data.missing.map((k) => CONDITION_LABELS[k] || k).join(', ')}.`, 'warning');
+            } else {
+                setShowReview(false);
+                showAlert(data.message || 'Cannot save the health history.', 'error');
+            }
+        } catch (error) {
+            setShowReview(false);
+            showAlert('Cannot reach the server.', 'error');
+        } finally {
+            setSaving(false);
         }
     };
 
@@ -219,8 +330,7 @@ export default function MyProfile() {
                 <button className={activeTab === 'requirements' ? 'active' : ''} onClick={() => setActiveTab('requirements')}>Requirements</button>
             </div>
 
-            {errorMsg && <div className="error-message">{errorMsg}</div>}
-            {successMsg && <div className="success-message">{successMsg}</div>}
+            {errorMsg && <div className="error-message" role="alert">{errorMsg}</div>}
 
             <div className="profile-content-area">
                 {activeTab === 'personal' && (
@@ -263,11 +373,39 @@ export default function MyProfile() {
                     </form>
                 )}
 
-                {activeTab === 'health' && (
-                    <form onSubmit={handleSaveChanges} className="profile-form health-form-scroll">
-                        <h3>Health Information<span className='instruction'> (leave unchecked if none)</span></h3>
-                        <HealthProofList proofs={healthProofs} />
-                        
+                {activeTab === 'health' && !editingHealth && (
+                    <div className="profile-form health-form-scroll">
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
+                            <h3 style={{ margin: 0 }}>Health Information</h3>
+                            <button
+                                type="button"
+                                className="btn-primary-save"
+                                aria-label="Edit health history"
+                                title="Edit health history"
+                                onClick={() => { setHealthBackup(healthInfo); setProofFiles({}); setEditingHealth(true); }}
+                                style={{ minWidth: '2.75rem', minHeight: '2.75rem', width: 'auto', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', margin: 0 }}
+                            >
+                                <Pencil size={18} aria-hidden="true" />
+                            </button>
+                        </div>
+                        <HealthInfoView studentId={studentId} healthInfo={healthInfo} healthProofs={healthProofs} personalInfo={personalInfo} />
+                    </div>
+                )}
+
+                {activeTab === 'health' && editingHealth && (
+                    <form onSubmit={handleReviewHealth} className="profile-form health-form-scroll">
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
+                            <h3 style={{ margin: 0 }}>Health Information<span className='instruction'> (leave unchecked if none)</span></h3>
+                            <button
+                                type="button"
+                                aria-label="Cancel editing"
+                                title="Cancel editing"
+                                onClick={() => { if (healthBackup) setHealthInfo(healthBackup); leaveHealthEdit(); }}
+                                style={{ minWidth: '2.75rem', minHeight: '2.75rem', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: '0.0625rem solid var(--card-border)', borderRadius: '0.5rem', color: 'var(--text-primary)', cursor: 'pointer' }}
+                            >
+                                <X size={18} aria-hidden="true" />
+                            </button>
+                        </div>
                         <div className="health-block">
                             <label className="main-checkbox"><input type="checkbox" name="has_allergies" checked={healthInfo.has_allergies || false} onChange={handleHealthChange} /> History of Allergies</label>
                             {healthInfo.has_allergies && (
@@ -447,159 +585,234 @@ export default function MyProfile() {
                             )}
                         </div>
 
+                        {tickedConditions.length > 0 && (
+                            <div className="proof-section">
+                                <h4>Proof files</h4>
+                                {tickedConditions.map((key) => {
+                                    const saved = healthProofs[key];
+                                    const picked = proofFiles[key];
+                                    const needsFile = !saved && !picked;
+                                    return (
+                                        <div key={key} className="proof-row">
+                                            <label htmlFor={`proof-${key}`}>{CONDITION_LABELS[key]}</label>
+                                            {needsFile ? (
+                                                <span className="proof-chip proof-chip-bad"><AlertTriangle size={14} aria-hidden="true" /> Required</span>
+                                            ) : (
+                                                <span className="proof-chip proof-chip-ok"><CheckCircle size={14} aria-hidden="true" /> Attached</span>
+                                            )}
+                                            <div className="proof-controls">
+                                                <input
+                                                    key={proofInputKeys[key] || 0}
+                                                    id={`proof-${key}`}
+                                                    type="file"
+                                                    accept="image/*,application/pdf"
+                                                    onChange={(e) => handleProofChange(key, e.target.files[0])}
+                                                />
+                                                {picked && (
+                                                    <button
+                                                        type="button"
+                                                        className="proof-remove"
+                                                        onClick={() => removeProof(key)}
+                                                        aria-label={`Remove new file for ${CONDITION_LABELS[key]}`}
+                                                        title="Remove new file"
+                                                    >
+                                                        <Trash2 size={18} aria-hidden="true" />
+                                                    </button>
+                                                )}
+                                            </div>
+                                            <ProofPreview file={picked} saved={picked ? null : saved} />
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+
                         <button type="submit" className="btn-primary-save">Save Health Changes</button>
                     </form>
                 )}
 
                 {activeTab === 'requirements' && (
                     <div className="profile-form requirements-tab-section">
-                        <div className="requirements-header-block" style={{ marginBottom: '20px' }}>
-                            <h3>Medical Requirements Checklist</h3>
-                            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                                Upload structural files from your local folder. Rows with passed deadlines and disabled late configurations will be blocked securely.
-                            </p>
+                        <div className="req-summary">
+                            <div className="req-summary-top">
+                                <h3 id="req-heading">Requirements</h3>
+                                <p className="req-count"><strong>{reqCounts.done}</strong> of {reqCounts.all} complete</p>
+                            </div>
+                            <div
+                                className="req-bar"
+                                role="progressbar"
+                                aria-labelledby="req-heading"
+                                aria-valuemin={0}
+                                aria-valuemax={100}
+                                aria-valuenow={reqPercent}
+                            >
+                                <span style={{ width: `${reqPercent}%` }} />
+                            </div>
+                            <div className="req-filters" role="group" aria-label="Filter requirements">
+                                {[['all', 'All'], ['todo', 'To do'], ['waiting', 'Waiting'], ['done', 'Done'], ['closed', 'Closed']].map(([key, label]) => (
+                                    <button
+                                        key={key}
+                                        type="button"
+                                        className="req-filter"
+                                        aria-pressed={reqFilter === key}
+                                        onClick={() => setReqFilter(key)}
+                                    >
+                                        {label}<span className="req-filter-n">{reqCounts[key]}</span>
+                                    </button>
+                                ))}
+                            </div>
                         </div>
 
                         {reqLoading ? (
-                            <div className="loading-placeholder" style={{ padding: '20px', textAlign: 'center' }}>
-                                Loading requirements checklist...
-                            </div>
-                        ) : requirementsList.length === 0 ? (
-                            <div className="empty-state" style={{ textAlign: 'center', padding: '30px 10px' }}>
-                                <p>No requirements assigned to your academic profile at this time.</p>
+                            <div className="loading-placeholder req-empty" role="status">Loading...</div>
+                        ) : visibleRequirements.length === 0 ? (
+                            <div className="empty-state req-empty">
+                                <Inbox size={28} aria-hidden="true" />
+                                <p>Nothing here.</p>
                             </div>
                         ) : (
-                            <div className="table-responsive-wrapper" style={{ overflowX: 'auto' }}>
-                                <table className="profile-data-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                                    <thead>
-                                        <tr style={{ borderBottom: '2px solid var(--card-border)', backgroundColor: 'var(--bg-subtle)' }}>
-                                            <th style={{ padding: '12px' }}>Requirement Name</th>
-                                            <th style={{ padding: '12px' }}>Classification</th>
-                                            <th style={{ padding: '12px' }}>Submission Deadline</th>
-                                            <th style={{ padding: '12px' }}>Status</th>
-                                            <th style={{ padding: '12px' }}>Nurse Remarks</th>
-                                            <th style={{ padding: '12px' }}>Local Folder Upload Action</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {requirementsList.map((req) => {
-                                            const isCompleted = req.status?.toLowerCase() === 'completed';
-                                            const deadlineDate = req.submission_deadline ? new Date(req.submission_deadline) : null;
-                                            const isPastDeadline = deadlineDate && new Date() > deadlineDate;
-                                            const allowsLate = req.allow_late_submission === 1 || req.allow_late_submission === true || req.allow_late_submission === '1';
-                                            
-                                            const submissionIsLocked = isCompleted || (isPastDeadline && !allowsLate);
-                                            const fileIsPresent = !!req.file_url;
+                            <ul className="req-list">
+                                {visibleRequirements.map(({ req, info }) => {
+                                    const group = REQ_GROUPS[info.view];
+                                    const StatusIcon = group.Icon;
+                                    const picked = uploadFiles[req.requirement_name];
+                                    const fileIsPresent = !!req.file_url;
+                                    const dueClass = info.isPast ? 'late' : (info.days !== null && info.days <= 3 && info.group === 'todo' ? 'warn' : '');
+                                    const submitLabel = info.isPast ? 'Submit late' : (fileIsPresent ? 'Re-upload' : 'Submit');
+                                    const inputId = `req-file-${req.requirement_name.replace(/\W+/g, '-')}`;
+                                    return (
+                                        <li key={req.requirement_name} className="req-card">
+                                            <div className="req-head">
+                                                <span className={`req-icon ${group.tone}`}><StatusIcon size={22} aria-hidden="true" /></span>
+                                                <div className="req-title">
+                                                    <h4>{req.requirement_name}</h4>
+                                                    <div className="req-meta">
+                                                        <span className={`req-chip ${group.tone}`}><StatusIcon size={14} aria-hidden="true" />{group.label}</span>
+                                                        <span className="req-tag">{req.type || 'Program'}</span>
+                                                        {info.isPast && info.allowsLate && !info.locked && (
+                                                            <span className="req-chip req-tone-todo"><AlertTriangle size={14} aria-hidden="true" />Late allowed</span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                <div className="req-due">
+                                                    <span className="req-due-label">Deadline</span>
+                                                    <span className="req-due-date">{info.deadlineDate ? formatDate(info.deadlineDate) : 'No deadline'}</span>
+                                                    {info.days !== null && (
+                                                        <span className={`req-due-rel ${dueClass}`}>
+                                                            {dueClass && (info.isPast ? <AlertTriangle size={14} aria-hidden="true" /> : <Clock size={14} aria-hidden="true" />)}
+                                                            {relativeDays(info.days)}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
 
-                                            const displayStatus = req.status?.toLowerCase() === 'submitted' 
-                                                ? 'Waiting for approval' 
-                                                : (req.status || 'Pending');
+                                            {req.nurse_remarks && (
+                                                <div className="req-remarks" role="note">
+                                                    <MessageSquare size={18} aria-hidden="true" />
+                                                    <div><b>Nurse remarks</b>{req.nurse_remarks}</div>
+                                                </div>
+                                            )}
 
-                                            return (
-                                                <tr key={req.requirement_name} style={{ borderBottom: '1px solid var(--card-border)', backgroundColor: submissionIsLocked ? '#fafafa' : 'transparent' }}>
-                                                    <td style={{ padding: '12px', fontWeight: '500' }}>
-                                                        <div style={{ color: submissionIsLocked ? 'var(--text-secondary)' : 'var(--text-primary)' }}>{req.requirement_name}</div>
-                                                        {fileIsPresent && (
-                                                            <div style={{ marginTop: '5px' }}>
-                                                                <a 
-                                                                    href={req.file_url} 
-                                                                    target="_blank" 
-                                                                    rel="noopener noreferrer" 
-                                                                    style={{ fontSize: '0.875rem', color: 'var(--text-brand)', textDecoration: 'underline' }}
+                                            {fileIsPresent && (
+                                                <div className="req-current">
+                                                    <FileText size={18} aria-hidden="true" />
+                                                    <a href={req.file_url} target="_blank" rel="noopener noreferrer">
+                                                        Current file<ExternalLink size={14} aria-hidden="true" />
+                                                    </a>
+                                                </div>
+                                            )}
+
+                                            {info.group === 'done' && (
+                                                <div className="req-locked req-locked-done"><CheckCircle size={18} aria-hidden="true" />Upload closed</div>
+                                            )}
+                                            {info.group === 'closed' && (
+                                                <div className="req-locked req-locked-closed"><Lock size={18} aria-hidden="true" />Deadline passed</div>
+                                            )}
+                                            {!info.locked && (
+                                                <div className="req-upload">
+                                                    {picked ? (
+                                                        <>
+                                                            <div className="req-picked">
+                                                                <FileText size={18} aria-hidden="true" />
+                                                                <span className="req-picked-name">{picked.name}</span>
+                                                                <span className="req-picked-size">{fileSizeText(picked.size)}</span>
+                                                                <button
+                                                                    type="button"
+                                                                    className="req-btn-icon"
+                                                                    aria-label={`Remove ${picked.name}`}
+                                                                    title="Remove file"
+                                                                    onClick={() => handleFileChange(req.requirement_name, null)}
                                                                 >
-                                                                    View Current Submission
-                                                                </a>
+                                                                    <Trash2 size={18} aria-hidden="true" />
+                                                                </button>
                                                             </div>
-                                                        )}
-                                                    </td>
-                                                    <td style={{ padding: '12px' }}>
-                                                        <span style={{
-                                                            fontSize: '0.875rem',
-                                                            padding: '3px 8px',
-                                                            borderRadius: '4px',
-                                                            backgroundColor: req.type === 'Special' ? '#fff2e6' : '#e6f7ff',
-                                                            color: req.type === 'Special' ? '#d46b08' : '#0050b3'
-                                                        }}>
-                                                            {req.type || 'Program'}
-                                                        </span>
-                                                    </td>
-                                                    <td style={{ padding: '12px', color: isPastDeadline ? 'var(--status-critical-text)' : 'var(--text-primary)' }}>
-                                                        {deadlineDate 
-                                                            ? formatDate(deadlineDate) 
-                                                            : 'No Specified Deadline'}
-                                                    </td>
-                                                    <td style={{ padding: '12px' }}>
-                                                        <span style={{
-                                                            fontWeight: 'bold',
-                                                            fontSize: '0.875rem',
-                                                            color: getStatusColor(req.status)
-                                                        }}>
-                                                            {displayStatus}
-                                                        </span>
-                                                    </td>
-                                                    <td style={{ padding: '12px', fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
-                                                        {req.nurse_remarks || <span style={{ color: '#ccc' }}>—</span>}
-                                                    </td>
-                                                    <td style={{ padding: '12px' }}>
-                                                        {submissionIsLocked ? (
-                                                            <span style={{ 
-                                                                color: isCompleted ? 'var(--status-adequate-text)' : 'var(--status-critical-text)', 
-                                                                fontSize: '0.875rem', 
-                                                                fontWeight: '600' 
-                                                            }}>
-                                                                {isCompleted ? '✓ Completed (Upload Closed)' : '🔒 Closed (Deadline Passed)'}
-                                                            </span>
-                                                        ) : (
-                                                            <form 
-                                                                onSubmit={(e) => handleUploadSubmit(e, req.requirement_name, isPastDeadline)} 
-                                                                style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}
+                                                            <button
+                                                                type="button"
+                                                                className={`req-btn-icon ${info.isPast ? 'req-btn-late' : 'req-btn-primary'}`}
+                                                                aria-label={submitLabel}
+                                                                title={submitLabel}
+                                                                onClick={() => handleUploadSubmit(req.requirement_name, info.isPast, fileIsPresent)}
                                                             >
-                                                                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                                                                    <input 
-                                                                        type="file" 
-                                                                        onChange={(e) => handleFileChange(req.requirement_name, e.target.files[0])}
-                                                                        required
-                                                                        style={{
-                                                                            fontSize: '0.875rem',
-                                                                            border: '1px solid var(--card-border)',
-                                                                            borderRadius: '4px',
-                                                                            padding: '4px',
-                                                                            background: 'var(--bg-card)'
-                                                                        }}
-                                                                    />
-                                                                    <button 
-                                                                        type="submit" 
-                                                                        style={{
-                                                                            padding: '6px 12px',
-                                                                            fontSize: '0.875rem',
-                                                                            backgroundColor: isPastDeadline ? '#e6a23c' : '#1890ff',
-                                                                            color: '#fff',
-                                                                            border: 'none',
-                                                                            borderRadius: '4px',
-                                                                            cursor: 'pointer'
-                                                                        }}
-                                                                    >
-                                                                        {fileIsPresent ? 'Re-upload' : (isPastDeadline ? 'Submit Late' : 'Submit')}
-                                                                    </button>
-                                                                </div>
-                                                                {isPastDeadline && allowsLate && (
-                                                                    <span style={{ color: 'var(--status-low-text)', fontSize: '0.875rem', fontWeight: '500' }}>
-                                                                        Allow late Submission.
-                                                                    </span>
-                                                                )}
-                                                            </form>
-                                                        )}
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
+                                                                <Send size={20} aria-hidden="true" />
+                                                            </button>
+                                                        </>
+                                                    ) : (
+                                                        <label
+                                                            htmlFor={inputId}
+                                                            className={`req-drop${dragOver === req.requirement_name ? ' is-over' : ''}`}
+                                                            onDragOver={(e) => { e.preventDefault(); setDragOver(req.requirement_name); }}
+                                                            onDragLeave={() => setDragOver(null)}
+                                                            onDrop={(e) => {
+                                                                e.preventDefault();
+                                                                setDragOver(null);
+                                                                if (e.dataTransfer.files[0]) handleFileChange(req.requirement_name, e.dataTransfer.files[0]);
+                                                            }}
+                                                        >
+                                                            <Upload size={20} aria-hidden="true" />
+                                                            <span>{fileIsPresent ? 'Replace file' : 'Drop file or browse'}</span>
+                                                            <input
+                                                                id={inputId}
+                                                                type="file"
+                                                                onChange={(e) => handleFileChange(req.requirement_name, e.target.files[0] || null)}
+                                                            />
+                                                        </label>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </li>
+                                    );
+                                })}
+                            </ul>
                         )}
                     </div>
                 )}
             </div>
+
+            {/* Review the proof files, then Submit or go Back and change them */}
+            {showReview && (
+                <div className="proof-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget && !saving) setShowReview(false); }}>
+                    <div className="proof-modal" role="dialog" aria-modal="true" aria-labelledby="proof-review-title">
+                        <div className="proof-modal-head">
+                            <h3 id="proof-review-title">Review proof files</h3>
+                            <button type="button" className="proof-remove" onClick={() => setShowReview(false)} disabled={saving} aria-label="Close" title="Close">
+                                <X size={18} aria-hidden="true" />
+                            </button>
+                        </div>
+                        <div className="proof-modal-body">
+                            {tickedConditions.map((key) => (
+                                <div key={key} className="proof-review-item">
+                                    <h4>{CONDITION_LABELS[key]}</h4>
+                                    <ProofPreview file={proofFiles[key]} saved={proofFiles[key] ? null : healthProofs[key]} tall />
+                                </div>
+                            ))}
+                        </div>
+                        <div className="proof-modal-foot">
+                            <button type="button" className="proof-btn-secondary" onClick={() => setShowReview(false)} disabled={saving} autoFocus>Back</button>
+                            <button type="button" className="proof-btn-primary" onClick={handleSubmitHealth} disabled={saving}>{saving ? 'Saving...' : 'Submit'}</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

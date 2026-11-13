@@ -1,37 +1,91 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useOutletContext, useNavigate } from 'react-router-dom';
-import { 
-  Activity, 
-  Pill, 
-  FileText, 
-  FileCheck, 
-  Calendar, 
-  Stethoscope, 
-  ChevronRight, 
-  AlertCircle, 
-  Clock, 
-  CheckCircle2, 
+import {
+  Activity,
+  Pill,
+  FileText,
+  FileCheck,
+  Calendar,
+  Stethoscope,
+  ChevronRight,
+  ChevronLeft,
+  AlertCircle,
+  Clock,
+  CheckCircle2,
   XCircle,
-  UserCheck,
-  User,
   Megaphone,
   AlertTriangle,
   X,
   Info,
-  ShieldAlert
+  ShieldAlert,
+  Users,
+  Check
 } from 'lucide-react';
-import { formatDate as formatDateBase, formatDateTime as formatDateTimeBase, formatMonthShort, formatTime as formatTimeBase } from '../../utils/datetime';
+import { useAlert } from '../../context/AlertContext';
+import {
+  formatDate as formatDateBase,
+  formatDateTime as formatDateTimeBase,
+  formatCurrentDate,
+  formatMonthDay,
+  formatTime as formatTimeBase
+} from '../../utils/datetime';
 import '../../styles/parent/ParentDashboard.css';
+
+const DONE_STATUSES = ['approved', 'completed', 'submitted', 'verified'];
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+];
+const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+const EMPTY_VISITS = { clinic_visits: [], direct_dispensations: [] };
+const EMPTY_REQS = { all_requirements: [], total_assigned: 0, total_incomplete: 0 };
+const EMPTY_DOCS = { recent_updates: [] };
+
+const pad = (n) => String(n).padStart(2, '0');
+
+// "YYYY-MM-DD" in Manila time, same zone as utils/datetime.
+const manilaKey = (value) => {
+  if (!value) return '';
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) return value.trim();
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Manila',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(d);
+};
+
+const RING_LEN = 163.36; // circumference of r=26
+const ATTENTION_DAYS = 7;
+
+const dayNum = (key) => Date.UTC(+key.slice(0, 4), +key.slice(5, 7) - 1, +key.slice(8, 10)) / 86400000;
+const daysUntil = (key, todayKey) => dayNum(key) - dayNum(todayKey);
+const whenLabel = (n) => {
+  if (n === 0) return 'Today';
+  if (n === 1) return 'Tomorrow';
+  if (n < 0) return `${Math.abs(n)} days ago`;
+  return `In ${n} days`;
+};
+
+const initialsOf = (student) => {
+  const a = (student?.first_name || '').trim().charAt(0);
+  const b = (student?.last_name || '').trim().charAt(0);
+  return (a + b).toUpperCase() || '?';
+};
 
 const ParentDashboard = () => {
   const navigate = useNavigate();
+  const { showAlert } = useAlert();
   // Retrieve linked students & parentId passed down from ParentLayout outlet context
   const { linkedStudents = [], parentId = '' } = useOutletContext() || {};
 
   // Combined Dashboard state hooks
-  const [visitsData, setVisitsData] = useState({ clinic_visits: [], direct_dispensations: [] });
-  const [requirementsData, setRequirementsData] = useState({ all_requirements: [], total_assigned: 0, total_incomplete: 0 });
-  const [documentRequestsData, setDocumentRequestsData] = useState({ recent_updates: [] });
+  const [visitsData, setVisitsData] = useState(EMPTY_VISITS);
+  const [requirementsData, setRequirementsData] = useState(EMPTY_REQS);
+  const [documentRequestsData, setDocumentRequestsData] = useState(EMPTY_DOCS);
   const [screeningsData, setScreeningsData] = useState([]);
   const [appointmentsData, setAppointmentsData] = useState([]);
   const [announcementsData, setAnnouncementsData] = useState([]);
@@ -43,8 +97,23 @@ const ParentDashboard = () => {
   const [alertVisitsList, setAlertVisitsList] = useState([]);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
 
+  // View state: child filter + calendar
+  const [selectedChild, setSelectedChild] = useState('all');
+  const todayKey = manilaKey(new Date());
+  const [calYear, setCalYear] = useState(() => Number(todayKey.slice(0, 4)));
+  const [calMonth, setCalMonth] = useState(() => Number(todayKey.slice(5, 7)) - 1);
+  const [selectedDay, setSelectedDay] = useState(null);
+
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  const openerRef = useRef(null);
+  const closeBtnRef = useRef(null);
+
+  // Errors are shown as a modal, never inline.
+  useEffect(() => {
+    if (error) showAlert(error, 'error');
+  }, [error, showAlert]);
 
   // 1. Fetch Frequent Illness Alerts for Parent's Linked Students
   useEffect(() => {
@@ -58,7 +127,7 @@ const ParentDashboard = () => {
           setFrequentAlerts(json.data || []);
         }
       } catch (err) {
-        console.error("Error fetching frequent illness alerts:", err);
+        console.error('Error fetching frequent illness alerts:', err);
       }
     };
 
@@ -107,10 +176,11 @@ const ParentDashboard = () => {
           const studentName = `${student.first_name || ''} ${student.last_name || ''}`.trim() || `Student #${student.student_id}`;
 
           return {
+            studentId: student.student_id,
             studentName,
-            visits: visitsJson.success ? visitsJson.data : { clinic_visits: [], direct_dispensations: [] },
-            reqs: reqsJson.success ? reqsJson.data : { all_requirements: [], total_assigned: 0, total_incomplete: 0 },
-            docs: docsJson.success ? docsJson.data : { recent_updates: [] },
+            visits: visitsJson.success ? visitsJson.data : EMPTY_VISITS,
+            reqs: reqsJson.success ? reqsJson.data : EMPTY_REQS,
+            docs: docsJson.success ? docsJson.data : EMPTY_DOCS,
             screenings: screeningsJson.success ? screeningsJson.data : [],
             appts: apptsJson.success ? apptsJson.data : [],
             announcements: annJson.success ? annJson.data : []
@@ -129,36 +199,36 @@ const ParentDashboard = () => {
         let combinedAnnouncementsMap = new Map();
 
         results.forEach((res) => {
-          const name = res.studentName;
+          const tag = { studentId: res.studentId, studentName: res.studentName };
 
           if (res.visits?.clinic_visits) {
-            combinedVisits.push(...res.visits.clinic_visits.map(v => ({ ...v, studentName: name })));
+            combinedVisits.push(...res.visits.clinic_visits.map(v => ({ ...v, ...tag })));
           }
           if (res.visits?.direct_dispensations) {
-            combinedDirectDispenses.push(...res.visits.direct_dispensations.map(dd => ({ ...dd, studentName: name })));
+            combinedDirectDispenses.push(...res.visits.direct_dispensations.map(dd => ({ ...dd, ...tag })));
           }
 
           if (res.reqs?.all_requirements) {
-            combinedReqs.push(...res.reqs.all_requirements.map(r => ({ ...r, studentName: name })));
+            combinedReqs.push(...res.reqs.all_requirements.map(r => ({ ...r, ...tag })));
           }
           totalAssigned += (res.reqs?.total_assigned || 0);
 
           if (res.docs?.recent_updates) {
-            combinedDocs.push(...res.docs.recent_updates.map(d => ({ ...d, studentName: name })));
+            combinedDocs.push(...res.docs.recent_updates.map(d => ({ ...d, ...tag })));
           }
 
           if (res.screenings) {
-            combinedScreenings.push(...res.screenings.map(s => ({ ...s, studentName: name })));
+            combinedScreenings.push(...res.screenings.map(s => ({ ...s, ...tag })));
           }
 
           if (res.appts) {
-            combinedAppts.push(...res.appts.map(a => ({ ...a, studentName: name })));
+            combinedAppts.push(...res.appts.map(a => ({ ...a, ...tag })));
           }
 
           if (res.announcements) {
             res.announcements.forEach((ann) => {
               if (!combinedAnnouncementsMap.has(ann.announcement_id)) {
-                combinedAnnouncementsMap.set(ann.announcement_id, { ...ann, studentName: name });
+                combinedAnnouncementsMap.set(ann.announcement_id, { ...ann, ...tag });
               }
             });
           }
@@ -185,8 +255,8 @@ const ParentDashboard = () => {
         setAnnouncementsData(combinedAnnouncements);
 
       } catch (err) {
-        console.error("Error fetching combined dashboard data:", err);
-        setError("Unable to load student metrics. Please check connection.");
+        console.error('Error fetching combined dashboard data:', err);
+        setError('Cannot load dashboard.');
       } finally {
         setIsLoading(false);
       }
@@ -196,7 +266,8 @@ const ParentDashboard = () => {
   }, [linkedStudents, parentId]);
 
   // Frequent Illness Detail Modal Trigger
-  const handleOpenAlertDetails = async (alert) => {
+  const handleOpenAlertDetails = async (alert, event) => {
+    openerRef.current = event?.currentTarget || null;
     setSelectedAlertModal(alert);
     setIsLoadingDetails(true);
     setAlertVisitsList([]);
@@ -210,11 +281,27 @@ const ParentDashboard = () => {
         setAlertVisitsList(json.data || []);
       }
     } catch (err) {
-      console.error("Failed to fetch visit details:", err);
+      console.error('Failed to fetch visit details:', err);
     } finally {
       setIsLoadingDetails(false);
     }
   };
+
+  const closeAlertModal = useCallback(() => {
+    setSelectedAlertModal(null);
+    if (openerRef.current && document.contains(openerRef.current)) openerRef.current.focus();
+  }, []);
+
+  // Modal: focus the close button, close on Esc.
+  useEffect(() => {
+    if (!selectedAlertModal) return undefined;
+    if (closeBtnRef.current) closeBtnRef.current.focus();
+    const onKey = (e) => {
+      if (e.key === 'Escape') closeAlertModal();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [selectedAlertModal, closeAlertModal]);
 
   const handleDismissAlert = (alertKey) => {
     setDismissedAlertKeys((prev) => [...prev, alertKey]);
@@ -235,192 +322,553 @@ const ParentDashboard = () => {
     return formatDateTimeBase(new Date(dateString));
   };
 
-  const renderStatusBadge = (status) => {
-    const s = (status || 'Pending').toLowerCase();
-    let badgeClass = 'pd-badge-pending';
-    let icon = <Clock size={11} />;
+  // Children: initials + tone, used by chips and tags
+  const kids = useMemo(() => {
+    const map = new Map();
+    linkedStudents.forEach((s, i) => {
+      map.set(String(s.student_id), {
+        id: String(s.student_id),
+        name: `${s.first_name || ''} ${s.last_name || ''}`.trim() || `Student #${s.student_id}`,
+        first: (s.first_name || '').trim() || `#${s.student_id}`,
+        initials: initialsOf(s),
+        sub: [s.program_id || s.target_program_id, s.year_level || s.target_year_level ? `${s.year_level || s.target_year_level} Year` : '']
+          .filter(Boolean)
+          .join(' · '),
+        tone: (i % 2) + 1
+      });
+    });
+    return map;
+  }, [linkedStudents]);
 
-    if (['approved', 'completed', 'submitted', 'verified'].includes(s)) {
+  const inFilter = useCallback(
+    (item) => selectedChild === 'all' || String(item.studentId) === selectedChild,
+    [selectedChild]
+  );
+
+  const renderKid = (studentId, fallbackName) => {
+    const kid = kids.get(String(studentId));
+    if (!kid) {
+      return <span className="pd-kid pd-tone-1">{fallbackName || 'Student'}</span>;
+    }
+    return (
+      <span className={`pd-kid pd-tone-${kid.tone}`}>
+        <span className="pd-av" aria-hidden="true">{kid.initials}</span>
+        {kid.first}
+      </span>
+    );
+  };
+
+  const renderStatusBadge = (status) => {
+    const label = status || 'Pending';
+    const s = label.toLowerCase();
+    let badgeClass = 'pd-badge-pending';
+    let icon = <Clock size={14} aria-hidden="true" />;
+
+    if (DONE_STATUSES.includes(s)) {
       badgeClass = 'pd-badge-success';
-      icon = <CheckCircle2 size={11} />;
+      icon = <CheckCircle2 size={14} aria-hidden="true" />;
     } else if (['rejected', 'incomplete', 'overdue'].includes(s)) {
       badgeClass = 'pd-badge-danger';
-      icon = <XCircle size={11} />;
+      icon = <XCircle size={14} aria-hidden="true" />;
     } else if (['resubmit', 'action required'].includes(s)) {
       badgeClass = 'pd-badge-warning';
-      icon = <AlertCircle size={11} />;
+      icon = <AlertCircle size={14} aria-hidden="true" />;
     }
 
     return (
       <span className={`pd-status-badge ${badgeClass}`}>
         {icon}
-        <span>{status}</span>
+        <span>{label}</span>
       </span>
     );
   };
 
-  const renderStudentBadge = (studentName) => (
-    <span className="pd-student-badge">
-      <User size={10} /> {studentName}
-    </span>
+  const renderViewButton = (label, onClick) => (
+    <button type="button" className="pd-icon-btn" aria-label={label} title={label} onClick={onClick}>
+      <ChevronRight size={18} aria-hidden="true" />
+    </button>
   );
 
-  // Active frequent alerts excluding dismissed
+  // ---- Filtered data ----
   const activeAlerts = frequentAlerts.filter(
-    (a) => !dismissedAlertKeys.includes(`${a.studentId}-${a.complaint}`)
+    (a) => !dismissedAlertKeys.includes(`${a.studentId}-${a.complaint}`) && inFilter(a)
   );
+
+  const visibleVisits = (visitsData.clinic_visits || []).filter(inFilter);
+  const latestVisit = visibleVisits[0] || null;
+  const recentVisitCount = visibleVisits.filter((v) => {
+    const t = new Date(v.visit_date || 0).getTime();
+    return t && Date.now() - t <= THIRTY_DAYS_MS;
+  }).length;
+
+  const visibleReqs = (requirementsData.all_requirements || []).filter(inFilter);
+  const reqDone = visibleReqs.filter((r) => DONE_STATUSES.includes((r.status || '').trim().toLowerCase())).length;
+  const reqTodo = visibleReqs.length - reqDone;
+  const reqPct = visibleReqs.length ? Math.round((reqDone / visibleReqs.length) * 100) : 0;
+  const reqRows = [...visibleReqs]
+    .sort((a, b) => {
+      const ad = DONE_STATUSES.includes((a.status || '').trim().toLowerCase()) ? 1 : 0;
+      const bd = DONE_STATUSES.includes((b.status || '').trim().toLowerCase()) ? 1 : 0;
+      return ad - bd;
+    })
+    .slice(0, 4);
+
+  const visibleDocs = (documentRequestsData.recent_updates || []).filter(inFilter).slice(0, 3);
+
+  // Clinic visits per week over the last 30 days, oldest to newest.
+  const visitBars = [0, 0, 0, 0];
+  visibleVisits.forEach((v) => {
+    const t = new Date(v.visit_date || 0).getTime();
+    if (!t) return;
+    const age = (Date.now() - t) / 86400000;
+    if (age > 30) return;
+    visitBars[age <= 7 ? 3 : age <= 14 ? 2 : age <= 21 ? 1 : 0] += 1;
+  });
+  const barMax = Math.max(1, ...visitBars);
+
+  // Needs attention: illness alerts first, then requirements due within a week (or late).
+  const attention = [
+    ...activeAlerts.map((alert) => ({ type: 'alert', alert, alertKey: `${alert.studentId}-${alert.complaint}` })),
+    ...visibleReqs
+      .map((req) => ({ type: 'req', req, key: manilaKey(req.submission_deadline) }))
+      .filter(({ req, key }) => key
+        && !DONE_STATUSES.includes((req.status || '').trim().toLowerCase())
+        && daysUntil(key, todayKey) <= ATTENTION_DAYS)
+      .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
+      .slice(0, 3)
+      .map((x) => ({ ...x, days: daysUntil(x.key, todayKey) }))
+  ];
+
+  // Calendar events: screenings + doctor appointments
+  const events = useMemo(() => {
+    const list = [];
+    screeningsData.filter(inFilter).forEach((s, i) => {
+      const key = manilaKey(s.scheduled_date);
+      if (!key) return;
+      list.push({
+        id: `s-${s.screening_schedule_id || i}-${s.studentId}`,
+        key,
+        type: 'screening',
+        title: s.title || 'Health screening',
+        time: s.start_time
+          ? `${formatTimeBase(s.start_time)}${s.end_time ? ` - ${formatTimeBase(s.end_time)}` : ''}`
+          : '',
+        sort: `${key} ${s.start_time || ''}`,
+        studentId: s.studentId,
+        studentName: s.studentName,
+        status: null,
+        attendance: null
+      });
+    });
+    appointmentsData.filter(inFilter).forEach((a, i) => {
+      const key = manilaKey(a.start_time);
+      if (!key) return;
+      list.push({
+        id: `d-${a.appointment_id || i}-${a.studentId}`,
+        key,
+        type: 'doctor',
+        title: a.title || 'Doctor check-up',
+        time: formatTimeBase(a.start_time),
+        sort: `${key} ${formatTimeBase(a.start_time)}`,
+        studentId: a.studentId,
+        studentName: a.studentName,
+        status: a.appointment_status,
+        attendance: a.attendance_status
+      });
+    });
+    return list.sort((a, b) => (a.sort < b.sort ? -1 : a.sort > b.sort ? 1 : 0));
+  }, [screeningsData, appointmentsData, inFilter]);
+
+  const eventsByDay = useMemo(() => {
+    const map = new Map();
+    events.forEach((e) => {
+      if (!map.has(e.key)) map.set(e.key, []);
+      map.get(e.key).push(e);
+    });
+    return map;
+  }, [events]);
+
+  const nextDoctor = events.find((e) => e.type === 'doctor' && e.key >= todayKey) || null;
+  const nextScreening = events.find((e) => e.type === 'screening' && e.key >= todayKey) || null;
+
+  const monthPrefix = `${calYear}-${pad(calMonth + 1)}-`;
+  const firstEventInMonth = events.find((e) => e.key.startsWith(monthPrefix) && e.key >= todayKey)
+    || events.find((e) => e.key.startsWith(monthPrefix));
+  const activeDay = selectedDay
+    || (todayKey.startsWith(monthPrefix) && !firstEventInMonth ? todayKey : null)
+    || (firstEventInMonth ? firstEventInMonth.key : `${monthPrefix}01`);
+  const dayEvents = eventsByDay.get(activeDay) || [];
+
+  const firstWeekday = new Date(Date.UTC(calYear, calMonth, 1)).getUTCDay();
+  const daysInMonth = new Date(Date.UTC(calYear, calMonth + 1, 0)).getUTCDate();
+  const calCells = [];
+  for (let i = 0; i < firstWeekday; i += 1) calCells.push(null);
+  for (let d = 1; d <= daysInMonth; d += 1) calCells.push(d);
+
+  const shiftMonth = (delta) => {
+    const next = new Date(Date.UTC(calYear, calMonth + delta, 1));
+    setCalYear(next.getUTCFullYear());
+    setCalMonth(next.getUTCMonth());
+    setSelectedDay(null);
+  };
+
+  const activeDayLabel = formatMonthDay(`${activeDay}T12:00:00+08:00`) + (activeDay === todayKey ? ' (today)' : '');
 
   if (isLoading) {
     return (
-      <div className="pd-loading-container">
+      <div className="pd-loading-container" role="status" aria-live="polite">
         <div className="pd-spinner"></div>
-        <p>Loading combined student overview...</p>
+        <p>Loading…</p>
       </div>
     );
   }
 
-  const recentVisits = visitsData.clinic_visits ? visitsData.clinic_visits.slice(0, 2) : [];
-  const recentDirectDispenses = visitsData.direct_dispensations ? visitsData.direct_dispensations.slice(0, 2) : [];
+  const showChips = kids.size > 1;
+  const kidList = Array.from(kids.values());
+  const reqTodoOf = (id) => (requirementsData.all_requirements || []).filter(
+    (r) => String(r.studentId) === id && !DONE_STATUSES.includes((r.status || '').trim().toLowerCase())
+  ).length;
+
+  const renderNextTile = (Icon, label, ev) => (
+    <div className="pd-card pd-tile">
+      <span className="pd-tile-lbl"><Icon size={16} aria-hidden="true" />{label}</span>
+      <div className="pd-tile-val">
+        <span className="pd-tile-num">{ev ? formatMonthDay(`${ev.key}T12:00:00+08:00`) : 'None'}</span>
+      </div>
+      <span className="pd-tile-sub">{ev ? `${ev.title}${ev.time ? ` · ${ev.time}` : ''}` : 'Nothing scheduled'}</span>
+      {ev && (
+        <span className="pd-status-badge pd-badge-info">
+          <Clock size={14} aria-hidden="true" />
+          <span>{whenLabel(daysUntil(ev.key, todayKey))}</span>
+        </span>
+      )}
+    </div>
+  );
 
   return (
     <div className="pd-wrapper">
 
-      {error && <div className="pd-error-banner">{error}</div>}
+      {/* HEADER + CHILD SWITCHER */}
+      <header className="pd-top">
+        <div>
+          <h1 className="pd-title">Dashboard</h1>
+          <p className="pd-date">{formatCurrentDate()}</p>
+        </div>
+        {showChips && (
+          <div className="pd-kids" role="group" aria-label="Show records for">
+            <button
+              type="button"
+              className={`pd-kidbtn${selectedChild === 'all' ? ' is-on' : ''}`}
+              aria-pressed={selectedChild === 'all'}
+              onClick={() => { setSelectedChild('all'); setSelectedDay(null); }}
+            >
+              <span className="pd-av pd-av-all" aria-hidden="true"><Users size={18} /></span>
+              <span className="pd-kidtext">
+                <span className="pd-kidname">All children</span>
+                <span className="pd-kidsub">{kidList.length} linked</span>
+              </span>
+              {selectedChild === 'all' && <Check size={18} className="pd-kidck" aria-hidden="true" />}
+            </button>
+            {kidList.map((kid) => (
+              <button
+                type="button"
+                key={kid.id}
+                className={`pd-kidbtn${selectedChild === kid.id ? ' is-on' : ''}`}
+                aria-pressed={selectedChild === kid.id}
+                onClick={() => { setSelectedChild(kid.id); setSelectedDay(null); }}
+              >
+                <span className={`pd-av pd-tone-${kid.tone}`} aria-hidden="true">{kid.initials}</span>
+                <span className="pd-kidtext">
+                  <span className="pd-kidname">{kid.name}</span>
+                  <span className="pd-kidsub">{kid.sub ? `${kid.sub} · ` : ''}{reqTodoOf(kid.id)} to do</span>
+                </span>
+                {selectedChild === kid.id && <Check size={18} className="pd-kidck" aria-hidden="true" />}
+              </button>
+            ))}
+          </div>
+        )}
+      </header>
 
-      <div className="pd-grid">
+      {/* NURSE ANNOUNCEMENTS: first thing the parent sees */}
+      <section className="pd-card pd-ann-card" aria-labelledby="pd-h-ann">
+        <div className="pd-card-header">
+          <div className="pd-card-title">
+            <span className="pd-card-ico pd-ico-blue"><Megaphone size={18} aria-hidden="true" /></span>
+            <h2 id="pd-h-ann">Nurse announcements</h2>
+          </div>
+        </div>
+        {announcementsData.length === 0 ? (
+          <p className="pd-empty-state pd-ann-empty">No announcements.</p>
+        ) : (
+          <div className="pd-ann-list">
+            {announcementsData.slice(0, 3).map((ann, idx) => (
+              <article key={ann.announcement_id || idx} className="pd-ann">
+                <h3>{ann.title}</h3>
+                <p>{ann.content}</p>
+                <span className="pd-meta">
+                  {ann.nurse_name || 'Clinic Staff'} · {formatDateTime(ann.created_at)}
+                </span>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
 
-        {/* 1. NURSE ANNOUNCEMENTS CARD (CONTAINING FREQUENT ILLNESS ALERTS AT THE BOTTOM) */}
-        <section className="pd-card pd-card-large">
+      {/* NEEDS ATTENTION: illness alerts + requirements due soon */}
+      {attention.length > 0 && (
+        <section className="pd-card pd-attn" aria-labelledby="pd-h-attn">
           <div className="pd-card-header">
             <div className="pd-card-title">
-              <Megaphone className="pd-header-icon pd-text-blue" size={18} />
-              <h2>Nurse Announcements</h2>
+              <span className="pd-card-ico"><AlertTriangle size={18} aria-hidden="true" /></span>
+              <h2 id="pd-h-attn">Needs attention</h2>
             </div>
+            <span className="pd-count" aria-label={`${attention.length} items`}>{attention.length}</span>
           </div>
-
-          <div className="pd-card-body">
-            {/* EXISTING ANNOUNCEMENTS CONTENT */}
-            {announcementsData.length === 0 ? (
-              <p className="pd-empty-state">No active nurse announcements.</p>
-            ) : (
-              <ul className="pd-overview-list">
-                {announcementsData.slice(0, 3).map((ann, idx) => (
-                  <li key={ann.announcement_id || idx} className="pd-overview-item" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '4px' }}>
-                    <div className="pd-flex-gap" style={{ width: '100%', justifyContent: 'space-between' }}>
-                      <strong style={{ fontSize: '0.95rem', color: 'var(--text-primary)' }}>{ann.title}</strong>
-                      <span className="pd-visit-date">Nurse: {ann.nurse_name || 'Clinic Staff'}</span>
+          <ul className="pd-attn-list">
+            {attention.map((item) => {
+              if (item.type === 'alert') {
+                const { alert, alertKey } = item;
+                const visits = Math.max(Number(alert.visitCount) || 0, 0);
+                return (
+                  <li key={`a-${alertKey}`} className="pd-arow">
+                    <span className="pd-arow-ico pd-ico-warn"><ShieldAlert size={20} aria-hidden="true" /></span>
+                    <div className="pd-arow-body">
+                      <h3>{alert.complaint}</h3>
+                      {alert.advice && <span className="pd-meta">{alert.advice}</span>}
                     </div>
-                    <p style={{ margin: '4px 0', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>{ann.content}</p>
-                    <span className="pd-dispense-time">Posted: {formatDateTime(ann.created_at)}</span>
+                    {renderKid(alert.studentId, alert.studentName)}
+                    <span className="pd-status-badge pd-badge-warning">
+                      <span className="pd-alert-dots" aria-hidden="true">
+                        {Array.from({ length: Math.min(visits, 6) }).map((_, i) => <i key={i} />)}
+                      </span>
+                      <span>{visits} visits this month</span>
+                    </span>
+                    <div className="pd-actions">
+                      <button
+                        type="button"
+                        className="pd-icon-btn pd-icon-btn-solid"
+                        aria-label="View visit details"
+                        title="View visit details"
+                        onClick={(e) => handleOpenAlertDetails(alert, e)}
+                      >
+                        <ChevronRight size={18} aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
+                        className="pd-icon-btn pd-icon-btn-plain"
+                        aria-label="Dismiss alert"
+                        title="Dismiss alert"
+                        onClick={() => handleDismissAlert(alertKey)}
+                      >
+                        <X size={18} aria-hidden="true" />
+                      </button>
+                    </div>
                   </li>
-                ))}
-              </ul>
-            )}
-
-            {/* FREQUENT ILLNESS ALERT SECTION AT THE BOTTOM PART OF ANNOUNCEMENTS */}
-            {activeAlerts.length > 0 && (
-              <div className="pd-announcement-alerts-wrapper">
-                <div className="pd-announcement-alert-header">
-                  <div className="pd-alert-header-left">
-                    <ShieldAlert size={16} className="pd-alert-icon-pulse" />
-                    <span className="pd-announcement-alert-title">Frequent Illness Alerts ({activeAlerts.length})</span>
+                );
+              }
+              const { req, days } = item;
+              const late = days < 0;
+              const urgent = days <= 3;
+              return (
+                <li key={`r-${req.requirement_id || `${req.studentId}-${req.requirement_name}`}`} className="pd-arow">
+                  <span className="pd-arow-ico pd-ico-blue"><FileCheck size={20} aria-hidden="true" /></span>
+                  <div className="pd-arow-body">
+                    <h3>{req.requirement_name}</h3>
+                    <span className="pd-meta">Due {formatDate(req.submission_deadline)}</span>
                   </div>
-                  <span className="pd-announcement-alert-sub">3+ visits this month</span>
-                </div>
+                  {renderKid(req.studentId, req.studentName)}
+                  <span className={`pd-status-badge ${urgent ? 'pd-badge-danger' : 'pd-badge-warning'}`}>
+                    {urgent ? <AlertCircle size={14} aria-hidden="true" /> : <Clock size={14} aria-hidden="true" />}
+                    <span>{late ? 'Overdue' : `Due ${whenLabel(days).toLowerCase()}`}</span>
+                  </span>
+                  <div className="pd-actions">
+                    {renderViewButton('Open child profile', handleNavigateToProfile)}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
 
-                <div className="pd-announcement-alerts-list">
-                  {activeAlerts.map((alert) => {
-                    const alertKey = `${alert.studentId}-${alert.complaint}`;
+      {/* SUMMARY TILES */}
+      <section className="pd-tiles" aria-label="Summary">
+        <div className="pd-card pd-tile">
+          <span className="pd-tile-lbl"><FileCheck size={16} aria-hidden="true" />Requirements</span>
+          <div className="pd-tile-val">
+            <span className="pd-tile-num">{reqTodo} to do</span>
+            <span className="pd-ring" role="img" aria-label={`${reqPct} percent complete`}>
+              <svg width="60" height="60" viewBox="0 0 60 60" aria-hidden="true">
+                <circle cx="30" cy="30" r="26" className="pd-ring-track" />
+                <circle
+                  cx="30"
+                  cy="30"
+                  r="26"
+                  className="pd-ring-bar"
+                  strokeDasharray={`${((reqPct / 100) * RING_LEN).toFixed(1)} ${RING_LEN}`}
+                />
+              </svg>
+              <span>{reqPct}%</span>
+            </span>
+          </div>
+          <span className="pd-tile-sub">of {visibleReqs.length} assigned</span>
+        </div>
+        {renderNextTile(Stethoscope, 'Next doctor visit', nextDoctor)}
+        {renderNextTile(Calendar, 'Next screening', nextScreening)}
+        <div className="pd-card pd-tile">
+          <span className="pd-tile-lbl"><Activity size={16} aria-hidden="true" />Clinic visits</span>
+          <div className="pd-tile-val">
+            <span className="pd-tile-num">{recentVisitCount}</span>
+            <span className="pd-bars" role="img" aria-label={`Visits per week, oldest to newest: ${visitBars.join(', ')}`}>
+              {visitBars.map((n, i) => (
+                <i key={i} className={n ? '' : 'is-zero'} style={{ height: n ? `${Math.round((n / barMax) * 100)}%` : '10%' }} />
+              ))}
+            </span>
+          </div>
+          <span className="pd-tile-sub">last 30 days</span>
+        </div>
+      </section>
+
+      <div className="pd-cols">
+
+        {/* MAIN COLUMN */}
+        <div className="pd-col pd-col-main">
+
+          {/* CALENDAR + DAY AGENDA */}
+          <section className="pd-card" aria-labelledby="pd-h-cal">
+            <div className="pd-card-header">
+              <div className="pd-card-title">
+                <span className="pd-card-ico pd-ico-violet"><Calendar size={18} aria-hidden="true" /></span>
+                <h2 id="pd-h-cal">{MONTH_NAMES[calMonth]} {calYear}</h2>
+              </div>
+              <div className="pd-actions">
+                <button type="button" className="pd-icon-btn" aria-label="Previous month" title="Previous month" onClick={() => shiftMonth(-1)}>
+                  <ChevronLeft size={18} aria-hidden="true" />
+                </button>
+                <button type="button" className="pd-icon-btn" aria-label="Next month" title="Next month" onClick={() => shiftMonth(1)}>
+                  <ChevronRight size={18} aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+            <div className="pd-card-body">
+              <div className="pd-calwrap">
+                <div className="pd-cal" role="group" aria-label={`${MONTH_NAMES[calMonth]} ${calYear} calendar`}>
+                  {WEEKDAYS.map((w) => <span key={w} className="pd-cal-wd" aria-hidden="true">{w}</span>)}
+                  {calCells.map((day, idx) => {
+                    if (day === null) return <span key={`b-${idx}`} aria-hidden="true" />;
+                    const key = `${monthPrefix}${pad(day)}`;
+                    const evs = eventsByDay.get(key) || [];
+                    const hasDoctor = evs.some((e) => e.type === 'doctor');
+                    const hasScreening = evs.some((e) => e.type === 'screening');
+                    const isSel = key === activeDay;
+                    const isToday = key === todayKey;
                     return (
-                      <div key={alertKey} className="pd-announcement-alert-item">
-                        <div className="pd-announcement-alert-content">
-                          <div className="pd-alert-student-line">
-                            <strong>{alert.studentName}</strong>
-                            {renderStudentBadge(alert.studentName)}
-                            <span className="pd-alert-badge-count">{alert.visitCount} Visits</span>
-                          </div>
-                          
-                          <div className="pd-alert-complaint-line">
-                            <AlertTriangle size={13} className="pd-text-warning" />
-                            <span className="pd-alert-complaint-name">{alert.complaint}</span>
-                          </div>
-
-                          <div className="pd-alert-advice-text">
-                            <Info size={12} />
-                            <span>{alert.advice}</span>
-                          </div>
-                        </div>
-
-                        <div className="pd-announcement-alert-actions">
-                          <button 
-                            className="pd-alert-btn-details"
-                            onClick={() => handleOpenAlertDetails(alert)}
-                          >
-                            Details <ChevronRight size={13} />
-                          </button>
-                          <button 
-                            className="pd-alert-btn-dismiss"
-                            onClick={() => handleDismissAlert(alertKey)}
-                            title="Dismiss Alert"
-                          >
-                            <X size={13} />
-                          </button>
-                        </div>
-                      </div>
+                      <button
+                        type="button"
+                        key={key}
+                        className={`pd-day${isSel ? ' is-sel' : ''}${isToday ? ' is-today' : ''}`}
+                        aria-pressed={isSel}
+                        aria-label={`${MONTH_NAMES[calMonth]} ${day}${isToday ? ', today' : ''}, ${evs.length ? `${evs.length} ${evs.length > 1 ? 'events' : 'event'}` : 'no events'}`}
+                        onClick={() => setSelectedDay(key)}
+                      >
+                        <span className="pd-day-num">{day}</span>
+                        <span className="pd-day-dots" aria-hidden="true">
+                          {hasDoctor && <i className="pd-dot-doctor" />}
+                          {hasScreening && <i className="pd-dot-screen" />}
+                        </span>
+                      </button>
                     );
                   })}
                 </div>
+
+                <div className="pd-agenda">
+                  <h3 className="pd-section-subtitle">{activeDayLabel}</h3>
+                  {dayEvents.length === 0 ? (
+                    <p className="pd-empty-state">Nothing scheduled.</p>
+                  ) : (
+                    <ul className="pd-event-list">
+                      {dayEvents.map((ev) => (
+                        <li key={ev.id} className="pd-event">
+                          <span className={`pd-event-ico ${ev.type === 'doctor' ? 'pd-ico-ok' : 'pd-ico-violet'}`}>
+                            {ev.type === 'doctor' ? <Stethoscope size={18} aria-hidden="true" /> : <Calendar size={18} aria-hidden="true" />}
+                          </span>
+                          <div className="pd-event-body">
+                            <div className="pd-event-head">
+                              <h4>{ev.title}</h4>
+                              {renderKid(ev.studentId, ev.studentName)}
+                            </div>
+                            <p className="pd-event-time">
+                              <Clock size={14} aria-hidden="true" />
+                              {ev.time || 'All day'}
+                            </p>
+                            <p className="pd-meta">{ev.type === 'doctor' ? 'Doctor visit' : 'Health screening'}</p>
+                            {(ev.status || ev.attendance) && (
+                              <div className="pd-status-meta">
+                                {ev.status && renderStatusBadge(ev.status)}
+                                {ev.attendance && <span className="pd-attendance-pill">{ev.attendance}</span>}
+                              </div>
+                            )}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <div className="pd-legend">
+                  <span><i className="pd-dot-doctor" />Doctor visit</span>
+                  <span><i className="pd-dot-screen" />Screening</span>
+                </div>
               </div>
-            )}
-          </div>
-        </section>
-
-        {/* 2. RECENT CLINIC VISITS & MEDICINE DISPENSATION */}
-        <section className="pd-card pd-card-large">
-          <div className="pd-card-header">
-            <div className="pd-card-title">
-              <Activity className="pd-header-icon pd-text-blue" size={18} />
-              <h2>Recent Clinic Visits & Medicine Dispensation</h2>
             </div>
-            <button className="pd-view-all-btn" onClick={handleNavigateToClinic}>
-              View All <ChevronRight size={14} />
-            </button>
-          </div>
+          </section>
 
-          <div className="pd-card-body">
-            <h3 className="pd-section-subtitle">
-              <UserCheck size={14} /> Latest Clinic Visits
-            </h3>
-            {recentVisits.length === 0 ? (
-              <p className="pd-empty-state">No recent clinic visits logged.</p>
-            ) : (
-              <div className="pd-visits-list">
-                {recentVisits.map((visit, idx) => (
-                  <div key={visit.visit_id || idx} className="pd-visit-item">
-                    <div className="pd-visit-top-row">
-                      <div className="pd-flex-gap">
-                        <span className="pd-visit-complaint">
-                          {visit.complaint_name || visit.specify_complaint_text || 'General Consultation'}
-                        </span>
-                        {renderStudentBadge(visit.studentName)}
-                      </div>
-                      <span className="pd-visit-date">{formatDate(visit.visit_date)} ({visit.time_in ? formatTimeBase(visit.time_in) : '--'})</span>
+          {/* LATEST CLINIC VISIT ONLY */}
+          <section className="pd-card" aria-labelledby="pd-h-vis">
+            <div className="pd-card-header">
+              <div className="pd-card-title">
+                <span className="pd-card-ico pd-ico-blue"><Activity size={18} aria-hidden="true" /></span>
+                <h2 id="pd-h-vis">Recent clinic visit</h2>
+              </div>
+              {renderViewButton('Open clinic records', handleNavigateToClinic)}
+            </div>
+            <div className="pd-card-body">
+              {!latestVisit ? (
+                <p className="pd-empty-state">No clinic visits.</p>
+              ) : (
+                <article className="pd-visit">
+                  <div className="pd-when">
+                    <strong>{formatDate(latestVisit.visit_date)}</strong>
+                    <span>{latestVisit.time_in ? formatTimeBase(latestVisit.time_in) : '--'}</span>
+                  </div>
+                  <div className="pd-visit-body">
+                    <div className="pd-visit-head">
+                      <h3>{latestVisit.complaint_name || latestVisit.specify_complaint_text || 'General Consultation'}</h3>
+                      {renderKid(latestVisit.studentId, latestVisit.studentName)}
                     </div>
 
-                    <div className="pd-vitals-row">
-                      {visit.vitals?.temperature && <span>Temp: <strong>{visit.vitals.temperature}°C</strong></span>}
-                      {visit.vitals?.blood_pressure && <span>BP: <strong>{visit.vitals.blood_pressure}</strong></span>}
-                      {visit.vitals?.pulse_rate && <span>Pulse: <strong>{visit.vitals.pulse_rate} bpm</strong></span>}
-                    </div>
-
-                    {visit.assessment && (
-                      <p className="pd-visit-detail"><strong>Assessment:</strong> {visit.assessment}</p>
+                    {(latestVisit.vitals?.temperature || latestVisit.vitals?.blood_pressure || latestVisit.vitals?.pulse_rate) && (
+                      <ul className="pd-vitals">
+                        {latestVisit.vitals?.temperature && (
+                          <li className="pd-vit"><span className="pd-vit-k">Temp</span><span className="pd-vit-v">{latestVisit.vitals.temperature}°C</span></li>
+                        )}
+                        {latestVisit.vitals?.blood_pressure && (
+                          <li className="pd-vit"><span className="pd-vit-k">BP</span><span className="pd-vit-v">{latestVisit.vitals.blood_pressure}</span></li>
+                        )}
+                        {latestVisit.vitals?.pulse_rate && (
+                          <li className="pd-vit"><span className="pd-vit-k">Pulse</span><span className="pd-vit-v">{latestVisit.vitals.pulse_rate} bpm</span></li>
+                        )}
+                      </ul>
                     )}
 
-                    {visit.dispensed_medicines && visit.dispensed_medicines.length > 0 && (
-                      <div className="pd-med-tags">
-                        <span className="pd-tag-label"><Pill size={11} /> Dispensed:</span>
-                        {visit.dispensed_medicines.map((med) => (
+                    {latestVisit.assessment && (
+                      <p className="pd-visit-note"><strong>Assessment:</strong> {latestVisit.assessment}</p>
+                    )}
+
+                    {latestVisit.dispensed_medicines && latestVisit.dispensed_medicines.length > 0 && (
+                      <div className="pd-meds">
+                        <Pill size={16} aria-label="Dispensed" />
+                        {latestVisit.dispensed_medicines.map((med) => (
                           <span key={med.dispense_id} className="pd-med-tag">
                             {med.medicine_name} - {med.dosage_value} {med.dosage_unit}
                           </span>
@@ -428,262 +876,154 @@ const ParentDashboard = () => {
                       </div>
                     )}
                   </div>
-                ))}
+                </article>
+              )}
+            </div>
+          </section>
+
+        </div>
+
+        {/* SIDE COLUMN */}
+        <div className="pd-col pd-col-side">
+
+          {/* MEDICAL REQUIREMENTS */}
+          <section className="pd-card" aria-labelledby="pd-h-req">
+            <div className="pd-card-header">
+              <div className="pd-card-title">
+                <span className="pd-card-ico pd-ico-ok"><FileCheck size={18} aria-hidden="true" /></span>
+                <h2 id="pd-h-req">Requirements</h2>
               </div>
-            )}
-
-            <h3 className="pd-section-subtitle pd-mt-8">
-              <Pill size={14} /> Direct Medicine Dispensations
-            </h3>
-            {recentDirectDispenses.length === 0 ? (
-              <p className="pd-empty-state">No recent direct medicine dispensations.</p>
-            ) : (
-              <ul className="pd-direct-dispense-list">
-                {recentDirectDispenses.map((dd, idx) => (
-                  <li key={dd.direct_dispense_id || idx} className="pd-direct-dispense-item">
-                    <div className="pd-flex-gap">
-                      <strong>{dd.medicine_name}</strong>
-                      <span className="pd-sub-detail">({dd.dosage_consumption_unit_value} {dd.dosage_consumption_unit_of_measure})</span>
-                      {renderStudentBadge(dd.studentName)}
-                    </div>
-                    <span className="pd-dispense-time">{formatDateTime(dd.dispensed_at)}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </section>
-
-        {/* 3. OVERVIEW OF REQUIREMENTS STATUS */}
-        <section className="pd-card">
-          <div className="pd-card-header">
-            <div className="pd-card-title">
-              <FileCheck className="pd-header-icon pd-text-green" size={18} />
-              <h2>Medical Requirements</h2>
+              {renderViewButton('Open child profile', handleNavigateToProfile)}
             </div>
-            <button className="pd-view-all-btn" onClick={handleNavigateToProfile}>
-              View All <ChevronRight size={14} />
-            </button>
-          </div>
-
-          <div className="pd-card-body">
-            <div className="pd-summary-container">
-              <div className="pd-metric-box">
-                <span className="pd-metric-val">{requirementsData.total_assigned || 0}</span>
-                <span className="pd-metric-lbl">Assigned</span>
-              </div>
-              <div className="pd-metric-box pd-warning">
-                <span className="pd-metric-val">{requirementsData.total_incomplete || 0}</span>
-                <span className="pd-metric-lbl">Pending</span>
-              </div>
-            </div>
-
-            {(!requirementsData.all_requirements || requirementsData.all_requirements.length === 0) ? (
-              <p className="pd-empty-state">No requirements currently requested.</p>
-            ) : (
-              <ul className="pd-overview-list">
-                {requirementsData.all_requirements.slice(0, 3).map((req, idx) => (
-                  <li key={idx} className="pd-overview-item">
-                    <div className="pd-item-info">
-                      <div className="pd-flex-gap">
-                        <span className="pd-item-title">{req.requirement_name}</span>
-                        {renderStudentBadge(req.studentName)}
-                      </div>
-                      <span className="pd-item-sub">
-                        Deadline: {req.submission_deadline ? formatDate(req.submission_deadline) : 'No Deadline'}
-                      </span>
+            <div className="pd-card-body">
+              {visibleReqs.length === 0 ? (
+                <p className="pd-empty-state">No requirements.</p>
+              ) : (
+                <>
+                  <div className="pd-progress">
+                    <div className="pd-progress-row">
+                      <span>{reqDone} of {visibleReqs.length} complete</span>
+                      <span>{reqPct}%</span>
                     </div>
-                    <div>{renderStatusBadge(req.status)}</div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </section>
-
-        {/* 4. DOCUMENT REQUEST UPDATES */}
-        <section className="pd-card">
-          <div className="pd-card-header">
-            <div className="pd-card-title">
-              <FileText className="pd-header-icon pd-text-amber" size={18} />
-              <h2>Document Requests</h2>
-            </div>
-            <button className="pd-view-all-btn" onClick={handleNavigateToClinic}>
-              View All <ChevronRight size={14} />
-            </button>
-          </div>
-
-          <div className="pd-card-body">
-            {(!documentRequestsData.recent_updates || documentRequestsData.recent_updates.length === 0) ? (
-              <p className="pd-empty-state">No recent document request updates.</p>
-            ) : (
-              <ul className="pd-overview-list">
-                {documentRequestsData.recent_updates.slice(0, 3).map((doc, idx) => (
-                  <li key={`${doc.request_type}-${doc.request_id || idx}`} className="pd-overview-item">
-                    <div className="pd-item-info">
-                      <div className="pd-flex-gap">
-                        <span className="pd-type-badge">{doc.request_type}</span>
-                        <span className="pd-item-title-sm">
-                          {doc.reason_for_excuse || doc.reason_for_referral || 'Request Record'}
-                        </span>
-                        {renderStudentBadge(doc.studentName)}
-                      </div>
-                      <span className="pd-item-sub">Requested: {formatDate(doc.created_at)}</span>
-                    </div>
-                    <div>{renderStatusBadge(doc.status)}</div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </section>
-
-        {/* 5. UPCOMING HEALTH SCREENING */}
-        <section className="pd-card">
-          <div className="pd-card-header">
-            <div className="pd-card-title">
-              <Calendar className="pd-header-icon pd-text-purple" size={18} />
-              <h2>Health Screenings</h2>
-            </div>
-            <button className="pd-view-all-btn" onClick={handleNavigateToClinic}>
-              View All <ChevronRight size={14} />
-            </button>
-          </div>
-
-          <div className="pd-card-body">
-            {screeningsData.length === 0 ? (
-              <p className="pd-empty-state">No upcoming health screenings scheduled.</p>
-            ) : (
-              <div className="pd-schedule-list">
-                {screeningsData.slice(0, 2).map((screening, idx) => (
-                  <div key={screening.screening_schedule_id || idx} className="pd-schedule-item">
-                    <div className="pd-schedule-date-box">
-                      <span className="pd-date-num">
-                        {new Date(screening.scheduled_date).getDate()}
-                      </span>
-                      <span className="pd-date-month">
-                        {formatMonthShort(new Date(screening.scheduled_date))}
-                      </span>
-                    </div>
-
-                    <div className="pd-schedule-details">
-                      <div className="pd-flex-gap">
-                        <h4 className="pd-schedule-title">{screening.title}</h4>
-                        {renderStudentBadge(screening.studentName)}
-                      </div>
-                      <p className="pd-schedule-time">
-                        <Clock size={11} /> {formatTimeBase(screening.start_time)} - {formatTimeBase(screening.end_time)}
-                      </p>
-                      {screening.announcement && (
-                        <p className="pd-schedule-announcement">{screening.announcement}</p>
-                      )}
+                    <div
+                      className="pd-bar"
+                      role="progressbar"
+                      aria-label="Requirements complete"
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={reqPct}
+                    >
+                      <i style={{ width: `${reqPct}%` }} />
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </section>
-
-        {/* 6. UPCOMING DOCTOR VISIT SCHEDULE */}
-        <section className="pd-card">
-          <div className="pd-card-header">
-            <div className="pd-card-title">
-              <Stethoscope className="pd-header-icon pd-text-teal" size={18} />
-              <h2>Doctor Visits</h2>
+                  <ul className="pd-rows">
+                    {reqRows.map((req, idx) => (
+                      <li key={req.requirement_id || `${req.studentId}-${req.requirement_name}-${idx}`} className="pd-row">
+                        <div className="pd-row-info">
+                          <strong>{req.requirement_name}</strong>
+                          <span className="pd-meta">
+                            Due {req.submission_deadline ? formatDate(req.submission_deadline) : 'No deadline'}
+                          </span>
+                          {renderKid(req.studentId, req.studentName)}
+                        </div>
+                        {renderStatusBadge(req.status)}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
             </div>
-            <button className="pd-view-all-btn" onClick={handleNavigateToClinic}>
-              View All <ChevronRight size={14} />
-            </button>
-          </div>
+          </section>
 
-          <div className="pd-card-body">
-            {appointmentsData.length === 0 ? (
-              <p className="pd-empty-state">No upcoming doctor appointments scheduled.</p>
-            ) : (
-              <div className="pd-schedule-list">
-                {appointmentsData.slice(0, 2).map((appt, idx) => (
-                  <div key={appt.appointment_id || idx} className="pd-schedule-item pd-border-teal">
-                    <div className="pd-schedule-date-box pd-bg-teal">
-                      <span className="pd-date-num">
-                        {new Date(appt.start_time).getDate()}
-                      </span>
-                      <span className="pd-date-month">
-                        {formatMonthShort(new Date(appt.start_time))}
-                      </span>
-                    </div>
-
-                    <div className="pd-schedule-details">
-                      <div className="pd-flex-gap">
-                        <h4 className="pd-schedule-title">{appt.title || 'Doctor Check-up'}</h4>
-                        {renderStudentBadge(appt.studentName)}
-                      </div>
-                      <p className="pd-schedule-time">
-                        <Clock size={11} /> {formatDateTime(appt.start_time)}
-                      </p>
-                      <div className="pd-status-meta">
-                        {renderStatusBadge(appt.appointment_status)}
-                        {appt.attendance_status && (
-                          <span className="pd-attendance-pill">{appt.attendance_status}</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
+          {/* DOCUMENT REQUESTS */}
+          <section className="pd-card" aria-labelledby="pd-h-doc">
+            <div className="pd-card-header">
+              <div className="pd-card-title">
+                <span className="pd-card-ico pd-ico-warn"><FileText size={18} aria-hidden="true" /></span>
+                <h2 id="pd-h-doc">Document requests</h2>
               </div>
-            )}
-          </div>
-        </section>
+              {renderViewButton('Open clinic records', handleNavigateToClinic)}
+            </div>
+            <div className="pd-card-body">
+              {visibleDocs.length === 0 ? (
+                <p className="pd-empty-state">No document requests.</p>
+              ) : (
+                <ul className="pd-rows">
+                  {visibleDocs.map((doc, idx) => (
+                    <li key={`${doc.request_type}-${doc.request_id || idx}`} className="pd-row">
+                      <div className="pd-row-info">
+                        <span><span className="pd-type-badge">{doc.request_type}</span></span>
+                        <strong>{doc.reason_for_excuse || doc.reason_for_referral || 'Request record'}</strong>
+                        <span className="pd-meta">Requested {formatDate(doc.created_at)}</span>
+                        {renderKid(doc.studentId, doc.studentName)}
+                      </div>
+                      {renderStatusBadge(doc.status)}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </section>
 
+        </div>
       </div>
 
       {/* FREQUENT ILLNESS VISIT BREAKDOWN MODAL */}
       {selectedAlertModal && (
-        <div className="pd-modal-backdrop" onClick={() => setSelectedAlertModal(null)}>
-          <div className="pd-modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className="pd-modal-backdrop" onClick={closeAlertModal}>
+          <div
+            className="pd-modal-content"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pd-modal-title"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="pd-modal-header">
               <div className="pd-modal-title-group">
-                <AlertTriangle size={18} className="pd-text-warning" />
-                <h3>Frequent Illness Visit Breakdown</h3>
+                <AlertTriangle size={18} className="pd-text-warning" aria-hidden="true" />
+                <h3 id="pd-modal-title">{selectedAlertModal.complaint} visits</h3>
               </div>
-              <button className="pd-modal-close" onClick={() => setSelectedAlertModal(null)}>
-                <X size={18} />
+              <button
+                type="button"
+                ref={closeBtnRef}
+                className="pd-icon-btn pd-icon-btn-plain"
+                aria-label="Close"
+                title="Close"
+                onClick={closeAlertModal}
+              >
+                <X size={18} aria-hidden="true" />
               </button>
             </div>
 
             <div className="pd-modal-body">
               <div className="pd-modal-summary">
-                <p><strong>Student:</strong> {selectedAlertModal.studentName} ({selectedAlertModal.studentId})</p>
-                <p><strong>Condition:</strong> {selectedAlertModal.complaint}</p>
-                <p><strong>Frequency:</strong> {selectedAlertModal.visitCount} visits this month</p>
+                <p><strong>Student</strong> {selectedAlertModal.studentName} ({selectedAlertModal.studentId})</p>
+                <p><strong>Visits</strong> {selectedAlertModal.visitCount} this month</p>
               </div>
 
-              <div className="pd-modal-advice-banner">
-                <Info size={16} />
-                <div>
-                  <strong>Clinic Care Advice:</strong>
-                  <p>{selectedAlertModal.advice}</p>
+              {selectedAlertModal.advice && (
+                <div className="pd-modal-advice-banner">
+                  <Info size={18} aria-hidden="true" />
+                  <span>{selectedAlertModal.advice}</span>
                 </div>
-              </div>
-
-              <h4 className="pd-modal-subtitle">Individual Visit Records</h4>
+              )}
 
               {isLoadingDetails ? (
-                <div className="pd-modal-loading">
+                <div className="pd-modal-loading" role="status" aria-live="polite">
                   <div className="pd-spinner-sm"></div>
-                  <span>Loading clinic logs...</span>
+                  <span>Loading…</span>
                 </div>
               ) : alertVisitsList.length === 0 ? (
-                <p className="pd-empty-state">No detailed records found.</p>
+                <p className="pd-empty-state">No records.</p>
               ) : (
                 <div className="pd-modal-visits-table-wrapper">
                   <table className="pd-modal-visits-table">
                     <thead>
                       <tr>
-                        <th>Date & Time</th>
-                        <th>Vitals</th>
-                        <th>Intervention</th>
-                        <th>Assessment</th>
+                        <th scope="col">Date</th>
+                        <th scope="col">Vitals</th>
+                        <th scope="col">Care given</th>
+                        <th scope="col">Assessment</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -711,7 +1051,7 @@ const ParentDashboard = () => {
             </div>
 
             <div className="pd-modal-footer">
-              <button className="pd-btn-secondary" onClick={() => setSelectedAlertModal(null)}>
+              <button type="button" className="pd-btn-secondary" onClick={closeAlertModal}>
                 Close
               </button>
             </div>

@@ -25,6 +25,11 @@ const REPORT_CSS = `
     .signature-role { font-style: italic; color: #64748b; }
     .section-heading { font-size: 14px; color: #1e3a8a; margin: 18px 0 8px; page-break-after: avoid; }
     tr { page-break-inside: avoid; }
+    .record-block { page-break-inside: avoid; margin-bottom: 18px; }
+    .record-block h4 { font-size: 13px; color: #1e3a8a; margin: 0 0 6px; }
+    .record-block table { margin-bottom: 0; }
+    .record-block th { width: 30%; }
+    .record-block td { white-space: pre-line; }
     @media print { body { margin: 0; } }
 `;
 
@@ -61,6 +66,16 @@ export const writeSectionedReport = (win, { title, details = [], sections }) => 
         .map(({ heading, columns, rows, emptyText }) => `<h3 class="section-heading">${escapeHtml(heading)}</h3>${tableBlock(columns, rows, emptyText)}`)
         .join('');
     writeShell(win, title, detailsBlock(details) + body);
+};
+
+// List table plus the full content of every record (label / value block each):
+// records = [{ heading, rows: [[label, value], ...] }]
+export const writeDetailedReport = (win, { title, details = [], columns, rows, emptyText, recordsHeading = 'Record Details', records = [] }) => {
+    const blocks = records.map(({ heading, rows: pairs }) => `<div class="record-block"><h4>${escapeHtml(heading)}</h4><table><tbody>${
+        pairs.map(([k, v]) => `<tr><th>${escapeHtml(k)}</th><td>${escapeHtml(v)}</td></tr>`).join('')
+    }</tbody></table></div>`).join('');
+    const detailsHtml = records.length ? `<h3 class="section-heading">${escapeHtml(recordsHeading)}</h3>${blocks}` : '';
+    writeShell(win, title, detailsBlock(details) + tableBlock(columns, rows, emptyText) + detailsHtml);
 };
 
 // school header + title line + body + nurse signature, written into the opened window

@@ -1,0 +1,715 @@
+<title>Health Screening Redesign</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: preview switch on top, then the improved nurse page (header, section tabs, one toolbar, folders or status-tabbed screening rows, modals) or the list of code changes with file:line refs. Tokens are the STI Clinic ones from theme.css. */
+:root {
+  --sti-blue-dark: #002f6c;
+  --sti-blue-primary: #004b87;
+  --sti-blue-light: #e6f0fa;
+  --sti-yellow: #ffcc00;
+  --btn-bg: #004b87;
+  --bg-page: #f8fafc;
+  --bg-card: #ffffff;
+  --bg-subtle: #f1f5f9;
+  --card-border: #d0d5dd;
+  --text-primary: #1d2939;
+  --text-secondary: #556070;
+  --text-on-brand: #ffffff;
+  --status-adequate-bg: #dcfce7; --status-adequate-text: #166534; --status-adequate-bar: #4aa56b;
+  --status-low-bg: #fef3c7;      --status-low-text: #8a4b08;      --status-low-bar: #e0a02e;
+  --status-critical-bg: #fee2e2; --status-critical-text: #991b1b; --status-critical-bar: #d4584f;
+  --backdrop: rgba(15, 23, 42, 0.6);
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --sti-blue-dark: #0a3d75; --sti-blue-primary: #3b82c4; --sti-blue-light: #16304a; --btn-bg: #0a3d75;
+    --bg-page: #0f172a; --bg-card: #1e293b; --bg-subtle: #172033; --card-border: #475569;
+    --text-primary: #e2e8f0; --text-secondary: #a3b1c6;
+    --status-adequate-bg: #14391f; --status-adequate-text: #86efac; --status-adequate-bar: #4aa56b;
+    --status-low-bg: #43300c; --status-low-text: #fcd34d;
+    --status-critical-bg: #4a1a1a; --status-critical-text: #fca5a5;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --sti-blue-dark: #0a3d75; --sti-blue-primary: #3b82c4; --sti-blue-light: #16304a; --btn-bg: #0a3d75;
+  --bg-page: #0f172a; --bg-card: #1e293b; --bg-subtle: #172033; --card-border: #475569;
+  --text-primary: #e2e8f0; --text-secondary: #a3b1c6;
+  --status-adequate-bg: #14391f; --status-adequate-text: #86efac; --status-adequate-bar: #4aa56b;
+  --status-low-bg: #43300c; --status-low-text: #fcd34d;
+  --status-critical-bg: #4a1a1a; --status-critical-text: #fca5a5;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg-page); color: var(--text-primary);
+  font-family: var(--font-sans); font-size: 1rem; line-height: 1.5;
+  padding-block: 1.5rem 3rem;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 68rem; margin: 0 auto; display: flex; flex-direction: column; gap: 1.25rem; }
+h1, h2, h3, h4, p, dl, dd, ul { margin: 0; padding: 0; }
+ul { list-style: none; }
+h1 { font-size: 1.5rem; font-weight: 700; line-height: 1.25; }
+h2 { font-size: 1.125rem; font-weight: 700; }
+h3 { font-size: 1rem; font-weight: 600; }
+.muted { color: var(--text-secondary); font-size: 0.875rem; }
+.mono { font-family: var(--font-mono); font-size: 0.875em; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+svg.i { width: 1.125rem; height: 1.125rem; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+svg.i.sm { width: 0.9375rem; height: 0.9375rem; }
+:focus-visible { outline: 0.1875rem solid var(--sti-blue-primary); outline-offset: 0.125rem; }
+.btn-solid:focus-visible { outline-color: var(--sti-yellow); }
+
+/* preview switch */
+.mock { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; align-items: center; padding: 0.75rem 1rem;
+  background: var(--sti-blue-light); border: 1px dashed var(--sti-blue-primary); border-radius: 0.5rem; }
+.mock .lbl { font-weight: 600; font-size: 0.875rem; }
+.mock .note { color: var(--text-secondary); font-size: 0.875rem; }
+.seg { display: inline-flex; border: 1px solid var(--sti-blue-primary); border-radius: 0.5rem; overflow: hidden; background: var(--bg-card); }
+.seg button { min-height: 2.75rem; padding: 0 1rem; border: 0; background: transparent; color: var(--text-primary);
+  font: inherit; font-size: 0.9375rem; font-weight: 500; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--btn-bg); color: var(--text-on-brand); font-weight: 600; }
+.seg button + button { border-left: 1px solid var(--sti-blue-primary); }
+
+/* buttons */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.375rem; min-height: 2.75rem; min-width: 2.75rem;
+  padding: 0 0.875rem; border-radius: 0.5rem; border: 1px solid var(--card-border); background: var(--bg-card); color: var(--text-primary);
+  font: inherit; font-size: 0.9375rem; font-weight: 600; cursor: pointer; }
+.btn:hover { background: var(--bg-subtle); }
+.btn-icon { padding: 0; }
+.btn-solid { background: var(--btn-bg); border-color: var(--btn-bg); color: var(--text-on-brand); }
+.btn-solid:hover { background: var(--sti-blue-dark); }
+.btn-danger { background: var(--status-critical-bg); border-color: var(--status-critical-bar); color: var(--status-critical-text); }
+.btn-danger:hover { background: var(--status-critical-bg); filter: brightness(0.96); }
+.btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+.btn-ghost { border-color: transparent; background: transparent; }
+
+/* page */
+.page { display: flex; flex-direction: column; gap: 1rem; }
+.page-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.section-tabs { display: flex; gap: 0.25rem; border-bottom: 1px solid var(--card-border); overflow-x: auto; }
+.section-tabs button { display: inline-flex; align-items: center; gap: 0.5rem; min-height: 2.75rem; padding: 0 1rem; border: 0;
+  border-bottom: 0.1875rem solid transparent; background: transparent; color: var(--text-secondary); font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.section-tabs button[aria-selected="true"] { color: var(--sti-blue-primary); border-bottom-color: var(--sti-blue-primary); }
+.crumbs { display: flex; align-items: center; flex-wrap: wrap; gap: 0.25rem; font-size: 0.9375rem; }
+.crumbs button { min-height: 2.75rem; padding: 0 0.5rem; border: 0; background: transparent; color: var(--sti-blue-primary); font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; }
+.crumbs .cur { font-weight: 700; padding: 0 0.5rem; }
+.crumbs svg { color: var(--text-secondary); }
+
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.search { position: relative; flex: 1 1 14rem; min-width: 0; }
+.search svg { position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--text-secondary); pointer-events: none; }
+.field { width: 100%; min-height: 2.75rem; padding: 0.5rem 0.75rem; border: 1px solid var(--text-secondary); border-radius: 0.5rem;
+  background: var(--bg-card); color: var(--text-primary); font: inherit; }
+.search .field { padding-left: 2.5rem; }
+select.field { width: auto; }
+.chips { display: inline-flex; flex-wrap: wrap; gap: 0.375rem; }
+.chip-btn { display: inline-flex; align-items: center; gap: 0.375rem; min-height: 2.75rem; padding: 0 0.875rem; border-radius: 999px;
+  border: 1px solid var(--card-border); background: var(--bg-card); color: var(--text-primary); font: inherit; font-size: 0.9375rem; font-weight: 500; cursor: pointer; }
+.chip-btn[aria-pressed="true"] { background: var(--sti-blue-light); border-color: var(--sti-blue-primary); color: var(--sti-blue-primary); font-weight: 700; }
+
+/* folders */
+.folder-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 0.75rem; }
+.folder { display: flex; flex-direction: column; gap: 0.75rem; text-align: left; padding: 1rem; border: 1px solid var(--card-border); border-radius: 0.75rem;
+  background: var(--bg-card); color: inherit; font: inherit; cursor: pointer; min-height: 2.75rem; }
+.folder:hover { border-color: var(--sti-blue-primary); }
+.folder-top { display: flex; align-items: center; gap: 0.75rem; min-width: 0; }
+.folder-ico { display: grid; place-items: center; width: 2.75rem; height: 2.75rem; border-radius: 0.5rem; background: var(--sti-blue-light); color: var(--sti-blue-primary); flex: none; }
+.folder-top > div { min-width: 0; }
+.folder-title { font-weight: 700; overflow-wrap: anywhere; }
+.folder-counts { display: flex; flex-wrap: wrap; gap: 0.375rem; }
+.today-dot { width: 0.625rem; height: 0.625rem; border-radius: 50%; background: var(--status-adequate-bar); margin-left: auto; flex: none; }
+
+/* pills */
+.pill { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.125rem 0.5rem; border-radius: 999px; font-size: 0.875rem; font-weight: 600;
+  background: var(--bg-subtle); color: var(--text-primary); border: 1px solid var(--card-border); white-space: nowrap; }
+.pill.ok { background: var(--status-adequate-bg); color: var(--status-adequate-text); border-color: transparent; }
+.pill.warn { background: var(--status-low-bg); color: var(--status-low-text); border-color: transparent; }
+.pill.bad { background: var(--status-critical-bg); color: var(--status-critical-text); border-color: transparent; }
+.pill.info { background: var(--sti-blue-light); color: var(--sti-blue-primary); border-color: transparent; }
+
+/* status tabs + range */
+.status-tabs { display: flex; gap: 0.25rem; border-bottom: 1px solid var(--card-border); overflow-x: auto; }
+.status-tabs button { display: inline-flex; align-items: center; gap: 0.5rem; min-height: 2.75rem; padding: 0 1rem; border: 0; border-bottom: 0.1875rem solid transparent;
+  background: transparent; color: var(--text-secondary); font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.status-tabs button[aria-selected="true"] { color: var(--sti-blue-primary); border-bottom-color: var(--sti-blue-primary); }
+.count { min-width: 1.5rem; padding: 0 0.4rem; text-align: center; border-radius: 999px; background: var(--bg-subtle); border: 1px solid var(--card-border); font-size: 0.875rem; font-weight: 700; color: var(--text-primary); }
+[aria-selected="true"] > .count { background: var(--sti-blue-light); border-color: transparent; color: var(--sti-blue-primary); }
+.range { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.range label { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.9375rem; font-weight: 600; }
+
+/* day groups + rows */
+.day { display: flex; flex-direction: column; gap: 0.5rem; }
+.day-h { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9375rem; font-weight: 700; color: var(--text-secondary); }
+.rows { display: flex; flex-direction: column; gap: 0.5rem; }
+.sc { display: grid; grid-template-columns: 0.375rem minmax(0, 1fr) auto auto; align-items: center; gap: 0 1rem;
+  background: var(--bg-card); border: 1px solid var(--card-border); border-radius: 0.75rem; overflow: hidden; }
+.sc .bar { align-self: stretch; background: var(--sti-blue-primary); }
+.sc.s-ongoing .bar { background: var(--status-adequate-bar); }
+.sc.s-awaiting .bar { background: var(--status-low-bar); }
+.sc.s-past .bar { background: var(--card-border); }
+.sc.s-cancel .bar { background: var(--status-critical-bar); }
+.sc-main { display: flex; flex-direction: column; gap: 0.25rem; padding: 0.75rem 0; min-width: 0; }
+.sc-top { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.sc-title { font-weight: 700; overflow-wrap: anywhere; }
+.sc-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 1rem; color: var(--text-secondary); font-size: 0.875rem; }
+.sc-meta span { display: inline-flex; align-items: center; gap: 0.375rem; }
+.sc-meta .note { max-width: 18rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meter { display: flex; flex-direction: column; gap: 0.25rem; min-width: 7.5rem; }
+.meter-n { font-weight: 700; font-variant-numeric: tabular-nums; }
+.meter-n small { color: var(--text-secondary); font-weight: 500; font-size: 0.875rem; }
+.track { height: 0.5rem; border-radius: 999px; background: var(--bg-subtle); border: 1px solid var(--card-border); overflow: hidden; }
+.track > i { display: block; height: 100%; background: var(--status-adequate-bar); }
+.sc-actions { display: flex; gap: 0.25rem; padding: 0.5rem 0.75rem 0.5rem 0; }
+.empty { display: grid; justify-items: center; gap: 0.5rem; padding: 2.5rem 1rem; border: 1px dashed var(--card-border); border-radius: 0.75rem; color: var(--text-secondary); }
+.empty svg { width: 2rem; height: 2rem; }
+.pager { display: flex; align-items: center; justify-content: center; gap: 0.75rem; }
+
+/* modal */
+.backdrop { position: fixed; inset: 0; background: var(--backdrop); display: grid; place-items: center; padding: 1rem; z-index: 50; overflow-y: auto; }
+.modal { width: min(100%, 32rem); max-height: calc(100vh - 2rem); display: flex; flex-direction: column; background: var(--bg-card); color: var(--text-primary);
+  border: 1px solid var(--card-border); border-radius: 0.75rem; box-shadow: 0 1rem 3rem rgba(0, 0, 0, 0.3); }
+.modal.lg { width: min(100%, 46rem); }
+.modal.sm { width: min(100%, 24rem); }
+.m-head { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 0.75rem 0.75rem 1.25rem; border-bottom: 1px solid var(--card-border); }
+.m-head h2 { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.m-body { padding: 1.25rem; overflow-y: auto; display: flex; flex-direction: column; gap: 1rem; }
+.m-foot { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 0.5rem; padding: 0.75rem 1.25rem; border-top: 1px solid var(--card-border); }
+.m-foot .grow { margin-right: auto; }
+.steps { display: flex; gap: 0.375rem; }
+.steps i { width: 1.5rem; height: 0.375rem; border-radius: 999px; background: var(--card-border); }
+.steps i.on { background: var(--sti-blue-primary); }
+.fg { display: flex; flex-direction: column; gap: 0.375rem; min-width: 0; }
+.fg label, .fg legend { font-size: 0.9375rem; font-weight: 600; padding: 0; }
+.fg-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.75rem; }
+fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+textarea.field { resize: vertical; }
+.ack { font-weight: 700; }
+.flag { display: inline-flex; align-items: center; gap: 0.375rem; color: var(--status-critical-text); font-size: 0.875rem; font-weight: 600; }
+.req { color: var(--status-critical-text); }
+.tbl-wrap { overflow-x: auto; border: 1px solid var(--card-border); border-radius: 0.5rem; }
+table { width: 100%; border-collapse: collapse; font-size: 0.9375rem; }
+th { text-align: left; font-size: 0.875rem; font-weight: 700; padding: 0.625rem 0.75rem; background: var(--sti-blue-light); color: var(--sti-blue-primary); white-space: nowrap; }
+td { padding: 0.375rem 0.75rem; border-top: 1px solid var(--card-border); vertical-align: middle; }
+td.act { white-space: nowrap; text-align: right; }
+.cbx { width: 1.375rem; height: 1.375rem; accent-color: var(--sti-blue-primary); }
+.cell-cbx { display: grid; place-items: center; min-width: 2.75rem; min-height: 2.75rem; }
+.sum { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; }
+.sum .meter { flex: 1 1 10rem; }
+
+/* changes view */
+.changes { display: flex; flex-direction: column; gap: 1rem; }
+.change-group { display: flex; flex-direction: column; gap: 0.625rem; }
+.change { display: flex; flex-direction: column; gap: 0.375rem; padding: 0.75rem 1rem; background: var(--bg-card); border: 1px solid var(--card-border); border-radius: 0.5rem; }
+.where { font-family: var(--font-mono); font-size: 0.875rem; color: var(--text-secondary); overflow-wrap: anywhere; }
+.fix-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem; }
+.tag { display: inline-block; padding: 0.0625rem 0.5rem; border-radius: 0.25rem; font-size: 0.875rem; font-weight: 700; background: var(--sti-blue-light); color: var(--sti-blue-primary); }
+.tag.rm { background: var(--status-critical-bg); color: var(--status-critical-text); }
+.tag.add { background: var(--status-adequate-bg); color: var(--status-adequate-text); }
+.tag.chg { background: var(--status-low-bg); color: var(--status-low-text); }
+.old { text-decoration: line-through; color: var(--text-secondary); overflow-wrap: anywhere; }
+.new { font-weight: 600; overflow-wrap: anywhere; }
+[hidden] { display: none !important; }
+
+@media (max-width: 40rem) {
+  .sc { grid-template-columns: 0.375rem minmax(0, 1fr); }
+  .meter, .sc-actions { grid-column: 2; padding: 0 0.75rem 0.5rem 0; }
+  .sc-actions { flex-wrap: wrap; }
+  .sc-meta .note { max-width: 100%; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .folder, .btn, .chip-btn { transition: background-color 0.15s, border-color 0.15s; }
+}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-calendar" viewBox="0 0 24 24"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
+  <symbol id="i-check-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></symbol>
+  <symbol id="i-printer" viewBox="0 0 24 24"><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect x="6" y="14" width="12" height="8" rx="1"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></symbol>
+  <symbol id="i-user-plus" viewBox="0 0 24 24"><path d="M2 21a8 8 0 0 1 13.292-6"/><circle cx="10" cy="8" r="5"/><path d="M19 16v6"/><path d="M22 19h-6"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+  <symbol id="i-megaphone" viewBox="0 0 24 24"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/><path d="M4 2C2.8 3.7 2 5.7 2 8"/><path d="M22 8c0-2.3-.8-4.3-2-6"/></symbol>
+  <symbol id="i-clipboard" viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/></symbol>
+  <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></symbol>
+  <symbol id="i-log-in" viewBox="0 0 24 24"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" x2="3" y1="12" y2="12"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+  <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol>
+  <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+  <symbol id="i-rotate" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
+  <symbol id="i-heart" viewBox="0 0 24 24"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></symbol>
+  <symbol id="i-ear" viewBox="0 0 24 24"><path d="M6 8.5a6.5 6.5 0 1 1 13 0c0 6-6 6-6 10a3.5 3.5 0 1 1-7 0"/><path d="M15 8.5a2.5 2.5 0 0 0-5 0v1a2 2 0 1 1 0 4"/></symbol>
+  <symbol id="i-scale" viewBox="0 0 24 24"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></symbol>
+  <symbol id="i-grad" viewBox="0 0 24 24"><path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"/><path d="M22 10v6"/><path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+</svg>
+
+<div class="wrap">
+  <div class="mock">
+    <span class="lbl">Preview</span>
+    <div class="seg" role="group" aria-label="Preview">
+      <button type="button" id="v-improved" aria-pressed="true">Improved page</button>
+      <button type="button" id="v-changes" aria-pressed="false">What changed</button>
+    </div>
+    <span class="note">Example data. Mock of <span class="mono">healthScreening.jsx</span>.</span>
+  </div>
+
+  <div id="improved" class="page"></div>
+
+  <div id="changes" class="changes" hidden>
+    <section class="change-group">
+      <h2>Long text removed</h2>
+      <article class="change">
+        <span class="where">healthScreening.jsx:1423</span>
+        <p class="fix-line"><span class="tag rm">Remove</span> <span class="old">Schedule, manage, and document student health assessments</span></p>
+        <p class="fix-line"><span class="tag chg">Title</span> <span class="new">Health Screening Management &rarr; Health Screening</span></p>
+      </article>
+      <article class="change">
+        <span class="where">healthScreening.jsx:1931-1935 &middot; step 2 note</span>
+        <p class="fix-line"><span class="tag rm">Remove</span> <span class="old">Two paragraphs on class rules and ticks ("A screening is for one class: choose the program, the year level...")</span></p>
+        <p class="fix-line"><span class="tag add">Instead</span> <span class="new">One chip with the folder or class. The selects already say what to pick; required fields show a mark.</span></p>
+      </article>
+      <article class="change">
+        <span class="where">healthScreening.jsx:2486-2489 &middot; make-up</span>
+        <p class="fix-line"><span class="tag rm">Remove</span> <span class="old">"A new ... screening is created only for the students who were absent from ..."</span></p>
+        <p class="fix-line"><span class="tag add">Instead</span> <span class="new">Title "Make-up" plus a chip "3 absent"</span></p>
+      </article>
+      <article class="change">
+        <span class="where">healthScreening.jsx:2527 &middot; refer</span>
+        <p class="fix-line"><span class="tag rm">Remove</span> <span class="old">"Creates a Referral visit in the doctor's open schedule. The result of this screening is attached..."</span></p>
+      </article>
+      <article class="change">
+        <span class="where">healthScreening.jsx:2454 &middot; locked document form</span>
+        <p class="fix-line"><span class="tag rm">Remove</span> <span class="old">"Fill in the required fields and save to continue."</span></p>
+        <p class="fix-line"><span class="tag add">Instead</span> <span class="new">Required marks on the fields; no Cancel while locked is already the rule.</span></p>
+      </article>
+      <article class="change">
+        <span class="where">healthScreening.jsx:2249 &middot; 2142 &middot; 2543 &middot; 2340 &middot; 2020 &middot; 1637 &middot; 1554</span>
+        <p class="fix-line"><span class="tag rm">Remove</span> <span class="old">Cancelled banner sentence, "Results were already recorded, so the type is locked.", "This doctor has no open schedule...", "No participants match your search.", "Select the program, year level and section...", "No screening schedules found for this status or date range.", "No screenings yet. Schedule one to create the first folder."</span></p>
+        <p class="fix-line"><span class="tag add">Instead</span> <span class="new">Cancelled: reason &middot; lock icon with a title &middot; No schedule &middot; No match &middot; No students &middot; None &middot; None (icon above the New button)</span></p>
+      </article>
+      <article class="change">
+        <span class="where">healthScreening.jsx:1540 &middot; 1566 &middot; 1910 &middot; 1905 &middot; 2420 &middot; 2446</span>
+        <p class="fix-line"><span class="tag rm">Remove</span> <span class="old">Placeholders like "Search all screenings by title, student name or ID...", "e.g. Please wear proper sports attire and bring your student ID card."</span></p>
+        <p class="fix-line"><span class="tag chg">Short</span> <span class="new">Search &middot; Notes &middot; Remarks (label "Announcement / Instructions (Optional)" becomes "Notes")</span></p>
+      </article>
+    </section>
+
+    <section class="change-group">
+      <h2>Buttons: icon only</h2>
+      <article class="change">
+        <span class="where">healthScreening.jsx:1620 &middot; 1626 &middot; 1719-1721 &middot; 2071</span>
+        <p class="fix-line"><span class="tag chg">Icon</span> "Show all dates", "Reset filters", "Confirm end time", row "Remove" become icon buttons with <span class="mono">aria-label</span> + <span class="mono">title</span> (2.75rem target).</p>
+      </article>
+      <article class="change">
+        <span class="where">healthScreening.jsx:1916-1918 &middot; 2094 &middot; 2208 &middot; 2515 &middot; 2566</span>
+        <p class="fix-line"><span class="tag chg">Footer</span> <span class="old">Next: Select Target Students &middot; Save &amp; Notify Students &middot; Update &amp; Notify &middot; Create &amp; Notify &middot; Schedule Referral</span> <span class="new">Next &middot; Save &middot; Save &middot; Create &middot; Refer</span></p>
+      </article>
+      <article class="change">
+        <span class="where">healthScreening.jsx:1768 &middot; 1928 &middot; 2245</span>
+        <p class="fix-line"><span class="tag chg">Title</span> "Schedule Health Screening (Step 1 of 2)" and "Select Target Students (Step 2 of 2)" become <span class="new">New screening</span> + a two-dot step bar. "Participant List (type)" becomes the title + a type chip.</p>
+      </article>
+    </section>
+
+    <section class="change-group">
+      <h2>Layout</h2>
+      <article class="change">
+        <span class="where">healthScreening.jsx:1534-1550 &middot; 1561-1577</span>
+        <p class="fix-line"><span class="tag chg">Merge</span> The same search + school year + type toolbar is written twice. One toolbar; type becomes chips (one tap, shows the choice).</p>
+      </article>
+      <article class="change">
+        <span class="where">healthScreening.jsx:1643-1755 &middot; <span class="mono">.card-hs</span></span>
+        <p class="fix-line"><span class="tag chg">Row</span> Tall card with four stacked lines becomes one row: status stripe, type chip + title, date and time on one line, attendance meter, icon actions. The announcement is one truncated line with a megaphone, shown only when set.</p>
+      </article>
+      <article class="change">
+        <span class="where">healthScreening.jsx:1580-1602 &middot; 1428-1461</span>
+        <p class="fix-line"><span class="tag chg">Tabs</span> "Upcoming Screenings / Ongoing Screenings / Past Screenings" become Upcoming / Ongoing / Past with counts. Two tabs use the same Calendar icon; Screenings gets a folder icon.</p>
+      </article>
+      <article class="change">
+        <span class="where">healthScreening.jsx:1668 &middot; 1719</span>
+        <p class="fix-line"><span class="tag add">Add</span> Past rows show Absent and Documented chips (from <span class="mono">absent_count</span> and <span class="mono">result_count</span>). An ongoing screening past its end time gets an amber "Ended" chip next to the bell button.</p>
+      </article>
+      <article class="change">
+        <span class="where">New &middot; folder cards</span>
+        <p class="fix-line"><span class="tag add">Add</span> Counts per state with icon + number, a green dot when something runs today (text in <span class="mono">title</span> and for screen readers).</p>
+      </article>
+    </section>
+
+    <section class="change-group">
+      <h2>Accessibility</h2>
+      <article class="change">
+        <span class="where">healthScreening.jsx:1580-1602 &middot; 1580</span>
+        <p class="fix-line"><span class="tag chg">Tabs</span> The status tabs are plain buttons with no state. Use <span class="mono">role="tablist"</span> / <span class="mono">aria-selected</span> (the Screenings / Calendar buttons already use <span class="mono">aria-pressed</span>).</p>
+      </article>
+      <article class="change">
+        <span class="where">healthScreening.jsx:1796 &middot; 1809 &middot; 1838 &middot; 2252 &middot; 2378 &middot; 2411</span>
+        <p class="fix-line"><span class="tag chg">CSS</span> Inline <span class="mono">style={{...}}</span> (margins, colors) move to classes. The out of range flag keeps color + an alert icon + text.</p>
+      </article>
+      <article class="change">
+        <span class="where">healthScreening.jsx:2048-2081</span>
+        <p class="fix-line"><span class="tag chg">Target</span> Row checkboxes sit in a 2.75rem cell. Remove is an icon button per row.</p>
+      </article>
+    </section>
+  </div>
+</div>
+
+<script>
+(function () {
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var ic = function (n, c) { return '<svg class="i ' + (c || '') + '" aria-hidden="true"><use href="#i-' + n + '"/></svg>'; };
+  var esc = function (s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+
+  /* ---------- example data ---------- */
+  var DAY = 86400000, today = new Date(); today.setHours(0, 0, 0, 0);
+  var inDays = function (n) { return new Date(today.getTime() + n * DAY); };
+  var fmt = function (d) { return d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' }); };
+  var fmtLong = function (d) { return d.toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric' }); };
+  var TYPE_ICON = { 'Vital Signs': 'heart', 'BMI': 'scale', 'Hearing': 'ear' };
+
+  var FOLDERS = [
+    { id: 'f1', title: 'BSIT 2nd Year', sub: 'Section IT-2201' },
+    { id: 'f2', title: 'BSBA 1st Year', sub: 'Section BA-1103' },
+    { id: 'f3', title: 'ABM 2nd Year', sub: 'Section ABM-2A' },
+    { id: 'f4', title: 'Sportsfest Players', sub: 'Custom folder' }
+  ];
+  var S = [
+    { id: 1, f: 'f1', type: 'Vital Signs', title: 'Vital Signs Check', d: 0, t: '09:00 - 11:00', st: 'ongoing', present: 18, total: 25 },
+    { id: 2, f: 'f1', type: 'BMI', title: 'BMI Monitoring', d: 0, t: '08:00 - 09:30', st: 'ongoing', awaiting: true, present: 25, total: 25 },
+    { id: 3, f: 'f1', type: 'Hearing', title: 'Hearing Test', d: 4, t: '13:00 - 15:00', st: 'upcoming', total: 25, note: 'Bring your student ID card' },
+    { id: 4, f: 'f1', type: 'Vital Signs', title: 'Vital Signs Check', d: 8, t: '09:00 - 11:00', st: 'upcoming', total: 25 },
+    { id: 5, f: 'f1', type: 'BMI', title: 'BMI Monitoring', d: -7, t: '08:00 - 10:00', st: 'past', present: 22, total: 25, absent: 3, doc: 22 },
+    { id: 6, f: 'f1', type: 'Vital Signs', title: 'Vital Signs Check', d: -14, t: '09:00 - 11:00', st: 'past', present: 24, total: 25, absent: 1, doc: 24 },
+    { id: 7, f: 'f1', type: 'Hearing', title: 'Hearing Test', d: -28, t: '13:00 - 15:00', st: 'past', cancelled: 'Power outage', total: 25 },
+    { id: 8, f: 'f2', type: 'BMI', title: 'BMI Monitoring', d: 6, t: '10:00 - 12:00', st: 'upcoming', total: 30 },
+    { id: 9, f: 'f2', type: 'Vital Signs', title: 'Vital Signs Check', d: -10, t: '10:00 - 12:00', st: 'past', present: 27, total: 30, absent: 3, doc: 25 },
+    { id: 10, f: 'f3', type: 'Hearing', title: 'Hearing Test', d: -20, t: '09:00 - 11:00', st: 'past', present: 18, total: 20, absent: 2, doc: 18 },
+    { id: 11, f: 'f4', type: 'Vital Signs', title: 'Player Vital Signs', d: 3, t: '07:00 - 09:00', st: 'upcoming', total: 16, note: 'Wear sports attire' }
+  ];
+  var STUDENTS = [
+    ['Maria Santos', 'PRESENT', 1], ['Juan Dela Cruz', 'PRESENT', 1], ['Angela Reyes', 'PRESENT', 0], ['Mark Villanueva', 'PENDING', 0],
+    ['Kristine Bautista', 'PRESENT', 1], ['Paolo Mendoza', 'ABSENT', 0], ['Jasmine Cruz', 'PENDING', 0], ['Carlo Ramos', 'PRESENT', 0]
+  ].map(function (r, i) { return { id: i + 1, name: r[0], att: r[1], doc: !!r[2], cls: 'BSIT 2-A' }; });
+
+  /* ---------- state ---------- */
+  var st = { main: 'screenings', folder: null, tab: 'ongoing', type: 'ALL', q: '', year: '2026-2027', from: '', to: '', modal: null, opener: null, step: 1, picked: { 1: 1, 2: 1, 3: 1 }, pFilter: 'ALL' };
+  var root = $('#improved');
+
+  var counts = function (fid) {
+    var c = { upcoming: 0, ongoing: 0, past: 0 };
+    S.forEach(function (s) { if (s.f === fid) c[s.st]++; });
+    return c;
+  };
+  var btn = function (icon, label, cls, attr) {
+    return '<button type="button" class="btn btn-icon ' + (cls || '') + '" aria-label="' + esc(label) + '" title="' + esc(label) + '" ' + (attr || '') + '>' + ic(icon) + '</button>';
+  };
+
+  /* ---------- page ---------- */
+  function renderPage() {
+    var tabs = [['screenings', 'folder', 'Screenings'], ['calendar', 'calendar', 'Calendar'], ['types', 'clipboard', 'Types'], ['templates', 'file', 'Templates']];
+    var html = '<header class="page-head"><h1>Health Screening</h1>' +
+      btn('plus', 'New screening', 'btn-solid', 'data-act="new"') + '</header>' +
+      '<div class="section-tabs" role="tablist" aria-label="Sections">' +
+      tabs.map(function (t) {
+        return '<button type="button" role="tab" aria-selected="' + (st.main === t[0]) + '" data-act="main" data-v="' + t[0] + '">' + ic(t[1]) + t[2] + '</button>';
+      }).join('') + '</div>';
+    if (st.main === 'screenings') {
+      html += '<nav class="crumbs" aria-label="Folder path">' +
+        (st.folder
+          ? '<button type="button" data-act="root">Screenings</button>' + ic('chevron', 'sm') + '<span class="cur" aria-current="page">' + esc(FOLDERS.filter(function (f) { return f.id === st.folder; })[0].title) + '</span>'
+          : '<span class="cur" aria-current="page">Screenings</span>') + '</nav>' +
+        '<div class="toolbar">' +
+        '<div class="search">' + ic('search') + '<input id="q" class="field" type="search" aria-label="Search" placeholder="Search" value="' + esc(st.q) + '"></div>' +
+        '<select id="yr" class="field" aria-label="School year"><option>2026-2027</option><option>2025-2026</option><option value="">All years</option></select>' +
+        '<div class="chips" role="group" aria-label="Type">' +
+        ['ALL', 'Vital Signs', 'BMI', 'Hearing'].map(function (t) {
+          return '<button type="button" class="chip-btn" aria-pressed="' + (st.type === t) + '" data-act="type" data-v="' + t + '">' + (t === 'ALL' ? 'All' : ic(TYPE_ICON[t], 'sm') + t) + '</button>';
+        }).join('') + '</div></div>' +
+        '<div id="res"></div>';
+    } else {
+      html += '<div class="empty">' + ic('check-circle') + '<p>Unchanged</p></div>';
+    }
+    root.innerHTML = html;
+    $('#yr') && ($('#yr').value = st.year);
+    renderRes();
+  }
+
+  function renderRes() {
+    var host = $('#res'); if (!host) return;
+    host.innerHTML = st.folder ? renderList() : renderFolders();
+  }
+
+  function renderFolders() {
+    var q = st.q.toLowerCase();
+    var list = FOLDERS.filter(function (f) { return !q || f.title.toLowerCase().indexOf(q) > -1 || f.sub.toLowerCase().indexOf(q) > -1; });
+    if (!list.length) return '<div class="empty">' + ic('folder') + '<p>None</p></div>';
+    return '<div class="folder-grid">' + list.map(function (f) {
+      var c = counts(f.id);
+      var run = c.ongoing > 0;
+      return '<button type="button" class="folder" data-act="open" data-id="' + f.id + '">' +
+        '<span class="folder-top"><span class="folder-ico">' + ic('folder') + '</span><span><span class="folder-title">' + esc(f.title) + '</span><br><span class="muted">' + esc(f.sub) + '</span></span>' +
+        (run ? '<span class="today-dot" title="Ongoing today"><span class="sr-only">Ongoing today</span></span>' : '') + '</span>' +
+        '<span class="folder-counts">' +
+        '<span class="pill info" title="Upcoming">' + ic('calendar', 'sm') + c.upcoming + '<span class="sr-only"> upcoming</span></span>' +
+        '<span class="pill ' + (run ? 'ok' : '') + '" title="Ongoing">' + ic('clock', 'sm') + c.ongoing + '<span class="sr-only"> ongoing</span></span>' +
+        '<span class="pill" title="Past">' + ic('check-circle', 'sm') + c.past + '<span class="sr-only"> past</span></span></span></button>';
+    }).join('') + '</div>';
+  }
+
+  function renderList() {
+    var c = counts(st.folder);
+    var tabs = [['upcoming', 'calendar', 'Upcoming'], ['ongoing', 'clock', 'Ongoing'], ['past', 'check-circle', 'Past']];
+    var html = '<div class="status-tabs" role="tablist" aria-label="Status">' + tabs.map(function (t) {
+      return '<button type="button" role="tab" aria-selected="' + (st.tab === t[0]) + '" data-act="tab" data-v="' + t[0] + '">' + ic(t[1]) + t[2] + ' <span class="count">' + c[t[0]] + '</span></button>';
+    }).join('') + '</div>';
+    if (st.tab === 'past') {
+      html += '<div class="range"><label>From <input class="field" type="date" aria-label="From" id="from" value="' + st.from + '"></label>' +
+        '<label>To <input class="field" type="date" aria-label="To" id="to" value="' + st.to + '"></label>' +
+        ((st.from || st.to) ? btn('rotate', 'Reset dates', '', 'data-act="reset"') : '') + '</div>';
+    }
+    var q = st.q.toLowerCase();
+    var rows = S.filter(function (s) {
+      return s.f === st.folder && s.st === st.tab && (st.type === 'ALL' || s.type === st.type) && (!q || s.title.toLowerCase().indexOf(q) > -1);
+    }).sort(function (a, b) { return st.tab === 'past' ? b.d - a.d : a.d - b.d; });
+    if (st.tab === 'past' && (st.from || st.to)) {
+      rows = rows.filter(function (s) {
+        var iso = inDays(s.d).toISOString().slice(0, 10);
+        return (!st.from || iso >= st.from) && (!st.to || iso <= st.to);
+      });
+    }
+    if (!rows.length) return html + '<div class="empty">' + ic('clipboard') + '<p>None</p></div>';
+    var groups = {}, order = [];
+    rows.forEach(function (s) { if (!groups[s.d]) { groups[s.d] = []; order.push(s.d); } groups[s.d].push(s); });
+    html += order.map(function (d) {
+      var head = d === 0 ? 'Today' : d === 1 ? 'Tomorrow' : fmtLong(inDays(d));
+      if (d === 0) head += ' &middot; ' + fmt(inDays(0));
+      return '<section class="day"><h3 class="day-h">' + head + ' <span class="count">' + groups[d].length + '</span></h3><div class="rows">' + groups[d].map(rowHtml).join('') + '</div></section>';
+    }).join('');
+    return html + '<div class="pager">' + btn('chevron-left', 'Previous page', '', 'disabled') + '<span class="muted">1 / 1</span>' + btn('chevron', 'Next page', '', 'disabled') + '</div>';
+  }
+
+  function rowHtml(s) {
+    var cls = s.cancelled ? 's-cancel' : s.awaiting ? 's-awaiting' : 's-' + s.st;
+    var pct = s.present != null ? Math.round(s.present / s.total * 100) : 0;
+    var top = '<span class="pill info">' + ic(TYPE_ICON[s.type], 'sm') + esc(s.type) + '</span><span class="sc-title">' + esc(s.title) + '</span>';
+    if (s.awaiting) top += '<span class="pill warn">' + ic('alert', 'sm') + 'Ended</span>';
+    if (s.cancelled) top += '<span class="pill bad">' + ic('x', 'sm') + 'Cancelled: ' + esc(s.cancelled) + '</span>';
+    var meta = '<span>' + ic('calendar', 'sm') + fmt(inDays(s.d)) + '</span><span>' + ic('clock', 'sm') + s.t + '</span>' +
+      (s.note ? '<span class="note" title="' + esc(s.note) + '">' + ic('megaphone', 'sm') + esc(s.note) + '</span>' : '');
+    var meter;
+    if (s.st === 'upcoming') {
+      meter = '<div class="meter"><span class="meter-n">' + ic('users', 'sm') + ' ' + s.total + ' <small>students</small></span></div>';
+    } else if (s.cancelled) {
+      meter = '<div class="meter"></div>';
+    } else {
+      meter = '<div class="meter"><span class="meter-n">' + s.present + '/' + s.total + ' <small>present</small></span>' +
+        '<div class="track" role="img" aria-label="' + s.present + ' of ' + s.total + ' present"><i style="width:' + pct + '%"></i></div>' +
+        (s.st === 'past' ? '<span class="sc-meta"><span class="pill ' + (s.absent ? 'bad' : '') + '">Absent ' + (s.absent || 0) + '</span><span class="pill ' + (s.doc === s.present ? 'ok' : 'warn') + '">Doc ' + s.doc + '/' + s.present + '</span></span>' : '') + '</div>';
+    }
+    var a = '';
+    if (s.st === 'upcoming') {
+      a = btn('users', 'Participants', '', 'data-act="people" data-id="' + s.id + '"') + btn('pencil', 'Edit', '', 'data-act="new"') + btn('trash', 'Cancel screening', 'btn-danger', 'data-act="cancel" data-id="' + s.id + '"');
+    } else if (s.st === 'ongoing') {
+      if (s.awaiting) a += btn('bell', 'Confirm end time', 'btn-solid', 'data-act="end" data-id="' + s.id + '"');
+      a += btn('file', 'Document', s.awaiting ? '' : 'btn-solid', 'data-act="people" data-id="' + s.id + '"') + btn('play', 'Start', '', '') + btn('trash', 'Cancel screening', 'btn-danger', 'data-act="cancel" data-id="' + s.id + '"');
+    } else if (!s.cancelled) {
+      a = btn('file', 'Records', 'btn-solid', 'data-act="people" data-id="' + s.id + '"') + btn('printer', 'Print report', '', '') + btn('download', 'Download CSV', '', '') +
+        (s.absent ? btn('user-plus', 'Make-up', '', 'data-act="makeup" data-id="' + s.id + '"') : '');
+    } else {
+      a = btn('trash', 'Delete', 'btn-danger', 'data-act="cancel" data-id="' + s.id + '"');
+    }
+    return '<article class="sc ' + cls + '"><span class="bar"></span><div class="sc-main"><div class="sc-top">' + top + '</div><div class="sc-meta">' + meta + '</div></div>' + meter + '<div class="sc-actions">' + a + '</div></article>';
+  }
+
+  /* ---------- modals ---------- */
+  function shell(title, body, foot, size, extraHead) {
+    return '<div class="backdrop" data-act="backdrop"><div class="modal ' + (size || '') + '" role="dialog" aria-modal="true" aria-labelledby="m-title">' +
+      '<div class="m-head"><h2 id="m-title">' + title + '</h2>' + (extraHead || '') + btn('x', 'Close', 'btn-ghost', 'data-act="close"') + '</div>' +
+      '<div class="m-body">' + body + '</div><div class="m-foot">' + foot + '</div></div></div>';
+  }
+  function open(html, opener) {
+    st.opener = opener || document.activeElement;
+    var h = document.createElement('div'); h.id = 'modal-host'; h.innerHTML = html;
+    var old = $('#modal-host'); if (old) old.remove();
+    document.body.appendChild(h);
+    var f = h.querySelector('input:not([type=checkbox]), select, textarea, .m-foot .btn-solid, .m-head .btn');
+    if (f) f.focus();
+  }
+  function closeModal() {
+    var h = $('#modal-host'); if (h) h.remove();
+    if (st.opener && document.body.contains(st.opener)) st.opener.focus();
+    st.opener = null;
+  }
+  function alertModal(msg, kind) {
+    var h = $('#modal-host'), prev = st.opener;
+    var el = document.createElement('div'); el.id = 'modal-host';
+    el.innerHTML = shell(kind === 'success' ? 'Done' : 'Notice', '<p class="fix-line">' + ic(kind === 'success' ? 'check-circle' : 'alert') + ' <span class="ack">' + esc(msg) + '</span></p>', '<button type="button" class="btn btn-solid" data-act="close">OK</button>', 'sm');
+    if (h) h.remove();
+    document.body.appendChild(el); st.opener = prev;
+    el.querySelector('.btn-solid').focus();
+  }
+
+  function scheduleModal() {
+    var f = st.folder ? FOLDERS.filter(function (x) { return x.id === st.folder; })[0] : FOLDERS[0];
+    if (st.step === 1) {
+      return shell('New screening',
+        '<div class="fg"><label for="s-title">Title <span class="req" aria-hidden="true">*</span></label><input id="s-title" class="field" required value="Vital Signs Check"></div>' +
+        '<fieldset class="fg"><legend>Group</legend><div class="chips"><button type="button" class="chip-btn" aria-pressed="true">By section</button><button type="button" class="chip-btn" aria-pressed="false">Custom folder</button></div></fieldset>' +
+        '<div class="fg"><label for="s-type">Type <span class="req" aria-hidden="true">*</span></label><select id="s-type" class="field" style="width:100%"><option>Vital Signs</option><option>BMI</option><option>Hearing</option></select></div>' +
+        '<div class="fg-row"><div class="fg"><label for="s-date">Date <span class="req" aria-hidden="true">*</span></label><input id="s-date" class="field" type="date" value="' + inDays(5).toISOString().slice(0, 10) + '"></div>' +
+        '<div class="fg"><label for="s-st">Start</label><input id="s-st" class="field" type="time" value="09:00"></div>' +
+        '<div class="fg"><label for="s-en">End</label><input id="s-en" class="field" type="time" value="11:00"></div></div>' +
+        '<div class="fg"><label for="s-note">Notes</label><textarea id="s-note" class="field" rows="2" placeholder="Notes"></textarea></div>',
+        '<span class="steps grow" aria-label="Step 1 of 2" role="img"><i class="on"></i><i></i></span><button type="button" class="btn" data-act="close">Cancel</button><button type="button" class="btn btn-solid" data-act="step2">Next ' + ic('arrow-right', 'sm') + '</button>');
+    }
+    var n = Object.keys(st.picked).length;
+    var rows = STUDENTS.map(function (s) {
+      return '<tr><td><span class="cell-cbx"><input class="cbx" type="checkbox" data-act="pick" data-id="' + s.id + '" aria-label="Select ' + esc(s.name) + '"' + (st.picked[s.id] ? ' checked' : '') + '></span></td><td>' + esc(s.name) + '</td><td>' + s.cls + '</td></tr>';
+    }).join('');
+    return shell('New screening',
+      '<div class="sum"><span class="pill info">' + ic('folder', 'sm') + esc(f.title) + ' &middot; ' + esc(f.sub) + '</span></div>' +
+      '<div class="fg-row"><div class="fg"><label for="p-prog">Program</label><select id="p-prog" class="field" style="width:100%"><option>BSIT</option><option>BSBA</option></select></div>' +
+      '<div class="fg"><label for="p-year">Year</label><select id="p-year" class="field" style="width:100%"><option>2nd Year</option><option>1st Year</option></select></div>' +
+      '<div class="fg"><label for="p-sec">Section</label><select id="p-sec" class="field" style="width:100%"><option>IT-2201</option><option>IT-2202</option></select></div></div>' +
+      '<div class="search">' + ic('search') + '<input id="p-q" class="field" type="search" aria-label="Search student" placeholder="Search"></div>' +
+      '<div class="tbl-wrap"><table><thead><tr><th scope="col"><span class="sr-only">Select</span></th><th scope="col">Student</th><th scope="col">Class</th></tr></thead><tbody>' + rows + '</tbody></table></div>',
+      '<span class="steps" aria-label="Step 2 of 2" role="img"><i></i><i class="on"></i></span><span class="pill info grow" role="status">' + ic('users', 'sm') + '<span id="pick-n">' + n + '</span> selected</span>' +
+      btn('arrow-left', 'Back', '', 'data-act="step1"') + '<button type="button" class="btn btn-solid" data-act="save-sch"' + (n ? '' : ' disabled') + '>Save</button>', 'lg');
+  }
+
+  function peopleModal(id) {
+    var s = S.filter(function (x) { return x.id === +id; })[0];
+    var live = s.st === 'ongoing';
+    var present = STUDENTS.filter(function (x) { return x.att === 'PRESENT'; }).length;
+    var f = st.pFilter;
+    var list = STUDENTS.filter(function (x) { return f === 'ALL' || x.att === f; });
+    var rows = list.map(function (x) {
+      var cls = x.att === 'PRESENT' ? 'ok' : x.att === 'ABSENT' ? 'bad' : 'warn';
+      var icn = x.att === 'PRESENT' ? 'check-circle' : x.att === 'ABSENT' ? 'x' : 'clock';
+      var acts = btn('history', 'Records of ' + x.name, 'btn-ghost', '');
+      if (live && x.att !== 'PRESENT') acts += btn('log-in', 'Time in ' + x.name, '', 'data-act="timein" data-id="' + x.id + '"');
+      acts += btn('file', 'Document ' + x.name, x.att === 'PRESENT' ? 'btn-solid' : '', x.att === 'PRESENT' ? 'data-act="doc" data-id="' + x.id + '"' : 'disabled');
+      return '<tr><td>' + esc(x.name) + '<br><span class="muted">' + x.cls + '</span></td>' +
+        '<td><span class="pill ' + cls + '">' + ic(icn, 'sm') + x.att.charAt(0) + x.att.slice(1).toLowerCase() + '</span></td>' +
+        '<td><span class="pill ' + (x.doc ? 'ok' : 'warn') + '">' + (x.doc ? 'Documented' : 'Pending') + '</span></td><td class="act">' + acts + '</td></tr>';
+    }).join('') || '<tr><td colspan="4" class="muted">None</td></tr>';
+    return shell(esc(s.title) + ' <span class="pill info">' + ic(TYPE_ICON[s.type], 'sm') + esc(s.type) + '</span>',
+      '<div class="sum"><div class="meter"><span class="meter-n">' + present + '/' + STUDENTS.length + ' <small>present</small></span><div class="track" role="img" aria-label="' + present + ' of ' + STUDENTS.length + ' present"><i style="width:' + Math.round(present / STUDENTS.length * 100) + '%"></i></div></div>' +
+      '<div class="chips" role="group" aria-label="Attendance">' + ['ALL', 'PRESENT', 'ABSENT', 'PENDING'].map(function (k) {
+        return '<button type="button" class="chip-btn" aria-pressed="' + (f === k) + '" data-act="pf" data-v="' + k + '" data-id="' + id + '">' + (k === 'ALL' ? 'All' : k.charAt(0) + k.slice(1).toLowerCase()) + '</button>';
+      }).join('') + '</div></div>' +
+      '<div class="tbl-wrap"><table><thead><tr><th scope="col">Student</th><th scope="col">Attendance</th><th scope="col">Record</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead><tbody>' + rows + '</tbody></table></div>',
+      btn('printer', 'Print list', '', '') + btn('download', 'Download CSV', '', '') + '<button type="button" class="btn grow" data-act="close" style="margin-left:auto">Close</button>', 'lg');
+  }
+
+  function docModal(id) {
+    var s = STUDENTS.filter(function (x) { return x.id === +id; })[0];
+    return shell('Document: ' + esc(s.name),
+      '<div class="fg-row"><div class="fg"><label for="d-sys">Systolic (mmHg) <span class="req" aria-hidden="true">*</span></label><input id="d-sys" class="field" type="number" inputmode="numeric" placeholder="90-119" value="132" aria-describedby="d-sys-f"><span id="d-sys-f" class="flag">' + ic('alert', 'sm') + 'Outside 90-119</span></div>' +
+      '<div class="fg"><label for="d-dia">Diastolic (mmHg) <span class="req" aria-hidden="true">*</span></label><input id="d-dia" class="field" type="number" inputmode="numeric" placeholder="60-79" value="76"></div></div>' +
+      '<div class="fg-row"><div class="fg"><label for="d-pul">Pulse (bpm)</label><input id="d-pul" class="field" type="number" inputmode="numeric" placeholder="60-100" value="82"></div>' +
+      '<div class="fg"><label for="d-tmp">Temp (&deg;C)</label><input id="d-tmp" class="field" type="number" step="0.1" placeholder="36.1-37.5" value="36.8"></div></div>' +
+      '<div class="fg"><label for="d-rem">Remarks</label><textarea id="d-rem" class="field" rows="2" placeholder="Remarks"></textarea></div>',
+      '<button type="button" class="btn" data-act="close">Cancel</button><button type="button" class="btn btn-solid" data-act="save-doc">Save</button>');
+  }
+
+  function cancelModal(id) {
+    var s = S.filter(function (x) { return x.id === +id; })[0];
+    return shell('Cancel screening?',
+      '<p class="ack">' + esc(s.title) + ' &middot; ' + fmt(inDays(s.d)) + '</p><div class="fg"><label for="c-r">Reason <span class="req" aria-hidden="true">*</span></label><textarea id="c-r" class="field" rows="2" required></textarea></div>',
+      '<button type="button" class="btn" data-act="close">Back</button><button type="button" class="btn btn-danger" data-act="do-cancel">' + ic('trash', 'sm') + 'Cancel screening</button>', 'sm');
+  }
+
+  function endModal(id) {
+    var s = S.filter(function (x) { return x.id === +id; })[0];
+    return shell('Session ended',
+      '<p class="fix-line">' + ic('clock') + '<span class="ack">' + esc(s.title) + ' ended 09:30</span></p>' +
+      '<div class="fg"><label for="e-min">Extend by</label><select id="e-min" class="field" style="width:100%"><option>15 min</option><option>30 min</option><option>60 min</option></select></div>',
+      '<button type="button" class="btn grow" data-act="close">Later</button><button type="button" class="btn" data-act="extend">Extend</button><button type="button" class="btn btn-solid" data-act="confirm-end">Confirm end</button>', 'sm');
+  }
+
+  function makeupModal(id) {
+    var s = S.filter(function (x) { return x.id === +id; })[0];
+    return shell('Make-up <span class="pill bad">' + s.absent + ' absent</span>',
+      '<div class="fg"><label for="m-t">Title</label><input id="m-t" class="field" value="' + esc(s.title) + ' (make-up)"></div>' +
+      '<div class="fg-row"><div class="fg"><label for="m-d">Date</label><input id="m-d" class="field" type="date" value="' + inDays(3).toISOString().slice(0, 10) + '"></div>' +
+      '<div class="fg"><label for="m-s">Start</label><input id="m-s" class="field" type="time" value="09:00"></div>' +
+      '<div class="fg"><label for="m-e">End</label><input id="m-e" class="field" type="time" value="10:00"></div></div>',
+      '<button type="button" class="btn" data-act="close">Cancel</button><button type="button" class="btn btn-solid" data-act="save-makeup">Create</button>');
+  }
+
+  /* ---------- events ---------- */
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest('[data-act]'); if (!t) return;
+    var act = t.getAttribute('data-act'), id = t.getAttribute('data-id'), v = t.getAttribute('data-v');
+    if (act === 'backdrop') { if (e.target === t) closeModal(); return; }
+    if (act === 'main') { st.main = v; renderPage(); }
+    else if (act === 'open') { st.folder = id; st.tab = counts(id).ongoing ? 'ongoing' : 'upcoming'; renderPage(); }
+    else if (act === 'root') { st.folder = null; renderPage(); }
+    else if (act === 'tab') { st.tab = v; renderRes(); var b = root.querySelector('[data-act="tab"][data-v="' + v + '"]'); if (b) b.focus(); }
+    else if (act === 'type') { st.type = v; renderPage(); var b2 = root.querySelector('[data-act="type"][data-v="' + v + '"]'); if (b2) b2.focus(); }
+    else if (act === 'reset') { st.from = ''; st.to = ''; renderRes(); }
+    else if (act === 'new') { st.step = 1; open(scheduleModal(), t); }
+    else if (act === 'step2') { st.step = 2; open(scheduleModal(), st.opener); }
+    else if (act === 'step1') { st.step = 1; open(scheduleModal(), st.opener); }
+    else if (act === 'pick') { if (t.checked) st.picked[id] = 1; else delete st.picked[id]; var n = Object.keys(st.picked).length; $('#pick-n').textContent = n; $('[data-act="save-sch"]').disabled = !n; return; }
+    else if (act === 'save-sch') { alertModal('Screening saved. Students notified.', 'success'); }
+    else if (act === 'people') { st.pFilter = 'ALL'; open(peopleModal(id), t); }
+    else if (act === 'pf') { st.pFilter = v; var op = st.opener; open(peopleModal(id), op); var nb = $('[data-act="pf"][data-v="' + v + '"]'); if (nb) nb.focus(); }
+    else if (act === 'timein') { STUDENTS.forEach(function (x) { if (x.id === +id) x.att = 'PRESENT'; }); var op2 = st.opener; var cur = S.filter(function (x) { return x.id === 1; })[0]; open(peopleModal(cur.id), op2); }
+    else if (act === 'doc') { open(docModal(id), t); }
+    else if (act === 'save-doc') { alertModal('Result saved.', 'success'); }
+    else if (act === 'cancel') { open(cancelModal(id), t); }
+    else if (act === 'do-cancel') { var r = $('#c-r'); if (!r.value.trim()) { r.focus(); r.style.borderColor = 'var(--status-critical-bar)'; return; } alertModal('Screening cancelled. Students notified.', 'success'); }
+    else if (act === 'end') { open(endModal(id), t); }
+    else if (act === 'confirm-end' || act === 'extend') { alertModal(act === 'extend' ? 'End time extended.' : 'Screening moved to Past.', 'success'); }
+    else if (act === 'makeup') { open(makeupModal(id), t); }
+    else if (act === 'save-makeup') { alertModal('Make-up created. Students notified.', 'success'); }
+    else if (act === 'close') { closeModal(); }
+  });
+  document.addEventListener('input', function (e) {
+    if (e.target.id === 'q') { st.q = e.target.value; renderRes(); }
+    else if (e.target.id === 'from') { st.from = e.target.value; renderRes(); }
+    else if (e.target.id === 'to') { st.to = e.target.value; renderRes(); }
+  });
+  document.addEventListener('keydown', function (e) {
+    var h = $('#modal-host'); if (!h) return;
+    if (e.key === 'Escape') { closeModal(); return; }
+    if (e.key !== 'Tab') return;
+    var f = h.querySelectorAll('button:not([disabled]), input, select, textarea');
+    if (!f.length) return;
+    var first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  });
+
+  /* preview switch */
+  function show(which) {
+    $('#improved').hidden = which !== 'improved';
+    $('#changes').hidden = which !== 'changes';
+    $('#v-improved').setAttribute('aria-pressed', which === 'improved');
+    $('#v-changes').setAttribute('aria-pressed', which === 'changes');
+  }
+  $('#v-improved').addEventListener('click', function () { show('improved'); });
+  $('#v-changes').addEventListener('click', function () { show('changes'); });
+
+  st.folder = 'f1';
+  renderPage();
+})();
+</script>

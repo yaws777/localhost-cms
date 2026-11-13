@@ -1,10 +1,10 @@
 // healthRecords.jsx
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, RotateCcw, Printer } from 'lucide-react'; 
+import { Eye, RotateCcw, Printer, ClipboardList } from 'lucide-react';
 import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/HealthRecords.css';
-import { useAlert } from '../../context/AlertContext';
+import { useAlert } from '../../context/AlertContext';
 import { formatDate } from '../../utils/datetime';
 
 export default function HealthRecord() {
@@ -648,14 +648,24 @@ export default function HealthRecord() {
                                             {formatHealthHistory(student)}
                                         </td>
                                         <td className="action-col">
-                                            <button 
-                                                onClick={() => navigate(`/health-records/view/${student.student_id}`)}
-                                                className="btn-icon-only"
-                                                title="View Profile"
-                                                aria-label={`View profile for student ${student.student_id}`}
-                                            >
-                                                <Eye size={18} />
-                                            </button>
+                                            <div className="action-group">
+                                                <button
+                                                    onClick={() => navigate(`/health-records/view/${student.student_id}`)}
+                                                    className="btn-icon-only"
+                                                    title="View Profile"
+                                                    aria-label={`View profile for student ${student.student_id}`}
+                                                >
+                                                    <Eye size={18} />
+                                                </button>
+                                                <button
+                                                    onClick={() => navigate(`/health-records/logs/${student.student_id}`)}
+                                                    className="btn-icon-only"
+                                                    title="Clinic Logs"
+                                                    aria-label={`View clinic logs for student ${student.student_id}`}
+                                                >
+                                                    <ClipboardList size={18} />
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}

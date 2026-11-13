@@ -3,7 +3,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import {
   CalendarRange,
-  Search, 
+  ChevronsUp,
+  Search,
   UserPlus, 
   Edit, 
   Eye,
@@ -292,6 +293,46 @@ export default function ManageStudentAccounts() {
   };
 
   const setFilter = (key, value) => setFilters(prev => ({ ...prev, [key]: value }));
+
+  // Multi-select to move students up one year level (strand stops at 2nd year, course at 4th year)
+  const [pickedIds, setPickedIds] = useState([]);
+  const [pickMode, setPickMode] = useState(false);
+  const stopPicking = () => { setPickMode(false); setPickedIds([]); };
+  const canMoveUp = (s) => Number(s.is_active) === 1 && !isFinalYear(s.program_id, s.year_level);
+  const movable = Array.isArray(students) ? students.filter(canMoveUp) : [];
+  const movableIds = new Set(movable.map((s) => s.student_id));
+  const picked = pickedIds.filter((id) => movableIds.has(id));
+  const allPicked = movable.length > 0 && picked.length === movable.length;
+
+  const togglePicked = (id) => setPickedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const toggleAllPicked = () => setPickedIds(allPicked ? [] : movable.map((s) => s.student_id));
+
+  const handleMoveUp = () => {
+    if (!picked.length) return;
+    showConfirm(
+      'Move up',
+      `Move ${picked.length} student(s) to the next year level?`,
+      async () => {
+        closeModalConfig();
+        try {
+          const res = await fetch(`${API_BASE}/students/move-up/manageStudentAccounts`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ student_ids: picked })
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data?.error || 'Could not move students up.');
+          const skipped = (data.skipped_final_year || 0) + (data.skipped_inactive || 0) + (data.not_found || 0);
+          stopPicking();
+          await fetchStudents(searchQuery, filtersRef.current);
+          showAlert('Moved up', `${data.moved} moved${skipped ? `, ${skipped} skipped` : ''}.`, skipped ? 'warning' : 'success');
+        } catch (err) {
+          showAlert('Error', err.message || 'Could not move students up.', 'error');
+        }
+      },
+      'Move up'
+    );
+  };
 
   // EXPORT REPORT FOR ALL STUDENT ACCOUNTS
   const handleExportAllReport = () => {
@@ -1259,11 +1300,57 @@ export default function ManageStudentAccounts() {
               <span>Clear filters</span>
             </button>
             <span className="filters-count-msa" role="status">{students.length} account(s) shown</span>
+            {!pickMode ? (
+              <button
+                type="button"
+                className="btn-icon-msa btn-moveup-msa"
+                onClick={() => setPickMode(true)}
+                aria-label="Move up one year level"
+                title="Move up one year level"
+              >
+                <ChevronsUp size={18} aria-hidden="true" />
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="btn-icon-msa btn-moveup-msa"
+                  onClick={handleMoveUp}
+                  disabled={!picked.length}
+                  aria-label={`Move ${picked.length} selected up one year level`}
+                  title={`Move ${picked.length} selected up`}
+                >
+                  <Check size={18} aria-hidden="true" />
+                  <span className="moveup-count-msa">{picked.length}</span>
+                </button>
+                <button
+                  type="button"
+                  className="btn-icon-msa btn-moveup-cancel-msa"
+                  onClick={stopPicking}
+                  aria-label="Cancel selection"
+                  title="Cancel"
+                >
+                  <X size={18} aria-hidden="true" />
+                </button>
+              </>
+            )}
           </div>
           <div className="table-container-msa">
             <table className="table-msa">
               <thead>
                 <tr>
+                  {pickMode && (
+                    <th className="check-col-msa">
+                      <input
+                        type="checkbox"
+                        checked={allPicked}
+                        onChange={toggleAllPicked}
+                        disabled={!movable.length}
+                        aria-label="Select all students that can move up"
+                        title="Select all that can move up"
+                      />
+                    </th>
+                  )}
                   <th>Student ID</th>
                   <th>Full Name</th>
                   <th>Username</th>
@@ -1279,6 +1366,18 @@ export default function ManageStudentAccounts() {
                 {Array.isArray(students) && students.length > 0 ? (
                   students.map((student) => (
                     <tr key={student.student_id}>
+                      {pickMode && (
+                        <td className="check-col-msa">
+                          <input
+                            type="checkbox"
+                            checked={picked.includes(student.student_id)}
+                            onChange={() => togglePicked(student.student_id)}
+                            disabled={!canMoveUp(student)}
+                            aria-label={`Select ${student.first_name} ${student.last_name}`}
+                            title={canMoveUp(student) ? 'Select' : (Number(student.is_active) === 1 ? 'Last year' : 'Inactive')}
+                          />
+                        </td>
+                      )}
                       <td className="font-bold-msa">{student.student_id}</td>
                       <td>{`${student.first_name} ${student.last_name}`}</td>
                       <td>{student.username || <span className="text-muted-msa">N/A</span>}</td>
@@ -1340,7 +1439,7 @@ export default function ManageStudentAccounts() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan="9" className="empty-table-msa">
+                    <td colSpan={pickMode ? 10 : 9} className="empty-table-msa">
                       {filtersActive || searchQuery ? 'No student accounts match the search and filters.' : 'No student accounts found.'}
                     </td>
                   </tr>

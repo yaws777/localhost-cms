@@ -1,0 +1,320 @@
+<title>Health Information Tab</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: mock controls on top, then the real tab: snapshot cards (BMI + vitals), health history (filled items only), screenings + clinic visits. */
+:root {
+  --sti-blue-dark: #002f6c;
+  --sti-blue-primary: #004b87;
+  --sti-blue-light: #e6f0fa;
+  --sti-yellow: #ffcc00;
+  --bg-page: #f8fafc;
+  --bg-card: #ffffff;
+  --bg-subtle: #f1f5f9;
+  --card-border: #d0d5dd;
+  --text-primary: #1d2939;
+  --text-secondary: #556070;
+  --text-on-brand: #ffffff;
+  --status-adequate-bg: #dcfce7; --status-adequate-text: #166534;
+  --status-low-bg: #fef3c7;      --status-low-text: #8a4b08;
+  --status-critical-bg: #fee2e2; --status-critical-text: #991b1b;
+  --band-under: #7aa7d6; --band-normal: #4aa56b; --band-over: #e0a02e; --band-obese: #d4584f;
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --sti-blue-dark: #0a3d75; --sti-blue-primary: #3b82c4; --sti-blue-light: #16304a;
+    --bg-page: #0f172a; --bg-card: #1e293b; --bg-subtle: #172033; --card-border: #475569;
+    --text-primary: #e2e8f0; --text-secondary: #a3b1c6;
+    --status-adequate-bg: #14391f; --status-adequate-text: #86efac;
+    --status-low-bg: #43300c; --status-low-text: #fcd34d;
+    --status-critical-bg: #4a1a1a; --status-critical-text: #fca5a5;
+    --band-under: #5b8cc0; --band-normal: #3f9a62; --band-over: #c98d1f; --band-obese: #c24a42;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --sti-blue-dark: #0a3d75; --sti-blue-primary: #3b82c4; --sti-blue-light: #16304a;
+  --bg-page: #0f172a; --bg-card: #1e293b; --bg-subtle: #172033; --card-border: #475569;
+  --text-primary: #e2e8f0; --text-secondary: #a3b1c6;
+  --status-adequate-bg: #14391f; --status-adequate-text: #86efac;
+  --status-low-bg: #43300c; --status-low-text: #fcd34d;
+  --status-critical-bg: #4a1a1a; --status-critical-text: #fca5a5;
+  --band-under: #5b8cc0; --band-normal: #3f9a62; --band-over: #c98d1f; --band-obese: #c24a42;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg-page); color: var(--text-primary);
+  font-family: var(--font-sans); font-size: 1rem; line-height: 1.5;
+  padding-block: 1.5rem 3rem;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 62rem; margin: 0 auto; display: flex; flex-direction: column; gap: 1.25rem; }
+:focus-visible { outline: 0.1875rem solid var(--sti-blue-primary); outline-offset: 0.125rem; }
+h1, h2, h3, h4, p { margin: 0; }
+h2 { font-size: 1.125rem; font-weight: 700; }
+h3 { font-size: 1rem; font-weight: 600; }
+.sec-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
+.muted { color: var(--text-secondary); font-size: 0.875rem; }
+svg.i { width: 1.125rem; height: 1.125rem; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* mock controls */
+.mock { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; align-items: center; padding: 0.75rem 1rem;
+  background: var(--sti-blue-light); border: 1px dashed var(--sti-blue-primary); border-radius: 0.5rem; }
+.mock .grp { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.mock .lbl { font-size: 0.875rem; font-weight: 600; }
+.seg { display: inline-flex; border: 1px solid var(--sti-blue-primary); border-radius: 0.5rem; overflow: hidden; background: var(--bg-card); }
+.seg button { min-height: 2.75rem; min-width: 2.75rem; padding: 0 0.875rem; border: 0; background: transparent; color: var(--text-primary);
+  font: inherit; font-size: 0.9375rem; font-weight: 500; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--sti-blue-primary); }
+.seg button[aria-pressed="true"] { background: var(--sti-blue-dark); color: var(--text-on-brand); font-weight: 700; }
+.seg button:focus-visible { outline-offset: -0.25rem; }
+
+/* profile shell */
+.banner { display: flex; align-items: center; gap: 1rem; padding: 1rem 1.25rem; background: var(--sti-blue-dark); color: var(--text-on-brand); border-radius: 0.75rem; flex-wrap: wrap; }
+.avatar { width: 3.25rem; height: 3.25rem; border-radius: 50%; background: var(--sti-yellow); color: var(--sti-blue-dark); display: grid; place-items: center; font-weight: 700; font-size: 1.125rem; flex: none; }
+.banner .who { flex: 1 1 12rem; min-width: 0; }
+.banner h1 { font-size: 1.25rem; font-weight: 700; }
+.banner p { font-size: 0.875rem; opacity: 0.92; }
+.chip { display: inline-flex; align-items: center; gap: 0.375rem; padding: 0.1875rem 0.625rem; border-radius: 9999px; font-size: 0.875rem; font-weight: 600; white-space: nowrap; }
+.chip.ok { background: var(--status-adequate-bg); color: var(--status-adequate-text); }
+.chip.warn { background: var(--status-low-bg); color: var(--status-low-text); }
+.chip.bad { background: var(--status-critical-bg); color: var(--status-critical-text); }
+.chip.neutral { background: var(--bg-subtle); color: var(--text-secondary); border: 1px solid var(--card-border); }
+.chip.brand { background: var(--sti-blue-light); color: var(--sti-blue-primary); border: 1px solid var(--sti-blue-primary); }
+.banner .chip.mode { background: rgba(255,255,255,0.14); color: var(--text-on-brand); border: 1px solid rgba(255,255,255,0.5); }
+.btn-icon { min-width: 2.75rem; min-height: 2.75rem; display: inline-grid; place-items: center; border-radius: 0.5rem; border: 1px solid var(--sti-blue-primary);
+  background: var(--sti-blue-dark); color: var(--text-on-brand); cursor: pointer; }
+.btn-icon.ghost { background: var(--bg-card); color: var(--sti-blue-primary); }
+
+.tabs { display: flex; gap: 0.25rem; border-bottom: 1px solid var(--card-border); overflow-x: auto; }
+.tabs span { padding: 0.625rem 1rem; min-height: 2.75rem; display: inline-flex; align-items: center; font-weight: 500; color: var(--text-secondary); white-space: nowrap; border-bottom: 0.1875rem solid transparent; }
+.tabs span.on { color: var(--sti-blue-primary); font-weight: 700; border-bottom-color: var(--sti-blue-primary); }
+
+/* cards */
+.card { background: var(--bg-card); border: 1px solid var(--card-border); border-radius: 0.75rem; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: 1.25rem; }
+.card-title { display: flex; align-items: center; gap: 0.5rem; color: var(--sti-blue-primary); }
+.card-title h3 { color: var(--text-primary); }
+.src { font-size: 0.875rem; color: var(--text-secondary); display: flex; align-items: center; gap: 0.375rem; flex-wrap: wrap; }
+
+.bmi-top { display: flex; align-items: baseline; gap: 0.75rem; flex-wrap: wrap; }
+.bmi-val { font-size: 2.5rem; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.bmi-unit { font-size: 0.875rem; color: var(--text-secondary); }
+.scale { position: relative; padding-top: 1.5rem; }
+.scale .bar { display: flex; height: 0.625rem; border-radius: 9999px; overflow: hidden; }
+.scale .bar i { display: block; height: 100%; }
+.scale .pin { position: absolute; top: 0; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; font-size: 0.875rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.scale .pin::after { content: ""; width: 0.1875rem; height: 1.125rem; background: var(--text-primary); border-radius: 2px; margin-top: 0.125rem; }
+.ticks { position: relative; height: 1.25rem; margin-top: 0.25rem; font-size: 0.875rem; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.ticks span { position: absolute; transform: translateX(-50%); }
+.bands { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; font-size: 0.875rem; color: var(--text-secondary); }
+.bands span { display: inline-flex; align-items: center; gap: 0.375rem; }
+.bands b { width: 0.75rem; height: 0.75rem; border-radius: 2px; display: inline-block; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr)); gap: 0.75rem; }
+.fact { background: var(--bg-subtle); border-radius: 0.5rem; padding: 0.5rem 0.75rem; }
+.fact .k { font-size: 0.875rem; color: var(--text-secondary); }
+.fact .v { font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.vitals { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.75rem; }
+.vital { border: 1px solid var(--card-border); border-radius: 0.5rem; padding: 0.625rem 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; align-items: flex-start; }
+.vital .k { font-size: 0.875rem; color: var(--text-secondary); }
+.vital .v { font-size: 1.25rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.vital .v small { font-size: 0.875rem; font-weight: 500; color: var(--text-secondary); }
+
+.empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 0.5rem; padding: 1.5rem 1rem; color: var(--text-secondary); border: 1px dashed var(--card-border); border-radius: 0.5rem; }
+.empty svg.i { width: 1.75rem; height: 1.75rem; }
+
+/* history */
+.hist { display: flex; flex-direction: column; gap: 0.75rem; list-style: none; padding: 0; margin: 0; }
+.cond { border: 1px solid var(--card-border); border-radius: 0.625rem; padding: 0.875rem 1rem; display: flex; flex-direction: column; gap: 0.625rem; }
+.cond-head { display: flex; align-items: center; gap: 0.625rem; flex-wrap: wrap; }
+.cond-head h4 { font-size: 1rem; font-weight: 700; flex: 1 1 8rem; }
+.cond-head .tick { color: var(--status-adequate-text); }
+.dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 0.5rem 1.25rem; margin: 0; }
+.dl div { min-width: 0; }
+.dl dt { font-size: 0.875rem; color: var(--text-secondary); }
+.dl dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.proof { display: inline-flex; align-items: center; gap: 0.375rem; min-height: 2.75rem; padding: 0 0.75rem; border: 1px solid var(--sti-blue-primary); border-radius: 0.5rem; color: var(--sti-blue-primary); font-weight: 600; font-size: 0.9375rem; text-decoration: underline; background: var(--bg-card); }
+
+/* tables */
+.tbl-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9375rem; }
+th { background: var(--sti-blue-light); color: var(--sti-blue-dark); font-weight: 700; padding: 0.625rem 0.75rem; white-space: nowrap; }
+:root[data-theme="dark"] th { color: var(--text-primary); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) th { color: var(--text-primary); } }
+td { padding: 0.625rem 0.75rem; border-bottom: 1px solid var(--card-border); vertical-align: top; font-variant-numeric: tabular-nums; }
+.notes { font-size: 0.875rem; color: var(--text-secondary); margin-top: 0.75rem; }
+
+@media (prefers-reduced-motion: no-preference) { .scale .pin { transition: left 0.3s ease; } }
+</style>
+
+<div class="wrap">
+  <div class="mock" role="group" aria-label="Mockup controls">
+    <div class="grp"><span class="lbl" id="l-role">Page</span>
+      <div class="seg" id="roleSeg" role="group" aria-labelledby="l-role"></div></div>
+    <div class="grp"><span class="lbl" id="l-stu">Student</span>
+      <div class="seg" id="stuSeg" role="group" aria-labelledby="l-stu"></div></div>
+  </div>
+
+  <header class="banner">
+    <div class="avatar" id="avatar" aria-hidden="true"></div>
+    <div class="who"><h1 id="name"></h1><p id="meta"></p></div>
+    <span id="mode"></span>
+  </header>
+
+  <nav class="tabs" aria-label="Profile tabs"><span>Personal Info</span><span class="on" aria-current="page">Health Information</span><span>Requirements</span></nav>
+
+  <section aria-labelledby="snap-h" class="wrap" style="gap:1rem">
+    <div class="sec-head"><h2 id="snap-h">Health snapshot</h2></div>
+    <div class="grid2" id="snapshot"></div>
+  </section>
+
+  <section class="card" aria-labelledby="hist-h">
+    <div class="sec-head">
+      <h2 id="hist-h">Health history</h2>
+      <div style="display:flex;align-items:center;gap:0.5rem">
+        <span class="chip brand" id="histCount"></span>
+        <span id="editSlot"></span>
+      </div>
+    </div>
+    <div id="history"></div>
+  </section>
+
+  <div class="grid2">
+    <section class="card" aria-labelledby="scr-h">
+      <div class="card-title"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/></svg><h3 id="scr-h">Health screenings</h3></div>
+      <div id="screenings"></div>
+    </section>
+    <section class="card" aria-labelledby="vis-h">
+      <div class="card-title"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg><h3 id="vis-h">Clinic visits</h3></div>
+      <div id="visits"></div>
+    </section>
+  </div>
+</div>
+
+<script>
+var ICON = {
+  eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  pencil: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/>',
+  clip: '<path d="M21.4 11.1l-9.2 9.2a6 6 0 01-8.5-8.5l9.2-9.2a4 4 0 015.7 5.7l-9.2 9.2a2 2 0 01-2.8-2.8l8.5-8.5"/>',
+  check: '<path d="M20 6L9 17l-5-5"/>',
+  alert: '<path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/><path d="M12 9v4M12 17h.01"/>',
+  ruler: '<path d="M21.3 8.7L8.7 21.3a1 1 0 01-1.4 0L2.7 16.7a1 1 0 010-1.4L15.3 2.7a1 1 0 011.4 0l4.6 4.6a1 1 0 010 1.4z"/><path d="M7.5 10.5l2 2M10.5 7.5l2 2M13.5 4.5l2 2M4.5 13.5l2 2"/>',
+  heart: '<path d="M19 14c1.5-1.5 3-3.2 3-5.5A5.5 5.5 0 0016.5 3c-1.8 0-3 .5-4.5 2-1.5-1.5-2.7-2-4.5-2A5.5 5.5 0 002 8.5c0 2.3 1.5 4 3 5.5l7 7z"/>',
+  info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>',
+  shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/>'
+};
+function ic(n) { return '<svg class="i" viewBox="0 0 24 24" aria-hidden="true">' + ICON[n] + '</svg>'; }
+function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+/* Sample data. Real data: /api/profile/:id (conditions), latest BMI + vitals from screening_custom_results, visits from clinic_visits */
+var STUDENTS = {
+  a: { label: 'With records', name: 'Maria Santos', id: '02000123456', prog: 'BSIT', year: '3rd',
+    bmi: { v: 22.4, h: 158, w: 56, date: '14 Oct 2026', title: 'BMI Screening' },
+    vitals: { date: '14 Oct 2026', rows: [['Blood pressure', '124/82', 'mmHg', 'high'], ['Pulse rate', '88', 'bpm', 'ok'], ['Temperature', '36.7', '°C', 'ok'], ['Respiratory rate', '18', '/min', 'ok']] },
+    conditions: [
+      { n: 'Allergies', d: [['Food', 'Shrimp'], ['Medicine', 'Penicillin'], ['Reactions', 'Hives, Rash'], ['Medication taken', 'Cetirizine']], proof: 'allergy-test-result.pdf' },
+      { n: 'Asthma', d: [['Triggers', 'Dust, cold air'], ['Medication taken', 'Salbutamol inhaler']], proof: 'asthma-certificate.pdf' },
+      { n: 'Chicken pox', d: [['Age', '7']] },
+      { n: 'Vision problem', d: [['Specify', 'Myopia'], ['Corrective', 'Wears eyeglasses']] }
+    ],
+    screenings: [['BMI', '14 Oct 2026', 'Normal', 'ok'], ['Vital Signs', '14 Oct 2026', 'BP high', 'bad'], ['Hearing', '02 Aug 2026', 'Normal', 'ok']],
+    visits: [['05 Nov 2026', 'Headache', 'Paracetamol'], ['21 Sep 2026', 'Asthma attack', 'Salbutamol'], ['09 Jun 2026', 'Dizziness', 'Rest']] },
+  b: { label: 'No history', name: 'Daniel Reyes', id: '02000789012', prog: 'BSBA', year: '1st',
+    bmi: { v: 17.2, h: 171, w: 50.3, date: '14 Oct 2026', title: 'BMI Screening' },
+    vitals: { date: '14 Oct 2026', rows: [['Blood pressure', '112/74', 'mmHg', 'ok'], ['Pulse rate', '72', 'bpm', 'ok'], ['Temperature', '36.5', '°C', 'ok'], ['Respiratory rate', '16', '/min', 'ok']] },
+    conditions: [],
+    screenings: [['BMI', '14 Oct 2026', 'Underweight', 'warn'], ['Vital Signs', '14 Oct 2026', 'Normal', 'ok']],
+    visits: [] },
+  c: { label: 'No BMI yet', name: 'Ana Villanueva', id: '02000345678', prog: 'HM', year: '2nd',
+    bmi: null, vitals: null,
+    conditions: [
+      { n: 'Seizure episode', d: [['Last episode', '03 Mar 2025'], ['Medication taken', 'Valproate']], proof: 'neurology-note.pdf' },
+      { n: 'History of surgery', d: [['Specify', 'Appendectomy'], ['Date', '18 Jul 2023']] }
+    ],
+    screenings: [], visits: [['17 Oct 2026', 'Stomach ache', 'Antacid']] }
+};
+var ROLES = { nurse: 'Nurse', student: 'Student', parent: 'Parent' };
+var st = { role: 'nurse', stu: 'a' };
+
+function seg(el, items, key) {
+  el.innerHTML = Object.keys(items).map(function (k) {
+    var label = typeof items[k] === 'string' ? items[k] : items[k].label;
+    return '<button type="button" data-k="' + k + '" aria-pressed="' + (st[key] === k) + '">' + esc(label) + '</button>';
+  }).join('');
+  el.onclick = function (e) { var b = e.target.closest('button'); if (!b) return; st[key] = b.dataset.k; render(); };
+}
+
+function bmiBand(v) { return v < 18.5 ? ['Underweight', 'warn'] : v < 25 ? ['Normal', 'ok'] : v < 30 ? ['Overweight', 'warn'] : ['Obese', 'bad']; }
+function chipIc(c) { return c === 'ok' ? 'check' : c === 'neutral' ? 'info' : 'alert'; }
+
+function renderBmi(b) {
+  var head = '<div class="card-title">' + ic('ruler') + '<h3>Body mass index</h3></div>';
+  if (!b) return '<div class="card">' + head + '<div class="empty">' + ic('info') + '<p>No BMI screening yet</p></div></div>';
+  var band = bmiBand(b.v), min = 15, max = 35, pct = Math.max(0, Math.min(100, (b.v - min) / (max - min) * 100));
+  function w(a, z) { return ((z - a) / (max - min) * 100) + '%'; }
+  var ticks = [[18.5], [25], [30]].map(function (t) { return '<span style="left:' + ((t[0] - min) / (max - min) * 100) + '%">' + t[0] + '</span>'; }).join('');
+  return '<div class="card">' + head +
+    '<div class="bmi-top"><span class="bmi-val">' + b.v.toFixed(1) + '</span><span class="bmi-unit">kg/m²</span>' +
+    '<span class="chip ' + band[1] + '">' + ic(chipIc(band[1])) + band[0] + '</span></div>' +
+    '<div><div class="scale" role="img" aria-label="BMI ' + b.v.toFixed(1) + ', ' + band[0] + '"><div class="pin" style="left:' + pct + '%">' + b.v.toFixed(1) + '</div>' +
+    '<div class="bar"><i style="width:' + w(min, 18.5) + ';background:var(--band-under)"></i><i style="width:' + w(18.5, 25) + ';background:var(--band-normal)"></i><i style="width:' + w(25, 30) + ';background:var(--band-over)"></i><i style="width:' + w(30, max) + ';background:var(--band-obese)"></i></div></div>' +
+    '<div class="ticks" aria-hidden="true">' + ticks + '</div></div>' +
+    '<div class="bands"><span><b style="background:var(--band-under)"></b>Underweight</span><span><b style="background:var(--band-normal)"></b>Normal</span><span><b style="background:var(--band-over)"></b>Overweight</span><span><b style="background:var(--band-obese)"></b>Obese</span></div>' +
+    '<div class="facts"><div class="fact"><div class="k">Height</div><div class="v">' + b.h + ' cm</div></div><div class="fact"><div class="k">Weight</div><div class="v">' + b.w + ' kg</div></div></div>' +
+    '<p class="src">' + ic('clip') + b.title + ' · ' + b.date + '</p></div>';
+}
+
+function renderVitals(v) {
+  var head = '<div class="card-title">' + ic('heart') + '<h3>Vital signs</h3></div>';
+  if (!v) return '<div class="card">' + head + '<div class="empty">' + ic('info') + '<p>No vital signs yet</p></div></div>';
+  var lab = { ok: 'Normal', high: 'High', low: 'Low' };
+  var cells = v.rows.map(function (r) {
+    var cls = r[3] === 'ok' ? 'ok' : 'bad';
+    return '<div class="vital"><span class="k">' + r[0] + '</span><span class="v">' + r[1] + ' <small>' + r[2] + '</small></span><span class="chip ' + cls + '">' + ic(chipIc(cls)) + lab[r[3]] + '</span></div>';
+  }).join('');
+  return '<div class="card">' + head + '<div class="vitals">' + cells + '</div><p class="src">' + ic('clip') + 'Vital Signs Screening · ' + v.date + '</p></div>';
+}
+
+function renderHistory(s) {
+  var n = s.conditions.length;
+  document.getElementById('histCount').textContent = n === 0 ? 'None on record' : n + (n === 1 ? ' condition' : ' conditions');
+  var slot = document.getElementById('editSlot');
+  slot.innerHTML = st.role === 'student' ? '<button type="button" class="btn-icon ghost" aria-label="Edit health history" title="Edit health history">' + ic('pencil') + '</button>' : '';
+  var host = document.getElementById('history');
+  if (n === 0) {
+    host.innerHTML = '<div class="empty">' + ic('shield') + '<p><strong>No health history filled</strong></p></div>';
+    return;
+  }
+  host.innerHTML = '<ul class="hist">' + s.conditions.map(function (c) {
+    var dl = c.d.map(function (p) { return '<div><dt>' + esc(p[0]) + '</dt><dd>' + esc(p[1]) + '</dd></div>'; }).join('');
+    var proof = c.proof ? '<a class="proof" href="#" onclick="return false">' + ic('clip') + esc(c.proof) + '</a>' : '';
+    return '<li class="cond"><div class="cond-head"><span class="tick">' + ic('check') + '</span><h4>' + esc(c.n) + '</h4>' + proof + '</div><dl class="dl">' + dl + '</dl></li>';
+  }).join('') + '</ul>';
+}
+
+function table(head, rows, empty) {
+  if (!rows.length) return '<div class="empty">' + ic('info') + '<p>' + empty + '</p></div>';
+  return '<div class="tbl-wrap"><table><thead><tr>' + head.map(function (h) { return '<th scope="col">' + h + '</th>'; }).join('') + '</tr></thead><tbody>' + rows.join('') + '</tbody></table></div>';
+}
+
+function render() {
+  var s = STUDENTS[st.stu];
+  seg(document.getElementById('roleSeg'), ROLES, 'role');
+  seg(document.getElementById('stuSeg'), STUDENTS, 'stu');
+  document.getElementById('avatar').textContent = s.name.split(' ').map(function (p) { return p[0]; }).join('');
+  document.getElementById('name').textContent = s.name;
+  document.getElementById('meta').textContent = s.prog + ' - ' + s.year + ' Year · ' + s.id;
+  document.getElementById('mode').innerHTML = '<span class="chip mode">' + ic('eye') + (st.role === 'student' ? 'My record' : st.role === 'parent' ? 'View only' : 'Read-only') + '</span>';
+  document.getElementById('snapshot').innerHTML = renderBmi(s.bmi) + renderVitals(s.vitals);
+  renderHistory(s);
+  document.getElementById('screenings').innerHTML = table(['Type', 'Date', 'Result'],
+    s.screenings.map(function (r) { return '<tr><td>' + r[0] + '</td><td>' + r[1] + '</td><td><span class="chip ' + r[3] + '">' + ic(chipIc(r[3])) + r[2] + '</span></td></tr>'; }), 'No screenings yet');
+  document.getElementById('visits').innerHTML = table(['Date', 'Reason', 'Given'],
+    s.visits.map(function (r) { return '<tr><td>' + r[0] + '</td><td>' + r[1] + '</td><td>' + r[2] + '</td></tr>'; }), 'No clinic visits');
+}
+render();
+</script>

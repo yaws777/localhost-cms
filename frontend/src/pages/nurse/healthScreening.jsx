@@ -3,15 +3,16 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { 
   Calendar, Clock, Users, Eye, Activity, Smile, HeartPulse, Ear, 
-  X, CheckCircle, Edit3, Trash2, FileText, ArrowLeft, ArrowRight, Megaphone, Printer, Filter,
-  Play, UserRoundPlus, Download, Search, ClipboardList, BellRing, History, LogIn, FolderPlus
+  X, CheckCircle, Edit3, Trash2, FileText, ArrowLeft, ArrowRight, Megaphone, Printer,
+  Play, UserRoundPlus, Download, Search, ClipboardList, BellRing, History, LogIn, FolderPlus,
+  Plus, GraduationCap, RotateCcw, CalendarDays, Folder, AlertTriangle, Lock, Scale
 } from 'lucide-react';
 
 import { openReportWindow, writeReport, escapeHtml } from '../../utils/printReport';
 import stiLogo from '../../assets/sti-logof.png';
 import { formatDate, formatTime } from '../../utils/datetime';
 import '../../styles/nurse/HealthScreening.css';
-import { FolderCrumbs, FolderGrid, Pager, sectionFolderName, paginate, scopeCounts, TabCount, groupByDay, dayKey, dayHeading, DaySection } from '../../components/common/RecordFolders';
+import { FolderCrumbs, Pager, sectionFolderName, paginate, scopeCounts, TabCount, groupByDay, dayKey, dayHeading, DaySection } from '../../components/common/RecordFolders';
 import ScreeningTypesManager from '../../components/nurse/ScreeningTypesManager';
 import ScreeningCalendar from '../../components/nurse/ScreeningCalendar';
 import ScreeningParticipantsModal from '../../components/nurse/ScreeningParticipantsModal';
@@ -35,7 +36,58 @@ const typeLabel = (type) => (['Dental', 'Vision'].includes(type) ? `${type} (leg
 const KIND_ICONS = { BMI: Activity, VITAL_SIGNS: HeartPulse, HEARING: Ear, CUSTOM: ClipboardList, DENTAL: Smile, VISION: Eye };
 const hasResult = (st) => !!(st.bmi_log_id || st.custom_record_id || st.vital_record_id || st.hearing_record_id || st.dental_record_id || st.vision_record_id);
 
-const flagColor = (flag) => (flag === 'Normal' ? 'var(--status-adequate-text)' : flag ? 'var(--status-critical-text)' : 'var(--text-secondary)');
+// Two-dot step bar for the schedule form (replaces "Step 1 of 2" in the title)
+const StepDots = ({ step }) => (
+  <span className="steps-hs" role="img" aria-label={`Step ${step} of 2`}>
+    <i className={step === 1 ? 'on-hs' : ''} />
+    <i className={step === 2 ? 'on-hs' : ''} />
+  </span>
+);
+
+// Cosmetic icon of a screening type by name (the result form still comes from form_kind)
+const TYPE_NAME_ICONS = { 'Vital Signs': HeartPulse, BMI: Scale, Hearing: Ear };
+const typeIcon = (name, formKind) => TYPE_NAME_ICONS[name] || KIND_ICONS[formKind] || ClipboardList;
+
+const FOLDER_VARIANT_ICONS = { all: CalendarDays, archive: GraduationCap };
+
+// Folder cards: icon tile, name, one line below, then one pill per state (upcoming / ongoing / past) with icon + number
+const ScreeningFolders = ({ items }) => {
+  if (items.length === 0) return <div className="no-records-hs"><Folder size={28} aria-hidden="true" /><p>None</p></div>;
+  return (
+    <div className="fld-grid-hs">
+      {items.map((f) => {
+        const c = f.counts;
+        const running = !!c && Number(c.ongoing) > 0;
+        const Icon = FOLDER_VARIANT_ICONS[f.variant] || Folder;
+        return (
+          <button type="button" key={f.key} className="fld-hs" onClick={f.onClick}>
+            <span className="fld-top-hs">
+              <span className="fld-ico-hs"><Icon size={20} aria-hidden="true" /></span>
+              <span className="fld-text-hs">
+                <span className="fld-title-hs">{f.title}</span>
+                {f.subtitle && <span className="fld-sub-hs">{f.subtitle}</span>}
+              </span>
+              {running && <span className="fld-dot-hs" title="Ongoing"><span className="sr-only-hs">Ongoing</span></span>}
+            </span>
+            {c && (
+              <span className="fld-counts-hs">
+                <span className="chip-hs chip-info-hs" title="Upcoming"><Calendar size={14} aria-hidden="true" />{Number(c.upcoming) || 0}<span className="sr-only-hs"> upcoming</span></span>
+                <span className={`chip-hs ${running ? 'chip-ok-hs' : ''}`} title="Ongoing"><Clock size={14} aria-hidden="true" />{Number(c.ongoing) || 0}<span className="sr-only-hs"> ongoing</span></span>
+                <span className="chip-hs" title="Past"><CheckCircle size={14} aria-hidden="true" />{Number(c.past) || 0}<span className="sr-only-hs"> past</span></span>
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
+// Red asterisk after the label of a required field (the input itself carries `required`)
+const Req = () => <span className="req-hs" aria-hidden="true">*</span>;
+
+// Short range text for a number outside its normal range
+const rangeFlagText = (f) => `${f.min !== undefined ? f.min : '...'} to ${f.max !== undefined ? f.max : '...'}${f.unit ? ` ${f.unit}` : ''}`;
 
 const time12 = (t) => {
   if (!t) return '';
@@ -373,7 +425,7 @@ export default function HealthScreening() {
 
   // Print the screenings of the open folder / tab as a summary report
   const handleExportAllReport = async () => {
-    const win = openReportWindow(() => showAlert('Please allow popups in your browser to preview and print the report.', 'Popup Blocked', 'warning'));
+    const win = openReportWindow(() => showAlert('Allow popups to print.', 'Popup Blocked', 'warning'));
     if (!win) return;
 
     const rowsToExport = await fetchAllScheduleRows();
@@ -400,7 +452,7 @@ export default function HealthScreening() {
   // Print the participants of the open screening
   const handleExportSingleReport = () => {
     if (!activeSchedule) return;
-    const win = openReportWindow(() => showAlert('Please allow popups in your browser to preview and print the report.', 'Popup Blocked', 'warning'));
+    const win = openReportWindow(() => showAlert('Allow popups to print.', 'Popup Blocked', 'warning'));
     if (!win) return;
 
     const isScheduleEnded = screeningOver(activeSchedule);
@@ -538,7 +590,7 @@ export default function HealthScreening() {
       setPageInfo({ total: data.total, pageCount: data.pageCount, pageSize: data.pageSize });
     } catch (err) {
       console.error('Error fetching schedules:', err);
-      showAlert('Could not load the screening schedules. Please refresh the page.', 'Error', 'error');
+      showAlert('Could not load screenings.', 'Error', 'error');
     }
   }, [fetchFolders, fetchCalendar]);
 
@@ -576,7 +628,7 @@ export default function HealthScreening() {
   const openCustomFolder = (f) => { setView({ kind: 'custom', folder_id: f.folder_id, folder_name: f.name }); setSearchTerm(''); };
 
   const crumbTrail = (() => {
-    const trail = [{ label: 'Health Screening', onClick: goRoot }];
+    const trail = [{ label: 'Screenings', onClick: goRoot }];
     if (view.kind === 'custom') trail.push({ label: view.folder_name });
     if (view.kind === 'program' || view.kind === 'section') {
       trail.push({
@@ -638,16 +690,25 @@ export default function HealthScreening() {
   // ---- participants of the open screening: search + paging ----
   const [participantSearch, setParticipantSearch] = useState('');
   const [participantPage, setParticipantPage] = useState(1);
+  const [attFilter, setAttFilter] = useState('ALL'); // ALL | PRESENT | ABSENT | PENDING
   const activeScheduleId = activeSchedule?.screening_schedule_id;
   useEffect(() => {
     setParticipantSearch('');
     setParticipantPage(1);
+    setAttFilter('ALL');
   }, [activeScheduleId]);
+
+  // a pending student of a finished screening counts as absent
+  const attendanceOf = (st) => {
+    const status = st.attendance_status || 'PENDING';
+    return status === 'PENDING' && screeningOver(activeSchedule) ? 'ABSENT' : status;
+  };
 
   const participantPageData = (() => {
     const q = participantSearch.trim().toLowerCase();
     const list = scheduleStudents.filter(st =>
-      !q || `${st.first_name || ''} ${st.last_name || ''} ${st.student_id || ''} ${st.program_name || ''} ${st.program_id || ''} ${st.section || ''}`.toLowerCase().includes(q)
+      (attFilter === 'ALL' || attendanceOf(st) === attFilter) &&
+      (!q || `${st.first_name || ''} ${st.last_name || ''} ${st.student_id || ''} ${st.program_name || ''} ${st.program_id || ''} ${st.section || ''}`.toLowerCase().includes(q))
     );
     return paginate(list, participantPage, PARTICIPANTS_PER_PAGE);
   })();
@@ -766,7 +827,7 @@ export default function HealthScreening() {
   const handleCreateSchedule = async (e) => {
     e.preventDefault();
     if (selectedStudentIds.length === 0) {
-      showAlert('Screening cannot be created without at least one target student selected.', 'Selection Required', 'warning');
+      showAlert('Select a student.', 'Selection Required', 'warning');
       return;
     }
 
@@ -788,7 +849,7 @@ export default function HealthScreening() {
         setShowStudentSelectModal(false);
         resetScheduleForm();
         fetchSchedules();
-        showAlert('Health screening schedule created and students notified successfully!', 'Success', 'success');
+        showAlert('Screening saved. Students notified.', 'Success', 'success');
       } else {
         showAlert(data.error || 'Failed to create screening schedule.', 'Error', 'error');
       }
@@ -826,7 +887,7 @@ export default function HealthScreening() {
       if (res.ok) {
         setShowEditModal(false);
         fetchSchedules();
-        showAlert('Screening schedule updated successfully!', 'Success', 'success');
+        showAlert('Screening saved.', 'Success', 'success');
       } else {
         const data = await res.json();
         showAlert(data.error || 'Failed to update schedule.', 'Error', 'error');
@@ -856,11 +917,12 @@ export default function HealthScreening() {
 
   // Cancel keeps the schedule and any results on record (soft cancel)
   const handleCancelSchedule = (sch) => askReason({
-    title: 'Cancel Screening',
-    message: `Cancel "${sch.title}"? The students and parents will be notified, and the record is kept.`,
-    label: 'Reason (shown to students)',
-    required: false,
-    confirmText: 'Cancel Screening',
+    title: 'Cancel screening?',
+    message: `${sch.title} · ${sch.scheduled_date ? formatDate(String(sch.scheduled_date).split('T')[0]) : ''}`,
+    label: <>Reason <Req /></>,
+    required: true,
+    danger: true,
+    confirmText: 'Cancel screening',
     onSubmit: async (reason) => {
       try {
         const res = await fetch(`${API_BASE}/screenings/${sch.screening_schedule_id}/cancel`, {
@@ -871,7 +933,7 @@ export default function HealthScreening() {
         const data = await res.json();
         if (res.ok) {
           fetchSchedules();
-          showAlert('Screening cancelled. Students and parents were notified.', 'Cancelled', 'success');
+          showAlert('Cancelled. Students notified.', 'Cancelled', 'success');
         } else {
           showAlert(data.error || 'Failed to cancel screening.', 'Error', 'error');
         }
@@ -884,7 +946,7 @@ export default function HealthScreening() {
 
   const handleDeleteSchedule = (sch) => {
     showConfirm(
-      `Permanently delete "${sch.title}"? No results were recorded for it. This cannot be undone.`,
+      `Delete "${sch.title}"? This cannot be undone.`,
       async () => {
         try {
           const res = await fetch(`${API_BASE}/screenings/${sch.screening_schedule_id}`, { method: 'DELETE' });
@@ -907,7 +969,7 @@ export default function HealthScreening() {
 
   const handleStartBatch = (sch) => {
     showConfirm(
-      `Notify the students of "${sch.title}" who have not checked in that the screening is starting now?`,
+      `Notify students not yet checked in for "${sch.title}"?`,
       async () => {
         try {
           const res = await fetch(`${API_BASE}/screenings/${sch.screening_schedule_id}/start`, {
@@ -929,7 +991,7 @@ export default function HealthScreening() {
 
   const handleSendReminders = () => {
     showConfirm(
-      'Send reminders now for screenings today and tomorrow? Reminders already sent today are skipped. They also go out automatically every morning at 7:00 AM.',
+      'Send reminders for today and tomorrow?',
       async () => {
         try {
           const res = await fetch(`${API_BASE}/screenings/send-reminders`, { method: 'POST' });
@@ -948,8 +1010,8 @@ export default function HealthScreening() {
   // ---------- attendance override and results ----------
   const overrideAttendance = (st, status) => askReason({
     title: `Mark ${status}`,
-    message: `Change the attendance of ${st.first_name} ${st.last_name} to ${status}. This is recorded with your reason.`,
-    label: 'Reason (required)',
+    message: `${st.first_name} ${st.last_name} · ${status}`,
+    label: <>Reason <Req /></>,
     required: true,
     confirmText: `Mark ${status}`,
     onSubmit: async (reason) => {
@@ -976,11 +1038,11 @@ export default function HealthScreening() {
   // The result form opens right after and stays open until it is saved, so one participant is recorded before the next time in.
   const timeIn = (st) => {
     if (isLegacySchedule(activeSchedule)) {
-      showAlert(`${activeSchedule.screening_type} examinations are now Doctor Visits. This is a legacy schedule, so no new results can be recorded here.`, 'Moved to Doctor Visits', 'warning');
+      showAlert(`${activeSchedule.screening_type} is now a Doctor Visit. Read only.`, 'Moved to Doctor Visits', 'warning');
       return;
     }
     showConfirm(
-      `Time in ${st.first_name} ${st.last_name} now?\n\nThe screening result must be recorded right after, before you can continue with the next participant.`,
+      `Time in ${st.first_name} ${st.last_name} now?`,
       () => sendTimeIn(st),
       'Confirm Time in',
       'Yes, Time In',
@@ -1068,7 +1130,7 @@ export default function HealthScreening() {
         setShowViewModal(false);
         fetchSchedules();
         setActiveTab('upcoming');
-        showAlert(`${data.message} They and their parents were notified.`, 'Make-up Scheduled', 'success');
+        showAlert(`${data.message}`, 'Make-up Scheduled', 'success');
       } else {
         showAlert(data.error || 'Failed to create the make-up session.', 'Error', 'error');
       }
@@ -1134,7 +1196,7 @@ export default function HealthScreening() {
       if (res.ok) {
         setReferModal(null);
         openViewModal(activeSchedule);
-        showAlert('Doctor referral scheduled. The student and parents were notified.', 'Referred', 'success');
+        showAlert('Referral scheduled.', 'Referred', 'success');
       } else {
         showAlert(data.error || 'Failed to schedule the referral.', 'Error', 'error');
       }
@@ -1189,7 +1251,7 @@ export default function HealthScreening() {
 
     const printWindow = window.open('', '_blank', 'width=1000,height=800');
     if (!printWindow) {
-      showAlert('Please allow popups in your browser to preview and print the report.', 'Popup Blocked', 'warning');
+      showAlert('Allow popups to print.', 'Popup Blocked', 'warning');
       return;
     }
 
@@ -1266,12 +1328,12 @@ export default function HealthScreening() {
 
   const openDocumentModal = (student, locked = false) => {
     if (student.attendance_status !== 'PRESENT') {
-      showAlert('Student must be marked as PRESENT in order to document screening results.', 'Action Required', 'warning');
+      showAlert('Mark the student present first.', 'Action Required', 'warning');
       return;
     }
 
     if (isLegacySchedule(activeSchedule)) {
-      showAlert(`${activeSchedule.screening_type} examinations are now Doctor Visits. This is a legacy schedule, so no new results can be recorded here.`, 'Moved to Doctor Visits', 'warning');
+      showAlert(`${activeSchedule.screening_type} is now a Doctor Visit. Read only.`, 'Moved to Doctor Visits', 'warning');
       return;
     }
 
@@ -1304,7 +1366,7 @@ export default function HealthScreening() {
         setDocLocked(false);
         openViewModal(activeSchedule);
         fetchSchedules();
-        showAlert(data.is_abnormal ? 'Result saved and flagged ABNORMAL. The student and parents were notified. You can refer the student to a doctor from the row menu.' : 'Screening result saved successfully!', 'Success', 'success');
+        showAlert(data.is_abnormal ? 'Saved. Flagged abnormal.' : 'Result saved.', 'Success', 'success');
       } else {
         showAlert(data.error || 'Failed to save document.', 'Error', 'error');
       }
@@ -1398,6 +1460,45 @@ export default function HealthScreening() {
     </select>
   );
 
+  // one toolbar for the folder view and the list view: search, school year, type (chips, or a select when there are many types)
+  const screeningToolbar = (
+    <div className="folder-toolbar-hs">
+      <div className="folder-search-hs">
+        <Search size={16} aria-hidden="true" />
+        <input
+          type="search"
+          aria-label="Search"
+          placeholder="Search"
+          value={searchTerm}
+          onChange={e => setSearchTerm(e.target.value)}
+        />
+      </div>
+      {schoolYearSelect}
+      {screeningTypes.length <= 5 ? (
+        <div className="chips-hs" role="group" aria-label="Screening type">
+          <button type="button" className="chip-btn-hs" aria-pressed={filterType === 'ALL'} onClick={() => setFilterType('ALL')}>All</button>
+          {screeningTypes.map(t => (
+            <button
+              key={t.screening_type_id}
+              type="button"
+              className="chip-btn-hs"
+              aria-pressed={filterType === t.name}
+              onClick={() => setFilterType(t.name)}
+            >
+              {React.createElement(typeIcon(t.name, t.form_kind), { size: 15, 'aria-hidden': true })}
+              {t.name}{t.is_active ? '' : ' (inactive)'}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <select value={filterType} onChange={e => setFilterType(e.target.value)} aria-label="Screening type">
+          <option value="ALL">All types</option>
+          {screeningTypes.map(t => <option key={t.screening_type_id} value={t.name}>{t.name}{t.is_active ? '' : ' (inactive)'}</option>)}
+        </select>
+      )}
+    </div>
+  );
+
   // records of one student (all school years)
   const openStudentRecords = (st) => openHistory(st);
 
@@ -1419,45 +1520,49 @@ export default function HealthScreening() {
       {/* Header */}
       <header className="header-hs">
         <div className="title-group-hs">
-          <h1>Health Screening Management</h1>
-          <p>Schedule, manage, and document student health assessments</p>
+          <h1>Health Screening</h1>
+        </div>
+        <div className="header-actions-hs">
+          <button
+            type="button"
+            className="btn-hs btn-icon-hs btn-secondary-hs"
+            onClick={() => setShowSchoolYearDialog(true)}
+            aria-label="School year"
+            title="School year"
+          >
+            <GraduationCap size={18} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className="btn-hs btn-icon-hs btn-primary-hs"
+            onClick={() => scheduleOnDay('')}
+            aria-label="New screening"
+            title="New screening"
+          >
+            <Plus size={18} aria-hidden="true" />
+          </button>
         </div>
       </header>
 
       {/* Page sections */}
-      <div className="tabs-hs" role="group" aria-label="Health screening sections">
-        <button
-          type="button"
-          className={`tab-btn-hs ${mainView === 'screenings' ? 'active-hs' : ''}`}
-          aria-pressed={mainView === 'screenings'}
-          onClick={() => setMainView('screenings')}
-        >
-          <Calendar size={16} aria-hidden="true" /> Screenings
-        </button>
-        <button
-          type="button"
-          className={`tab-btn-hs ${mainView === 'calendar' ? 'active-hs' : ''}`}
-          aria-pressed={mainView === 'calendar'}
-          onClick={() => setMainView('calendar')}
-        >
-          <Calendar size={16} aria-hidden="true" /> Calendar
-        </button>
-        <button
-          type="button"
-          className={`tab-btn-hs ${mainView === 'types' ? 'active-hs' : ''}`}
-          aria-pressed={mainView === 'types'}
-          onClick={() => setMainView('types')}
-        >
-          <ClipboardList size={16} aria-hidden="true" /> Screening Types
-        </button>
-        <button
-          type="button"
-          className={`tab-btn-hs ${mainView === 'templates' ? 'active-hs' : ''}`}
-          aria-pressed={mainView === 'templates'}
-          onClick={() => setMainView('templates')}
-        >
-          <FileText size={16} aria-hidden="true" /> Form Templates
-        </button>
+      <div className="tabs-hs" role="tablist" aria-label="Health screening sections">
+        {[
+          ['screenings', Folder, 'Screenings'],
+          ['calendar', CalendarDays, 'Calendar'],
+          ['types', ClipboardList, 'Types'],
+          ['templates', FileText, 'Templates']
+        ].map(([key, Icon, label]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            className={`tab-btn-hs ${mainView === key ? 'active-hs' : ''}`}
+            aria-selected={mainView === key}
+            onClick={() => setMainView(key)}
+          >
+            <Icon size={16} aria-hidden="true" /> {label}
+          </button>
+        ))}
       </div>
 
       {mainView === 'calendar' && (
@@ -1497,7 +1602,7 @@ export default function HealthScreening() {
       {mainView === 'screenings' && <FolderCrumbs trail={crumbTrail} />}
 
       {mainView === 'screenings' && view.kind === 'custom' && tabCounts && tabCounts.total === 0 && (
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', margin: '0.5rem 0' }}>
+        <div className="folder-actions-hs">
           <button
             type="button"
             className="btn-hs btn-danger-hs hs-icon-btn"
@@ -1531,81 +1636,42 @@ export default function HealthScreening() {
 
       {mainView === 'screenings' && view.kind !== 'archive' && !listMode && (
         <>
-          <div className="folder-toolbar-hs">
-            <div className="folder-search-hs">
-              <Search size={16} aria-hidden="true" />
-              <input
-                type="text"
-                aria-label="Search all screenings"
-                placeholder="Search all screenings by title, student name or ID..."
-                value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
-              />
-            </div>
-            {schoolYearSelect}
-<select value={filterType} onChange={e => setFilterType(e.target.value)} aria-label="Screening type">
-              <option value="ALL">All types</option>
-              {screeningTypes.map(t => <option key={t.screening_type_id} value={t.name}>{t.name}{t.is_active ? '' : ' (inactive)'}</option>)}
-            </select>
-          </div>
+          {screeningToolbar}
           {foldersLoading ? (
-            <p className="hint-hs">Loading folders...</p>
+            <p className="hint-hs" role="status">Loading</p>
           ) : (
-            <FolderGrid items={folderItems} noun="screenings" emptyText="No screenings yet. Schedule one to create the first folder." />
+            <ScreeningFolders items={folderItems} />
           )}
         </>
       )}
 
       {mainView === 'screenings' && listMode && !(view.kind === 'section' && !searching && classTab === 'students') && (
       <>
-      <div className="folder-toolbar-hs">
-        <div className="folder-search-hs">
-          <Search size={16} aria-hidden="true" />
-          <input
-            type="text"
-            aria-label="Search screenings"
-            placeholder="Search by title, student name or ID..."
-            value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
-          />
-        </div>
-        {schoolYearSelect}
-<select value={filterType} onChange={e => setFilterType(e.target.value)} aria-label="Screening type">
-          <option value="ALL">All types</option>
-          {screeningTypes.map(t => <option key={t.screening_type_id} value={t.name}>{t.name}{t.is_active ? '' : ' (inactive)'}</option>)}
-        </select>
-      </div>
+      {screeningToolbar}
 
       {/* Tabs */}
-      <div className="tabs-hs">
-        <button
-          type="button"
-          className={`tab-btn-hs ${activeTab === 'upcoming' ? 'active-hs' : ''}`}
-          onClick={() => setActiveTab('upcoming')}
-        >
-          <Calendar size={16} aria-hidden="true" /> Upcoming Screenings <TabCount value={tabCounts?.upcoming} />
-        </button>
-        <button
-          type="button"
-          className={`tab-btn-hs ${activeTab === 'ongoing' ? 'active-hs' : ''}`}
-          onClick={() => setActiveTab('ongoing')}
-        >
-          <Clock size={16} aria-hidden="true" /> Ongoing Screenings <TabCount value={tabCounts?.ongoing} />
-        </button>
-        <button
-          type="button"
-          className={`tab-btn-hs ${activeTab === 'past' ? 'active-hs' : ''}`}
-          onClick={() => setActiveTab('past')}
-        >
-          <CheckCircle size={16} aria-hidden="true" /> Past Screenings <TabCount value={tabCounts?.past} />
-        </button>
+      <div className="tabs-hs" role="tablist" aria-label="Status">
+        {[
+          ['upcoming', Calendar, 'Upcoming'],
+          ['ongoing', Clock, 'Ongoing'],
+          ['past', CheckCircle, 'Past']
+        ].map(([key, Icon, label]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            className={`tab-btn-hs ${activeTab === key ? 'active-hs' : ''}`}
+            aria-selected={activeTab === key}
+            onClick={() => setActiveTab(key)}
+          >
+            <Icon size={16} aria-hidden="true" /> {label} <TabCount value={tabCounts?.[key]} />
+          </button>
+        ))}
       </div>
 
       {/* Date range: only past screenings need one (the type filter lives in the toolbar above) */}
       {activeTab === 'past' && (
         <div className="filter-bar-hs">
-          <span className="filter-title-hs"><Filter size={16} aria-hidden="true" /> Date range</span>
-
           <label>
             From
             <input type="date" value={filterStartDate} max={filterEndDate || undefined} onChange={handleStartDateChange} />
@@ -1617,14 +1683,14 @@ export default function HealthScreening() {
           </label>
 
           {(filterStartDate || filterEndDate) && (
-            <button type="button" onClick={handleShowAllDates} className="btn-hs btn-secondary-hs reset-hs">
-              Show all dates
+            <button type="button" onClick={handleShowAllDates} className="btn-hs btn-icon-hs btn-secondary-hs" aria-label="Show all dates" title="Show all dates">
+              <CalendarDays size={16} aria-hidden="true" />
             </button>
           )}
 
           {(filterType !== 'ALL' || filterStartDate !== defaultPastRange().from || filterEndDate !== defaultPastRange().to) && (
-            <button type="button" onClick={handleResetFilters} className="btn-hs btn-secondary-hs reset-hs">
-              Reset filters
+            <button type="button" onClick={handleResetFilters} className="btn-hs btn-icon-hs btn-secondary-hs" aria-label="Reset filters" title="Reset filters">
+              <RotateCcw size={16} aria-hidden="true" />
             </button>
           )}
         </div>
@@ -1632,126 +1698,131 @@ export default function HealthScreening() {
 
       {/* Cards, one block per day */}
       {schedules.length === 0 ? (
-        <div className="card-grid-hs">
-          <div className="no-records-hs">
-            <p>No screening schedules found for this status or date range.</p>
-          </div>
+        <div className="no-records-hs">
+          <ClipboardList size={28} aria-hidden="true" />
+          <p>None</p>
         </div>
       ) : screeningDays.map(day => (
         <DaySection key={day.key || 'no-date'} heading={dayHeading(day.key, formatDate)} count={day.items.length} noun="screenings">
-        <div className="card-grid-hs">
+        <div className="rows-hs">
           {day.items.map(sch => {
-            const presentCount = sch.present_count ?? sch.present_students ?? 0;
-            const totalCount = sch.total_students || 0;
+            const presentCount = Number(sch.present_count ?? sch.present_students ?? 0);
+            const totalCount = Number(sch.total_students || 0);
+            const resultCount = Number(sch.result_count || 0);
+            const absentCount = Number(sch.absent_count || 0);
+            const ended = activeTab === 'ongoing' && awaitingEnd(sch);
+            const cancelled = sch.status === 'Cancelled';
+            const phase = cancelled ? 'cancel' : ended ? 'awaiting' : activeTab;
+            const KindIcon = typeIcon(sch.screening_type, sch.form_kind);
 
             return (
-              <div key={sch.screening_schedule_id} className="card-hs">
-                <div className="card-badge-hs">
-                  {React.createElement(KIND_ICONS[sch.form_kind] || ClipboardList, { size: 14, 'aria-hidden': true })}
-                  {typeLabel(sch.screening_type)}
-                  {!isLegacySchedule(sch) && !Number(sch.type_active) && ' (inactive type)'}
+              <article key={sch.screening_schedule_id} className={`sc-hs sc-${phase}-hs`}>
+                <span className="sc-bar-hs" aria-hidden="true" />
+                <div className="sc-main-hs">
+                  <div className="sc-top-hs">
+                    <span className="chip-hs chip-info-hs">
+                      <KindIcon size={14} aria-hidden="true" />
+                      {typeLabel(sch.screening_type)}
+                      {!isLegacySchedule(sch) && !Number(sch.type_active) && ' (inactive)'}
+                    </span>
+                    <h3 className="sc-title-hs">{sch.title}</h3>
+                    {ended && <span className="chip-hs chip-warn-hs"><AlertTriangle size={14} aria-hidden="true" /> Ended</span>}
+                    {cancelled && <span className="chip-hs chip-bad-hs"><X size={14} aria-hidden="true" /> Cancelled{sch.cancelled_reason ? `: ${sch.cancelled_reason}` : ''}</span>}
+                    {sch.makeup_of && <span className="chip-hs chip-info-hs">Make-up</span>}
+                  </div>
+                  <div className="sc-meta-hs">
+                    <span><Calendar size={14} aria-hidden="true" /> {sch.scheduled_date ? formatDate(sch.scheduled_date.split('T')[0]) : ''}</span>
+                    <span><Clock size={14} aria-hidden="true" /> {formatTime(sch.start_time)} - {formatTime(sch.end_time)}</span>
+                    {sch.announcement && (
+                      <span className="sc-note-hs" title={sch.announcement}>
+                        <Megaphone size={14} aria-hidden="true" /> {sch.announcement}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <h3 className="card-title-hs">{sch.title}</h3>
-                <p className="card-info-hs"><Calendar size={14} aria-hidden="true" /> {sch.scheduled_date ? formatDate(sch.scheduled_date.split('T')[0]) : ''}</p>
-                <p className="card-info-hs"><Clock size={14} aria-hidden="true" /> {formatTime(sch.start_time)} - {formatTime(sch.end_time)}</p>
-                <p className="card-info-hs">
-                  <Users size={14} aria-hidden="true" /> <strong>{presentCount} / {totalCount}</strong> Present
-                </p>
-                {sch.announcement && (
-                  <p className="card-info-hs announcement-preview-hs">
-                    <Megaphone size={14} aria-hidden="true" /> {sch.announcement}
-                  </p>
-                )}
-                
-                <div className="card-actions-hs">
-                  {sch.status === 'Cancelled' && (
-                    <div className="cancelled-note-hs">Cancelled{sch.cancelled_reason ? `: ${sch.cancelled_reason}` : ''}</div>
-                  )}
-                  {sch.makeup_of && <div className="cancelled-note-hs makeup-tag-hs">Make-up session</div>}
 
-                  {activeTab === 'upcoming' && sch.status !== 'Cancelled' && (
+                <div className="sc-meter-hs">
+                  {cancelled ? null : activeTab === 'upcoming' ? (
+                    <span className="sc-count-hs"><Users size={14} aria-hidden="true" /> {totalCount} <small>students</small></span>
+                  ) : (
                     <>
-                      <button
-                        type="button"
-                        className="btn-hs btn-icon-hs btn-secondary-hs"
-                        onClick={() => setParticipantsSchedule(sch)}
-                        title="View & Edit Participants"
-                        aria-label="View and edit participants"
-                      >
+                      <span className="sc-count-hs">{presentCount}/{totalCount} <small>present</small></span>
+                      <div className="track-hs" role="img" aria-label={`${presentCount} of ${totalCount} present`}>
+                        <i style={{ width: `${totalCount ? Math.min(100, Math.round((presentCount / totalCount) * 100)) : 0}%` }} />
+                      </div>
+                      {activeTab === 'past' && (
+                        <span className="sc-chips-hs">
+                          <span className={`chip-hs ${absentCount ? 'chip-bad-hs' : ''}`}>Absent {absentCount}</span>
+                          <span className={`chip-hs ${resultCount >= presentCount ? 'chip-ok-hs' : 'chip-warn-hs'}`}>Doc {resultCount}/{presentCount}</span>
+                        </span>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                <div className="sc-actions-hs">
+                  {activeTab === 'upcoming' && !cancelled && (
+                    <>
+                      <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => setParticipantsSchedule(sch)} title="Participants" aria-label="Participants">
                         <Users size={16} aria-hidden="true" />
                       </button>
-                      <button
-                        type="button"
-                        className="btn-hs btn-icon-hs btn-secondary-hs"
-                        onClick={() => { setEditingSchedule(sch); setShowEditModal(true); }}
-                        title="Edit Schedule"
-                        aria-label="Edit Schedule"
-                      >
+                      <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => { setEditingSchedule(sch); setShowEditModal(true); }} title="Edit" aria-label="Edit">
                         <Edit3 size={16} aria-hidden="true" />
                       </button>
-                      <button
-                        type="button"
-                        className="btn-hs btn-icon-hs btn-danger-hs"
-                        onClick={() => handleCancelSchedule(sch)}
-                        title="Cancel Schedule"
-                        aria-label="Cancel Schedule"
-                      >
+                      <button type="button" className="btn-hs btn-icon-hs btn-danger-hs" onClick={() => handleCancelSchedule(sch)} title="Cancel screening" aria-label="Cancel screening">
                         <Trash2 size={16} aria-hidden="true" />
                       </button>
                     </>
-                  )}
-
-                  {(activeTab === 'ongoing' || activeTab === 'past') && (
-                    <button
-                      type="button"
-                      className="btn-hs btn-icon-hs btn-primary-hs"
-                      onClick={() => openViewModal(sch)}
-                      title="View & Document Screening"
-                      aria-label="View & Document Screening"
-                    >
-                      <FileText size={16} aria-hidden="true" />
-                    </button>
                   )}
 
                   {activeTab === 'ongoing' && (
                     <>
-                      {awaitingEnd(sch) && (
-                        <button type="button" className="btn-hs btn-primary-hs" onClick={() => setDismissedEnds((list) => list.filter((k) => k !== endKey(sch)))} title="The end time has passed: confirm the end or extend it" aria-label="Confirm end time or extend">
-                          <BellRing size={16} aria-hidden="true" /> Confirm end time
+                      {ended && (
+                        <button type="button" className="btn-hs btn-icon-hs btn-primary-hs" onClick={() => setDismissedEnds((list) => list.filter((k) => k !== endKey(sch)))} title="Confirm end time" aria-label="Confirm end time">
+                          <BellRing size={16} aria-hidden="true" />
                         </button>
                       )}
-                      <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => handleStartBatch(sch)} title="Notify students that this screening is starting" aria-label="Start Screening">
+                      <button type="button" className={`btn-hs btn-icon-hs ${ended ? 'btn-secondary-hs' : 'btn-primary-hs'}`} onClick={() => openViewModal(sch)} title="Document" aria-label="Document">
+                        <FileText size={16} aria-hidden="true" />
+                      </button>
+                      <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => handleStartBatch(sch)} title="Start" aria-label="Start">
                         <Play size={16} aria-hidden="true" />
                       </button>
-                      <button type="button" className="btn-hs btn-icon-hs btn-danger-hs" onClick={() => handleCancelSchedule(sch)} title="Cancel Schedule" aria-label="Cancel Schedule">
+                      <button type="button" className="btn-hs btn-icon-hs btn-danger-hs" onClick={() => handleCancelSchedule(sch)} title="Cancel screening" aria-label="Cancel screening">
                         <Trash2 size={16} aria-hidden="true" />
                       </button>
                     </>
                   )}
 
-                  {activeTab === 'past' && sch.status !== 'Cancelled' && (
+                  {activeTab === 'past' && (
                     <>
-                      <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => printResultsReport(sch)} title="Print results report" aria-label="Print results report">
-                        <Printer size={16} aria-hidden="true" />
+                      <button type="button" className="btn-hs btn-icon-hs btn-primary-hs" onClick={() => openViewModal(sch)} title="Records" aria-label="Records">
+                        <FileText size={16} aria-hidden="true" />
                       </button>
-                      <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => exportResultsCsv(sch)} title="Download results (CSV)" aria-label="Download results CSV">
-                        <Download size={16} aria-hidden="true" />
-                      </button>
-                      {(Number(sch.absent_count) + Number(sch.pending_count)) > 0 && sch.form_kind && !isLegacySchedule(sch) && (
-                        <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => openMakeup(sch)} title="Schedule a make-up session for absent students" aria-label="Make-up session">
-                          <UserRoundPlus size={16} aria-hidden="true" />
+                      {!cancelled && (
+                        <>
+                          <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => printResultsReport(sch)} title="Print report" aria-label="Print report">
+                            <Printer size={16} aria-hidden="true" />
+                          </button>
+                          <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => exportResultsCsv(sch)} title="Download CSV" aria-label="Download CSV">
+                            <Download size={16} aria-hidden="true" />
+                          </button>
+                          {(absentCount + Number(sch.pending_count || 0)) > 0 && sch.form_kind && !isLegacySchedule(sch) && (
+                            <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => openMakeup(sch)} title="Make-up" aria-label="Make-up">
+                              <UserRoundPlus size={16} aria-hidden="true" />
+                            </button>
+                          )}
+                        </>
+                      )}
+                      {resultCount === 0 && (
+                        <button type="button" className="btn-hs btn-icon-hs btn-danger-hs" onClick={() => handleDeleteSchedule(sch)} title="Delete" aria-label="Delete">
+                          <X size={16} aria-hidden="true" />
                         </button>
                       )}
                     </>
                   )}
-
-                  {activeTab === 'past' && Number(sch.result_count) === 0 && (
-                    <button type="button" className="btn-hs btn-icon-hs btn-danger-hs" onClick={() => handleDeleteSchedule(sch)} title="Delete (no results were recorded)" aria-label="Delete screening">
-                      <X size={16} aria-hidden="true" />
-                    </button>
-                  )}
                 </div>
-              </div>
+              </article>
             );
           })}
         </div>
@@ -1765,35 +1836,29 @@ export default function HealthScreening() {
       {/* MODAL 1: Schedule Screening Details */}
       {showScheduleModal && (
         <HsDialog onClose={() => setShowScheduleModal(false)}>
-          <HsDialogHeader onClose={() => setShowScheduleModal(false)}>Schedule Health Screening (Step 1 of 2)</HsDialogHeader>
+          <HsDialogHeader onClose={() => setShowScheduleModal(false)} sub={<StepDots step={1} />}>New screening</HsDialogHeader>
           <form onSubmit={handleNextToStudents} className="modal-form-hs">
             <div className="modal-body-hs">
               <div className="form-group-hs">
-                <label htmlFor="hs-fld-1">Title</label>
+                <label htmlFor="hs-fld-1">Title <Req /></label>
                 <input id="hs-fld-1" 
                   type="text" 
                   required 
-                  value={scheduleForm.title} 
-                  onChange={e => setScheduleForm({...scheduleForm, title: e.target.value})} 
-                  placeholder="e.g. Annual Vital Signs Check" 
+                  value={scheduleForm.title}
+                  onChange={e => setScheduleForm({...scheduleForm, title: e.target.value})}
+                  placeholder="Title"
                 />
               </div>
 
               <fieldset className="form-group-hs hs-group-fieldset">
                 <legend>Group</legend>
-                <div className="hs-choice-row">
-                  <label className="hs-choice">
-                    <input type="radio" name="hs-grouping" checked={!isCustomGrouping} onChange={() => changeGrouping('SECTION')} />
-                    <span>By section</span>
-                  </label>
-                  <label className="hs-choice">
-                    <input type="radio" name="hs-grouping" checked={isCustomGrouping} onChange={() => changeGrouping('CUSTOM')} />
-                    <span>Custom folder</span>
-                  </label>
+                <div className="chips-hs">
+                  <button type="button" className="chip-btn-hs" aria-pressed={!isCustomGrouping} onClick={() => changeGrouping('SECTION')}>By section</button>
+                  <button type="button" className="chip-btn-hs" aria-pressed={isCustomGrouping} onClick={() => changeGrouping('CUSTOM')}>Custom folder</button>
                 </div>
 
                 {isCustomGrouping && (
-                  <div style={{ marginTop: '0.5rem' }}>
+                  <div className="hs-subfield">
                     <label htmlFor="hs-folder-pick">Folder</label>
                     <select
                       id="hs-folder-pick"
@@ -1801,13 +1866,13 @@ export default function HealthScreening() {
                       value={scheduleForm.folder_id}
                       onChange={e => setScheduleForm({ ...scheduleForm, folder_id: e.target.value })}
                     >
-                      <option value="">-- Select a folder --</option>
+                      <option value="">-- Select --</option>
                       {(folders.custom_folders || []).map(f => <option key={f.folder_id} value={String(f.folder_id)}>{f.name}</option>)}
-                      <option value="new">+ Create a new folder...</option>
+                      <option value="new">+ New folder</option>
                     </select>
                     {scheduleForm.folder_id === 'new' && (
-                      <div style={{ marginTop: '0.5rem' }}>
-                        <label htmlFor="hs-folder-name">New folder name</label>
+                      <div className="hs-subfield">
+                        <label htmlFor="hs-folder-name">Folder name</label>
                         <input
                           id="hs-folder-name"
                           type="text"
@@ -1815,7 +1880,7 @@ export default function HealthScreening() {
                           maxLength={80}
                           value={scheduleForm.folder_name}
                           onChange={e => setScheduleForm({ ...scheduleForm, folder_name: e.target.value })}
-                          placeholder="e.g. Sportsfest Player Screening"
+                          placeholder="Name"
                         />
                       </div>
                     )}
@@ -1824,7 +1889,7 @@ export default function HealthScreening() {
               </fieldset>
 
               <div className="form-group-hs">
-                <label htmlFor="hs-fld-2">Screening Type</label>
+                <label htmlFor="hs-fld-2">Type <Req /></label>
                 <select id="hs-fld-2"
                   value={scheduleForm.screening_type}
                   required
@@ -1835,14 +1900,14 @@ export default function HealthScreening() {
                   {activeTypes.map(t => <option key={t.screening_type_id} value={t.name}>{t.name}</option>)}
                 </select>
                 {typesError && (
-                  <small id="screening-type-help-hs" style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '0.25rem' }}>
+                  <small id="screening-type-help-hs" className="hint-hs">
                     {typesError}
                   </small>
                 )}
               </div>
 
               <div className="form-group-hs">
-                <label htmlFor="hs-fld-3">Scheduled Date</label>
+                <label htmlFor="hs-fld-3">Date <Req /></label>
                 <input id="hs-fld-3" 
                   type="date" 
                   required 
@@ -1862,7 +1927,7 @@ export default function HealthScreening() {
 
               <div className="form-grid-hs">
                 <div className="form-group-hs">
-                  <label htmlFor="hs-fld-4">Start Time</label>
+                  <label htmlFor="hs-fld-4">Start <Req /></label>
                   <input id="hs-fld-4" 
                     type="time" 
                     required 
@@ -1880,7 +1945,7 @@ export default function HealthScreening() {
                   />
                 </div>
                 <div className="form-group-hs">
-                  <label htmlFor="hs-fld-5">End Time</label>
+                  <label htmlFor="hs-fld-5">End <Req /></label>
                   <input id="hs-fld-5" 
                     type="time" 
                     required 
@@ -1902,12 +1967,12 @@ export default function HealthScreening() {
               </div>
 
               <div className="form-group-hs">
-                <label htmlFor="hs-fld-6">Announcement / Instructions (Optional)</label>
-                <textarea id="hs-fld-6" 
-                  rows={3}
-                  value={scheduleForm.announcement} 
-                  onChange={e => setScheduleForm({...scheduleForm, announcement: e.target.value})} 
-                  placeholder="e.g. Please wear proper sports attire and bring your student ID card." 
+                <label htmlFor="hs-fld-6">Notes</label>
+                <textarea id="hs-fld-6"
+                  rows={2}
+                  value={scheduleForm.announcement}
+                  onChange={e => setScheduleForm({...scheduleForm, announcement: e.target.value})}
+                  placeholder="Notes"
                 />
               </div>
             </div>
@@ -1915,7 +1980,7 @@ export default function HealthScreening() {
             <div className="modal-footer-hs">
               <button type="button" className="btn-hs btn-secondary-hs" onClick={() => setShowScheduleModal(false)}>Cancel</button>
               <button type="submit" className="btn-hs btn-primary-hs">
-                Next: Select Target Students <ArrowRight size={16} aria-hidden="true" />
+                Next <ArrowRight size={16} aria-hidden="true" />
               </button>
             </div>
           </form>
@@ -1925,14 +1990,17 @@ export default function HealthScreening() {
       {/* MODAL 2: Select Target Students */}
       {showStudentSelectModal && (
         <HsDialog onClose={() => setShowStudentSelectModal(false)} size="lg">
-          <HsDialogHeader onClose={() => setShowStudentSelectModal(false)}>Select Target Students (Step 2 of 2)</HsDialogHeader>
+          <HsDialogHeader onClose={() => setShowStudentSelectModal(false)} sub={<StepDots step={2} />}>New screening</HsDialogHeader>
           <form onSubmit={handleCreateSchedule} className="modal-form-hs">
             <div className="modal-body-hs">
-              <p className="picker-note-hs">
-                {isCustomGrouping
-                  ? `Folder: ${scheduleForm.folder_id === 'new' ? scheduleForm.folder_name.trim() : ((folders.custom_folders || []).find(f => String(f.folder_id) === String(scheduleForm.folder_id))?.name || '')}. Students can come from different programs, year levels and sections. Use the program, year level and section only to find students; the ticks stay when you change them. Everyone ticked is listed under "Selected students".`
-                  : 'A screening is for one class: choose the program, the year level and the section, then tick the students who take part. Everyone in a screening must be from the same program, year level and section; changing the class clears the ticks.'}
-              </p>
+              {isCustomGrouping && (
+                <p className="picker-chip-hs">
+                  <span className="chip-hs chip-info-hs">
+                    <Folder size={14} aria-hidden="true" />
+                    {scheduleForm.folder_id === 'new' ? scheduleForm.folder_name.trim() : ((folders.custom_folders || []).find(f => String(f.folder_id) === String(scheduleForm.folder_id))?.name || '')}
+                  </span>
+                </p>
+              )}
               <div className="picker-bar-hs">
                 <div className="form-group-hs">
                   <label htmlFor="pick-program-hs">Academic Program</label>
@@ -1980,11 +2048,11 @@ export default function HealthScreening() {
                   </select>
                 </div>
                 <div className="form-group-hs">
-                  <label htmlFor="pick-search-hs">Search student</label>
+                  <label htmlFor="pick-search-hs">Student</label>
                   <input
                     id="pick-search-hs"
-                    type="text"
-                    placeholder="Name or student ID"
+                    type="search"
+                    placeholder="Search"
                     value={pickerSearch}
                     onChange={e => setPickerSearch(e.target.value)}
                   />
@@ -1993,7 +2061,7 @@ export default function HealthScreening() {
 
               <div className="student-select-list-hs">
                 <span className="list-title-hs">
-                  Matching Students ({visibleStudents.length}) — {selectedStudentIds.length} Total Selected
+                  Students ({visibleStudents.length}) &middot; {selectedStudentIds.length} selected
                 </span>
                 <div className="table-wrapper-hs">
                   <table className="table-hs">
@@ -2017,7 +2085,7 @@ export default function HealthScreening() {
                       {visibleStudents.length === 0 ? (
                         <tr>
                           <td colSpan="3" className="empty-table-msg-hs">
-                            {(isCustomGrouping || scheduleForm.target_section) ? 'No students match the selected filters or search.' : 'Select the program, year level and section to list the students.'}
+                            No students
                           </td>
                         </tr>
                       ) : (
@@ -2049,7 +2117,7 @@ export default function HealthScreening() {
                 <div className="student-select-list-hs">
                   <span className="list-title-hs" role="status">Selected students ({selectedStudentIds.length})</span>
                   {pickedStudents.length === 0 ? (
-                    <p className="hint-hs">No student selected yet.</p>
+                    <p className="hint-hs">None</p>
                   ) : (
                     <div className="table-wrapper-hs">
                       <table className="table-hs">
@@ -2064,11 +2132,12 @@ export default function HealthScreening() {
                               <td>
                                 <button
                                   type="button"
-                                  className="btn-hs btn-danger-hs"
+                                  className="btn-hs btn-icon-hs btn-danger-hs"
                                   aria-label={`Remove ${st.first_name} ${st.last_name}`}
+                                  title="Remove"
                                   onClick={() => setSelectedStudentIds(prev => prev.filter(id => id !== st.student_id))}
                                 >
-                                  <X size={16} aria-hidden="true" /> Remove
+                                  <X size={16} aria-hidden="true" />
                                 </button>
                               </td>
                             </tr>
@@ -2082,16 +2151,19 @@ export default function HealthScreening() {
             </div>
 
             <div className="modal-footer-hs">
-              <button type="button" className="btn-hs btn-secondary-hs" onClick={handleBackToSchedule}>
-                <ArrowLeft size={16} aria-hidden="true" /> Back
+              <span className="pill-count-hs" role="status">
+                <Users size={14} aria-hidden="true" /> {selectedStudentIds.length}
+              </span>
+              <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={handleBackToSchedule} aria-label="Back" title="Back">
+                <ArrowLeft size={16} aria-hidden="true" />
               </button>
-              <button 
-                type="submit" 
+              <button
+                type="submit"
                 className="btn-hs btn-primary-hs"
                 disabled={selectedStudentIds.length === 0}
-                title={selectedStudentIds.length === 0 ? "Select at least 1 student to create schedule" : ""}
+                title={selectedStudentIds.length === 0 ? "Select a student" : "Save"}
               >
-                Save & Notify Students
+                Save
               </button>
             </div>
           </form>
@@ -2111,7 +2183,7 @@ export default function HealthScreening() {
           onSaved={() => {
             setParticipantsSchedule(null);
             fetchSchedules();
-            showAlert('Participants updated and the students were notified.', 'Success', 'success');
+            showAlert('Participants saved.', 'Success', 'success');
           }}
         />
       )}
@@ -2119,7 +2191,7 @@ export default function HealthScreening() {
       {/* MODAL 3: Edit Upcoming Schedule */}
       {showEditModal && editingSchedule && (
         <HsDialog onClose={() => setShowEditModal(false)}>
-          <HsDialogHeader onClose={() => setShowEditModal(false)}>Update Screening Schedule</HsDialogHeader>
+          <HsDialogHeader onClose={() => setShowEditModal(false)}>Edit screening</HsDialogHeader>
           <form onSubmit={handleUpdateSchedule} className="modal-form-hs">
             <div className="modal-body-hs">
               <div className="form-group-hs">
@@ -2131,6 +2203,7 @@ export default function HealthScreening() {
                 <select id="hs-fld-8"
                   value={editingSchedule.screening_type}
                   disabled={Number(editingSchedule.result_count) > 0 || isLegacySchedule(editingSchedule)}
+                  title={Number(editingSchedule.result_count) > 0 ? 'Locked: results recorded' : undefined}
                   onChange={e => setEditingSchedule({ ...editingSchedule, screening_type: e.target.value })}
                 >
                   {/* the schedule's own type stays in the list even when it is legacy or deactivated */}
@@ -2139,7 +2212,7 @@ export default function HealthScreening() {
                   )}
                   {activeTypes.map(t => <option key={t.screening_type_id} value={t.name}>{t.name}</option>)}
                 </select>
-                {Number(editingSchedule.result_count) > 0 && <small className="hint-hs">Results were already recorded, so the type is locked.</small>}
+                {Number(editingSchedule.result_count) > 0 && <small className="hint-hs"><Lock size={14} aria-hidden="true" /> Locked</small>}
               </div>
               <div className="form-group-hs">
                 <label htmlFor="hs-fld-9">Scheduled Date</label>
@@ -2199,13 +2272,13 @@ export default function HealthScreening() {
                 </div>
               </div>
               <div className="form-group-hs">
-                <label htmlFor="hs-fld-12">Announcement / Instructions</label>
+                <label htmlFor="hs-fld-12">Notes</label>
                 <textarea id="hs-fld-12" rows={3} value={editingSchedule.announcement || ''} onChange={e => setEditingSchedule({...editingSchedule, announcement: e.target.value})} />
               </div>
             </div>
             <div className="modal-footer-hs">
               <button type="button" className="btn-hs btn-secondary-hs" onClick={() => setShowEditModal(false)}>Cancel</button>
-              <button type="submit" className="btn-hs btn-primary-hs">Update &amp; Notify</button>
+              <button type="submit" className="btn-hs btn-primary-hs">Save</button>
             </div>
           </form>
         </HsDialog>
@@ -2218,9 +2291,9 @@ export default function HealthScreening() {
             onClose={() => setShowViewModal(false)}
             sub={(
               <div className="modal-sub-hs">
-                Attendance Rate: <strong>
-                  {scheduleStudents.filter(st => st.attendance_status === 'PRESENT').length} / {scheduleStudents.length}
-                </strong> Present
+                <Users size={14} aria-hidden="true" /> <strong>
+                  {scheduleStudents.filter(st => st.attendance_status === 'PRESENT').length}/{scheduleStudents.length}
+                </strong> present
               </div>
             )}
             actions={(
@@ -2242,19 +2315,40 @@ export default function HealthScreening() {
               </>
             )}
           >
-            {activeSchedule.title} - Participant List ({activeSchedule.screening_type})
+            {activeSchedule.title} <span className="chip-hs chip-info-hs">{typeLabel(activeSchedule.screening_type)}</span>
           </HsDialogHeader>
           <div className="modal-body-hs">
             {activeSchedule.status === 'Cancelled' && (
-              <div className="cancelled-banner-hs">This screening was cancelled{activeSchedule.cancelled_reason ? ': ' + activeSchedule.cancelled_reason : ''}. Its record is kept, but attendance and results can no longer be changed.</div>
+              <div className="cancelled-banner-hs">Cancelled{activeSchedule.cancelled_reason ? ': ' + activeSchedule.cancelled_reason : ''}</div>
             )}
+            {(() => {
+              const presentN = scheduleStudents.filter(st => attendanceOf(st) === 'PRESENT').length;
+              const totalN = scheduleStudents.length;
+              return (
+                <div className="sum-hs">
+                  <div className="sc-meter-hs">
+                    <span className="sc-count-hs">{presentN}/{totalN} <small>present</small></span>
+                    <div className="track-hs" role="img" aria-label={`${presentN} of ${totalN} present`}>
+                      <i style={{ width: `${totalN ? Math.round((presentN / totalN) * 100) : 0}%` }} />
+                    </div>
+                  </div>
+                  <div className="chips-hs" role="group" aria-label="Attendance">
+                    {[['ALL', 'All'], ['PRESENT', 'Present'], ['ABSENT', 'Absent'], ['PENDING', 'Pending']].map(([key, label]) => (
+                      <button key={key} type="button" className="chip-btn-hs" aria-pressed={attFilter === key} onClick={() => { setAttFilter(key); setParticipantPage(1); }}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
             {scheduleStudents.length > PARTICIPANTS_PER_PAGE && (
-              <div className="folder-search-hs" style={{ marginBottom: '0.75rem' }}>
+              <div className="folder-search-hs participant-search-hs">
                 <Search size={16} aria-hidden="true" />
                 <input
-                  type="text"
+                  type="search"
                   aria-label="Search participants"
-                  placeholder="Search participants by name, ID or section..."
+                  placeholder="Search"
                   value={participantSearch}
                   onChange={e => { setParticipantSearch(e.target.value); setParticipantPage(1); }}
                 />
@@ -2275,13 +2369,8 @@ export default function HealthScreening() {
                 <tbody>
                   {participantPageData.items.map(st => {
                     const isDocumented = hasResult(st);
-                    const isScheduleEnded = screeningOver(activeSchedule);
-
-                    let effectiveAttendanceStatus = st.attendance_status || 'PENDING';
-                    if (isScheduleEnded && effectiveAttendanceStatus === 'PENDING') {
-                      effectiveAttendanceStatus = 'ABSENT';
-                    }
-
+                    const effectiveAttendanceStatus = attendanceOf(st);
+                    const AttIcon = effectiveAttendanceStatus === 'PRESENT' ? CheckCircle : effectiveAttendanceStatus === 'ABSENT' ? X : Clock;
                     const isPresent = effectiveAttendanceStatus === 'PRESENT';
 
                     return (
@@ -2290,7 +2379,7 @@ export default function HealthScreening() {
                         <td>{classLabel(st.program_id, st.year_level, st.section)}</td>
                         <td>
                           <span className={`badge-hs badge-status-${effectiveAttendanceStatus.toLowerCase()}-hs`}>
-                            {effectiveAttendanceStatus}
+                            <AttIcon size={14} aria-hidden="true" /> {effectiveAttendanceStatus.charAt(0) + effectiveAttendanceStatus.slice(1).toLowerCase()}
                           </span>
                           {isPresent && st.attended_at && <div className="sub-note-hs">Time in: {formatTime(st.attended_at)}</div>}
                           {st.attendance_note && <div className="sub-note-hs">{st.attendance_note}</div>}
@@ -2337,7 +2426,7 @@ export default function HealthScreening() {
                 </tbody>
               </table>
             </div>
-            {participantPageData.total === 0 && <p className="hint-hs" style={{ textAlign: 'center' }}>No participants match your search.</p>}
+            {participantPageData.total === 0 && <p className="hint-hs hint-center-hs">No match</p>}
             <Pager page={participantPageData.page} pageCount={participantPageData.pageCount} total={participantPageData.total} pageSize={PARTICIPANTS_PER_PAGE} onPage={setParticipantPage} noun="students" />
           </div>
           <div className="modal-footer-hs">
@@ -2351,20 +2440,20 @@ export default function HealthScreening() {
       {/* MODAL 6: Dynamic Screening Entry Form */}
       {showDocModal && selectedStudent && activeSchedule && (
         <HsDialog onClose={docLocked ? undefined : () => setShowDocModal(false)}>
-          <HsDialogHeader onClose={docLocked ? undefined : () => setShowDocModal(false)}>Document Screening: {selectedStudent.first_name} {selectedStudent.last_name}</HsDialogHeader>
+          <HsDialogHeader onClose={docLocked ? undefined : () => setShowDocModal(false)}>Document: {selectedStudent.first_name} {selectedStudent.last_name}</HsDialogHeader>
           <form onSubmit={handleDocSubmit} className="modal-form-hs">
             <div className="modal-body-hs">
               {/* FORM TEMPLATE (CUSTOM) */}
               {activeSchedule.form_kind === 'CUSTOM' && (
                 <>
-                  {!activeSchedule.template && <p className="hint-hs" role="alert">The form template of this screening type is missing. Edit the type and pick a template.</p>}
+                  {!activeSchedule.template && <p className="hint-hs" role="alert">Template missing</p>}
                   {(activeSchedule.template?.fields || []).map((f) => {
                     const id = `cf-${f.key}`;
                     const value = docData.answers?.[f.key] ?? '';
                     const setAnswer = (v) => setDocData(prev => ({ ...prev, answers: { ...(prev.answers || {}), [f.key]: v } }));
                     const label = (
                       <label htmlFor={id}>
-                        {f.label}{f.required ? ' *' : ''}{f.unit ? <span className="cf-unit-hs">({f.unit})</span> : null}
+                        {f.label}{f.required ? <> <Req /></> : null}{f.unit ? <span className="cf-unit-hs">({f.unit})</span> : null}
                       </label>
                     );
                     if (f.type === 'calculated') {
@@ -2373,10 +2462,10 @@ export default function HealthScreening() {
                       return (
                         <div className="form-group-hs" key={f.key}>
                           {label}
-                          <input id={id} type="text" readOnly value={calc ? `${calc.value}${calc.label ? ` (${calc.label})` : ''}` : ''} placeholder="Worked out from the fields above" aria-describedby={abnormal ? `${id}-flag` : undefined} />
+                          <input id={id} type="text" readOnly value={calc ? `${calc.value}${calc.label ? ` (${calc.label})` : ''}` : ''} placeholder="Auto" aria-describedby={abnormal ? `${id}-flag` : undefined} />
                           {abnormal && (
-                            <small id={`${id}-flag`} style={{ color: flagColor('High'), fontWeight: 600 }}>
-                              Outside the normal range ({f.min !== undefined ? f.min : '...'} to {f.max !== undefined ? f.max : '...'}{f.unit ? ` ${f.unit}` : ''})
+                            <small id={`${id}-flag`} className="flag-hs">
+                              <AlertTriangle size={14} aria-hidden="true" /> Outside {rangeFlagText(f)}
                             </small>
                           )}
                         </div>
@@ -2408,8 +2497,8 @@ export default function HealthScreening() {
                           aria-describedby={outside ? `${id}-flag` : undefined}
                         />
                         {outside && (
-                          <small id={`${id}-flag`} style={{ color: flagColor('High'), fontWeight: 600 }}>
-                            Outside the normal range ({f.min !== undefined ? f.min : '...'} to {f.max !== undefined ? f.max : '...'}{f.unit ? ` ${f.unit}` : ''})
+                          <small id={`${id}-flag`} className="flag-hs">
+                            <AlertTriangle size={14} aria-hidden="true" /> Outside {rangeFlagText(f)}
                           </small>
                         )}
                       </div>
@@ -2417,7 +2506,7 @@ export default function HealthScreening() {
                   })}
                   <div className="form-group-hs">
                     <label htmlFor="cf-remarks-hs">Remarks</label>
-                    <textarea id="cf-remarks-hs" value={docData.remarks} onChange={e => setDocData({...docData, remarks: e.target.value})} rows={2} placeholder="Observations / advice..." />
+                    <textarea id="cf-remarks-hs" value={docData.remarks} onChange={e => setDocData({...docData, remarks: e.target.value})} rows={2} placeholder="Remarks" />
                   </div>
                 </>
               )}
@@ -2426,7 +2515,7 @@ export default function HealthScreening() {
               {activeSchedule.form_kind === 'HEARING' && (
                 <>
                   <div className="form-group-hs">
-                    <label htmlFor="hs-fld-13">Left Ear</label>
+                    <label htmlFor="hs-fld-13">Left ear <Req /></label>
                     <select id="hs-fld-13" required value={docData.left_ear_result} onChange={e => setDocData({...docData, left_ear_result: e.target.value})}>
                       <option value="">-- Select result --</option>
                       <option value="Pass">Pass</option>
@@ -2434,7 +2523,7 @@ export default function HealthScreening() {
                     </select>
                   </div>
                   <div className="form-group-hs">
-                    <label htmlFor="hs-fld-14">Right Ear</label>
+                    <label htmlFor="hs-fld-14">Right ear <Req /></label>
                     <select id="hs-fld-14" required value={docData.right_ear_result} onChange={e => setDocData({...docData, right_ear_result: e.target.value})}>
                       <option value="">-- Select result --</option>
                       <option value="Pass">Pass</option>
@@ -2443,17 +2532,15 @@ export default function HealthScreening() {
                   </div>
                   <div className="form-group-hs">
                     <label htmlFor="hs-fld-15">Remarks</label>
-                    <textarea id="hs-fld-15" value={docData.remarks} onChange={e => setDocData({...docData, remarks: e.target.value})} rows={2} placeholder="Referral notes / follow-up advice..." />
+                    <textarea id="hs-fld-15" value={docData.remarks} onChange={e => setDocData({...docData, remarks: e.target.value})} rows={2} placeholder="Remarks" />
                   </div>
                 </>
               )}
             </div>
 
             <div className="modal-footer-hs">
-              {docLocked
-                ? <p className="hint-hs" role="status">Fill in the required fields and save to continue.</p>
-                : <button type="button" className="btn-hs btn-secondary-hs" onClick={() => setShowDocModal(false)}>Cancel</button>}
-              <button type="submit" className="btn-hs btn-primary-hs">Save Document</button>
+              {!docLocked && <button type="button" className="btn-hs btn-secondary-hs" onClick={() => setShowDocModal(false)}>Cancel</button>}
+              <button type="submit" className="btn-hs btn-primary-hs">Save</button>
             </div>
           </form>
         </HsDialog>
@@ -2464,7 +2551,7 @@ export default function HealthScreening() {
         <HsDialog onClose={() => setReasonModal(null)} size="sm" zIndex={1050}>
           <HsDialogHeader onClose={() => setReasonModal(null)}>{reasonModal.title}</HsDialogHeader>
           <div className="modal-body-hs">
-            {reasonModal.message && <p className="hint-hs">{reasonModal.message}</p>}
+            {reasonModal.message && <p className="ack-hs">{reasonModal.message}</p>}
             <div className="form-group-hs">
               <label htmlFor="hs-fld-16">{reasonModal.label}</label>
               <textarea id="hs-fld-16" rows={3} autoFocus value={reasonText} onChange={e => setReasonText(e.target.value)} />
@@ -2472,7 +2559,9 @@ export default function HealthScreening() {
           </div>
           <div className="modal-footer-hs">
             <button type="button" className="btn-hs btn-secondary-hs" onClick={() => setReasonModal(null)}>Back</button>
-            <button type="button" className="btn-hs btn-primary-hs" onClick={submitReason}>{reasonModal.confirmText}</button>
+            <button type="button" className={`btn-hs ${reasonModal.danger ? 'btn-danger-hs' : 'btn-primary-hs'}`} onClick={submitReason}>
+              {reasonModal.danger && <Trash2 size={16} aria-hidden="true" />}{reasonModal.confirmText}
+            </button>
           </div>
         </HsDialog>
       )}
@@ -2480,13 +2569,9 @@ export default function HealthScreening() {
       {/* MODAL: Make-up session for absent students */}
       {makeupModal && (
         <HsDialog onClose={() => setMakeupModal(null)} zIndex={1050}>
-          <HsDialogHeader onClose={() => setMakeupModal(null)}>Schedule Make-up Session</HsDialogHeader>
+          <HsDialogHeader onClose={() => setMakeupModal(null)}>Make-up <span className="chip-hs chip-bad-hs">{Number(makeupModal.schedule.absent_count || 0) + Number(makeupModal.schedule.pending_count || 0)} absent</span></HsDialogHeader>
           <form onSubmit={submitMakeup} className="modal-form-hs">
             <div className="modal-body-hs">
-              <p className="hint-hs">
-                A new {makeupModal.schedule.screening_type} screening is created only for the students who were absent from
-                &quot;{makeupModal.schedule.title}&quot;. Students already booked into another make-up are skipped.
-              </p>
               <div className="form-group-hs">
                 <label htmlFor="hs-fld-17">Title</label>
                 <input id="hs-fld-17" type="text" required maxLength={150} value={makeupModal.title} onChange={e => setMakeupModal({ ...makeupModal, title: e.target.value })} />
@@ -2506,13 +2591,13 @@ export default function HealthScreening() {
                 </div>
               </div>
               <div className="form-group-hs">
-                <label htmlFor="hs-fld-21">Announcement / Instructions</label>
+                <label htmlFor="hs-fld-21">Notes</label>
                 <textarea id="hs-fld-21" rows={2} value={makeupModal.announcement} onChange={e => setMakeupModal({ ...makeupModal, announcement: e.target.value })} />
               </div>
             </div>
             <div className="modal-footer-hs">
               <button type="button" className="btn-hs btn-secondary-hs" onClick={() => setMakeupModal(null)}>Cancel</button>
-              <button type="submit" className="btn-hs btn-primary-hs">Create &amp; Notify</button>
+              <button type="submit" className="btn-hs btn-primary-hs">Create</button>
             </div>
           </form>
         </HsDialog>
@@ -2524,11 +2609,10 @@ export default function HealthScreening() {
           <HsDialogHeader onClose={() => setReferModal(null)}>Refer to Doctor: {referModal.student.first_name} {referModal.student.last_name}</HsDialogHeader>
           <form onSubmit={submitRefer} className="modal-form-hs">
             <div className="modal-body-hs">
-              <p className="hint-hs">Creates a Referral visit in the doctor&apos;s open schedule. The result of this screening is attached to the visit.</p>
               <div className="form-group-hs">
                 <label htmlFor="hs-fld-22">Doctor</label>
                 <select id="hs-fld-22" required value={referModal.doctor_id} onChange={e => setReferModal({ ...referModal, doctor_id: e.target.value, slot: null })}>
-                  <option value="">-- Select Doctor --</option>
+                  <option value="">-- Select --</option>
                   {referDoctors.map(d => <option key={d.doctor_id} value={d.doctor_id}>Dr. {d.first_name} {d.last_name} ({d.specialization})</option>)}
                 </select>
               </div>
@@ -2539,8 +2623,8 @@ export default function HealthScreening() {
               {referModal.doctor_id && referModal.date && (
                 <div className="form-group-hs">
                   <span className="list-title-hs" id="refer-slots-label-hs">Available Slots</span>
-                  {referSlotsLoading ? <p className="hint-hs">Loading slots...</p> : referSlots.length === 0 ? (
-                    <p className="hint-hs warn-hs">This doctor has no open schedule on that date. Set one up under Doctor Schedule.</p>
+                  {referSlotsLoading ? <p className="hint-hs" role="status">Loading</p> : referSlots.length === 0 ? (
+                    <p className="hint-hs warn-hs">No schedule</p>
                   ) : (
                     <div className="slot-list-hs" role="group" aria-labelledby="refer-slots-label-hs">
                       {referSlots.map(s => (
@@ -2563,7 +2647,7 @@ export default function HealthScreening() {
             </div>
             <div className="modal-footer-hs">
               <button type="button" className="btn-hs btn-secondary-hs" onClick={() => setReferModal(null)}>Cancel</button>
-              <button type="submit" className="btn-hs btn-primary-hs" disabled={!referModal.slot}>Schedule Referral</button>
+              <button type="submit" className="btn-hs btn-primary-hs" disabled={!referModal.slot}>Refer</button>
             </div>
           </form>
         </HsDialog>

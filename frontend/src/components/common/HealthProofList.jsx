@@ -1,6 +1,6 @@
 import React from 'react';
 
-const CONDITION_LABELS = {
+export const CONDITION_LABELS = {
     has_allergies: 'History of Allergies',
     has_asthma: 'Asthma',
     has_other_respiratory: 'Other Respiratory Problems',
