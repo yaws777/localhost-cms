@@ -19,12 +19,17 @@ import {
   HelpCircle,
   Info,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Check,
+  Minus,
+  Plus,
+  Search,
+  Send,
+  Users
 } from 'lucide-react';
 import jsQR from 'jsqr';
 import stiLogo from '../../assets/sti-logof.png';
 import { formatDate, formatDateTime } from '../../utils/datetime';
-import SearchableSelect from '../../components/common/SearchableSelect';
 import '../../styles/nurse/DispensedMedicine.css';
 
 // Measured units allow continuous decimal values (liquids, weights, volumes)
@@ -244,9 +249,32 @@ const isLiveBatch = (b) => {
 };
 
 const getStockStatus = (stock, lowThreshold = 10, criticalThreshold = 5) => {
-  if (stock <= criticalThreshold) return { label: 'Critical', class: 'critical-dm' };
-  if (stock <= lowThreshold) return { label: 'Low Stock', class: 'status-low-dm' };
-  return { label: 'Adequate', class: 'adequate-dm' };
+  if (stock <= criticalThreshold) return { label: 'Critical', class: 'critical-dm', bar: 'level-crit-dm', Icon: AlertTriangle };
+  if (stock <= lowThreshold) return { label: 'Low Stock', class: 'status-low-dm', bar: 'level-low-dm', Icon: AlertTriangle };
+  return { label: 'Adequate', class: 'adequate-dm', bar: 'level-ok-dm', Icon: CheckCircle };
+};
+
+// status is never colour alone: icon + label
+const StatusChip = ({ status }) => (
+  <span className={`status-tag-dm ${status.class}`}>
+    <status.Icon size={14} aria-hidden="true" />
+    {status.label}
+  </span>
+);
+
+// common conditions come first; the rest sit behind "View more"
+const COMMON_COMPLAINTS = ['fever', 'headache', 'cough', 'body pain', 'sore throat', 'runny nose', 'menstrual cramps', 'dizziness'];
+const COMPLAINTS_COLLAPSED = 8;
+const EXPIRY_WARN_DAYS = 60;
+
+// whole days from today to a date (negative = past)
+const daysUntil = (date) => {
+  const d = new Date(date);
+  if (isNaN(d)) return Infinity;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  d.setHours(0, 0, 0, 0);
+  return Math.round((d - today) / 86400000);
 };
 
 const DispensedMedicine = () => {
@@ -284,6 +312,7 @@ const DispensedMedicine = () => {
   const [selectedBatchId, setSelectedBatchId] = useState('');
   const [inventorySearch, setInventorySearch] = useState('');
   const [openGroups, setOpenGroups] = useState({}); // medicine ids whose batches are open; all closed at first
+  const [showAllComplaints, setShowAllComplaints] = useState(false); // "View more" on the condition picker
 
   // Dosage Consumption States
   const [dosageValue, setDosageValue] = useState('');
@@ -510,13 +539,14 @@ const DispensedMedicine = () => {
 
   useEffect(() => {
     if (selectedMedicineId && selectedComplaintId && Array.isArray(inventory)) {
+      // soonest expiry first, and that batch is picked for the nurse
       const batches = inventory.filter(b =>
         b.medicine_id === selectedMedicineId &&
         isLiveBatch(b) &&
         isBatchLinkedToComplaint(b, selectedComplaintId)
-      );
+      ).sort((a, b) => new Date(a.expiration_date) - new Date(b.expiration_date));
       setAvailableBatches(batches);
-      setSelectedBatchId('');
+      setSelectedBatchId(batches.length > 0 ? batches[0].batch_id : '');
       
       // Dispense unit and dispense limit come from the medicine (dispense_limit / dispense_unit_of_measure columns)
       const sample = inventory.find(i => i.medicine_id === selectedMedicineId);
@@ -989,69 +1019,172 @@ const DispensedMedicine = () => {
   const activeMedicine = inventory.find(b => b.medicine_id === selectedMedicineId);
   const dispenseLimit = parseFloat(activeMedicine?.dispense_limit) || 0;
 
+  // Close the top-most modal with Esc
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      if (alertModal.isOpen) setAlertModal((prev) => ({ ...prev, isOpen: false }));
+      else if (confirmModal.isOpen) setConfirmModal({ isOpen: false, title: '', message: '', onConfirm: null });
+      else if (selectedLogDetail) setSelectedLogDetail(null);
+      else if (isLogModalOpen) setIsLogModalOpen(false);
+      else if (isScanningQR) stopQRScan();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [alertModal.isOpen, confirmModal.isOpen, selectedLogDetail, isLogModalOpen, isScanningQR, stopQRScan]);
+
+  // Medical conditions: the common ones first, "Others" last; the rest stay behind "View more"
+  const complaintRank = (c) => {
+    const name = String(c.complaint_name).trim().toLowerCase();
+    if (name === 'others') return 99;
+    const i = COMMON_COMPLAINTS.indexOf(name);
+    return i === -1 ? COMMON_COMPLAINTS.length : i;
+  };
+  const orderedComplaints = [...complaints].sort(
+    (a, b) => complaintRank(a) - complaintRank(b) || String(a.complaint_name).localeCompare(String(b.complaint_name))
+  );
+  const shownComplaints = showAllComplaints
+    ? orderedComplaints
+    : orderedComplaints.filter((c, i) => i < COMPLAINTS_COLLAPSED || String(c.complaint_id) === String(selectedComplaintId));
+  const hiddenComplaintCount = orderedComplaints.length - shownComplaints.length;
+
+  // Medicines linked to the chosen condition (live batches only)
+  const medicineOptions = selectedComplaintId
+    ? Array.from(
+        new Set(
+          inventory
+            .filter((item) => isLiveBatch(item) && isBatchLinkedToComplaint(item, selectedComplaintId))
+            .map((item) => item.medicine_id)
+        )
+      ).map((medId) => {
+        const linked = inventory.filter(
+          (i) => i.medicine_id === medId && isLiveBatch(i) && isBatchLinkedToComplaint(i, selectedComplaintId)
+        );
+        const first = linked[0];
+        const total = linked.reduce((sum, b) => sum + Number(b.current_stock || 0), 0);
+        return { id: medId, name: first.medicine_name, first, total };
+      })
+    : [];
+
+  const strengthText = (item) =>
+    item && item.strength_unit_value !== undefined && item.strength_unit_value !== null && item.strength_unit_value !== '' && item.strength_unit_of_measure
+      ? `${formatUnitValue(item.strength_unit_value, item.strength_unit_of_measure)} ${item.strength_unit_of_measure}`
+      : '';
+
+  const groupTotal = (g) => {
+    const first = g.batches[0] || g.sample;
+    return Number(first.medicine_total_stock ?? g.batches.reduce((s, b) => s + Number(b.current_stock || 0), 0));
+  };
+
+  // Stat tiles
+  const statDispensed = todaysDispensedLogs.length;
+  const statStudents = new Set(todaysDispensedLogs.map((l) => l.student_id)).size;
+  const statLow = inventoryGroups.filter((g) => {
+    const first = g.batches[0] || g.sample;
+    return getStockStatus(groupTotal(g), first.low_stock_level, first.critical_stock_level).label !== 'Adequate';
+  }).length;
+  const statExpiring = inventory.filter((b) => isLiveBatch(b) && daysUntil(b.expiration_date) <= EXPIRY_WARN_DAYS).length;
+
+  // Quantity stepper
+  const qtyStep = isMeasured && dispenseLimit >= 10 ? 5 : 1;
+  const stepDosage = (dir) => {
+    const cur = parseFloat(dosageValue);
+    let next = (isNaN(cur) ? 0 : cur) + dir * qtyStep;
+    if (dispenseLimit > 0) next = Math.min(next, dispenseLimit);
+    next = Math.max(next, qtyStep);
+    setDosageValue(String(next));
+  };
+
+  const numericDosage = parseFloat(dosageValue);
+  const quantityOk = !isNaN(numericDosage) && numericDosage > 0 && (dispenseLimit <= 0 || numericDosage <= dispenseLimit);
+  const specifyOk = !isSpecifyRequired || Boolean(specifyComplaintText.trim());
+  const readyToSubmit = Boolean(selectedStudent && selectedComplaint && activeMedicine && activeBatch);
+
+  const stepClass = (done) => `step-num-dm${done ? ' done-dm' : ''}`;
+  const StepMark = ({ done, n }) => (done ? <Check size={16} aria-hidden="true" /> : n);
+
   return (
     <div className="dispense-container-dm">
-      {/* Header Section styled as Card matching Insurance Vault Theme */}
+      <div className="dm-page">
+      {/* Header */}
       <header className="dispense-header-dm">
         <div className="header-title-block-dm">
-          <h1>Medicine Dispensation Management</h1>
-          <p className="header-subtitle-dm">Process student medication dispensing and monitor inventory real-time.</p>
+          <h1>Medicine Dispensation</h1>
+          <p className="header-subtitle-dm">Dispense to a student and watch stock live.</p>
         </div>
-        <div className="header-actions-dm" style={{ display: 'flex', gap: '8px', flexWrap: 'nowrap' }}>
-          <button 
-            type="button" 
-            className="btn-dispense-log-dm"
+        <div className="header-actions-dm">
+          <span className="date-pill-dm"><Calendar size={18} aria-hidden="true" />{formatDate(new Date())}</span>
+          <button
+            type="button"
+            className="btn-dm"
             onClick={handleExportPDF}
-            title="Export Dispense Log PDF Preview"
-            style={{ width: 'auto' }}
+            title="Export dispense log"
+            aria-label="Export dispense log"
           >
-            <Printer size={18} />
-            <span>export</span>
+            <Printer size={20} aria-hidden="true" />
           </button>
-
-          <button 
-            type="button" 
-            className="btn-dispense-log-dm"
+          <button
+            type="button"
+            className="btn-dm btn-dm-solid"
             onClick={() => setIsLogModalOpen(true)}
-            title="Open Full Dispensed Records Log History"
-            style={{ width: 'auto' }}
+            title="Open dispense log"
+            aria-label="Open dispense log"
           >
-            <History size={18} />
-            <span>Dispense Log</span>
+            <History size={20} aria-hidden="true" />
           </button>
         </div>
       </header>
 
       {!nurseId && (
-        <div className="alert-banner-dm alert-error-dm">
+        <div className="alert-banner-dm alert-error-dm" role="alert">
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <AlertTriangle size={18} />
-            <span>Warning: No active nurse session detected from NurseLayout context.</span>
+            <AlertTriangle size={18} aria-hidden="true" />
+            <span>No active nurse session.</span>
           </div>
         </div>
       )}
 
+      {/* Stat strip */}
+      <section className="stats-dm" aria-label="Today at a glance">
+        <div className="stat-dm">
+          <span className="stat-ic-dm tone-info-dm"><Pill size={22} aria-hidden="true" /></span>
+          <div><div className="stat-n-dm">{statDispensed}</div><div className="stat-l-dm">Dispensed today</div></div>
+        </div>
+        <div className="stat-dm">
+          <span className="stat-ic-dm tone-ok-dm"><Users size={22} aria-hidden="true" /></span>
+          <div><div className="stat-n-dm">{statStudents}</div><div className="stat-l-dm">Students served</div></div>
+        </div>
+        <div className="stat-dm">
+          <span className="stat-ic-dm tone-low-dm"><AlertTriangle size={22} aria-hidden="true" /></span>
+          <div><div className="stat-n-dm">{statLow}</div><div className="stat-l-dm">Low or critical</div></div>
+        </div>
+        <div className="stat-dm">
+          <span className="stat-ic-dm tone-bad-dm"><Clock size={22} aria-hidden="true" /></span>
+          <div><div className="stat-n-dm">{statExpiring}</div><div className="stat-l-dm">Expiring in {EXPIRY_WARN_DAYS} days</div></div>
+        </div>
+      </section>
+
       {/* GLOBAL ALERT / SYSTEM NOTIFICATION MODAL */}
       {alertModal.isOpen && (
         <div className="modal-overlay-dm">
-          <div className="modal-card-dm alert-modal-card-dm">
+          <div className="modal-card-dm alert-modal-card-dm" role="dialog" aria-modal="true" aria-labelledby="dm-alert-title">
             <div className="modal-header-dm">
-              <div className="modal-header-title-dm" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                {alertModal.type === 'success' && <CheckCircle size={24} style={{ color: 'var(--status-adequate-text)' }} />}
-                {alertModal.type === 'error' && <AlertTriangle size={24} style={{ color: 'var(--status-critical-text)' }} />}
-                {alertModal.type === 'warning' && <AlertTriangle size={24} style={{ color: '#ffc107' }} />}
-                {alertModal.type === 'info' && <Info size={24} style={{ color: 'var(--text-brand)' }} />}
-                <h3>{alertModal.title}</h3>
+              <div className="modal-header-title-dm">
+                {alertModal.type === 'success' && <CheckCircle size={24} style={{ color: 'var(--status-adequate-text)' }} aria-hidden="true" />}
+                {alertModal.type === 'error' && <AlertTriangle size={24} style={{ color: 'var(--status-critical-text)' }} aria-hidden="true" />}
+                {alertModal.type === 'warning' && <AlertTriangle size={24} style={{ color: 'var(--status-low-text)' }} aria-hidden="true" />}
+                {alertModal.type === 'info' && <Info size={24} style={{ color: 'var(--text-brand)' }} aria-hidden="true" />}
+                <h3 id="dm-alert-title">{alertModal.title}</h3>
               </div>
-              <button type="button" className="modal-close-icon-dm" onClick={closeAlertModal} aria-label="Close Modal">
-                <X size={20} />
+              <button type="button" className="modal-close-icon-dm" onClick={closeAlertModal} aria-label="Close" title="Close">
+                <X size={20} aria-hidden="true" />
               </button>
             </div>
             <div className="modal-body-dm">
-              <p style={{ fontSize: '0.95rem', color: 'var(--text-primary)', margin: '10px 0' }}>{alertModal.message}</p>
+              <p>{alertModal.message}</p>
             </div>
             <div className="modal-footer-dm">
-              <button type="button" className="btn-secondary-action-dm" onClick={closeAlertModal}>
+              <button type="button" className="btn-confirm-dm" onClick={closeAlertModal}>
                 OK
               </button>
             </div>
@@ -1062,27 +1195,26 @@ const DispensedMedicine = () => {
       {/* OPERATION CONFIRMATION MODAL */}
       {confirmModal.isOpen && (
         <div className="modal-overlay-dm">
-          <div className="modal-card-dm confirm-modal-card-dm">
+          <div className="modal-card-dm confirm-modal-card-dm" role="dialog" aria-modal="true" aria-labelledby="dm-confirm-title">
             <div className="modal-header-dm">
-              <div className="modal-header-title-dm" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <HelpCircle size={24} style={{ color: 'var(--text-brand)' }} />
-                <h3>{confirmModal.title}</h3>
+              <div className="modal-header-title-dm">
+                <HelpCircle size={24} style={{ color: 'var(--text-brand)' }} aria-hidden="true" />
+                <h3 id="dm-confirm-title">{confirmModal.title}</h3>
               </div>
-              <button type="button" className="modal-close-icon-dm" onClick={closeConfirmModal} aria-label="Close Modal">
-                <X size={20} />
+              <button type="button" className="modal-close-icon-dm" onClick={closeConfirmModal} aria-label="Close" title="Close">
+                <X size={20} aria-hidden="true" />
               </button>
             </div>
             <div className="modal-body-dm">
-              <p style={{ fontSize: '0.95rem', color: 'var(--text-primary)', margin: '10px 0' }}>{confirmModal.message}</p>
+              <p>{confirmModal.message}</p>
             </div>
-            <div className="modal-footer-dm" style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+            <div className="modal-footer-dm">
               <button type="button" className="btn-secondary-action-dm" onClick={closeConfirmModal}>
                 Cancel
               </button>
-              <button 
-                type="button" 
-                className="btn-filter-apply-dm" 
-                style={{ backgroundColor: '#0056b3', borderColor: '#0056b3', color: '#fff' }}
+              <button
+                type="button"
+                className="btn-confirm-dm"
                 onClick={() => {
                   const action = confirmModal.onConfirm;
                   closeConfirmModal();
@@ -1099,22 +1231,22 @@ const DispensedMedicine = () => {
       {/* QR Code Scanner Modal */}
       {isScanningQR && (
         <div className="modal-overlay-dm">
-          <div className="qr-modal-card-dm">
+          <div className="qr-modal-card-dm" role="dialog" aria-modal="true" aria-labelledby="dm-qr-title">
             <button
               type="button"
               className="modal-close-icon-dm"
               onClick={stopQRScan}
-              title="Close QR Scanner"
-              aria-label="Close QR Scanner"
+              title="Close QR scanner"
+              aria-label="Close QR scanner"
             >
-              <X size={20} />
+              <X size={20} aria-hidden="true" />
             </button>
-            
-            <h3>Scan Student QR Code</h3>
-            
+
+            <h3 id="dm-qr-title">Scan student QR code</h3>
+
             {qrError ? (
-              <div className="alert-banner-dm alert-error-dm" style={{ margin: '12px 0' }}>
-                <AlertTriangle size={18} />
+              <div className="alert-banner-dm alert-error-dm" style={{ margin: '12px 0' }} role="alert">
+                <AlertTriangle size={18} aria-hidden="true" />
                 <span>{qrError}</span>
               </div>
             ) : (
@@ -1124,12 +1256,10 @@ const DispensedMedicine = () => {
               </div>
             )}
 
-            <p className="qr-hint-text-dm">
-              Position active student QR code within camera view to automatically scan ID.
-            </p>
+            <p className="qr-hint-text-dm">Hold the student QR code in view.</p>
 
             <button type="button" onClick={stopQRScan} className="btn-secondary-action-dm">
-              Cancel Scan
+              Cancel
             </button>
           </div>
         </div>
@@ -1137,254 +1267,361 @@ const DispensedMedicine = () => {
 
       <div className="dispense-grid-dm">
         {/* Dispense Medicine Form */}
-        <div className="card-dm form-section-dm">
-          <h2><PlusCircle size={20} className="icon-blue-dm" /> Dispense Medicine Form</h2>
-          <form onSubmit={handleFormSubmit}>
-            <div className="form-group-dm student-search-container-dm">
-              <label htmlFor="student-search">Search Active Student (Name or ID)</label>
-              <div className="search-input-wrapper-dm">
-                <div className="input-with-icon-dm">
-                  <input
-                    id="student-search"
-                    type="text"
-                    placeholder="Type student first name, last name, or ID..."
-                    value={searchStudent}
-                    onChange={(e) => {
-                      setSearchStudent(e.target.value);
-                      if (selectedStudent) setSelectedStudent(null);
-                    }}
-                    autoComplete="off"
-                    required
-                  />
+        <section className="card-dm form-section-dm" aria-labelledby="dm-form-title">
+          <div className="card-hd-dm">
+            <h2 id="dm-form-title"><PlusCircle size={20} className="icon-blue-dm" aria-hidden="true" /> Dispense form</h2>
+          </div>
+          <form onSubmit={handleFormSubmit} noValidate>
+            {/* 1. Student */}
+            <div className="step-dm">
+              <span className={stepClass(Boolean(selectedStudent))}><StepMark done={Boolean(selectedStudent)} n={1} /></span>
+              <div className="step-body-dm student-search-container-dm">
+                <h3 className="step-title-dm">Student</h3>
+                <div className="row-dm">
+                  <label className="field-dm" htmlFor="student-search">
+                    <Search size={20} aria-hidden="true" />
+                    <input
+                      id="student-search"
+                      type="text"
+                      placeholder="Name or ID"
+                      aria-label="Search active student by name or ID"
+                      value={searchStudent}
+                      onChange={(e) => {
+                        setSearchStudent(e.target.value);
+                        if (selectedStudent) setSelectedStudent(null);
+                      }}
+                      autoComplete="off"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="btn-dm"
+                    onClick={startQRScan}
+                    title="Scan student QR code"
+                    aria-label="Scan student QR code"
+                  >
+                    <QrCode size={20} aria-hidden="true" />
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  className="qr-scan-btn-dm"
-                  onClick={startQRScan}
-                  title="Search active student by QR code"
-                >
-                  <QrCode size={18} />
-                  <span>Scan QR</span>
-                </button>
-              </div>
-              
-              {searchStudent.trim().length > 1 && !selectedStudent && (
-                <ul className="search-dropdown-dm">
-                  {Array.isArray(students) && students.length > 0 ? (
-                    students.map((student) => (
-                      <li 
-                        key={student.student_id} 
-                        onClick={() => {
-                          setSelectedStudent(student);
-                          setSearchStudent(`${student.first_name} ${student.last_name} (${student.student_id})`);
-                          setStudents([]);
-                        }}
-                        className="dropdown-item-dm"
-                      >
-                        <div className="student-info-row-dm">
-                          <span className="student-name-dm">{student.first_name} {student.last_name}</span>
-                          <span className="student-id-badge-dm">ID: {student.student_id}</span>
-                        </div>
-                      </li>
-                    ))
+
+                {searchStudent.trim().length > 1 && !selectedStudent && (
+                  Array.isArray(students) && students.length > 0 ? (
+                    <ul className="results-dm">
+                      {students.map((student) => (
+                        <li key={student.student_id}>
+                          <button
+                            type="button"
+                            className="result-dm"
+                            onClick={() => {
+                              setSelectedStudent(student);
+                              setSearchStudent(`${student.first_name} ${student.last_name} (${student.student_id})`);
+                              setStudents([]);
+                            }}
+                          >
+                            <strong>{student.first_name} {student.last_name}</strong>
+                            <span className="sid-dm">{student.student_id}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
                   ) : (
-                    <li className="dropdown-no-results-dm">No active students found matching query</li>
-                  )}
-                </ul>
-              )}
-
-              {selectedStudent && (
-                <div className="selection-badge-dm animate-fade-in-dm">
-                  <div className="badge-content-dm">
-                    <span>Selected: <strong>{selectedStudent.first_name} {selectedStudent.last_name}</strong></span>
-                    <code className="badge-id-dm">{selectedStudent.student_id}</code>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="form-group-dm">
-              <label htmlFor="complaint-select">Medical Condition</label>
-              <SearchableSelect
-                id="complaint-select"
-                placeholder="-- Choose Medical Condition --"
-                value={selectedComplaintId}
-                options={complaints.map((c) => ({ value: c.complaint_id, label: c.complaint_name }))}
-                onChange={(next) => {
-                  if (String(next) === String(selectedComplaintId)) return;
-                  setSelectedComplaintId(next);
-                  setSpecifyComplaintText('');
-                  setSelectedMedicineId('');
-                  setSelectedBatchId('');
-                }}
-              />
-            </div>
-
-            {isSpecifyRequired && (
-              <div className="form-group-dm">
-                <label htmlFor="specify-complaint">Specify Medical Condition</label>
-                <input
-                  id="specify-complaint"
-                  type="text"
-                  maxLength={255}
-                  placeholder="Specify the medical condition"
-                  value={specifyComplaintText}
-                  onChange={(e) => setSpecifyComplaintText(e.target.value)}
-                  required
-                />
-              </div>
-            )}
-
-            <div className="form-group-dm">
-              <label htmlFor="medicine-select">Select Medicine</label>
-              <select
-                id="medicine-select"
-                value={selectedMedicineId}
-                onChange={(e) => setSelectedMedicineId(e.target.value)}
-                disabled={!selectedComplaintId}
-                required
-              >
-                <option value="">
-                  {selectedComplaintId ? '-- Choose Medicine --' : '-- Select a medical condition first --'}
-                </option>
-                {Array.isArray(inventory) && Array.from(
-                  new Set(
-                    inventory
-                      .filter(item => isLiveBatch(item) && isBatchLinkedToComplaint(item, selectedComplaintId))
-                      .map(item => item.medicine_id)
+                    <p className="hint-dm">No active student found.</p>
                   )
-                ).map(medId => {
-                  const med = inventory.find(i => i.medicine_id === medId);
-                  return <option key={medId} value={medId}>{med?.medicine_name}</option>;
-                })}
-              </select>
-              {selectedComplaintId && Array.isArray(inventory) &&
-                !inventory.some(item => isLiveBatch(item) && isBatchLinkedToComplaint(item, selectedComplaintId)) && (
-                <small className="field-help-text-dm">No medicine in stock is linked to this medical condition.</small>
-              )}
+                )}
+
+                {selectedStudent && (
+                  <div className="picked-dm animate-fade-in-dm">
+                    <div>
+                      <div className="picked-name-dm">{selectedStudent.first_name} {selectedStudent.last_name}</div>
+                      <span className="sid-dm">{selectedStudent.student_id}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn-dm btn-dm-ghost"
+                      onClick={() => { setSelectedStudent(null); setSearchStudent(''); }}
+                      title="Clear student"
+                      aria-label="Clear student"
+                    >
+                      <X size={20} aria-hidden="true" />
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
 
-            <div className="form-group-dm">
-              <label htmlFor="batch-select">Batch Expiration Date</label>
-              <select
-                id="batch-select"
-                value={selectedBatchId}
-                onChange={(e) => setSelectedBatchId(e.target.value)}
-                disabled={!selectedMedicineId}
-                required
+            {/* 2. Medical condition */}
+            <div className="step-dm">
+              <span className={stepClass(Boolean(selectedComplaint) && specifyOk)}>
+                <StepMark done={Boolean(selectedComplaint) && specifyOk} n={2} />
+              </span>
+              <div className="step-body-dm">
+                <h3 className="step-title-dm" id="dm-condition-title">Medical condition</h3>
+                <div className="chips-dm" role="group" aria-labelledby="dm-condition-title">
+                  {shownComplaints.map((c) => {
+                    const on = String(c.complaint_id) === String(selectedComplaintId);
+                    return (
+                      <button
+                        key={c.complaint_id}
+                        type="button"
+                        className="pill-dm"
+                        aria-pressed={on}
+                        onClick={() => {
+                          if (on) return;
+                          setSelectedComplaintId(c.complaint_id);
+                          setSpecifyComplaintText('');
+                          setSelectedMedicineId('');
+                          setSelectedBatchId('');
+                        }}
+                      >
+                        {on && <Check size={16} aria-hidden="true" />}
+                        {String(c.complaint_name).trim()}
+                      </button>
+                    );
+                  })}
+                </div>
+                {orderedComplaints.length > COMPLAINTS_COLLAPSED && (
+                  <div>
+                    <button
+                      type="button"
+                      className="btn-dm btn-dm-ghost btn-dm-more"
+                      aria-expanded={showAllComplaints}
+                      onClick={() => setShowAllComplaints((v) => !v)}
+                    >
+                      {showAllComplaints ? 'View less' : `View more (${hiddenComplaintCount})`}
+                      {showAllComplaints ? <ChevronUp size={18} aria-hidden="true" /> : <ChevronDown size={18} aria-hidden="true" />}
+                    </button>
+                  </div>
+                )}
+                {isSpecifyRequired && (
+                  <label className="field-dm" htmlFor="specify-complaint">
+                    <input
+                      id="specify-complaint"
+                      type="text"
+                      maxLength={255}
+                      placeholder="Specify the condition"
+                      aria-label="Specify the medical condition"
+                      value={specifyComplaintText}
+                      onChange={(e) => setSpecifyComplaintText(e.target.value)}
+                    />
+                  </label>
+                )}
+              </div>
+            </div>
+
+            {/* 3. Medicine and batch */}
+            <div className="step-dm">
+              <span className={stepClass(Boolean(selectedBatchId))}><StepMark done={Boolean(selectedBatchId)} n={3} /></span>
+              <div className="step-body-dm">
+                <h3 className="step-title-dm">Medicine and batch</h3>
+                {!selectedComplaintId && <p className="hint-dm">Pick a condition first.</p>}
+                {selectedComplaintId && medicineOptions.length === 0 && (
+                  <p className="field-help-text-dm">No medicine in stock for this condition.</p>
+                )}
+                {medicineOptions.length > 0 && (
+                  <div className="pick-grid-dm two-dm" role="group" aria-label="Medicine">
+                    {medicineOptions.map((m) => {
+                      const on = m.id === selectedMedicineId;
+                      const unit = m.first.dispense_unit_of_measure || m.first.strength_unit_of_measure || '';
+                      const limit = parseFloat(m.first.dispense_limit);
+                      const strength = strengthText(m.first);
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          className="opt-dm"
+                          aria-pressed={on}
+                          onClick={() => setSelectedMedicineId(m.id)}
+                        >
+                          <span className="opt-text-dm">
+                            <span className="opt-name-dm">{m.name}{strength ? ` ${strength}` : ''}</span>
+                            <span className="opt-meta-dm">
+                              {m.total} {getStockLabel({ ...m.first, current_stock: m.total })}
+                              {limit > 0 ? ` · max ${formatUnitValue(limit, unit)} ${unit}` : ''}
+                            </span>
+                          </span>
+                          {on && <CheckCircle size={20} className="opt-tick-dm" aria-hidden="true" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                {availableBatches.length > 0 && (
+                  <div>
+                    <div className="sub-title-dm" id="dm-batch-title">Batch (soonest expiry first)</div>
+                    <div className="pick-grid-dm two-dm" role="group" aria-labelledby="dm-batch-title">
+                      {availableBatches.map((batch) => {
+                        const on = batch.batch_id === selectedBatchId;
+                        const d = daysUntil(batch.expiration_date);
+                        return (
+                          <button
+                            key={batch.batch_id}
+                            type="button"
+                            className="opt-dm"
+                            aria-pressed={on}
+                            onClick={() => setSelectedBatchId(batch.batch_id)}
+                          >
+                            <span className="opt-text-dm">
+                              <span className="opt-name-dm">{formatDate(new Date(batch.expiration_date))}</span>
+                              <span className="opt-meta-dm">
+                                <span className={isBoxUnit(batch) ? 'stock-box-badge-dm' : ''}>{formatStockOnly(batch)}</span>
+                                {isMeasuredUnitFn(batch.dispense_unit_of_measure) && (
+                                  <> · {batch.remaining_volume} {batch.strength_unit_of_measure} left</>
+                                )}
+                              </span>
+                              {d <= EXPIRY_WARN_DAYS && (
+                                <span className="chip-dm tone-low-dm">
+                                  <AlertTriangle size={14} aria-hidden="true" />
+                                  Expires in {d} {d === 1 ? 'day' : 'days'}
+                                </span>
+                              )}
+                            </span>
+                            {on && <CheckCircle size={20} className="opt-tick-dm" aria-hidden="true" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 4. Quantity */}
+            <div className="step-dm">
+              <span className={stepClass(Boolean(selectedBatchId) && quantityOk)}>
+                <StepMark done={Boolean(selectedBatchId) && quantityOk} n={4} />
+              </span>
+              <div className="step-body-dm">
+                <h3 className="step-title-dm">{isMeasured ? 'Dosage' : 'Quantity'}</h3>
+                <div className="qty-dm">
+                  <div className="stepper-dm">
+                    <button
+                      type="button"
+                      className="btn-dm"
+                      onClick={() => stepDosage(-1)}
+                      disabled={!selectedMedicineId}
+                      title="Decrease"
+                      aria-label="Decrease quantity"
+                    >
+                      <Minus size={20} aria-hidden="true" />
+                    </button>
+                    <input
+                      id="dosage-input"
+                      className="qty-input-dm"
+                      type="number"
+                      step={isMeasured ? 'any' : '1'}
+                      min={isMeasured ? '0.01' : '1'}
+                      max={dispenseLimit > 0 ? dispenseLimit : undefined}
+                      placeholder={isMeasured ? '0.00' : '1'}
+                      aria-label={isMeasured ? `Dosage value in ${dosageUnit}` : 'Quantity dispensed'}
+                      value={dosageValue}
+                      disabled={!selectedMedicineId}
+                      onKeyDown={(e) => {
+                        if (!isMeasured && (e.key === '.' || e.key === 'e' || e.key === 'E' || e.key === '+' || e.key === '-')) {
+                          e.preventDefault();
+                        }
+                      }}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (!isMeasured && val.includes('.')) {
+                          setDosageValue(val.split('.')[0]);
+                        } else {
+                          setDosageValue(val);
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="btn-dm"
+                      onClick={() => stepDosage(1)}
+                      disabled={!selectedMedicineId}
+                      title="Increase"
+                      aria-label="Increase quantity"
+                    >
+                      <Plus size={20} aria-hidden="true" />
+                    </button>
+                  </div>
+                  <span className="unit-dm">{dosageUnit || 'Unit'}</span>
+                  {dispenseLimit > 0 && (
+                    <span className="chip-dm inline-dm tone-info-dm">
+                      Max {formatUnitValue(dispenseLimit, dosageUnit)} {dosageUnit}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Submit bar */}
+            <div className="foot-dm">
+              <div className="foot-text-dm" aria-live="polite">
+                <strong>
+                  {readyToSubmit
+                    ? `${selectedStudent.first_name} ${selectedStudent.last_name} · ${activeMedicine.medicine_name}`
+                    : 'Nothing selected yet'}
+                </strong>
+                <span>
+                  {readyToSubmit
+                    ? `${formatUnitValue(dosageValue, dosageUnit)} ${dosageUnit} · ${String(selectedComplaint.complaint_name).trim()}`
+                    : 'Fill the four steps.'}
+                </span>
+              </div>
+              <button
+                type="submit"
+                className="btn-dm btn-dm-solid btn-dm-lg"
+                disabled={!nurseId}
+                title="Submit dispensation"
+                aria-label="Submit dispensation"
               >
-                <option value="">-- Choose Batch Expiration Date --</option>
-                {availableBatches.map((batch) => (
-                  <option key={batch.batch_id} value={batch.batch_id}>
-                    {formatDate(new Date(batch.expiration_date))} (Stock: {formatStockOnly(batch)})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {activeBatch && (
-              <div className="batch-details-summary-dm">
-                <p>
-                  <strong>Current Stock:</strong>{' '}
-                  <span className={isBoxUnit(activeBatch) ? "stock-box-badge-dm" : ""}>
-                    {formatStockOnly(activeBatch)}
-                  </span>
-                </p>
-                {isMeasuredUnitFn(activeBatch.dispense_unit_of_measure) && (
-                  <p><strong>Remaining Volume:</strong> {activeBatch.remaining_volume} {activeBatch.strength_unit_of_measure}</p>
-                )}
-                <p><strong>Expiration:</strong> {formatDate(new Date(activeBatch.expiration_date))}</p>
-              </div>
-            )}
-
-            <div className="form-group-dm">
-              <label htmlFor="dosage-input">
-                {isMeasured ? `Dosage Value (${dosageUnit})` : 'Quantity Dispensed'}
-                {dispenseLimit > 0 && (
-                  <span> (max {formatUnitValue(dispenseLimit, dosageUnit)} {dosageUnit})</span>
-                )}
-              </label>
-              <div className="dosage-input-group-dm">
-                <input
-                  id="dosage-input"
-                  type="number"
-                  step={isMeasured ? "any" : "1"}
-                  min={isMeasured ? "0.01" : "1"}
-                  max={dispenseLimit > 0 ? dispenseLimit : undefined}
-                  placeholder={isMeasured ? "0.00" : "1"}
-                  value={dosageValue}
-                  onKeyDown={(e) => {
-                    if (!isMeasured && (e.key === '.' || e.key === 'e' || e.key === 'E' || e.key === '+' || e.key === '-')) {
-                      e.preventDefault();
-                    }
-                  }}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (!isMeasured && val.includes('.')) {
-                      setDosageValue(val.split('.')[0]);
-                    } else {
-                      setDosageValue(val);
-                    }
-                  }}
-                  required
-                />
-                <input 
-                  type="text" 
-                  value={dosageUnit} 
-                  readOnly 
-                  className="unit-readonly-input-dm" 
-                  placeholder="Unit"
-                />
-              </div>
-            </div>
-
-            <div className="form-submit-wrapper-dm">
-              <button type="submit" className="btn-submit-dm" disabled={!nurseId}>
-                Submit Dispensation
+                <Send size={22} aria-hidden="true" />
               </button>
             </div>
           </form>
-        </div>
+        </section>
 
         {/* Real-time Inventory Section */}
-        <div className="card-dm inventory-section-dm">
-          <div className="section-title-row-dm">
-            <h2><Pill size={20} className="icon-blue-dm" /> Inventory Batches Real-time</h2>
-            <button onClick={fetchInventory} className="btn-icon-dm" title="Refresh Live Data" aria-label="Refresh inventory list">
-              <RefreshCw size={16} />
-            </button>
-          </div>
-          <div className="inv-search-dm">
-            <input
-              type="search"
-              value={inventorySearch}
-              onChange={(e) => setInventorySearch(e.target.value)}
-              placeholder="Search medicine"
-              aria-label="Search medicine"
-            />
+        <section className="card-dm inventory-section-dm" aria-labelledby="dm-inv-title">
+          <div className="card-hd-dm">
+            <h2 id="dm-inv-title"><Pill size={20} className="icon-blue-dm" aria-hidden="true" /> Inventory</h2>
+            <div className="card-tools-dm">
+              <label className="field-dm inv-search-dm">
+                <Search size={20} aria-hidden="true" />
+                <input
+                  type="search"
+                  value={inventorySearch}
+                  onChange={(e) => setInventorySearch(e.target.value)}
+                  placeholder="Search medicine"
+                  aria-label="Search medicine"
+                />
+              </label>
+              <button type="button" onClick={fetchInventory} className="btn-dm" title="Refresh inventory" aria-label="Refresh inventory list">
+                <RefreshCw size={18} aria-hidden="true" />
+              </button>
+            </div>
           </div>
           <div className="table-responsive-dm inv-scroll-dm">
-            <table className="custom-table-dm">
+            <table className="custom-table-dm inv-table-dm">
               <thead>
                 <tr>
-                  <th>Medicine</th>
-                  <th>Stock</th>
-                  <th>Nearest expiry</th>
-                  <th>Status</th>
-                  <th className="action-column-dm"><span className="sr-only-dm">Batches</span></th>
+                  <th scope="col">Medicine</th>
+                  <th scope="col">Stock</th>
+                  <th scope="col">Level</th>
+                  <th scope="col">Nearest expiry</th>
+                  <th scope="col">Status</th>
+                  <th scope="col" className="action-column-dm"><span className="sr-only-dm">Batches</span></th>
                 </tr>
               </thead>
               <tbody>
                 {visibleGroups.length === 0 ? (
                   <tr>
-                    <td colSpan="5" className="text-center-empty-dm">{inventorySearch ? 'No match.' : 'No medicine in inventory.'}</td>
+                    <td colSpan="6" className="text-center-empty-dm">{inventorySearch ? 'No match.' : 'No medicine in inventory.'}</td>
                   </tr>
                 ) : (
                   visibleGroups.map((g) => {
                     const first = g.batches[0] || g.sample;
                     // judged on the medicine's total stock across its batches, not one batch alone
-                    const total = Number(first.medicine_total_stock ?? g.batches.reduce((s, b) => s + Number(b.current_stock || 0), 0));
+                    const total = groupTotal(g);
                     const status = getStockStatus(total, first.low_stock_level, first.critical_stock_level);
+                    const lowLevel = Number(first.low_stock_level) || 10;
+                    const pct = Math.min(100, Math.round((total / (lowLevel * 2.5)) * 100));
                     const isOpen = !!openGroups[g.medicine_id];
                     const panelId = `inv-batches-${g.medicine_id}`;
                     return (
@@ -1392,8 +1629,11 @@ const DispensedMedicine = () => {
                         <tr className="inv-group-row-dm">
                           <td><strong>{g.name}</strong> <span className="inv-count-dm">{g.batches.length} {g.batches.length === 1 ? 'batch' : 'batches'}</span></td>
                           <td>{total} {getStockLabel(first)}</td>
+                          <td>
+                            <div className={`level-dm ${status.bar}`} aria-hidden="true"><i style={{ width: `${pct}%` }} /></div>
+                          </td>
                           <td>{g.batches.length ? formatDate(new Date(first.expiration_date)) : 'None'}</td>
-                          <td><span className={`status-tag-dm ${status.class}`}>{status.label}</span></td>
+                          <td><StatusChip status={status} /></td>
                           <td className="action-column-dm">
                             {g.batches.length > 0 && <button
                               type="button"
@@ -1404,12 +1644,13 @@ const DispensedMedicine = () => {
                               aria-label={`${isOpen ? 'Hide' : 'Show'} batches of ${g.name}`}
                               title={isOpen ? 'Hide batches' : 'Show batches'}
                             >
-                              {isOpen ? <ChevronUp size={17} aria-hidden="true" /> : <ChevronDown size={17} aria-hidden="true" />}
+                              {isOpen ? <ChevronUp size={18} aria-hidden="true" /> : <ChevronDown size={18} aria-hidden="true" />}
                             </button>}
                           </td>
                         </tr>
                         {isOpen && g.batches.map((item, i) => {
                           const showVolume = isMeasuredUnitFn(item.dispense_unit_of_measure);
+                          const d = daysUntil(item.expiration_date);
                           return (
                             <tr key={item.batch_id} id={i === 0 ? panelId : undefined} className="inv-batch-row-dm">
                               <td className="inv-batch-label-dm">Batch {i + 1}</td>
@@ -1417,8 +1658,16 @@ const DispensedMedicine = () => {
                                 <span className={isBoxUnit(item) ? 'stock-box-badge-dm' : ''}>{formatCurrentStock(item)}</span>
                                 {showVolume && <span className="inv-vol-dm"> / {item.remaining_volume} {item.strength_unit_of_measure} left</span>}
                               </td>
-                              <td>{formatDate(new Date(item.expiration_date))}</td>
                               <td></td>
+                              <td>{formatDate(new Date(item.expiration_date))}</td>
+                              <td>
+                                {d <= EXPIRY_WARN_DAYS && (
+                                  <span className="status-tag-dm status-low-dm">
+                                    <AlertTriangle size={14} aria-hidden="true" />
+                                    Expires in {d} {d === 1 ? 'day' : 'days'}
+                                  </span>
+                                )}
+                              </td>
                               <td></td>
                             </tr>
                           );
@@ -1430,35 +1679,35 @@ const DispensedMedicine = () => {
               </tbody>
             </table>
           </div>
-        </div>
+        </section>
       </div>
 
       {/* TODAY'S DISPENSED SECTION */}
-      <div className="card-dm history-section-wrapper-dm">
-        <div className="section-title-row-dm">
-          <h2><Clock size={20} className="icon-blue-dm" /> Today's Dispensed</h2>
-          <span className="todays-badge-dm">{formatDate(new Date())}</span>
+      <section className="card-dm history-section-wrapper-dm" aria-labelledby="dm-today-title">
+        <div className="card-hd-dm">
+          <h2 id="dm-today-title"><Clock size={20} className="icon-blue-dm" aria-hidden="true" /> Today's dispensed</h2>
+          <span className="todays-badge-dm">{todaysDispensedLogs.length} {todaysDispensedLogs.length === 1 ? 'record' : 'records'}</span>
         </div>
 
         <div className="table-responsive-dm">
           <table className="custom-table-dm">
             <thead>
               <tr>
-                <th>Date / Time Logged</th>
-                <th>Dispensation Type</th>
-                <th>Student ID</th>
-                <th>Student Name</th>
-                <th>Medicine Dispensed</th>
-                <th>Medical Condition</th>
-                <th>Qty./Volume</th>
-                <th className="action-column-dm">Action</th>
+                <th scope="col">Date / Time Logged</th>
+                <th scope="col">Dispensation Type</th>
+                <th scope="col">Student ID</th>
+                <th scope="col">Student Name</th>
+                <th scope="col">Medicine Dispensed</th>
+                <th scope="col">Medical Condition</th>
+                <th scope="col">Qty./Volume</th>
+                <th scope="col" className="action-column-dm"><span className="sr-only-dm">View</span></th>
               </tr>
             </thead>
             <tbody>
               {todaysDispensedLogs.length === 0 ? (
                 <tr>
                   <td colSpan="8" className="text-center-empty-dm">
-                    No medicine dispensations recorded for today yet.
+                    Nothing dispensed today yet.
                   </td>
                 </tr>
               ) : (
@@ -1466,11 +1715,11 @@ const DispensedMedicine = () => {
                   <tr key={log.id}>
                     <td>{formatDateTime(new Date(log.dispensed_at))}</td>
                     <td>
-                      <span className={`status-tag-dm ${log.dispensation_type === 'Direct Dispensation' ? 'status-ok-dm' : 'status-low-dm'}`}>
+                      <span className={`status-tag-dm ${log.dispensation_type === 'Direct Dispensation' ? 'status-ok-dm' : 'tone-info-dm'}`}>
                         {log.dispensation_type}
                       </span>
                     </td>
-                    <td><code>{log.student_id}</code></td>
+                    <td><code className="sid-code-dm">{log.student_id}</code></td>
                     <td>{log.first_name} {log.last_name}</td>
                     <td>{log.medicine_name}</td>
                     <td>{conditionText(log)}</td>
@@ -1480,10 +1729,10 @@ const DispensedMedicine = () => {
                         type="button"
                         className="btn-icon-row-dm"
                         onClick={() => setSelectedLogDetail(log)}
-                        title="View Dispensation Record Details"
+                        title="View record"
                         aria-label={`View details for transaction ${log.id}`}
                       >
-                        <Eye size={17} />
+                        <Eye size={18} aria-hidden="true" />
                       </button>
                     </td>
                   </tr>
@@ -1492,53 +1741,56 @@ const DispensedMedicine = () => {
             </tbody>
           </table>
         </div>
-      </div>
+      </section>
 
       {/* MODAL: FULL DISPENSED LOG HISTORY */}
       {isLogModalOpen && (
         <div className="modal-overlay-dm">
-          <div className="modal-card-dm log-history-modal-dm">
+          <div className="modal-card-dm log-history-modal-dm" role="dialog" aria-modal="true" aria-labelledby="dm-log-title">
             <div className="modal-header-dm">
               <div className="modal-header-title-dm">
-                <History size={22} className="icon-blue-dm" />
-                <h3>Dispensed Records Log History</h3>
+                <History size={22} className="icon-blue-dm" aria-hidden="true" />
+                <h3 id="dm-log-title">Dispensed records</h3>
               </div>
-              <button 
-                type="button" 
+              <button
+                type="button"
                 className="modal-close-icon-dm"
                 onClick={() => setIsLogModalOpen(false)}
-                title="Close Log History Modal"
-                aria-label="Close Modal"
+                title="Close"
+                aria-label="Close"
               >
-                <X size={20} />
+                <X size={20} aria-hidden="true" />
               </button>
             </div>
 
-            <div className="modal-body-dm">
+            <div className="modal-body-dm" style={{ overflow: 'hidden' }}>
               <div className="filter-toolbar-dm">
                 <div className="filter-item-dm date-range-group-dm">
-                  <Calendar size={16} className="filter-icon-dm" />
-                  <input 
-                    type="date" 
-                    value={fromDate} 
+                  <Calendar size={16} className="filter-icon-dm" aria-hidden="true" />
+                  <input
+                    type="date"
+                    value={fromDate}
                     max={toDate || undefined}
-                    onChange={handleFromDateChange} 
-                    title="From Date" 
+                    onChange={handleFromDateChange}
+                    title="From date"
+                    aria-label="From date"
                   />
                   <span className="date-sep-dm">to</span>
-                  <input 
-                    type="date" 
-                    value={toDate} 
+                  <input
+                    type="date"
+                    value={toDate}
                     min={fromDate || undefined}
-                    onChange={handleToDateChange} 
-                    title="To Date" 
+                    onChange={handleToDateChange}
+                    title="To date"
+                    aria-label="To date"
                   />
                 </div>
 
                 <div className="filter-item-dm">
                   <input
                     type="text"
-                    placeholder="Search student (Name/ID)..."
+                    placeholder="Student name or ID"
+                    aria-label="Search student by name or ID"
                     value={filterStudent}
                     onChange={(e) => setFilterStudent(e.target.value)}
                     className="filter-text-input-dm"
@@ -1548,7 +1800,8 @@ const DispensedMedicine = () => {
                 <div className="filter-item-dm">
                   <input
                     type="text"
-                    placeholder="Search medicine name..."
+                    placeholder="Medicine name"
+                    aria-label="Search medicine name"
                     value={filterMedicine}
                     onChange={(e) => setFilterMedicine(e.target.value)}
                     className="filter-text-input-dm"
@@ -1556,23 +1809,18 @@ const DispensedMedicine = () => {
                 </div>
 
                 <div className="filter-actions-row-dm">
-                  <button onClick={handleApplyFilters} className="btn-filter-apply-dm">
-                    <Filter size={14} /> <span>Apply</span>
+                  <button type="button" onClick={handleApplyFilters} className="btn-dm btn-dm-solid" title="Apply filters" aria-label="Apply filters">
+                    <Filter size={18} aria-hidden="true" />
                   </button>
-                  
+
                   {(fromDate || toDate || filterStudent || filterMedicine) && (
-                    <button onClick={handleResetFilters} className="btn-filter-reset-dm">
-                      <RotateCcw size={14} /> <span>Reset</span>
+                    <button type="button" onClick={handleResetFilters} className="btn-dm" title="Reset filters" aria-label="Reset filters">
+                      <RotateCcw size={18} aria-hidden="true" />
                     </button>
                   )}
 
-                  <button 
-                    type="button" 
-                    onClick={handleExportPDF} 
-                    className="btn-filter-apply-dm" 
-                    style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '0 12px' }}
-                  >
-                    <Printer size={14} /> <span>export</span>
+                  <button type="button" onClick={handleExportPDF} className="btn-dm" title="Export dispense log" aria-label="Export dispense log">
+                    <Printer size={18} aria-hidden="true" />
                   </button>
                 </div>
               </div>
@@ -1581,21 +1829,21 @@ const DispensedMedicine = () => {
                 <table className="custom-table-dm">
                   <thead>
                     <tr>
-                      <th>Date / Time Logged</th>
-                      <th>Dispensation Type</th>
-                      <th>Student ID</th>
-                      <th>Student Name</th>
-                      <th>Medicine Dispensed</th>
-                      <th>Medical Condition</th>
-                      <th>Qty./Volume</th>
-                      <th className="action-column-dm">Action</th>
+                      <th scope="col">Date / Time Logged</th>
+                      <th scope="col">Dispensation Type</th>
+                      <th scope="col">Student ID</th>
+                      <th scope="col">Student Name</th>
+                      <th scope="col">Medicine Dispensed</th>
+                      <th scope="col">Medical Condition</th>
+                      <th scope="col">Qty./Volume</th>
+                      <th scope="col" className="action-column-dm"><span className="sr-only-dm">View</span></th>
                     </tr>
                   </thead>
                   <tbody>
                     {!Array.isArray(history) || history.length === 0 ? (
                       <tr>
                         <td colSpan="8" className="text-center-empty-dm">
-                          No transaction history logs matched your parameters.
+                          No records match.
                         </td>
                       </tr>
                     ) : (
@@ -1603,24 +1851,24 @@ const DispensedMedicine = () => {
                         <tr key={log.id}>
                           <td>{formatDateTime(new Date(log.dispensed_at))}</td>
                           <td>
-                            <span className={`status-tag-dm ${log.dispensation_type === 'Direct Dispensation' ? 'status-ok-dm' : 'status-low-dm'}`}>
+                            <span className={`status-tag-dm ${log.dispensation_type === 'Direct Dispensation' ? 'status-ok-dm' : 'tone-info-dm'}`}>
                               {log.dispensation_type}
                             </span>
                           </td>
-                          <td><code>{log.student_id}</code></td>
+                          <td><code className="sid-code-dm">{log.student_id}</code></td>
                           <td>{log.first_name} {log.last_name}</td>
                           <td>{log.medicine_name}</td>
                           <td>{conditionText(log)}</td>
                           <td><strong>{formatUnitValue(log.dosage_consumption_unit_value, log.dosage_consumption_unit_of_measure)} {log.dosage_consumption_unit_of_measure}</strong></td>
                           <td className="action-column-dm">
-                            <button 
-                              type="button" 
+                            <button
+                              type="button"
                               className="btn-icon-row-dm"
                               onClick={() => setSelectedLogDetail(log)}
-                              title="View Dispensation Record Details"
+                              title="View record"
                               aria-label={`View details for transaction ${log.id}`}
                             >
-                              <Eye size={17} />
+                              <Eye size={18} aria-hidden="true" />
                             </button>
                           </td>
                         </tr>
@@ -1632,9 +1880,9 @@ const DispensedMedicine = () => {
             </div>
 
             <div className="modal-footer-dm">
-              <button 
-                type="button" 
-                onClick={() => setIsLogModalOpen(false)} 
+              <button
+                type="button"
+                onClick={() => setIsLogModalOpen(false)}
                 className="btn-secondary-action-dm"
               >
                 Close
@@ -1647,62 +1895,63 @@ const DispensedMedicine = () => {
       {/* MODAL: DISPENSATION DETAIL VIEW */}
       {selectedLogDetail && (
         <div className="modal-overlay-dm">
-          <div className="modal-card-dm detail-view-modal-dm">
+          <div className="modal-card-dm detail-view-modal-dm" role="dialog" aria-modal="true" aria-labelledby="dm-detail-title">
             <div className="modal-header-dm">
-              <h3>Dispensation Transaction Detail</h3>
-              <button 
-                type="button" 
+              <h3 id="dm-detail-title">Dispensation record</h3>
+              <button
+                type="button"
                 className="modal-close-icon-dm"
                 onClick={() => setSelectedLogDetail(null)}
-                aria-label="Close Details Modal"
+                title="Close"
+                aria-label="Close"
               >
-                <X size={20} />
+                <X size={20} aria-hidden="true" />
               </button>
             </div>
             <div className="modal-body-dm detail-grid-dm">
               <div className="detail-item-dm">
-                <span className="detail-label-dm">Transaction ID:</span>
+                <span className="detail-label-dm">Transaction ID</span>
                 <span className="detail-value-dm">#{selectedLogDetail.id}</span>
               </div>
               <div className="detail-item-dm">
-                <span className="detail-label-dm">Date & Time:</span>
+                <span className="detail-label-dm">Date & Time</span>
                 <span className="detail-value-dm">{formatDateTime(new Date(selectedLogDetail.dispensed_at))}</span>
               </div>
               <div className="detail-item-dm">
-                <span className="detail-label-dm">Student Name:</span>
+                <span className="detail-label-dm">Student Name</span>
                 <span className="detail-value-dm">{selectedLogDetail.first_name} {selectedLogDetail.last_name}</span>
               </div>
               <div className="detail-item-dm">
-                <span className="detail-label-dm">Student ID:</span>
-                <span className="detail-value-dm"><code>{selectedLogDetail.student_id}</code></span>
+                <span className="detail-label-dm">Student ID</span>
+                <span className="detail-value-dm"><code className="sid-code-dm">{selectedLogDetail.student_id}</code></span>
               </div>
               <div className="detail-item-dm">
-                <span className="detail-label-dm">Medicine Name:</span>
+                <span className="detail-label-dm">Medicine Name</span>
                 <span className="detail-value-dm">{selectedLogDetail.medicine_name}</span>
               </div>
               <div className="detail-item-dm">
-                <span className="detail-label-dm">Medical Condition:</span>
+                <span className="detail-label-dm">Medical Condition</span>
                 <span className="detail-value-dm">{conditionText(selectedLogDetail)}</span>
               </div>
               <div className="detail-item-dm">
-                <span className="detail-label-dm">Dispensed Amount:</span>
+                <span className="detail-label-dm">Dispensed Amount</span>
                 <span className="detail-value-dm">{formatUnitValue(selectedLogDetail.dosage_consumption_unit_value, selectedLogDetail.dosage_consumption_unit_of_measure)} {selectedLogDetail.dosage_consumption_unit_of_measure}</span>
               </div>
               <div className="detail-item-dm">
-                <span className="detail-label-dm">Dispensation Type:</span>
+                <span className="detail-label-dm">Dispensation Type</span>
                 <span className="detail-value-dm">{selectedLogDetail.dispensation_type}</span>
               </div>
               {selectedLogDetail.nurse_name && (
                 <div className="detail-item-dm">
-                  <span className="detail-label-dm">Dispensed By:</span>
+                  <span className="detail-label-dm">Dispensed By</span>
                   <span className="detail-value-dm">{selectedLogDetail.nurse_name}</span>
                 </div>
               )}
             </div>
             <div className="modal-footer-dm">
-              <button 
-                type="button" 
-                className="btn-secondary-action-dm" 
+              <button
+                type="button"
+                className="btn-secondary-action-dm"
                 onClick={() => setSelectedLogDetail(null)}
               >
                 Close
@@ -1711,6 +1960,7 @@ const DispensedMedicine = () => {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 };

@@ -15,13 +15,13 @@
    ========================================================================== */
 .consultation-wrapper-vlc {
     width: 100%;
-    max-width: 1400px;
+    max-width: 2000px;
     margin: 0 auto;
-    padding: 24px;
+    padding: clamp(1rem, 2.5vw, 2.5rem);
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: clamp(1rem, 1.5vw, 1.75rem);
     font-family: var(--font-sans);
     color: var(--sti-text-dark);
 }
@@ -30,162 +30,183 @@
    2. HEADER PANEL & BUTTONS
    ========================================================================== */
 .consultation-header-panel-vlc {
-    background: var(--bg-card);
-    padding: 20px 24px;
-    border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
-    border-left: 5px solid var(--sti-blue);
-    border-top: 1px solid var(--sti-border);
-    border-right: 1px solid var(--sti-border);
-    border-bottom: 1px solid var(--sti-border);
+    padding: 0;
 }
 
 .header-title-container-vlc {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
     align-items: center;
-    gap: 16px;
+    gap: 1rem;
     width: 100%;
 }
 
 .header-text-block-vlc h2 {
-    margin: 0 0 4px 0;
-    color: var(--text-primary);
-    font-size: 1.45rem;
-    font-weight: 700;
-}
-
-.header-text-block-vlc p {
     margin: 0;
+    color: var(--text-brand);
+    font-size: 1.75rem;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.header-date-vlc {
     color: var(--sti-text-muted);
-    font-size: 0.88rem;
+    font-size: 1rem;
 }
 
-.view-logs-header-btn-vlc {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 9px 18px;
-    background-color: var(--sti-navy);
-    color: #ffffff;
-    border: none;
-    border-radius: 6px;
-    font-weight: 600;
-    font-size: 0.88rem;
-    cursor: pointer;
-    white-space: nowrap;
-    width: fit-content;
-    max-width: fit-content;
-    flex-shrink: 0;
-    transition: background-color 0.2s ease, transform 0.1s ease;
-}
-
-.view-logs-header-btn-vlc:hover {
-    background-color: var(--sti-blue);
-}
-
-/* ==========================================================================
-   3. ENTRY SELECTION CARD & MODE BUTTONS
-   ========================================================================== */
-.entry-option-card-vlc {
-    background: var(--bg-card);
-    padding: 24px;
-    border-radius: 8px;
-    border: 1px solid var(--sti-border);
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
-}
-
-.entry-option-card-vlc h3 {
-    margin: 0 0 6px 0;
-    color: var(--text-primary);
-    font-size: 1.15rem;
-}
-
-.entry-option-card-vlc p {
-    margin: 0 0 16px 0;
-    color: var(--sti-text-muted);
-    font-size: 0.88rem;
-}
-
-.entry-buttons-group-vlc {
+.header-actions-vlc {
     display: flex;
-    gap: 14px;
-    align-items: center;
-    flex-wrap: wrap;
+    gap: 0.5rem;
 }
 
-.entry-btn-vlc {
+.icon-btn-vlc {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 10px;
-    padding: 11px 22px;
-    border-radius: 6px;
-    font-weight: 600;
-    font-size: 0.9rem;
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    padding: 0;
+    border: 1px solid var(--input-border);
+    border-radius: 0.625rem;
+    background: var(--bg-card);
+    color: var(--text-brand);
     cursor: pointer;
-    border: none;
-    transition: all 0.2s ease;
-    width: fit-content;
-    max-width: fit-content;
+    flex-shrink: 0;
 }
 
-.mode-search-btn-vlc {
-    background-color: var(--sti-blue);
-    color: #ffffff;
+.icon-btn-vlc:hover {
+    background: var(--sti-blue-light);
 }
 
-.mode-search-btn-vlc:hover {
-    background-color: var(--sti-navy);
+.icon-btn-vlc.icon-btn-solid-vlc {
+    background: var(--btn-primary-bg);
+    border-color: var(--btn-primary-bg);
+    color: var(--text-on-brand);
 }
 
-.mode-qr-btn-vlc {
-    background-color: #0056b3;
-    color: #ffffff;
+.icon-btn-vlc.icon-btn-solid-vlc:hover {
+    background: var(--sti-blue-hover);
 }
 
-.mode-qr-btn-vlc:hover {
-    background-color: #0056b3;
+.consultation-wrapper-vlc :focus-visible,
+.modal-viewport-backdrop-vlc :focus-visible {
+    outline: 0.1875rem solid var(--focus-ring);
+    outline-offset: 0.125rem;
+}
+
+.modal-header-accent-vlc :focus-visible {
+    outline-color: var(--sti-yellow);
+}
+
+.top-row-vlc {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    align-items: stretch;
+}
+
+.stats-grid-vlc {
+    flex: 2 1 24rem;
+    min-width: 0;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+.stat-tile-vlc {
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 1.25rem;
+    background: var(--bg-card);
+    border: 1px solid var(--sti-border);
+    border-radius: 1rem;
+}
+
+.stat-icon-vlc {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 0.625rem;
+}
+
+.stat-info-vlc { background: var(--sti-blue-light); color: var(--text-brand); }
+.stat-warn-vlc { background: var(--status-low-bg); color: var(--status-low-text); }
+.stat-ok-vlc { background: var(--status-adequate-bg); color: var(--status-adequate-text); }
+
+.stat-number-vlc {
+    font-size: 2.25rem;
+    font-weight: 700;
+    line-height: 1.1;
+    color: var(--text-primary);
+}
+
+.stat-label-vlc {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--text-primary);
 }
 
 /* ==========================================================================
    4. SEARCH CARD & OVERLAY POPPER
    ========================================================================== */
 .search-card-container-vlc {
-    position: relative;
+    flex: 3 1 32rem;
+    min-width: 0;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
     background: var(--bg-card);
-    padding: 20px;
-    border-radius: 8px;
+    padding: 1.25rem;
+    border-radius: 1rem;
     border: 1px solid var(--sti-border);
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
 }
 
 .search-card-header-vlc {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 14px;
-    padding-bottom: 10px;
-    border-bottom: 1px solid var(--sti-border);
+    gap: 1rem;
 }
 
-.back-option-btn-vlc {
-    background: none;
-    border: 1px solid var(--sti-border);
-    padding: 6px 14px;
-    border-radius: 4px;
-    font-size: 0.875rem;
-    font-weight: 600;
+.search-card-header-vlc h3 {
+    margin: 0;
+    font-size: 1.125rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.mode-toggle-vlc {
+    display: inline-flex;
+    gap: 0.25rem;
+    padding: 0.25rem;
+    border: 1px solid var(--input-border);
+    border-radius: 0.75rem;
+}
+
+.mode-toggle-btn-vlc {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    padding: 0;
+    border: 0;
+    border-radius: 0.5rem;
+    background: transparent;
     color: var(--sti-text-muted);
     cursor: pointer;
-    transition: all 0.15s ease;
-    width: fit-content;
 }
 
-.back-option-btn-vlc:hover {
-    background-color: var(--bg-elevated);
-    color: var(--text-primary);
+.mode-toggle-btn-vlc[aria-pressed="true"] {
+    background: var(--btn-primary-bg);
+    color: var(--text-on-brand);
 }
 
 .search-input-inner-vlc {
@@ -197,64 +218,63 @@
 
 .search-inside-icon-vlc {
     position: absolute;
-    left: 12px;
+    left: 0.875rem;
     color: var(--sti-text-muted);
     pointer-events: none;
 }
 
-.search-input-inner-vlc input {
+.search-input-inner-vlc input,
+.qr-scanner-input-container-vlc input {
     width: 100%;
-    padding: 10px 12px 10px 38px;
-    border: 1px solid var(--sti-border);
-    border-radius: 6px;
-    font-size: 0.9rem;
-    outline: none;
+    min-height: 2.75rem;
+    padding: 0 1rem 0 2.75rem;
+    border: 1px solid var(--input-border);
+    border-radius: 0.625rem;
+    font: inherit;
+    font-size: 1rem;
     box-sizing: border-box;
-    transition: border-color 0.2s;
+    background: var(--bg-card);
+    color: var(--text-primary);
 }
 
-.search-input-inner-vlc input:focus {
-    border-color: var(--sti-blue);
+.qr-scanner-input-container-vlc input {
+    padding-left: 1rem;
+}
+
+.qr-scanner-input-container-vlc .qr-submit-btn-vlc {
+    width: 2.75rem;
+    height: 2.75rem;
+    padding: 0;
+    border-radius: 0.625rem;
 }
 
 .search-results-overlay-panel-vlc {
-    position: absolute;
-    top: calc(100% + 4px);
-    left: 0;
-    right: 0;
-    z-index: 100;
-    max-height: 260px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-height: 20rem;
     overflow-y: auto;
-    border: 1px solid var(--sti-border);
-    border-radius: 6px;
-    background: var(--bg-card);
-    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
 }
 
 .search-result-row-vlc {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 10px 14px;
-    border-bottom: 1px solid var(--sti-border);
-    cursor: pointer;
-    transition: background-color 0.15s ease;
-}
-
-.search-result-row-vlc:last-child {
-    border-bottom: none;
-}
-
-.search-result-row-vlc:hover {
-    background-color: var(--sti-blue-light);
+    gap: 0.875rem;
+    padding: 0.625rem 0.75rem;
+    border: 1px solid var(--sti-border);
+    border-radius: 0.75rem;
 }
 
 .result-avatar-vlc {
-    width: 32px;
-    height: 32px;
+    width: 2.5rem;
+    height: 2.5rem;
     border-radius: 50%;
     background: var(--sti-blue-light);
     color: var(--text-brand);
+    font-weight: 700;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -262,13 +282,15 @@
 }
 
 .result-info-vlc {
+    flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
 }
 
 .result-name-vlc {
-    font-weight: 600;
-    font-size: 0.88rem;
+    font-weight: 700;
+    font-size: 1rem;
     color: var(--text-primary);
 }
 
@@ -276,6 +298,7 @@
     font-size: 0.875rem;
     color: var(--sti-text-muted);
 }
+
 
 .qr-scanner-card-wrapper-vlc {
     display: flex;
@@ -383,7 +406,7 @@
 .modal-body-container-vlc {
     background: var(--bg-card);
     width: 100%;
-    max-width: 720px;
+    max-width: min(56rem, 100%);
     border-radius: 8px;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
     display: flex;
@@ -393,7 +416,7 @@
 }
 
 .modal-body-container-vlc.confirm-modal-small-vlc {
-    max-width: 480px;
+    max-width: min(32rem, 100%);
 }
 
 /* Fullscreen customization for view logs modal */
@@ -434,10 +457,10 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    opacity: 0.85;
+    opacity: 1;
     transition: opacity 0.15s;
-    width: fit-content;
-    height: fit-content;
+    min-width: 2.75rem;
+    min-height: 2.75rem;
 }
 
 .modal-dismiss-btn-vlc:hover {
@@ -535,11 +558,11 @@
     align-items: center;
     gap: 10px;
     padding: 12px 16px;
-    background-color: var(--status-critical-bg);
-    border: 1px solid #fca5a5;
+    background-color: var(--status-low-bg);
+    border: 1px solid var(--status-low-bar);
     border-radius: 6px;
-    color: var(--status-critical-text);
-    font-size: 0.875rem;
+    color: var(--status-low-text);
+    font-size: 1rem;
 }
 
 .form-content-section-vlc {
@@ -600,10 +623,11 @@
 .form-input-element-vlc select,
 .form-input-element-vlc textarea {
     width: 100%;
-    padding: 8px 12px;
-    border: 1px solid var(--sti-border);
-    border-radius: 6px;
-    font-size: 0.88rem;
+    min-height: 2.75rem;
+    padding: 0 0.875rem;
+    border: 1px solid var(--input-border);
+    border-radius: 0.625rem;
+    font-size: 1rem;
     box-sizing: border-box;
     outline: none;
     background-color: var(--bg-card);
@@ -613,6 +637,11 @@
 .form-input-element-vlc select:focus,
 .form-input-element-vlc textarea:focus {
     border-color: var(--sti-blue);
+}
+
+.form-input-element-vlc textarea {
+    padding: 0.625rem 0.875rem;
+    resize: vertical;
 }
 
 .read-only-input-vlc {
@@ -648,13 +677,14 @@
 }
 
 .btn-cancel-action-vlc {
-    padding: 8px 18px;
+    min-height: 2.75rem;
+    padding: 0 1.25rem;
     border-radius: 6px;
     border: 1px solid var(--sti-border);
     background-color: var(--bg-card);
     color: var(--sti-text-dark);
     font-weight: 600;
-    font-size: 0.875rem;
+    font-size: 1rem;
     cursor: pointer;
     width: fit-content;
     max-width: fit-content;
@@ -666,13 +696,14 @@
 }
 
 .btn-confirm-action-vlc {
-    padding: 8px 20px;
+    min-height: 2.75rem;
+    padding: 0 1.25rem;
     border-radius: 6px;
-    border: none;
+    border: 1px solid transparent;
     background-color: var(--sti-blue);
     color: #ffffff;
     font-weight: 600;
-    font-size: 0.875rem;
+    font-size: 1rem;
     cursor: pointer;
     width: fit-content;
     max-width: fit-content;
@@ -684,13 +715,14 @@
 }
 
 .btn-deny-action-vlc {
-    padding: 8px 18px;
+    min-height: 2.75rem;
+    padding: 0 1.25rem;
     border-radius: 6px;
-    border: none;
+    border: 1px solid transparent;
     background-color: var(--danger-fill);
     color: #ffffff;
     font-weight: 600;
-    font-size: 0.875rem;
+    font-size: 1rem;
     cursor: pointer;
     width: fit-content;
     max-width: fit-content;
@@ -880,25 +912,60 @@
     color: var(--text-brand);
 }
 
-.refresh-table-btn-vlc {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 12px;
-    background-color: var(--bg-card);
-    border: 1px solid var(--sti-border);
-    border-radius: 6px;
-    font-size: 0.875rem;
-    font-weight: 600;
-    color: var(--sti-text-dark);
-    cursor: pointer;
-    transition: all 0.15s ease;
-    width: fit-content;
+.visit-tabs-vlc {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
 }
 
-.refresh-table-btn-vlc:hover {
-    background-color: var(--bg-elevated);
+.visit-tab-vlc {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+    padding: 0 1rem;
+    border: 0;
+    border-radius: 0.625rem;
+    background: transparent;
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    cursor: pointer;
 }
+
+.visit-tab-vlc[aria-pressed="true"] {
+    background: var(--sti-blue-light);
+    color: var(--text-brand);
+}
+
+.visit-tab-count-vlc {
+    padding: 0.0625rem 0.5rem;
+    border-radius: 999px;
+    background: var(--bg-subtle);
+    font-size: 0.875rem;
+}
+
+.section-title-wrapper-vlc {
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    background: var(--bg-card);
+}
+
+.confirm-message-vlc {
+    font-size: 1rem;
+    color: var(--text-primary);
+    line-height: 1.5;
+}
+
+.row-pending-vlc {
+    background: var(--status-low-bg);
+}
+
+.time-pending-vlc {
+    color: var(--sti-text-muted);
+}
+
 
 .table-overflow-scroller-vlc {
     width: 100%;
@@ -909,7 +976,7 @@
     width: 100%;
     border-collapse: collapse;
     text-align: left;
-    min-width: 820px;
+    min-width: 52rem;
 }
 
 .styled-history-table-vlc th {
@@ -930,7 +997,7 @@
 .styled-history-table-vlc td {
     padding: 12px 14px;
     border-bottom: 1px solid var(--sti-border);
-    font-size: 0.88rem;
+    font-size: 1rem;
     vertical-align: middle;
 }
 
@@ -1029,12 +1096,11 @@
 .status-pill-vlc {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    padding: 4px 10px;
-    border-radius: 12px;
+    gap: 0.375rem;
+    padding: 0.25rem 0.625rem;
+    border-radius: 999px;
     font-size: 0.875rem;
-    font-weight: 700;
-    text-transform: uppercase;
+    font-weight: 600;
     white-space: nowrap;
 }
 
@@ -1044,98 +1110,64 @@
 }
 
 .status-in-progress-vlc {
-    background-color: var(--status-low-bg);
-    color: var(--status-low-text);
+    background-color: var(--sti-blue-light);
+    color: var(--text-brand);
 }
 
 .status-undocumented-vlc {
-    background-color: var(--status-critical-bg);
-    color: var(--status-critical-text);
-    border: 1px solid #fca5a5;
+    background-color: var(--status-low-bg);
+    color: var(--status-low-text);
 }
 
 .action-button-group-vlc {
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 6px;
+    justify-content: flex-end;
+    gap: 0.5rem;
     flex-wrap: nowrap;
 }
 
 .icon-action-btn-vlc {
     position: relative;
-    width: 34px;
-    height: 34px;
+    width: 2.75rem;
+    height: 2.75rem;
     padding: 0;
-    border-radius: 6px;
-    border: 1px solid var(--sti-border);
+    border-radius: 0.625rem;
+    border: 1px solid var(--input-border);
     background-color: var(--bg-card);
+    color: var(--text-brand);
     display: inline-flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    transition: all 0.15s ease;
     flex-shrink: 0;
 }
 
-.icon-action-btn-vlc.btn-document-vlc {
-    color: var(--text-primary);
+.icon-action-btn-vlc:hover:not(:disabled) {
+    background-color: var(--sti-blue-light);
 }
 
 .icon-action-btn-vlc.btn-document-vlc.needs-doc-vlc {
-    border-color: #fca5a5;
-    background-color: var(--status-critical-bg);
-    color: var(--status-critical-text);
+    background-color: var(--btn-primary-bg);
+    border-color: var(--btn-primary-bg);
+    color: var(--text-on-brand);
 }
 
-.icon-action-btn-vlc.btn-document-vlc:hover {
-    background-color: var(--sti-navy);
-    color: #ffffff;
-    border-color: var(--sti-navy);
-}
-
-.doc-warning-dot-vlc {
-    position: absolute;
-    top: -2px;
-    right: -2px;
-    width: 8px;
-    height: 8px;
-    background-color: var(--danger-fill);
-    border-radius: 50%;
-    border: 2px solid var(--card-border);
-}
-
-.icon-action-btn-vlc.btn-manual-timeout-vlc {
-    color: var(--status-low-text);
-}
-
-.icon-action-btn-vlc.btn-manual-timeout-vlc:hover:not(:disabled) {
-    background-color: var(--status-low-bg);
-    border-color: #fcd34d;
-}
-
-.icon-action-btn-vlc.btn-qr-timeout-vlc {
-    color: var(--status-adequate-text);
-}
-
-.icon-action-btn-vlc.btn-qr-timeout-vlc:hover:not(:disabled) {
-    background-color: var(--status-adequate-bg);
-    border-color: #6ee7b7;
+.icon-action-btn-vlc.btn-document-vlc.needs-doc-vlc:hover {
+    background-color: var(--sti-blue-hover);
 }
 
 .icon-action-btn-vlc:disabled {
-    opacity: 0.4;
+    opacity: 0.45;
     cursor: not-allowed;
-    background-color: var(--bg-subtle);
-    border-color: var(--sti-border);
-    color: var(--sti-text-muted);
 }
+
 
 /* ==========================================================================
    8. DESKTOP-FIRST RESPONSIVE BREAKPOINTS (MAX-WIDTH CASCADE)
    ========================================================================== */
 
-@media (max-width: 100%) {
+@media (max-width: 75rem) {
     .consultation-wrapper-vlc {
         padding: 18px;
     }
@@ -1153,7 +1185,7 @@
     }
 }
 
-@media (max-width: 100%) {
+@media (max-width: 48rem) {
     .consultation-wrapper-vlc {
         padding: 14px;
         gap: 16px;
@@ -1240,7 +1272,7 @@
     }
 }
 
-@media (max-width: 100%) {
+@media (max-width: 30rem) {
     .consultation-wrapper-vlc {
         padding: 10px;
     }
@@ -1249,11 +1281,6 @@
     .entry-option-card-vlc,
     .search-card-container-vlc {
         padding: 14px;
-    }
-
-    .icon-action-btn-vlc {
-        width: 32px;
-        height: 32px;
     }
 
     .inline-time-input-vlc {
@@ -1277,5 +1304,34 @@
 
     .modal-body-container-vlc {
         max-height: 95vh;
+    }
+}
+/* Wide desktop */
+@media (min-width: 100rem) {
+    .consultation-wrapper-vlc {
+        font-size: 1.0625rem;
+    }
+
+    .styled-history-table-vlc td,
+    .styled-history-table-vlc th {
+        padding: 1rem 1.25rem;
+    }
+
+    .stat-number-vlc {
+        font-size: 2.75rem;
+    }
+}
+
+@media (max-width: 48rem) {
+    .top-row-vlc {
+        gap: 1rem;
+    }
+
+    .stats-grid-vlc {
+        flex-basis: 100%;
+    }
+
+    .search-card-container-vlc {
+        flex-basis: 100%;
     }
 }

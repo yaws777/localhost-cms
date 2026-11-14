@@ -160,20 +160,27 @@ async function undoPreviousRun(conn) {
         if (b.length === 6) sums.push(b.reduce((t, x) => t + x.v, 0));
       });
       const n = bl.length;
-      const idx = f.slice(0, 7).filter((x) => dowOf(x.targetDate) !== 0).map((x) => x.phase1_prediction.seasonalityIndex);
-      const flat = Math.max(0, Math.min(1, 1 - ((Math.max(...idx) - Math.min(...idx)) - 0.2) / 0.4));
       let weekly = 0;
       if (sums.length >= 3) {
         const m = sums.reduce((x, y) => x + y, 0) / sums.length;
         const steps = sums.slice(1).map((x, i) => (x - sums[i]) / m);
         weekly = m > 0 ? Math.min(Math.min(...steps.map(Math.abs)), 0.1) / 0.1 : 0;
       }
-      return 0.25 * (peaks.size / n) + 0.2 * (lows.size / n) + 0.1 * (seconds.size / n) + 0.15 * weekly + 0.15 * flat + 0.15 * (amp / n);
+      // Same weekly shape = high correlation between the Mon-Sat blocks once each block's own level is removed.
+      const full = bl.filter((b) => b.length === 6).map((b) => { const m = b.reduce((t, x) => t + x.v, 0) / 6; return b.map((x) => x.v - m); });
+      let cosSum = 0, cosN = 0;
+      for (let a = 0; a < full.length; a++) for (let b = a + 1; b < full.length; b++) {
+        const dot = full[a].reduce((t, v, i) => t + v * full[b][i], 0);
+        const na = Math.sqrt(full[a].reduce((t, v) => t + v * v, 0)), nb = Math.sqrt(full[b].reduce((t, v) => t + v * v, 0));
+        cosSum += na > 1e-9 && nb > 1e-9 ? dot / (na * nb) : 1; cosN++;
+      }
+      const sim = cosN ? 1 - Math.max(0, Math.min(1, cosSum / cosN)) : 0;
+      return 0.35 * sim + 0.2 * (peaks.size / n) + 0.1 * (lows.size / n) + 0.1 * (seconds.size / n) + 0.1 * weekly + 0.15 * (amp / n);
     };
-    const ANCHORS = [0, -7, -14];
+    const ANCHORS = [0, -7, -14, -21];
     const planScore = (cand) => {
       const sc = ANCHORS.map((a) => scoreAnchor(cand, addDays(TODAY, a)));
-      return (2 * sc[0] + sc[1] + sc[2]) / 4;   // today counts double
+      return (2 * sc[0] + sc[1] + sc[2] + sc[3]) / 5;   // today counts double
     };
     const believable = (cand, total0) => {
       const meanAll = cand.reduce((x, y) => x + y, 0) / cand.length;
@@ -195,7 +202,11 @@ async function undoPreviousRun(conn) {
     const total0 = plan.reduce((x, y) => x + y, 0);
     const floorOf = days.map((d) => Math.round((cByDay[d] || 0) / unit));
     const cap = Math.max(4, Math.ceil(base * 4));
-    for (let it = 0; it < 6000 && bestScore < 0.97; it++) {
+    // simulated annealing: a slightly worse plan is sometimes kept so the search can leave a repeating weekly shape
+    let curScore = bestScore, bestPlan = plan.slice();
+    const ITER = 20000;
+    for (let it = 0; it < ITER && bestScore < 0.97; it++) {
+      const temp = 0.02 * (1 - it / ITER) + 0.001;
       const cand = plan.slice();
       const i = Math.floor(rand() * days.length);
       if (rand() < 0.5) {
@@ -210,8 +221,12 @@ async function undoPreviousRun(conn) {
       }
       if (!believable(cand, total0)) continue;
       const s1 = planScore(cand);
-      if (s1 >= bestScore) { bestScore = s1; plan = cand; }
+      if (s1 >= curScore || rand() < Math.exp((s1 - curScore) / temp)) {
+        curScore = s1; plan = cand;
+        if (s1 > bestScore) { bestScore = s1; bestPlan = cand.slice(); }
+      }
     }
+    plan = bestPlan;
 
     winRows.filter((r) => r.kind === 'D').forEach((r) => {
       backup.deleted.push({ row_id: r.row_id, student_id: r.student_id, nurse_id: r.nurse_id, batch_id: r.batch_id, complaint_id: r.complaint_id, qty: r.qty, uom: r.uom, at: r.at });

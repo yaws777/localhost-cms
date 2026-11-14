@@ -84,11 +84,22 @@ const ConsultationsOffered = ({ doctors, onChanged }) => {
         if (form.newSpec.trim().length > 80) { setError('The specialization can be at most 80 characters.'); return; }
         if (!visitType) { setError(form.pick === OTHER ? 'Specify the check-up service.' : 'Pick the check-up service.'); return; }
         if (!isGeneral && specializations.length === 0) { setError('Pick the specialization connected to this check-up.'); return; }
+        // the last doctor can be taken off: the service then stays on the list but students cannot use it
+        const ids = form.doctorIds.filter((id) => pool.some((d) => d.doctor_id === id));
+        const wasUsable = !!existing && existing.doctors.some((d) => d.assigned && d.has_account);
+        const stillUsable = ids.some((id) => pool.find((d) => d.doctor_id === id)?.has_account);
+        if (wasUsable && !stillUsable) {
+            const ok = await showConfirm(
+                `No doctor will cover ${visitType}. Students cannot use it until a doctor is assigned.`,
+                { danger: true, confirmLabel: 'Save', title: 'No doctor left' }
+            );
+            if (!ok) return;
+        }
         setBusy(true);
         try {
             const res = await call('/api/consultations-offered', 'POST', {
                 visit_type: visitType, specializations,
-                doctor_ids: form.doctorIds.filter((id) => pool.some((d) => d.doctor_id === id))
+                doctor_ids: ids
             });
             if (res.success) {
                 setForm(null);
@@ -158,38 +169,35 @@ const ConsultationsOffered = ({ doctors, onChanged }) => {
                     <p className="dp-hint mda-lead">Only doctors with a linked specialization can take a check-up service.</p>
                 </div>
                 <div className="dp-actions">
-                    <button type="button" className="dp-btn dp-btn-primary dp-btn-icon" onClick={() => openForm()} aria-label="Add check-up service" title="Add check-up service"><Plus size={18} aria-hidden="true" /></button>
+                    <button type="button" className="dp-btn dp-btn-ghost dp-btn-icon mda-add" onClick={() => openForm()} aria-label="Add check-up service" title="Add check-up service"><Plus size={18} aria-hidden="true" /></button>
                 </div>
             </div>
 
             {loading ? <p className="dp-hint">Loading...</p> : (
-                <div className="mda-table-wrap">
-                    <table className="sti-table-dv mda-table">
-                        <thead><tr><th>Check-up service</th><th>Specialization</th><th>Assigned doctors</th><th /></tr></thead>
-                        <tbody>
-                            {data.consultations.map((c) => {
-                                const assigned = c.doctors.filter((d) => d.assigned);
-                                return (
-                                    <tr key={c.visit_type}>
-                                        <td><strong>{c.visit_type}</strong></td>
-                                        <td>{c.is_general ? 'Every specialization' : c.specializations.join(', ') || '-'}</td>
-                                        <td>{assigned.length === 0 ? <span className="dp-hint">No doctor yet</span> : assigned.map((d) => `Dr. ${d.last_name}`).join(', ')}</td>
-                                        <td>
-                                            <div className="dp-row-actions">
-                                                <button type="button" className="dp-btn dp-btn-ghost dp-btn-icon" onClick={() => openForm(c)} aria-label={`Edit ${c.visit_type}`} title="Edit"><Edit size={18} aria-hidden="true" /></button>
-                                                <button
-                                                    type="button" className="dp-btn dp-btn-danger dp-btn-icon" disabled={busy || !removable(c)} onClick={() => remove(c)}
-                                                    aria-label={removable(c) ? `Remove ${c.visit_type}` : `${c.visit_type} cannot be removed`}
-                                                    title={removable(c) ? 'Remove' : 'Cannot be removed'}
-                                                ><Trash2 size={18} aria-hidden="true" /></button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
-                </div>
+                <ul className="mda-svc-list">
+                    {data.consultations.map((c) => {
+                        const assigned = c.doctors.filter((d) => d.assigned);
+                        const usable = assigned.some((d) => d.has_account);
+                        return (
+                            <li key={c.visit_type} className="mda-svc">
+                                <div className="mda-svc-main">
+                                    <strong>{c.visit_type}</strong>
+                                    <span className="mda-svc-sub">{c.is_general ? 'Every specialization' : c.specializations.join(', ') || '-'}</span>
+                                    <span className="mda-svc-sub">{assigned.length === 0 ? 'No doctor yet' : assigned.map((d) => `Dr. ${d.last_name}`).join(', ')}</span>
+                                    {!usable && <span className="dp-chip dp-chip--warning">Not available</span>}
+                                </div>
+                                <div className="dp-row-actions">
+                                    <button type="button" className="dp-btn dp-btn-ghost dp-btn-icon" onClick={() => openForm(c)} aria-label={`Edit ${c.visit_type}`} title="Edit"><Edit size={18} aria-hidden="true" /></button>
+                                    <button
+                                        type="button" className="dp-btn dp-btn-danger dp-btn-icon" disabled={busy || !removable(c)} onClick={() => remove(c)}
+                                        aria-label={removable(c) ? `Remove ${c.visit_type}` : `${c.visit_type} cannot be removed`}
+                                        title={removable(c) ? 'Remove' : 'Cannot be removed'}
+                                    ><Trash2 size={18} aria-hidden="true" /></button>
+                                </div>
+                            </li>
+                        );
+                    })}
+                </ul>
             )}
 
             <Modal isOpen={!!form} onClose={() => setForm(null)} title={existing ? `Check-up service: ${existing.visit_type}` : 'Add check-up service'} icon={<ClipboardList size={20} />} size="md" closeOnBackdrop={false}>

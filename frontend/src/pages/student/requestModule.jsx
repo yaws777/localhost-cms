@@ -1,9 +1,13 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useOutletContext, useLocation } from 'react-router-dom';
-import { Eye } from 'lucide-react';
+import {
+  Eye, X, Plus, Search, Send, Clock, CircleCheck, CircleX, ClipboardList, Building2,
+  Paperclip, FileText, Upload, Calendar, Download
+} from 'lucide-react';
 import { io } from 'socket.io-client';
 import '../../styles/student/RequestModule.css';
+import '../../styles/student/RequestModuleRedesign.css';
 import { useAlert } from '../../context/AlertContext';
 import { formatTime, formatDate, formatDateTime } from '../../utils/datetime';
 
@@ -12,6 +16,113 @@ const BASE_URL = 'http://localhost:3001';
 
 const statusLabel = (status) =>
   !status || status.toLowerCase() === 'pending' ? 'Waiting for Approval' : status;
+
+// waiting | approved | declined (drives pill color + icon + filter tabs)
+const statusKind = (status) => {
+  const v = (status || 'pending').toLowerCase();
+  if (/approv|issued|complete|fulfill|release/.test(v)) return 'approved';
+  if (/reject|declin|denied|cancel/.test(v)) return 'declined';
+  return 'waiting';
+};
+const STATUS_ICON = { waiting: Clock, approved: CircleCheck, declined: CircleX };
+
+const FILTERS = [
+  { key: 'all', label: 'All' },
+  { key: 'waiting', label: 'Waiting' },
+  { key: 'approved', label: 'Approved' },
+  { key: 'declined', label: 'Declined' }
+];
+
+const fmtDay = (value) => {
+  if (!value) return '';
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? String(value) : formatDate(d);
+};
+
+const FOCUSABLE =
+  'button:not([disabled]), [href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function StatusPill({ status }) {
+  const kind = statusKind(status);
+  const Icon = STATUS_ICON[kind];
+  return (
+    <span className={`rq-pill rq-st-${kind}`}>
+      <Icon className="rq-ico" aria-hidden="true" />
+      {statusLabel(status)}
+    </span>
+  );
+}
+
+/**
+ * Accessible modal: role=dialog, Esc closes, Tab is trapped, focus returns to the opener.
+ * Pass onSubmit to render the sheet as a <form> (head, body and footer inside it).
+ */
+function Modal({ titleId, title, size, onClose, onSubmit, footer, children }) {
+  const sheetRef = useRef(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+
+  useEffect(() => {
+    const opener = document.activeElement;
+    const sheet = sheetRef.current;
+    const first = sheet && (sheet.querySelector('[data-autofocus]') || sheet.querySelector(FOCUSABLE));
+    if (first) first.focus();
+
+    const onKey = (e) => {
+      if (e.defaultPrevented) return;
+      if (e.key === 'Escape') {
+        closeRef.current();
+        return;
+      }
+      if (e.key !== 'Tab' || !sheet) return;
+      const items = Array.from(sheet.querySelectorAll(FOCUSABLE));
+      if (items.length === 0) return;
+      const firstEl = items[0];
+      const lastEl = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === firstEl) {
+        e.preventDefault();
+        lastEl.focus();
+      } else if (!e.shiftKey && document.activeElement === lastEl) {
+        e.preventDefault();
+        firstEl.focus();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      if (opener && typeof opener.focus === 'function') opener.focus();
+    };
+  }, []);
+
+  const Tag = onSubmit ? 'form' : 'div';
+  const sheetProps = onSubmit ? { onSubmit, noValidate: true } : {};
+
+  return createPortal(
+    <div
+      className="rq-modal-overlay"
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <Tag
+        ref={sheetRef}
+        className={`rq-sheet ${size ? `rq-sheet-${size}` : ''}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        {...sheetProps}
+      >
+        <div className="rq-sheet-head">
+          <h2 id={titleId}>{title}</h2>
+          <button type="button" className="rq-btn rq-btn-icon" onClick={onClose} aria-label="Close" title="Close">
+            <X className="rq-ico" aria-hidden="true" />
+          </button>
+        </div>
+        {children}
+        {footer}
+      </Tag>
+    </div>,
+    document.body
+  );
+}
 
 export default function RequestModule() {
   const location = useLocation();
@@ -36,6 +147,11 @@ export default function RequestModule() {
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // History toolbar state
+  const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+
   // Partner Facilities, Medical Requirements, & Services State
   const [partnerFacilities, setPartnerFacilities] = useState([]);
   const [medicalRequirements, setMedicalRequirements] = useState([]);
@@ -51,12 +167,15 @@ export default function RequestModule() {
 
   // Proof Preview State
   const [proofPreview, setProofPreview] = useState(null);
+  const [dragOver, setDragOver] = useState(false);
 
   const [referralForm, setReferralForm] = useState({
     reason_for_referral: '',
     facility_id: '',
     selected_services: []
   });
+
+  const threadRef = useRef(null);
 
   // Handle proof object URL creation & automatic memory cleanup
   useEffect(() => {
@@ -76,6 +195,12 @@ export default function RequestModule() {
       setActiveModal(location.state.openModal);
     }
   }, [location.state]);
+
+  // Keep the newest message in view
+  useEffect(() => {
+    const el = threadRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [notes, activeModal]);
 
   // Fetch Medical Requirements
   const fetchMedicalRequirements = useCallback(async () => {
@@ -102,8 +227,8 @@ export default function RequestModule() {
     try {
       const res = await fetch(`${API_BASE}/partner-facilities`);
       const data = await res.json();
-      const rawFacilities = Array.isArray(data) 
-        ? data 
+      const rawFacilities = Array.isArray(data)
+        ? data
         : (Array.isArray(data.facilities) ? data.facilities : []);
 
       // Sort so 'Others' facility is always the last option in dropdown
@@ -206,14 +331,14 @@ export default function RequestModule() {
 
     if (selectedFac) {
       const isOthers = (selectedFac.facility_name || '').trim().toLowerCase() === 'others';
-      
+
       if (isOthers && (!selectedFac.services || selectedFac.services.length === 0)) {
         const reqServices = medicalRequirements.map((reqItem, index) => {
-          const reqName = typeof reqItem === 'object' && reqItem !== null 
-            ? (reqItem.requirement_name || reqItem.name || `Requirement ${index + 1}`) 
+          const reqName = typeof reqItem === 'object' && reqItem !== null
+            ? (reqItem.requirement_name || reqItem.name || `Requirement ${index + 1}`)
             : reqItem;
-          const reqId = typeof reqItem === 'object' && reqItem !== null 
-            ? (reqItem.requirement_id || reqItem.id || reqName) 
+          const reqId = typeof reqItem === 'object' && reqItem !== null
+            ? (reqItem.requirement_id || reqItem.id || reqName)
             : reqName;
 
           return {
@@ -258,6 +383,14 @@ export default function RequestModule() {
   const handleExcuseSubmit = async (e) => {
     e.preventDefault();
     if (!student_id) { showAlert('Student ID not found. Please log in again.', 'error'); return; }
+    if (!excuseForm.reason_for_excuse.trim()) {
+      showAlert('Add a reason.', 'warning');
+      return;
+    }
+    if (!excuseForm.valid_absence_start || !excuseForm.valid_absence_end) {
+      showAlert('Pick the absence dates.', 'warning');
+      return;
+    }
     setLoading(true);
 
     const formData = new FormData();
@@ -278,9 +411,13 @@ export default function RequestModule() {
         setExcuseForm({ reason_for_excuse: '', valid_absence_start: '', valid_absence_end: '', proof: null });
         setActiveModal(null);
         fetchRequests();
+        showAlert('Request submitted.', 'success');
+      } else {
+        showAlert('Could not submit. Try again.', 'error');
       }
     } catch (err) {
       console.error('Error submitting excuse request:', err);
+      showAlert('Could not submit. Try again.', 'error');
     } finally {
       setLoading(false);
     }
@@ -290,6 +427,10 @@ export default function RequestModule() {
   const handleReferralSubmit = async (e) => {
     e.preventDefault();
     if (!student_id) { showAlert('Student ID not found. Please log in again.', 'error'); return; }
+    if (!referralForm.reason_for_referral.trim()) {
+      showAlert('Add a reason.', 'warning');
+      return;
+    }
     if (!referralForm.facility_id) {
       showAlert('Please select a facility.', 'warning');
       return;
@@ -320,9 +461,13 @@ export default function RequestModule() {
         setAvailableServices([]);
         setActiveModal(null);
         fetchRequests();
+        showAlert('Request submitted.', 'success');
+      } else {
+        showAlert('Could not submit. Try again.', 'error');
       }
     } catch (err) {
       console.error('Error submitting referral request:', err);
+      showAlert('Could not submit. Try again.', 'error');
     } finally {
       setLoading(false);
     }
@@ -330,6 +475,7 @@ export default function RequestModule() {
 
   const handleViewDetails = (reqItem) => {
     setSelectedRequest(reqItem);
+    setNotes([]);
     setActiveModal('view');
     fetchNotes(reqItem);
   };
@@ -352,119 +498,233 @@ export default function RequestModule() {
       if (res.ok) {
         setNewMessage('');
         fetchNotes(selectedRequest);
+      } else {
+        showAlert('Message not sent. Try again.', 'error');
       }
     } catch (err) {
       console.error('Error sending message:', err);
+      showAlert('Message not sent. Try again.', 'error');
     }
   };
 
+  const closeModal = () => setActiveModal(null);
+
+  const pickProof = (file) => {
+    if (file) setExcuseForm((prev) => ({ ...prev, proof: file }));
+  };
+
+  // Derived: counts, filtered list
+  const safeRequests = useMemo(() => (Array.isArray(requests) ? requests : []), [requests]);
+  const counts = useMemo(() => {
+    const c = { all: safeRequests.length, waiting: 0, approved: 0, declined: 0 };
+    safeRequests.forEach((r) => { c[statusKind(r.status)] += 1; });
+    return c;
+  }, [safeRequests]);
+  const issuedCount = useMemo(() => safeRequests.filter((r) => r.issued_slip_url).length, [safeRequests]);
+
+  const visibleRequests = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return safeRequests.filter((r) => {
+      if (statusFilter !== 'all' && statusKind(r.status) !== statusFilter) return false;
+      if (typeFilter !== 'all' && r.request_type !== typeFilter) return false;
+      if (q) {
+        const hay = [r.request_id, r.reason_for_excuse, r.reason_for_referral, r.partner_facility_name]
+          .filter(Boolean).join(' ').toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [safeRequests, search, typeFilter, statusFilter]);
+
+  const absenceDays = (() => {
+    const { valid_absence_start: s, valid_absence_end: en } = excuseForm;
+    if (!s || !en) return '';
+    const n = Math.round((new Date(en) - new Date(s)) / 86400000) + 1;
+    return Number.isFinite(n) && n > 0 ? `${n} ${n === 1 ? 'day' : 'days'}` : '';
+  })();
+
+  const modalFooter = (
+    <div className="rq-sheet-foot">
+      <button type="button" className="rq-btn rq-btn-ghost" onClick={closeModal}>Cancel</button>
+      <button type="submit" className="rq-btn rq-btn-primary" disabled={loading}>
+        {loading ? 'Submitting...' : 'Submit'}
+      </button>
+    </div>
+  );
+
   return (
-    <div className="sti-req-container">
-      <div className="sti-header-banner">
-        <h2 className="sti-page-title">Document Requests</h2>
-        {firstName && <p className="sti-welcome-text">Welcome, {firstName} {lastName} ({student_id})</p>}
-      </div>
+    <div className="rq-page">
+      <div className="rq-shell">
+        <header className="rq-band">
+          <div>
+            <h1>Document Requests</h1>
+            {firstName && <p>Welcome, {firstName} {lastName} ({student_id})</p>}
+          </div>
+          <ul className="rq-stats" aria-label="Request summary">
+            <li className="rq-stat">
+              <Clock className="rq-ico" aria-hidden="true" />
+              <div><b>{counts.waiting}</b><span>Waiting</span></div>
+            </li>
+            <li className="rq-stat">
+              <CircleCheck className="rq-ico" aria-hidden="true" />
+              <div><b>{counts.approved}</b><span>Approved</span></div>
+            </li>
+            <li className="rq-stat">
+              <FileText className="rq-ico" aria-hidden="true" />
+              <div><b>{issuedCount}</b><span>Slips issued</span></div>
+            </li>
+          </ul>
+        </header>
 
-      {/* Action Cards */}
-      <div className="sti-cards-grid">
-        <div className="sti-action-card" onClick={() => setActiveModal('excuse')}>
-          <div className="sti-card-icon">📋</div>
-          <h3>Request Excuse Slip</h3>
-          <p>Submit an excuse slip for missed classes or school activities.</p>
-          <button className="sti-btn-primary" style={{ maxWidth: '100%', boxSizing: 'border-box' }}>New Request</button>
-        </div>
+        {/* New request tiles */}
+        <section className="rq-tiles" aria-label="New request">
+          <button type="button" className="rq-tile" onClick={() => setActiveModal('excuse')}>
+            <span className="rq-tile-icon" aria-hidden="true"><ClipboardList className="rq-ico" /></span>
+            <span className="rq-tile-text">
+              <span className="rq-tile-title">Excuse Slip</span>
+              <span className="rq-tile-sub">Missed classes or activities</span>
+            </span>
+            <span className="rq-tile-go" aria-hidden="true"><Plus className="rq-ico" /></span>
+          </button>
+          <button type="button" className="rq-tile" onClick={() => setActiveModal('referral')}>
+            <span className="rq-tile-icon" aria-hidden="true"><Building2 className="rq-ico" /></span>
+            <span className="rq-tile-text">
+              <span className="rq-tile-title">Referral Slip</span>
+              <span className="rq-tile-sub">Medical or lab partner facility</span>
+            </span>
+            <span className="rq-tile-go" aria-hidden="true"><Plus className="rq-ico" /></span>
+          </button>
+        </section>
 
-        <div className="sti-action-card" onClick={() => setActiveModal('referral')}>
-          <div className="sti-card-icon">🏥</div>
-          <h3>Request Referral Slip</h3>
-          <p>Request medical or laboratory referral for partner facilities.</p>
-          <button className="sti-btn-primary" style={{ maxWidth: '100%', boxSizing: 'border-box' }}>New Request</button>
-        </div>
-      </div>
+        {/* Request History */}
+        <section className="rq-card" aria-labelledby="rq-history-title">
+          <div className="rq-toolbar">
+            <h2 id="rq-history-title">Request History</h2>
+            <div className="rq-search">
+              <Search className="rq-ico" aria-hidden="true" />
+              <label className="rq-sr" htmlFor="rq-search">Search requests</label>
+              <input
+                id="rq-search"
+                type="search"
+                placeholder="Search"
+                autoComplete="off"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+            <label className="rq-sr" htmlFor="rq-type">Request type</label>
+            <select id="rq-type" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+              <option value="all">All types</option>
+              <option value="Excuse Slip">Excuse Slip</option>
+              <option value="Referral Slip">Referral Slip</option>
+            </select>
+            <div className="rq-seg" role="group" aria-label="Status filter">
+              {FILTERS.map((f) => (
+                <button
+                  key={f.key}
+                  type="button"
+                  aria-pressed={statusFilter === f.key}
+                  onClick={() => setStatusFilter(f.key)}
+                >
+                  {f.label}<span className="rq-n">{counts[f.key]}</span>
+                </button>
+              ))}
+            </div>
+          </div>
 
-      {/* Request History */}
-      <div className="sti-table-card">
-        <h3>Request History</h3>
-        <table className="sti-table">
-          <thead>
-            <tr>
-              <th>Request ID</th>
-              <th>Request Type</th>
-              <th>Details</th>
-              <th>Date Requested</th>
-              <th>Status</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {!Array.isArray(requests) || requests.length === 0 ? (
-              <tr>
-                <td colSpan="6" style={{ textAlign: 'center' }}>No request history found.</td>
-              </tr>
-            ) : (
-              requests.map((req) => (
-                <tr key={req.request_id}>
-                  <td><strong>{req.request_id}</strong></td>
-                  <td>
-                    <span className={`sti-badge ${req.request_type === 'Excuse Slip' ? 'badge-excuse' : 'badge-referral'}`}>
-                      {req.request_type}
-                    </span>
-                  </td>
-                  <td>
-                    {req.request_type === 'Excuse Slip'
-                      ? req.reason_for_excuse
-                      : `${req.reason_for_referral} [Facility: ${req.partner_facility_name || 'N/A'}]`}
-                  </td>
-                  <td>{formatDate(new Date(req.created_at))}</td>
-                  <td>
-                    <span className={`sti-status status-${req.status ? req.status.toLowerCase() : 'pending'}`}>
-                      {statusLabel(req.status)}
-                    </span>
-                  </td>
-                  <td>
-                    <button 
-                      className="sti-btn-icon" 
-                      onClick={() => handleViewDetails(req)} 
-                      title="View Details"
-                      aria-label="View Details"
-                    >
-                      <Eye size={18} />
-                    </button>
-                  </td>
+          <div className="rq-table-wrap">
+            <table className="rq-table">
+              <thead>
+                <tr>
+                  <th scope="col">Request ID</th>
+                  <th scope="col">Type</th>
+                  <th scope="col" className="rq-col-details">Details</th>
+                  <th scope="col">Requested</th>
+                  <th scope="col">Status</th>
+                  <th scope="col"><span className="rq-sr">Action</span></th>
                 </tr>
-              ))
+              </thead>
+              <tbody>
+                {visibleRequests.map((req) => {
+                  const isExcuse = req.request_type === 'Excuse Slip';
+                  return (
+                    <tr key={req.request_id}>
+                      <td className="rq-td-id">{req.request_id}</td>
+                      <td className="rq-td-type">
+                        <span className={`rq-pill ${isExcuse ? 'rq-pill-excuse' : 'rq-pill-referral'}`}>
+                          {req.request_type}
+                        </span>
+                      </td>
+                      <td className="rq-td-details">
+                        <div className="rq-main-line">{isExcuse ? req.reason_for_excuse : req.reason_for_referral}</div>
+                        <div className="rq-meta-line">
+                          {isExcuse ? (
+                            <>
+                              <Calendar className="rq-ico" aria-hidden="true" />
+                              {fmtDay(req.valid_absence_start)} to {fmtDay(req.valid_absence_end)}
+                            </>
+                          ) : (
+                            <>
+                              <Building2 className="rq-ico" aria-hidden="true" />
+                              {req.partner_facility_name || 'N/A'}
+                            </>
+                          )}
+                        </div>
+                      </td>
+                      <td className="rq-td-date">{formatDate(new Date(req.created_at))}</td>
+                      <td className="rq-td-status"><StatusPill status={req.status} /></td>
+                      <td className="rq-td-action">
+                        <button
+                          type="button"
+                          className="rq-btn rq-btn-icon"
+                          onClick={() => handleViewDetails(req)}
+                          title="View Details"
+                          aria-label={`View details of ${req.request_id}`}
+                        >
+                          <Eye className="rq-ico" aria-hidden="true" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {visibleRequests.length === 0 && (
+              <div className="rq-empty" role="status">No requests found.</div>
             )}
-          </tbody>
-        </table>
+          </div>
+        </section>
       </div>
 
       {/* Modal: Excuse Slip */}
-      {activeModal === 'excuse' && createPortal(
-        <div className="sti-modal-overlay">
-          <div className="sti-modal-content">
-            <div className="sti-modal-header">
-              <h3>Request Excuse Slip</h3>
-              <button className="sti-modal-close" onClick={() => setActiveModal(null)}>&times;</button>
-            </div>
-            <form onSubmit={handleExcuseSubmit}>
-              <div className="sti-form-group">
-                <label>Reason for Excuse</label>
+      {activeModal === 'excuse' && (
+        <Modal
+          titleId="rq-excuse-title"
+          size="lg"
+          onClose={closeModal}
+          onSubmit={handleExcuseSubmit}
+          footer={modalFooter}
+          title={<><ClipboardList className="rq-ico" aria-hidden="true" />Excuse Slip</>}
+        >
+          <div className="rq-sheet-body rq-two">
+            <div>
+              <div className="rq-group">
+                <label htmlFor="rq-ex-reason">Reason</label>
                 <textarea
-                  required
-                  rows="3"
+                  id="rq-ex-reason"
+                  data-autofocus
+                  rows="5"
                   value={excuseForm.reason_for_excuse}
                   onChange={(e) => setExcuseForm({ ...excuseForm, reason_for_excuse: e.target.value })}
-                  placeholder="State the reason for your absence..."
-                  style={{ width: '100%', boxSizing: 'border-box' }}
+                  placeholder="Reason for absence"
                 />
               </div>
-
-              <div className="sti-form-row">
-                <div className="sti-form-group">
-                  <label>Valid Absence Start Date</label>
+              <div className="rq-row2">
+                <div className="rq-group">
+                  <label htmlFor="rq-ex-start">Start date</label>
                   <input
+                    id="rq-ex-start"
                     type="date"
-                    required
                     value={excuseForm.valid_absence_start}
                     onChange={(e) => {
                       const newStart = e.target.value;
@@ -474,115 +734,106 @@ export default function RequestModule() {
                         valid_absence_end: prev.valid_absence_end && prev.valid_absence_end < newStart ? newStart : prev.valid_absence_end
                       }));
                     }}
-                    style={{ width: '100%', boxSizing: 'border-box' }}
                   />
                 </div>
-                <div className="sti-form-group">
-                  <label>Valid Absence End Date</label>
+                <div className="rq-group">
+                  <label htmlFor="rq-ex-end">End date</label>
                   <input
+                    id="rq-ex-end"
                     type="date"
-                    required
                     min={excuseForm.valid_absence_start}
                     value={excuseForm.valid_absence_end}
                     onChange={(e) => setExcuseForm({ ...excuseForm, valid_absence_end: e.target.value })}
-                    style={{ width: '100%', boxSizing: 'border-box' }}
                   />
                 </div>
               </div>
+              <div className="rq-hint" role="status">{absenceDays}</div>
+            </div>
 
-              {/* Upload Proof with Live Preview */}
-              <div className="sti-form-group">
-                <label>Upload Proof (Optional)</label>
-                <input
-                  type="file"
-                  accept="image/*,application/pdf"
-                  onChange={(e) => {
-                    const file = e.target.files[0] || null;
-                    setExcuseForm({ ...excuseForm, proof: file });
-                  }}
-                  style={{ width: '100%', boxSizing: 'border-box' }}
-                />
-
-                {excuseForm.proof && proofPreview && (
-                  <div className="sti-proof-preview-container" style={{ marginTop: '12px', padding: '10px', border: '1px solid var(--card-border)', borderRadius: '8px', backgroundColor: 'var(--bg-subtle)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                      <span style={{ fontSize: '0.875rem', fontWeight: '600', color: 'var(--text-primary)', wordBreak: 'break-all' }}>
-                        📎 {excuseForm.proof.name} ({Math.round(excuseForm.proof.size / 1024)} KB)
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setExcuseForm({ ...excuseForm, proof: null })}
-                        style={{ background: 'none', border: 'none', color: 'var(--status-critical-text)', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 'bold' }}
-                      >
-                        Remove
-                      </button>
-                    </div>
-
-                    {excuseForm.proof.type.startsWith('image/') ? (
-                      <div style={{ textAlign: 'center', backgroundColor: 'var(--bg-card)', padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }}>
-                        <img
-                          src={proofPreview}
-                          alt="Proof Preview"
-                          style={{ maxWidth: '100%', maxHeight: '220px', objectFit: 'contain', borderRadius: '4px' }}
-                        />
-                      </div>
-                    ) : excuseForm.proof.type === 'application/pdf' ? (
-                      <iframe
-                        src={proofPreview}
-                        title="PDF Preview"
-                        style={{ width: '100%', height: '220px', border: '1px solid #cbd5e1', borderRadius: '6px' }}
-                      />
-                    ) : (
-                      <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', margin: 0 }}>
-                        File attached ready for upload.
-                      </p>
-                    )}
+            <div className="rq-group">
+              <span className="rq-label" id="rq-proof-label">Proof (optional)</span>
+              {excuseForm.proof ? (
+                <div className="rq-proof">
+                  <div className="rq-proof-head">
+                    <span>
+                      <Paperclip className="rq-ico" aria-hidden="true" />
+                      {excuseForm.proof.name} ({Math.max(1, Math.round(excuseForm.proof.size / 1024))} KB)
+                    </span>
+                    <button
+                      type="button"
+                      className="rq-btn rq-btn-icon"
+                      onClick={() => setExcuseForm({ ...excuseForm, proof: null })}
+                      aria-label="Remove file"
+                      title="Remove file"
+                    >
+                      <X className="rq-ico" aria-hidden="true" />
+                    </button>
                   </div>
-                )}
-              </div>
-
-              <div className="sti-modal-actions">
-                <button type="button" className="sti-btn-secondary" onClick={() => setActiveModal(null)} style={{ boxSizing: 'border-box' }}>Cancel</button>
-                <button type="submit" className="sti-btn-primary" disabled={loading} style={{ boxSizing: 'border-box' }}>
-                  {loading ? 'Submitting...' : 'Submit Request'}
-                </button>
-              </div>
-            </form>
+                  {proofPreview && excuseForm.proof.type.startsWith('image/') && (
+                    <div className="rq-proof-body">
+                      <img src={proofPreview} alt="Proof preview" />
+                    </div>
+                  )}
+                  {proofPreview && excuseForm.proof.type === 'application/pdf' && (
+                    <div className="rq-proof-body">
+                      <iframe src={proofPreview} title="PDF preview" />
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <label
+                  className={`rq-drop ${dragOver ? 'is-over' : ''}`}
+                  onDragEnter={(e) => { e.preventDefault(); setDragOver(true); }}
+                  onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                  onDragLeave={(e) => { e.preventDefault(); setDragOver(false); }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setDragOver(false);
+                    pickProof(e.dataTransfer.files && e.dataTransfer.files[0]);
+                  }}
+                >
+                  <Upload className="rq-ico" aria-hidden="true" />
+                  <strong>Upload file</strong>
+                  <small>Image or PDF</small>
+                  <input
+                    type="file"
+                    accept="image/*,application/pdf"
+                    aria-labelledby="rq-proof-label"
+                    onChange={(e) => pickProof(e.target.files[0] || null)}
+                  />
+                </label>
+              )}
+            </div>
           </div>
-        </div>,
-        document.body
+        </Modal>
       )}
 
       {/* Modal: Referral Slip */}
-      {activeModal === 'referral' && createPortal(
-        <div className="sti-modal-overlay">
-          <div className="sti-modal-content">
-            <div className="sti-modal-header">
-              <h3>Request Referral Slip</h3>
-              <button className="sti-modal-close" onClick={() => setActiveModal(null)}>&times;</button>
-            </div>
-            <form onSubmit={handleReferralSubmit}>
-              <div className="sti-form-group">
-                <label>Reason for Referral</label>
+      {activeModal === 'referral' && (
+        <Modal
+          titleId="rq-referral-title"
+          size="lg"
+          onClose={closeModal}
+          onSubmit={handleReferralSubmit}
+          footer={modalFooter}
+          title={<><Building2 className="rq-ico" aria-hidden="true" />Referral Slip</>}
+        >
+          <div className="rq-sheet-body rq-two rq-two-lean">
+            <div>
+              <div className="rq-group">
+                <label htmlFor="rq-rf-reason">Reason</label>
                 <textarea
-                  required
-                  rows="3"
+                  id="rq-rf-reason"
+                  data-autofocus
+                  rows="5"
                   value={referralForm.reason_for_referral}
                   onChange={(e) => setReferralForm({ ...referralForm, reason_for_referral: e.target.value })}
-                  placeholder="State the reason for medical/lab referral..."
-                  style={{ width: '100%', boxSizing: 'border-box' }}
+                  placeholder="Reason for referral"
                 />
               </div>
-
-              {/* Partner Facility Select */}
-              <div className="sti-form-group">
-                <label>Partner Facility</label>
-                <select
-                  value={referralForm.facility_id}
-                  onChange={handleFacilityChange}
-                  required
-                  style={{ width: '100%', boxSizing: 'border-box' }}
-                >
+              <div className="rq-group">
+                <label htmlFor="rq-rf-fac">Partner facility</label>
+                <select id="rq-rf-fac" value={referralForm.facility_id} onChange={handleFacilityChange}>
                   <option value="" disabled>Select facility</option>
                   {partnerFacilities.map((facility) => (
                     <option key={facility.facility_id} value={facility.facility_id}>
@@ -591,127 +842,126 @@ export default function RequestModule() {
                   ))}
                 </select>
               </div>
+            </div>
 
-              {/* Dynamic Services Checkboxes */}
-              <div className="sti-form-group">
-                <label>Select Services Required</label>
-                <div className="sti-checkbox-group">
-                  {availableServices.length === 0 ? (
-                    <p className="sti-text-muted">No available services for selected facility.</p>
-                  ) : (
-                    availableServices.map((service) => (
-                      <label key={service.service_id} className="sti-checkbox-item">
-                        <input
-                          type="checkbox"
-                          value={service.service_id}
-                          checked={referralForm.selected_services.includes(service.service_id)}
-                          onChange={() => handleServiceCheckbox(service.service_id)}
-                        />
-                        <span>
-                          {service.requirement_name || service.service_name || service.name || 'Unnamed Service'}
-                        </span>
-                      </label>
-                    ))
-                  )}
-                </div>
+            <div className="rq-group">
+              <div className="rq-svc-head">
+                <span className="rq-label">Services</span>
+                <span className="rq-chip" role="status">{referralForm.selected_services.length} selected</span>
               </div>
-
-              <div className="sti-modal-actions">
-                <button type="button" className="sti-btn-secondary" onClick={() => setActiveModal(null)} style={{ boxSizing: 'border-box' }}>Cancel</button>
-                <button type="submit" className="sti-btn-primary" disabled={loading} style={{ boxSizing: 'border-box' }}>
-                  {loading ? 'Submitting...' : 'Submit Request'}
-                </button>
+              <div className="rq-svc-grid">
+                {availableServices.length === 0 ? (
+                  <div className="rq-svc-empty">Select a facility.</div>
+                ) : (
+                  availableServices.map((service) => (
+                    <label key={service.service_id} className="rq-svc">
+                      <input
+                        type="checkbox"
+                        value={service.service_id}
+                        checked={referralForm.selected_services.includes(service.service_id)}
+                        onChange={() => handleServiceCheckbox(service.service_id)}
+                      />
+                      <span>
+                        {service.requirement_name || service.service_name || service.name || 'Unnamed Service'}
+                      </span>
+                    </label>
+                  ))
+                )}
               </div>
-            </form>
+            </div>
           </div>
-        </div>,
-        document.body
+        </Modal>
       )}
 
       {/* Modal: View Details & Notes */}
-      {activeModal === 'view' && selectedRequest && createPortal(
-        <div className="sti-modal-overlay">
-          <div className="sti-modal-content sti-modal-lg">
-            <div className="sti-modal-header">
-              <h3>Request Details - {selectedRequest.request_id}</h3>
-              <button className="sti-modal-close" onClick={() => setActiveModal(null)}>&times;</button>
-            </div>
-            
-            <div className="sti-details-section">
-              <div className="sti-details-grid">
-                <p><strong>Type:</strong> {selectedRequest.request_type}</p>
-                <p><strong>Status:</strong> {statusLabel(selectedRequest.status)}</p>
-                <p><strong>Requested On:</strong> {formatDateTime(new Date(selectedRequest.created_at))}</p>
-                
+      {activeModal === 'view' && selectedRequest && (
+        <Modal
+          titleId="rq-view-title"
+          size="xl"
+          onClose={closeModal}
+          title={<>{selectedRequest.request_id} <StatusPill status={selectedRequest.status} /></>}
+        >
+          <div className="rq-sheet-body rq-two rq-two-lean">
+            <div>
+              <dl className="rq-facts">
+                <div><dt>Type</dt><dd>{selectedRequest.request_type}</dd></div>
+                <div><dt>Requested</dt><dd>{formatDateTime(new Date(selectedRequest.created_at))}</dd></div>
                 {selectedRequest.request_type === 'Excuse Slip' ? (
-                  <>
-                    <p><strong>Reason:</strong> {selectedRequest.reason_for_excuse}</p>
-                    <p><strong>Absence Period:</strong> {selectedRequest.valid_absence_start} to {selectedRequest.valid_absence_end}</p>
-                    {selectedRequest.student_proof_url && (
-                      <p>
-                        <strong>Attachment:</strong>{' '}
-                        <a href={getFileUrl(selectedRequest.student_proof_url)} target="_blank" rel="noreferrer">
-                          View Uploaded Proof
-                        </a>
-                      </p>
-                    )}
-                  </>
+                  <div>
+                    <dt>Absence</dt>
+                    <dd>{fmtDay(selectedRequest.valid_absence_start)} to {fmtDay(selectedRequest.valid_absence_end)}</dd>
+                  </div>
                 ) : (
                   <>
-                    <p><strong>Reason:</strong> {selectedRequest.reason_for_referral}</p>
-                    <p><strong>Partner Facility:</strong> {selectedRequest.partner_facility_name || 'N/A'}</p>
-                    <p><strong>Requested Services:</strong> {selectedRequest.requested_services || 'None Specified'}</p>
+                    <div><dt>Facility</dt><dd>{selectedRequest.partner_facility_name || 'N/A'}</dd></div>
+                    <div><dt>Services</dt><dd>{selectedRequest.requested_services || 'None Specified'}</dd></div>
                   </>
                 )}
+                <div className="rq-wide">
+                  <dt>Reason</dt>
+                  <dd>
+                    {selectedRequest.request_type === 'Excuse Slip'
+                      ? selectedRequest.reason_for_excuse
+                      : selectedRequest.reason_for_referral}
+                  </dd>
+                </div>
+              </dl>
 
+              <div className="rq-links">
+                {selectedRequest.request_type === 'Excuse Slip' && selectedRequest.student_proof_url && (
+                  <a className="rq-link" href={getFileUrl(selectedRequest.student_proof_url)} target="_blank" rel="noreferrer">
+                    <Paperclip className="rq-ico" aria-hidden="true" />Proof
+                  </a>
+                )}
                 {selectedRequest.issued_slip_url ? (
-                  <p className="sti-issued-link">
-                    <strong>Issued Slip Document:</strong>{' '}
-                    <a href={getFileUrl(selectedRequest.issued_slip_url)} target="_blank" rel="noreferrer">
-                      📄 Download Issued Slip
-                    </a>
-                  </p>
+                  <a className="rq-link" href={getFileUrl(selectedRequest.issued_slip_url)} target="_blank" rel="noreferrer">
+                    <Download className="rq-ico" aria-hidden="true" />Issued slip
+                  </a>
                 ) : (
-                  <p className="sti-text-muted">Issued Slip: Not yet issued by Nurse</p>
+                  <span className="rq-link rq-link-off">
+                    <FileText className="rq-ico" aria-hidden="true" />Slip not issued
+                  </span>
                 )}
               </div>
+            </div>
 
-              <hr className="sti-divider" />
-
-              {/* Notes / Chat Thread */}
-              <h4>Messages & Notes</h4>
-              <div className="sti-chat-box">
+            <section className="rq-chat" aria-labelledby="rq-chat-title">
+              <h3 id="rq-chat-title">Messages</h3>
+              <div className="rq-thread" ref={threadRef} role="log" aria-live="polite">
                 {!Array.isArray(notes) || notes.length === 0 ? (
-                  <p className="sti-text-muted">No notes or messages yet.</p>
+                  <p className="rq-thread-empty">No messages.</p>
                 ) : (
                   notes.map((n) => (
                     <div
                       key={n.note_id}
-                      className={`sti-chat-bubble ${n.sender_type === 'Student' ? 'bubble-student' : 'bubble-nurse'}`}
+                      className={`rq-bubble ${n.sender_type === 'Student' ? 'rq-bubble-me' : 'rq-bubble-other'}`}
                     >
-                      <div className="sti-chat-meta">
-                        <strong>{n.sender_type}</strong> • {formatTime(new Date(n.created_at))}
+                      <div className="rq-bubble-who">
+                        <strong>{n.sender_type}</strong> · {formatTime(new Date(n.created_at))}
                       </div>
-                      <div className="sti-chat-msg">{n.message}</div>
+                      <p className="rq-bubble-msg">{n.message}</p>
                     </div>
                   ))
                 )}
               </div>
-
-              <form onSubmit={handleSendNote} className="sti-chat-form">
+              <form className="rq-compose" onSubmit={handleSendNote}>
+                <label className="rq-sr" htmlFor="rq-note">Message</label>
                 <input
+                  id="rq-note"
+                  data-autofocus
                   type="text"
-                  placeholder="Type a message or note..."
+                  placeholder="Message"
+                  autoComplete="off"
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
-                  style={{ boxSizing: 'border-box' }}
                 />
-                <button type="submit" className="sti-btn-primary" style={{ boxSizing: 'border-box' }}>Send</button>
+                <button type="submit" className="rq-btn rq-btn-primary" aria-label="Send" title="Send">
+                  <Send className="rq-ico" aria-hidden="true" />
+                </button>
               </form>
-            </div>
+            </section>
           </div>
-        </div>,
-        document.body
+        </Modal>
       )}
     </div>
   );

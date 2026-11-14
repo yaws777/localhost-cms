@@ -10,7 +10,9 @@ import {
   Eye,
   X,
   Filter,
-  FileDown
+  FileDown,
+  RotateCcw,
+  User
 } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
 import { exportClinicRecords, exportClinicRecord } from '../../utils/clinicRecordExport';
@@ -22,6 +24,14 @@ import '../../styles/student/ClinicLogs&Records.css';
 const API_BASE = 'http://localhost:3001';
 // small pages keep the list on one screen
 const PER_PAGE = 6;
+
+const TABS = [
+  { key: 'clinic-visits', label: 'Clinic Visits', Icon: ClipboardList },
+  { key: 'medicine-dispensed', label: 'Medicine', Icon: Pill },
+  { key: 'incident-reports', label: 'Incidents', Icon: AlertTriangle },
+  { key: 'health-screenings', label: 'Screening', Icon: Activity },
+  { key: 'doctor-visits', label: 'Doctor Visits', Icon: Stethoscope }
+];
 
 // Safe date formatter to avoid UTC offset shifts
 const formatDate = (dateStr) => {
@@ -69,7 +79,8 @@ const formatKeyLabel = (key) => {
 };
 
 // studentId prop: the nurse opens this same screen for any student (outside the student layout)
-export default function ClinicLogsAndRecords({ studentId: studentIdProp }) {
+// afterHeader: optional node shown right under the header banner (nurse view: student profile card)
+export default function ClinicLogsAndRecords({ studentId: studentIdProp, afterHeader = null }) {
   const outlet = useOutletContext();
   const { showAlert } = useAlert();
   const studentId = studentIdProp || outlet?.studentId;
@@ -141,9 +152,12 @@ export default function ClinicLogsAndRecords({ studentId: studentIdProp }) {
       <header className="header-clr">
         <div className="header-title-clr">
           <h1>Clinic Logs & Health Records</h1>
-          <p>STI Campus Health Services Management System</p>
+          <p>STI Campus Health Services</p>
         </div>
+        <span className="chip-clr"><User size={18} aria-hidden="true" />{studentId || 'N/A'}</span>
       </header>
+
+      {afterHeader}
 
       {/* Control Panel: Filters & Navigation */}
       <div className="control-panel-clr">
@@ -165,12 +179,13 @@ export default function ClinicLogsAndRecords({ studentId: studentIdProp }) {
             />
           </div>
           <div className="filter-actions-clr">
-            <button type="submit" className="btn-clr btn-primary-clr">
-              <Filter size={16} /> Filter
+            <button type="submit" className="btn-clr btn-primary-clr" aria-label="Filter" title="Filter">
+              <Filter size={18} aria-hidden="true" />
             </button>
-            <button type="button" onClick={clearFilter} className="btn-clr btn-secondary-clr">
-              Clear
+            <button type="button" onClick={clearFilter} className="btn-clr btn-secondary-clr" aria-label="Clear filter" title="Clear filter">
+              <RotateCcw size={18} aria-hidden="true" />
             </button>
+            <span className="found-clr" role="status">{loading ? '' : `${records.length} records`}</span>
             <button
               type="button"
               onClick={handleExport}
@@ -184,37 +199,22 @@ export default function ClinicLogsAndRecords({ studentId: studentIdProp }) {
         </form>
 
         {/* Navigation Tabs */}
-        <nav className="tabs-clr">
-          <button 
-            className={`tab-clr ${activeTab === 'clinic-visits' ? 'active-clr' : ''}`}
-            onClick={() => setActiveTab('clinic-visits')}
-          >
-            <ClipboardList size={18} /> Clinic Visit Log
-          </button>
-          <button 
-            className={`tab-clr ${activeTab === 'medicine-dispensed' ? 'active-clr' : ''}`}
-            onClick={() => setActiveTab('medicine-dispensed')}
-          >
-            <Pill size={18} /> Medicine Dispensed
-          </button>
-          <button 
-            className={`tab-clr ${activeTab === 'incident-reports' ? 'active-clr' : ''}`}
-            onClick={() => setActiveTab('incident-reports')}
-          >
-            <AlertTriangle size={18} /> Incident Reports
-          </button>
-          <button 
-            className={`tab-clr ${activeTab === 'health-screenings' ? 'active-clr' : ''}`}
-            onClick={() => setActiveTab('health-screenings')}
-          >
-            <Activity size={18} /> Health Screening
-          </button>
-          <button 
-            className={`tab-clr ${activeTab === 'doctor-visits' ? 'active-clr' : ''}`}
-            onClick={() => setActiveTab('doctor-visits')}
-          >
-            <Stethoscope size={18} /> Doctor Visits
-          </button>
+        <nav className="tabs-clr" aria-label="Record type">
+          {TABS.map(({ key, label, Icon }) => (
+            <button
+              key={key}
+              type="button"
+              className={`tab-clr ${activeTab === key ? 'active-clr' : ''}`}
+              aria-pressed={activeTab === key}
+              onClick={() => setActiveTab(key)}
+            >
+              <span className="tab-ic-clr"><Icon size={20} aria-hidden="true" /></span>
+              <span className="tab-tx-clr">
+                {activeTab === key && !loading && <span className="tab-count-clr">{records.length}</span>}
+                <span>{label}</span>
+              </span>
+            </button>
+          ))}
         </nav>
       </div>
 
@@ -265,12 +265,11 @@ function renderTableHeader(tab) {
       return (
         <tr>
           <th>Visit ID</th>
-          <th>Student ID</th>
-          <th>Nurse Name</th>
+          <th>Nurse</th>
           <th>Date</th>
           <th>Time In / Out</th>
-          <th>Vital Signs</th>
-          <th>Action</th>
+          <th>Vitals</th>
+          <th><span className="sr-only-clr">Action</span></th>
         </tr>
       );
     case 'medicine-dispensed':
@@ -278,23 +277,20 @@ function renderTableHeader(tab) {
         <tr>
           <th>Dispense ID</th>
           <th>Type</th>
-          <th>Student ID</th>
-          <th>Brand Name</th>
-          <th>Generic Name</th>
+          <th>Medicine</th>
           <th>Qty</th>
           <th>Date & Time</th>
-          <th>Action</th>
+          <th><span className="sr-only-clr">Action</span></th>
         </tr>
       );
     case 'incident-reports':
       return (
         <tr>
           <th>Incident ID</th>
-          <th>Student ID</th>
-          <th>Nurse Name</th>
+          <th>Nurse</th>
           <th>Location</th>
           <th>Date & Time</th>
-          <th>Action</th>
+          <th><span className="sr-only-clr">Action</span></th>
         </tr>
       );
     case 'health-screenings':
@@ -302,7 +298,6 @@ function renderTableHeader(tab) {
       return (
         <tr>
           <th>Type</th>
-          <th>Student ID</th>
           <th>Date</th>
           <th>Status</th>
           <th>Action</th>
@@ -317,7 +312,7 @@ function renderTableHeader(tab) {
           <th>Number</th>
           <th>Status</th>
           <th>Assessment</th>
-          <th>Action</th>
+          <th><span className="sr-only-clr">Action</span></th>
         </tr>
       );
     default:
@@ -331,16 +326,18 @@ function renderTableRow(tab, item, index, onViewDetails) {
     case 'clinic-visits':
       return (
         <tr key={item.visit_id || index}>
-          <td><strong>{item.visit_id}</strong></td>
-          <td>{item.student_id}</td>
+          <td><span className="cell-id-clr">{item.visit_id}</span></td>
           <td>
-            {item.nurse_first_name && item.nurse_last_name 
-              ? `${item.nurse_first_name} ${item.nurse_last_name}` 
+            {item.nurse_first_name && item.nurse_last_name
+              ? `${item.nurse_first_name} ${item.nurse_last_name}`
               : item.nurse_id || 'N/A'}
           </td>
           <td>{formatDate(item.visit_date)}</td>
           <td>{formatTime(item.time_in)} - {item.time_out ? formatTime(item.time_out) : 'N/A'}</td>
-          <td>BP: {item.blood_pressure || 'N/A'} | Temp: {item.temperature || 'N/A'}°C</td>
+          <td>
+            BP {item.blood_pressure || 'N/A'}
+            <span className="cell-sub-clr">Temp {item.temperature || 'N/A'}°C</span>
+          </td>
           <td>
             <button className="btn-icon-clr" onClick={onViewDetails} title="View Details" aria-label="View Details">
               <Eye size={18} />
@@ -352,15 +349,16 @@ function renderTableRow(tab, item, index, onViewDetails) {
     case 'medicine-dispensed':
       return (
         <tr key={item.id || index}>
-          <td><strong>{item.id}</strong></td>
+          <td><span className="cell-id-clr">{item.id}</span></td>
           <td>
             <span className={`badge-clr ${item.dispensation_type === 'Direct Dispensation' ? 'tag-direct-clr' : 'tag-consult-clr'}`}>
               {item.dispensation_type}
             </span>
           </td>
-          <td>{item.student_id || 'N/A'}</td>
-          <td>{item.brand_name || 'N/A'}</td>
-          <td>{item.generic_name || 'N/A'}</td>
+          <td>
+            {item.brand_name || 'N/A'}
+            <span className="cell-sub-clr">{item.generic_name || 'N/A'}</span>
+          </td>
           <td>{item.quantity_dispensed}</td>
           <td>{item.dispensed_at ? formatDateTime(new Date(item.dispensed_at)) : 'N/A'}</td>
           <td>
@@ -374,11 +372,10 @@ function renderTableRow(tab, item, index, onViewDetails) {
     case 'incident-reports':
       return (
         <tr key={item.incident_id || index}>
-          <td><strong>{item.incident_id}</strong></td>
-          <td>{item.student_id}</td>
+          <td><span className="cell-id-clr">{item.incident_id}</span></td>
           <td>
-            {item.nurse_first_name && item.nurse_last_name 
-              ? `${item.nurse_first_name} ${item.nurse_last_name}` 
+            {item.nurse_first_name && item.nurse_last_name
+              ? `${item.nurse_first_name} ${item.nurse_last_name}`
               : item.nurse_id || 'N/A'}
           </td>
           <td>{item.incident_location}</td>
@@ -398,7 +395,6 @@ function renderTableRow(tab, item, index, onViewDetails) {
           <td>
             <span className="badge-clr tag-screening-clr">{item.screening_type || item.requirement_type}</span>
           </td>
-          <td>{item.student_id}</td>
           <td>{formatDate(item.record_date || item.date)}</td>
           <td>{tab === 'health-screenings' ? <ScreeningStatus item={item} /> : (
             <span className={`badge-clr status-${(item.status || 'pending').toLowerCase().replace(/\s+/g, '-')}-clr`}>
@@ -439,10 +435,10 @@ function renderTableRow(tab, item, index, onViewDetails) {
 function Modal({ tab, record, onClose, onExport }) {
   return (
     <div className="modal-overlay-clr">
-      <div className="modal-content-clr">
+      <div className="modal-content-clr" role="dialog" aria-modal="true" aria-labelledby="record-title-clr">
         <div className="modal-header-clr">
-          <h3>Record Details</h3>
-          <button className="modal-close-clr" onClick={onClose}><X size={20} /></button>
+          <h3 id="record-title-clr">Record Details</h3>
+          <button type="button" className="modal-close-clr" onClick={onClose} aria-label="Close" title="Close"><X size={20} aria-hidden="true" /></button>
         </div>
         <div className="modal-body-clr">
           {tab === 'clinic-visits' ? <ClinicVisitForm record={record} /> : tab === 'doctor-visits' ? <DoctorVisitDetail record={record} /> : tab === 'health-screenings' ? <ScreeningDetail record={record} /> : Object.entries(record).map(([key, value]) => (
@@ -460,7 +456,9 @@ function Modal({ tab, record, onClose, onExport }) {
           <button type="button" className="btn-clr btn-primary-clr btn-export-clr" onClick={onExport} aria-label="Export PDF" title="Export PDF">
             <FileDown size={18} aria-hidden="true" />
           </button>
-          <button className="btn-clr btn-secondary-clr" onClick={onClose}>Close</button>
+          <button type="button" className="btn-clr btn-secondary-clr" onClick={onClose} aria-label="Close" title="Close">
+            <X size={18} aria-hidden="true" />
+          </button>
         </div>
       </div>
     </div>

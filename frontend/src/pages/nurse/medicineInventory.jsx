@@ -13,7 +13,9 @@ import {
   FilePlus2,
   X,
   Settings2,
-  Printer
+  Printer,
+  ChevronDown,
+  Clock
 } from 'lucide-react';
 import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/MedicineInventory.css';
@@ -21,6 +23,9 @@ import { useAlert } from '../../context/AlertContext';
 import { formatDate } from '../../utils/datetime';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
+
+// Batches start to warn this many days before the expiry date (2 months)
+const EXPIRY_WARN_DAYS = 60;
 
 const DOSAGE_FORMS = [
   'Tablet', 'Capsule', 'Sachet', 'Patch',
@@ -168,11 +173,14 @@ const getStockLabel = (item) => {
 };
 
 export default function MedicineInventory() {
-  const { showConfirm } = useAlert();
+  const { showAlert, showConfirm } = useAlert();
   const [inventory, setInventory] = useState([]);
   const [complaints, setComplaints] = useState([]);
   const [medicinesList, setMedicinesList] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('name');
+  const [expandedIds, setExpandedIds] = useState({});
 
   const [isMedicineModalOpen, setIsMedicineModalOpen] = useState(false);
   const [isManageMedicinesOpen, setIsManageMedicinesOpen] = useState(false);
@@ -206,12 +214,27 @@ export default function MedicineInventory() {
     remaining_volume: '' 
   });
   const [editingBatch, setEditingBatch] = useState(null);
-  const [message, setMessage] = useState({ text: '', type: '' });
 
-  const showAlert = (text, type) => {
-    setMessage({ text, type });
-    setTimeout(() => setMessage({ text: '', type: '' }), 5000);
-  };
+  // Esc closes the open modal; focus returns to the control that opened it
+  const anyModalOpen = isMedicineModalOpen || isManageMedicinesOpen || isBatchModalOpen;
+  useEffect(() => {
+    if (!anyModalOpen) return undefined;
+    const opener = document.activeElement;
+    const onKeyDown = (e) => {
+      if (e.key !== 'Escape') return;
+      setIsMedicineModalOpen(false);
+      setIsEditingMedicine(false);
+      setIsManageMedicinesOpen(false);
+      setIsBatchModalOpen(false);
+      setEditingBatch(null);
+      setComplaintSearchTerm('');
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      if (opener && typeof opener.focus === 'function' && document.body.contains(opener)) opener.focus();
+    };
+  }, [anyModalOpen]);
 
   const fetchData = useCallback(async () => {
     try {
@@ -298,30 +321,131 @@ export default function MedicineInventory() {
   const getMedicineStatus = (item) =>
     getStockStatus(Number(item.medicine_total_stock ?? item.current_stock), item.low_stock_level, item.critical_stock_level);
 
-  // One entry per medicine (batches with the same medicine_id are merged) for the Low / Critical counters
-  const medicineStatusCounts = (() => {
-    const perMedicine = new Map();
-    inventory.forEach(i => { if (!perMedicine.has(i.medicine_id)) perMedicine.set(i.medicine_id, getMedicineStatus(i).class); });
-    const classes = [...perMedicine.values()];
-    return { low: classes.filter(c => c === 'low').length, critical: classes.filter(c => c === 'critical').length };
+  const getDaysLeft = (expiryDate) => {
+    if (!expiryDate) return null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const exp = new Date(expiryDate);
+    exp.setHours(0, 0, 0, 0);
+    if (Number.isNaN(exp.getTime())) return null;
+    return Math.ceil((exp - today) / (1000 * 60 * 60 * 24));
+  };
+
+  // Warns from EXPIRY_WARN_DAYS (2 months) before the expiry date; expired batches are critical
+  const getExpirationAlert = (expiryDate) => {
+    const daysLeft = getDaysLeft(expiryDate);
+    if (daysLeft === null) return { state: 'ok', label: 'N/A', detail: '', daysLeft: Infinity };
+    if (daysLeft < 0) {
+      const ago = Math.abs(daysLeft);
+      return { state: 'expired', label: 'Expired', detail: `${ago} day${ago === 1 ? '' : 's'} ago`, daysLeft };
+    }
+    if (daysLeft <= EXPIRY_WARN_DAYS) {
+      return { state: 'warning', label: `${daysLeft} day${daysLeft === 1 ? '' : 's'} left`, detail: formatDate(expiryDate), daysLeft };
+    }
+    return { state: 'ok', label: formatDate(expiryDate), detail: `${daysLeft} days`, daysLeft };
+  };
+
+  const renderExpiry = (expiry, showDetail = false) => (
+    <span className="expiry-cell">
+      {expiry.state === 'ok' ? (
+        <span>{expiry.label}</span>
+      ) : (
+        <span className={`pill-badge with-icon ${expiry.state === 'expired' ? 'critical' : 'low'}`}>
+          {expiry.state === 'expired' ? <AlertTriangle size={14} /> : <Clock size={14} />}
+          {expiry.label}
+        </span>
+      )}
+      {showDetail && expiry.detail && <small className="med-sub-details">{expiry.detail}</small>}
+    </span>
+  );
+
+  const statusIcons = {
+    critical: <Activity size={14} />,
+    low: <AlertTriangle size={14} />,
+    adequate: <CheckCircle size={14} />
+  };
+
+  // One entry per medicine, its batches nested inside
+  const medicineGroups = (() => {
+    const map = new Map();
+    inventory.forEach(item => {
+      if (!map.has(item.medicine_id)) map.set(item.medicine_id, { ...item, batches: [] });
+      map.get(item.medicine_id).batches.push(item);
+    });
+
+    return [...map.values()].map(group => {
+      const total = Number(group.medicine_total_stock ?? group.batches.reduce((sum, b) => sum + (Number(b.current_stock) || 0), 0)) || 0;
+      const status = getStockStatus(total, group.low_stock_level, group.critical_stock_level);
+      const batchAlerts = group.batches.map(batch => ({ batch, expiry: getExpirationAlert(batch.expiration_date) }));
+      const nearest = batchAlerts.reduce((a, c) => (c.expiry.daysLeft < a.expiry.daysLeft ? c : a), batchAlerts[0]);
+      return {
+        ...group,
+        total,
+        status,
+        batchAlerts,
+        nearestExpiry: nearest.expiry,
+        hasExpiryAlert: batchAlerts.some(x => x.expiry.daysLeft <= EXPIRY_WARN_DAYS)
+      };
+    });
   })();
 
-  const getExpirationAlert = (expiryDate) => {
-    const today = new Date();
-    today.setHours(0,0,0,0);
-    const exp = new Date(expiryDate);
-    exp.setHours(0,0,0,0);
-    
-    const diffTime = exp - today;
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-    if (diffDays < 0) {
-      return { msg: '🚨 Expired!', style: { color: 'var(--status-critical-text)', fontWeight: 'bold' } };
-    } else if (diffDays <= 7) {
-      return { msg: `⚠️ Alert (${diffDays} days left)`, style: { color: 'var(--status-low-text)', fontWeight: '600' } };
-    }
-    return { msg: formatDate(expiryDate), style: { color: 'inherit' } };
+  const statusCounts = {
+    all: medicineGroups.length,
+    adequate: medicineGroups.filter(m => m.status.class === 'adequate').length,
+    low: medicineGroups.filter(m => m.status.class === 'low').length,
+    critical: medicineGroups.filter(m => m.status.class === 'critical').length,
+    expiry: medicineGroups.filter(m => m.hasExpiryAlert).length
   };
+
+  const summaryCards = [
+    { key: 'all', tone: 'total', icon: <Package size={22} />, value: statusCounts.all, label: 'Total items' },
+    { key: 'adequate', tone: 'adequate', icon: <CheckCircle size={22} />, value: statusCounts.adequate, label: 'Adequate' },
+    { key: 'low', tone: 'low', icon: <AlertTriangle size={22} />, value: statusCounts.low, label: 'Low stock' },
+    { key: 'critical', tone: 'critical', icon: <Activity size={22} />, value: statusCounts.critical, label: 'Critical' },
+    { key: 'expiry', tone: 'expiry', icon: <Clock size={22} />, value: statusCounts.expiry, label: 'Expiring' }
+  ];
+
+  const filterChips = [
+    { key: 'all', label: 'All' },
+    { key: 'critical', label: 'Critical' },
+    { key: 'low', label: 'Low stock' },
+    { key: 'adequate', label: 'Adequate' },
+    { key: 'expiry', label: 'Expiring' }
+  ];
+
+  const visibleMedicines = medicineGroups
+    .filter(med => {
+      const query = searchTerm.trim().toLowerCase();
+      const haystack = `${med.generic_name} ${med.brand_name} ${med.connected_complaints || ''}`.toLowerCase();
+      if (query && !haystack.includes(query)) return false;
+      if (statusFilter === 'expiry') return med.hasExpiryAlert;
+      if (statusFilter !== 'all') return med.status.class === statusFilter;
+      return true;
+    })
+    .sort((a, b) => {
+      if (sortBy === 'stock') return (a.total / (a.adequate_stock_level || 30)) - (b.total / (b.adequate_stock_level || 30));
+      if (sortBy === 'expiry') return a.nearestExpiry.daysLeft - b.nearestExpiry.daysLeft;
+      return `${a.generic_name} ${a.brand_name}`.localeCompare(`${b.generic_name} ${b.brand_name}`);
+    });
+
+  const attentionItems = [];
+  medicineGroups.forEach(med => {
+    const title = `${med.generic_name} (${med.brand_name})`;
+    if (med.status.class === 'critical') {
+      attentionItems.push({
+        key: `stock-${med.medicine_id}`, id: med.medicine_id, kind: 'stock', tone: 'critical', rank: 0, title,
+        text: `Critical: ${med.total} ${getStockLabel({ ...med, current_stock: med.total }).toLowerCase()} left`
+      });
+    }
+    med.batchAlerts.forEach(({ batch, expiry }) => {
+      if (expiry.state === 'expired') {
+        attentionItems.push({ key: `exp-${batch.batch_id}`, id: med.medicine_id, kind: 'expired', tone: 'critical', rank: 1, title, text: `Batch ${batch.batch_id} expired ${expiry.detail}` });
+      } else if (expiry.state === 'warning') {
+        attentionItems.push({ key: `soon-${batch.batch_id}`, id: med.medicine_id, kind: 'soon', tone: 'low', rank: 2, title, text: `Batch ${batch.batch_id}: ${expiry.label}` });
+      }
+    });
+  });
+  attentionItems.sort((a, b) => a.rank - b.rank);
 
   const requiresSpecifyText = (complaintName) => {
     if (!complaintName) return false;
@@ -472,6 +596,67 @@ export default function MedicineInventory() {
     } catch (err) {
       showAlert('API communication error.', 'error');
     }
+  };
+
+  const openAddBatch = (medicineId) => {
+    const selected = medicinesList.find(m => m.medicine_id === medicineId);
+    const isDiscrete = selected && DISCRETE_UNITS.includes(selected.dispense_unit_of_measure);
+    setEditingBatch(null);
+    setBatchForm({
+      medicine_id: medicineId,
+      current_stock: '',
+      expiration_date: '',
+      remaining_volume: isDiscrete ? 1 : (selected ? selected.strength_unit_value : '')
+    });
+    setIsBatchModalOpen(true);
+  };
+
+  const startEditBatch = (item) => {
+    setEditingBatch(item);
+    const normalizedDate = new Date(item.expiration_date).toISOString().split('T')[0];
+    setBatchForm({
+      medicine_id: item.medicine_id,
+      current_stock: item.current_stock,
+      expiration_date: normalizedDate,
+      remaining_volume: item.remaining_volume
+    });
+    setIsBatchModalOpen(true);
+  };
+
+  const startEditMedicine = (med) => {
+    const isLegacyDiscreteMed = DISCRETE_UNITS.includes(med.strength_unit_of_measure);
+    const isDiscreteDispenseMed = DISCRETE_UNITS.includes(med.dispense_unit_of_measure);
+    setEditingMedicineId(med.medicine_id);
+    setMedForm({
+      generic_name: med.generic_name,
+      brand_name: med.brand_name,
+      dosage_form: med.dosage_form,
+      strength_unit_value: isLegacyDiscreteMed ? '1' : med.strength_unit_value,
+      strength_unit_of_measure: med.strength_unit_of_measure,
+      dispense_limit: isDiscreteDispenseMed
+        ? String(Math.max(1, Math.round(parseFloat(med.dispense_limit) || 1)))
+        : med.dispense_limit,
+      dispense_unit_of_measure: med.dispense_unit_of_measure,
+      low_stock_level: med.low_stock_level,
+      critical_stock_level: med.critical_stock_level,
+      adequate_stock_level: med.adequate_stock_level,
+      indications: med.indications || []
+    });
+    setIsEditingMedicine(true);
+    setComplaintSearchTerm('');
+    setIsManageMedicinesOpen(false);
+    setIsMedicineModalOpen(true);
+  };
+
+  // Clears filters, opens the medicine's batches and scrolls to its row
+  const jumpToMedicine = (medicineId) => {
+    setStatusFilter('all');
+    setSearchTerm('');
+    setExpandedIds(prev => ({ ...prev, [medicineId]: true }));
+    setTimeout(() => {
+      const row = document.getElementById(`med-row-${medicineId}`);
+      if (row) row.scrollIntoView({ block: 'center' });
+    }, 0);
   };
 
   // PRINT PREVIEW PDF EXPORT
@@ -678,173 +863,296 @@ export default function MedicineInventory() {
 
   return (
     <div className="inventory-dashboard">
-      {/* Header Container styled matching Insurance Vault Theme */}
-      <div className="dashboard-header-container">
+      <header className="dashboard-header-container">
         <div className="dashboard-title-area">
           <h1>Medicine Inventory</h1>
-          <p className="dashboard-subtitle">Manage clinic medicine stock and monitor shortage alerts</p>
+          <p className="dashboard-subtitle">Clinic stock and shortage alerts</p>
         </div>
-        
-        <div className="header-actions-group">
-          <button className="btn-secondary-action" onClick={handleExportPDF}>
-            <Printer size={18} /> <span>export</span>
-          </button>
 
-          <button className="btn-secondary-action" onClick={() => {
+        <div className="header-actions-group" role="toolbar" aria-label="Inventory actions">
+          <button type="button" className="btn-secondary-action btn-icon" onClick={handleExportPDF} title="Export report" aria-label="Export report">
+            <Printer size={20} />
+          </button>
+          <button type="button" className="btn-secondary-action btn-icon" onClick={() => {
             setMedForm(initialMedForm);
             setIsEditingMedicine(false);
             setComplaintSearchTerm('');
             setIsMedicineModalOpen(true);
-          }}>
-            <PlusCircle size={18} /> <span>Add Medicine Item</span>
+          }} title="Add medicine item" aria-label="Add medicine item">
+            <PlusCircle size={20} />
           </button>
-          
-          <button className="btn-secondary-action" onClick={() => setIsManageMedicinesOpen(true)}>
-            <Settings2 size={18} /> <span>Edit Medicine Item</span>
+          <button type="button" className="btn-secondary-action btn-icon" onClick={() => setIsManageMedicinesOpen(true)} title="Edit medicine items" aria-label="Edit medicine items">
+            <Settings2 size={20} />
           </button>
-
-          <button className="btn-primary-action" onClick={() => setIsBatchModalOpen(true)}>
-            <Layers size={18} /> <span>Add Batches</span>
+          <button type="button" className="btn-primary-action btn-icon" onClick={() => openAddBatch('')} title="Add batch" aria-label="Add batch">
+            <Layers size={20} />
           </button>
         </div>
-      </div>
+      </header>
 
-      {message.text && (
-        <div className={`global-notification-banner ${message.type}`}>
-          {message.type === 'success' ? <CheckCircle size={18} /> : <AlertTriangle size={18} />}
-          <span>{message.text}</span>
-        </div>
-      )}
+      <section className="metrics-grid-layout" aria-label="Stock summary">
+        {summaryCards.map(card => (
+          <button
+            key={card.key}
+            type="button"
+            className="kpi-card"
+            aria-pressed={statusFilter === card.key}
+            onClick={() => setStatusFilter(card.key)}
+          >
+            <span className={`metric-card-icon ${card.tone}`}>{card.icon}</span>
+            <span className="kpi-text">
+              <span className="metric-card-value">{card.value}</span>
+              <span className="metric-card-label">{card.label}</span>
+            </span>
+          </button>
+        ))}
+      </section>
 
-      <div className="metrics-grid-layout">
-        <div className="centered-metric-card">
-          <div className="metric-card-icon total"><Package size={22} /></div>
-          <div className="metric-card-value">{new Set(inventory.map(i => i.medicine_id)).size}</div>
-          <div className="metric-card-label">Total Items</div>
-        </div>
-        <div className="centered-metric-card">
-          <div className="metric-card-icon low"><AlertTriangle size={22} /></div>
-          <div className="metric-card-value">
-            {medicineStatusCounts.low}
+      <div className="inventory-workspace">
+        <section className="inventory-panel" aria-label="Inventory">
+          <div className="inventory-toolbar">
+            <div className="search-bar-container">
+              <Search size={18} className="search-icon-placement" />
+              <label className="sr-only" htmlFor="inventory-search">Search inventory</label>
+              <input
+                id="inventory-search"
+                type="search"
+                className="rounded-search-input"
+                placeholder="Search medicine or indication"
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+              />
+            </div>
+
+            <div className="filter-chips" role="group" aria-label="Filter by status">
+              {filterChips.map(chip => (
+                <button
+                  key={chip.key}
+                  type="button"
+                  className="filter-chip"
+                  aria-pressed={statusFilter === chip.key}
+                  onClick={() => setStatusFilter(chip.key)}
+                >
+                  {chip.label} <span className="filter-chip-count">{statusCounts[chip.key]}</span>
+                </button>
+              ))}
+            </div>
+
+            <div className="sort-control">
+              <label htmlFor="inventory-sort">Sort</label>
+              <select id="inventory-sort" className="modal-select-dropdown" value={sortBy} onChange={e => setSortBy(e.target.value)}>
+                <option value="name">Name</option>
+                <option value="stock">Lowest stock</option>
+                <option value="expiry">Nearest expiry</option>
+              </select>
+            </div>
           </div>
-          <div className="metric-card-label">Low Stock</div>
-        </div>
-        <div className="centered-metric-card">
-          <div className="metric-card-icon critical"><Activity size={22} /></div>
-          <div className="metric-card-value">
-            {medicineStatusCounts.critical}
-          </div>
-          <div className="metric-card-label">Critical</div>
-        </div>
-      </div>
 
-      {/* Main Inventory Search Bar */}
-      <div className="search-bar-container">
-        <Search size={18} className="search-icon-placement" />
-        <input
-          type="text"
-          className="rounded-search-input"
-          placeholder="Search inventory by medicine indication..."
-          value={searchTerm}
-          onChange={e => setSearchTerm(e.target.value)}
-        />
-      </div>
-
-      <div className="table-wrapper-block">
-        <table className="clean-dashboard-table">
-          <thead>
-            <tr>
-              <th style={{ width: '25%' }}>Medicine</th>
-              <th style={{ width: '20%' }}>Connected Indications</th>
-              <th style={{ width: '15%' }}>Stock Units</th>
-              <th style={{ width: '15%' }}>Rem. Capacity/Volume</th>
-              <th style={{ width: '10%' }}>Expiry</th>
-              <th style={{ width: '10%' }}>Status</th>
-              <th style={{ textAlign: 'center', width: '5%' }}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {inventory.filter(item => {
-              const query = searchTerm.toLowerCase();
-              const medName = `${item.generic_name} ${item.brand_name}`.toLowerCase();
-              const complaintsText = (item.connected_complaints || '').toLowerCase();
-              return medName.includes(query) || complaintsText.includes(query);
-            }).map(item => {
-              const statusEval = getMedicineStatus(item);
-              const medicineTotal = Number(item.medicine_total_stock ?? item.current_stock);
-              const expiryDetails = getExpirationAlert(item.expiration_date);
-              const isDiscreteItem = DISCRETE_UNITS.includes(item.dispense_unit_of_measure);
-              const stockUnitLabel = getStockLabel(item);
-
-              return (
-                <tr key={item.batch_id}>
-                  <td>
-                    <span className="med-title-text">{item.generic_name} ({item.brand_name})</span>
-                    <small className="med-sub-details">{item.dosage_form} - {item.display_strength}</small>
-                  </td>
-                  <td><span className="med-indications-subtitle">{item.connected_complaints || 'Unmapped'}</span></td>
-                  <td>
-                    <div className="stock-visualization-wrapper">
-                      <span className="stock-count-number">{item.current_stock} {stockUnitLabel}</span>
-                      <div className="stock-progress-track">
-                        <div
-                          className={`stock-progress-bar ${statusEval.class}`}
-                          style={{ width: `${Math.min((medicineTotal / (item.adequate_stock_level || 30)) * 100, 100)}%` }}
-                        />
-                      </div>
-                      <small className="med-sub-details">Total (all batches): {medicineTotal}</small>
-                    </div>
-                  </td>
-                  <td>
-                    <strong>{isDiscreteItem ? 'N/A' : item.display_remaining}</strong>
-                  </td>
-                  <td><span style={expiryDetails.style}>{expiryDetails.msg}</span></td>
-                  <td><span className={`pill-badge ${statusEval.class}`}>{statusEval.label}</span></td>
-                  <td>
-                    <div className="table-action-row-buttons">
-                      <button
-                        className="action-icon-button edit"
-                        title="Adjust Volume / Stock"
-                        aria-label="Adjust Volume or Stock"
-                        onClick={() => {
-                          setEditingBatch(item);
-                          const normalizedDate = new Date(item.expiration_date).toISOString().split('T')[0];
-                          setBatchForm({
-                            medicine_id: item.medicine_id,
-                            current_stock: item.current_stock,
-                            expiration_date: normalizedDate,
-                            remaining_volume: item.remaining_volume
-                          });
-                          setIsBatchModalOpen(true); 
-                        }}
-                      >
-                        <Edit size={16} />
-                      </button>
-                      <button
-                        className="action-icon-button delete"
-                        title="Delete Batch"
-                        aria-label="Delete Batch"
-                        onClick={() => handleDeleteBatch(item.batch_id)}
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </td>
+          <div className="table-wrapper-block">
+            <table className="clean-dashboard-table">
+              <thead>
+                <tr>
+                  <th className="col-expand"><span className="sr-only">Batches</span></th>
+                  <th>Medicine</th>
+                  <th>Indications</th>
+                  <th>Total stock</th>
+                  <th>Nearest expiry</th>
+                  <th>Status</th>
+                  <th className="col-actions">Actions</th>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
+              </thead>
+              <tbody>
+                {visibleMedicines.length === 0 && (
+                  <tr>
+                    <td colSpan={7}>
+                      <div className="table-empty-state"><Search size={32} /><span>No medicine found.</span></div>
+                    </td>
+                  </tr>
+                )}
+                {visibleMedicines.map(med => {
+                  const isOpen = !!expandedIds[med.medicine_id];
+                  const isDiscreteItem = DISCRETE_UNITS.includes(med.dispense_unit_of_measure);
+                  const indications = (med.connected_complaints || '').split(/\s*,\s*/).filter(Boolean);
+                  const stockUnitLabel = getStockLabel({ ...med, current_stock: med.total });
+                  const barWidth = Math.min((med.total / (med.adequate_stock_level || 30)) * 100, 100);
+
+                  return (
+                    <React.Fragment key={med.medicine_id}>
+                      <tr id={`med-row-${med.medicine_id}`} className={`medicine-row${isOpen ? ' open' : ''}`}>
+                        <td className="col-expand">
+                          <button
+                            type="button"
+                            className="action-icon-button expander"
+                            aria-expanded={isOpen}
+                            aria-label={`${isOpen ? 'Hide' : 'Show'} batches of ${med.generic_name}`}
+                            title="Batches"
+                            onClick={() => setExpandedIds(prev => ({ ...prev, [med.medicine_id]: !prev[med.medicine_id] }))}
+                          >
+                            <ChevronDown size={20} />
+                          </button>
+                        </td>
+                        <td>
+                          <span className="med-title-text">{med.generic_name} ({med.brand_name})</span>
+                          <small className="med-sub-details">
+                            {med.dosage_form} - {med.display_strength} &middot; {med.batches.length} {med.batches.length === 1 ? 'batch' : 'batches'}
+                          </small>
+                        </td>
+                        <td>
+                          {indications.length === 0 ? (
+                            <span className="med-sub-details">Unmapped</span>
+                          ) : (
+                            <div className="indication-tags">
+                              {indications.slice(0, 2).map(tag => <span key={tag} className="indication-tag">{tag}</span>)}
+                              {indications.length > 2 && (
+                                <span className="indication-tag more" title={indications.slice(2).join(', ')}>+{indications.length - 2}</span>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                        <td>
+                          <div className="stock-visualization-wrapper">
+                            <span className="stock-count-number">{med.total} {stockUnitLabel}</span>
+                            <div className="stock-progress-track" role="img" aria-label={`${Math.round(barWidth)}% of adequate level`}>
+                              <div className={`stock-progress-bar ${med.status.class}`} style={{ width: `${barWidth}%` }} />
+                            </div>
+                          </div>
+                        </td>
+                        <td>{renderExpiry(med.nearestExpiry, true)}</td>
+                        <td>
+                          <span className={`pill-badge with-icon ${med.status.class}`}>
+                            {statusIcons[med.status.class]}{med.status.label}
+                          </span>
+                        </td>
+                        <td>
+                          <div className="table-action-row-buttons">
+                            <button
+                              type="button"
+                              className="action-icon-button edit"
+                              title="Add batch"
+                              aria-label={`Add batch to ${med.generic_name}`}
+                              onClick={() => openAddBatch(med.medicine_id)}
+                            >
+                              <Layers size={18} />
+                            </button>
+                            <button
+                              type="button"
+                              className="action-icon-button edit"
+                              title="Edit medicine"
+                              aria-label={`Edit ${med.generic_name}`}
+                              onClick={() => {
+                                const full = medicinesList.find(m => m.medicine_id === med.medicine_id);
+                                if (full) startEditMedicine(full);
+                              }}
+                            >
+                              <Edit size={18} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+
+                      {isOpen && (
+                        <tr className="batch-row">
+                          <td colSpan={7}>
+                            <div className="batch-panel">
+                              <table className="batch-table">
+                                <thead>
+                                  <tr>
+                                    <th>Batch</th>
+                                    <th>Stock</th>
+                                    <th>Remaining</th>
+                                    <th>Expiry</th>
+                                    <th className="col-actions">Actions</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {med.batchAlerts
+                                    .slice()
+                                    .sort((a, b) => a.expiry.daysLeft - b.expiry.daysLeft)
+                                    .map(({ batch, expiry }) => (
+                                      <tr key={batch.batch_id}>
+                                        <td className="mono-text">{batch.batch_id}</td>
+                                        <td>{batch.current_stock} {getStockLabel(batch)}</td>
+                                        <td>{isDiscreteItem ? 'N/A' : batch.display_remaining}</td>
+                                        <td>{renderExpiry(expiry, true)}</td>
+                                        <td>
+                                          <div className="table-action-row-buttons">
+                                            <button
+                                              type="button"
+                                              className="action-icon-button edit"
+                                              title="Adjust batch"
+                                              aria-label={`Adjust batch ${batch.batch_id}`}
+                                              onClick={() => startEditBatch(batch)}
+                                            >
+                                              <Edit size={18} />
+                                            </button>
+                                            <button
+                                              type="button"
+                                              className="action-icon-button delete"
+                                              title="Delete batch"
+                                              aria-label={`Delete batch ${batch.batch_id}`}
+                                              onClick={() => handleDeleteBatch(batch.batch_id)}
+                                            >
+                                              <Trash2 size={18} />
+                                            </button>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="inventory-foot">Showing {visibleMedicines.length} of {medicineGroups.length} medicines</div>
+        </section>
+
+        <aside className="inventory-rail" aria-label="Alerts">
+          <section className="inventory-panel">
+            <h2 className="rail-title">
+              <AlertTriangle size={18} /> Needs attention
+              <span className="pill-badge neutral rail-count">{attentionItems.length}</span>
+            </h2>
+            {attentionItems.length === 0 ? (
+              <p className="rail-empty">No alerts.</p>
+            ) : (
+              <ul className="attention-list">
+                {attentionItems.map(item => (
+                  <li key={item.key}>
+                    <button type="button" className="attention-item" onClick={() => jumpToMedicine(item.id)}>
+                      <span className={`pill-badge icon-only ${item.tone}`}>
+                        {item.kind === 'stock' ? <Activity size={16} /> : item.kind === 'expired' ? <AlertTriangle size={16} /> : <Clock size={16} />}
+                        <span className="sr-only">{item.tone === 'critical' ? 'Critical' : 'Warning'}</span>
+                      </span>
+                      <span className="attention-text">
+                        <strong>{item.title}</strong>
+                        <small>{item.text}</small>
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </aside>
       </div>
 
       {/* Manage Medicines Modal */}
       {isManageMedicinesOpen && (
         <div className="modal-overlay-bg">
-          <div className="modal-content-container modal-md">
+          <div className="modal-content-container modal-md" role="dialog" aria-modal="true" aria-labelledby="manage-medicines-title">
             <div className="modal-header-section">
-              <h3><Settings2 size={20} /> Edit Medicines</h3>
-              <button 
-                className="action-icon-button close-modal" 
+              <h3 id="manage-medicines-title"><Settings2 size={20} /> Edit Medicines</h3>
+              <button
+                type="button"
+                title="Close"
+                className="action-icon-button close-modal"
                 aria-label="Close modal"
                 onClick={() => setIsManageMedicinesOpen(false)}
               >
@@ -873,7 +1181,6 @@ export default function MedicineInventory() {
                         return medName.includes(query) || complaintsText.includes(query);
                       })
                       .map(med => {
-                        const isLegacyDiscreteMed = DISCRETE_UNITS.includes(med.strength_unit_of_measure);
                         const isDiscreteDispenseMed = DISCRETE_UNITS.includes(med.dispense_unit_of_measure);
                         return (
                           <tr key={med.medicine_id}>
@@ -892,28 +1199,8 @@ export default function MedicineInventory() {
                                 className="action-icon-button edit"
                                 title="Edit Medicine Item"
                                 aria-label="Edit Medicine Item"
-                                onClick={() => {
-                                  setEditingMedicineId(med.medicine_id);
-                                  setMedForm({
-                                    generic_name: med.generic_name,
-                                    brand_name: med.brand_name,
-                                    dosage_form: med.dosage_form,
-                                    strength_unit_value: isLegacyDiscreteMed ? '1' : med.strength_unit_value,
-                                    strength_unit_of_measure: med.strength_unit_of_measure,
-                                    dispense_limit: isDiscreteDispenseMed
-                                      ? String(Math.max(1, Math.round(parseFloat(med.dispense_limit) || 1)))
-                                      : med.dispense_limit,
-                                    dispense_unit_of_measure: med.dispense_unit_of_measure,
-                                    low_stock_level: med.low_stock_level,
-                                    critical_stock_level: med.critical_stock_level,
-                                    adequate_stock_level: med.adequate_stock_level,
-                                    indications: med.indications || []
-                                  });
-                                  setIsEditingMedicine(true);
-                                  setComplaintSearchTerm('');
-                                  setIsManageMedicinesOpen(false);
-                                  setIsMedicineModalOpen(true);
-                                }}
+                                type="button"
+                                onClick={() => startEditMedicine(med)}
                               >
                                 <Edit size={16} />
                               </button>
@@ -933,11 +1220,13 @@ export default function MedicineInventory() {
       {/* Register / Edit Medicine Modal */}
       {isMedicineModalOpen && (
         <div className="modal-overlay-bg">
-          <div className="modal-content-container modal-lg">
+          <div className="modal-content-container modal-lg" role="dialog" aria-modal="true" aria-labelledby="medicine-modal-title">
             <div className="modal-header-section">
-              <h3><FilePlus2 size={20} /> {isEditingMedicine ? 'Edit Medicine' : 'Create Medicine Item'}</h3>
-              <button 
-                className="action-icon-button close-modal" 
+              <h3 id="medicine-modal-title"><FilePlus2 size={20} /> {isEditingMedicine ? 'Edit Medicine' : 'Create Medicine Item'}</h3>
+              <button
+                type="button"
+                title="Close"
+                className="action-icon-button close-modal"
                 aria-label="Close modal"
                 onClick={() => {
                   setIsMedicineModalOpen(false);
@@ -950,6 +1239,8 @@ export default function MedicineInventory() {
             </div>
             <form onSubmit={handleSaveMedicine} className="modal-form-wrapper">
               <div className="modal-body-form scrollable-modal-body">
+               <div className="modal-columns">
+                <div className="modal-column">
                 <div className="modal-form-row">
                   <div className="modal-form-group">
                     <label>Generic Name</label>
@@ -1016,9 +1307,7 @@ export default function MedicineInventory() {
                     </select>
                   </div>
                 </div>
-                <small className="field-help-text" style={{ display: 'block', marginTop: '-6px', marginBottom: '12px' }}>
-                  Strength is the package strength only (e.g. 500 mg per tablet, 60 mL per bottle).
-                </small>
+                <small className="field-help-text field-help-inline">Strength per package, e.g. 500 mg.</small>
 
                 <div className="modal-form-row">
                   <div className="modal-form-group">
@@ -1050,9 +1339,7 @@ export default function MedicineInventory() {
                     </select>
                   </div>
                 </div>
-                <small className="field-help-text" style={{ display: 'block', marginTop: '-6px', marginBottom: '12px' }}>
-                  Maximum quantity that can be dispensed at once (e.g. a limit of 1 {medForm.dispense_unit_of_measure || 'Tablet/s'} per dispensation).
-                </small>
+                <small className="field-help-text field-help-inline">Most that can be dispensed at once.</small>
 
                 <div className="modal-form-row">
                   <div className="modal-form-group">
@@ -1084,7 +1371,10 @@ export default function MedicineInventory() {
                   </div>
                 </div>
 
+                </div>
+
                 {/* Indications & Complaint mapping */}
+                <div className="modal-column">
                 <div className="modal-form-group">
                   <label className="input-field-label">Medicine Indications</label>
                   
@@ -1136,6 +1426,8 @@ export default function MedicineInventory() {
                     )}
                   </div>
                 </div>
+                </div>
+               </div>
               </div>
               <div className="modal-footer-actions">
                 <button type="button" className="btn-modal-cancel" onClick={() => {
@@ -1152,11 +1444,13 @@ export default function MedicineInventory() {
       {/* Add / Edit Batch Modal */}
       {isBatchModalOpen && (
         <div className="modal-overlay-bg">
-          <div className="modal-content-container modal-sm">
+          <div className="modal-content-container modal-sm" role="dialog" aria-modal="true" aria-labelledby="batch-modal-title">
             <div className="modal-header-section">
-              <h3><Layers size={20} /> {editingBatch ? 'Modify Batch' : 'Add Inventory Batch'}</h3>
-              <button 
-                className="action-icon-button close-modal" 
+              <h3 id="batch-modal-title"><Layers size={20} /> {editingBatch ? 'Modify Batch' : 'Add Inventory Batch'}</h3>
+              <button
+                type="button"
+                title="Close"
+                className="action-icon-button close-modal"
                 aria-label="Close modal"
                 onClick={() => { setIsBatchModalOpen(false); setEditingBatch(null); }}
               >
@@ -1220,9 +1514,7 @@ export default function MedicineInventory() {
                         onChange={e => setBatchForm({ ...batchForm, remaining_volume: e.target.value })}
                         required
                       />
-                      <small className="field-help-text">
-                        Enter value measured in <strong>{batchUnitMeasure}</strong> (Max: {maxBatchVolume} {batchUnitMeasure})
-                      </small>
+                      <small className="field-help-text">Max {maxBatchVolume} {batchUnitMeasure}</small>
                     </div>
                   )}
                 </div>

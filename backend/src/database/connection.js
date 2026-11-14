@@ -2260,6 +2260,36 @@ app.get('/api/program-requirements-config', async (req, res) => {
     }
 });
 
+// 7b. Active students per program, and (with ?requirement_name=) how many already hold that requirement
+app.get('/api/program-requirements-coverage', async (req, res) => {
+    const name = String(req.query.requirement_name || '').trim();
+    try {
+        const [rows] = await pool.query(
+            `SELECT s.program_id,
+                    COUNT(*) AS students,
+                    SUM(CASE WHEN ? <> '' AND (
+                        EXISTS (SELECT 1 FROM student_requirement_submissions srs
+                                WHERE srs.student_id = s.student_id AND srs.requirement_name = ?)
+                        OR EXISTS (SELECT 1 FROM student_special_requirements ssr
+                                WHERE ssr.student_id = s.student_id AND ssr.requirement_name = ?)
+                    ) THEN 1 ELSE 0 END) AS already_have
+             FROM students s
+             JOIN users u ON s.user_id = u.user_id
+             WHERE u.is_active = 1
+             GROUP BY s.program_id`,
+            [name, name, name]
+        );
+        res.json(rows.map(r => ({
+            program_id: r.program_id,
+            students: Number(r.students),
+            already_have: Number(r.already_have || 0)
+        })));
+    } catch (error) {
+        console.error("Error reading requirement coverage:", error);
+        res.status(500).json({ error: "Failed to retrieve coverage" });
+    }
+});
+
 // 8. ADD REQUIREMENT RULE ARCHITECTURE & notify affected students + connected parent(s)
 app.post('/api/programs/:programId/requirements', async (req, res) => {
     const { programId } = req.params;
@@ -2331,30 +2361,7 @@ app.post('/api/programs/:programId/requirements', async (req, res) => {
             allow_late_submission ? 1 : 0
         ]);
 
-        const seedSubmissionsQuery = `
-            INSERT INTO student_requirement_submissions (submission_id, student_id, requirement_name, status, nurse_remarks, file_url, submitted_at)
-            SELECT UUID(), s.student_id, ?, 'Pending', '', NULL, NULL
-            FROM students s
-            JOIN users u ON s.user_id = u.user_id
-            WHERE s.program_id = ?
-              AND u.is_active = 1
-              AND (? IS NULL OR s.year_level = ? OR s.year_level LIKE CONCAT('%', ?, '%'))
-              AND NOT EXISTS (
-                  SELECT 1 FROM student_requirement_submissions srs 
-                  WHERE srs.student_id = s.student_id AND srs.requirement_name = ?
-              )
-        `;
-
-        await connection.query(seedSubmissionsQuery, [
-            trimmedReqName,
-            programId,
-            targetYearLevel,
-            targetYearLevel,
-            targetYearLevel,
-            trimmedReqName
-        ]);
-
-        // Get matching active student user IDs & student IDs
+        // Every active student of the program (no year level / section = all of them)
         const [matchingStudents] = await connection.query(
             `SELECT s.student_id, s.user_id AS student_user_id
              FROM students s
@@ -2365,8 +2372,32 @@ app.post('/api/programs/:programId/requirements', async (req, res) => {
             [programId, targetYearLevel, targetYearLevel, targetYearLevel]
         );
 
-        const studentUserIds = matchingStudents.map(s => s.student_user_id).filter(Boolean);
-        const studentIds = matchingStudents.map(s => s.student_id);
+        // Students that already hold this requirement are skipped (and not notified)
+        let alreadyHave = new Set();
+        if (matchingStudents.length > 0) {
+            const matchingIds = matchingStudents.map(s => s.student_id);
+            const [haveRows] = await connection.query(
+                `SELECT student_id FROM student_requirement_submissions WHERE requirement_name = ? AND student_id IN (?)
+                 UNION
+                 SELECT student_id FROM student_special_requirements WHERE requirement_name = ? AND student_id IN (?)`,
+                [trimmedReqName, matchingIds, trimmedReqName, matchingIds]
+            );
+            alreadyHave = new Set(haveRows.map(r => r.student_id));
+        }
+        const newStudents = matchingStudents.filter(s => !alreadyHave.has(s.student_id));
+
+        if (newStudents.length > 0) {
+            await connection.query(
+                `INSERT INTO student_requirement_submissions (submission_id, student_id, requirement_name, status, nurse_remarks, file_url, submitted_at)
+                 SELECT UUID(), s.student_id, ?, 'Pending', '', NULL, NULL
+                 FROM students s
+                 WHERE s.student_id IN (?)`,
+                [trimmedReqName, newStudents.map(s => s.student_id)]
+            );
+        }
+
+        const studentUserIds = newStudents.map(s => s.student_user_id).filter(Boolean);
+        const studentIds = newStudents.map(s => s.student_id);
 
         let parentUserIds = [];
         if (studentIds.length > 0) {
@@ -2390,8 +2421,10 @@ app.post('/api/programs/:programId/requirements', async (req, res) => {
 
         res.status(201).json({ 
             success: true, 
-            message: "Program requirement configured and synchronized with notifications delivered.", 
-            config_id: newConfigId 
+            message: "Program requirement configured and synchronized with notifications delivered.",
+            config_id: newConfigId,
+            assigned: newStudents.length,
+            already_had: alreadyHave.size
         });
 
     } catch (error) {
@@ -5908,6 +5941,171 @@ async function getSnapshotUsableStock(asOfStr) {
   return byMedicine;
 }
 
+// ---------- daily end-of-day stock snapshots ----------
+// One row per medicine per day (`medicine_daily_stock_snapshots`): the usable stock at the end of that day, in the
+// dispense unit (`usable_base`, e.g. tablets or mL, so a small dispense still changes it) and in whole containers
+// (`usable_stock`). The cron job below stores the live stock at 23:59 (Asia/Manila); days the server missed are rebuilt
+// from the batches + later dispensations when it starts. A stored day is never rebuilt over. Closed Sundays move only
+// when a restock arrives, so they equal Saturday.
+async function ensureDailyStockSnapshots() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS medicine_daily_stock_snapshots (
+      snapshot_date DATE NOT NULL,
+      medicine_id VARCHAR(45) NOT NULL,
+      usable_base DECIMAL(14,3) NOT NULL DEFAULT 0,
+      usable_stock INT NOT NULL DEFAULT 0,
+      source ENUM('live','rebuilt') NOT NULL DEFAULT 'live',
+      captured_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (snapshot_date, medicine_id),
+      KEY idx_daily_stock_medicine (medicine_id),
+      CONSTRAINT fk_daily_stock_medicine FOREIGN KEY (medicine_id) REFERENCES medicines (medicine_id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+}
+
+const stockDayAdd = (dayStr, n) => {
+  const d = new Date(`${dayStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+
+// Stock of every medicine at the end of each day in [fromStr, toStr] (past days), rebuilt from today's batches:
+// what a batch holds now + what was dispensed from it after the day, for batches that already existed and were not expired.
+async function rebuildDailyStock(fromStr, toStr) {
+  const [batches] = await pool.query(`
+    SELECT b.batch_id, b.medicine_id, b.current_stock, b.remaining_volume, b.expiration_date,
+           DATE_FORMAT(b.created_at, '%Y-%m-%d') AS created_day,
+           m.dispense_unit_of_measure AS dispense_unit, m.strength_unit_value AS strength_value, m.strength_unit_of_measure AS strength_unit
+    FROM medicine_inventory_batches b JOIN medicines m ON m.medicine_id = b.medicine_id
+  `);
+  const [disp] = await pool.query(`
+    SELECT d.batch_id, DATE_FORMAT(d.dispensed_at, '%Y-%m-%d') AS day, d.dosage_consumption_unit_value, d.dosage_consumption_unit_of_measure,
+           m.dispense_unit_of_measure AS dispense_unit, m.strength_unit_value AS strength_value, m.strength_unit_of_measure AS strength_unit
+    FROM (
+      SELECT batch_id, dosage_consumption_unit_value, dosage_consumption_unit_of_measure, dispensed_at FROM consultation_dispensation
+      UNION ALL
+      SELECT batch_id, dosage_consumption_unit_value, dosage_consumption_unit_of_measure, dispensed_at FROM direct_dispensation
+    ) d
+    JOIN medicine_inventory_batches b ON b.batch_id = d.batch_id
+    JOIN medicines m ON m.medicine_id = b.medicine_id
+    WHERE d.dispensed_at >= ?
+  `, [`${fromStr} 00:00:00`]);
+
+  // units dispensed from each batch per day, and in total from fromStr on
+  const perBatchDay = {}; const totalAfterFrom = {};
+  disp.forEach((r) => {
+    const q = dispensedInDispenseUnit(r);
+    perBatchDay[r.batch_id] = perBatchDay[r.batch_id] || {};
+    perBatchDay[r.batch_id][r.day] = (perBatchDay[r.batch_id][r.day] || 0) + q;
+    totalAfterFrom[r.batch_id] = (totalAfterFrom[r.batch_id] || 0) + q;
+  });
+
+  const info = batches.map((b) => {
+    const cs = containerStrengthInDispenseUnit(b.strength_value, b.strength_unit, b.dispense_unit) || 1;
+    const stock = Number(b.current_stock) || 0;
+    const discrete = DISCRETE_UNITS.includes(b.dispense_unit);
+    const baseNow = discrete ? stock : (stock > 0 ? (Number(b.remaining_volume) || 0) + (stock - 1) * cs : 0);
+    return { ...b, cs, baseNow, after: totalAfterFrom[b.batch_id] || 0, expiry: String(b.expiration_date).slice(0, 10) };
+  });
+
+  const result = {};   // day -> { medicine_id: { base, containers } }
+  for (let day = fromStr; day <= toStr; day = stockDayAdd(day, 1)) {
+    const perMed = {};
+    info.forEach((b) => {
+      b.after -= (perBatchDay[b.batch_id] || {})[day] || 0;           // keep only what is dispensed AFTER this day
+      if (b.created_day > day || b.expiry < day) return;
+      const base = b.baseNow + b.after;
+      const cur = perMed[b.medicine_id] || { base: 0, containers: 0 };
+      cur.base += base;
+      cur.containers += Math.max(0, Math.ceil(parseFloat((base / b.cs).toFixed(6))));
+      perMed[b.medicine_id] = cur;
+    });
+    result[day] = perMed;
+  }
+  return result;
+}
+
+// Store the live stock as the snapshot of dayStr (usually today, at 23:59). Overwrites that day.
+async function captureLiveStockSnapshot(dayStr) {
+  const [rows] = await pool.query(`
+    SELECT m.medicine_id, m.dispense_unit_of_measure AS dispense_unit, m.strength_unit_value AS strength_value, m.strength_unit_of_measure AS strength_unit,
+           b.current_stock, b.remaining_volume
+    FROM medicines m
+    LEFT JOIN medicine_inventory_batches b ON b.medicine_id = m.medicine_id AND b.expiration_date >= ?
+  `, [dayStr]);
+  const perMed = {};
+  rows.forEach((r) => {
+    const cur = perMed[r.medicine_id] || { base: 0, containers: 0 };
+    if (r.current_stock !== null && r.current_stock !== undefined) {
+      const cs = containerStrengthInDispenseUnit(r.strength_value, r.strength_unit, r.dispense_unit) || 1;
+      const stock = Number(r.current_stock) || 0;
+      const discrete = DISCRETE_UNITS.includes(r.dispense_unit);
+      cur.base += discrete ? stock : (stock > 0 ? (Number(r.remaining_volume) || 0) + (stock - 1) * cs : 0);
+      cur.containers += stock;
+    }
+    perMed[r.medicine_id] = cur;
+  });
+  const values = Object.entries(perMed).map(([id, v]) => [dayStr, id, parseFloat(v.base.toFixed(3)), v.containers, 'live']);
+  if (values.length) {
+    await pool.query(
+      `INSERT INTO medicine_daily_stock_snapshots (snapshot_date, medicine_id, usable_base, usable_stock, source) VALUES ?
+       ON DUPLICATE KEY UPDATE usable_base = VALUES(usable_base), usable_stock = VALUES(usable_stock), source = 'live', captured_at = CURRENT_TIMESTAMP`,
+      [values]
+    );
+  }
+  return values.length;
+}
+
+// Fill the days that have no snapshot yet, from the first day with stock data up to yesterday.
+async function backfillDailyStockSnapshots() {
+  await ensureDailyStockSnapshots();
+  const todayStr = todayManilaStr();
+  const yesterday = stockDayAdd(todayStr, -1);
+  const [[first]] = await pool.query(`
+    SELECT LEAST(
+      COALESCE((SELECT DATE_FORMAT(MIN(created_at), '%Y-%m-%d') FROM medicine_inventory_batches), ?),
+      COALESCE((SELECT DATE_FORMAT(MIN(dispensed_at), '%Y-%m-%d') FROM consultation_dispensation), ?),
+      COALESCE((SELECT DATE_FORMAT(MIN(dispensed_at), '%Y-%m-%d') FROM direct_dispensation), ?)
+    ) AS first_day`, [yesterday, yesterday, yesterday]);
+  const fromStr = first.first_day || yesterday;
+  if (fromStr > yesterday) return 0;
+  const [have] = await pool.query(
+    "SELECT DISTINCT DATE_FORMAT(snapshot_date, '%Y-%m-%d') AS d FROM medicine_daily_stock_snapshots WHERE snapshot_date BETWEEN ? AND ?",
+    [fromStr, yesterday]
+  );
+  const haveSet = new Set(have.map((r) => r.d));
+  const missing = [];
+  for (let d = fromStr; d <= yesterday; d = stockDayAdd(d, 1)) if (!haveSet.has(d)) missing.push(d);
+  if (!missing.length) return 0;
+  const rebuilt = await rebuildDailyStock(missing[0], yesterday);
+  const values = [];
+  missing.forEach((d) => {
+    Object.entries(rebuilt[d] || {}).forEach(([id, v]) => values.push([d, id, parseFloat(v.base.toFixed(3)), v.containers, 'rebuilt']));
+  });
+  for (let i = 0; i < values.length; i += 2000) {
+    await pool.query(
+      'INSERT IGNORE INTO medicine_daily_stock_snapshots (snapshot_date, medicine_id, usable_base, usable_stock, source) VALUES ?',
+      [values.slice(i, i + 2000)]
+    );
+  }
+  return values.length;
+}
+
+// Every day at 23:59: save the live stock as that day's snapshot.
+cron.schedule('59 23 * * *', async () => {
+  try {
+    await ensureDailyStockSnapshots();
+    const n = await captureLiveStockSnapshot(todayManilaStr());
+    console.log(`Daily stock snapshot saved (${n} medicines).`);
+  } catch (error) {
+    console.error('Error saving daily stock snapshot:', error);
+  }
+}, { timezone: 'Asia/Manila' });
+
+backfillDailyStockSnapshots()
+  .then((n) => { if (n) console.log(`Daily stock snapshots rebuilt for missing days (${n} rows).`); })
+  .catch((error) => console.error('Error rebuilding daily stock snapshots:', error));
+
 async function getMedicineStockStatuses({ includeSeries = false, trendFactor = 0, asOf = null } = {}) {
   const [rows] = await pool.query(`
     SELECT m.medicine_id, m.generic_name, m.brand_name, m.dosage_form, m.strength_unit_value, m.strength_unit_of_measure,
@@ -5926,10 +6124,24 @@ async function getMedicineStockStatuses({ includeSeries = false, trendFactor = 0
   // asOf = snapshot of a past day: history and stock end on that day, the forecast covers the 30 days after it
   const todayStr = asOf || todayManilaStr();
   const { byMedicineId } = await getDailyDispenseHistory(todayStr);
-  const snapshotStock = asOf ? await getSnapshotUsableStock(asOf) : null;
+  // A stored end-of-day snapshot wins; a day without one is rebuilt from the batches (whole containers)
+  let snapshotStock = null;
+  let storedBase = null;
+  if (asOf) {
+    const [snaps] = await pool.query('SELECT medicine_id, usable_base FROM medicine_daily_stock_snapshots WHERE snapshot_date = ?', [asOf]);
+    if (snaps.length) {
+      storedBase = {};
+      snaps.forEach((r) => { storedBase[r.medicine_id] = Number(r.usable_base) || 0; });
+    } else {
+      snapshotStock = await getSnapshotUsableStock(asOf);
+    }
+  }
 
   return rows.map((m) => {
-    const usable = snapshotStock ? (snapshotStock[m.medicine_id] || 0) : Number(m.usable_stock);
+    const containerSize = containerStrengthInDispenseUnit(m.strength_unit_value, m.strength_unit_of_measure, m.dispense_unit_of_measure) || 1;
+    // stored snapshot: stock in containers with decimals (a bottle 40% full counts 0.4), so it changes every day
+    const usable = storedBase ? parseFloat(((storedBase[m.medicine_id] || 0) / containerSize).toFixed(3))
+      : snapshotStock ? (snapshotStock[m.medicine_id] || 0) : Number(m.usable_stock);
     const low = Number(m.low_stock_level);
     const critical = Number(m.critical_stock_level);
     const adequate = Number(m.adequate_stock_level);
@@ -13741,6 +13953,7 @@ const registerAdvance = async (req, res, manual) => {
         if (!manual && !state.is_open) throw new BookingError('The advance listing is closed. Please check again when the nurse opens it.');
         const service = state.services.find((s) => s.visit_type === visitType && s.offered);
         if (!service) throw new BookingError(`${visitType} is not offered in the advance listing.`);
+        if (!(await eligibleCategories(connection)).includes(visitType)) throw new BookingError(`${visitType} has no doctor right now, so it cannot be used yet.`, 409);
         const mine = await advanceEntryOf(connection, student_id);
         if (mine && mine.status === 'Cutoff') throw new BookingError(manual
             ? `${student.first_name} ${student.last_name} was cut off from the ${mine.visit_type} advance listing. Move the student from the Cut off tab to the new advance listing.`
@@ -14748,6 +14961,7 @@ app.post('/api/consultations-offered', async (req, res) => {
         // assignment: doctors that can take it are on or off its list, saved as their services_offered
         const conn = await pool.getConnection();
         let changedDoctors = 0;
+        const movedToGeneral = [];
         try {
             await conn.beginTransaction();
             for (const d of doctors.filter(canTake)) {
@@ -14756,8 +14970,16 @@ app.post('/api/consultations-offered', async (req, res) => {
                 const has = covered.includes(visitType);
                 const want = doctorIds.has(d.doctor_id);
                 if (has === want) continue;
-                const next = want ? [...covered, visitType] : covered.filter((t) => t !== visitType);
-                if (next.length === 0) throw new BookingError(`${doctorDisplayName(d)} would have no check-up left. Every doctor keeps at least one.`, 400);
+                let next = want ? [...covered, visitType] : covered.filter((t) => t !== visitType);
+                // the last doctor can be unassigned: the check-up is then unusable (no schedule, listing or request can use a service no doctor covers).
+                // A doctor keeps at least one check-up, so one left with none falls back to General Check Up
+                if (next.length === 0) {
+                    if (visitType === GENERAL_VISIT_TYPE || !allowed.includes(GENERAL_VISIT_TYPE)) {
+                        throw new BookingError(`${doctorDisplayName(d)} would have no check-up left. Assign another check-up to the doctor first.`, 400);
+                    }
+                    next = [GENERAL_VISIT_TYPE];
+                    movedToGeneral.push(doctorDisplayName(d));
+                }
                 if (!want && (await upcomingScheduleUse(conn, d.doctor_id, visitType))) {
                     throw new BookingError(`${doctorDisplayName(d)} still has upcoming ${visitType} schedules. Close those schedules before unassigning the doctor.`, 409);
                 }
@@ -14776,7 +14998,9 @@ app.post('/api/consultations-offered', async (req, res) => {
 
         res.status(isNew ? 201 : 200).json({
             success: true,
-            message: `${visitType} ${isNew ? 'added' : 'saved'}: ${doctorIds.size} doctor${doctorIds.size === 1 ? '' : 's'} assigned.`,
+            message: doctorIds.size === 0
+                ? `${visitType} ${isNew ? 'added' : 'saved'}. No doctor covers it, so students cannot use it yet.${movedToGeneral.length > 0 ? ` ${movedToGeneral.join(', ')} now covers General Check Up.` : ''}`
+                : `${visitType} ${isNew ? 'added' : 'saved'}: ${doctorIds.size} doctor${doctorIds.size === 1 ? '' : 's'} assigned.${movedToGeneral.length > 0 ? ` ${movedToGeneral.join(', ')} now covers General Check Up.` : ''}`,
             visit_type: visitType,
             changed_doctors: changedDoctors
         });

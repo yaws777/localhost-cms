@@ -586,7 +586,7 @@
 }
 
 .predictive-tooltip-width-nd {
-  width: 360px;
+  width: 440px;
   /* chart tooltips ignore the mouse, so a scrollbar is unreachable: show every row instead */
   max-height: none;
   overflow: visible;

@@ -1,11 +1,22 @@
 // healthRecords.jsx
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, RotateCcw, Printer, ClipboardList } from 'lucide-react';
+import { Eye, RotateCcw, Printer, ClipboardList, Search } from 'lucide-react';
 import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/HealthRecords.css';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate } from '../../utils/datetime';
+
+// condition filter chips: tag matched against the start of each health history item
+const CONDITION_FILTERS = [
+    { key: 'all', label: 'All' },
+    { key: 'allergy', label: 'Allergies', re: /^Allergies/i },
+    { key: 'asthma', label: 'Asthma', re: /^Asthma/i },
+    { key: 'heart', label: 'Heart', re: /^Heart/i },
+    { key: 'vision', label: 'Vision', re: /^Vision/i },
+    { key: 'none', label: 'None' }
+];
+const WARN_CHIP = /^(Allergies|Asthma|Heart|Blood|Seizures|Kidney|Metabolic)/i;
 
 export default function HealthRecord() {
     const navigate = useNavigate();
@@ -21,6 +32,7 @@ export default function HealthRecord() {
     const [selectedProgram, setSelectedProgram] = useState('all');
     const [selectedSection, setSelectedSection] = useState('all');
     const [selectedYear, setSelectedYear] = useState('all');
+    const [conditionFilter, setConditionFilter] = useState('all');
 
     // Fetch Academic Programs catalog on mount
     useEffect(() => {
@@ -152,6 +164,7 @@ export default function HealthRecord() {
         setSelectedProgram('all');
         setSelectedSection('all');
         setSelectedYear('all');
+        setConditionFilter('all');
     };
 
     // Auto-generates detailed health history string for JSX table and PDF report
@@ -247,10 +260,25 @@ export default function HealthRecord() {
         return student.health_history || 'No Known Conditions';
     };
 
-    // Print Preview PDF Export
+    // History as a list of items (empty = no known conditions)
+    const chipsOf = (student) => {
+        const text = formatHealthHistory(student);
+        return text === 'No Known Conditions' ? [] : text.split('; ');
+    };
+
+    const matchesCondition = (student, key) => {
+        if (key === 'all') return true;
+        const chips = chipsOf(student);
+        if (key === 'none') return chips.length === 0;
+        const def = CONDITION_FILTERS.find((f) => f.key === key);
+        return chips.some((c) => def.re.test(c));
+    };
+
+    const visibleStudents = filteredStudents.filter((s) => matchesCondition(s, conditionFilter));
+
     // Print Preview PDF Export with Course/Strand Summary
     const handleExportPDF = () => {
-        const rowsToExport = Array.isArray(filteredStudents) ? filteredStudents : [];
+        const rowsToExport = visibleStudents;
 
         const printWindow = window.open('', '_blank', 'width=1000,height=750');
         if (!printWindow) {
@@ -489,18 +517,30 @@ export default function HealthRecord() {
             <div className="directory-header-card">
                 <div>
                     <h2>Student Health Records</h2>
-                    <p>Search profiles and review medical information checklist histories.</p>
+                    <p>STI Campus Health Services</p>
                 </div>
+                <button
+                    type="button"
+                    onClick={handleExportPDF}
+                    disabled={visibleStudents.length === 0}
+                    className="btn-header-export"
+                    aria-label="Export report"
+                    title="Export report"
+                >
+                    <Printer size={20} aria-hidden="true" />
+                </button>
             </div>
 
             {/* Search and Filters */}
             <div className="search-filter-panel">
                 <div className="search-input-container">
-                    <input 
-                        type="text" 
+                    <span className="search-icon-inside"><Search size={20} aria-hidden="true" /></span>
+                    <input
+                        type="search"
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
-                        placeholder="Search by student ID, name, or keywords..." 
+                        placeholder="Name or student ID"
+                        aria-label="Search students"
                         className="main-search-input"
                     />
                 </div>
@@ -577,75 +617,92 @@ export default function HealthRecord() {
                             type="button" 
                             onClick={handleResetFilters} 
                             className="btn-reset-filter"
-                            title="Reset Filters"
+                            title="Reset filters"
+                            aria-label="Reset filters"
                         >
-                            <RotateCcw size={15} />
-                            <span>Reset</span>
+                            <RotateCcw size={18} aria-hidden="true" />
                         </button>
                     </div>
+                </div>
+
+                <div className="condition-chips" role="group" aria-label="Health condition">
+                    <span className="condition-chips-label">Condition</span>
+                    {CONDITION_FILTERS.map((f) => (
+                        <button
+                            key={f.key}
+                            type="button"
+                            className={`condition-chip ${conditionFilter === f.key ? 'active' : ''}`}
+                            aria-pressed={conditionFilter === f.key}
+                            onClick={() => setConditionFilter(f.key)}
+                        >
+                            {f.label}
+                            <span className="condition-chip-count">
+                                {filteredStudents.filter((s) => matchesCondition(s, f.key)).length}
+                            </span>
+                        </button>
+                    ))}
                 </div>
             </div>
 
             {errorMsg && <div className="error-message">{errorMsg}</div>}
 
             <div className="directory-card-panel">
-                <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h3>Directory Results ({filteredStudents.length})</h3>
-                    <button 
-                        type="button"
-                        onClick={handleExportPDF}
-                        disabled={filteredStudents.length === 0}
-                        className="btn-export"
-                        style={{
-                            width: 'auto',
-                            minWidth: 'unset',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            padding: '6px 14px',
-                            cursor: filteredStudents.length === 0 ? 'not-allowed' : 'pointer'
-                        }}
-                        title="Preview Health Records Report"
-                    >
-                        <Printer size={15} />
-                        <span>export</span>
-                    </button>
+                <div className="panel-header">
+                    <h3>Directory <span className="count-badge" role="status">{visibleStudents.length}</span></h3>
                 </div>
 
                 {loading ? (
-                    <div className="status-placeholder">Querying structural schema indices...</div>
-                ) : filteredStudents.length === 0 ? (
-                    <div className="status-placeholder">No matching student files found.</div>
+                    <div className="status-placeholder" role="status">Loading...</div>
+                ) : visibleStudents.length === 0 ? (
+                    <div className="status-placeholder" role="status">No students found</div>
                 ) : (
                     <div className="table-responsive-wrapper">
                         <table className="profile-data-table">
                             <thead>
                                 <tr>
-                                    <th>Student ID</th>
-                                    <th>Last Name</th>
-                                    <th>First Name</th>
+                                    <th>Student</th>
                                     <th>Program</th>
-                                    <th>Year Level</th>
-                                    <th>Section</th>
+                                    <th>Year / Section</th>
                                     <th>Health History</th>
-                                    <th className="action-col">Action</th>
+                                    <th className="action-col">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {filteredStudents.map((student) => (
+                                {visibleStudents.map((student) => {
+                                    const chips = chipsOf(student);
+                                    const shownChips = chips.slice(0, 2);
+                                    const rest = chips.slice(2);
+                                    return (
                                     <tr key={student.student_id}>
-                                        <td className="font-semibold">{student.student_id}</td>
-                                        <td>{student.last_name}</td>
-                                        <td>{student.first_name}</td>
+                                        <td>
+                                            <span className="who-student">
+                                                <span className="avatar-student" aria-hidden="true">
+                                                    {`${(student.first_name || '').charAt(0)}${(student.last_name || '').charAt(0)}`}
+                                                </span>
+                                                <span>
+                                                    <strong>{student.last_name}, {student.first_name}</strong>
+                                                    <span className="sub-student">{student.student_id}</span>
+                                                </span>
+                                            </span>
+                                        </td>
                                         <td>
                                             <span className="program-tag-badge">
                                                 {student.program_id}
                                             </span>
                                         </td>
-                                        <td>{student.year_level}</td>
-                                        <td>{student.section || 'N/A'}</td>
-                                        <td style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-                                            {formatHealthHistory(student)}
+                                        <td>
+                                            {student.year_level ? `Year ${student.year_level}` : 'N/A'} / {student.section || 'N/A'}
+                                        </td>
+                                        <td>
+                                            <span className="history-chips">
+                                                {chips.length === 0 && <span className="hchip hchip-ok">No known conditions</span>}
+                                                {shownChips.map((c) => (
+                                                    <span key={c} className={`hchip ${WARN_CHIP.test(c) ? 'hchip-warn' : 'hchip-info'}`}>{c}</span>
+                                                ))}
+                                                {rest.length > 0 && (
+                                                    <span className="hchip hchip-more" title={rest.join(', ')}>+{rest.length}</span>
+                                                )}
+                                            </span>
                                         </td>
                                         <td className="action-col">
                                             <div className="action-group">
@@ -668,7 +725,8 @@ export default function HealthRecord() {
                                             </div>
                                         </td>
                                     </tr>
-                                ))}
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>

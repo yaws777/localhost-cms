@@ -2,17 +2,18 @@
 // The doctor sets a schedule with a listing limit and the nurse opens its listing. The student sees the open listings here and asks for a
 // place in one. When the nurse accepts, the student gets the next queue number of that session (in the order of acceptance) and sees which
 // number is being served; the nurse can also decline with a reason.
-// Layout: header (title + updates bell), "My place in line" on top, then tabs (Listings | Repeats | Past | Requests). Only the active tab is
+// Layout: header (title + updates bell), "My number in line" on top, then tabs (Listings | Repeats | Past | Requests). Only the active tab is
 // shown and the latest updates sit behind the bell, so nothing long is open when the page loads.
-import React, { useState, useEffect, useCallback } from 'react';
+// Look: one ticket per number (big number, now serving, people ahead, progress), a 3-step ticket for a request the nurse has not accepted,
+// session cards led by a date block with a capacity meter, and every status is one tag = color + icon + word.
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { ClipboardList, X, Clock, Info, Stethoscope, MapPin, Repeat, FileText, Bell, Footprints, UserPlus, ListPlus, XCircle, Undo2, Eye, Inbox, Ticket, CheckCircle2 } from 'lucide-react';
+import { ClipboardList, X, Clock, Info, Stethoscope, MapPin, Repeat, FileText, Bell, Footprints, UserPlus, ListPlus, XCircle, Undo2, Eye, Inbox, Ticket, CheckCircle2, AlertCircle, Check } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatDateTime } from '../../utils/datetime';
 import { visitLabel, reasonPlaceholder } from '../../utils/visitPurpose';
 import { to12h } from '../../utils/scheduling';
 import { useQueueStatus } from '../../hooks/useQueueStatus';
-import { QueueTicket, WaitingTicket } from '../../components/student/MyQueue';
 import '../../styles/student/BookCheckup.css';
 
 const API = 'http://localhost:3001';
@@ -23,15 +24,136 @@ const LIVE_REFRESH_MS = 10000;
 const UPDATE_TYPES = /^(ADVANCE_LISTING|CONSULTATION_|QUEUE_|APPOINTMENT_|BOOKING_|SCHEDULE_UPDATE|ASSESSMENT_|DOCTOR_VISIT)/;
 const SEEN_KEY = 'bc-updates-seen'; // per-viewer convenience: when the student last opened the updates
 
-const statusClass = (status) => `status-${String(status).toLowerCase().replace(/\s+/g, '-')}-bc`;
+// one status tag everywhere: tone (color) + icon + word, so a status is never color alone
+const Tag = ({ tone = 'brand', Icon, children }) => (
+    <span className={`tag-bc tag-${tone}-bc`}>{Icon && <Icon size={14} aria-hidden="true" />} {children}</span>
+);
+
+// the date of a session as a small block (month, day, weekday)
+const DateBlock = ({ value }) => {
+    const d = new Date(`${String(value).slice(0, 10)}T00:00:00`);
+    if (Number.isNaN(d.getTime())) return null;
+    return (
+        <div className="date-bc" aria-hidden="true">
+            <small>{d.toLocaleDateString('en-US', { month: 'short' })}</small>
+            <b>{d.getDate()}</b>
+            <span>{d.toLocaleDateString('en-US', { weekday: 'short' })}</span>
+        </div>
+    );
+};
+
+// "x of y accepted" as text and a bar; the bar turns amber near the limit and red when full
+const Meter = ({ accepted, limit, left }) => {
+    const pct = limit > 0 ? Math.min(100, Math.round((accepted / limit) * 100)) : 0;
+    const level = pct >= 100 ? 'full' : pct >= 80 ? 'low' : 'ok';
+    return (
+        <div>
+            <div className="cap-bc"><span>{accepted} of {limit} accepted</span><span>{left} left</span></div>
+            <div className={`meter-bc meter-${level}-bc`} aria-hidden="true"><span style={{ width: `${pct}%` }} /></div>
+        </div>
+    );
+};
+
+const requestTag = (status) => {
+    if (status === 'Fulfilled') return { tone: 'ok', Icon: CheckCircle2 };
+    if (status === 'Denied' || status === 'Withdrawn' || status === 'Missed') return { tone: 'bad', Icon: XCircle };
+    return { tone: 'low', Icon: Clock };
+};
+
+// state of a session number: the tag, and one short line when the student must act
+const numberView = (a) => {
+    if (a.state === 'Serving') return { tone: 'ok', Icon: CheckCircle2, tag: 'Your turn', text: 'Go to the check-up room now.' };
+    if (a.state === 'Void') return { tone: 'bad', Icon: XCircle, tag: 'Skipped', text: 'Tell the nurse you are here. You join the walk-ins.' };
+    if (a.state === 'Done') return { tone: 'ok', Icon: CheckCircle2, tag: 'Done', text: '' };
+    if (!a.in_session) return { tone: 'soft', Icon: Clock, tag: 'Not started', text: `Session starts ${to12h(a.session_start)}.` };
+    if (a.lane === 'Walk-in') return { tone: 'low', Icon: Clock, tag: 'Waiting', text: 'Walk-ins are called after the listed numbers.' };
+    if (a.ahead === 0) return { tone: 'low', Icon: Clock, tag: 'You are next', text: 'Stay close to the check-up room.' };
+    return { tone: 'low', Icon: Clock, tag: 'Waiting', text: '' };
+};
+
+// how far the called number is from mine (listed numbers only, when both are plain numbers)
+const queueProgress = (a) => {
+    if (a.lane === 'Walk-in' || /^w/i.test(String(a.now_serving || ''))) return null;
+    const mine = parseInt(String(a.label).replace(/\D/g, ''), 10);
+    if (!(mine > 0)) return null;
+    const now = parseInt(String(a.now_serving || '').replace(/\D/g, ''), 10);
+    return { mine, now: Number.isFinite(now) ? Math.min(now, mine) : 0 };
+};
+
+const NumberTicket = ({ a }) => {
+    const v = numberView(a);
+    const live = !['Serving', 'Void', 'Done'].includes(a.state);
+    const prog = live && a.in_session ? queueProgress(a) : null;
+    return (
+        <article className="ticket-bc" aria-label={`Your queue number ${a.label}`}>
+            <div className="ticket-num-bc"><small>{a.lane === 'Walk-in' ? 'Walk-in' : 'Number'}</small><strong>{a.label}</strong></div>
+            <div className="ticket-body-bc">
+                <div className="booking-top-bc">
+                    <strong>{visitLabel(a.visit_type)}</strong>
+                    <Tag tone={v.tone} Icon={v.Icon}>{v.tag}</Tag>
+                </div>
+                <div className="booking-line-bc"><Stethoscope size={14} aria-hidden="true" /> {a.doctor_name}, {formatDate(a.date)}, {to12h(a.session_start)} - {to12h(a.session_end)}</div>
+                {a.location && <div className="booking-line-bc"><MapPin size={14} aria-hidden="true" /> {a.location}</div>}
+                {v.text && <p className="request-help-bc ticket-text-bc">{v.text}</p>}
+                {a.state !== 'Done' && a.state !== 'Void' && (
+                    <div className="stats-bc">
+                        <div className="stat-bc"><span>Now serving</span><b>{a.state === 'Serving' ? 'You' : a.now_serving || 'None yet'}</b></div>
+                        <div className="stat-bc"><span>Ahead of you</span><b>{a.state === 'Serving' ? 0 : a.ahead}</b></div>
+                    </div>
+                )}
+                {prog && (
+                    <div>
+                        <div className="progress-bc" role="progressbar" aria-label="Queue progress" aria-valuemin={0} aria-valuemax={prog.mine} aria-valuenow={prog.now}><span style={{ width: `${Math.round((prog.now / prog.mine) * 100)}%` }} /></div>
+                        <div className="cap-bc"><span>{a.now_serving || 'None yet'} in session</span><span>You {a.label}</span></div>
+                    </div>
+                )}
+            </div>
+        </article>
+    );
+};
+
+// a request the nurse has not accepted has no number yet: Sent, Nurse review, Number
+const RequestTicket = ({ r, onWithdraw }) => {
+    const pending = r.status === 'Waiting for Approval';
+    const steps = [
+        { label: 'Sent', cls: 'done', Icon: Check },
+        { label: 'Nurse review', cls: pending ? 'now' : 'done', Icon: pending ? Clock : Check },
+        { label: pending ? 'Number' : `Number #${r.queue_no}`, cls: pending ? '' : 'now', Icon: Ticket }
+    ];
+    return (
+        <article className="ticket-bc ticket-wait-bc" aria-label={pending ? 'Request waiting for approval' : `Waiting list number ${r.queue_no}`}>
+            <div className="ticket-body-bc">
+                <div className="booking-top-bc">
+                    <strong>{visitLabel(r.visit_type, r.purpose_other)}</strong>
+                    <Tag tone="low" Icon={Clock}>{pending ? 'Waiting for approval' : r.status}</Tag>
+                </div>
+                {pending && r.listing_start_time && (
+                    <div className="booking-line-bc"><Stethoscope size={14} aria-hidden="true" /> Dr. {r.listing_doc_first_name} {r.listing_doc_last_name}, {formatDate(r.listing_date)}, {to12h(r.listing_start_time)} - {to12h(r.listing_end_time)}</div>
+                )}
+                {!pending && r.queue_position ? <div className="booking-line-bc"><Info size={14} aria-hidden="true" /> Position {r.queue_position} of {r.queue_total}</div> : null}
+                <ol className="steps-bc" aria-label="Request progress">
+                    {steps.map(({ label, cls, Icon }) => (
+                        <li key={label} className={cls} aria-current={cls === 'now' ? 'step' : undefined}>
+                            <span className="dot-bc"><Icon size={15} aria-hidden="true" /></span>{label}
+                        </li>
+                    ))}
+                </ol>
+                <div className="request-foot-bc">
+                    <span className="muted-bc">Reason: {r.reason}</span>
+                    <button type="button" className="btn-bc btn-danger-bc btn-icon-bc" onClick={onWithdraw} aria-label="Withdraw the request" title="Withdraw the request"><Undo2 size={18} aria-hidden="true" /></button>
+                </div>
+            </div>
+        </article>
+    );
+};
 
 const BookCheckup = () => {
     const { studentId } = useOutletContext() || {};
     const { showAlert, showConfirm } = useAlert();
 
-    // the live place in line: pending asks and session queue numbers
+    // the live numbers in line: pending asks and session queue numbers
     const { requests: active, appointments: allAppointments, loading, refresh } = useQueueStatus(studentId);
-    // a number leaves the place in line once its check-up is done (it moves to Past) or its session is over
+    // a number leaves the line once its check-up is done (it moves to Past) or its session is over
     const appointments = allAppointments.filter((a) => !a.session_over && !a.documented && a.state !== 'Done');
     // the session listing marks the student's own number Done when the check-up is documented, and drops the session once it is over
     const todayKey = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Manila' });
@@ -50,6 +172,7 @@ const BookCheckup = () => {
     const [updates, setUpdates] = useState([]);
     const [updatesOpen, setUpdatesOpen] = useState(false); // the latest updates open only from the bell
     const [seenAt, setSeenAt] = useState(() => { try { return Number(localStorage.getItem(SEEN_KEY)) || 0; } catch (e) { return 0; } });
+    const [seenBefore, setSeenBefore] = useState(0); // what was already seen when the updates were opened: newer ones get a dot
     const [checkups, setCheckups] = useState({ past: [], scheduled: [], waiting: [] }); // repeats + past check-ups with their assessment
     const [assessmentOf, setAssessmentOf] = useState(null);
     const [requestFor, setRequestFor] = useState(null); // the listing the student is asking a place in
@@ -123,8 +246,20 @@ const BookCheckup = () => {
         };
     }, [studentId, fetchListings, fetchHistory, fetchAdvance, fetchCheckups, fetchUpdates]);
 
-    // Esc closes whichever modal is open
+    // Esc closes whichever modal is open, and focus goes back to the button that opened it
     const anyModal = updatesOpen || !!assessmentOf || advanceOpen || !!requestFor;
+    const lastFocus = useRef(null);
+    const wasModal = useRef(false);
+    useEffect(() => {
+        const onIn = (e) => { if (e.target.closest && !e.target.closest('.modal-overlay-bc')) lastFocus.current = e.target; };
+        document.addEventListener('focusin', onIn);
+        return () => document.removeEventListener('focusin', onIn);
+    }, []);
+    useEffect(() => {
+        const opener = lastFocus.current;
+        if (wasModal.current && !anyModal && opener && opener.isConnected) opener.focus();
+        wasModal.current = anyModal;
+    }, [anyModal]);
     useEffect(() => {
         if (!anyModal) return undefined;
         const onKey = (e) => {
@@ -140,6 +275,7 @@ const BookCheckup = () => {
     const unread = updates.filter((n) => Date.parse(n.created_at) > seenAt).length;
     const openUpdates = () => {
         const now = Date.now();
+        setSeenBefore(seenAt);
         setSeenAt(now);
         try { localStorage.setItem(SEEN_KEY, String(now)); } catch (e) { /* the badge just comes back */ }
         setUpdatesOpen(true);
@@ -232,16 +368,24 @@ const BookCheckup = () => {
         return 'Withdrawn.';
     };
 
-    const listingTag = (l) => {
-        if (l.mine) return l.mine.status === 'Waiting for Approval' ? 'Request sent' : `Number ${l.mine.label || `#${l.mine.queue_no}`}`;
-        return l.listing_full ? 'Full' : 'Open';
+    // the tag of a session card: done, my request, my number, full or open
+    const listingTag = (l, done) => {
+        if (done) return { tone: 'ok', Icon: CheckCircle2, text: 'Done' };
+        if (l.mine) {
+            return l.mine.status === 'Waiting for Approval'
+                ? { tone: 'low', Icon: Clock, text: 'Request sent' }
+                : { tone: 'brand', Icon: Ticket, text: `Number ${l.mine.label || `#${l.mine.queue_no}`}` };
+        }
+        return l.listing_full ? { tone: 'bad', Icon: AlertCircle, text: 'Full' } : { tone: 'ok', Icon: CheckCircle2, text: 'Open' };
     };
 
+    const placesLeft = (l) => (Number.isFinite(l.places_left) ? l.places_left : Math.max(0, (l.listing_limit || 0) - (l.accepted || 0)));
+
     const advanceTag = (m) => {
-        if (m.status === 'Pending') return 'Under review';
-        if (m.status === 'Waiting') return 'Waiting for a schedule';
-        if (m.status === 'Cutoff') return 'Cut off';
-        return `Queue number ${m.queue_label || ''}`;
+        if (m.status === 'Pending') return { tone: 'low', Icon: Clock, text: 'Under review' };
+        if (m.status === 'Waiting') return { tone: 'low', Icon: Clock, text: 'Waiting for a schedule' };
+        if (m.status === 'Cutoff') return { tone: 'bad', Icon: XCircle, text: 'Cut off' };
+        return { tone: 'brand', Icon: Ticket, text: `Number ${m.queue_label || ''}` };
     };
 
     // a session is gone from the listing once it is over (end confirmed, or its date passed)
@@ -286,26 +430,16 @@ const BookCheckup = () => {
                 </button>
             </div>
 
-            <section className="section-bc" aria-label="My place in line">
-                <div className="sec-head-bc"><h3><Ticket size={16} aria-hidden="true" /> My place in line</h3></div>
+            <section className="section-bc line-bc" aria-label="My number in line">
+                <div className="sec-head-bc"><h3><Ticket size={16} aria-hidden="true" /> My number in line</h3></div>
                 {loading ? (
                     <div className="empty-bc">Loading...</div>
                 ) : appointments.length === 0 && active.length === 0 ? (
-                    <div className="empty-bc">No place yet.</div>
+                    <div className="empty-bc empty-row-bc"><Ticket size={20} aria-hidden="true" /> No number yet. Ask for one in Listings.</div>
                 ) : (
                     <div className="ticket-grid-bc">
-                        {appointments.map((a) => <QueueTicket key={a.appointment_id} a={a} />)}
-                        {active.map((r) => (
-                            <div key={r.request_id} className="request-wrap-bc">
-                                <WaitingTicket r={r} />
-                                <div className="request-foot-bc">
-                                    <span className="muted-bc">Reason: {r.reason}</span>
-                                    <div className="booking-actions-bc">
-                                        <button type="button" className="btn-bc btn-danger-bc btn-icon-bc" onClick={() => withdrawRequest(r)} aria-label="Withdraw the request" title="Withdraw the request"><Undo2 size={18} aria-hidden="true" /></button>
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
+                        {appointments.map((a) => <NumberTicket key={a.appointment_id} a={a} />)}
+                        {active.map((r) => <RequestTicket key={r.request_id} r={r} onWithdraw={() => withdrawRequest(r)} />)}
                     </div>
                 )}
             </section>
@@ -339,17 +473,19 @@ const BookCheckup = () => {
                                 {advance && advance.is_open && !mine && (
                                     <button type="button" className="btn-bc btn-primary-bc btn-icon-bc" onClick={() => setAdvanceOpen(true)} aria-label="Request advance listing" title="Request advance listing"><ListPlus size={20} aria-hidden="true" /></button>
                                 )}
-                                {advance && !advance.is_open && !mine && <span className="tag-bc tag-soft-bc">Closed</span>}
+                                {advance && !advance.is_open && !mine && <Tag tone="soft" Icon={Clock}>Closed</Tag>}
                             </div>
                             {!advance ? (
                                 <div className="empty-bc">Loading...</div>
                             ) : mine ? (
-                                <div className="booking-card-bc announce-bc">
+                                <div className="booking-card-bc">
                                     <div className="booking-top-bc">
                                         <strong>{mine.visit_type}{mine.status !== 'Scheduled' && mine.label ? `: ${mine.label}` : ''}</strong>
                                         {mine.status === 'Scheduled' && mineDone
-                                            ? <span className="tag-bc tag-done-bc"><CheckCircle2 size={14} aria-hidden="true" /> Done</span>
-                                            : <span className="tag-bc">{mine.status === 'Scheduled' ? 'Scheduled' : advanceTag(mine)}</span>}
+                                            ? <Tag tone="ok" Icon={CheckCircle2}>Done</Tag>
+                                            : mine.status === 'Scheduled'
+                                                ? <Tag tone="brand" Icon={Ticket}>Scheduled</Tag>
+                                                : <Tag tone={advanceTag(mine).tone} Icon={advanceTag(mine).Icon}>{advanceTag(mine).text}</Tag>}
                                     </div>
                                     {mine.status === 'Scheduled' ? (
                                         <div className="booking-line-bc"><Info size={14} aria-hidden="true" /> Moved to the session listing.</div>
@@ -370,7 +506,7 @@ const BookCheckup = () => {
                                     )}
                                 </div>
                             ) : advance.is_open && advance.closes_at ? (
-                                <div className="muted-bc">Closes {formatDateTime(advance.closes_at)}.</div>
+                                <div className="booking-card-bc"><div className="booking-line-bc"><Clock size={14} aria-hidden="true" /> Open until {formatDateTime(advance.closes_at)}.</div></div>
                             ) : null}
                         </section>
 
@@ -379,18 +515,23 @@ const BookCheckup = () => {
                             {!listingsLoaded ? (
                                 <div className="empty-bc">Loading...</div>
                             ) : mine?.status === 'Scheduled' ? (
-                                <div className="booking-card-bc announce-bc">
-                                    <div className="booking-top-bc">
-                                        <strong>{mine.visit_type} session</strong>
-                                        {mineDone
-                                            ? <span className="tag-bc tag-done-bc"><CheckCircle2 size={14} aria-hidden="true" /> Done</span>
-                                            : <span className="tag-bc">{mine.queue_label ? `Number ${mine.queue_label}` : 'You have a place'}</span>}
-                                    </div>
-                                    {mine.doctor_name && <div className="booking-line-bc"><Stethoscope size={14} aria-hidden="true" /> {mine.doctor_name}</div>}
-                                    {mine.session_date && (
-                                        <div className="booking-line-bc"><Clock size={14} aria-hidden="true" /> {formatDate(mine.session_date)}, {to12h(mine.session_start)} - {to12h(mine.session_end)}</div>
-                                    )}
-                                    {mine.location && <div className="booking-line-bc"><MapPin size={14} aria-hidden="true" /> {mine.location}</div>}
+                                <div className="booking-grid-bc">
+                                    <article className="listing-bc">
+                                        {mine.session_date && <DateBlock value={mine.session_date} />}
+                                        <div className="listing-main-bc">
+                                            <div className="booking-top-bc">
+                                                <strong>{mine.visit_type} session</strong>
+                                                {mineDone
+                                                    ? <Tag tone="ok" Icon={CheckCircle2}>Done</Tag>
+                                                    : <Tag tone="brand" Icon={Ticket}>{mine.queue_label ? `Number ${mine.queue_label}` : 'You have a place'}</Tag>}
+                                            </div>
+                                            {mine.doctor_name && <div className="booking-line-bc"><Stethoscope size={14} aria-hidden="true" /> {mine.doctor_name}</div>}
+                                            {mine.session_date && (
+                                                <div className="booking-line-bc"><Clock size={14} aria-hidden="true" /> <span className="sr-bc">{formatDate(mine.session_date)}, </span>{to12h(mine.session_start)} - {to12h(mine.session_end)}</div>
+                                            )}
+                                            {mine.location && <div className="booking-line-bc"><MapPin size={14} aria-hidden="true" /> {mine.location}</div>}
+                                        </div>
+                                    </article>
                                 </div>
                             ) : inAdvance && mine?.status !== 'Cutoff' ? (
                                 <div className="empty-bc">In the advance listing.</div>
@@ -400,29 +541,28 @@ const BookCheckup = () => {
                                 <div className="booking-grid-bc">
                                     {visibleListings.map((l) => {
                                         const done = isDone(apptFor(l.schedule_id, l.date));
+                                        const tag = listingTag(l, done);
                                         return (
-                                        <div key={`${l.schedule_id}-${l.date}`} className="booking-card-bc announce-bc">
-                                            <div className="booking-top-bc">
-                                                <strong>{l.visit_type === 'Any' ? 'Check-up session' : `${l.visit_type} session`}</strong>
-                                                {done
-                                                    ? <span className="tag-bc tag-done-bc"><CheckCircle2 size={14} aria-hidden="true" /> Done</span>
-                                                    : <span className="tag-bc">{listingTag(l)}</span>}
-                                            </div>
-                                            <div className="booking-line-bc"><Stethoscope size={14} aria-hidden="true" /> {l.doctor_name} ({l.specialization})</div>
-                                            <div className="booking-line-bc"><Clock size={14} aria-hidden="true" /> {formatDate(l.date)}, {to12h(l.start_time)} - {to12h(l.end_time)}</div>
-                                            {l.location && <div className="booking-line-bc"><MapPin size={14} aria-hidden="true" /> {l.location}</div>}
-                                            <div className="booking-line-bc">
-                                                <Info size={14} aria-hidden="true" /> {l.accepted} of {l.listing_limit} accepted
-                                                {l.advance > 0 ? ` (${l.places_left} left)` : ''}
-                                            </div>
-                                            <div className="booking-line-bc"><Footprints size={14} aria-hidden="true" /> {l.allow_walk_in === false ? 'No walk-in' : 'Walk-ins accepted'}</div>
-                                            {l.notes && <div className="muted-bc">{l.notes}</div>}
-                                            {!l.mine && (
-                                                <div className="booking-actions-bc">
-                                                    <button type="button" className="btn-bc btn-primary-bc btn-icon-bc" disabled={!l.can_request} onClick={() => openRequestForm(l)} aria-label="Ask for a place" title={l.listing_full ? 'Listing full' : 'Ask for a place'}><UserPlus size={20} aria-hidden="true" /></button>
+                                        <article key={`${l.schedule_id}-${l.date}`} className="listing-bc">
+                                            <DateBlock value={l.date} />
+                                            <div className="listing-main-bc">
+                                                <div className="booking-top-bc">
+                                                    <strong>{l.visit_type === 'Any' ? 'Check-up session' : `${l.visit_type} session`}</strong>
+                                                    <Tag tone={tag.tone} Icon={tag.Icon}>{tag.text}</Tag>
                                                 </div>
-                                            )}
-                                        </div>
+                                                <div className="booking-line-bc"><Stethoscope size={14} aria-hidden="true" /> {l.doctor_name} ({l.specialization})</div>
+                                                <div className="booking-line-bc"><Clock size={14} aria-hidden="true" /> <span className="sr-bc">{formatDate(l.date)}, </span>{to12h(l.start_time)} - {to12h(l.end_time)}</div>
+                                                {l.location && <div className="booking-line-bc"><MapPin size={14} aria-hidden="true" /> {l.location}</div>}
+                                                <div className="booking-line-bc"><Footprints size={14} aria-hidden="true" /> {l.allow_walk_in === false ? 'No walk-in' : 'Walk-ins accepted'}</div>
+                                                {l.notes && <div className="muted-bc">{l.notes}</div>}
+                                                <Meter accepted={l.accepted} limit={l.listing_limit} left={placesLeft(l)} />
+                                                {!l.mine && (
+                                                    <div className="booking-actions-bc">
+                                                        <button type="button" className="btn-bc btn-primary-bc btn-icon-bc" disabled={!l.can_request} onClick={() => openRequestForm(l)} aria-label={l.listing_full ? 'Ask for a place, listing full' : 'Ask for a place'} title={l.listing_full ? 'Listing full' : 'Ask for a place'}><UserPlus size={20} aria-hidden="true" /></button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </article>
                                         );
                                     })}
                                 </div>
@@ -438,20 +578,20 @@ const BookCheckup = () => {
                         ) : (
                             <div className="booking-grid-bc">
                                 {checkups.scheduled.map((f) => (
-                                    <div key={f.appointment_id} className="booking-card-bc announce-bc appointment-bc">
+                                    <div key={f.appointment_id} className="booking-card-bc">
                                         <div className="booking-top-bc">
                                             <strong>Repeat check-up</strong>
-                                            <span className="tag-bc">{f.label ? `Number ${f.label}` : 'Scheduled'}</span>
+                                            <Tag tone="brand" Icon={Ticket}>{f.label ? `Number ${f.label}` : 'Scheduled'}</Tag>
                                         </div>
                                         <div className="booking-line-bc"><Stethoscope size={14} aria-hidden="true" /> {f.doctor_name}</div>
                                         <div className="booking-line-bc"><Clock size={14} aria-hidden="true" /> {f.queued ? formatDate(f.date) : formatDateTime(f.start_time)}{f.location ? ` (${f.location})` : ''}</div>
                                     </div>
                                 ))}
                                 {checkups.waiting.map((w) => (
-                                    <div key={w.appointment_id} className="booking-card-bc announce-bc">
+                                    <div key={w.appointment_id} className="booking-card-bc">
                                         <div className="booking-top-bc">
                                             <strong>{visitLabel(w.visit_type, w.purpose_other)}</strong>
-                                            <span className="tag-bc tag-soft-bc">Waiting for a schedule</span>
+                                            <Tag tone="soft" Icon={Clock}>Waiting for a schedule</Tag>
                                         </div>
                                         <div className="booking-line-bc"><Stethoscope size={14} aria-hidden="true" /> {w.doctor_name}</div>
                                         {w.follow_up_date && <div className="booking-line-bc"><Clock size={14} aria-hidden="true" /> By {formatDate(w.follow_up_date)}</div>}
@@ -469,15 +609,15 @@ const BookCheckup = () => {
                         ) : (
                             <div className="booking-grid-bc">
                                 {checkups.past.map((c) => (
-                                    <div key={c.appointment_id} className="booking-card-bc request-card-bc">
+                                    <div key={c.appointment_id} className="booking-card-bc">
                                         <div className="booking-top-bc">
                                             <strong>{c.is_repeat ? 'Repeat check-up' : visitLabel(c.visit_type, c.purpose_other)}</strong>
-                                            <span className={`status-pill-bc ${c.outcome === 'Seen' ? 'status-fulfilled-bc' : c.outcome === 'Missed' ? 'status-denied-bc' : 'status-waiting-list-bc'}`}>{c.outcome}</span>
+                                            <Tag tone={c.outcome === 'Seen' ? 'ok' : c.outcome === 'Missed' ? 'bad' : 'low'} Icon={c.outcome === 'Seen' ? CheckCircle2 : c.outcome === 'Missed' ? XCircle : Clock}>{c.outcome}</Tag>
                                         </div>
                                         <div className="booking-line-bc"><Clock size={14} aria-hidden="true" /> {formatDate(c.date)}, {c.doctor_name}</div>
                                         {c.assessment && (
                                             <>
-                                                <div className="booking-reason-bc">{c.assessment.diagnosis}</div>
+                                                <div className="diag-bc">{c.assessment.diagnosis}</div>
                                                 <div className="booking-actions-bc">
                                                     <button type="button" className="btn-bc btn-light-bc btn-icon-bc" onClick={() => setAssessmentOf(c)} aria-label="View assessment" title="View assessment"><Eye size={18} aria-hidden="true" /></button>
                                                 </div>
@@ -494,10 +634,10 @@ const BookCheckup = () => {
                     <section className="section-bc" aria-label="Other requests">
                         <div className="booking-grid-bc">
                             {history.map((r) => (
-                                <div key={r.request_id} className="booking-card-bc request-card-bc">
+                                <div key={r.request_id} className="booking-card-bc">
                                     <div className="booking-top-bc">
                                         <strong>{visitLabel(r.visit_type, r.purpose_other)}</strong>
-                                        <span className={`status-pill-bc ${statusClass(r.status)}`}>{r.status}</span>
+                                        <Tag tone={requestTag(r.status).tone} Icon={requestTag(r.status).Icon}>{r.status}</Tag>
                                     </div>
                                     <div className="booking-reason-bc">Reason: {r.reason}</div>
                                     <div className="booking-line-bc"><Clock size={14} aria-hidden="true" /> Sent {formatDate(r.created_at)}</div>
@@ -520,15 +660,19 @@ const BookCheckup = () => {
                             <div className="empty-bc">No updates.</div>
                         ) : (
                             <div className="stack-bc">
-                                {updates.map((n) => (
-                                    <div key={n.notification_id} className="booking-card-bc request-card-bc">
-                                        <div className="booking-top-bc">
-                                            <strong>{n.title}</strong>
-                                            <span className="muted-bc">{formatDateTime(n.created_at)}</span>
+                                {updates.map((n) => {
+                                    const isNew = Date.parse(n.created_at) > seenBefore;
+                                    return (
+                                        <div key={n.notification_id} className="update-bc">
+                                            <span className={`dot-new-bc${isNew ? '' : ' read-bc'}`} aria-hidden="true" />
+                                            <div>
+                                                <strong>{n.title}{isNew && <span className="sr-bc"> (new)</span>}</strong>
+                                                <p className="request-help-bc">{n.message}</p>
+                                                <span className="muted-bc">{formatDateTime(n.created_at)}</span>
+                                            </div>
                                         </div>
-                                        <p className="request-help-bc">{n.message}</p>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         )}
                     </div>

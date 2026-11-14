@@ -14,7 +14,8 @@ import {
   Filter,
   ExternalLink,
   User,
-  FileDown
+  FileDown,
+  RotateCcw
 } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
 import { exportClinicRecords, exportClinicRecord } from '../../utils/clinicRecordExport';
@@ -23,6 +24,17 @@ import { ClinicVisitForm, DoctorVisitDetail, ScreeningDetail, VisitStatus, Scree
 import '../../styles/parent/ChildClinicRecords.css';
 
 const API_BASE = 'http://localhost:3001';
+
+// divider: the first two tabs are requests, the rest are clinic records
+const TABS = [
+  { key: 'document-requests', label: 'Documents', Icon: FileText },
+  { key: 'student-requirements', label: 'Requirements', Icon: CheckSquare, divider: true },
+  { key: 'clinic-visits', label: 'Visits', Icon: ClipboardList },
+  { key: 'medicine-dispensed', label: 'Medicine', Icon: Pill },
+  { key: 'incident-reports', label: 'Incidents', Icon: AlertTriangle },
+  { key: 'health-screenings', label: 'Screening', Icon: Activity },
+  { key: 'doctor-visits', label: 'Doctor', Icon: Stethoscope }
+];
 
 const formatDate = (dateStr) => {
   if (!dateStr) return 'N/A';
@@ -183,6 +195,18 @@ export default function ChildClinicRecords() {
     ? `All Linked Students (${linkedStudents.map((s) => s.student_id).join(', ')})`
     : studentLabelOf(selectedStudentId);
 
+  const studentCell = (id) => {
+    const index = linkedStudents.findIndex((s) => s.student_id === id);
+    const st = index >= 0 ? linkedStudents[index] : null;
+    const name = st && st.first_name ? `${st.first_name} ${st.last_name}` : id;
+    return (
+      <span className="who-ccr">
+        <span className={`av-ccr ${index % 2 === 1 ? 'av-b-ccr' : 'av-a-ccr'}`} aria-hidden="true">{(name || '?').charAt(0)}</span>
+        <span><b>{name}</b><span className="sub-ccr">{id}</span></span>
+      </span>
+    );
+  };
+
   const handleExport = () => {
     if (records.length === 0) {
       showAlert('No records to export.', 'warning');
@@ -196,52 +220,68 @@ export default function ChildClinicRecords() {
       <header className="header-ccr">
         <div className="header-title-ccr">
           <h1>Child Clinic Records & Requests</h1>
-          <p>STI Campus Health Services Student Portal</p>
+          <p>STI Campus Health Services</p>
         </div>
+        <span className="chip-ccr"><User size={18} aria-hidden="true" />{linkedStudents.length} linked</span>
       </header>
 
       <div className="control-panel-ccr">
+        <div className="kids-ccr" role="group" aria-label="Student">
+          <button
+            type="button"
+            className={`kid-ccr ${selectedStudentId === 'ALL' ? 'on-ccr' : ''}`}
+            aria-pressed={selectedStudentId === 'ALL'}
+            onClick={() => setSelectedStudentId('ALL')}
+          >
+            <span className="av-ccr av-all-ccr" aria-hidden="true">All</span>All students
+          </button>
+          {linkedStudents.map((st, i) => (
+            <button
+              key={st.student_id}
+              type="button"
+              className={`kid-ccr ${selectedStudentId === st.student_id ? 'on-ccr' : ''}`}
+              aria-pressed={selectedStudentId === st.student_id}
+              onClick={() => setSelectedStudentId(st.student_id)}
+            >
+              <span className={`av-ccr ${i % 2 === 1 ? 'av-b-ccr' : 'av-a-ccr'}`} aria-hidden="true">
+                {(st.first_name || st.student_id).charAt(0)}
+              </span>
+              <span>
+                {st.first_name ? `${st.first_name} ${st.last_name}` : st.student_id}
+                {st.first_name && <span className="sub-ccr">{st.student_id}</span>}
+              </span>
+            </button>
+          ))}
+        </div>
+
         <form className="filter-bar-ccr" onSubmit={handleFilter}>
           <div className="input-group-ccr">
-            <label className="label-ccr"><User size={14} /> Student:</label>
-            <select 
-              value={selectedStudentId} 
-              onChange={(e) => setSelectedStudentId(e.target.value)}
-              className="select-ccr"
-            >
-              <option value="ALL">All Linked Students</option>
-              {linkedStudents.map((st) => (
-                <option key={st.student_id} value={st.student_id}>
-                  {st.first_name ? `${st.first_name} ${st.last_name} (${st.student_id})` : st.student_id}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="input-group-ccr">
-            <label className="label-ccr"><Calendar size={14} /> From:</label>
-            <input 
-              type="date" 
-              value={startDate} 
-              onChange={(e) => setStartDate(e.target.value)} 
+            <label className="label-ccr" htmlFor="ccr-from"><Calendar size={14} aria-hidden="true" /> From</label>
+            <input
+              id="ccr-from"
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
               className="input-date-ccr"
             />
           </div>
           <div className="input-group-ccr">
-            <label className="label-ccr"><Calendar size={14} /> To:</label>
-            <input 
-              type="date" 
-              value={endDate} 
-              onChange={(e) => setEndDate(e.target.value)} 
+            <label className="label-ccr" htmlFor="ccr-to"><Calendar size={14} aria-hidden="true" /> To</label>
+            <input
+              id="ccr-to"
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
               className="input-date-ccr"
             />
           </div>
-          <button type="submit" className="btn-ccr btn-primary-ccr">
-            <Filter size={16} /> Filter
+          <button type="submit" className="btn-ccr btn-primary-ccr" aria-label="Filter" title="Filter">
+            <Filter size={18} aria-hidden="true" />
           </button>
-          <button type="button" onClick={clearFilter} className="btn-ccr btn-secondary-ccr">
-            Clear
+          <button type="button" onClick={clearFilter} className="btn-ccr btn-secondary-ccr" aria-label="Clear filter" title="Clear filter">
+            <RotateCcw size={18} aria-hidden="true" />
           </button>
+          <span className="found-ccr" role="status">{loading ? '' : `${records.length} records`}</span>
           <button
             type="button"
             onClick={handleExport}
@@ -253,49 +293,22 @@ export default function ChildClinicRecords() {
           </button>
         </form>
 
-        <nav className="tabs-ccr">
-          <button 
-            className={`tab-ccr ${activeTab === 'document-requests' ? 'active-ccr' : ''}`}
-            onClick={() => setActiveTab('document-requests')}
-          >
-            <FileText size={16} /> Document Requests
-          </button>
-          <button 
-            className={`tab-ccr ${activeTab === 'student-requirements' ? 'active-ccr' : ''}`}
-            onClick={() => setActiveTab('student-requirements')}
-          >
-            <CheckSquare size={16} /> Student Requirements
-          </button>
-          <button 
-            className={`tab-ccr ${activeTab === 'clinic-visits' ? 'active-ccr' : ''}`}
-            onClick={() => setActiveTab('clinic-visits')}
-          >
-            <ClipboardList size={16} /> Clinic Visits
-          </button>
-          <button 
-            className={`tab-ccr ${activeTab === 'medicine-dispensed' ? 'active-ccr' : ''}`}
-            onClick={() => setActiveTab('medicine-dispensed')}
-          >
-            <Pill size={16} /> Medicine Dispensed
-          </button>
-          <button 
-            className={`tab-ccr ${activeTab === 'incident-reports' ? 'active-ccr' : ''}`}
-            onClick={() => setActiveTab('incident-reports')}
-          >
-            <AlertTriangle size={16} /> Incident Reports
-          </button>
-          <button 
-            className={`tab-ccr ${activeTab === 'health-screenings' ? 'active-ccr' : ''}`}
-            onClick={() => setActiveTab('health-screenings')}
-          >
-            <Activity size={16} /> Health Screening
-          </button>
-          <button 
-            className={`tab-ccr ${activeTab === 'doctor-visits' ? 'active-ccr' : ''}`}
-            onClick={() => setActiveTab('doctor-visits')}
-          >
-            <Stethoscope size={16} /> Doctor Visits
-          </button>
+        <nav className="tabs-ccr" aria-label="Record type">
+          {TABS.map(({ key, label, Icon, divider }) => (
+            <React.Fragment key={key}>
+              {divider && <span className="tab-div-ccr" aria-hidden="true" />}
+              <button
+                type="button"
+                className={`tab-ccr ${activeTab === key ? 'active-ccr' : ''}`}
+                aria-pressed={activeTab === key}
+                onClick={() => setActiveTab(key)}
+              >
+                <Icon size={18} aria-hidden="true" />
+                <span className="tab-label-ccr">{label}</span>
+                {activeTab === key && !loading && <span className="tab-count-ccr">{records.length}</span>}
+              </button>
+            </React.Fragment>
+          ))}
         </nav>
       </div>
 
@@ -310,7 +323,7 @@ export default function ChildClinicRecords() {
               </thead>
               <tbody>
                 {records.length > 0 ? (
-                  records.map((item, index) => renderTableRow(activeTab, item, index, () => setSelectedRecord(item)))
+                  records.map((item, index) => renderTableRow(activeTab, item, index, () => setSelectedRecord(item), studentCell))
                 ) : (
                   <tr>
                     <td colSpan="10" className="no-data-ccr">
@@ -343,33 +356,33 @@ function renderTableHeader(tab) {
         <tr>
           <th>Request ID</th>
           <th>Type</th>
-          <th>Student ID</th>
+          <th>Student</th>
           <th>Reason</th>
           <th>Date Created</th>
           <th>Status</th>
-          <th>Action</th>
+          <th><span className="sr-only-ccr">Action</span></th>
         </tr>
       );
     case 'student-requirements':
       return (
         <tr>
           <th>Requirement Title</th>
-          <th>Student ID</th>
+          <th>Student</th>
           <th>Submitted Date</th>
           <th>Status</th>
-          <th>Action</th>
+          <th><span className="sr-only-ccr">Action</span></th>
         </tr>
       );
     case 'clinic-visits':
       return (
         <tr>
           <th>Visit ID</th>
-          <th>Student ID</th>
+          <th>Student</th>
           <th>Nurse Name</th>
           <th>Date</th>
           <th>Time In / Out</th>
           <th>Vital Signs</th>
-          <th>Action</th>
+          <th><span className="sr-only-ccr">Action</span></th>
         </tr>
       );
     case 'medicine-dispensed':
@@ -377,23 +390,23 @@ function renderTableHeader(tab) {
         <tr>
           <th>Dispense ID</th>
           <th>Type</th>
-          <th>Student ID</th>
+          <th>Student</th>
           <th>Brand Name</th>
           <th>Generic Name</th>
           <th>Qty</th>
           <th>Date & Time</th>
-          <th>Action</th>
+          <th><span className="sr-only-ccr">Action</span></th>
         </tr>
       );
     case 'incident-reports':
       return (
         <tr>
           <th>Incident ID</th>
-          <th>Student ID</th>
+          <th>Student</th>
           <th>Nurse Name</th>
           <th>Location</th>
           <th>Date & Time</th>
-          <th>Action</th>
+          <th><span className="sr-only-ccr">Action</span></th>
         </tr>
       );
     case 'health-screenings':
@@ -401,23 +414,23 @@ function renderTableHeader(tab) {
         <tr>
           <th>Record ID</th>
           <th>Type</th>
-          <th>Student ID</th>
+          <th>Student</th>
           <th>Date</th>
           <th>Status</th>
-          <th>Action</th>
+          <th><span className="sr-only-ccr">Action</span></th>
         </tr>
       );
     case 'doctor-visits':
       return (
         <tr>
           <th>Date</th>
-          <th>Student ID</th>
+          <th>Student</th>
           <th>Check-up</th>
           <th>Doctor Name</th>
           <th>Number</th>
           <th>Status</th>
           <th>Assessment</th>
-          <th>Action</th>
+          <th><span className="sr-only-ccr">Action</span></th>
         </tr>
       );
     default:
@@ -425,7 +438,7 @@ function renderTableHeader(tab) {
   }
 }
 
-function renderTableRow(tab, item, index, onViewDetails) {
+function renderTableRow(tab, item, index, onViewDetails, studentCell) {
   const statusClass = (item.status || 'pending').toLowerCase().replace(/\s+/g, '-');
 
   switch (tab) {
@@ -435,7 +448,7 @@ function renderTableRow(tab, item, index, onViewDetails) {
         <tr key={item.request_id || index}>
           <td><strong>{item.request_id}</strong></td>
           <td><span className="badge-ccr tag-doc-ccr">{item.document_type}</span></td>
-          <td>{item.student_id}</td>
+          <td>{studentCell(item.student_id)}</td>
           <td className="truncate-ccr">{item.reason || 'N/A'}</td>
           <td>{formatDate(createdDate)}</td>
           <td><span className={`badge-ccr status-${statusClass}-ccr`}>{item.status}</span></td>
@@ -456,7 +469,7 @@ function renderTableRow(tab, item, index, onViewDetails) {
       return (
         <tr key={item.submission_id || index}>
           <td>{item.requirement_name || 'Health Requirement'}</td>
-          <td>{item.student_id}</td>
+          <td>{studentCell(item.student_id)}</td>
           <td>{formatDate(submittedDate)}</td>
           <td>
             <span className={`badge-ccr status-${reqStatusClass}-ccr`}>
@@ -480,7 +493,7 @@ function renderTableRow(tab, item, index, onViewDetails) {
       return (
         <tr key={item.visit_id || index}>
           <td><strong>{item.visit_id}</strong></td>
-          <td>{item.student_id}</td>
+          <td>{studentCell(item.student_id)}</td>
           <td>{nurseName}</td>
           <td>{formatDate(item.visit_date)}</td>
           <td>{formatTime(item.time_in)} - {item.time_out ? formatTime(item.time_out) : 'N/A'}</td>
@@ -503,7 +516,7 @@ function renderTableRow(tab, item, index, onViewDetails) {
               {item.dispensation_type}
             </span>
           </td>
-          <td>{item.student_id || 'N/A'}</td>
+          <td>{studentCell(item.student_id)}</td>
           <td>{item.brand_name || 'N/A'}</td>
           <td>{item.generic_name || 'N/A'}</td>
           <td>{item.quantity_dispensed}</td>
@@ -524,7 +537,7 @@ function renderTableRow(tab, item, index, onViewDetails) {
       return (
         <tr key={item.incident_id || index}>
           <td><strong>{item.incident_id}</strong></td>
-          <td>{item.student_id}</td>
+          <td>{studentCell(item.student_id)}</td>
           <td>{nurseName}</td>
           <td>{item.incident_location}</td>
           <td>{item.incident_datetime ? formatDateTime(new Date(item.incident_datetime)) : 'N/A'}</td>
@@ -542,7 +555,7 @@ function renderTableRow(tab, item, index, onViewDetails) {
         <tr key={item.record_id || index}>
           <td><strong>{item.record_id}</strong></td>
           <td><span className="badge-ccr tag-screening-ccr">{item.screening_type}</span></td>
-          <td>{item.student_id}</td>
+          <td>{studentCell(item.student_id)}</td>
           <td>{formatDate(item.record_date)}</td>
           <td><ScreeningStatus item={item} /></td>
           <td>
@@ -557,7 +570,7 @@ function renderTableRow(tab, item, index, onViewDetails) {
       return (
         <tr key={item.appointment_id || index}>
           <td>{formatDate(item.start_time)}</td>
-          <td>{item.student_id}</td>
+          <td>{studentCell(item.student_id)}</td>
           <td><strong>{visitTitle(item)}</strong></td>
           <td>{visitDoctor(item)}</td>
           <td>{item.queue_label || '-'}</td>
@@ -599,11 +612,11 @@ function Modal({ tab, record, onClose, onExport }) {
 
   return (
     <div className="modal-overlay-ccr">
-      <div className="modal-content-ccr">
+      <div className="modal-content-ccr" role="dialog" aria-modal="true" aria-labelledby="record-title-ccr">
         <div className="modal-header-ccr">
-          <h3>Record Details</h3>
-          <button className="modal-close-ccr" onClick={onClose} aria-label="Close modal">
-            <X size={20} />
+          <h3 id="record-title-ccr">Record Details</h3>
+          <button type="button" className="modal-close-ccr" onClick={onClose} aria-label="Close" title="Close">
+            <X size={20} aria-hidden="true" />
           </button>
         </div>
 
@@ -666,7 +679,9 @@ function Modal({ tab, record, onClose, onExport }) {
           <button type="button" className="btn-ccr btn-primary-ccr btn-export-ccr" onClick={onExport} aria-label="Export PDF" title="Export PDF">
             <FileDown size={18} aria-hidden="true" />
           </button>
-          <button className="btn-ccr btn-secondary-ccr" onClick={onClose}>Close</button>
+          <button type="button" className="btn-ccr btn-secondary-ccr" onClick={onClose} aria-label="Close" title="Close">
+            <X size={18} aria-hidden="true" />
+          </button>
         </div>
       </div>
     </div>

@@ -432,11 +432,10 @@ const ForecastTooltip = ({ active, payload }) => {
   const day = payload[0].payload;
   const p1 = day.phase1_prediction;
   const fmt = (n) => parseFloat(Number(n).toFixed(2));
-  // e.g. "20 − 1 = 19"; when the day's need exceeds the stock left, the result is floored at 0 ("4 − 7 = −3 → 0")
-  const stockDiff = parseFloat((day.stockBefore - p1.predictedDemand).toFixed(3));
-  const stockLeftComputation = stockDiff < 0
-    ? `${fmt(day.stockBefore)} − ${fmt(p1.predictedDemand)} = −${fmt(Math.abs(stockDiff))} → 0`
-    : `${fmt(day.stockBefore)} − ${fmt(p1.predictedDemand)} = ${fmt(stockDiff)}`;
+  const fmt4 = (n) => parseFloat(Number(n).toFixed(4));
+  // Predicted need = average daily demand of the 30-day window (Sundays left out) x the weekday's seasonal index
+  const addComputation = `${fmt(p1.activeWindowSum)} ÷ ${p1.activeDays} = ${fmt4(p1.activeADD)}`;
+  const needComputation = `${fmt4(p1.activeADD)} × ${fmt4(p1.seasonalityIndex)} = ${fmt(p1.predictedDemand)}`;
 
   return (
     <div className="custom-chart-tooltip-nd predictive-tooltip-width-nd">
@@ -444,7 +443,8 @@ const ForecastTooltip = ({ active, payload }) => {
       <ul className="tooltip-items-list-standard-nd">
         <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Predicted need</span><span className="tooltip-item-value-nd" style={{ color: 'var(--status-low-text)' }}>{fmt(p1.predictedDemand)} {pluralizeUnit(day.unit, fmt(p1.predictedDemand))}</span></li>
         <li className="tooltip-item-nd"><span className="tooltip-item-name-nd">Stock left after this day</span><span className="tooltip-item-value-nd" style={{ color: 'var(--text-brand)' }}>{day.remainingStock} {pluralizeUnit(day.unit, day.remainingStock)}</span></li>
-        <li className="tooltip-item-nd tooltip-item-note-nd"><span className="tooltip-item-name-nd">Stock − predicted need</span><span className="tooltip-item-value-nd">{stockLeftComputation}</span></li>
+        <li className="tooltip-item-nd tooltip-item-note-nd"><span className="tooltip-item-name-nd">Avg daily demand (30 days, no Sun)</span><span className="tooltip-item-value-nd">{addComputation}</span></li>
+        <li className="tooltip-item-nd tooltip-item-note-nd"><span className="tooltip-item-name-nd">Avg daily demand × {day.dayOfWeek} index</span><span className="tooltip-item-value-nd">{needComputation}</span></li>
       </ul>
     </div>
   );
@@ -654,6 +654,17 @@ const NurseDashboard = () => {
   // 4. Frequent Complaint Alerts State
   const [alerts, setAlerts] = useState([]);
   const [isAlertsLoading, setIsAlertsLoading] = useState(true);
+  // Dismissed alerts are only hidden from the dashboard cards; View All still lists them.
+  const [dismissedAlertKeys, setDismissedAlertKeys] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('dismissedFrequentAlerts') || '[]');
+      return Array.isArray(saved) ? saved : [];
+    } catch {
+      return [];
+    }
+  });
+  const alertKeyOf = (a) => `${a.studentId}|${a.complaint}|${String(a.date || '').slice(0, 7)}`;
+  const visibleAlerts = alerts.filter((a) => !dismissedAlertKeys.includes(alertKeyOf(a)));
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalSearch, setModalSearch] = useState('');
   const [modalDate, setModalDate] = useState('');
@@ -1256,44 +1267,26 @@ const NurseDashboard = () => {
     });
   };
 
-  const handleDismissAlert = (studentId, complaint) => {
+  const handleDismissAlert = (alert) => {
     showConfirm({
       type: 'warning',
       title: 'Dismiss Frequent Illness Alert',
-      message: `Are you sure you want to dismiss the recurring illness alert for ${complaint}?`,
+      message: `Hide the alert for ${alert.complaint} from the dashboard? It stays in View All Alerts.`,
       confirmText: 'Dismiss Alert',
       cancelText: 'Cancel',
-      onConfirm: async () => {
+      onConfirm: () => {
+        const next = [...dismissedAlertKeys, alertKeyOf(alert)];
+        setDismissedAlertKeys(next);
         try {
-          const response = await fetch('http://localhost:3001/api/frequent-complaints/dismiss', {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ studentId, complaint })
-          });
-          const result = await response.json();
-
-          if (result.success) {
-            setAlerts(prev => prev.filter(a => !(a.studentId === studentId && a.complaint === complaint)));
-            showAlert({
-              type: 'success',
-              title: 'Alert Dismissed',
-              message: `The frequent illness alert for ${complaint} has been dismissed successfully.`
-            });
-          } else {
-            showAlert({
-              type: 'error',
-              title: 'Dismiss Failed',
-              message: result.message || 'Failed to dismiss alert.'
-            });
-          }
-        } catch (error) {
-          console.error('Error dismissing alert:', error);
-          showAlert({
-            type: 'error',
-            title: 'Error',
-            message: 'An error occurred while dismissing the alert.'
-          });
+          localStorage.setItem('dismissedFrequentAlerts', JSON.stringify(next));
+        } catch {
+          /* storage unavailable: dismissal lasts until reload */
         }
+        showAlert({
+          type: 'success',
+          title: 'Alert Dismissed',
+          message: 'Hidden from the dashboard. Still in View All Alerts.'
+        });
       }
     });
   };
@@ -2201,7 +2194,7 @@ const NurseDashboard = () => {
       <div className="dashboard-header-nd">
         <div className="title-with-badge-nd">
           <h2 className="dashboard-title-nd">Frequent Illness Alerts</h2>
-          {alerts.length > 0 && <span className="alert-count-badge-nd">{alerts.length}</span>}
+          {visibleAlerts.length > 0 && <span className="alert-count-badge-nd">{visibleAlerts.length}</span>}
         </div>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
           <button type="button" className="export-btn-nd" onClick={handleExportFrequentComplaints}>
@@ -2219,7 +2212,7 @@ const NurseDashboard = () => {
           <div className="spinner-nd"></div>
           <p className="loading-text-nd">Checking frequent visit patterns...</p>
         </div>
-      ) : alerts.length === 0 ? (
+      ) : visibleAlerts.length === 0 ? (
         <div className="empty-alert-card-nd">
           <div className="empty-icon-nd"><CheckCircle2 size={32} /></div>
           <h3 className="empty-title-nd">No Frequent Medical Condition Alerts</h3>
@@ -2227,8 +2220,8 @@ const NurseDashboard = () => {
         </div>
       ) : (
         <div className="frequent-alerts-grid-nd">
-          {alerts.slice(0, 3).map((alert, idx) => (
-            <div key={idx} className="alert-card-nd">
+          {visibleAlerts.slice(0, 3).map((alert) => (
+            <div key={alertKeyOf(alert)} className="alert-card-nd">
               <div>
                 <div className="alert-card-header-nd">
                   <div>
@@ -2259,7 +2252,7 @@ const NurseDashboard = () => {
                 <button 
                   className="retry-btn-nd" 
                   style={{ height: '34px', fontSize: '0.875rem', padding: '0 12px', backgroundColor: 'var(--danger-fill)' }}
-                  onClick={() => handleDismissAlert(alert.studentId, alert.complaint)}
+                  onClick={() => handleDismissAlert(alert)}
                 >
                   Dismiss
                 </button>
@@ -2671,6 +2664,9 @@ const NurseDashboard = () => {
                           </td>
                           <td>
                             <span className="complaint-tag-nd">{alert.complaint}</span>
+                            {dismissedAlertKeys.includes(alertKeyOf(alert)) && (
+                              <span className="table-student-id-nd"> (Dismissed)</span>
+                            )}
                           </td>
                           <td>
                             <span className="visit-badge-table-nd">{alert.visitCount} {pluralize('visit', alert.visitCount)}</span>

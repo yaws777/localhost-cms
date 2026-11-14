@@ -11,9 +11,10 @@
 
 /* Base structural scope styling rules */
 .profile-page-wrapper {
-    max-width: 1200px;
+    width: 100%;
+    max-width: 96rem;
     margin: 0 auto;
-    padding: 24px;
+    padding: clamp(1rem, 2vw, 2rem);
     font-family: var(--font-sans);
     color: var(--text-dark);
 }
@@ -87,6 +88,7 @@
 }
 
 .profile-tabs button {
+    min-height: 2.75rem;
     padding: 12px 20px;
     background: none;
     border: none;
@@ -150,7 +152,7 @@
     background-color: var(--bg-card);
     border: 1px solid var(--border-color);
     border-radius: 12px;
-    padding: 24px;
+    padding: clamp(1rem, 2vw, 2rem);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
@@ -171,8 +173,8 @@
 /* 🎚️ Multi-Column Input Grid Architecture */
 .form-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-    gap: 20px;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+    gap: 1.25rem 1.5rem;
     margin-bottom: 24px;
     align-items: start;
 }
@@ -216,9 +218,32 @@
 
 /* 🩺 Clinical History/Allergy Scroll Configuration */
 .health-form-scroll {
-    max-height: 680px;
+    max-height: max(30rem, calc(100vh - 13rem));
     overflow-y: auto;
     padding-right: 8px;
+}
+
+/* Desktop: condition blocks flow in columns; header, proofs and save stay full width */
+@media (min-width: 64rem) {
+    .health-form-scroll {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(min(100%, 24rem), 1fr));
+        gap: 1rem 1.25rem;
+        align-content: start;
+    }
+
+    .health-form-scroll > * {
+        grid-column: 1 / -1;
+    }
+
+    .health-form-scroll > .health-block {
+        grid-column: auto;
+        margin-bottom: 0;
+    }
+
+    .health-form-scroll > .btn-primary-save {
+        justify-self: start;
+    }
 }
 
 .health-block {
@@ -474,7 +499,9 @@
     margin: 0;
     padding: 0;
     display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 36rem), 1fr));
     gap: 0.875rem;
+    align-items: start;
 }
 
 .req-card {
@@ -830,6 +857,18 @@
     color: var(--text-primary);
 }
 
+@media (min-width: 64rem) {
+    .proof-section {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(min(100%, 28rem), 1fr));
+        gap: 1rem 1.5rem;
+    }
+
+    .proof-section h4 {
+        grid-column: 1 / -1;
+    }
+}
+
 .proof-row {
     display: flex;
     flex-wrap: wrap;
@@ -970,7 +1009,7 @@
 }
 
 .proof-modal {
-    width: min(100%, 40rem);
+    width: min(100%, 56rem);
     max-height: 90vh;
     display: flex;
     flex-direction: column;

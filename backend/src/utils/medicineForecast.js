@@ -105,6 +105,97 @@ function measureSeasonality(history, dowOf) {
 }
 
 /**
+ * Weekday index of each full 7-day block of the history (block 0 = newest week, block 3 = oldest):
+ *   blockIndex[b][d] = demand on weekday d in block b / mean open-day demand of block b
+ * A block with no demand, or a closed day, gives index 1 / 0. Open-day weights of a block average 1.
+ * @param {number[]} history   [D_0 ... D_29]
+ * @param {(i:number)=>number} dowOf
+ * @returns {Array<Object<number, number>>}
+ */
+function measureWeeklySeasonality(history, dowOf) {
+  const blocks = [];
+  for (let b = 0; b < Math.floor(WINDOW_SIZE / 7); b++) {
+    const vals = {}; let total = 0; let n = 0;
+    for (let i = b * 7; i < b * 7 + 7; i++) {
+      const d = dowOf(i);
+      if (d === CLOSED_DOW) continue;
+      vals[d] = history[i]; total += history[i]; n++;
+    }
+    const mean = n > 0 ? total / n : 0;
+    const index = { [CLOSED_DOW]: 0 };
+    for (let d = 0; d < 7; d++) {
+      if (d === CLOSED_DOW) continue;
+      index[d] = mean > 0 ? (vals[d] || 0) / mean : 1;
+    }
+    blocks.push(index);
+  }
+  return blocks;
+}
+
+// Forecast week 1 uses the plain 30-day index above. Weeks 2+ use a weighted average of the weekly indices: one
+// "analog" history week (the oldest first, then forward) counts 0.4, each of the others 0.2, so every forecast week
+// leans on a different history week and the high / low peaks no longer repeat. A single week is noisy, so the result is
+// half the weekly average and half the plain 30-day index (still averages 1 over the open days). Then distinctWeekWeights
+// makes the peak, mid peak and lowest day of each week differ from those of the weeks before.
+const ANALOG_WEIGHT = 0.4;
+const WEEKLY_SHARE = 0.5;
+const MIN_SPREAD = 0.9;
+const RANK_GAP = 0.12;
+function weightedWeekWeights(blockIndex, week, baseWeights) {
+  const n = blockIndex.length;
+  const analog = (n - 1) - ((week - 2) % n);
+  const other = (1 - ANALOG_WEIGHT) / (n - 1);
+  const out = { [CLOSED_DOW]: 0 };
+  for (let d = 0; d < 7; d++) {
+    if (d === CLOSED_DOW) continue;
+    const weekly = blockIndex.reduce((acc, idx, b) => acc + (b === analog ? ANALOG_WEIGHT : other) * idx[d], 0);
+    out[d] = WEEKLY_SHARE * weekly + (1 - WEEKLY_SHARE) * baseWeights[d];
+  }
+  return out;
+}
+
+// Weekday ranks of one week's weights: which open day is the peak, the second (mid) peak and the lowest.
+function rankDays(w) {
+  const order = [1, 2, 3, 4, 5, 6].sort((a, b) => w[b] - w[a] || a - b);
+  return { order, peak: order[0], second: order[1], low: order[order.length - 1] };
+}
+
+// Give a forecast week its own high / mid / low days. The week's weighted-average weights keep their sizes (so the open-day
+// average stays 1), but the biggest weight goes to the best-ranked day that was not the peak of an earlier week, the
+// second weight to a day that was not the mid peak before, the smallest to a day that was not the low before.
+// The days in between keep the order of the data. `used` holds the days already taken by earlier weeks.
+function distinctWeekWeights(raw, used) {
+  const { order } = rankDays(raw);
+  const values = order.map((d) => raw[d]);                   // sizes, biggest first
+  const pick = (list, taken, banned) => list.find((d) => !taken.has(d) && !banned.includes(d))
+    ?? list.find((d) => !banned.includes(d));
+  const peak = pick(order, used.peak, []);
+  const low = pick([...order].reverse(), used.low, [peak]);
+  const second = pick(order, used.second, [peak, low]);
+  const mid = order.filter((d) => ![peak, second, low].includes(d));
+  const out = { [CLOSED_DOW]: 0, [peak]: values[0], [second]: values[1], [low]: values[values.length - 1] };
+  mid.forEach((d, i) => { out[d] = values[2 + i]; });
+  used.peak.add(peak); used.second.add(second); used.low.add(low);
+  // Tied weights have no clear order: keep a gap of at least RANK_GAP between peak, mid peak, the rest and the lowest.
+  const topRest = mid.reduce((m, d) => Math.max(m, out[d]), 0);
+  const lowRest = mid.reduce((m, d) => Math.min(m, out[d]), Infinity);
+  out[second] = Math.max(out[second], topRest + RANK_GAP);
+  out[peak] = Math.max(out[peak], out[second] + RANK_GAP);
+  if (mid.length) out[low] = Math.max(0.05, Math.min(out[low], lowRest - RANK_GAP));
+  const m0 = [1, 2, 3, 4, 5, 6].reduce((a, d) => a + out[d], 0) / 6;
+  [1, 2, 3, 4, 5, 6].forEach((d) => { out[d] /= m0; });
+  // A week whose weights are nearly flat has no readable peak: widen the spread to at least MIN_SPREAD (peak - lowest).
+  const spread = out[peak] - out[low];
+  if (spread > 0 && spread < MIN_SPREAD) {
+    const f = Math.min(3, MIN_SPREAD / spread);
+    [1, 2, 3, 4, 5, 6].forEach((d) => { out[d] = Math.max(0.05, 1 + (out[d] - 1) * f); });
+    const mean = [1, 2, 3, 4, 5, 6].reduce((a, d) => a + out[d], 0) / 6;
+    [1, 2, 3, 4, 5, 6].forEach((d) => { out[d] /= mean; });
+  }
+  return out;
+}
+
+/**
  * Round a summed demand UP once, at the unit's precision (decimals = 0 for whole units). The toFixed(6) pass strips
  * floating-point noise so 120.0000000002 does not become 121.
  * @param {number} total
@@ -154,10 +245,30 @@ function forecastMedicineDemand(history, { seasonality, trendFactor = 0, startDa
   const weights = seasonality
     ? normalizeWeights({ 0: 0, 1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, ...seasonality })
     : measureSeasonality(history, dowOfBaseMinus);
+  // Weeks 2+ (k > 7) of a measured forecast: weighted average of the weekly indices. A custom seasonality stays fixed.
+  const blockIndex = seasonality ? null : measureWeeklySeasonality(history, dowOfBaseMinus);
+  const weekWeights = {};
 
   // Active window: index 0 = newest day, last index = oldest day. Closed days (Sundays) hold 0 and are not counted.
   const window = history.map((v, i) => (dowOfBaseMinus(i) === CLOSED_DOW ? 0 : v));
   let windowSum = window.reduce((acc, v) => acc + v, 0);
+
+  // Dry run of steps k0..k1 with the given weekday weights from the current window (nothing is changed).
+  // Returns the predicted demand of each open weekday.
+  const simulateWeek = (k0, k1, dayWeights) => {
+    const win = window.slice(); let sum = windowSum; const out = {};
+    for (let kk = k0; kk <= k1; kk++) {
+      const dw = new Date(baseDate.getTime()); dw.setUTCDate(dw.getUTCDate() + kk);
+      const d = dw.getUTCDay();
+      let days = 0;
+      for (let i = 0; i < WINDOW_SIZE; i++) if (dowOfBaseMinus(i - (kk - 1)) !== CLOSED_DOW) days++;
+      const base = Math.max(0, (days > 0 ? sum / days : 0) * dayWeights[d]);
+      if (d !== CLOSED_DOW) out[d] = base;
+      const appended = parseFloat(base.toFixed(4));
+      sum = sum - win.pop() + appended; win.unshift(appended);
+    }
+    return out;
+  };
 
   const forecast = [];
   for (let k = 1; k <= FORECAST_DAYS; k++) {
@@ -172,7 +283,47 @@ function forecastMedicineDemand(history, { seasonality, trendFactor = 0, startDa
     }
     const activeWindowSum = windowSum;
     const activeADD = activeDays > 0 ? activeWindowSum / activeDays : 0;
-    const seasonalityIndex = weights[dow];
+    const week = Math.ceil(k / 7);
+    let dayWeights = weights;
+    if (blockIndex && week >= 2) {
+      if (!weekWeights[week]) {
+        // days already taken as peak / mid peak / lowest by the weeks before, read from their real predictions
+        const used = { peak: new Set(), second: new Set(), low: new Set() };
+        for (let w = 1; w < week; w++) {
+          const demand = {};
+          forecast.filter((x) => Math.ceil(x.dayOffset / 7) === w && x.dayOfWeek !== 'Sun')
+            .forEach((x) => { demand[DAY_LABELS.indexOf(x.dayOfWeek)] = x.phase1_prediction.predictedDemand; });
+          if (Object.keys(demand).length < 6) continue;
+          const r = rankDays(demand);
+          used.peak.add(r.peak); used.second.add(r.second); used.low.add(r.low);
+        }
+        let wk = distinctWeekWeights(weightedWeekWeights(blockIndex, week, weights), used);
+        // The average daily demand drifts inside a week, so close weights can swap places. Run the week, and where a
+        // peak / mid / low day still equals one of an earlier week, widen the gap of that pair and run it again.
+        if (week * 7 <= FORECAST_DAYS) {
+          for (let attempt = 0; attempt < 25; attempt++) {
+            const demand = simulateWeek(k, Math.min(FORECAST_DAYS, k + 6), wk);
+            const want = rankDays(wk);
+            const got = rankDays(demand);
+            const fixes = [];
+            if (used.peak.has(got.peak)) fixes.push([want.peak, got.peak, 'high']);
+            if (used.second.has(got.second)) fixes.push([want.second, got.second, 'high']);
+            if (used.low.has(got.low)) fixes.push([want.low, got.low, 'low']);
+            if (!fixes.length) break;
+            fixes.forEach(([target, offender, kind]) => {
+              if (target === offender) return;
+              wk[target] *= kind === 'high' ? 1.12 : 0.88;
+              wk[offender] *= kind === 'high' ? 0.9 : 1.1;
+            });
+            const mean = [1, 2, 3, 4, 5, 6].reduce((a, d) => a + wk[d], 0) / 6;
+            [1, 2, 3, 4, 5, 6].forEach((d) => { wk[d] = mean > 0 ? wk[d] / mean : 1; });
+          }
+        }
+        weekWeights[week] = wk;
+      }
+      dayWeights = weekWeights[week];
+    }
+    const seasonalityIndex = dayWeights[dow];
     const baseDemand = Math.max(0, activeADD * seasonalityIndex);
     const rawDemand = baseDemand * Math.pow(1 + trendFactor, k);
     const predictedDemand = parseFloat(rawDemand.toFixed(4));

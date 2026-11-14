@@ -1,9 +1,10 @@
 // requirementManagement.jsx
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useOutletContext, useLocation } from 'react-router-dom';
 import {
     Search, Calendar, Pencil, Trash2, X, Plus, Check, Ban, RotateCcw,
-    FileText, CheckCircle, Clock, Eye, AlertCircle, FileCheck, Printer, ClipboardList
+    FileText, CheckCircle, Clock, Eye, AlertCircle, FileCheck, Printer, ClipboardList,
+    ArrowLeft, ChevronRight, Info, Users
 } from 'lucide-react';
 
 import stiLogo from '../../assets/sti-logof.png';
@@ -37,10 +38,16 @@ export const RequirementManagement = () => {
     const [programs, setPrograms] = useState([]);
     const [programConfigs, setProgramConfigs] = useState([]);
     const [isNewMode, setIsNewMode] = useState({});
+    const [openProgramId, setOpenProgramId] = useState(null); // null = overview of all programs
+    const lastProgramRef = useRef(null);
+    const backBtnRef = useRef(null);
 
-    // Modal State for Assigning Medical Requirement to a Course
-    const [assignCourseModalProgram, setAssignCourseModalProgram] = useState(null);
-    const [courseModalInput, setCourseModalInput] = useState({ name: '', year_level: '', deadline: '', allowLate: false });
+    // Create requirement: one requirement, many programs, every year level and section
+    const [createOpen, setCreateOpen] = useState(false);
+    const [creating, setCreating] = useState(false);
+    const [createForm, setCreateForm] = useState({ name: '', deadline: '', allowLate: false });
+    const [createPrograms, setCreatePrograms] = useState([]);
+    const [coverage, setCoverage] = useState({}); // program_id -> { students, already_have }
 
     // Inline inputs tracking per program configuration updates
     const [inlineEditingConfigId, setInlineEditingConfigId] = useState(null);
@@ -257,6 +264,23 @@ export const RequirementManagement = () => {
         fetchProgramConfigs();
         fetchMedicalRequirements();
     }, [fetchStudents, fetchPrograms, fetchProgramConfigs, fetchMedicalRequirements]);
+
+    // Students per program + how many already hold the typed requirement (create modal)
+    useEffect(() => {
+        if (!createOpen) return undefined;
+        const timer = setTimeout(async () => {
+            try {
+                const res = await fetch(`http://localhost:3001/api/program-requirements-coverage?requirement_name=${encodeURIComponent(createForm.name.trim())}`);
+                const data = await parseJsonResponse(res);
+                if (res.ok && Array.isArray(data)) {
+                    setCoverage(Object.fromEntries(data.map(r => [String(r.program_id), r])));
+                }
+            } catch (error) {
+                console.error("Error fetching coverage:", error);
+            }
+        }, 250);
+        return () => clearTimeout(timer);
+    }, [createOpen, createForm.name]);
 
     useEffect(() => {
         const state = location.state || {};
@@ -900,79 +924,76 @@ export const RequirementManagement = () => {
         );
     };
 
-    const addProgramRequirement = async (programId, inputDataOverride = null) => {
-        if (!programId || programId === 'undefined') {
-            showAlertModal("Error", "Invalid or missing Program ID.", "error");
+    const isProgramSet = (programId, name) => !!name && programConfigs.some(
+        c => String(c.program_id) === String(programId) && c.requirement_name.toLowerCase() === name.toLowerCase()
+    );
+
+    const openCreateModal = (programId = null) => {
+        setCreateForm({ name: '', deadline: '', allowLate: false });
+        setCreatePrograms(programId ? [String(programId)] : []);
+        setCreateOpen(true);
+    };
+
+    // One requirement, many programs. No year level, no section: every active student of
+    // the program gets it, except the ones who already hold it (the server skips them).
+    const createRequirements = async () => {
+        const name = createForm.name.trim();
+        if (!name || !createForm.deadline) {
+            showAlertModal("Validation Error", "Add a requirement name and deadline.", "warning");
             return;
         }
 
-        const targetInput = inputDataOverride || courseModalInput;
-        const reqName = targetInput.name;
-        const yearLevel = targetInput.year_level;
-        const deadline = targetInput.deadline;
-        const allowLate = targetInput.allowLate || false;
-
-        if (!reqName || !reqName.trim() || !deadline) {
-            showAlertModal("Validation Error", "Please select a Requirement Name and Target Deadline.", "warning");
+        const targets = createPrograms.filter(id => !isProgramSet(id, name));
+        if (targets.length === 0) {
+            showAlertModal("Validation Error", "Pick at least one program.", "warning");
             return;
         }
 
-        const trimmedReqName = reqName.trim();
+        const known = medicalRequirements.find(m => m.requirement_name.toLowerCase() === name.toLowerCase());
+        const finalName = known ? known.requirement_name : name;
 
-        const isDuplicateInProgram = programConfigs.some(c => {
-            if (String(c.program_id) !== String(programId)) return false;
-            if (c.requirement_name.toLowerCase() !== trimmedReqName.toLowerCase()) return false;
+        setCreating(true);
+        let assigned = 0;
+        let alreadyHad = 0;
+        const failed = [];
 
-            const existingYear = c.year_level ? String(c.year_level) : null;
-            const targetYear = yearLevel ? String(yearLevel) : null;
-
-            return existingYear === null || targetYear === null || existingYear === targetYear;
-        });
-
-        if (isDuplicateInProgram) {
-            showAlertModal("Duplicate Error", `Requirement "${trimmedReqName}" is already assigned to this program for ${yearLevel ? `Year Level ${yearLevel}` : 'all year levels'}.`, "error");
-            return;
-        }
-
-        openConfirmModal(
-            "Add Program Requirement",
-            `Add requirement "${trimmedReqName}"${yearLevel ? ` (Year ${yearLevel})` : ''} to this program configuration?`,
-            async () => {
-                try {
-                    const encodedProgramId = encodeURIComponent(programId);
-                    const response = await fetch(`http://localhost:3001/api/programs/${encodedProgramId}/requirements`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ 
-                            requirement_name: trimmedReqName,
-                            year_level: yearLevel,
-                            submission_deadline: deadline,
-                            allow_late_submission: allowLate
-                        })
-                    });
-
-                    const data = await parseJsonResponse(response);
-
-                    if (!response.ok || !data) {
-                        const errorMsg = data?.error || `Server error (${response.status}): ${response.statusText || 'Unable to process program requirement'}`;
-                        showAlertModal("Configuration Error", errorMsg, "error");
-                        return;
-                    }
-
-                    setCourseModalInput({ name: '', year_level: '', deadline: '', allowLate: false });
-                    setAssignCourseModalProgram(null);
-                    
-                    await fetchProgramConfigs();
-                    fetchMedicalRequirements();
-                    showAlertModal("Success", "Program requirement configured successfully.", "primary");
-                } catch (error) {
-                    console.error("Error adding program requirement:", error);
-                    showAlertModal("Network Error", `Network error processing request: ${error.message}`, "error");
+        for (const programId of targets) {
+            try {
+                const response = await fetch(`http://localhost:3001/api/programs/${encodeURIComponent(programId)}/requirements`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        requirement_name: finalName,
+                        submission_deadline: createForm.deadline,
+                        allow_late_submission: createForm.allowLate,
+                        nurse_id: nurseId
+                    })
+                });
+                const data = await parseJsonResponse(response);
+                if (!response.ok || !data) {
+                    failed.push(programId);
+                } else {
+                    assigned += Number(data.assigned || 0);
+                    alreadyHad += Number(data.already_had || 0);
                 }
-            },
-            "Add Config",
-            "primary"
-        );
+            } catch (error) {
+                console.error("Error adding program requirement:", error);
+                failed.push(programId);
+            }
+        }
+
+        setCreating(false);
+        setCreateOpen(false);
+        await fetchProgramConfigs();
+        fetchMedicalRequirements();
+        fetchStudents();
+
+        const summary = `${assigned} students assigned.${alreadyHad ? ` ${alreadyHad} already had it.` : ''}`;
+        if (failed.length > 0) {
+            showAlertModal("Partly done", `${summary} Failed: ${failed.join(', ')}.`, "warning");
+        } else {
+            showAlertModal("Success", summary, "primary");
+        }
     };
 
     const startInlineEditingConfig = (configRow) => {
@@ -988,6 +1009,16 @@ export const RequirementManagement = () => {
     const saveInlineRequirementUpdate = async (programId, configId) => {
         if (!inlineEditForm.requirement_name.trim() || !inlineEditForm.submission_deadline) {
             showAlertModal("Validation Error", "Requirement name and target deadline cannot be blank.", "warning");
+            return;
+        }
+
+        const clash = programConfigs.some(c =>
+            String(c.program_id) === String(programId) &&
+            String(c.config_id) !== String(configId) &&
+            c.requirement_name.toLowerCase() === inlineEditForm.requirement_name.trim().toLowerCase()
+        );
+        if (clash) {
+            showAlertModal("Duplicate Error", `"${inlineEditForm.requirement_name.trim()}" is already set for this program.`, "error");
             return;
         }
 
@@ -1193,6 +1224,43 @@ export const RequirementManagement = () => {
         };
     }, [students]);
 
+    // ---- Course / Strand tab helpers ----
+    const programTypeLabel = (p) => (getYearLevelOptions(p).length === 2 ? 'Strand' : 'Course');
+    const programStudentCount = (id) => students.filter(s => String(s.program_id) === String(id)).length;
+    const nextDueOf = (list) => {
+        const today = new Date().toISOString().split('T')[0];
+        const upcoming = list.map(c => formatDeadlineDate(c.submission_deadline)).filter(d => d && d >= today).sort();
+        return upcoming[0] || null;
+    };
+
+    const openProgram = programs.find(p => String(p.program_id) === String(openProgramId)) || null;
+    const openList = openProgram ? programConfigs.filter(c => String(c.program_id) === String(openProgram.program_id)) : [];
+    const openEditing = !!isNewMode[openProgramId];
+
+    // Create modal: one row per program with the students it would reach
+    const createName = createForm.name.trim();
+    const programRows = programs.map(p => {
+        const id = String(p.program_id);
+        const total = coverage[id]?.students ?? programStudentCount(id);
+        const have = createName ? Number(coverage[id]?.already_have || 0) : 0;
+        return { p, id, set: isProgramSet(id, createName), have, eligible: Math.max(total - have, 0) };
+    });
+    const selectableRows = programRows.filter(r => !r.set);
+    const pickedRows = selectableRows.filter(r => createPrograms.includes(r.id));
+    const previewTotal = pickedRows.reduce((sum, r) => sum + r.eligible, 0);
+    const previewSkipped = pickedRows.reduce((sum, r) => sum + r.have, 0);
+    const allCreateSelected = selectableRows.length > 0 && selectableRows.every(r => createPrograms.includes(r.id));
+
+    useEffect(() => {
+        if (openProgramId) {
+            if (backBtnRef.current) backBtnRef.current.focus();
+        } else if (lastProgramRef.current) {
+            const opener = document.querySelector(`[data-open-program="${lastProgramRef.current}"]`);
+            if (opener) opener.focus();
+            lastProgramRef.current = null;
+        }
+    }, [openProgramId]);
+
     return (
         <div className="req-container-rm">
             <div className="req-header-section-rm">
@@ -1225,7 +1293,7 @@ export const RequirementManagement = () => {
                     role="tab"
                     aria-selected={activeTab === 'student'}
                     className={`tab-btn-rm ${activeTab === 'student' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('student')}
+                    onClick={() => { setActiveTab('student'); setOpenProgramId(null); }}
                 >
                     Student Requirements
                     <span className="tab-count-rm">{students.length}</span>
@@ -1235,7 +1303,7 @@ export const RequirementManagement = () => {
                     role="tab"
                     aria-selected={activeTab === 'course'}
                     className={`tab-btn-rm ${activeTab === 'course' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('course')}
+                    onClick={() => { setActiveTab('course'); }}
                 >
                     Course / Strand Requirements
                     <span className="tab-count-rm">{programs.length}</span>
@@ -1513,272 +1581,333 @@ export const RequirementManagement = () => {
                 </div>
             )}
 
-            {/* VIEW: COURSE CONFIGURATION PANEL */}
-            {activeTab === 'course' && (
-                <div className="tab-content-rm course-grid-rm">
-                    {programs.map(prog => {
-                        const assignedConfigs = programConfigs.filter(config => config.program_id === prog.program_id);
-                        const progYearLevelOptions = getYearLevelOptions(prog);
+            {/* VIEW: COURSE / STRAND - overview first, requirements open per program */}
+            {activeTab === 'course' && !openProgram && (
+                <div className="tab-content-rm">
+                    <div className="bar-row-rm">
+                        <p className="text-muted-rm"><b>{programConfigs.length}</b> requirements · <b>{programs.length}</b> programs</p>
+                        <button
+                            type="button"
+                            className="btn-rm btn-icon-rm btn-primary-rm"
+                            onClick={() => openCreateModal()}
+                            aria-label="Create requirement"
+                            title="Create requirement"
+                        >
+                            <Plus size={20} />
+                        </button>
+                    </div>
 
-                        return (
-                            <article
-                                className={`program-card-rm ${isNewMode[prog.program_id] ? 'is-editing-rm' : ''}`}
-                                key={prog.program_id}
-                                aria-label={prog.program_name}
-                            >
-                                <div className="program-header-rm">
-                                    <span className="program-id-rm">{prog.program_id}</span>
-                                    <div className="program-title-rm">
-                                        <h3>{prog.program_name}</h3>
-                                        <p>{progYearLevelOptions.length === 2 ? 'Strand' : 'Course'} · {progYearLevelOptions.length} yrs · {assignedConfigs.length} req.</p>
-                                    </div>
-                                    <div className="program-actions-rm">
-                                        <button
-                                            type="button"
-                                            className="btn-rm btn-icon-rm btn-ghost-rm"
-                                            onClick={() => {
-                                                setAssignCourseModalProgram(prog);
-                                                setCourseModalInput({ name: '', year_level: '', deadline: '', allowLate: false });
-                                            }}
-                                            aria-label={`Assign requirement to ${prog.program_id}`}
-                                            title={`Assign requirement to ${prog.program_id}`}
-                                        >
-                                            <Plus size={20} />
-                                        </button>
-                                        <button
-                                            type="button"
-                                            className="btn-rm btn-icon-rm btn-ghost-rm"
-                                            aria-pressed={!!isNewMode[prog.program_id]}
-                                            onClick={() => {
-                                                setIsNewMode({...isNewMode, [prog.program_id]: !isNewMode[prog.program_id]});
-                                                setInlineEditingConfigId(null);
-                                            }}
-                                            aria-label={isNewMode[prog.program_id] ? `Done editing ${prog.program_id}` : `Edit ${prog.program_id} requirements`}
-                                            title={isNewMode[prog.program_id] ? `Done editing ${prog.program_id}` : `Edit ${prog.program_id} requirements`}
-                                        >
-                                            {isNewMode[prog.program_id] ? <X size={20} /> : <Pencil size={20} />}
-                                        </button>
-                                    </div>
-                                </div>
+                    <div className="course-grid-rm">
+                        {programs.map(prog => {
+                            const progId = String(prog.program_id);
+                            const list = programConfigs.filter(c => String(c.program_id) === progId);
+                            const due = nextDueOf(list);
 
-                                {assignedConfigs.length === 0 && <div className="program-empty-rm">None yet</div>}
-                                <ul className="req-list-rm">
-                                    {assignedConfigs.map((req, index) => {
-                                        const isThisRowBeingEdited = inlineEditingConfigId === req.config_id;
-                                        const formattedDeadline = req.submission_deadline ? formatDate(req.submission_deadline) : 'No Target Set';
-                                        
-                                        return (
-                                            <li key={req.config_id || index} className={`req-item-rm ${isThisRowBeingEdited ? 'req-item-edit-rm' : ''}`}>
-                                                {!isThisRowBeingEdited ? (
-                                                    <div className="req-item-content-rm">
-                                                        <FileCheck size={20} className="check-icon-rm" aria-hidden="true" />
-                                                        <div className="req-item-details-rm">
-                                                            <span className="req-text-rm">
-                                                                {req.requirement_name}
-                                                                <span className="year-badge-rm">{req.year_level ? `Year ${req.year_level}` : 'All years'}</span>
-                                                            </span>
-                                                            <div className="req-meta-rm">
-                                                                <span><Calendar size={14}/> {formattedDeadline}</span>
-                                                                <span className={`late-badge-rm ${req.allow_late_submission ? 'allowed' : 'blocked'}`}>
-                                                                    {req.allow_late_submission ? <Check size={14} /> : <Ban size={14} />}
-                                                                    {req.allow_late_submission ? 'Late Allowed' : 'Late Blocked'}
-                                                                </span>
-                                                            </div>
-                                                        </div>
-                                                        {isNewMode[prog.program_id] && (
-                                                            <div className="req-actions-rm">
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => startInlineEditingConfig(req)}
-                                                                    className="btn-rm btn-icon-rm btn-ghost-rm"
-                                                                    aria-label={`Edit ${req.requirement_name}`}
-                                                                    title={`Edit ${req.requirement_name}`}
-                                                                ><Pencil size={20}/></button>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => deleteProgramRequirement(prog.program_id, req.config_id, req.requirement_name)}
-                                                                    className="btn-rm btn-icon-rm btn-ghost-rm btn-danger-rm"
-                                                                    aria-label={`Delete ${req.requirement_name}`}
-                                                                    title={`Delete ${req.requirement_name}`}
-                                                                ><Trash2 size={20}/></button>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                ) : (
-                                                    <div className="inline-edit-box-rm">
-                                                        <div className="inline-edit-inputs-rm">
-                                                            <select
-                                                                aria-label="Requirement"
-                                                                value={inlineEditForm.requirement_name}
-                                                                onChange={(e) => setInlineEditForm({...inlineEditForm, requirement_name: e.target.value})}
-                                                                className="filter-select-rm"
-                                                            >
-                                                                <option value="">Select Requirement</option>
-                                                                {medicalRequirements.map((medReq, idx) => (
-                                                                    <option key={medReq.requirement_name || idx} value={medReq.requirement_name}>
-                                                                        {medReq.requirement_name}
-                                                                    </option>
-                                                                ))}
-                                                            </select>
-                                                            <select
-                                                                aria-label="Year level"
-                                                                value={inlineEditForm.year_level}
-                                                                onChange={(e) => setInlineEditForm({...inlineEditForm, year_level: e.target.value})}
-                                                                className="filter-select-rm"
-                                                            >
-                                                                <option value="">All years</option>
-                                                                {progYearLevelOptions.map(y => (
-                                                                    <option key={y} value={y}>{y}{y === 1 ? 'st' : y === 2 ? 'nd' : y === 3 ? 'rd' : 'th'} Year</option>
-                                                                ))}
-                                                            </select>
-                                                            <input
-                                                                type="date"
-                                                                aria-label="Deadline"
-                                                                value={inlineEditForm.submission_deadline}
-                                                                onChange={(e) => setInlineEditForm({...inlineEditForm, submission_deadline: e.target.value})}
-                                                            />
-                                                        </div>
-                                                        <div className="inline-edit-footer-rm">
-                                                            <label className="checkbox-label-rm">
-                                                                <input
-                                                                    type="checkbox"
-                                                                    checked={inlineEditForm.allow_late_submission}
-                                                                    onChange={(e) => setInlineEditForm({...inlineEditForm, allow_late_submission: e.target.checked})}
-                                                                /> Late Allowed
-                                                            </label>
-                                                            <div className="inline-edit-actions-rm">
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => setInlineEditingConfigId(null)}
-                                                                    className="btn-rm btn-icon-rm"
-                                                                    aria-label="Cancel"
-                                                                    title="Cancel"
-                                                                ><X size={20} /></button>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => saveInlineRequirementUpdate(prog.program_id, req.config_id)}
-                                                                    className="btn-rm btn-icon-rm btn-primary-rm"
-                                                                    aria-label="Save"
-                                                                    title="Save"
-                                                                ><Check size={20} /></button>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </li>
-                                        );
-                                    })}
-                                </ul>
-                            </article>
-                        );
-                    })}
+                            return (
+                                <article className="program-card-rm" key={progId} aria-label={prog.program_name}>
+                                    <div className="program-header-rm">
+                                        <span className="program-id-rm">{progId}</span>
+                                        <div className="program-title-rm">
+                                            <h3>{prog.program_name}</h3>
+                                            <p>{programTypeLabel(prog)} · {getYearLevelOptions(prog).length} yrs</p>
+                                        </div>
+                                        <div className="program-actions-rm">
+                                            <button
+                                                type="button"
+                                                className="btn-rm btn-icon-rm btn-ghost-rm"
+                                                onClick={() => openCreateModal(progId)}
+                                                aria-label={`Create requirement for ${progId}`}
+                                                title={`Create requirement for ${progId}`}
+                                            >
+                                                <Plus size={20} />
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="btn-rm btn-icon-rm btn-ghost-rm"
+                                                data-open-program={progId}
+                                                onClick={() => setOpenProgramId(progId)}
+                                                aria-label={`View ${progId} requirements`}
+                                                title={`View ${progId} requirements`}
+                                            >
+                                                <ChevronRight size={20} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <dl className="overview-rm">
+                                        <div><dt><FileCheck size={16} />Requirements</dt><dd>{list.length}</dd></div>
+                                        <div><dt><Users size={16} />Students</dt><dd>{programStudentCount(progId)}</dd></div>
+                                        <div><dt><Calendar size={16} />Next due</dt><dd>{due ? formatDate(due) : '-'}</dd></div>
+                                    </dl>
+                                </article>
+                            );
+                        })}
+                    </div>
                 </div>
             )}
 
-            {/* MODAL: ASSIGN / ADD MEDICAL REQUIREMENT TO SPECIFIC COURSE */}
-            {assignCourseModalProgram && (
-                <div className="modal-overlay-rm" onKeyDown={(e) => { if (e.key === 'Escape') { setAssignCourseModalProgram(null); } }}>
-                    <div className="modal-content-rm medium-modal-rm" role="dialog" aria-modal="true" aria-labelledby="rm-assign-title">
-                        <div className="modal-header-rm">
-                            <div>
-                                <h3 id="rm-assign-title">Assign to {assignCourseModalProgram.program_id}</h3>
-                                <p className="modal-subtitle-rm">{assignCourseModalProgram.program_name}</p>
-                            </div>
+            {activeTab === 'course' && openProgram && (
+                <div className="tab-content-rm">
+                    <div className="detail-head-rm">
+                        <button
+                            ref={backBtnRef}
+                            type="button"
+                            className="btn-rm btn-icon-rm"
+                            onClick={() => {
+                                lastProgramRef.current = openProgramId;
+                                setInlineEditingConfigId(null);
+                                setOpenProgramId(null);
+                            }}
+                            aria-label="Back to programs"
+                            title="Back to programs"
+                        >
+                            <ArrowLeft size={20} />
+                        </button>
+                        <span className="program-id-rm">{String(openProgram.program_id)}</span>
+                        <div className="program-title-rm">
+                            <h3>{openProgram.program_name}</h3>
+                            <p>{programTypeLabel(openProgram)} · {programStudentCount(openProgram.program_id)} students · {openList.length} req.</p>
+                        </div>
+                        <div className="program-actions-rm">
                             <button
                                 type="button"
+                                className="btn-rm btn-icon-rm btn-primary-rm"
+                                onClick={() => openCreateModal(openProgram.program_id)}
+                                aria-label={`Create requirement for ${openProgram.program_id}`}
+                                title={`Create requirement for ${openProgram.program_id}`}
+                            >
+                                <Plus size={20} />
+                            </button>
+                            <button
+                                type="button"
+                                className="btn-rm btn-icon-rm"
+                                aria-pressed={openEditing}
                                 onClick={() => {
-                                    setAssignCourseModalProgram(null);
-                                    setCourseModalInput({ name: '', year_level: '', deadline: '', allowLate: false });
+                                    setIsNewMode({ ...isNewMode, [openProgramId]: !openEditing });
+                                    setInlineEditingConfigId(null);
                                 }}
+                                aria-label={openEditing ? 'Done editing' : 'Edit requirements'}
+                                title={openEditing ? 'Done editing' : 'Edit requirements'}
+                            >
+                                {openEditing ? <X size={20} /> : <Pencil size={20} />}
+                            </button>
+                        </div>
+                    </div>
+
+                    <p className="note-rm"><Info size={16} />All year levels and sections</p>
+
+                    <div className={`program-card-rm ${openEditing ? 'is-editing-rm' : ''}`}>
+                        {openList.length === 0 && <div className="program-empty-rm">None yet</div>}
+                        <ul className="req-list-rm">
+                            {openList.map((req, index) => {
+                                const isThisRowBeingEdited = inlineEditingConfigId === req.config_id;
+                                const formattedDeadline = req.submission_deadline ? formatDate(req.submission_deadline) : 'No Target Set';
+
+                                return (
+                                    <li key={req.config_id || index} className={`req-item-rm ${isThisRowBeingEdited ? 'req-item-edit-rm' : ''}`}>
+                                        {!isThisRowBeingEdited ? (
+                                            <div className="req-item-content-rm">
+                                                <FileCheck size={20} className="check-icon-rm" aria-hidden="true" />
+                                                <div className="req-item-details-rm">
+                                                    <span className="req-text-rm">
+                                                        {req.requirement_name}
+                                                        {req.year_level && <span className="year-badge-rm">Year {req.year_level}</span>}
+                                                    </span>
+                                                    <div className="req-meta-rm">
+                                                        <span><Calendar size={14} /> {formattedDeadline}</span>
+                                                        <span><Users size={14} /> {programStudentCount(openProgram.program_id)} students</span>
+                                                        <span className={`late-badge-rm ${req.allow_late_submission ? 'allowed' : 'blocked'}`}>
+                                                            {req.allow_late_submission ? <Check size={14} /> : <Ban size={14} />}
+                                                            {req.allow_late_submission ? 'Late Allowed' : 'Late Blocked'}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                {openEditing && (
+                                                    <div className="req-actions-rm">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => startInlineEditingConfig(req)}
+                                                            className="btn-rm btn-icon-rm btn-ghost-rm"
+                                                            aria-label={`Edit ${req.requirement_name}`}
+                                                            title={`Edit ${req.requirement_name}`}
+                                                        ><Pencil size={20} /></button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => deleteProgramRequirement(openProgram.program_id, req.config_id, req.requirement_name)}
+                                                            className="btn-rm btn-icon-rm btn-ghost-rm btn-danger-rm"
+                                                            aria-label={`Delete ${req.requirement_name}`}
+                                                            title={`Delete ${req.requirement_name}`}
+                                                        ><Trash2 size={20} /></button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <div className="inline-edit-box-rm">
+                                                <div className="inline-edit-inputs-rm">
+                                                    <select
+                                                        aria-label="Requirement"
+                                                        value={inlineEditForm.requirement_name}
+                                                        onChange={(e) => setInlineEditForm({ ...inlineEditForm, requirement_name: e.target.value })}
+                                                        className="filter-select-rm"
+                                                    >
+                                                        <option value="">Select</option>
+                                                        {medicalRequirements.map((medReq, idx) => (
+                                                            <option key={medReq.requirement_name || idx} value={medReq.requirement_name}>
+                                                                {medReq.requirement_name}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                    <input
+                                                        type="date"
+                                                        aria-label="Deadline"
+                                                        value={inlineEditForm.submission_deadline}
+                                                        onChange={(e) => setInlineEditForm({ ...inlineEditForm, submission_deadline: e.target.value })}
+                                                    />
+                                                </div>
+                                                <div className="inline-edit-footer-rm">
+                                                    <label className="checkbox-label-rm">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={inlineEditForm.allow_late_submission}
+                                                            onChange={(e) => setInlineEditForm({ ...inlineEditForm, allow_late_submission: e.target.checked })}
+                                                        /> Late Allowed
+                                                    </label>
+                                                    <div className="inline-edit-actions-rm">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setInlineEditingConfigId(null)}
+                                                            className="btn-rm btn-icon-rm"
+                                                            aria-label="Cancel"
+                                                            title="Cancel"
+                                                        ><X size={20} /></button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => saveInlineRequirementUpdate(openProgram.program_id, req.config_id)}
+                                                            className="btn-rm btn-icon-rm btn-primary-rm"
+                                                            aria-label="Save"
+                                                            title="Save"
+                                                        ><Check size={20} /></button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL: CREATE REQUIREMENT - pick the programs; all year levels and sections */}
+            {createOpen && (
+                <div className="modal-overlay-rm" onKeyDown={(e) => { if (e.key === 'Escape') setCreateOpen(false); }}>
+                    <div className="modal-content-rm medium-modal-rm" role="dialog" aria-modal="true" aria-labelledby="rm-create-title">
+                        <div className="modal-header-rm">
+                            <h3 id="rm-create-title">Create requirement</h3>
+                            <button
+                                type="button"
+                                onClick={() => setCreateOpen(false)}
                                 className="btn-rm btn-icon-rm btn-ghost-rm"
                                 aria-label="Close"
                                 title="Close"
-                                autoFocus
                             >
-                                <X size={20}/>
+                                <X size={20} />
                             </button>
                         </div>
 
-                        <div className="modal-body-rm">
-                            <div className="add-special-req-form-rm">
-                                <div className="form-grid-2-rm">
-                                    <div className="form-group-rm">
-                                        <label htmlFor="rm-assign-name">Requirement</label>
-                                        <select
-                                            id="rm-assign-name"
-                                            value={courseModalInput.name}
-                                            onChange={(e) => setCourseModalInput({ ...courseModalInput, name: e.target.value })}
-                                            className="form-control-rm"
-                                        >
-                                            <option value="">Select</option>
-                                            {medicalRequirements.map((medReq, idx) => (
-                                                <option key={medReq.requirement_name || idx} value={medReq.requirement_name}>
-                                                    {medReq.requirement_name}
-                                                </option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                    <div className="form-group-rm">
-                                        <label htmlFor="rm-assign-year">Year level</label>
-                                        <select
-                                            id="rm-assign-year"
-                                            value={courseModalInput.year_level}
-                                            onChange={(e) => setCourseModalInput({ ...courseModalInput, year_level: e.target.value })}
-                                            className="form-control-rm"
-                                        >
-                                            <option value="">All years</option>
-                                            {getYearLevelOptions(assignCourseModalProgram).map(y => (
-                                                <option key={y} value={y}>
-                                                    {y}{y === 1 ? 'st' : y === 2 ? 'nd' : y === 3 ? 'rd' : 'th'} Year
-                                                </option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                </div>
+                        <form
+                            className="add-special-req-form-rm"
+                            noValidate
+                            onSubmit={(e) => { e.preventDefault(); createRequirements(); }}
+                        >
+                            <div className="form-group-rm">
+                                <label htmlFor="rm-create-name">Requirement</label>
+                                <input
+                                    id="rm-create-name"
+                                    type="text"
+                                    list="rm-create-med-list"
+                                    autoComplete="off"
+                                    placeholder="Pick or type a name"
+                                    className="form-control-rm"
+                                    value={createForm.name}
+                                    onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
+                                    autoFocus
+                                />
+                                <datalist id="rm-create-med-list">
+                                    {medicalRequirements.map((m, idx) => (
+                                        <option key={m.requirement_name || idx} value={m.requirement_name} />
+                                    ))}
+                                </datalist>
+                            </div>
 
-                                <div className="form-grid-2-rm mt-2-rm">
-                                    <div className="form-group-rm">
-                                        <label htmlFor="rm-assign-deadline">Deadline</label>
+                            <div className="form-grid-2-rm">
+                                <div className="form-group-rm">
+                                    <label htmlFor="rm-create-deadline">Deadline</label>
+                                    <input
+                                        id="rm-create-deadline"
+                                        type="date"
+                                        className="form-control-rm"
+                                        value={createForm.deadline}
+                                        onChange={(e) => setCreateForm({ ...createForm, deadline: e.target.value })}
+                                    />
+                                </div>
+                                <div className="form-group-rm">
+                                    <label className="checkbox-label-rm">
                                         <input
-                                            id="rm-assign-deadline"
-                                            type="date"
-                                            value={courseModalInput.deadline}
-                                            onChange={(e) => setCourseModalInput({ ...courseModalInput, deadline: e.target.value })}
-                                            className="form-control-rm"
-                                        />
-                                    </div>
-                                    <div className="form-group-rm">
-                                        <label className="checkbox-label-rm">
-                                            <input
-                                                type="checkbox"
-                                                checked={courseModalInput.allowLate}
-                                                onChange={(e) => setCourseModalInput({ ...courseModalInput, allowLate: e.target.checked })}
-                                            /> Late Allowed
-                                        </label>
-                                    </div>
-                                </div>
-
-                                <div className="form-actions-rm space-top-rm">
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setAssignCourseModalProgram(null);
-                                            setCourseModalInput({ name: '', year_level: '', deadline: '', allowLate: false });
-                                        }}
-                                        className="btn-cancel-rm"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => addProgramRequirement(assignCourseModalProgram.program_id, courseModalInput)}
-                                        className="btn-save-rm"
-                                    >
-                                        Assign
-                                    </button>
+                                            type="checkbox"
+                                            checked={createForm.allowLate}
+                                            onChange={(e) => setCreateForm({ ...createForm, allowLate: e.target.checked })}
+                                        /> Late Allowed
+                                    </label>
                                 </div>
                             </div>
-                        </div>
+
+                            <fieldset className="programs-fieldset-rm">
+                                <legend>Programs</legend>
+                                <label className="checkbox-label-rm">
+                                    <input
+                                        type="checkbox"
+                                        checked={allCreateSelected}
+                                        disabled={selectableRows.length === 0}
+                                        onChange={(e) => setCreatePrograms(e.target.checked ? selectableRows.map(r => r.id) : [])}
+                                    /> All programs
+                                </label>
+                                <ul className="program-pick-list-rm">
+                                    {programRows.map(row => (
+                                        <li key={row.id}>
+                                            <label className={`program-pick-rm ${row.set ? 'is-off-rm' : ''}`}>
+                                                <input
+                                                    type="checkbox"
+                                                    disabled={row.set}
+                                                    checked={!row.set && createPrograms.includes(row.id)}
+                                                    onChange={(e) => setCreatePrograms(prev => e.target.checked
+                                                        ? [...new Set([...prev, row.id])]
+                                                        : prev.filter(x => x !== row.id))}
+                                                />
+                                                <span className="program-pick-id-rm">{row.id}</span>
+                                                <span className="program-pick-name-rm">{row.p.program_name}</span>
+                                                <span className="program-pick-count-rm">
+                                                    {row.set
+                                                        ? 'Already set'
+                                                        : `${row.eligible} students${row.have ? ` · ${row.have} have it` : ''}`}
+                                                </span>
+                                            </label>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </fieldset>
+
+                            <p className="create-preview-rm" role="status" aria-live="polite">
+                                {pickedRows.length
+                                    ? `${previewTotal} students get it${previewSkipped ? ` · ${previewSkipped} already have it` : ''}`
+                                    : 'Pick a program'}
+                            </p>
+
+                            <div className="form-actions-rm">
+                                <button type="button" className="btn-cancel-rm" onClick={() => setCreateOpen(false)}>Cancel</button>
+                                <button type="submit" className="btn-save-rm" disabled={creating}>Create</button>
+                            </div>
+                        </form>
                     </div>
                 </div>
             )}
