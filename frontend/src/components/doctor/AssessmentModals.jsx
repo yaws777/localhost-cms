@@ -54,7 +54,7 @@ export const AssessmentDetails = ({ a }) => {
             )}
             {answers.map((r) => <Fact key={r.key} label={r.label}>{Array.isArray(r.value) ? r.value.join(', ') : String(r.value)}</Fact>)}
             {!!a.follow_up_needed && (
-                <Fact label="Repeat">
+                <Fact label="Follow-up">
                     {a.follow_up_date ? `Around ${formatDate(a.follow_up_date)}` : 'Needed, no date given'}{a.follow_up_notes ? ` - ${a.follow_up_notes}` : ''}
                 </Fact>
             )}
@@ -72,7 +72,7 @@ const chipsOf = (a) => (
     <div className="dp-appt-chips">
         <span className={`dp-chip ${statusClass(a.status)}`}>{statusLabel(a.status)}</span>
         {!!a.is_abnormal && <span className="dp-chip abnormal">Abnormal</span>}
-        {!!a.follow_up_needed && <span className="dp-chip st-pending-approval">Repeat</span>}
+        {!!a.follow_up_needed && <span className="dp-chip st-pending-approval">Follow-up</span>}
         {a.template_name && <span className="dp-chip source">{a.template_name}</span>}
     </div>
 );
@@ -172,7 +172,7 @@ export const AssessmentHistoryModal = ({ appt, onClose }) => {
                                                 <div className="dp-cell-clip">{r.diagnosis || '-'}</div>
                                                 <div className="dp-appt-chips">
                                                     {!!r.is_abnormal && <span className="dp-chip abnormal">Abnormal</span>}
-                                                    {!!r.follow_up_needed && <span className="dp-chip st-pending-approval">Repeat</span>}
+                                                    {!!r.follow_up_needed && <span className="dp-chip st-pending-approval">Follow-up</span>}
                                                 </div>
                                             </td>
                                             <td>

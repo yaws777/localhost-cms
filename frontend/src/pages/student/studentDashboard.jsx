@@ -3,20 +3,24 @@ import { useOutletContext, Link, useNavigate } from 'react-router-dom';
 import {
   Eye,
   ChevronRight,
+  ChevronDown,
   Lightbulb,
+  Library,
   Activity,
   ClipboardList,
   FileText,
   Stethoscope,
   AlertCircle,
   ArrowRight,
-  PlusCircle,
   FileSpreadsheet,
   Megaphone,
   Radio,
   CalendarDays,
   Pill,
-  CheckCircle2
+  CheckCircle2,
+  Clock,
+  Hourglass,
+  MapPin
 } from 'lucide-react';
 import HealthTipsModal from '../../components/student/HealthTips';
 import MyQueue from '../../components/student/MyQueue';
@@ -30,8 +34,8 @@ import '../../styles/student/StudentDashboard.css';
 const API_BASE = 'http://localhost:3001/api';
 const BASE_URL = 'http://localhost:3001';
 const LIVE_REFRESH_MS = 10000;
-
-const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+// events shown in "Coming up"; the full calendar opens from its icon
+const AGENDA_LIMIT = 4;
 
 // requirement statuses that still need something from the student
 const INCOMPLETE_STATUSES = ['Pending', 'Rejected', 'Resubmit', 'Not Submitted', 'Incomplete'];
@@ -88,6 +92,12 @@ const dayOf = (value) => {
 const utcOf = (key) => { const [y, m, d] = key.split('-').map(Number); return Date.UTC(y, m - 1, d); };
 const daysBetween = (fromKey, toKey) => Math.round((utcOf(toKey) - utcOf(fromKey)) / 86400000);
 
+// the day number and short weekday of a 'YYYY-MM-DD' key, for the agenda chip
+const dayParts = (key) => ({
+  num: Number(key.slice(8, 10)),
+  weekday: new Date(utcOf(key)).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' })
+});
+
 // "Due today", "Due in 3 days", "Overdue by 2 days"
 const dueText = (deadlineKey, todayStr) => {
   const diff = daysBetween(todayStr, deadlineKey);
@@ -142,6 +152,10 @@ const StudentDashboard = () => {
   const [error, setError] = useState(null);
   const [isTipsOpen, setIsTipsOpen] = useState(false);
   const [currentTipIndex, setCurrentTipIndex] = useState(0);
+  const [showTip, setShowTip] = useState(false);
+  const [annOpen, setAnnOpen] = useState(false);
+  const [showCalendar, setShowCalendar] = useState(false);
+  const [recTab, setRecTab] = useState('requests');
 
   // Helper to format uploaded document URLs using standard base URL
   const getFileUrl = (url) => {
@@ -384,27 +398,98 @@ const StudentDashboard = () => {
   const todoReq = requirementsData.all_requirements.filter((r) => reqStateOf(r.status) === 'todo').length;
   const waitingReq = requirementsData.all_requirements.filter((r) => reqStateOf(r.status) === 'waiting').length;
   const doneReq = totalReq - todoReq - waitingReq;
-  // every requirement, whatever its status: to do first, then waiting for approval, then approved, each by deadline
-  const allReqSorted = requirementsData.all_requirements.slice().sort((a, b) => (
-    REQ_ORDER[reqStateOf(a.status)] - REQ_ORDER[reqStateOf(b.status)]
-    || (dayOf(a.submission_deadline) || '9').localeCompare(dayOf(b.submission_deadline) || '9')
-  ));
+  const overdueReq = requirementsData.all_requirements.filter((r) => {
+    const key = dayOf(r.submission_deadline);
+    return reqStateOf(r.status) === 'todo' && key && daysBetween(today, key) < 0;
+  }).length;
+  // only what is still open: to do first, then waiting for approval, each by deadline; approved ones fold into the progress bar
+  const openReqs = requirementsData.all_requirements
+    .filter((r) => reqStateOf(r.status) !== 'done')
+    .sort((a, b) => (
+      REQ_ORDER[reqStateOf(a.status)] - REQ_ORDER[reqStateOf(b.status)]
+      || (dayOf(a.submission_deadline) || '9').localeCompare(dayOf(b.submission_deadline) || '9')
+    ));
   const reqPercent = totalReq ? Math.round((doneReq / totalReq) * 100) : 0;
   const reqSummary = [
     todoReq > 0 && `${todoReq} to submit`,
-    waitingReq > 0 && `${waitingReq} waiting for approval`,
-    doneReq > 0 && `${doneReq} approved`
+    waitingReq > 0 && `${waitingReq} waiting for approval`
   ].filter(Boolean).join(', ');
 
-  const monthLabel = `${MONTH_NAMES[Number(today.slice(5, 7)) - 1]} ${today.slice(0, 4)}`;
-
-  // a slim notice (not a card) while the health profile still has gaps
   const profile = account?.profile;
   const profileGaps = profile
     ? [...profile.missing.map((m) => MISSING_LABELS[m] || m), ...(account?.health?.has_record ? [] : ['Health history'])]
     : [];
 
+  // one list for everything that needs the student: requirements, advance listing, health profile
+  const attention = [];
+  if (todoReq > 0) {
+    attention.push({
+      id: 'req', tone: overdueReq > 0 ? 'bad' : 'warn', Icon: AlertCircle, to: '/MyRequirements',
+      lead: `${todoReq} ${todoReq === 1 ? 'requirement' : 'requirements'} to submit.`,
+      rest: overdueReq > 0 ? `${overdueReq} overdue.` : ''
+    });
+  }
+  if (advance?.mine?.status === 'Waiting') {
+    attention.push({
+      id: 'adv-wait', tone: 'info', Icon: ClipboardList, to: '/BookCheckup',
+      lead: `Advance listing number ${advance.mine.label}.`, rest: `${advance.mine.visit_type}. Waiting for a doctor's schedule.`
+    });
+  }
+  if (advance?.mine?.status === 'Pending') {
+    attention.push({
+      id: 'adv-pending', tone: 'info', Icon: ClipboardList, to: '/BookCheckup',
+      lead: 'Advance listing request sent.', rest: `${advance.mine.visit_type}. Waiting for the nurse.`
+    });
+  }
+  if (advance && advance.is_open && !advance.mine) {
+    attention.push({
+      id: 'adv-open', tone: 'info', Icon: ClipboardList, to: '/BookCheckup',
+      lead: 'Advance listing is open.', rest: advance.closes_at ? `Register before ${formatDate(advance.closes_at)}.` : 'Register for a check-up service.'
+    });
+  }
+  if (profileGaps.length > 0) {
+    attention.push({
+      id: 'profile', tone: 'warn', Icon: AlertCircle, to: '/MyProfile',
+      lead: `Profile ${profile.done} of ${profile.total} filled.`, rest: `Missing: ${profileGaps.join(', ')}.`
+    });
+  }
+
   const updates = documentRequestsData.recent_updates.slice(0, 3);
+
+  // the three most recent visits, clinic visits and direct medicine together, newest first
+  const recentVisits = [
+    ...visitsData.clinic_visits.map((v) => ({ type: 'visit', key: `v-${v.visit_id}`, at: v.visit_date, data: v })),
+    ...visitsData.direct_dispensations.map((d) => ({ type: 'direct', key: `d-${d.direct_dispense_id}`, at: d.dispensed_at, data: d }))
+  ].sort((a, b) => (Date.parse(b.at) || 0) - (Date.parse(a.at) || 0)).slice(0, 3);
+
+  // the next few events from today on
+  const agenda = calendarEvents
+    .filter((e) => e.date >= today)
+    .sort((a, b) => (a.date + (a.sort || '')).localeCompare(b.date + (b.sort || '')))
+    .slice(0, AGENDA_LIMIT);
+
+  const hasLive = liveAppointments.length > 0;
+  const tip = DAILY_HEALTH_TIPS[currentTipIndex];
+  const latestNotice = announcements[0];
+
+  // the one status word on a queue number
+  const heroOf = (a) => {
+    if (a.state === 'Serving') return { text: 'Your turn', Icon: Stethoscope };
+    if (a.state === 'Void') return { text: 'Skipped', Icon: AlertCircle };
+    if (a.state === 'Done') return { text: 'Done', Icon: CheckCircle2 };
+    if (!a.in_session) return { text: 'Not started', Icon: Clock };
+    if (a.ahead === 0) return { text: 'You are next', Icon: Clock };
+    return { text: 'Waiting', Icon: Hourglass };
+  };
+
+  // left / right arrows move between the two tabs
+  const onTabKey = (e) => {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    e.preventDefault();
+    const next = recTab === 'requests' ? 'visits' : 'requests';
+    setRecTab(next);
+    document.getElementById(`tab-${next}-sd`)?.focus();
+  };
 
   return (
     <div className="wrapper-sd">
@@ -414,65 +499,98 @@ const StudentDashboard = () => {
           <h1>{firstName ? `Hello, ${firstName}` : 'Student Dashboard'}</h1>
           <p>
             Student ID: <span className="id-sd">{studentId}</span> &middot; {formatCurrentDate()}
-            <span className="live-note-sd" aria-label="Live updates">
-              <Radio size={14} aria-hidden="true" /> Live{lastUpdated && <>, updated {formatTimeBase(lastUpdated)}</>}
-            </span>
           </p>
         </div>
 
-        <div className="tips-card-sd">
+        <div className="header-actions-sd">
+          <span className="live-note-sd" role="status" aria-label="Live updates">
+            <Radio size={14} aria-hidden="true" /> Live{lastUpdated && <>, updated {formatTimeBase(lastUpdated)}</>}
+          </span>
+          <button
+            type="button"
+            className="ibtn-sd"
+            onClick={() => setShowTip((v) => !v)}
+            aria-expanded={showTip}
+            aria-controls="tip-panel-sd"
+            aria-label="Daily health tip"
+            title="Daily health tip"
+          >
+            <Lightbulb size={20} aria-hidden="true" />
+          </button>
+          <button type="button" className="ibtn-sd ibtn-fill-sd" onClick={() => handleQuickRequest('excuse')} aria-label="Request excuse slip" title="Request excuse slip">
+            <FileSpreadsheet size={20} aria-hidden="true" />
+          </button>
+          <button type="button" className="ibtn-sd ibtn-fill-sd" onClick={() => handleQuickRequest('referral')} aria-label="Request referral slip" title="Request referral slip">
+            <Stethoscope size={20} aria-hidden="true" />
+          </button>
+        </div>
+      </header>
+
+      {/* DAILY HEALTH TIP: folded away until the header icon is pressed */}
+      {showTip && (
+        <section id="tip-panel-sd" className="tips-card-sd" aria-label="Daily health tip">
           <div className="tip-content-sd">
             <div className="tip-header-sd">
-              <span className="tip-category-sd">{DAILY_HEALTH_TIPS[currentTipIndex].category}</span>
-              <span className="tip-title-sd">{DAILY_HEALTH_TIPS[currentTipIndex].title}</span>
+              <span className="tip-category-sd">{tip.category}</span>
+              <span className="tip-title-sd">{tip.title}</span>
             </div>
-            <p className="tip-text-sd">{DAILY_HEALTH_TIPS[currentTipIndex].text}</p>
+            <p className="tip-text-sd">{tip.text}</p>
           </div>
           <div className="tip-actions-sd">
             <button
               type="button"
               onClick={() => setCurrentTipIndex((prev) => (prev + 1) % DAILY_HEALTH_TIPS.length)}
-              className="btn-icon-sec-sd"
-              title="Next Tip"
-              aria-label="Next Tip"
+              className="ibtn-sd"
+              title="Next tip"
+              aria-label="Next tip"
             >
               <ChevronRight size={18} aria-hidden="true" />
             </button>
             <button
               type="button"
               onClick={() => setIsTipsOpen(true)}
-              className="btn-icon-pri-sd"
-              title="All Tips"
-              aria-label="All Health Tips"
+              className="ibtn-sd ibtn-fill-sd"
+              title="All tips"
+              aria-label="All health tips"
             >
-              <Lightbulb size={18} aria-hidden="true" />
+              <Library size={18} aria-hidden="true" />
             </button>
           </div>
-        </div>
-
-        <section className="quick-actions-bar-sd" aria-label="Quick requests">
-          <button type="button" className="quick-action-card-sd" onClick={() => handleQuickRequest('excuse')}>
-            <span className="quick-action-icon-sd excuse-icon-sd"><FileSpreadsheet size={20} aria-hidden="true" /></span>
-            <span className="quick-action-title-sd">Request Excuse Slip</span>
-            <PlusCircle size={18} className="quick-action-add-sd excuse-add-sd" aria-hidden="true" />
-          </button>
-          <button type="button" className="quick-action-card-sd" onClick={() => handleQuickRequest('referral')}>
-            <span className="quick-action-icon-sd referral-icon-sd"><Stethoscope size={20} aria-hidden="true" /></span>
-            <span className="quick-action-title-sd">Request Referral Slip</span>
-            <PlusCircle size={18} className="quick-action-add-sd referral-add-sd" aria-hidden="true" />
-          </button>
         </section>
-      </header>
+      )}
 
       {error && <div className="alert-error-sd" role="alert"><AlertCircle size={16} aria-hidden="true" /> {error}</div>}
 
-      {/* NURSE ANNOUNCEMENTS: always on top; a slim line when there is none */}
-      <section className={`notice-bar-sd${announcements.length === 0 ? ' notice-empty-sd' : ''}`} aria-labelledby="ann-title-sd">
-        <h2 id="ann-title-sd"><Megaphone size={18} aria-hidden="true" /> Nurse Announcements <span className="meta-count-sd">{announcements.length}</span></h2>
-        {announcements.length === 0 ? (
-          <p className="notice-none-sd">No active announcements.</p>
-        ) : (
-          <ul className="notice-list-sd">
+      {/* NURSE ANNOUNCEMENTS: one line, opens on demand */}
+      <section className="notice-bar-sd" aria-label="Nurse announcements">
+        <div className="notice-head-sd">
+          <Megaphone size={18} aria-hidden="true" />
+          {announcements.length === 0 ? (
+            <p className="notice-none-sd">No active announcements.</p>
+          ) : annOpen ? (
+            <h2>Nurse Announcements</h2>
+          ) : (
+            <p className="notice-line-sd"><strong>{latestNotice.title}.</strong> {latestNotice.content}</p>
+          )}
+          {announcements.length > 0 && (
+            <>
+              <span className="meta-count-sd" aria-label={`${announcements.length} announcements`}>{announcements.length}</span>
+              <button
+                type="button"
+                className={`ibtn-sd ibtn-flat-sd${annOpen ? ' is-open-sd' : ''}`}
+                onClick={() => setAnnOpen((v) => !v)}
+                aria-expanded={annOpen}
+                aria-controls="ann-list-sd"
+                aria-label={annOpen ? 'Hide announcements' : 'Show announcements'}
+                title={annOpen ? 'Hide announcements' : 'Show announcements'}
+              >
+                <ChevronDown size={18} aria-hidden="true" />
+              </button>
+            </>
+          )}
+        </div>
+        {annOpen && announcements.length > 0 && (
+          <ul id="ann-list-sd" className="notice-list-sd">
             {announcements.map((ann) => (
               <li key={ann.announcement_id} className="notice-item-sd">
                 <strong>{ann.title}</strong>
@@ -484,179 +602,328 @@ const StudentDashboard = () => {
         )}
       </section>
 
-      {profileGaps.length > 0 && (
-        <p className="profile-note-sd" role="status">
-          <AlertCircle size={16} aria-hidden="true" />
-          <span>Your health profile is {profile.done} of {profile.total} filled. Missing: {profileGaps.join(', ')}. <Link to="/MyProfile">Complete your profile</Link></span>
-        </p>
+      {/* NEEDS ATTENTION: requirements, advance listing and profile gaps in one list */}
+      {attention.length > 0 && (
+        <section className="card-section-sd" aria-labelledby="attn-title-sd">
+          <div className="card-header-sd">
+            <h2 id="attn-title-sd"><AlertCircle size={18} aria-hidden="true" /> Needs attention <span className="meta-count-sd">{attention.length}</span></h2>
+          </div>
+          <ul className="attn-list-sd">
+            {attention.map(({ id, tone, Icon, to, lead, rest }) => (
+              <li key={id}>
+                <Link to={to} className="attn-row-sd">
+                  <span className={`attn-dot-sd badge-${tone}-sd`}><Icon size={16} aria-hidden="true" /></span>
+                  <span className="attn-text-sd"><strong>{lead}</strong> {rest}</span>
+                  <ArrowRight size={18} aria-hidden="true" className="attn-go-sd" />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       <div className="cols-sd">
 
-        {/* CHECK-UP QUEUE: my number and the number being served */}
-        <section className="card-section-sd order-1-sd area-queue-sd" aria-labelledby="queue-title-sd">
-          <div className="card-header-sd">
-            <h2 id="queue-title-sd"><ClipboardList size={18} aria-hidden="true" /> My Check-up Queue</h2>
-            <Link to="/BookCheckup" className="view-all-link-sd">Listings <ArrowRight size={14} aria-hidden="true" /></Link>
-          </div>
-          <p className="live-status-sd" role="status" aria-live="polite">{queueNote}</p>
-          {advance?.mine?.status === 'Waiting' && (
-            <p className="profile-note-sd" role="status">
-              <ClipboardList size={16} aria-hidden="true" />
-              <span>You are in the {advance.mine.visit_type} advance listing: number {advance.mine.label}. Waiting for a doctor's schedule. <Link to="/BookCheckup">Open</Link></span>
-            </p>
-          )}
-          {advance?.mine?.status === 'Pending' && (
-            <p className="profile-note-sd" role="status">
-              <ClipboardList size={16} aria-hidden="true" />
-              <span>Your {advance.mine.visit_type} advance listing request waits for the nurse to review it. <Link to="/BookCheckup">Open</Link></span>
-            </p>
-          )}
-          {advance && advance.is_open && !advance.mine && (
-            <p className="profile-note-sd" role="status">
-              <ClipboardList size={16} aria-hidden="true" />
-              <span>The advance listing is open. Register for a check-up service before a schedule is set. <Link to="/BookCheckup">Register</Link></span>
-            </p>
-          )}
-          {queue.loading ? (
-            <p className="empty-state-sd">Loading your queue...</p>
-          ) : (
-            <MyQueue
-              appointments={liveAppointments}
-              requests={queue.requests}
-              compact
-              emptyText="You are not on a check-up waiting list. Join one from the Check-up page to get a number."
-            />
-          )}
-        </section>
-
-        {/* REQUIREMENTS: every requirement, whatever its status */}
-        <section className="card-section-sd order-2-sd area-req-sd" aria-labelledby="req-title-sd">
-          <div className="card-header-sd">
-            <h2 id="req-title-sd"><ClipboardList size={18} aria-hidden="true" /> Requirements</h2>
-            {todoReq > 0 && <span className="badge-sd badge-warn-sd">{todoReq} to submit</span>}
-            {waitingReq > 0 && <span className="badge-sd badge-info-sd">{waitingReq} waiting for approval</span>}
-            <Link to="/MyRequirements" className="view-all-link-sd">Open page <ArrowRight size={14} aria-hidden="true" /></Link>
-          </div>
-
-          {totalReq === 0 ? (
-            <p className="empty-state-sd">No requirements assigned.</p>
-          ) : (
-            <>
-              <div>
-                <div className="progress-head-sd">
-                  <span>{todoReq === 0 && waitingReq === 0 ? <><CheckCircle2 size={14} aria-hidden="true" /> All requirements are approved</> : reqSummary}</span>
-                  <strong>{doneReq} of {totalReq} approved</strong>
-                </div>
-                <div className="progress-track-sd" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={reqPercent} aria-label="Requirements approved">
-                  <div className="progress-fill-sd" style={{ width: `${reqPercent}%` }} />
-                </div>
+        {/* LEFT: queue number, then what is coming up */}
+        <div className="col-main-sd">
+          {hasLive ? (
+            <section className="hero-sd" aria-labelledby="queue-title-sd">
+              <div className="hero-head-sd">
+                <h2 id="queue-title-sd"><ClipboardList size={18} aria-hidden="true" /> My Check-up Queue</h2>
+                <Link to="/BookCheckup" className="ibtn-sd ibtn-dark-sd" aria-label="Open check-up listings" title="Open check-up listings">
+                  <ArrowRight size={18} aria-hidden="true" />
+                </Link>
               </div>
-              <ul className="card-content-scroll-sd req-list-sd">
-                {allReqSorted.map((req, idx) => {
-                  const key = dayOf(req.submission_deadline);
-                  const due = key && reqStateOf(req.status) === 'todo' ? dueText(key, today) : null;
-                  return (
-                    <li key={`${req.requirement_name}-${idx}`} className="item-card-sd">
-                      <div className="item-card-row-sd">
-                        <span className="item-title-sd">{req.requirement_name}</span>
-                        <span className={reqBadgeClass(req.status)}>{reqLabel(req.status)}</span>
+              <p className="hero-live-sd" role="status" aria-live="polite">{queueNote}</p>
+
+              {liveAppointments.map((a) => {
+                const st = heroOf(a);
+                const waiting = a.state === 'Waiting' && a.in_session;
+                return (
+                  <div key={a.appointment_id} className="hero-item-sd">
+                    <div className="hero-main-sd">
+                      <div className="hero-num-sd">
+                        <span className="hero-small-sd">{a.lane === 'Walk-in' ? 'Walk-in' : 'Your number'}, {visitLabel(a.visit_type)}</span>
+                        <div className="hero-numrow-sd">
+                          <strong className="hero-no-sd" aria-label={`Your queue number ${a.label}`}>{a.label}</strong>
+                          <span className="pill-y-sd"><st.Icon size={14} aria-hidden="true" /> {st.text}</span>
+                        </div>
                       </div>
-                      <p className="item-subtext-sd">
-                        Deadline: <span>{formatDate(req.submission_deadline)}</span>
-                        {due && <span className={`due-sd due-${due.tone}-sd`}>{due.text}</span>}
-                        {req.file_url && (
-                          <a href={getFileUrl(req.file_url)} target="_blank" rel="noopener noreferrer" className="inline-link-sd" aria-label={`View submitted document for ${req.requirement_name}`}>
-                            <Eye size={14} aria-hidden="true" /> View submitted
-                          </a>
-                        )}
-                      </p>
-                      {req.nurse_remarks && <div className="item-remarks-sd"><strong>Remarks:</strong> {req.nurse_remarks}</div>}
+
+                      <dl className="hero-stats-sd">
+                        <div><dt>Now serving</dt><dd>{a.state === 'Serving' ? 'You' : a.now_serving || '-'}</dd></div>
+                        {waiting && <div><dt>Ahead of you</dt><dd>{a.ahead}</dd></div>}
+                      </dl>
+
+                      <ul className="hero-meta-sd">
+                        {a.doctor_name && <li><Stethoscope size={16} aria-hidden="true" /> {a.doctor_name}</li>}
+                        <li><Clock size={16} aria-hidden="true" /> {formatDate(a.date)}, {to12h(a.session_start)} - {to12h(a.session_end)}</li>
+                        {a.location && <li><MapPin size={16} aria-hidden="true" /> {a.location}</li>}
+                      </ul>
+                    </div>
+
+                    {waiting && (
+                      <ol className="qstrip-sd" aria-label="Queue order">
+                        <li className="qchip-sd qchip-serve-sd">{a.now_serving || '-'}<span>In session</span></li>
+                        {a.ahead > 0 && <li className="qchip-sd">{a.ahead}<span>ahead</span></li>}
+                        <li className="qchip-sd qchip-me-sd">{a.label}<span>You</span></li>
+                      </ol>
+                    )}
+                  </div>
+                );
+              })}
+            </section>
+          ) : (
+            <section className="card-section-sd" aria-labelledby="queue-title-sd">
+              <div className="card-header-sd">
+                <h2 id="queue-title-sd"><ClipboardList size={18} aria-hidden="true" /> My Check-up Queue</h2>
+                <Link to="/BookCheckup" className="ibtn-sd" aria-label="Open check-up listings" title="Open check-up listings">
+                  <ArrowRight size={18} aria-hidden="true" />
+                </Link>
+              </div>
+              <p className="live-status-sd" role="status" aria-live="polite">{queueNote}</p>
+              {queue.loading ? (
+                <p className="empty-state-sd">Loading your queue...</p>
+              ) : (
+                <MyQueue
+                  appointments={[]}
+                  requests={queue.requests}
+                  compact
+                  emptyText="You are not on a check-up waiting list. Join one from the Check-up page to get a number."
+                />
+              )}
+            </section>
+          )}
+
+          {hasLive && queue.requests.length > 0 && (
+            <section className="card-section-sd" aria-label="Waiting list">
+              <MyQueue appointments={[]} requests={queue.requests} compact />
+            </section>
+          )}
+
+          {/* COMING UP: the next events; the full month opens from the icon */}
+          <section id="sec-cal-sd" className="card-section-sd" aria-labelledby="calendar-title-sd">
+            <div className="card-header-sd">
+              <h2 id="calendar-title-sd"><CalendarDays size={18} aria-hidden="true" /> Coming up</h2>
+              <button
+                type="button"
+                className="ibtn-sd"
+                onClick={() => setShowCalendar((v) => !v)}
+                aria-expanded={showCalendar}
+                aria-controls="full-calendar-sd"
+                aria-label={showCalendar ? 'Hide full calendar' : 'Show full calendar'}
+                title={showCalendar ? 'Hide full calendar' : 'Show full calendar'}
+              >
+                <CalendarDays size={18} aria-hidden="true" />
+              </button>
+            </div>
+
+            {agenda.length === 0 ? (
+              <p className="empty-state-sd">Nothing coming up.</p>
+            ) : (
+              <ul className="agenda-sd">
+                {agenda.map((e) => {
+                  const { num, weekday } = dayParts(e.date);
+                  const isToday = e.date === today;
+                  return (
+                    <li key={e.id}>
+                      <Link to={e.to} className="ev-sd">
+                        <span className={`ev-day-sd${isToday ? ' ev-today-sd' : ''}`}>
+                          <b>{num}</b>
+                          <span>{isToday ? 'Today' : weekday}</span>
+                        </span>
+                        <span className="ev-body-sd">
+                          <span className="ev-title-sd">{e.title}</span>
+                          {(e.time || e.detail) && <span className="ev-sub-sd">{[e.time, e.detail].filter(Boolean).join(' · ')}</span>}
+                        </span>
+                        <span className="ev-badges-sd">
+                          {e.badges.map((b) => <span key={b.text} className={`badge-sd badge-${b.tone}-sd`}>{b.text}</span>)}
+                        </span>
+                      </Link>
                     </li>
                   );
                 })}
               </ul>
-            </>
-          )}
-        </section>
+            )}
 
-        {/* CALENDAR: screenings, check-ups and deadlines in one place, on the right */}
-        <section className="card-section-sd order-3-sd area-calendar-sd" aria-labelledby="calendar-title-sd">
-          <div className="card-header-sd">
-            <h2 id="calendar-title-sd"><CalendarDays size={18} aria-hidden="true" /> My Calendar</h2>
-          </div>
-          <DashboardCalendar events={calendarEvents} />
-        </section>
+            {showCalendar && (
+              <div id="full-calendar-sd">
+                <DashboardCalendar events={calendarEvents} />
+              </div>
+            )}
+          </section>
+        </div>
 
-        {/* REQUEST UPDATES: the latest three */}
-        <section className="card-section-sd order-4-sd area-updates-sd" aria-labelledby="docs-title-sd">
-          <div className="card-header-sd">
-            <h2 id="docs-title-sd"><FileText size={18} aria-hidden="true" /> Request Updates</h2>
-            <Link to="/RequestModule" className="view-all-link-sd">View all <ArrowRight size={14} aria-hidden="true" /></Link>
-          </div>
-          {updates.length === 0 ? (
-            <p className="empty-state-sd">No request updates yet.</p>
-          ) : (
-            <ul className="card-content-stack-sd">
-              {updates.map((doc) => {
-                const link = doc.issued_slip_url
-                  ? { href: doc.issued_slip_url, text: 'View issued' }
-                  : doc.student_proof_url ? { href: doc.student_proof_url, text: 'View proof' } : null;
-                return (
-                  <li key={`${doc.request_type}-${doc.request_id}`} className="item-card-sd">
-                    <div className="item-card-row-sd">
-                      <span className="item-title-sd">{doc.request_type}</span>
-                      <span className={getStatusBadgeClass(doc.status || 'Pending')}>{!doc.status || doc.status === 'Pending' ? 'Waiting for approval' : doc.status}</span>
-                    </div>
-                    <p className="item-subtext-sd">
-                      Requested {formatDate(doc.created_at)}
-                      {link && (
-                        <a href={getFileUrl(link.href)} target="_blank" rel="noopener noreferrer" className="inline-link-sd" aria-label={`${link.text}: ${doc.request_type}`}>
-                          <Eye size={14} aria-hidden="true" /> {link.text}
-                        </a>
-                      )}
-                    </p>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
+        {/* RIGHT: what is still to do, then requests and visits */}
+        <div className="col-side-sd">
 
-        {/* CLINIC VISITS & MEDICINE: this month, one line each; the full record is on Clinic Logs */}
-        <section className="card-section-sd order-5-sd area-visits-sd" aria-labelledby="visits-title-sd">
-          <div className="card-header-sd">
-            <h2 id="visits-title-sd"><Activity size={18} aria-hidden="true" /> Clinic Visits</h2>
-            <Link to="/ClinicLogsAndRecords" className="view-all-link-sd">Records <ArrowRight size={14} aria-hidden="true" /></Link>
-          </div>
+          <section id="sec-req-sd" className="card-section-sd" aria-labelledby="req-title-sd">
+            <div className="card-header-sd">
+              <h2 id="req-title-sd"><ClipboardList size={18} aria-hidden="true" /> Requirements</h2>
+              <Link to="/MyRequirements" className="ibtn-sd" aria-label="Open requirements page" title="Open requirements page">
+                <ArrowRight size={18} aria-hidden="true" />
+              </Link>
+            </div>
 
-          {visitsData.clinic_visits.length === 0 && visitsData.direct_dispensations.length === 0 ? (
-            <p className="empty-state-sd">No clinic visits in {monthLabel}.</p>
-          ) : (
-            <ul className="card-content-stack-sd">
-              {visitsData.clinic_visits.map((visit) => {
-                const meds = (visit.dispensed_medicines || []).map((m) => `${m.medicine_name || m.generic_name || m.brand_name || 'Medicine'} (${m.dosage_value} ${m.dosage_unit || 'pcs'})`);
-                return (
-                  <li key={visit.visit_id} className="item-card-sd">
-                    <span className="item-title-sd">
-                      {visit.complaint_name
-                        ? `${visit.complaint_name}${visit.specify_complaint_text ? `, ${visit.specify_complaint_text}` : ''}`
-                        : visit.specify_complaint_text || 'Clinic visit'}
-                    </span>
-                    <p className="item-subtext-sd">{formatDate(visit.visit_date)}</p>
-                    {meds.length > 0 && <p className="item-subtext-sd"><Pill size={14} aria-hidden="true" /> {meds.join(', ')}</p>}
-                  </li>
-                );
-              })}
-              {visitsData.direct_dispensations.map((direct) => (
-                <li key={direct.direct_dispense_id} className="item-card-sd">
-                  <span className="item-title-sd"><Pill size={14} aria-hidden="true" /> {direct.medicine_name || direct.generic_name || direct.brand_name || 'Medicine'}, {direct.dosage_consumption_unit_value} {direct.dosage_consumption_unit_of_measure || 'pcs'}</span>
-                  <p className="item-subtext-sd">{formatDateTime(direct.dispensed_at)}</p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+            {totalReq === 0 ? (
+              <p className="empty-state-sd">No requirements assigned.</p>
+            ) : (
+              <>
+                <div className="req-summary-sd">
+                  <strong>{doneReq} of {totalReq} approved</strong>
+                  <span>{reqSummary}</span>
+                </div>
+                <div
+                  className="bar-sd"
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={reqPercent}
+                  aria-label="Requirements approved"
+                >
+                  <i style={{ width: `${reqPercent}%` }} />
+                </div>
+
+                {openReqs.length === 0 ? (
+                  <p className="empty-state-sd"><CheckCircle2 size={16} aria-hidden="true" /> All requirements are approved</p>
+                ) : (
+                  <ul className="card-content-stack-sd">
+                    {openReqs.map((req, idx) => {
+                      const key = dayOf(req.submission_deadline);
+                      const due = key && reqStateOf(req.status) === 'todo' ? dueText(key, today) : null;
+                      return (
+                        <li key={`${req.requirement_name}-${idx}`} className="item-card-sd">
+                          <div className="item-card-row-sd">
+                            <span className="item-title-sd">{req.requirement_name}</span>
+                            <span className={reqBadgeClass(req.status)}>{reqLabel(req.status)}</span>
+                          </div>
+                          <p className="item-subtext-sd">
+                            Deadline: <span>{formatDate(req.submission_deadline)}</span>
+                            {due && <span className={`due-sd due-${due.tone}-sd`}>{due.text}</span>}
+                            {req.file_url && (
+                              <a href={getFileUrl(req.file_url)} target="_blank" rel="noopener noreferrer" className="inline-link-sd" aria-label={`View submitted document for ${req.requirement_name}`}>
+                                <Eye size={14} aria-hidden="true" /> View submitted
+                              </a>
+                            )}
+                          </p>
+                          {req.nurse_remarks && <div className="item-remarks-sd"><strong>Remarks:</strong> {req.nurse_remarks}</div>}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </>
+            )}
+          </section>
+
+          {/* REQUESTS + VISITS: two tabs in one card */}
+          <section className="card-section-sd" aria-label="Requests and visits">
+            <div className="tabs-row-sd">
+              <div className="tabs-sd" role="tablist" aria-label="Requests and visits">
+                <button
+                  type="button"
+                  role="tab"
+                  id="tab-requests-sd"
+                  className="tab-sd"
+                  aria-selected={recTab === 'requests'}
+                  aria-controls="panel-requests-sd"
+                  tabIndex={recTab === 'requests' ? 0 : -1}
+                  onClick={() => setRecTab('requests')}
+                  onKeyDown={onTabKey}
+                >
+                  <FileText size={16} aria-hidden="true" /> Requests
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  id="tab-visits-sd"
+                  className="tab-sd"
+                  aria-selected={recTab === 'visits'}
+                  aria-controls="panel-visits-sd"
+                  tabIndex={recTab === 'visits' ? 0 : -1}
+                  onClick={() => setRecTab('visits')}
+                  onKeyDown={onTabKey}
+                >
+                  <Activity size={16} aria-hidden="true" /> Visits
+                </button>
+              </div>
+              {recTab === 'requests' ? (
+                <Link to="/RequestModule" className="ibtn-sd" aria-label="View all requests" title="View all requests">
+                  <ArrowRight size={18} aria-hidden="true" />
+                </Link>
+              ) : (
+                <Link to="/ClinicLogsAndRecords" className="ibtn-sd" aria-label="Open clinic records" title="Open clinic records">
+                  <ArrowRight size={18} aria-hidden="true" />
+                </Link>
+              )}
+            </div>
+
+            {recTab === 'requests' ? (
+              <div id="panel-requests-sd" role="tabpanel" aria-labelledby="tab-requests-sd">
+                {updates.length === 0 ? (
+                  <p className="empty-state-sd">No request updates yet.</p>
+                ) : (
+                  <ul className="card-content-stack-sd">
+                    {updates.map((doc) => {
+                      const link = doc.issued_slip_url
+                        ? { href: doc.issued_slip_url, text: 'View issued' }
+                        : doc.student_proof_url ? { href: doc.student_proof_url, text: 'View proof' } : null;
+                      return (
+                        <li key={`${doc.request_type}-${doc.request_id}`} className="item-card-sd">
+                          <div className="item-card-row-sd">
+                            <span className="item-title-sd">{doc.request_type}</span>
+                            <span className={getStatusBadgeClass(doc.status || 'Pending')}>{!doc.status || doc.status === 'Pending' ? 'Waiting for approval' : doc.status}</span>
+                          </div>
+                          <p className="item-subtext-sd">
+                            Requested {formatDate(doc.created_at)}
+                            {link && (
+                              <a href={getFileUrl(link.href)} target="_blank" rel="noopener noreferrer" className="inline-link-sd" aria-label={`${link.text}: ${doc.request_type}`}>
+                                <Eye size={14} aria-hidden="true" /> {link.text}
+                              </a>
+                            )}
+                          </p>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            ) : (
+              <div id="panel-visits-sd" role="tabpanel" aria-labelledby="tab-visits-sd">
+                {recentVisits.length === 0 ? (
+                  <p className="empty-state-sd">No recent clinic visits.</p>
+                ) : (
+                  <ul className="card-content-stack-sd">
+                    {recentVisits.map((item) => {
+                      if (item.type === 'direct') {
+                        const direct = item.data;
+                        return (
+                          <li key={item.key} className="item-card-sd">
+                            <span className="item-title-sd"><Pill size={14} aria-hidden="true" /> {direct.medicine_name || direct.generic_name || direct.brand_name || 'Medicine'}, {direct.dosage_consumption_unit_value} {direct.dosage_consumption_unit_of_measure || 'pcs'}</span>
+                            <p className="item-subtext-sd">{formatDateTime(direct.dispensed_at)}</p>
+                          </li>
+                        );
+                      }
+                      const visit = item.data;
+                      const meds = (visit.dispensed_medicines || []).map((m) => `${m.medicine_name || m.generic_name || m.brand_name || 'Medicine'} (${m.dosage_value} ${m.dosage_unit || 'pcs'})`);
+                      return (
+                        <li key={item.key} className="item-card-sd">
+                          <span className="item-title-sd">
+                            {visit.complaint_name
+                              ? `${visit.complaint_name}${visit.specify_complaint_text ? `, ${visit.specify_complaint_text}` : ''}`
+                              : visit.specify_complaint_text || 'Clinic visit'}
+                          </span>
+                          <p className="item-subtext-sd">{formatDate(visit.visit_date)}</p>
+                          {meds.length > 0 && <p className="item-subtext-sd"><Pill size={14} aria-hidden="true" /> {meds.join(', ')}</p>}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            )}
+          </section>
+        </div>
       </div>
 
       <HealthTipsModal

@@ -5,21 +5,20 @@ import {
   Calendar, Clock, Users, Eye, Activity, Smile, HeartPulse, Ear, 
   X, CheckCircle, Edit3, Trash2, FileText, ArrowLeft, ArrowRight, Megaphone, Printer,
   Play, UserRoundPlus, Download, Search, ClipboardList, BellRing, History, LogIn, FolderPlus,
-  Plus, GraduationCap, RotateCcw, CalendarDays, Folder, AlertTriangle, Lock, Scale
+  Plus, RotateCcw, CalendarDays, Folder, AlertTriangle, Lock, Scale, Upload, Layers
 } from 'lucide-react';
 
 import { openReportWindow, writeReport, escapeHtml } from '../../utils/printReport';
 import stiLogo from '../../assets/sti-logof.png';
 import { formatDate, formatTime } from '../../utils/datetime';
 import '../../styles/nurse/HealthScreening.css';
-import { FolderCrumbs, Pager, sectionFolderName, paginate, scopeCounts, TabCount, groupByDay, dayKey, dayHeading, DaySection } from '../../components/common/RecordFolders';
+import { FolderCrumbs, Pager, sectionFolderName, paginate, scopeCounts, groupByDay, dayKey, dayHeading, DaySection } from '../../components/common/RecordFolders';
 import ScreeningTypesManager from '../../components/nurse/ScreeningTypesManager';
 import ScreeningCalendar from '../../components/nurse/ScreeningCalendar';
 import ScreeningParticipantsModal from '../../components/nurse/ScreeningParticipantsModal';
 import ScreeningTemplatesManager from '../../components/nurse/ScreeningTemplatesManager';
-import ScreeningArchive from '../../components/nurse/ScreeningArchive';
+import ScreeningImportModal from '../../components/nurse/ScreeningImportModal';
 import SectionStudents from '../../components/nurse/SectionStudents';
-import SchoolYearDialog from '../../components/nurse/SchoolYearDialog';
 import StudentScreeningHistoryModal from '../../components/nurse/StudentScreeningHistoryModal';
 import { calculate } from '../../utils/formula';
 import { classLabel } from '../../utils/scheduling';
@@ -48,10 +47,12 @@ const StepDots = ({ step }) => (
 const TYPE_NAME_ICONS = { 'Vital Signs': HeartPulse, BMI: Scale, Hearing: Ear };
 const typeIcon = (name, formKind) => TYPE_NAME_ICONS[name] || KIND_ICONS[formKind] || ClipboardList;
 
-const FOLDER_VARIANT_ICONS = { all: CalendarDays, archive: GraduationCap };
+const FOLDER_VARIANT_ICONS = { all: CalendarDays, custom: Layers };
+const PHASE_META = { upcoming: [Calendar, 'Upcoming', 'chip-info-hs'], ongoing: [Clock, 'Ongoing', 'chip-ok-hs'], past: [CheckCircle, 'Past', ''] };
 
-// Folder cards: icon tile, name, one line below, then one pill per state (upcoming / ongoing / past) with icon + number
-const ScreeningFolders = ({ items }) => {
+// Folder cards: icon tile, name, one line below, then the pill of the open status tab (upcoming / ongoing / past) with icon + number.
+// A folder is only listed under a status when it has a screening in that status (the page filters the items).
+const ScreeningFolders = ({ items, phase }) => {
   if (items.length === 0) return <div className="no-records-hs"><Folder size={28} aria-hidden="true" /><p>None</p></div>;
   return (
     <div className="fld-grid-hs">
@@ -59,6 +60,7 @@ const ScreeningFolders = ({ items }) => {
         const c = f.counts;
         const running = !!c && Number(c.ongoing) > 0;
         const Icon = FOLDER_VARIANT_ICONS[f.variant] || Folder;
+        const [PhaseIcon, phaseName, phaseTone] = PHASE_META[phase] || PHASE_META.upcoming;
         return (
           <button type="button" key={f.key} className="fld-hs" onClick={f.onClick}>
             <span className="fld-top-hs">
@@ -71,9 +73,7 @@ const ScreeningFolders = ({ items }) => {
             </span>
             {c && (
               <span className="fld-counts-hs">
-                <span className="chip-hs chip-info-hs" title="Upcoming"><Calendar size={14} aria-hidden="true" />{Number(c.upcoming) || 0}<span className="sr-only-hs"> upcoming</span></span>
-                <span className={`chip-hs ${running ? 'chip-ok-hs' : ''}`} title="Ongoing"><Clock size={14} aria-hidden="true" />{Number(c.ongoing) || 0}<span className="sr-only-hs"> ongoing</span></span>
-                <span className="chip-hs" title="Past"><CheckCircle size={14} aria-hidden="true" />{Number(c.past) || 0}<span className="sr-only-hs"> past</span></span>
+                <span className={`chip-hs ${phaseTone}`} title={phaseName}><PhaseIcon size={14} aria-hidden="true" />{Number(c[phase]) || 0}<span className="sr-only-hs"> {phaseName.toLowerCase()}</span></span>
               </span>
             )}
           </button>
@@ -175,8 +175,8 @@ const getDateString = (offsetDays = 0) => {
 
 const getTodayString = () => getDateString(0);
 
-// Past Screenings opens on yesterday and today
-const defaultPastRange = () => ({ from: getDateString(-1), to: getDateString(0) });
+// Past Screenings lists every finished screening of the folder (a folder sits under Past because it has one), narrow it with the dates
+const defaultPastRange = () => ({ from: '', to: '' });
 
 // Helper to get current local time in HH:MM format
 const getCurrentTimeString = () => {
@@ -239,9 +239,12 @@ export default function HealthScreening() {
     target_year_level: '',
     target_section: '',
     grouping: 'SECTION', // 'SECTION' = one class (by-section folder) | 'CUSTOM' = a named folder, any mix of students
+    folder_mode: 'existing', // 'existing' = file it in a folder that exists | 'new' = start a new folder
+    section_key: '',     // existing by-section folder, "PROGRAM|year|section"
     folder_id: '',       // existing custom folder id, or 'new'
     folder_name: ''      // name of the new custom folder
   });
+  const [importData, setImportData] = useState(null); // { schedule, students } of the screening being imported into
 
   const [filterStudents, setFilterStudents] = useState([]);
   const [studentCache, setStudentCache] = useState({}); // every student seen in the picker, so picks from other filters stay listed
@@ -274,7 +277,6 @@ export default function HealthScreening() {
   // School years: the lists show one school year at a time (the current one first); past years stay viewable
   const [schoolYearInfo, setSchoolYearInfo] = useState(null);
   const [schoolYear, setSchoolYear] = useState('');
-  const [showSchoolYearDialog, setShowSchoolYearDialog] = useState(false);
   const [classTab, setClassTab] = useState('screenings'); // inside a section folder: 'screenings' | 'students'
 
   // Screening types (nurse-managed): the list for the type filters, and the active ones for the schedule forms
@@ -435,8 +437,15 @@ export default function HealthScreening() {
       return;
     }
 
+    const q = queryRef.current;
+    const folderName = q.view.kind === 'custom' ? q.view.folder_name : q.view.kind === 'section' ? sectionFolderName(q.view.program_id, q.view) : 'All folders';
     writeReport(win, {
       title: 'Health Screening Summary Report',
+      details: [
+        ['Folder', folderName],
+        ['Status', { upcoming: 'Upcoming', ongoing: 'Ongoing', past: 'Past' }[q.activeTab] || ''],
+        ['Screenings', String(rowsToExport.length)]
+      ],
       columns: ['Screening Title', 'Type', 'Date', 'Time', 'Attendance (Present / Total)'],
       rows: rowsToExport.map(sch => [
         sch.title || 'N/A',
@@ -638,29 +647,31 @@ export default function HealthScreening() {
     }
     if (view.kind === 'section') trail.push({ label: sectionFolderName(view.program_id, view) });
     if (view.kind === 'all') trail.push({ label: 'All screenings' });
-    if (view.kind === 'archive') trail.push({ label: 'Archive (graduated)' });
     if (searching && view.kind !== 'section' && view.kind !== 'custom' && view.kind !== 'all') trail.push({ label: `Search: "${debouncedSearch}"` });
     return trail;
   })();
 
+  // a folder is listed under a status only when it has a screening in that status
+  const inPhase = (c) => Number(c?.[activeTab]) > 0;
+
   const folderItems = (() => {
     if (view.kind === 'program') {
       const prog = folders.programs.find(p => p.program_id === view.program_id);
-      return (prog ? prog.sections : []).map(s => ({
+      return (prog ? prog.sections : []).filter(inPhase).map(s => ({
         key: `${s.year_level}-${s.section}`,
         title: sectionFolderName(view.program_id, s),
         counts: s,
         onClick: () => openSection(prog, s)
       }));
     }
-    const items = folders.programs.map(p => ({
+    const items = folders.programs.filter(inPhase).map(p => ({
       key: p.program_id,
       title: p.program_id,
       subtitle: p.program_name,
       counts: p,
       onClick: () => openProgram(p)
     }));
-    (folders.custom_folders || []).forEach(f => items.push({
+    (folders.custom_folders || []).filter(inPhase).forEach(f => items.push({
       key: `custom-${f.folder_id}`,
       variant: 'custom',
       title: f.name,
@@ -668,14 +679,6 @@ export default function HealthScreening() {
       counts: f,
       onClick: () => openCustomFolder(f)
     }));
-    items.push({
-      key: 'archive',
-      variant: 'archive',
-      title: 'Archive',
-      subtitle: `Graduated students (${folders.archived || 0})`,
-      counts: null,
-      onClick: () => { setView({ kind: 'archive' }); setSearchTerm(''); }
-    });
     items.unshift({
       key: 'all',
       variant: 'all',
@@ -685,6 +688,31 @@ export default function HealthScreening() {
       onClick: () => { setView({ kind: 'all' }); setSearchTerm(''); }
     });
     return items;
+  })();
+
+  // an open folder with nothing left in the chosen status (another tab picked, or its last screening was cancelled) closes to the level above
+  useEffect(() => {
+    if (foldersLoading || !['program', 'section', 'custom'].includes(view.kind)) return;
+    const prog = folders.programs.find(p => p.program_id === view.program_id);
+    const c = view.kind === 'program' ? prog : scopeCounts(folders, view, false);
+    if (c && Number(c[activeTab]) > 0) return;
+    if (view.kind === 'section' && Number(prog?.[activeTab]) > 0) {
+      setView({ kind: 'program', program_id: view.program_id, program_name: view.program_name });
+      return;
+    }
+    goRoot();
+  }, [activeTab, folders, foldersLoading]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // totals behind the status tabs: the open folder, the open program, or every folder
+  const phaseCounts = (() => {
+    if (view.kind === 'section' || view.kind === 'custom' || view.kind === 'all') return scopeCounts(folders, view, false);
+    const src = view.kind === 'program'
+      ? folders.programs.filter(p => p.program_id === view.program_id)
+      : [...folders.programs, ...(folders.custom_folders || [])];
+    return src.reduce((acc, r) => {
+      ['upcoming', 'ongoing', 'past'].forEach(k => { acc[k] += Number(r[k]) || 0; });
+      return acc;
+    }, { upcoming: 0, ongoing: 0, past: 0 });
   })();
 
   // ---- participants of the open screening: search + paging ----
@@ -725,6 +753,8 @@ export default function HealthScreening() {
   };
 
   const isCustomGrouping = scheduleForm.grouping === 'CUSTOM';
+  // an existing by-section folder fixes the class: program, year level and section cannot change on the student step
+  const lockedClass = !isCustomGrouping && scheduleForm.folder_mode === 'existing' && !!scheduleForm.section_key;
 
   const handleFilterStudents = useCallback(async () => {
     try {
@@ -800,6 +830,9 @@ export default function HealthScreening() {
         showAlert('Type a name for the new folder.', 'Folder Name Required', 'warning');
         return;
       }
+    } else if (scheduleForm.folder_mode === 'existing' && !scheduleForm.section_key) {
+      showAlert('Choose an existing folder, or start a new one.', 'Folder Required', 'warning');
+      return;
     }
 
     setShowScheduleModal(false);
@@ -831,6 +864,15 @@ export default function HealthScreening() {
       return;
     }
 
+    // a new by-section folder must be a class that has no folder yet; otherwise it belongs in the existing one
+    if (!isCustomGrouping && scheduleForm.folder_mode === 'new') {
+      const taken = sectionFolders.find(f => f.key === `${scheduleForm.target_program_id}|${scheduleForm.target_year_level}|${scheduleForm.target_section}`);
+      if (taken) {
+        showAlert(`${taken.label} already has a folder. Choose Existing folder.`, 'Folder Exists', 'warning');
+        return;
+      }
+    }
+
     try {
       const res = await fetch(`${API_BASE}/screenings`, {
         method: 'POST',
@@ -846,9 +888,24 @@ export default function HealthScreening() {
 
       const data = await res.json();
       if (res.ok) {
+        const sent = scheduleForm;
         setShowStudentSelectModal(false);
         resetScheduleForm();
-        fetchSchedules();
+        // the new screening is upcoming: show it under Upcoming, in its folder
+        await fetchFolders();
+        fetchCalendar();
+        setActiveTab('upcoming');
+        setSearchTerm('');
+        if (sent.grouping === 'SECTION') {
+          setClassTab('screenings');
+          setView({
+            kind: 'section', program_id: sent.target_program_id,
+            program_name: programs.find(p => p.program_id === sent.target_program_id)?.program_name || '',
+            year_level: Number(sent.target_year_level), section: sent.target_section
+          });
+        } else {
+          setView({ kind: 'root' });
+        }
         showAlert('Screening saved. Students notified.', 'Success', 'success');
       } else {
         showAlert(data.error || 'Failed to create screening schedule.', 'Error', 'error');
@@ -1128,7 +1185,9 @@ export default function HealthScreening() {
       if (res.ok) {
         setMakeupModal(null);
         setShowViewModal(false);
-        fetchSchedules();
+        // the make-up stays in the same folder, so the folder now also has an upcoming screening
+        await fetchFolders();
+        fetchCalendar();
         setActiveTab('upcoming');
         showAlert(`${data.message}`, 'Make-up Scheduled', 'success');
       } else {
@@ -1376,14 +1435,75 @@ export default function HealthScreening() {
     }
   };
 
+  // the folders a new screening can be filed in: by-section folders (a class that has screenings) and custom folders
+  const sectionFolders = folders.programs.flatMap(p => (p.sections || []).map(s => ({
+    key: `${p.program_id}|${s.year_level}|${s.section}`,
+    program_id: p.program_id,
+    year_level: s.year_level,
+    section: s.section,
+    label: sectionFolderName(p.program_id, s)
+  })));
+  const customFolderList = folders.custom_folders || [];
+
   const resetScheduleForm = () => {
     setScheduleForm({
       title: '', screening_type: activeTypes[0]?.name || '', scheduled_date: '', start_time: '', end_time: '',
       announcement: '', target_program_id: '', target_year_level: '', target_section: '',
-      grouping: 'SECTION', folder_id: '', folder_name: ''
+      grouping: 'SECTION', folder_mode: sectionFolders.length ? 'existing' : 'new', section_key: '', folder_id: '', folder_name: ''
     });
     setSelectedStudentIds([]);
     setPickerSearch('');
+  };
+
+  // "New screening in this folder" (Past tab of an open folder): the form opens with that folder chosen
+  const scheduleInFolder = () => {
+    resetScheduleForm();
+    setScheduleForm(prev => (view.kind === 'custom'
+      ? { ...prev, grouping: 'CUSTOM', folder_mode: 'existing', folder_id: String(view.folder_id) }
+      : {
+        ...prev, grouping: 'SECTION', folder_mode: 'existing', section_key: `${view.program_id}|${view.year_level}|${view.section}`,
+        target_program_id: view.program_id, target_year_level: String(view.year_level), target_section: view.section
+      }));
+    setShowScheduleModal(true);
+  };
+
+  // existing folder or a new one; the options of an existing folder match the kind (by section / custom)
+  const changeFolderMode = (mode) => {
+    if (mode === scheduleForm.folder_mode) return;
+    setSelectedStudentIds([]);
+    setPickerSearch('');
+    setScheduleForm(prev => ({
+      ...prev, folder_mode: mode, section_key: '', target_program_id: '', target_year_level: '', target_section: '',
+      folder_id: prev.grouping === 'CUSTOM' && mode === 'new' ? 'new' : '', folder_name: ''
+    }));
+  };
+
+  const pickSectionFolder = (key) => {
+    const f = sectionFolders.find(x => x.key === key);
+    setSelectedStudentIds([]);
+    setPickerSearch('');
+    setScheduleForm(prev => ({
+      ...prev, section_key: key,
+      target_program_id: f ? f.program_id : '', target_year_level: f ? String(f.year_level) : '', target_section: f ? f.section : ''
+    }));
+  };
+
+  // the folder a screening is filed in, as a label (make-up and import show it locked)
+  const folderLabelOf = (sch) => {
+    if (!sch) return '';
+    if (sch.folder_id) return customFolderList.find(f => String(f.folder_id) === String(sch.folder_id))?.name || 'Custom folder';
+    return sch.target_program_id ? sectionFolderName(sch.target_program_id, { year_level: sch.target_year_level, section: sch.target_section }) : '';
+  };
+
+  const openImport = async (sch) => {
+    try {
+      const res = await fetch(`${API_BASE}/screenings/${sch.screening_schedule_id}/students`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load participants');
+      setImportData({ schedule: { ...sch, ...(data.schedule || {}) }, students: data.students || [] });
+    } catch (err) {
+      showAlert(err.message || 'Could not load the participants.', 'Error', 'error');
+    }
   };
 
   // "Schedule screening" on a day of the calendar: the form opens with that date
@@ -1396,11 +1516,12 @@ export default function HealthScreening() {
   // switching between by-section and custom starts the student picks again (the class rule differs)
   const changeGrouping = (grouping) => {
     if (grouping === scheduleForm.grouping) return;
+    const mode = (grouping === 'CUSTOM' ? customFolderList.length : sectionFolders.length) ? 'existing' : 'new';
     setSelectedStudentIds([]);
     setPickerSearch('');
     setScheduleForm(prev => ({
-      ...prev, grouping, target_program_id: '', target_year_level: '', target_section: '',
-      folder_id: grouping === 'CUSTOM' ? prev.folder_id : '', folder_name: grouping === 'CUSTOM' ? prev.folder_name : ''
+      ...prev, grouping, folder_mode: mode, section_key: '', target_program_id: '', target_year_level: '', target_section: '',
+      folder_id: grouping === 'CUSTOM' && mode === 'new' ? 'new' : '', folder_name: ''
     }));
   };
 
@@ -1502,9 +1623,48 @@ export default function HealthScreening() {
   // records of one student (all school years)
   const openStudentRecords = (st) => openHistory(st);
 
-  // numbers on the status tabs (from the folder summary) and the cards of this page cut into days
+  // numbers of the open folder (from the folder summary) and the cards of this page cut into days
   const tabCounts = scopeCounts(folders, view, searching);
   const screeningDays = groupByDay(schedules, (sch) => dayKey(sch.scheduled_date));
+
+  // side panel of an open folder (desktop): what it is, its counts, and its actions
+  const inFolder = (view.kind === 'section' || view.kind === 'custom') && !searching;
+  const folderTitle = view.kind === 'custom' ? view.folder_name : view.kind === 'section' ? sectionFolderName(view.program_id, view) : '';
+  const folderAside = inFolder ? (
+    <aside className="hs-aside-hs" aria-label="Folder">
+      <div className="hs-aside-head-hs">
+        <span className={`fld-ico-hs ${view.kind === 'custom' ? 'fld-ico-custom-hs' : ''}`}>
+          {view.kind === 'custom' ? <Layers size={20} aria-hidden="true" /> : <Folder size={20} aria-hidden="true" />}
+        </span>
+        <div className="fld-text-hs">
+          <h2 className="hs-aside-title-hs">{folderTitle}</h2>
+          <span className="fld-sub-hs">{view.kind === 'custom' ? 'Custom folder' : 'By section'}</span>
+        </div>
+      </div>
+      <dl className="hs-kv-hs">
+        {view.kind === 'section' && (
+          <>
+            <dt>Program</dt><dd>{view.program_id}</dd>
+            <dt>Year</dt><dd>{view.year_level}</dd>
+            <dt>Section</dt><dd>{view.section}</dd>
+          </>
+        )}
+        <dt>Upcoming</dt><dd>{Number(tabCounts?.upcoming) || 0}</dd>
+        <dt>Ongoing</dt><dd>{Number(tabCounts?.ongoing) || 0}</dd>
+        <dt>Past</dt><dd>{Number(tabCounts?.past) || 0}</dd>
+      </dl>
+      <div className="hs-aside-actions-hs">
+        {activeTab === 'past' && (
+          <button type="button" className="btn-hs btn-icon-hs btn-primary-hs" onClick={scheduleInFolder} aria-label="New screening in this folder" title="New screening in this folder">
+            <Plus size={18} aria-hidden="true" />
+          </button>
+        )}
+        <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={handleExportAllReport} aria-label="Export folder report (PDF)" title="Export folder report (PDF)">
+          <Printer size={18} aria-hidden="true" />
+        </button>
+      </div>
+    </aside>
+  ) : null;
 
   return (
     <div className="container-hs">
@@ -1523,15 +1683,6 @@ export default function HealthScreening() {
           <h1>Health Screening</h1>
         </div>
         <div className="header-actions-hs">
-          <button
-            type="button"
-            className="btn-hs btn-icon-hs btn-secondary-hs"
-            onClick={() => setShowSchoolYearDialog(true)}
-            aria-label="School year"
-            title="School year"
-          >
-            <GraduationCap size={18} aria-hidden="true" />
-          </button>
           <button
             type="button"
             className="btn-hs btn-icon-hs btn-primary-hs"
@@ -1598,6 +1749,30 @@ export default function HealthScreening() {
         />
       )}
 
+      {/* Status first: Upcoming / Ongoing / Past. The folders under a status are the ones that have a screening in it. */}
+      {mainView === 'screenings' && !(view.kind === 'section' && !searching && classTab === 'students') && (
+        <div className="phase-tabs-hs" role="tablist" aria-label="Status">
+          {[
+            ['upcoming', Calendar, 'Upcoming Screening'],
+            ['ongoing', Clock, 'Ongoing Screening'],
+            ['past', CheckCircle, 'Past Screening']
+          ].map(([key, Icon, label]) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              className={`phase-tab-hs ${activeTab === key ? 'active-hs' : ''}`}
+              aria-selected={activeTab === key}
+              onClick={() => setActiveTab(key)}
+            >
+              <span className="phase-ico-hs"><Icon size={18} aria-hidden="true" /></span>
+              <span className="phase-label-hs">{label}</span>
+              <span className="phase-n-hs">{Number(phaseCounts?.[key]) || 0}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Folders: Program > Year-Section */}
       {mainView === 'screenings' && <FolderCrumbs trail={crumbTrail} />}
 
@@ -1615,10 +1790,6 @@ export default function HealthScreening() {
         </div>
       )}
 
-      {mainView === 'screenings' && view.kind === 'archive' && (
-        <ScreeningArchive apiBase={API_BASE} programs={programs} onOpenRecords={openStudentRecords} />
-      )}
-
       {mainView === 'screenings' && view.kind === 'section' && !searching && (
         <div className="tabs-hs class-view-toggle-hs" role="group" aria-label="Show screenings or students">
           <button type="button" className={`tab-btn-hs ${classTab === 'screenings' ? 'active-hs' : ''}`} aria-pressed={classTab === 'screenings'} onClick={() => setClassTab('screenings')}>
@@ -1634,40 +1805,21 @@ export default function HealthScreening() {
         <SectionStudents apiBase={API_BASE} view={view} onOpenRecords={openStudentRecords} />
       )}
 
-      {mainView === 'screenings' && view.kind !== 'archive' && !listMode && (
+      {mainView === 'screenings' && !listMode && (
         <>
           {screeningToolbar}
           {foldersLoading ? (
             <p className="hint-hs" role="status">Loading</p>
           ) : (
-            <ScreeningFolders items={folderItems} />
+            <ScreeningFolders items={folderItems} phase={activeTab} />
           )}
         </>
       )}
 
       {mainView === 'screenings' && listMode && !(view.kind === 'section' && !searching && classTab === 'students') && (
-      <>
+      <div className={`hs-split-hs ${inFolder ? 'hs-split-aside-hs' : ''}`}>
+      <div className="hs-main-hs">
       {screeningToolbar}
-
-      {/* Tabs */}
-      <div className="tabs-hs" role="tablist" aria-label="Status">
-        {[
-          ['upcoming', Calendar, 'Upcoming'],
-          ['ongoing', Clock, 'Ongoing'],
-          ['past', CheckCircle, 'Past']
-        ].map(([key, Icon, label]) => (
-          <button
-            key={key}
-            type="button"
-            role="tab"
-            className={`tab-btn-hs ${activeTab === key ? 'active-hs' : ''}`}
-            aria-selected={activeTab === key}
-            onClick={() => setActiveTab(key)}
-          >
-            <Icon size={16} aria-hidden="true" /> {label} <TabCount value={tabCounts?.[key]} />
-          </button>
-        ))}
-      </div>
 
       {/* Date range: only past screenings need one (the type filter lives in the toolbar above) */}
       {activeTab === 'past' && (
@@ -1785,6 +1937,11 @@ export default function HealthScreening() {
                       <button type="button" className={`btn-hs btn-icon-hs ${ended ? 'btn-secondary-hs' : 'btn-primary-hs'}`} onClick={() => openViewModal(sch)} title="Document" aria-label="Document">
                         <FileText size={16} aria-hidden="true" />
                       </button>
+                      {!cancelled && !isLegacySchedule(sch) && sch.form_kind && (
+                        <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => openImport(sch)} title="Import CSV / OCR" aria-label="Import CSV or OCR">
+                          <Upload size={16} aria-hidden="true" />
+                        </button>
+                      )}
                       <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => handleStartBatch(sch)} title="Start" aria-label="Start">
                         <Play size={16} aria-hidden="true" />
                       </button>
@@ -1830,7 +1987,9 @@ export default function HealthScreening() {
       ))}
 
       <Pager page={page} pageCount={pageInfo.pageCount} total={pageInfo.total} pageSize={pageInfo.pageSize} onPage={setPage} noun="screenings" />
-      </>
+      </div>
+      {inFolder && folderAside}
+      </div>
       )}
 
       {/* MODAL 1: Schedule Screening Details */}
@@ -1857,35 +2016,69 @@ export default function HealthScreening() {
                   <button type="button" className="chip-btn-hs" aria-pressed={isCustomGrouping} onClick={() => changeGrouping('CUSTOM')}>Custom folder</button>
                 </div>
 
-                {isCustomGrouping && (
-                  <div className="hs-subfield">
-                    <label htmlFor="hs-folder-pick">Folder</label>
-                    <select
-                      id="hs-folder-pick"
-                      required
-                      value={scheduleForm.folder_id}
-                      onChange={e => setScheduleForm({ ...scheduleForm, folder_id: e.target.value })}
+                <div className="hs-subfield">
+                  <span className="hs-legend-sm-hs">Folder</span>
+                  <div className="chips-hs" role="group" aria-label="Existing or new folder">
+                    <button
+                      type="button"
+                      className="chip-btn-hs"
+                      aria-pressed={scheduleForm.folder_mode === 'existing'}
+                      disabled={(isCustomGrouping ? customFolderList.length : sectionFolders.length) === 0}
+                      onClick={() => changeFolderMode('existing')}
                     >
-                      <option value="">-- Select --</option>
-                      {(folders.custom_folders || []).map(f => <option key={f.folder_id} value={String(f.folder_id)}>{f.name}</option>)}
-                      <option value="new">+ New folder</option>
-                    </select>
-                    {scheduleForm.folder_id === 'new' && (
-                      <div className="hs-subfield">
-                        <label htmlFor="hs-folder-name">Folder name</label>
-                        <input
-                          id="hs-folder-name"
-                          type="text"
-                          required
-                          maxLength={80}
-                          value={scheduleForm.folder_name}
-                          onChange={e => setScheduleForm({ ...scheduleForm, folder_name: e.target.value })}
-                          placeholder="Name"
-                        />
-                      </div>
-                    )}
+                      <Folder size={15} aria-hidden="true" /> Existing folder
+                    </button>
+                    <button type="button" className="chip-btn-hs" aria-pressed={scheduleForm.folder_mode === 'new'} onClick={() => changeFolderMode('new')}>
+                      <FolderPlus size={15} aria-hidden="true" /> New folder
+                    </button>
                   </div>
-                )}
+
+                  {/* Existing: only the folders of the chosen kind (by section, or custom) */}
+                  {scheduleForm.folder_mode === 'existing' && isCustomGrouping && (
+                    <>
+                      <label htmlFor="hs-folder-pick">Custom folder</label>
+                      <select
+                        id="hs-folder-pick"
+                        required
+                        value={scheduleForm.folder_id}
+                        onChange={e => setScheduleForm({ ...scheduleForm, folder_id: e.target.value })}
+                      >
+                        <option value="">-- Select --</option>
+                        {customFolderList.map(f => <option key={f.folder_id} value={String(f.folder_id)}>{f.name}</option>)}
+                      </select>
+                    </>
+                  )}
+                  {scheduleForm.folder_mode === 'existing' && !isCustomGrouping && (
+                    <>
+                      <label htmlFor="hs-folder-pick">Section folder</label>
+                      <select
+                        id="hs-folder-pick"
+                        required
+                        value={scheduleForm.section_key}
+                        onChange={e => pickSectionFolder(e.target.value)}
+                      >
+                        <option value="">-- Select --</option>
+                        {sectionFolders.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
+                      </select>
+                    </>
+                  )}
+
+                  {/* New: a custom folder needs a name; a by-section folder is the class picked on the next step */}
+                  {scheduleForm.folder_mode === 'new' && isCustomGrouping && (
+                    <>
+                      <label htmlFor="hs-folder-name">Folder name</label>
+                      <input
+                        id="hs-folder-name"
+                        type="text"
+                        required
+                        maxLength={80}
+                        value={scheduleForm.folder_name}
+                        onChange={e => setScheduleForm({ ...scheduleForm, folder_id: 'new', folder_name: e.target.value })}
+                        placeholder="Name"
+                      />
+                    </>
+                  )}
+                </div>
               </fieldset>
 
               <div className="form-group-hs">
@@ -1993,11 +2186,13 @@ export default function HealthScreening() {
           <HsDialogHeader onClose={() => setShowStudentSelectModal(false)} sub={<StepDots step={2} />}>New screening</HsDialogHeader>
           <form onSubmit={handleCreateSchedule} className="modal-form-hs">
             <div className="modal-body-hs">
-              {isCustomGrouping && (
+              {(isCustomGrouping || lockedClass) && (
                 <p className="picker-chip-hs">
                   <span className="chip-hs chip-info-hs">
-                    <Folder size={14} aria-hidden="true" />
-                    {scheduleForm.folder_id === 'new' ? scheduleForm.folder_name.trim() : ((folders.custom_folders || []).find(f => String(f.folder_id) === String(scheduleForm.folder_id))?.name || '')}
+                    {lockedClass ? <Lock size={14} aria-hidden="true" /> : <Folder size={14} aria-hidden="true" />}
+                    {isCustomGrouping
+                      ? (scheduleForm.folder_id === 'new' ? scheduleForm.folder_name.trim() : (customFolderList.find(f => String(f.folder_id) === String(scheduleForm.folder_id))?.name || ''))
+                      : (sectionFolders.find(f => f.key === scheduleForm.section_key)?.label || '')}
                   </span>
                 </p>
               )}
@@ -2007,6 +2202,7 @@ export default function HealthScreening() {
                   <select
                     id="pick-program-hs"
                     required={!isCustomGrouping}
+                    disabled={lockedClass}
                     value={scheduleForm.target_program_id}
                     onChange={e => { if (!isCustomGrouping) setSelectedStudentIds([]); setScheduleForm({...scheduleForm, target_program_id: e.target.value, target_year_level: '', target_section: ''}); }}
                   >
@@ -2019,7 +2215,7 @@ export default function HealthScreening() {
                   <select
                     id="pick-year-hs"
                     required={!isCustomGrouping}
-                    disabled={!isCustomGrouping && !scheduleForm.target_program_id}
+                    disabled={lockedClass || (!isCustomGrouping && !scheduleForm.target_program_id)}
                     value={scheduleForm.target_year_level}
                     onChange={e => { if (!isCustomGrouping) setSelectedStudentIds([]); setScheduleForm({...scheduleForm, target_year_level: e.target.value, target_section: ''}); }}
                   >
@@ -2039,7 +2235,7 @@ export default function HealthScreening() {
                   <select
                     id="pick-section-hs"
                     required={!isCustomGrouping}
-                    disabled={!isCustomGrouping && !scheduleForm.target_year_level}
+                    disabled={lockedClass || (!isCustomGrouping && !scheduleForm.target_year_level)}
                     value={scheduleForm.target_section}
                     onChange={e => { if (!isCustomGrouping) setSelectedStudentIds([]); setScheduleForm({...scheduleForm, target_section: e.target.value}); }}
                   >
@@ -2342,7 +2538,7 @@ export default function HealthScreening() {
                 </div>
               );
             })()}
-            {scheduleStudents.length > PARTICIPANTS_PER_PAGE && (
+            {scheduleStudents.length > 0 && (
               <div className="folder-search-hs participant-search-hs">
                 <Search size={16} aria-hidden="true" />
                 <input
@@ -2566,12 +2762,50 @@ export default function HealthScreening() {
         </HsDialog>
       )}
 
+      {/* MODAL: Import results (CSV / OCR) into the screening of a folder */}
+      {importData && (() => {
+        const sch = importData.schedule;
+        const first = importData.students[0];
+        const custom = !!sch.folder_id;
+        const cls = custom ? { custom: true } : {
+          program_id: sch.target_program_id || first?.program_id,
+          year_level: sch.target_year_level || first?.year_level,
+          section: sch.target_section || first?.section
+        };
+        const label = custom ? folderLabelOf(sch) : sectionFolderName(cls.program_id, cls);
+        return (
+          <ScreeningImportModal
+            schedule={sch}
+            students={importData.students}
+            folderLabel={label}
+            folderClass={cls}
+            programs={programs}
+            senderId={userId}
+            onClose={() => setImportData(null)}
+            onMessage={(message, title, type) => showAlert(message, title, type)}
+            onDone={({ saved, rejected, failed }) => {
+              setImportData(null);
+              fetchSchedules();
+              const lines = [`${saved} saved`, rejected ? `${rejected} rejected` : '', ...failed.slice(0, 5)].filter(Boolean);
+              showAlert(lines.join('\n'), 'Import Finished', failed.length || rejected ? 'warning' : 'success');
+            }}
+          />
+        );
+      })()}
+
       {/* MODAL: Make-up session for absent students */}
       {makeupModal && (
         <HsDialog onClose={() => setMakeupModal(null)} zIndex={1050}>
           <HsDialogHeader onClose={() => setMakeupModal(null)}>Make-up <span className="chip-hs chip-bad-hs">{Number(makeupModal.schedule.absent_count || 0) + Number(makeupModal.schedule.pending_count || 0)} absent</span></HsDialogHeader>
           <form onSubmit={submitMakeup} className="modal-form-hs">
             <div className="modal-body-hs">
+              {folderLabelOf(makeupModal.schedule) && (
+                <p className="picker-chip-hs">
+                  <span className="chip-hs chip-info-hs" title="A make-up stays in the folder of the screening">
+                    <Lock size={14} aria-hidden="true" /> {folderLabelOf(makeupModal.schedule)}
+                  </span>
+                </p>
+              )}
               <div className="form-group-hs">
                 <label htmlFor="hs-fld-17">Title</label>
                 <input id="hs-fld-17" type="text" required maxLength={150} value={makeupModal.title} onChange={e => setMakeupModal({ ...makeupModal, title: e.target.value })} />
@@ -2656,21 +2890,6 @@ export default function HealthScreening() {
       {/* MODAL: Student screening history */}
       {historyModal && (
         <StudentScreeningHistoryModal student={historyModal.student} rows={historyModal.rows} loading={historyModal.loading} onClose={() => setHistoryModal(null)} />
-      )}
-
-      {showSchoolYearDialog && (
-        <SchoolYearDialog
-          info={schoolYearInfo}
-          apiBase={API_BASE}
-          senderId={userId}
-          onClose={() => setShowSchoolYearDialog(false)}
-          onSaved={(data) => {
-            setShowSchoolYearDialog(false);
-            fetchSchoolYears(true);
-            fetchSchedules();
-            showAlert(data.message, 'School Year Updated', 'success');
-          }}
-        />
       )}
 
       {/* MODAL 7: Unified Alert & Confirmation Dialog (shared modals: focus trap, Esc, focus return) */}

@@ -551,6 +551,13 @@
 :root[data-theme="dark"] .q-serving-sc { background: #14532d; color: #bbf7d0; }
 :root[data-theme="dark"] .q-done-sc { background: #334155; color: #e2e8f0; }
 :root[data-theme="dark"] .q-void-sc { background: #7f1d1d; color: #fecaca; }
+/* a called number waits for its time in; a skipped number can be called again */
+.q-called-sc, .q-skipped-sc { background: var(--status-low-bg); color: var(--status-low-text); }
+:root[data-theme="dark"] .q-called-sc, :root[data-theme="dark"] .q-skipped-sc { background: #3d3411; color: #fde68a; }
+.queue-serving-sc.called strong { color: var(--status-low-text); }
+.queue-missed-sc { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 12px; border-radius: 10px; background: var(--status-low-bg); color: var(--status-low-text); }
+.queue-missed-item-sc { display: inline-flex; align-items: center; gap: 8px; padding: 2px 2px 2px 12px; border-radius: 10px; background: var(--bg-card); color: var(--text-primary); }
+:root[data-theme="dark"] .queue-missed-sc { background: #3d3411; color: #fde68a; }
 .session-queue-sc { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; padding: 6px 10px; margin: 6px 0; border-radius: 8px; background: rgba(3, 105, 161, 0.08); font-size: 0.875rem; }
 .session-queue-sc b { font-variant-numeric: tabular-nums; }
 

@@ -10,10 +10,10 @@ import {
   Eye,
   GraduationCap, 
   UserCheck, 
-  UserX, 
-  X, 
-  Check, 
-  Link as LinkIcon,
+  UserX,
+  X,
+  Check,
+  FilterX,
   Users,
   User,
   Phone,
@@ -37,14 +37,25 @@ import '../../styles/nurse/ManageStudentAccounts.css';
 const API_BASE = 'http://localhost:3001/api';
 const DOMAIN_EXTENSION = '@baliuag.sti.edu.ph';
 const SECTIONS = ['A', 'B', 'C'];
-const STATUS_FILTERS = [
+const STATUS_CHIPS = [
+  { value: '', label: 'All' },
   { value: 'active', label: 'Active' },
-  { value: 'graduated', label: 'Graduated (inactive)' },
-  { value: 'drop', label: 'Drop (inactive)' },
-  { value: 'transfer', label: 'Transfer (inactive)' },
-  { value: 'other', label: 'Others (inactive)' }
+  { value: 'graduated', label: 'Graduated' },
+  { value: 'drop', label: 'Drop' },
+  { value: 'transfer', label: 'Transfer' },
+  { value: 'other', label: 'Other' }
 ];
 const NO_FILTERS = { program_id: '', school_year: '', section: '', status: '' };
+
+// status key of an account: active | graduated | drop | transfer | other (inactive without a reason is "other")
+const statusOf = (s) => {
+  if (Number(s.is_active) === 1) return 'active';
+  const reason = String(s.inactive_reason || '').toLowerCase();
+  return ['graduated', 'drop', 'transfer'].includes(reason) ? reason : 'other';
+};
+const initialsOf = (s) => `${(s.first_name || '').trim()[0] || ''}${(s.last_name || '').trim()[0] || ''}`.toUpperCase() || '?';
+// class tag like "BSIT - 4B"
+const classTag = (s) => `${s.program_id || ''} - ${s.year_level || ''}${s.section || ''}`;
 
 // Helper function to validate Philippine phone number format (09XXXXXXXXX or +639XXXXXXXXX)
 const isValidPhPhone = (phone) => {
@@ -89,12 +100,17 @@ export default function ManageStudentAccounts() {
   const filtersRef = useRef(filters);
   filtersRef.current = filters;
   const fetchSeq = useRef(0);
-  const filtersActive = Object.values(filters).some(Boolean);
+  const [noParentOnly, setNoParentOnly] = useState(false);
+  const anyFilter = Object.values(filters).some(Boolean) || noParentOnly;
 
-  // Calculate active students total count
-  const activeStudentCount = Array.isArray(students)
-    ? students.filter((student) => Number(student.is_active) === 1).length
-    : 0;
+  // the server filters by program / school year / section / search; the status chips filter here so every chip can show its count
+  const statusCount = (key) => students.filter((s) => statusOf(s) === key).length;
+  const activeStudentCount = statusCount('active');
+  const noParentCount = students.filter((s) => Number(s.is_active) === 1 && !s.parent_id).length;
+  const visibleStudents = students.filter((s) => (
+    (!filters.status || statusOf(s) === filters.status) &&
+    (!noParentOnly || (Number(s.is_active) === 1 && !s.parent_id))
+  ));
 
   // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -239,11 +255,22 @@ export default function ManageStudentAccounts() {
     fetchSchoolYears();
   }, []);
 
-  // the list loads on start and again whenever a filter changes
+  // the list loads on start and again whenever a server filter changes (status is applied on the page)
   useEffect(() => {
     fetchStudents(searchQuery, filters);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters]);
+  }, [filters.program_id, filters.school_year, filters.section]);
+
+  // Esc closes the top-most dialog of this page
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      if (modalConfig.isOpen) closeModalConfig();
+      else if (isViewModalOpen) setIsViewModalOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
 
   const fetchSchoolYears = async () => {
     try {
@@ -279,7 +306,7 @@ export default function ManageStudentAccounts() {
   const fetchStudents = async (query = '', active = filtersRef.current) => {
     const seq = ++fetchSeq.current;
     const params = new URLSearchParams({ search: query });
-    Object.entries(active).forEach(([key, value]) => { if (value) params.set(key, value); });
+    Object.entries(active).forEach(([key, value]) => { if (value && key !== 'status') params.set(key, value); });
     try {
       const res = await fetch(`${API_BASE}/students/manageStudentAccounts?${params.toString()}`);
       const data = await res.json();
@@ -293,13 +320,14 @@ export default function ManageStudentAccounts() {
   };
 
   const setFilter = (key, value) => setFilters(prev => ({ ...prev, [key]: value }));
+  const clearAllFilters = () => { setFilters(NO_FILTERS); setNoParentOnly(false); };
 
   // Multi-select to move students up one year level (strand stops at 2nd year, course at 4th year)
   const [pickedIds, setPickedIds] = useState([]);
   const [pickMode, setPickMode] = useState(false);
   const stopPicking = () => { setPickMode(false); setPickedIds([]); };
   const canMoveUp = (s) => Number(s.is_active) === 1 && !isFinalYear(s.program_id, s.year_level);
-  const movable = Array.isArray(students) ? students.filter(canMoveUp) : [];
+  const movable = visibleStudents.filter(canMoveUp);
   const movableIds = new Set(movable.map((s) => s.student_id));
   const picked = pickedIds.filter((id) => movableIds.has(id));
   const allPicked = movable.length > 0 && picked.length === movable.length;
@@ -336,7 +364,7 @@ export default function ManageStudentAccounts() {
 
   // EXPORT REPORT FOR ALL STUDENT ACCOUNTS
   const handleExportAllReport = () => {
-    const rowsToExport = Array.isArray(students) ? students : [];
+    const rowsToExport = visibleStudents;
 
     const printWindow = window.open('', '_blank', 'width=950,height=750');
     if (!printWindow) {
@@ -1032,7 +1060,7 @@ export default function ManageStudentAccounts() {
   };
 
   const handleCSVExport = () => {
-    if (!students || students.length === 0) {
+    if (visibleStudents.length === 0) {
       showAlert('Export Failed', 'No student account data available to export.', 'warning');
       return;
     }
@@ -1045,7 +1073,7 @@ export default function ManageStudentAccounts() {
 
     const csvRows = [headers.join(',')];
 
-    students.forEach(s => {
+    visibleStudents.forEach(s => {
       const row = [
         `"${s.student_id || ''}"`,
         `"${s.first_name || ''}"`,
@@ -1162,112 +1190,113 @@ export default function ManageStudentAccounts() {
     <div className="student-container-msa">
       <header className="header-msa">
         <div className="brand-msa">
-          <GraduationCap className="icon-brand-msa" size={32} />
+          <GraduationCap className="icon-brand-msa" size={32} aria-hidden="true" />
           <div>
-            <h1>Student Account Management</h1>
-            <p>Admin Portal - Account Administration</p>
+            <h1>Student Accounts</h1>
+            <p className="header-sub-msa">
+              <CalendarRange size={16} aria-hidden="true" />
+              <span>{schoolYearInfo?.current ? schoolYearText(schoolYearInfo.current) : 'School year not set'}</span>
+            </p>
           </div>
         </div>
 
-        {/* Top Right Active Student Account Counter */}
-        <div className="active-students-badge-msa">
-          <span className="badge-label-msa">Active Accounts</span>
-          <span className="badge-count-msa">{activeStudentCount}</span>
+        <div className="header-actions-msa" role="toolbar" aria-label="Account actions">
+          <input
+            type="file"
+            accept=".csv"
+            ref={fileInputRef}
+            className="hidden-input-msa"
+            onChange={handleCSVImport}
+            tabIndex={-1}
+            aria-hidden="true"
+          />
+          <button type="button" className="btn-hdr-msa" onClick={() => setIsSchoolYearOpen(true)} aria-label="Change school year" title="Change school year">
+            <CalendarRange size={20} aria-hidden="true" />
+          </button>
+          <span className="divider-msa" aria-hidden="true" />
+          <button type="button" className="btn-hdr-msa" onClick={() => fileInputRef.current.click()} aria-label="Import CSV" title="Import CSV">
+            <Upload size={20} aria-hidden="true" />
+          </button>
+          <button type="button" className="btn-hdr-msa" onClick={handleCSVExport} aria-label="Export CSV" title="Export CSV">
+            <Download size={20} aria-hidden="true" />
+          </button>
+          <button type="button" className="btn-hdr-msa" onClick={handleExportAllReport} aria-label="Print report" title="Print report">
+            <Printer size={20} aria-hidden="true" />
+          </button>
+          <span className="divider-msa" aria-hidden="true" />
+          <button
+            type="button"
+            className="btn-hdr-msa btn-hdr-primary-msa"
+            onClick={() => { resetAddForm(); setIsAddModalOpen(true); }}
+            aria-label="Add student account"
+            title="Add student account"
+          >
+            <UserPlus size={20} aria-hidden="true" />
+          </button>
         </div>
       </header>
 
       <div className="content-msa">
-        <div className="actions-bar-msa">
-          <div className="search-wrapper-msa">
-            <Search className="search-icon-msa" size={18} />
-            <input
-              type="text"
-              className="search-input-msa"
-              placeholder="Search student ID, name, or username..."
-              value={searchQuery}
-              onChange={handleSearchChange}
-            />
+        <section className="stats-msa" aria-label="Account summary">
+          <button
+            type="button"
+            className="stat-msa"
+            aria-pressed={filters.status === 'active' && !noParentOnly}
+            onClick={() => { setNoParentOnly(false); setFilter('status', filters.status === 'active' && !noParentOnly ? '' : 'active'); }}
+          >
+            <span className="stat-ico-msa stat-ok-msa"><Users size={20} aria-hidden="true" /></span>
+            <span><span className="stat-num-msa">{activeStudentCount}</span><span className="stat-lbl-msa">Active accounts</span></span>
+          </button>
+          <button
+            type="button"
+            className="stat-msa"
+            aria-pressed={filters.status === 'graduated'}
+            onClick={() => { setNoParentOnly(false); setFilter('status', filters.status === 'graduated' ? '' : 'graduated'); }}
+          >
+            <span className="stat-ico-msa stat-info-msa"><GraduationCap size={20} aria-hidden="true" /></span>
+            <span><span className="stat-num-msa">{statusCount('graduated')}</span><span className="stat-lbl-msa">Graduated</span></span>
+          </button>
+          <div className="stat-msa stat-static-msa">
+            <span className="stat-ico-msa stat-bad-msa"><UserX size={20} aria-hidden="true" /></span>
+            <span><span className="stat-num-msa">{students.length - activeStudentCount}</span><span className="stat-lbl-msa">Inactive</span></span>
           </div>
+          <button
+            type="button"
+            className="stat-msa"
+            aria-pressed={noParentOnly}
+            onClick={() => { setNoParentOnly((v) => !v); setFilter('status', ''); }}
+          >
+            <span className="stat-ico-msa stat-warn-msa"><Unlink size={20} aria-hidden="true" /></span>
+            <span><span className="stat-num-msa">{noParentCount}</span><span className="stat-lbl-msa">Active, no parent</span></span>
+          </button>
+        </section>
 
-          <div className="btn-group-msa">
-            <button 
-              type="button"
-              className="btn-msa btn-secondary-msa" 
-              onClick={handleExportAllReport}
-              style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-              title="Export printable PDF report of student accounts"
-            >
-              <Printer size={18} />
-              <span>export</span>
-            </button>
+        <section className="card-msa" aria-label="Student roster">
+          <div className="toolbar-msa">
+            <div className="search-wrapper-msa">
+              <label className="sr-only-msa" htmlFor="msa-search">Search students</label>
+              <Search className="search-icon-msa" size={18} aria-hidden="true" />
+              <input
+                id="msa-search"
+                type="search"
+                className="search-input-msa"
+                placeholder="ID, name or username"
+                value={searchQuery}
+                onChange={handleSearchChange}
+                autoComplete="off"
+              />
+            </div>
 
-            <input 
-              type="file" 
-              accept=".csv" 
-              ref={fileInputRef} 
-              className="hidden-input-msa" 
-              onChange={handleCSVImport} 
-            />
-            <button 
-              type="button"
-              className="btn-msa btn-secondary-msa" 
-              onClick={() => fileInputRef.current.click()}
-              title="Import CSV data into batch creation form"
-            >
-              <Upload size={18} />
-              <span>Batch Import CSV</span>
-            </button>
-
-            <button 
-              type="button"
-              className="btn-msa btn-secondary-msa" 
-              onClick={handleCSVExport}
-              title="Export accounts list to CSV"
-            >
-              <Download size={18} />
-              <span>Export CSV</span>
-            </button>
-
-            <button
-              type="button"
-              className="btn-msa btn-secondary-msa"
-              onClick={() => setIsSchoolYearOpen(true)}
-              title="Set the school year, for example 2026 to 2027"
-            >
-              <CalendarRange size={18} aria-hidden="true" />
-              <span>School year: {schoolYearInfo?.current ? schoolYearText(schoolYearInfo.current) : 'not set'}</span>
-            </button>
-
-            <button
-              type="button"
-              className="btn-msa btn-primary-msa"
-              onClick={() => { resetAddForm(); setIsAddModalOpen(true); }}
-            >
-              <UserPlus size={18} />
-              <span>Add Student Account</span>
-            </button>
-          </div>
-        </div>
-
-        <div className="card-msa">
-          <div className="card-header-msa">
-            <Users size={20} />
-            <h2>Student Accounts List</h2>
-          </div>
-
-          <div className="filters-bar-msa" role="group" aria-label="Filter student accounts">
-            <div className="filter-group-msa">
-              <label htmlFor="filter-program-msa">Program</label>
-              <select id="filter-program-msa" value={filters.program_id} onChange={(e) => setFilter('program_id', e.target.value)}>
+            <div className="filters-msa" role="group" aria-label="Filter student accounts">
+              <label className="sr-only-msa" htmlFor="filter-program-msa">Program</label>
+              <select id="filter-program-msa" className="field-msa" value={filters.program_id} onChange={(e) => setFilter('program_id', e.target.value)}>
                 <option value="">All programs</option>
                 {programs.map((p) => (
                   <option key={p.program_id} value={p.program_id}>{p.program_id} - {p.program_name}</option>
                 ))}
               </select>
-            </div>
-            <div className="filter-group-msa">
-              <label htmlFor="filter-year-msa">School year</label>
-              <select id="filter-year-msa" value={filters.school_year} onChange={(e) => setFilter('school_year', e.target.value)}>
+              <label className="sr-only-msa" htmlFor="filter-year-msa">School year</label>
+              <select id="filter-year-msa" className="field-msa" value={filters.school_year} onChange={(e) => setFilter('school_year', e.target.value)}>
                 <option value="">All school years</option>
                 {(schoolYearInfo?.years || []).map((y) => (
                   <option key={y.school_year} value={y.school_year}>
@@ -1275,72 +1304,57 @@ export default function ManageStudentAccounts() {
                   </option>
                 ))}
               </select>
-            </div>
-            <div className="filter-group-msa">
-              <label htmlFor="filter-section-msa">Section</label>
-              <select id="filter-section-msa" value={filters.section} onChange={(e) => setFilter('section', e.target.value)}>
+              <label className="sr-only-msa" htmlFor="filter-section-msa">Section</label>
+              <select id="filter-section-msa" className="field-msa" value={filters.section} onChange={(e) => setFilter('section', e.target.value)}>
                 <option value="">All sections</option>
                 {SECTIONS.map((sec) => <option key={sec} value={sec}>Section {sec}</option>)}
               </select>
-            </div>
-            <div className="filter-group-msa">
-              <label htmlFor="filter-status-msa">Status</label>
-              <select id="filter-status-msa" value={filters.status} onChange={(e) => setFilter('status', e.target.value)}>
-                <option value="">All statuses</option>
-                {STATUS_FILTERS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-              </select>
-            </div>
-            <button
-              type="button"
-              className="btn-msa btn-secondary-msa"
-              onClick={() => setFilters(NO_FILTERS)}
-              disabled={!filtersActive}
-            >
-              <X size={16} aria-hidden="true" />
-              <span>Clear filters</span>
-            </button>
-            <span className="filters-count-msa" role="status">{students.length} account(s) shown</span>
-            {!pickMode ? (
               <button
                 type="button"
-                className="btn-icon-msa btn-moveup-msa"
-                onClick={() => setPickMode(true)}
-                aria-label="Move up one year level"
-                title="Move up one year level"
+                className="btn-tool-msa"
+                onClick={clearAllFilters}
+                disabled={!anyFilter}
+                aria-label="Clear filters"
+                title="Clear filters"
               >
-                <ChevronsUp size={18} aria-hidden="true" />
+                <FilterX size={20} aria-hidden="true" />
               </button>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  className="btn-icon-msa btn-moveup-msa"
-                  onClick={handleMoveUp}
-                  disabled={!picked.length}
-                  aria-label={`Move ${picked.length} selected up one year level`}
-                  title={`Move ${picked.length} selected up`}
-                >
-                  <Check size={18} aria-hidden="true" />
-                  <span className="moveup-count-msa">{picked.length}</span>
-                </button>
-                <button
-                  type="button"
-                  className="btn-icon-msa btn-moveup-cancel-msa"
-                  onClick={stopPicking}
-                  aria-label="Cancel selection"
-                  title="Cancel"
-                >
-                  <X size={18} aria-hidden="true" />
-                </button>
-              </>
-            )}
+            </div>
+
+            <span className="divider-msa divider-tool-msa" aria-hidden="true" />
+            <button
+              type="button"
+              className="btn-tool-msa"
+              aria-pressed={pickMode}
+              onClick={() => (pickMode ? stopPicking() : setPickMode(true))}
+              aria-label="Select students to move up one year level"
+              title="Move up one year level"
+            >
+              <ChevronsUp size={20} aria-hidden="true" />
+            </button>
           </div>
+
+          <div className="chips-msa" role="group" aria-label="Account status">
+            {STATUS_CHIPS.map((c) => (
+              <button
+                key={c.value || 'all'}
+                type="button"
+                className="chip-msa"
+                aria-pressed={!noParentOnly && filters.status === c.value}
+                onClick={() => { setNoParentOnly(false); setFilter('status', c.value); }}
+              >
+                {c.label} <span className="chip-n-msa">{c.value ? statusCount(c.value) : students.length}</span>
+              </button>
+            ))}
+            <span className="chips-count-msa" role="status" aria-live="polite">{visibleStudents.length} shown</span>
+          </div>
+
           <div className="table-container-msa">
-            <table className="table-msa">
+            <table className="table-msa table-roster-msa">
               <thead>
                 <tr>
                   {pickMode && (
-                    <th className="check-col-msa">
+                    <th scope="col" className="check-col-msa">
                       <input
                         type="checkbox"
                         checked={allPicked}
@@ -1351,104 +1365,136 @@ export default function ManageStudentAccounts() {
                       />
                     </th>
                   )}
-                  <th>Student ID</th>
-                  <th>Full Name</th>
-                  <th>Username</th>
-                  <th>Program</th>
-                  <th>School Year</th>
-                  <th>Year / Section</th>
-                  <th>Linked Parent</th>
-                  <th>Status</th>
-                  <th>Actions</th>
+                  <th scope="col">Student</th>
+                  <th scope="col">Program</th>
+                  <th scope="col">School year</th>
+                  <th scope="col">Parent</th>
+                  <th scope="col">Status</th>
+                  <th scope="col"><span className="sr-only-msa">Actions</span></th>
                 </tr>
               </thead>
               <tbody>
-                {Array.isArray(students) && students.length > 0 ? (
-                  students.map((student) => (
-                    <tr key={student.student_id}>
-                      {pickMode && (
-                        <td className="check-col-msa">
-                          <input
-                            type="checkbox"
-                            checked={picked.includes(student.student_id)}
-                            onChange={() => togglePicked(student.student_id)}
-                            disabled={!canMoveUp(student)}
-                            aria-label={`Select ${student.first_name} ${student.last_name}`}
-                            title={canMoveUp(student) ? 'Select' : (Number(student.is_active) === 1 ? 'Last year' : 'Inactive')}
-                          />
-                        </td>
-                      )}
-                      <td className="font-bold-msa">{student.student_id}</td>
-                      <td>{`${student.first_name} ${student.last_name}`}</td>
-                      <td>{student.username || <span className="text-muted-msa">N/A</span>}</td>
-                      <td>
-                        <span className="badge-msa badge-blue-msa">
-                          {student.program_id}
-                        </span>
-                      </td>
-                      <td>{student.school_year ? schoolYearText(student.school_year) : <span className="text-muted-msa">N/A</span>}</td>
-                      <td>{student.year_level} - {student.section}</td>
-                      <td>
-                        {student.parent_id ? (
-                          <div className="parent-info-cell-msa">
-                            <span className="parent-link-msa" title={`Username: ${student.parent_username || 'N/A'}`}>
-                              <LinkIcon size={14} /> <strong>{student.parent_id}</strong>
+                {visibleStudents.length > 0 ? (
+                  visibleStudents.map((student) => {
+                    const fullName = `${student.first_name || ''} ${student.last_name || ''}`.trim();
+                    const isPicked = picked.includes(student.student_id);
+                    const reasonText = student.inactive_reason === 'Other' && student.inactive_reason_other
+                      ? student.inactive_reason_other
+                      : student.inactive_reason;
+                    return (
+                      <tr key={student.student_id} className={isPicked ? 'row-picked-msa' : ''}>
+                        {pickMode && (
+                          <td className="check-col-msa">
+                            <input
+                              type="checkbox"
+                              checked={isPicked}
+                              onChange={() => togglePicked(student.student_id)}
+                              disabled={!canMoveUp(student)}
+                              aria-label={`Select ${fullName}${canMoveUp(student) ? '' : (Number(student.is_active) === 1 ? ', last year' : ', inactive')}`}
+                              title={canMoveUp(student) ? 'Select' : (Number(student.is_active) === 1 ? 'Last year' : 'Inactive')}
+                            />
+                          </td>
+                        )}
+                        <td className="who-cell-msa">
+                          <div className="who-msa">
+                            <span className="avatar-msa" aria-hidden="true">{initialsOf(student)}</span>
+                            <span>
+                              <span className="who-name-msa">{fullName}</span>
+                              <span className="mono-msa">{student.student_id}</span>
                             </span>
-                            {student.parent_first_name && (
-                              <small className="text-muted-msa">
-                                ({student.parent_first_name} {student.parent_last_name})
-                              </small>
-                            )}
                           </div>
-                        ) : (
-                          <span className="text-muted-msa">None</span>
-                        )}
-                      </td>
-                      <td>
-                        {Number(student.is_active) === 1 ? (
-                          <span className="badge-msa badge-success-msa">
-                            <UserCheck size={12} /> Active
-                          </span>
-                        ) : (
-                          <span className="badge-msa badge-danger-msa">
-                            <UserX size={12} /> Inactive{student.inactive_reason ? `: ${student.inactive_reason === 'Other' && student.inactive_reason_other ? student.inactive_reason_other : student.inactive_reason}` : ''}
-                          </span>
-                        )}
-                      </td>
-                      <td>
-                        <div className="actions-cell-msa">
-                          <button 
-                            type="button"
-                            className="btn-icon-msa" 
-                            title="View Student Details"
-                            onClick={() => openViewModal(student)}
-                          >
-                            <Eye size={16} />
-                          </button>
-                          <button 
-                            type="button"
-                            className="btn-icon-msa" 
-                            title="Edit Student Account"
-                            onClick={() => openEditModal(student)}
-                          >
-                            <Edit size={16} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
+                        </td>
+                        <td data-label="Program">
+                          <span className="badge-msa badge-blue-msa">{classTag(student)}</span>
+                        </td>
+                        <td data-label="School year">
+                          {student.school_year ? schoolYearText(student.school_year) : <span className="text-muted-msa">N/A</span>}
+                        </td>
+                        <td data-label="Parent" className="parent-cell-msa">
+                          {student.parent_id ? (
+                            <div className="parent-info-cell-msa" title={`Username: ${student.parent_username || 'N/A'}`}>
+                              <span>{student.parent_first_name ? `${student.parent_first_name} ${student.parent_last_name || ''}`.trim() : 'Parent linked'}</span>
+                              <span className="mono-msa">{student.parent_id}</span>
+                            </div>
+                          ) : (
+                            <span className="text-muted-msa none-msa"><Unlink size={16} aria-hidden="true" /> None</span>
+                          )}
+                        </td>
+                        <td data-label="Status">
+                          {Number(student.is_active) === 1 ? (
+                            <span className="badge-msa badge-success-msa"><UserCheck size={14} aria-hidden="true" /> Active</span>
+                          ) : (
+                            <span className="badge-msa badge-danger-msa"><UserX size={14} aria-hidden="true" /> {reasonText || 'Inactive'}</span>
+                          )}
+                        </td>
+                        <td className="act-cell-msa">
+                          <div className="actions-cell-msa">
+                            <button
+                              type="button"
+                              className="btn-icon-msa"
+                              aria-label={`View ${fullName}`}
+                              title="View details"
+                              onClick={() => openViewModal(student)}
+                            >
+                              <Eye size={18} aria-hidden="true" />
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-icon-msa"
+                              aria-label={`Edit ${fullName}`}
+                              title="Edit account"
+                              onClick={() => openEditModal(student)}
+                            >
+                              <Edit size={18} aria-hidden="true" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
                 ) : (
-                  <tr>
-                    <td colSpan={pickMode ? 10 : 9} className="empty-table-msa">
-                      {filtersActive || searchQuery ? 'No student accounts match the search and filters.' : 'No student accounts found.'}
+                  <tr className="empty-row-msa">
+                    <td colSpan={pickMode ? 7 : 6} className="empty-table-msa">
+                      <Search size={32} aria-hidden="true" />
+                      <div>{anyFilter || searchQuery ? 'No accounts match.' : 'No accounts yet.'}</div>
+                      {(anyFilter || searchQuery) && (
+                        <button
+                          type="button"
+                          className="btn-tool-msa"
+                          onClick={() => { clearAllFilters(); setSearchQuery(''); fetchStudents('', NO_FILTERS); }}
+                          aria-label="Clear search and filters"
+                          title="Clear search and filters"
+                        >
+                          <FilterX size={20} aria-hidden="true" />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
           </div>
-        </div>
+        </section>
       </div>
+
+      {pickMode && (
+        <div className="movebar-msa" role="region" aria-label="Move up selection">
+          <span><strong>{picked.length}</strong> selected</span>
+          <button
+            type="button"
+            className="movebar-go-msa"
+            onClick={handleMoveUp}
+            disabled={!picked.length}
+            aria-label={`Move ${picked.length} selected up one year level`}
+            title="Move up one year level"
+          >
+            <Check size={20} aria-hidden="true" />
+          </button>
+          <button type="button" className="movebar-x-msa" onClick={stopPicking} aria-label="Cancel selection" title="Cancel">
+            <X size={20} aria-hidden="true" />
+          </button>
+        </div>
+      )}
 
       {/* Modal: Batch Pre-Fill & Review CSV Data */}
       {isBatchModalOpen && (
@@ -1644,21 +1690,31 @@ export default function ManageStudentAccounts() {
 
       {/* Modal: View Student & Parent Details */}
       {isViewModalOpen && selectedStudentView && (
-        <div className="modal-overlay-msa" onClick={(e) => { if (e.target === e.currentTarget) setIsViewModalOpen(false); }}>
-          <div className="modal-msa">
+        <div className="modal-overlay-msa drawer-overlay-msa" onClick={(e) => { if (e.target === e.currentTarget) setIsViewModalOpen(false); }}>
+          <div className="modal-msa drawer-msa" role="dialog" aria-modal="true" aria-labelledby="msa-drawer-title">
             <div className="modal-header-msa">
-              <h3>Student & Linked Parent Details</h3>
-              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                <button 
-                  type="button" 
-                  className="btn-msa btn-secondary-msa" 
-                  onClick={handleExportSingleReport}
-                  style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              <div className="who-msa">
+                <span className="avatar-msa avatar-lg-msa" aria-hidden="true">{initialsOf(selectedStudentView)}</span>
+                <div>
+                  <h3 id="msa-drawer-title">{`${selectedStudentView.first_name || ''} ${selectedStudentView.last_name || ''}`.trim()}</h3>
+                  <span className="mono-msa">{selectedStudentView.student_id}</span>
+                </div>
+              </div>
+              <div className="drawer-actions-msa">
+                <button
+                  type="button"
+                  className="btn-icon-msa"
+                  onClick={() => { const s = selectedStudentView; setIsViewModalOpen(false); openEditModal(s); }}
+                  aria-label="Edit account"
+                  title="Edit account"
                 >
-                  <Printer size={16} /> export
+                  <Edit size={18} aria-hidden="true" />
                 </button>
-                <button type="button" className="close-btn-msa" onClick={() => setIsViewModalOpen(false)}>
-                  <X size={20} />
+                <button type="button" className="btn-icon-msa" onClick={handleExportSingleReport} aria-label="Print report" title="Print report">
+                  <Printer size={18} aria-hidden="true" />
+                </button>
+                <button type="button" className="btn-icon-msa" onClick={() => setIsViewModalOpen(false)} aria-label="Close" title="Close" autoFocus>
+                  <X size={18} aria-hidden="true" />
                 </button>
               </div>
             </div>
@@ -1669,9 +1725,8 @@ export default function ManageStudentAccounts() {
                   <div><strong>Student ID:</strong> {selectedStudentView.student_id}</div>
                   <div><strong>Full Name:</strong> {selectedStudentView.first_name} {selectedStudentView.last_name}</div>
                   <div><strong>Username:</strong> {selectedStudentView.username}</div>
-                  <div><strong>Program:</strong> {selectedStudentView.program_name || selectedStudentView.program_id}</div>
+                  <div><strong>Program:</strong> {selectedStudentView.program_name || selectedStudentView.program_id} ({classTag(selectedStudentView)})</div>
                   <div><strong>School Year:</strong> {selectedStudentView.school_year ? schoolYearText(selectedStudentView.school_year) : 'N/A'}</div>
-                  <div><strong>Year & Section:</strong> {selectedStudentView.year_level} - {selectedStudentView.section}</div>
                   <div>
                     <strong>Status: </strong>
                     {Number(selectedStudentView.is_active) === 1 ? 'Active' : 'Inactive'}
@@ -2399,7 +2454,7 @@ export default function ManageStudentAccounts() {
       {/* Modal: Custom Alert & Confirmation Modal */}
       {modalConfig.isOpen && (
         <div className="modal-overlay-msa" style={{ zIndex: 1100 }}>
-          <div className="modal-msa" style={{ maxWidth: '420px', width: '90%' }}>
+          <div className="modal-msa" style={{ maxWidth: '420px', width: '90%' }} role="alertdialog" aria-modal="true" aria-label={modalConfig.title}>
             <div className="modal-header-msa" style={{ borderBottom: '1px solid var(--card-border)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 {modalConfig.type === 'success' && <CheckCircle className="text-success-msa" size={22} />}

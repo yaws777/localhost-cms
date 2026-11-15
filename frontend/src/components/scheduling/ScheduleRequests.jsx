@@ -2,7 +2,7 @@
 // The nurse does not set a doctor's schedule: she sends the doctor a schedule request (category, preferred day and time, a note).
 // The doctor answers it by setting the schedule (the schedule form opens with the request's values) or declines with a reason.
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { CalendarClock, Send, Check, XCircle } from 'lucide-react';
+import { CalendarClock, Send, Check, XCircle, RefreshCw } from 'lucide-react';
 import Modal from '../common/Modal';
 import { ReasonModal } from '../doctor/AppointmentModals';
 import { Pager, paginate } from '../common/RecordFolders';
@@ -184,9 +184,9 @@ export const ScheduleRequestModal = ({ isOpen, preset, doctors, nurseId, userId,
                 </div>
                 {form.doctor_id && (
                     <fieldset className="dp-field" style={{ border: 0, padding: 0, margin: 0 }}>
-                        <legend className="dp-label">Repeats waiting for a schedule</legend>
+                        <legend className="dp-label">Follow-ups waiting for a schedule</legend>
                         {repeatChoices.length === 0 ? (
-                            <small className="dp-hint">No repeats waiting.</small>
+                            <small className="dp-hint">No follow-ups waiting.</small>
                         ) : (
                             <>
                                 <small className="dp-hint">Tick students to put first in this schedule.</small>
@@ -244,6 +244,7 @@ const ScheduleRequests = ({ role, fixedDoctorId, nurseId, userId, refreshKey, on
     const [declineFor, setDeclineFor] = useState(null);
     const [statusFilter, setStatusFilter] = useState('Pending');
     const [page, setPage] = useState(1);
+    const [refreshing, setRefreshing] = useState(false);
     useEffect(() => { setPage(1); }, [statusFilter]);
 
     const load = useCallback(async () => {
@@ -256,8 +257,11 @@ const ScheduleRequests = ({ role, fixedDoctorId, nurseId, userId, refreshKey, on
 
     useEffect(() => { load(); }, [load, refreshKey]);
 
+    const refresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
+
     const visible = useMemo(() => requests.filter((r) => statusFilter === 'All' || r.status === statusFilter), [requests, statusFilter]);
-    if (requests.length === 0) return null;
+    // the doctor keeps the section (and its refresh button) even when no request came yet
+    if (requests.length === 0 && role !== 'doctor') return null;
     const paged = paginate(visible, page, REQUESTS_PER_PAGE);
 
     const decline = async (reason) => {
@@ -284,6 +288,7 @@ const ScheduleRequests = ({ role, fixedDoctorId, nurseId, userId, refreshKey, on
                     <strong><CalendarClock size={16} style={{ verticalAlign: 'middle' }} /> Schedule requests</strong>
                     <small>{role === 'doctor' ? 'The nurse asks you for a schedule. Set it or decline with a reason.' : 'Requests you sent to the doctors.'}</small>
                 </span>
+                <button type="button" className="icon-btn-ds" title="Refresh" aria-label="Refresh the schedule requests" disabled={refreshing} onClick={refresh}><RefreshCw size={15} aria-hidden="true" /></button>
                 <div className="chip-filter-ds" role="group" aria-label="Schedule request status">
                     {REQUEST_FILTERS.map(([value, label]) => (
                         <button key={value} type="button" className={statusFilter === value ? 'active-ds' : ''} aria-pressed={statusFilter === value} onClick={() => setStatusFilter(value)}>{label}</button>
@@ -302,7 +307,7 @@ const ScheduleRequests = ({ role, fixedDoctorId, nurseId, userId, refreshKey, on
                                 <td>{role === 'doctor' ? (r.nurse_first_name ? `${r.nurse_first_name} ${r.nurse_last_name} (nurse)` : 'The clinic') : `Dr. ${r.doc_first_name} ${r.doc_last_name}`}</td>
                                 <td>
                                     {r.visit_type === 'Any' ? 'Any check-up' : r.visit_type}
-                                    {Number(r.repeat_count) > 0 && <div className="muted-ds">Repeats first: {r.repeat_count} student(s)</div>}
+                                    {Number(r.repeat_count) > 0 && <div className="muted-ds">Follow-ups first: {r.repeat_count} student(s)</div>}
                                     {!!r.for_advance && <div className="muted-ds">Advance Listing <span className="paren-sc">(No Schedule Yet)</span>{r.advance_count ? `: ${r.advance_count} student(s)` : ''}</div>}
                                 </td>
                                 <td>

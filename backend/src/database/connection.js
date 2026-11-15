@@ -10950,7 +10950,7 @@ const assertAppointmentFits = async (conn, { doctor, visitType, startStr, endStr
         const [[held]] = await conn.query(
             `SELECT COUNT(*) AS n FROM doctor_appointments da
              JOIN doctor_appointment_students das ON das.appointment_id = da.appointment_id
-             WHERE das.student_id = ? AND da.schedule_id = ? AND DATE(da.start_time) = ? AND da.status IN ('Scheduled', 'Waiting for Approval')
+             WHERE das.student_id = ? AND da.schedule_id = ? AND DATE(da.start_time) = ? AND da.status IN ('Scheduled', 'Waiting for Approval', 'Completed')
                ${excludeId ? 'AND da.appointment_id <> ?' : ''}`,
             excludeId ? [studentId, covering.schedule_id, startStr.slice(0, 10), excludeId] : [studentId, covering.schedule_id, startStr.slice(0, 10)]
         );
@@ -11689,10 +11689,13 @@ app.delete('/api/doctor-schedules/:id', async (req, res) => {
             );
         }
         // the students this schedule cut off (listing limit) come back too: the advance listing is whole again
-        const [cut] = await connection.query(`SELECT * FROM advance_listing_entries WHERE cutoff_schedule_id = ? AND status = 'Cutoff' FOR UPDATE`, [id]);
+        // only the ones cut off by the listing limit: a cut off by time already had its session
+        const [cut] = await connection.query(
+            `SELECT * FROM advance_listing_entries WHERE cutoff_schedule_id = ? AND status = 'Cutoff' AND (cutoff_kind IS NULL OR cutoff_kind = 'LIMIT') FOR UPDATE`, [id]
+        );
         if (cut.length > 0) {
             await connection.query(
-                `UPDATE advance_listing_entries SET status = 'Waiting', cutoff_schedule_id = NULL, cutoff_date = NULL WHERE entry_id IN (?)`, [cut.map((e) => e.entry_id)]
+                `UPDATE advance_listing_entries SET status = 'Waiting', cutoff_schedule_id = NULL, cutoff_date = NULL, cutoff_kind = NULL, cutoff_at = NULL WHERE entry_id IN (?)`, [cut.map((e) => e.entry_id)]
             );
         }
         const restored = [...advance, ...cut];
@@ -12402,6 +12405,12 @@ app.post('/api/student/consultation-requests', async (req, res) => {
         const refusal = visitRefusal(doctor, visitType);
         if (refusal) throw new BookingError(refusal, 400);
 
+        // one ask per schedule and day, whatever the purpose (a session open to any visit would otherwise take two asks of the same student)
+        const [sameSession] = await connection.query(
+            `SELECT request_id FROM consultation_requests WHERE student_id = ? AND listing_schedule_id = ? AND listing_date = ? AND status IN (?) LIMIT 1`,
+            [student_id, schedule.schedule_id, listing.listing_date, [...REQUEST_VISIBLE_STATUSES, 'Appointed']]
+        );
+        if (sameSession.length > 0) throw new BookingError('You already asked for a place in this session. A student can only be listed once in a schedule.', 409);
         const [dupes] = await connection.query(
             `SELECT request_id, status FROM consultation_requests WHERE student_id = ? AND visit_type = ? AND status IN (?) LIMIT 1`,
             [student_id, visitType, [...REQUEST_VISIBLE_STATUSES, 'Appointed']]
@@ -12918,15 +12927,15 @@ const assertQueueFits = async (conn, { doctor, schedule, date, studentId }) => {
     const blocked = await findUnavailability(conn, doctor.doctor_id, startStr, endStr);
     if (blocked) throw new BookingError(`${doctorDisplayName(doctor)} is unavailable on ${date}: ${unavailabilityLabel(blocked)}.`);
 
-    // one place per student in a session day: cancel it before appointing the student again
+    // one place per student in a session day, whatever way it was got (listing, advance listing, follow-up, walk-in, by hand). A seen (Done) or void
+    // number counts too: only a cancelled or declined place frees the student
     const [[held]] = await conn.query(
         `SELECT COUNT(*) AS n FROM doctor_appointments da
          JOIN doctor_appointment_students das ON das.appointment_id = da.appointment_id
-         WHERE das.student_id = ? AND da.schedule_id = ? AND DATE(da.start_time) = ? AND da.status = 'Scheduled'
-           AND (da.queue_state IS NULL OR da.queue_state IN ('Waiting', 'Serving'))`,
+         WHERE das.student_id = ? AND da.schedule_id = ? AND DATE(da.start_time) = ? AND da.status IN ('Scheduled', 'Completed')`,
         [studentId, schedule.schedule_id, date]
     );
-    if (held.n > 0) throw new BookingError('This student already has a place in this session. Cancel it before appointing the student again.');
+    if (held.n > 0) throw new BookingError('This student already has a place in this session. A student can only be listed once in a schedule.');
 
     const [[taken]] = await conn.query(
         `SELECT COUNT(*) AS n FROM doctor_appointments
@@ -13343,6 +13352,11 @@ const ADVANCE_COLUMNS = [
     ['advance_listing_entries', 'cutoff_date', 'DATE NULL'],
     // Moved: a cut off student the nurse moved to a new advance listing (points to the new entry)
     ['advance_listing_entries', 'moved_to_entry_id', 'VARCHAR(45) NULL'],
+    // Two kinds of cut off: LIMIT (over the doctor's listing limit), TIME (the session ended before the number was called), DROP (the listing was dropped
+    // before a schedule). listed_at = when the student first listed (kept when moved to a new advance listing or a session): it decides who goes first.
+    ['advance_listing_entries', 'cutoff_kind', 'VARCHAR(10) NULL'],
+    ['advance_listing_entries', 'cutoff_at', 'DATETIME NULL'],
+    ['advance_listing_entries', 'listed_at', 'DATETIME NULL'],
     // a batch is complete when every one of its services is done (its session is over); only then can the nurse open the next advance listing
     ['advance_listings', 'completed_at', 'DATETIME NULL']
 ];
@@ -13470,6 +13484,8 @@ const formatAdvanceEntry = (e) => ({
     // Pending | Waiting | Scheduled (holds a queue number) | Done | No show | Ended (the place was cancelled) | Cutoff | Moved (cut off, now in a new advance listing) | Withdrawn | Removed | Denied
     status: e.status === 'Scheduled' && !e.is_active ? advanceOutcomeOf(e) : e.status,
     cutoff_date: e.cutoff_date || null, cutoff_schedule_id: e.cutoff_schedule_id || null,
+    cutoff_kind: e.status === 'Cutoff' || e.status === 'Moved' ? (e.cutoff_kind || 'LIMIT') : (e.cutoff_kind || null), cutoff_at: e.cutoff_at || null,
+    listed_at: e.listed_at || e.created_at,
     cutoff_doctor_name: e.cut_doc_last_name ? `Dr. ${e.cut_doc_first_name} ${e.cut_doc_last_name}` : null, listing_id: e.listing_id || null, listing_title: e.listing_title || null,
     is_active: e.is_active ? 1 : 0, remove_reason: e.remove_reason, created_at: e.created_at,
     student_name: `${e.student_first_name || ''} ${e.student_last_name || ''}`.trim(),
@@ -13804,7 +13820,7 @@ app.put('/api/advance-listing/drop', async (req, res) => {
         waiting = rows;
         if (rows.length > 0) {
             await connection.query(
-                `UPDATE advance_listing_entries SET status = 'Cutoff', cutoff_schedule_id = NULL, cutoff_date = ? WHERE entry_id IN (?)`,
+                `UPDATE advance_listing_entries SET status = 'Cutoff', cutoff_schedule_id = NULL, cutoff_date = ?, cutoff_kind = 'DROP', cutoff_at = NOW() WHERE entry_id IN (?)`,
                 [nowManilaStr().slice(0, 10), rows.map((r) => r.entry_id)]
             );
         }
@@ -14043,7 +14059,11 @@ app.get('/api/advance-listing/entries', async (req, res) => {
             if (req.query.scope === 'all') where.push(`(${ADVANCE_ACTIVE_SQL} OR e.status = 'Pending' OR e.updated_at >= DATE_SUB(NOW(), INTERVAL 60 DAY))`);
             else where.push(`(${ADVANCE_ACTIVE_SQL} OR e.status IN ('Pending', 'Scheduled'))`); // students moved to a session stay in the list
         }
-        const [rows] = await pool.query(`${ADVANCE_ENTRY_SELECT} WHERE ${where.join(' AND ')} ORDER BY e.visit_type ASC, (e.status = 'Pending') DESC, e.advance_no ASC, e.created_at ASC`, params);
+        // the cut off list is in priority order: whoever listed first (date and time) goes first
+        const order = req.query.scope === 'cutoff' && !req.query.listing_id
+            ? `COALESCE(e.listed_at, e.created_at) ASC, e.advance_no ASC`
+            : `e.visit_type ASC, (e.status = 'Pending') DESC, e.advance_no ASC, e.created_at ASC`;
+        const [rows] = await pool.query(`${ADVANCE_ENTRY_SELECT} WHERE ${where.join(' AND ')} ORDER BY ${order}`, params);
         res.json({ success: true, entries: rows.map(formatAdvanceEntry) });
     } catch (error) {
         console.error('Error loading the advance listing entries:', error);
@@ -14147,8 +14167,26 @@ app.put('/api/advance-listing/entries/:id/remove', async (req, res) => {
     }
 });
 
+// Priority of the cut off students: the one who listed first (date and time of the first listing, kept through every move) goes first.
+// A move that skips a student of the same check-up service who listed earlier (and is still cut off) is refused.
+const assertCutoffPriority = async (conn, picked) => {
+    const ids = picked.map((e) => e.entry_id);
+    for (const entry of picked) {
+        const [older] = await conn.query(
+            `SELECT e.entry_id, e.listed_at, e.created_at, s.first_name, s.last_name FROM advance_listing_entries e JOIN students s ON s.student_id = e.student_id
+             WHERE e.status = 'Cutoff' AND e.visit_type = ? AND e.entry_id NOT IN (?) AND COALESCE(e.listed_at, e.created_at) < ?
+             ORDER BY COALESCE(e.listed_at, e.created_at) ASC LIMIT 1`,
+            [entry.visit_type, ids, entry.listed_at || entry.created_at]
+        );
+        if (older.length > 0) {
+            const o = older[0];
+            throw new BookingError(`${o.first_name} ${o.last_name} listed earlier (${fmtApptWhen(o.listed_at || o.created_at)}) and goes first. Move that student with the others.`, 409);
+        }
+    }
+};
+
 // The nurse moves cut off students to the advance listing that is open now (the new batch). Body: { sender_id, entry_ids: [...] }.
-// They take the next advance numbers of their check-up service, in the order they were cut off; the ones that do not fit the service limit stay cut off.
+// They take the next advance numbers of their check-up service, in the order they listed first (priority); the ones that do not fit the service limit stay cut off.
 app.put('/api/advance-listing/cutoff/move', async (req, res) => {
     const senderId = req.body.sender_id || null;
     const ids = Array.isArray(req.body.entry_ids) ? [...new Set(req.body.entry_ids.map(String))] : [];
@@ -14164,10 +14202,12 @@ app.put('/api/advance-listing/cutoff/move', async (req, res) => {
         await connection.query(`SELECT setting_id FROM advance_listing_settings WHERE setting_id = 1 FOR UPDATE`);
         const state = await advanceStateOf(connection);
         if (!state.is_open || !state.listing) throw new BookingError('No advance listing is open. Open a new advance listing first, then move the cut off students into it.', 409);
+        // priority = the date and time the student first listed (advance listing or session listing), oldest first
         const [entries] = await connection.query(
-            `SELECT * FROM advance_listing_entries WHERE entry_id IN (?) AND status = 'Cutoff' ORDER BY cutoff_date ASC, created_at ASC, advance_no ASC FOR UPDATE`, [ids]
+            `SELECT * FROM advance_listing_entries WHERE entry_id IN (?) AND status = 'Cutoff' ORDER BY COALESCE(listed_at, created_at) ASC, advance_no ASC FOR UPDATE`, [ids]
         );
         if (entries.length === 0) throw new BookingError('These students are not cut off any more.', 409);
+        await assertCutoffPriority(connection, entries);
         const left = new Map(); // places left per service
         for (const entry of entries) {
             const service = state.services.find((s) => s.visit_type === entry.visit_type && s.offered);
@@ -14188,8 +14228,8 @@ app.put('/api/advance-listing/cutoff/move', async (req, res) => {
             const advanceNo = await nextAdvanceNo(connection, entry.visit_type);
             const newId = await generateCustomIdWithRetry(connection, 'ADVL', 'advance_listing_entries', 'entry_id', async (id) => {
                 await connection.query(
-                    `INSERT INTO advance_listing_entries (entry_id, student_id, visit_type, reason, advance_no, status, listing_id) VALUES (?, ?, ?, ?, ?, 'Waiting', ?)`,
-                    [id, entry.student_id, entry.visit_type, entry.reason, advanceNo, state.listing.listing_id]
+                    `INSERT INTO advance_listing_entries (entry_id, student_id, visit_type, reason, advance_no, status, listing_id, listed_at) VALUES (?, ?, ?, ?, ?, 'Waiting', ?, ?)`,
+                    [id, entry.student_id, entry.visit_type, entry.reason, advanceNo, state.listing.listing_id, entry.listed_at || entry.created_at]
                 );
             });
             await connection.query(`UPDATE advance_listing_entries SET status = 'Moved', moved_to_entry_id = ? WHERE entry_id = ?`, [newId, entry.entry_id]);
@@ -14218,6 +14258,80 @@ app.put('/api/advance-listing/cutoff/move', async (req, res) => {
     res.json({
         success: true, moved: moved.length, stayed: stayed.length,
         message: `${moved.length} student(s) moved to the new advance listing.${stayed.length > 0 ? ` ${stayed.length} stayed cut off: ${[...new Set(stayed.map((s) => s.why))].join(' ')}` : ''}`
+    });
+});
+
+// The nurse moves cut off students (cut off by the listing limit, by time, or by a dropped listing) into a session listing. Body: { sender_id, date, entry_ids }.
+// Priority = date and time of the first listing: the earliest goes first and a pick that skips an earlier cut off student is refused. A student who does not fit
+// (the session is full, another purpose, already holds a place in the session) stays cut off.
+app.put('/api/doctor-schedules/:id/place-cutoff', async (req, res) => {
+    const senderId = req.body.sender_id || null;
+    const date = req.body.date;
+    const ids = Array.isArray(req.body.entry_ids) ? [...new Set(req.body.entry_ids.map(String))] : [];
+    if (ids.length === 0) return res.status(400).json({ success: false, message: 'Choose the cut off students to move.' });
+    if (!isDateStr(date)) return res.status(400).json({ success: false, message: 'Pick the date of the session.' });
+    const placed = [];
+    const stayed = [];
+    try {
+        await ensureAdvanceListing();
+        const actor = await resolveActor(pool, senderId);
+        if (actor.role !== 'Nurse') return res.status(403).json({ success: false, message: 'Only the nurse moves cut off students into a session listing.' });
+        const [[nurse]] = await pool.query(`SELECT nurse_id FROM nurses WHERE user_id = ?`, [senderId]);
+        const [picked] = await pool.query(
+            `SELECT * FROM advance_listing_entries WHERE entry_id IN (?) AND status = 'Cutoff' ORDER BY COALESCE(listed_at, created_at) ASC, advance_no ASC`, [ids]
+        );
+        if (picked.length === 0) return res.status(409).json({ success: false, message: 'These students are not cut off any more.' });
+        const check = await pool.getConnection();
+        try { await assertCutoffPriority(check, picked); } finally { check.release(); }
+
+        for (const entry of picked) {
+            const connection = await pool.getConnection();
+            let result = null;
+            try {
+                await connection.beginTransaction();
+                const [[schedule]] = await connection.query(`SELECT * FROM doctor_schedules WHERE schedule_id = ? FOR UPDATE`, [req.params.id]);
+                if (!schedule || schedule.status !== 'Open') throw new BookingError('This schedule is closed.', 409);
+                const [[fresh]] = await connection.query(`SELECT status FROM advance_listing_entries WHERE entry_id = ? FOR UPDATE`, [entry.entry_id]);
+                if (!fresh || fresh.status !== 'Cutoff') throw new BookingError('The student is not cut off any more.', 409);
+                if (!scheduleMatchesVisit(schedule, entry.visit_type)) throw new BookingError(`This session is for ${schedule.visit_type} check-ups, not ${entry.visit_type}.`, 409);
+                const doctor = await lockDoctor(connection, schedule.doctor_id);
+                const refusal = visitRefusal(doctor, entry.visit_type);
+                if (refusal) throw new BookingError(refusal, 409);
+                const appointed = await appointIntoSchedule(connection, {
+                    schedule, doctor, studentId: entry.student_id, request: null, date, visitType: entry.visit_type, purposeOther: null, reason: entry.reason,
+                    creator: { nurseId: nurse ? nurse.nurse_id : null, doctorId: null, userId: senderId, name: actor.name }, how: 'Cut off student moved into the session'
+                });
+                await connection.query(
+                    `UPDATE advance_listing_entries SET status = 'Scheduled', schedule_id = ?, session_date = ?, appointment_id = ?, cutoff_schedule_id = NULL, cutoff_date = NULL,
+                        listed_at = COALESCE(listed_at, created_at) WHERE entry_id = ?`,
+                    [schedule.schedule_id, date, appointed.appointmentId, entry.entry_id]
+                );
+                await connection.commit();
+                result = { appointed, doctor };
+            } catch (error) {
+                await connection.rollback();
+                if (error instanceof BookingError) stayed.push({ entry, why: error.message });
+                else { console.error('Could not place a cut off student:', error.message); stayed.push({ entry, why: 'Could not move the student.' }); }
+            } finally {
+                connection.release();
+            }
+            if (result) {
+                placed.push(entry);
+                await notifyAppointed({
+                    appointed: result.appointed, studentId: entry.student_id, visitType: entry.visit_type, purposeOther: null,
+                    doctor: result.doctor, senderId, actor
+                });
+            }
+        }
+    } catch (error) {
+        if (error instanceof BookingError) return res.status(error.status).json({ success: false, message: error.message });
+        console.error('Error moving cut off students into a session:', error);
+        return res.status(500).json({ success: false, message: 'Failed to move the cut off students' });
+    }
+    if (placed.length === 0) return res.status(409).json({ success: false, message: stayed[0] ? stayed[0].why : 'Nobody could be moved.' });
+    res.json({
+        success: true, moved: placed.length, stayed: stayed.length,
+        message: `${placed.length} student(s) moved into the session.${stayed.length > 0 ? ` ${stayed.length} stayed cut off: ${[...new Set(stayed.map((s) => s.why))].join(' ')}` : ''}`
     });
 });
 
@@ -14300,7 +14414,7 @@ const placeAdvanceEntries = async (scheduleId, senderUserId) => {
     const date = nextUpcomingOccurrence(schedule);
     if (!date) return none;
     const [entries] = await pool.query(
-        `SELECT * FROM advance_listing_entries WHERE status = 'Waiting' ${schedule.visit_type === 'Any' ? '' : 'AND visit_type = ?'} ORDER BY created_at ASC, advance_no ASC`,
+        `SELECT * FROM advance_listing_entries WHERE status = 'Waiting' ${schedule.visit_type === 'Any' ? '' : 'AND visit_type = ?'} ORDER BY COALESCE(listed_at, created_at) ASC, advance_no ASC`,
         schedule.visit_type === 'Any' ? [] : [schedule.visit_type]
     );
     let placed = 0;
@@ -14353,7 +14467,7 @@ const placeAdvanceEntries = async (scheduleId, senderUserId) => {
     if (cutFrom >= 0) {
         const cut = entries.slice(cutFrom);
         const [upd] = await pool.query(
-            `UPDATE advance_listing_entries SET status = 'Cutoff', cutoff_schedule_id = ?, cutoff_date = ? WHERE entry_id IN (?) AND status = 'Waiting'`,
+            `UPDATE advance_listing_entries SET status = 'Cutoff', cutoff_schedule_id = ?, cutoff_date = ?, cutoff_kind = 'LIMIT', cutoff_at = NOW() WHERE entry_id IN (?) AND status = 'Waiting'`,
             [scheduleId, date, cut.map((e) => e.entry_id)]
         );
         cutoff = upd.affectedRows;
@@ -14361,7 +14475,7 @@ const placeAdvanceEntries = async (scheduleId, senderUserId) => {
             try {
                 await notifyUsers({
                     sender_id: senderUserId, recipient_ids: await getStudentAndParentUserIds(entry.student_id), title: 'Cut Off From the Advance Listing',
-                    message: `The ${entry.visit_type} session of ${fmtSessionWhen(date, schedule.start_time, schedule.end_time)} has ${listingLimitOf(schedule)} places and they are taken, so you were cut off from the advance listing (${advanceLabel(entry.advance_no)}). `
+                    message: `The ${entry.visit_type} session of ${fmtSessionWhen(date, schedule.start_time, schedule.end_time)} has ${listingLimitOf(schedule)} places and they are taken, so you were cut off by the listing limit from the advance listing (${advanceLabel(entry.advance_no)}). `
                         + 'The nurse can move you to the next advance listing. If this schedule is cancelled you come back to the advance listing.',
                     type: 'ADVANCE_LISTING', payloadData: { entry_id: entry.entry_id }
                 });
@@ -15202,10 +15316,24 @@ const closeFinishedQueues = async () => {
         if (upd.affectedRows === 0) continue;
         await logAppointment(pool, { appointment_id: r.appointment_id, action: 'Cancelled', from_status: 'Scheduled', to_status: 'Cancelled', reason, actor_role: 'System' });
         const returned = await returnRequestToWaitingList(pool, r.appointment_id, reason, null);
+        // an advance listing student whose number was never called is CUT OFF BY TIME: out of the session, in the Cut off list, listing time kept for the priority
+        let timeCut = 0;
+        try {
+            await ensureAdvanceListing();
+            const [cutRes] = await pool.query(
+                `UPDATE advance_listing_entries e JOIN doctor_appointments ca ON ca.appointment_id = e.appointment_id
+                 SET e.status = 'Cutoff', e.cutoff_kind = 'TIME', e.cutoff_at = NOW(), e.cutoff_schedule_id = ca.schedule_id, e.cutoff_date = DATE(ca.start_time),
+                     e.listed_at = COALESCE(e.listed_at, e.created_at), e.schedule_id = NULL, e.session_date = NULL, e.appointment_id = NULL
+                 WHERE e.appointment_id = ? AND e.status = 'Scheduled'`, [r.appointment_id]
+            );
+            timeCut = cutRes.affectedRows;
+        } catch (e) { console.error('Advance listing time cut off failed:', e.message); }
         if (r.student_user_id) {
             notifyUsers({
-                sender_id: null, recipient_ids: [r.student_user_id], title: 'Session Ended',
-                message: returned > 0
+                sender_id: null, recipient_ids: [r.student_user_id], title: timeCut > 0 ? 'Cut Off by Time' : 'Session Ended',
+                message: timeCut > 0
+                    ? `The session ended before your number ${label} was called, so you were cut off by time from the advance listing. The nurse can move you to a session listing or the next advance listing. Your listing date and time keeps your priority.`
+                    : returned > 0
                     ? `The session ended before your number ${label} was called. You can ask for a place in another open listing.`
                     : `The session ended before your number ${label} was called.`,
                 type: 'QUEUE_VOID', payloadData: { appointment_id: r.appointment_id }
@@ -16210,7 +16338,16 @@ app.post('/api/doctor-visits/walk-in', async (req, res) => {
 
         const schedule = await findRunningWalkInSession(connection, doctor, visitType, nowManilaStr(), req.body.schedule_id || null);
         const creator = { nurseId: nurse_id, doctorId: creatorDoctorId };
-        const entry = await insertWalkInEntry(connection, { schedule, doctor, student, visitType, reason, creator, senderId: req.body.sender_id || null });
+        // a student whose number was skipped or voided in this session comes back as a walk-in: the new number is linked to the void one
+        const [[voidRow]] = await connection.query(
+            `SELECT da.appointment_id FROM doctor_appointments da
+             JOIN doctor_appointment_students das ON das.appointment_id = da.appointment_id
+             WHERE da.schedule_id = ? AND DATE(da.start_time) = ? AND das.student_id = ? AND da.queue_state = 'Void' AND da.status = 'Scheduled'
+               AND NOT EXISTS (SELECT 1 FROM doctor_appointments c WHERE c.parent_appointment_id = da.appointment_id AND c.status = 'Scheduled' AND c.queue_state IN ('Waiting', 'Serving', 'Done'))
+             LIMIT 1`,
+            [schedule.schedule_id, nowManilaStr().slice(0, 10), student_id]
+        );
+        const entry = await insertWalkInEntry(connection, { schedule, doctor, student, visitType, reason, creator, parentId: voidRow ? voidRow.appointment_id : null, senderId: req.body.sender_id || null });
 
         // the waiting-list request of this student for the same visit goes with the walk-in; it is done once the student is documented
         const walkInActor = await resolveActor(connection, req.body.sender_id || null);
@@ -16253,10 +16390,24 @@ app.post('/api/doctor-visits/walk-in', async (req, res) => {
     });
 });
 
+// A void number is either final (voided) or skipped: a skipped number keeps `queue_skipped_at` and the doctor can call it again while the session runs.
+let queueSkippedReady = null;
+const ensureQueueSkippedColumn = () => {
+    if (!queueSkippedReady) {
+        queueSkippedReady = (async () => {
+            const [have] = await pool.query(
+                `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'doctor_appointments' AND COLUMN_NAME = 'queue_skipped_at'`
+            );
+            if (have.length === 0) await pool.query(`ALTER TABLE doctor_appointments ADD COLUMN queue_skipped_at timestamp NULL`);
+        })().catch((err) => { queueSkippedReady = null; throw err; });
+    }
+    return queueSkippedReady;
+};
+
 // What the queue of one session day looks like (also what the doctor operates)
 const SELECT_QUEUE_ENTRIES = `
     SELECT da.appointment_id, da.queue_lane, da.queue_no, da.queue_state, da.status, da.booking_source, da.visit_type, da.parent_appointment_id,
-           da.queue_called_at, da.request_id, das.student_id, das.attendance_status, das.check_in_time,
+           da.queue_called_at, da.queue_skipped_at, da.request_id, das.student_id, das.attendance_status, das.check_in_time,
            s.first_name, s.last_name, s.program_id, s.year_level, s.section,
            (a.assessment_id IS NOT NULL) AS documented
     FROM doctor_appointments da
@@ -16267,13 +16418,14 @@ const SELECT_QUEUE_ENTRIES = `
     ORDER BY FIELD(da.queue_lane, 'Listed', 'Walk-in'), da.queue_no ASC`;
 
 const buildQueueSnapshot = async (conn, schedule, date) => {
+    await ensureQueueSkippedColumn();
     const [rows] = await conn.query(SELECT_QUEUE_ENTRIES, [schedule.schedule_id, date]);
     const accommodated = new Map(rows.filter((r) => r.parent_appointment_id).map((r) => [r.parent_appointment_id, r]));
     const entries = rows.map((r) => ({
         appointment_id: r.appointment_id, lane: r.queue_lane, queue_no: r.queue_no, label: queueLabel(r.queue_lane, r.queue_no), state: r.queue_state,
         student_id: r.student_id, student_name: `${r.first_name} ${r.last_name}`, program_id: r.program_id, year_level: r.year_level, section: r.section,
         visit_type: r.visit_type, arrived: r.attendance_status === 'Present' ? 1 : 0, check_in_time: r.check_in_time, documented: r.documented ? 1 : 0,
-        called_at: r.queue_called_at, is_walk_in: r.booking_source === 'Walk-in' ? 1 : 0,
+        called_at: r.queue_called_at, skipped: r.queue_skipped_at ? 1 : 0, is_walk_in: r.booking_source === 'Walk-in' ? 1 : 0,
         accommodated_as: accommodated.has(r.appointment_id) ? queueLabel('Walk-in', accommodated.get(r.appointment_id).queue_no) : null
     }));
     const serving = entries.find((e) => e.state === 'Serving') || null;
@@ -16309,6 +16461,30 @@ app.get('/api/doctor-schedules/:id/queue', async (req, res) => {
     }
 });
 
+// A called number that has not timed in is skipped by itself when the doctor calls another number (it can be called again later).
+const autoSkipCalledEntry = async (connection, entry, senderId) => {
+    const reason = `${entry.label} did not time in before another number was called`;
+    await connection.query(`UPDATE doctor_appointments SET queue_state = 'Void', queue_skipped_at = NOW() WHERE appointment_id = ?`, [entry.appointment_id]);
+    await connection.query(`UPDATE doctor_appointment_students SET attendance_status = 'Absent', notes = COALESCE(notes, 'Skipped in the queue') WHERE appointment_id = ?`, [entry.appointment_id]);
+    await logAppointment(connection, { appointment_id: entry.appointment_id, action: 'Queue Skipped', reason, actor_user_id: senderId });
+    const [reqs] = await connection.query(`SELECT request_id, status FROM consultation_requests WHERE appointment_id = ? AND status = 'Appointed'`, [entry.appointment_id]);
+    for (const r of reqs) {
+        await connection.query(`UPDATE consultation_requests SET status = 'Missed' WHERE request_id = ?`, [r.request_id]);
+        await logRequest(connection, { request_id: r.request_id, action: 'Missed', from_status: r.status, to_status: 'Missed', reason: `Number ${entry.label} was skipped. ${reason}`, actor_user_id: senderId });
+    }
+};
+const notifyAutoSkipped = async (entry, senderId) => {
+    try {
+        const userId = await getStudentUserId(entry.student_id);
+        if (!userId) return;
+        await notifyUsers({
+            sender_id: senderId, recipient_ids: [userId], title: `Number ${entry.label} Was Skipped`,
+            message: `Your number ${entry.label} was called and skipped. Stay at the clinic: the doctor can call it again while the session runs.`,
+            type: 'QUEUE_VOID', payloadData: { appointment_id: entry.appointment_id }
+        });
+    } catch (e) { console.error('Queue skip notification failed:', e.message); }
+};
+
 // The doctor calls the next number: the lowest listed number waiting; the walk-in lane only when no listed student is waiting.
 app.put('/api/doctor-schedules/:id/queue/call-next', async (req, res) => {
     const doctorId = req.body.created_by_doctor_id || null;
@@ -16327,10 +16503,17 @@ app.put('/api/doctor-schedules/:id/queue/call-next', async (req, res) => {
         if (date !== nowStr.slice(0, 10) || !(await liveStateOf(connection, schedule)).in_session_now) throw new BookingError('Numbers can only be called while the session is running.');
 
         let snapshot = await buildQueueSnapshot(connection, schedule, date);
+        let skippedEntry = null;
         if (snapshot.now_serving) {
             const current = snapshot.entries.find((e) => e.appointment_id === snapshot.now_serving.appointment_id);
-            if (!current.documented) throw new BookingError(`${current.label} ${current.student_name} is still in session. Document the check-up or void the number first.`);
-            await connection.query(`UPDATE doctor_appointments SET queue_state = 'Done' WHERE appointment_id = ?`, [current.appointment_id]);
+            if (!current.documented) {
+                // a number in session (time in done) must be documented; a called number that never timed in is skipped by this call
+                if (current.arrived) throw new BookingError(`${current.label} ${current.student_name} is still in session. Document the check-up first.`);
+                await autoSkipCalledEntry(connection, current, senderId);
+                skippedEntry = current;
+            } else {
+                await connection.query(`UPDATE doctor_appointments SET queue_state = 'Done' WHERE appointment_id = ?`, [current.appointment_id]);
+            }
             snapshot = await buildQueueSnapshot(connection, schedule, date);
         }
         const waiting = snapshot.entries.filter((e) => e.state === 'Waiting');
@@ -16348,7 +16531,7 @@ app.put('/api/doctor-schedules/:id/queue/call-next', async (req, res) => {
         }
         const [[doctor]] = await connection.query(`SELECT first_name, last_name FROM doctors WHERE doctor_id = ?`, [schedule.doctor_id]);
         await connection.commit();
-        result = { next, near, doctor, queue: await buildQueueSnapshot(pool, schedule, date) };
+        result = { next, near, doctor, skippedEntry, queue: await buildQueueSnapshot(pool, schedule, date) };
     } catch (error) {
         await connection.rollback();
         connection.release();
@@ -16377,7 +16560,8 @@ app.put('/api/doctor-schedules/:id/queue/call-next', async (req, res) => {
             });
         }
     } catch (e) { console.error('Queue notification failed:', e.message); }
-    res.json({ success: true, message: `${result.next.label} is now in session.`, queue: result.queue });
+    if (result.skippedEntry) await notifyAutoSkipped(result.skippedEntry, senderId);
+    res.json({ success: true, message: `${result.next.label} is called.${result.skippedEntry ? ` ${result.skippedEntry.label} was skipped.` : ''}`, queue: result.queue });
 });
 
 const loadQueueEntry = async (conn, appointmentId) => {
@@ -16397,8 +16581,11 @@ app.put('/api/doctor-visits/:appointment_id/queue/skip', async (req, res) => {
     const doctorId = req.body.created_by_doctor_id || null;
     const senderId = req.body.sender_id || null;
     const reason = textOrNull(req.body.reason) || 'The student was not there when the number was called';
-    if (!doctorId) return res.status(403).json({ success: false, message: 'Only the doctor can void a number.' });
+    // skip: the number can be called again while the session runs; void (default): the number is final, the student needs a new walk-in number
+    const skipOnly = req.body.mode === 'skip';
+    if (!doctorId) return res.status(403).json({ success: false, message: 'Only the doctor can skip or void a number.' });
 
+    await ensureQueueSkippedColumn();
     const connection = await pool.getConnection();
     let entry = null;
     try {
@@ -16409,9 +16596,9 @@ app.put('/api/doctor-visits/:appointment_id/queue/skip', async (req, res) => {
         if (!['Waiting', 'Serving'].includes(entry.queue_state) || entry.status !== 'Scheduled') throw new BookingError(`This number is already ${entry.queue_state.toLowerCase()}.`);
         if (entry.attendance_status === 'Present') throw new BookingError('The student already has a time in, so the number cannot be voided. Document the check-up instead.', 409);
 
-        await connection.query(`UPDATE doctor_appointments SET queue_state = 'Void' WHERE appointment_id = ?`, [entry.appointment_id]);
-        await connection.query(`UPDATE doctor_appointment_students SET attendance_status = 'Absent', notes = COALESCE(notes, 'Skipped in the queue') WHERE appointment_id = ?`, [entry.appointment_id]);
-        await logAppointment(connection, { appointment_id: entry.appointment_id, action: 'Queue Skipped', reason, actor_user_id: senderId });
+        await connection.query(`UPDATE doctor_appointments SET queue_state = 'Void', queue_skipped_at = ${skipOnly ? 'NOW()' : 'NULL'} WHERE appointment_id = ?`, [entry.appointment_id]);
+        await connection.query(`UPDATE doctor_appointment_students SET attendance_status = 'Absent', notes = COALESCE(notes, '${skipOnly ? 'Skipped' : 'Voided'} in the queue') WHERE appointment_id = ?`, [entry.appointment_id]);
+        await logAppointment(connection, { appointment_id: entry.appointment_id, action: skipOnly ? 'Queue Skipped' : 'Queue Voided', reason, actor_user_id: senderId });
         const [reqs] = await connection.query(`SELECT request_id, status FROM consultation_requests WHERE appointment_id = ? AND status = 'Appointed'`, [entry.appointment_id]);
         for (const r of reqs) {
             await connection.query(`UPDATE consultation_requests SET status = 'Missed' WHERE request_id = ?`, [r.request_id]);
@@ -16431,26 +16618,32 @@ app.put('/api/doctor-visits/:appointment_id/queue/skip', async (req, res) => {
         if (entry.student_user_id) {
             await notifyUsers({
                 sender_id: senderId, recipient_ids: [entry.student_user_id], title: `Number ${queueLabel(entry.queue_lane, entry.queue_no)} Was Skipped`,
-                message: `Your number ${queueLabel(entry.queue_lane, entry.queue_no)} was called and skipped. If you are at the clinic now, tell the nurse: you will be accommodated as a walk-in after the listed students.`,
+                message: skipOnly
+                    ? `Your number ${queueLabel(entry.queue_lane, entry.queue_no)} was called and skipped. Stay at the clinic: the doctor can call it again while the session runs.`
+                    : `Your number ${queueLabel(entry.queue_lane, entry.queue_no)} was voided. If you are at the clinic now, tell the nurse: you need a new walk-in number.`,
                 type: 'QUEUE_VOID', payloadData: { appointment_id: entry.appointment_id }
             });
         }
     } catch (e) { console.error('Queue skip notification failed:', e.message); }
-    res.json({ success: true, message: `Number ${queueLabel(entry.queue_lane, entry.queue_no)} is void. It stays in the list.` });
+    res.json({ success: true, message: skipOnly
+        ? `Number ${queueLabel(entry.queue_lane, entry.queue_no)} is skipped. It can be called again.`
+        : `Number ${queueLabel(entry.queue_lane, entry.queue_no)} is void. The student needs a walk-in number to be seen.` });
 });
 
 // Back to a previous number: a void number is in session again (the student came back). The number in session until now, if not documented, returns to waiting and keeps its place.
 app.put('/api/doctor-visits/:appointment_id/queue/restore', async (req, res) => {
     const doctorId = req.body.created_by_doctor_id || null;
     const senderId = req.body.sender_id || null;
-    if (!doctorId) return res.status(403).json({ success: false, message: 'Only the doctor can go back to a number.' });
+    if (!doctorId) return res.status(403).json({ success: false, message: 'Only the doctor can call a skipped number.' });
 
+    await ensureQueueSkippedColumn();
     const connection = await pool.getConnection();
     let result = null;
     try {
         await connection.beginTransaction();
         const entry = await loadQueueEntry(connection, req.params.appointment_id);
-        if (!entry || entry.queue_state !== 'Void') throw new BookingError('Only a void number can be brought back.', 404);
+        if (!entry || entry.queue_state !== 'Void') throw new BookingError('Only a skipped number can be called again.', 404);
+        if (!entry.queue_skipped_at) throw new BookingError('A voided number cannot be called again. Add the student as a walk-in to give a new number.', 409);
         if (entry.doctor_id !== doctorId) throw new BookingError('Doctors can only go back to numbers of their own queue.', 403);
         if (!entry.schedule_id) throw new BookingError('This appointment is not part of a session.');
         const [[schedule]] = await connection.query(`SELECT * FROM doctor_schedules WHERE schedule_id = ? FOR UPDATE`, [entry.schedule_id]);
@@ -16462,17 +16655,17 @@ app.put('/api/doctor-visits/:appointment_id/queue/restore', async (req, res) => 
         );
         if (already.n > 0) throw new BookingError('This student was already accommodated as a walk-in.');
 
+        // a number in session (time in done) has to be documented first; a called number that has not timed in is skipped by this call
         const snapshot = await buildQueueSnapshot(connection, schedule, date);
         let displaced = null;
         if (snapshot.now_serving) {
             const current = snapshot.entries.find((e) => e.appointment_id === snapshot.now_serving.appointment_id);
-            if (current.documented) throw new BookingError(`${current.label} ${current.student_name} is already documented. Call the next number first, then go back.`);
-            await connection.query(`UPDATE doctor_appointments SET queue_state = 'Waiting' WHERE appointment_id = ?`, [current.appointment_id]);
-            await logAppointment(connection, { appointment_id: current.appointment_id, action: 'Queue Returned', reason: `Went back to number ${queueLabel(entry.queue_lane, entry.queue_no)}; this number waits again`, actor_user_id: senderId });
+            if (current.arrived) throw new BookingError(`${current.label} ${current.student_name} is in session. Document the check-up first.`);
+            await autoSkipCalledEntry(connection, current, senderId);
             displaced = current;
         }
 
-        await connection.query(`UPDATE doctor_appointments SET queue_state = 'Serving', queue_called_at = NOW() WHERE appointment_id = ?`, [entry.appointment_id]);
+        await connection.query(`UPDATE doctor_appointments SET queue_state = 'Serving', queue_skipped_at = NULL, queue_called_at = NOW() WHERE appointment_id = ?`, [entry.appointment_id]);
         await connection.query(`UPDATE doctor_appointment_students SET attendance_status = 'Pending', check_in_time = NULL, notes = NULL WHERE appointment_id = ?`, [entry.appointment_id]);
         await logAppointment(connection, { appointment_id: entry.appointment_id, action: 'Queue Restored', reason: `Went back to number ${queueLabel(entry.queue_lane, entry.queue_no)}`, actor_user_id: senderId });
         const [reqs] = await connection.query(`SELECT request_id, status FROM consultation_requests WHERE appointment_id = ? AND status = 'Missed'`, [entry.appointment_id]);
@@ -16501,7 +16694,8 @@ app.put('/api/doctor-visits/:appointment_id/queue/restore', async (req, res) => 
         }
     } catch (e) { console.error('Queue restore notification failed:', e.message); }
     const label = queueLabel(result.entry.queue_lane, result.entry.queue_no);
-    res.json({ success: true, message: `Back to ${label}. ${label} is in session.${result.displaced ? ` ${result.displaced.label} waits again.` : ''}`, queue: result.queue });
+    if (result.displaced) await notifyAutoSkipped(result.displaced, senderId);
+    res.json({ success: true, message: `${label} is called again. It is waiting for the time in.${result.displaced ? ` ${result.displaced.label} was skipped.` : ''}`, queue: result.queue });
 });
 
 // A student whose number was skipped has arrived: they get the next walk-in number and are served after the listed students.
@@ -16902,6 +17096,25 @@ app.get('/api/follow-ups', async (req, res) => {
             );
         }
 
+        // check-up service of a follow-up (or referral): walk up the parent visits to the first one that is a real check-up service
+        const SYSTEM_TYPES = ['Follow-up', 'Referral'];
+        const rootOf = new Map(); // appointment_id -> { visit_type, purpose_other } of the service it came from
+        const tops = new Map(rows.filter((r) => SYSTEM_TYPES.includes(r.visit_type)).map((r) => [r.appointment_id, r.visit_follow_up_of]));
+        for (let depth = 0; depth < 8 && tops.size > 0; depth++) {
+            const parentIds = [...new Set([...tops.values()].filter(Boolean))];
+            const resolved = new Map();
+            if (parentIds.length > 0) {
+                const [parents] = await pool.query(`SELECT appointment_id, visit_type, purpose_other, parent_appointment_id FROM doctor_appointments WHERE appointment_id IN (?)`, [parentIds]);
+                parents.forEach((p) => resolved.set(p.appointment_id, p));
+            }
+            for (const [childId, parentId] of [...tops.entries()]) {
+                const p = parentId ? resolved.get(parentId) : null;
+                if (!p) { tops.delete(childId); continue; }
+                if (!SYSTEM_TYPES.includes(p.visit_type)) { rootOf.set(childId, { visit_type: p.visit_type, purpose_other: p.purpose_other }); tops.delete(childId); }
+                else tops.set(childId, p.parent_appointment_id);
+            }
+        }
+
         const today = nowManilaStr().slice(0, 10);
         const list = rows.map((r) => {
             const mine = followUps.filter((f) => f.parent_appointment_id === r.appointment_id && f.student_id === r.student_id);
@@ -16911,8 +17124,12 @@ app.get('/api/follow-ups', async (req, res) => {
             if (r.follow_up_closed) rowState = 'dismissed';
             else if (active) rowState = 'scheduled';
             else if (done) rowState = 'done';
+            const root = SYSTEM_TYPES.includes(r.visit_type) ? rootOf.get(r.appointment_id) : null;
             return {
                 ...r,
+                // the check-up service the follow-up belongs to (the visit type itself when it is already a service)
+                service_type: root ? root.visit_type : r.visit_type,
+                service_purpose_other: root ? root.purpose_other : r.purpose_other,
                 state: rowState,
                 is_overdue: rowState === 'needs_time' && !!r.follow_up_date && r.follow_up_date < today,
                 follow_up: active || done || null
@@ -18343,6 +18560,7 @@ app.get('/api/incident-reports', async (req, res) => {
                 s.last_name AS student_last_name,
                 s.year_level,
                 s.section,
+                s.program_id,
                 ap.program_name,
                 n.first_name AS nurse_first_name,
                 n.last_name AS nurse_last_name,
@@ -18732,7 +18950,8 @@ app.get('/api/insurance-vault/search', async (req, res) => {
                 s.first_name, 
                 s.last_name, 
                 s.year_level, 
-                s.section, 
+                s.section,
+                s.program_id,
                 COALESCE(ap.program_name, CAST(s.program_id AS CHAR), 'N/A') AS program_name
             FROM students s
             LEFT JOIN academic_programs ap ON s.program_id = ap.program_id
@@ -18760,6 +18979,7 @@ app.get('/api/insurance-vault', async (req, res) => {
                 s.last_name AS student_last_name,
                 s.year_level,
                 s.section,
+                s.program_id,
                 COALESCE(ap.program_name, s.program_id, 'N/A') AS program_name,
                 COUNT(CASE WHEN iv.file_url IS NOT NULL AND iv.file_url != '' THEN 1 END) AS total_files,
                 MAX(iv.uploaded_at) AS last_updated,
@@ -18773,7 +18993,7 @@ app.get('/api/insurance-vault', async (req, res) => {
             JOIN students s ON iv.student_id = s.student_id
             LEFT JOIN academic_programs ap ON s.program_id = ap.program_id
             LEFT JOIN nurses n ON iv.managed_by_nurse_id = n.nurse_id
-            GROUP BY s.student_id, s.first_name, s.last_name, s.year_level, s.section, ap.program_name
+            GROUP BY s.student_id, s.first_name, s.last_name, s.year_level, s.section, s.program_id, ap.program_name
             ORDER BY last_updated DESC
         `;
         const [rows] = await pool.query(sql);
@@ -23164,6 +23384,7 @@ app.delete('/api/announcements/:id', async (req, res) => {
 ensureScheduleListingColumns().catch((err) => console.error('Could not prepare the schedule listing columns:', err.message));
 ensureAdvanceListing().catch((err) => console.error('Could not prepare the advance listing:', err.message));
 ensureVisitOutVitalsColumns().catch((err) => console.error('Could not prepare the visit time-out vital columns:', err.message));
+ensureQueueSkippedColumn().catch((err) => console.error('Could not prepare the queue skipped column:', err.message));
 ensureDirectDispenseSpecifyColumn().catch((err) => console.error('Could not prepare the direct dispensation condition column:', err.message));
 ensureSessionEndTable().catch((err) => console.error('Could not prepare the session end table:', err.message));
 ensureScreeningEndColumns().catch((err) => console.error('Could not prepare the screening end columns:', err.message));

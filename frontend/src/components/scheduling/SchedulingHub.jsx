@@ -22,7 +22,7 @@ const TABS = [
     ['calendar', 'Calendar', CalendarDays],
     ['schedules', 'Schedules', ListChecks],
     ['waiting', 'Listings', Users],
-    ['followups', 'Repeats', CalendarClock],
+    ['followups', 'Follow-ups', CalendarClock],
     ['assistant', 'Assistant', Lightbulb],
     ['chat', 'Chat', MessagesSquare]
 ];

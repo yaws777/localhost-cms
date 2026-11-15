@@ -158,8 +158,8 @@ const doctorVisitRows = (v) => {
         rows.push(['Refer to', v.referral_facility]);
         rows.push(['Referral reason', v.referral_reason]);
         if (v.follow_up_needed) {
-            rows.push(['Repeat check-up advised by', v.follow_up_date ? dateOnly(v.follow_up_date) : 'As soon as possible']);
-            rows.push(['Repeat check-up notes', v.follow_up_notes]);
+            rows.push(['Follow-up check-up advised by', v.follow_up_date ? dateOnly(v.follow_up_date) : 'As soon as possible']);
+            rows.push(['Follow-up check-up notes', v.follow_up_notes]);
         }
     } else {
         rows.push(['Assessment', outcome.tone === 'info' ? 'Not yet available.' : 'No assessment was recorded for this check-up.']);

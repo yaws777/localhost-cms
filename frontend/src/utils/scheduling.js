@@ -10,10 +10,18 @@ export const API = 'http://localhost:3001';
 export const SCHEDULING_WAYS = {
     advance: { label: 'Advance listing', short: 'Advance listing', cls: 'type-appointment-sc' },
     session: { label: 'Session listing', short: 'Session listing', cls: 'type-appointment-sc' },
-    repeat: { label: 'Repeat', short: 'Repeats', cls: 'type-appointment-sc' },
+    repeat: { label: 'Follow-up', short: 'Follow-ups', cls: 'type-appointment-sc' },
     walk_in: { label: 'Walk-in', short: 'Walk-in', cls: 'type-walkin-sc' }
 };
 export const SCHEDULING_WAY_KEYS = Object.keys(SCHEDULING_WAYS);
+
+// Why a student was cut off: over the doctor's listing limit, the session ended before the number was called, or the listing was dropped before a schedule
+export const CUTOFF_KINDS = {
+    LIMIT: { label: 'By listing limit', hint: "Over the doctor's listing limit" },
+    TIME: { label: 'By time', hint: 'The session ended before the number was called' },
+    DROP: { label: 'Listing dropped', hint: 'The advance listing was dropped before a schedule was set' }
+};
+export const cutoffKindLabel = (kind) => (CUTOFF_KINDS[kind] || CUTOFF_KINDS.LIMIT).label;
 export const wayOf = (bookingSource, how) => (
     SCHEDULING_WAYS[how] ? how : bookingSource === 'Walk-in' ? 'walk_in' : 'session'
 );

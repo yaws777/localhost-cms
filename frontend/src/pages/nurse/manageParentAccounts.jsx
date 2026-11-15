@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import axios from 'axios';
 import {
   Search,
@@ -8,113 +8,126 @@ import {
   UserX,
   Plus,
   Trash2,
-  X,
   Key,
   Users,
   GraduationCap,
   Save,
-  Printer,
-  CheckCircle2,
-  AlertTriangle,
-  AlertCircle
+  Printer
 } from 'lucide-react';
 
-import stiLogo from '../../assets/sti-logof.png';
+import stiLogo from '../../assets/sti-logof.png';
+import Modal from '../../components/common/Modal';
+import { useAlert } from '../../context/AlertContext';
 import { formatDate } from '../../utils/datetime';
 import '../../styles/nurse/ManageParentAccounts.css';
 
 const API_BASE = 'http://localhost:3001/manageParentAccount';
 
+const EMPTY_FORM = {
+  original_parent_id: '',
+  parent_id: '',
+  user_id: '',
+  first_name: '',
+  last_name: '',
+  username: '',
+  password: '',
+  resetToDefault: false,
+  is_active: 1,
+  linkedStudents: []
+};
+
+const formKey = (f) =>
+  JSON.stringify([
+    f.parent_id,
+    f.first_name,
+    f.last_name,
+    f.username,
+    Number(f.is_active),
+    f.resetToDefault,
+    f.linkedStudents.map((s) => s.student_id)
+  ]);
+
+const initialsOf = (first, last) =>
+  `${(first || '').charAt(0)}${(last || '').charAt(0)}`.toUpperCase();
+
+const StatusBadge = ({ active }) =>
+  active ? (
+    <span className="badge-mpa badge-success-mpa">
+      <UserCheck size={14} aria-hidden="true" /> Active
+    </span>
+  ) : (
+    <span className="badge-mpa badge-danger-mpa">
+      <UserX size={14} aria-hidden="true" /> Inactive
+    </span>
+  );
+
 export default function ManageParentAccount() {
+  const { showAlert, showConfirm } = useAlert();
+
   const [parents, setParents] = useState([]);
   const [search, setSearch] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [initialLoad, setInitialLoad] = useState(true);
 
   // Modals state
   const [viewModalData, setViewModalData] = useState(null);
   const [editModalData, setEditModalData] = useState(null);
 
-  // Confirmation Modal state
-  const [confirmModal, setConfirmModal] = useState({
-    isOpen: false,
-    title: '',
-    message: '',
-    confirmText: 'Confirm',
-    cancelText: 'Cancel',
-    type: 'primary', // 'primary' | 'danger'
-    onConfirm: null
-  });
+  // Edit form state
+  const [editForm, setEditForm] = useState(EMPTY_FORM);
+  const [editBaseline, setEditBaseline] = useState('');
+  const [invalidFields, setInvalidFields] = useState([]);
+  const [saving, setSaving] = useState(false);
 
-  // Feedback Modal state (Success / Error / Warning)
-  const [feedbackModal, setFeedbackModal] = useState({
-    isOpen: false,
-    type: 'success', // 'success' | 'error' | 'warning'
-    title: '',
-    message: ''
-  });
-
-  // Helper functions for custom modals
-  const showFeedback = (type, title, message) => {
-    setFeedbackModal({ isOpen: true, type, title, message });
-  };
-
-  const closeFeedback = () => {
-    setFeedbackModal({ isOpen: false, type: 'success', title: '', message: '' });
-  };
-
-  const closeConfirm = () => {
-    setConfirmModal({
-      isOpen: false,
-      title: '',
-      message: '',
-      confirmText: 'Confirm',
-      cancelText: 'Cancel',
-      type: 'primary',
-      onConfirm: null
-    });
-  };
-
-  // Edit Form state
-  const [editForm, setEditForm] = useState({
-    original_parent_id: '',
-    parent_id: '',
-    user_id: '',
-    first_name: '',
-    last_name: '',
-    username: '',
-    password: '',
-    resetToDefault: false,
-    is_active: 1,
-    linkedStudents: []
-  });
-
-  // Student Search inside Edit Modal
+  // Student search inside the edit modal
   const [studentSearchInput, setStudentSearchInput] = useState('');
   const [studentSearchResults, setStudentSearchResults] = useState([]);
   const [isSearchingStudents, setIsSearchingStudents] = useState(false);
 
+  const parentsSeq = useRef(0);
+  const studentsSeq = useRef(0);
+
+  // Export code below reports through this helper
+  const showFeedback = (type, title, message) => showAlert(message, type, { title });
+
   // Fetch Parent Accounts
   const fetchParents = useCallback(async () => {
-    setLoading(true);
+    const seq = ++parentsSeq.current;
     try {
-      const response = await axios.get(`${API_BASE}?search=${search}`);
-      if (response.data.success) {
+      const response = await axios.get(`${API_BASE}?search=${encodeURIComponent(search)}`);
+      if (seq === parentsSeq.current && response.data.success) {
         setParents(response.data.data);
       }
     } catch (err) {
       console.error('Error fetching parent accounts:', err);
+      if (seq === parentsSeq.current) {
+        showAlert('Could not load parent accounts.', 'error');
+      }
     } finally {
-      setLoading(false);
+      if (seq === parentsSeq.current) setInitialLoad(false);
     }
-  }, [search]);
+  }, [search, showAlert]);
 
   useEffect(() => {
     fetchParents();
   }, [fetchParents]);
 
+  const counts = useMemo(() => {
+    const active = parents.filter((p) => p.is_active).length;
+    return { all: parents.length, active, inactive: parents.length - active };
+  }, [parents]);
+
+  const visibleParents = useMemo(() => {
+    if (statusFilter === 'active') return parents.filter((p) => p.is_active);
+    if (statusFilter === 'inactive') return parents.filter((p) => !p.is_active);
+    return parents;
+  }, [parents, statusFilter]);
+
+  const isDirty = Boolean(editModalData) && formKey(editForm) !== editBaseline;
+
   // EXPORT REPORT FOR ALL PARENT ACCOUNTS
   const handleExportAllReport = () => {
-    const rowsToExport = Array.isArray(parents) ? parents : [];
+    const rowsToExport = Array.isArray(visibleParents) ? visibleParents : [];
 
     const printWindow = window.open('', '_blank', 'width=950,height=750');
     if (!printWindow) {
@@ -458,7 +471,7 @@ export default function ManageParentAccount() {
 
   // Open Edit Modal
   const handleOpenEdit = (parent) => {
-    setEditForm({
+    const form = {
       original_parent_id: parent.parent_id,
       parent_id: parent.parent_id,
       user_id: parent.user_id,
@@ -467,75 +480,96 @@ export default function ManageParentAccount() {
       username: parent.username,
       password: '',
       resetToDefault: false,
-      is_active: parent.is_active,
+      is_active: parent.is_active ? 1 : 0,
       linkedStudents: parent.linked_students ? [...parent.linked_students] : []
-    });
+    };
+    setEditForm(form);
+    setEditBaseline(formKey(form));
+    setInvalidFields([]);
     setStudentSearchInput('');
     setStudentSearchResults([]);
     setEditModalData(parent);
   };
 
+  const setField = (key, value) => {
+    setEditForm((prev) => ({ ...prev, [key]: value }));
+    setInvalidFields((prev) => prev.filter((k) => k !== key));
+  };
+
+  // Close edit modal, asking first when there are unsaved changes
+  const requestCloseEdit = async () => {
+    if (isDirty) {
+      const ok = await showConfirm('Close without saving?', {
+        title: 'Discard changes',
+        confirmLabel: 'Discard',
+        danger: true
+      });
+      if (!ok) return;
+    }
+    setEditModalData(null);
+  };
+
   // Search Students to Link
   const handleSearchStudents = async (query) => {
     setStudentSearchInput(query);
+    const seq = ++studentsSeq.current;
     if (!query.trim()) {
       setStudentSearchResults([]);
+      setIsSearchingStudents(false);
       return;
     }
     setIsSearchingStudents(true);
     try {
-      const res = await axios.get(`${API_BASE}/students?search=${query}`);
-      if (res.data.success) {
+      const res = await axios.get(`${API_BASE}/students?search=${encodeURIComponent(query)}`);
+      if (seq === studentsSeq.current && res.data.success) {
         setStudentSearchResults(res.data.data);
       }
     } catch (err) {
       console.error('Error searching students:', err);
     } finally {
-      setIsSearchingStudents(false);
+      if (seq === studentsSeq.current) setIsSearchingStudents(false);
     }
   };
 
   // Add student to link list
   const handleAddStudent = (student) => {
-    if (!editForm.linkedStudents.some((s) => s.student_id === student.student_id)) {
-      setEditForm((prev) => ({
-        ...prev,
-        linkedStudents: [...prev.linkedStudents, student]
-      }));
-    }
+    setEditForm((prev) =>
+      prev.linkedStudents.some((s) => s.student_id === student.student_id)
+        ? prev
+        : { ...prev, linkedStudents: [...prev.linkedStudents, student] }
+    );
+    studentsSeq.current += 1;
     setStudentSearchInput('');
     setStudentSearchResults([]);
+    setIsSearchingStudents(false);
   };
 
-  // Remove student from link list with Confirmation Modal
-  const handleRemoveStudent = (studentId) => {
-    setConfirmModal({
-      isOpen: true,
-      title: 'Unlink Student Account',
-      message: `Are you sure you want to unlink student ID "${studentId}" from this parent account?`,
-      confirmText: 'Unlink',
-      cancelText: 'Cancel',
-      type: 'danger',
-      onConfirm: () => {
-        setEditForm((prev) => ({
-          ...prev,
-          linkedStudents: prev.linkedStudents.filter((s) => s.student_id !== studentId)
-        }));
-        closeConfirm();
-      }
+  // Remove student from link list (asks first)
+  const handleRemoveStudent = async (student) => {
+    const name = `${student.first_name || ''} ${student.last_name || ''}`.trim() || student.student_id;
+    const ok = await showConfirm(`Unlink ${name}?`, {
+      title: 'Unlink student',
+      confirmLabel: 'Unlink',
+      danger: true
     });
+    if (!ok) return;
+    setEditForm((prev) => ({
+      ...prev,
+      linkedStudents: prev.linkedStudents.filter((s) => s.student_id !== student.student_id)
+    }));
   };
 
   // Perform API call for Update
   const executeSaveUpdate = async () => {
+    setSaving(true);
     try {
       const payload = {
         original_parent_id: editForm.original_parent_id,
-        parent_id: editForm.parent_id,
+        parent_id: editForm.parent_id.trim(),
         user_id: editForm.user_id,
-        first_name: editForm.first_name,
-        last_name: editForm.last_name,
-        username: editForm.username,
+        first_name: editForm.first_name.trim(),
+        last_name: editForm.last_name.trim(),
+        username: editForm.username.trim(),
         password: editForm.resetToDefault ? '123' : '',
         resetToDefault: editForm.resetToDefault,
         is_active: editForm.is_active,
@@ -546,517 +580,553 @@ export default function ManageParentAccount() {
       if (res.data.success) {
         setEditModalData(null);
         fetchParents();
-        showFeedback('success', 'Update Successful', 'Parent account updated successfully!');
+        showAlert(
+          editForm.resetToDefault ? 'Account updated. Password reset.' : 'Account updated.',
+          'success',
+          { title: 'Saved' }
+        );
       } else {
-        showFeedback('error', 'Update Failed', res.data.message || 'Failed to update parent account.');
+        showAlert(res.data.message || 'Could not update the account.', 'error', { title: 'Update failed' });
       }
     } catch (err) {
       console.error('Error saving parent account:', err);
-      showFeedback('error', 'Update Error', 'An error occurred while attempting to update the parent account.');
+      showAlert(err.response?.data?.message || 'Could not update the account.', 'error', { title: 'Update failed' });
     } finally {
-      closeConfirm();
+      setSaving(false);
     }
   };
 
-  // Handle Save Update Request (Triggers Confirmation Modal)
-  const handleSaveUpdate = (e) => {
+  // Handle Save Update Request (validates, then confirms)
+  const handleSaveUpdate = async (e) => {
     e.preventDefault();
-    setConfirmModal({
-      isOpen: true,
-      title: 'Confirm Parent Account Update',
-      message: `Are you sure you want to save the changes for parent account "${editForm.parent_id}"?`,
-      confirmText: 'Save Changes',
-      cancelText: 'Cancel',
-      type: 'primary',
-      onConfirm: executeSaveUpdate
-    });
+    if (saving) return;
+
+    const missing = ['parent_id', 'username', 'first_name', 'last_name'].filter(
+      (k) => !String(editForm[k] || '').trim()
+    );
+    setInvalidFields(missing);
+    if (missing.length) {
+      showAlert('Fill in all required fields.', 'warning', { title: 'Missing details' });
+      return;
+    }
+    if (!isDirty) return;
+
+    const deactivating = Boolean(editModalData.is_active) && Number(editForm.is_active) === 0;
+    const ok = await showConfirm(
+      deactivating
+        ? `Deactivate ${editForm.first_name} ${editForm.last_name}? Sign-in stops.`
+        : `Save changes to "${editForm.parent_id}"?`,
+      {
+        title: deactivating ? 'Deactivate account' : 'Save changes',
+        confirmLabel: deactivating ? 'Deactivate' : 'Save',
+        danger: deactivating
+      }
+    );
+    if (!ok) return;
+    await executeSaveUpdate();
   };
+
+  const openEditFromView = () => {
+    const parent = viewModalData;
+    setViewModalData(null);
+    if (parent) handleOpenEdit(parent);
+  };
+
+  const linkedIds = editForm.linkedStudents.map((s) => s.student_id);
+  const availableResults = studentSearchResults.filter((s) => !linkedIds.includes(s.student_id));
 
   return (
     <div className="container-mpa">
-      {/* STI Top Header Banner */}
+      {/* STI header band */}
       <header className="header-mpa">
-        <div className="brand-mpa">
-          <div className="brand-text-mpa">
-            <h1>Parent Account Management</h1>
-            <p className="subtitle-mpa">Administrator Portal</p>
-          </div>
+        <span className="logo-mpa">
+          <Users size={28} aria-hidden="true" />
+        </span>
+        <div>
+          <h1>Parent Accounts</h1>
+          <p className="subtitle-mpa">Nurse portal</p>
         </div>
       </header>
 
-      {/* Search Bar & Controls */}
-      <div className="controls-mpa" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      {/* Search, status filter, count, export */}
+      <section className="card-mpa toolbar-mpa" aria-label="Filters">
         <div className="search-box-mpa">
-          <Search size={18} className="search-icon-mpa" />
+          <label htmlFor="mpa-search" className="vh-mpa">
+            Search parents
+          </label>
+          <Search size={18} className="search-icon-mpa" aria-hidden="true" />
           <input
-            type="text"
-            placeholder="Search by Parent ID, Name, Username..."
+            id="mpa-search"
+            className="input-mpa"
+            type="search"
+            placeholder="Search by ID, name, username"
+            autoComplete="off"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <button 
+
+        <div className="seg-mpa" role="group" aria-label="Filter by status">
+          {[
+            ['all', 'All'],
+            ['active', 'Active'],
+            ['inactive', 'Inactive']
+          ].map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              aria-pressed={statusFilter === key}
+              onClick={() => setStatusFilter(key)}
+            >
+              {label} <span className="seg-n-mpa">{counts[key]}</span>
+            </button>
+          ))}
+        </div>
+
+        <p className="count-mpa" role="status" aria-live="polite">
+          {visibleParents.length} of {parents.length}
+        </p>
+
+        <button
           type="button"
-          className="btn-secondary-mpa"
+          className="btn-mpa btn-icon-mpa btn-secondary-mpa"
           onClick={handleExportAllReport}
-          style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px', height: '38px', padding: '0 16px' }}
+          aria-label="Export report"
+          title="Export report"
         >
-          <Printer size={18} /> export
+          <Printer size={20} aria-hidden="true" />
         </button>
-      </div>
+      </section>
 
       {/* Parent Accounts Table Card */}
-      <div className="card-mpa">
+      <section className="card-mpa table-card-mpa" aria-label="Parent accounts">
         <div className="table-container-mpa">
           <table className="table-mpa">
             <thead>
               <tr>
-                <th>Parent ID</th>
-                <th>Full Name</th>
-                <th>Username</th>
-                <th>Linked Students</th>
-                <th>Status</th>
-                <th className="text-center-mpa">Actions</th>
+                <th scope="col">Parent</th>
+                <th scope="col">Username</th>
+                <th scope="col">Phone</th>
+                <th scope="col">Students</th>
+                <th scope="col">Status</th>
+                <th scope="col">
+                  <span className="vh-mpa">Actions</span>
+                </th>
               </tr>
             </thead>
             <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan="6" className="text-center-mpa py-4-mpa">
+              {initialLoad ? (
+                <tr className="empty-mpa">
+                  <td colSpan="6" role="status">
                     Loading accounts...
                   </td>
                 </tr>
-              ) : parents.length === 0 ? (
-                <tr>
-                  <td colSpan="6" className="text-center-mpa py-4-mpa">
-                    No parent accounts found.
+              ) : visibleParents.length === 0 ? (
+                <tr className="empty-mpa">
+                  <td colSpan="6">
+                    <Search size={32} aria-hidden="true" />
+                    No parent accounts found
                   </td>
                 </tr>
               ) : (
-                parents.map((parent) => (
-                  <tr key={parent.parent_id}>
-                    <td className="font-bold-mpa nowrap-cell-mpa">{parent.parent_id}</td>
-                    <td>{`${parent.first_name} ${parent.last_name}`}</td>
-                    <td className="username-cell-mpa">{parent.username}</td>
-                    <td className="nowrap-cell-mpa">
-                      <span className="badge-mpa badge-info-mpa">
-                        <Users size={14} className="badge-icon-mpa" />
-                        {parent.linked_students ? parent.linked_students.length : 0} Linked
-                      </span>
-                    </td>
-                    <td className="nowrap-cell-mpa">
-                      {parent.is_active ? (
-                        <span className="badge-mpa badge-success-mpa">
-                          <UserCheck size={12} className="badge-icon-mpa" /> Active
+                visibleParents.map((parent) => {
+                  const fullName = `${parent.first_name} ${parent.last_name}`;
+                  const linkedCount = parent.linked_students ? parent.linked_students.length : 0;
+                  return (
+                    <tr key={parent.parent_id}>
+                      <td className="cell-parent-mpa">
+                        <div className="who-mpa">
+                          <span className="avatar-mpa" aria-hidden="true">
+                            {initialsOf(parent.first_name, parent.last_name)}
+                          </span>
+                          <div className="who-text-mpa">
+                            <button
+                              type="button"
+                              className="name-btn-mpa"
+                              onClick={() => setViewModalData(parent)}
+                            >
+                              {fullName}
+                            </button>
+                            <span className="sub-mpa mono-mpa">{parent.parent_id}</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td data-label="Username">
+                        <span className="mono-mpa">{parent.username}</span>
+                      </td>
+                      <td data-label="Phone">{parent.primary_phone || 'N/A'}</td>
+                      <td data-label="Students">
+                        <span className="badge-mpa badge-info-mpa">
+                          <Users size={14} aria-hidden="true" /> {linkedCount} linked
                         </span>
-                      ) : (
-                        <span className="badge-mpa badge-danger-mpa">
-                          <UserX size={12} className="badge-icon-mpa" /> Inactive
-                        </span>
-                      )}
-                    </td>
-                    <td className="text-center-mpa action-cell-mpa">
-                      <div className="action-buttons-mpa">
-                        <button
-                          type="button"
-                          className="btn-icon-mpa btn-view-mpa"
-                          onClick={() => setViewModalData(parent)}
-                          title="View Details"
-                          aria-label={`View details for ${parent.parent_id}`}
-                        >
-                          <Eye size={18} />
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-icon-mpa btn-edit-mpa"
-                          onClick={() => handleOpenEdit(parent)}
-                          title="Edit Account"
-                          aria-label={`Edit account for ${parent.parent_id}`}
-                        >
-                          <Edit size={18} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                      </td>
+                      <td data-label="Status">
+                        <StatusBadge active={parent.is_active} />
+                      </td>
+                      <td className="cell-actions-mpa">
+                        <div className="actions-mpa">
+                          <button
+                            type="button"
+                            className="btn-mpa btn-icon-mpa"
+                            onClick={() => setViewModalData(parent)}
+                            title={`View ${fullName}`}
+                            aria-label={`View ${fullName}`}
+                          >
+                            <Eye size={20} aria-hidden="true" />
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-mpa btn-icon-mpa"
+                            onClick={() => handleOpenEdit(parent)}
+                            title={`Edit ${fullName}`}
+                            aria-label={`Edit ${fullName}`}
+                          >
+                            <Edit size={20} aria-hidden="true" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
         </div>
-      </div>
+      </section>
 
       {/* VIEW DETAILS MODAL */}
-      {viewModalData && (
-        <div className="modal-backdrop-mpa" onClick={() => setViewModalData(null)}>
-          <div
-            className="modal-content-mpa"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="view-modal-title"
-          >
-            <div className="modal-header-mpa">
-              <h2 id="view-modal-title">Parent & Linked Students</h2>
-              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                <button 
-                  type="button" 
-                  className="btn-secondary-mpa" 
-                  onClick={handleExportSingleReport}
-                  style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px', height: '32px', padding: '0 12px', fontSize: '0.875rem' }}
-                >
-                  <Printer size={16} /> export
-                </button>
-                <button
-                  type="button"
-                  className="btn-close-mpa"
-                  aria-label="Close parent details"
-                  onClick={() => setViewModalData(null)}
-                >
-                  <X size={20} />
-                </button>
+      <Modal
+        isOpen={Boolean(viewModalData)}
+        onClose={() => setViewModalData(null)}
+        size="lg"
+        title={viewModalData ? `${viewModalData.first_name} ${viewModalData.last_name}` : ''}
+        icon={
+          viewModalData ? (
+            <span className="avatar-mpa lg" aria-hidden="true">
+              {initialsOf(viewModalData.first_name, viewModalData.last_name)}
+            </span>
+          ) : null
+        }
+        footer={
+          <>
+            <button
+              type="button"
+              className="btn-mpa btn-icon-mpa btn-secondary-mpa"
+              onClick={handleExportSingleReport}
+              aria-label="Export report"
+              title="Export report"
+            >
+              <Printer size={20} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className="btn-mpa btn-icon-mpa btn-primary-mpa"
+              onClick={openEditFromView}
+              aria-label="Edit account"
+              title="Edit account"
+            >
+              <Edit size={20} aria-hidden="true" />
+            </button>
+          </>
+        }
+      >
+        {viewModalData && (
+          <>
+            <dl className="facts-mpa">
+              <div>
+                <dt>Parent ID</dt>
+                <dd className="mono-mpa">{viewModalData.parent_id}</dd>
               </div>
-            </div>
-            <div className="modal-body-mpa">
-              <div className="details-section-mpa">
-                <h3>Parent Account Information</h3>
-                <div className="grid-2-mpa">
-                  <div>
-                    <strong>Parent ID:</strong> {viewModalData.parent_id}
-                  </div>
-                  <div>
-                    <strong>Username:</strong> {viewModalData.username}
-                  </div>
-                  <div>
-                    <strong>First Name:</strong> {viewModalData.first_name}
-                  </div>
-                  <div>
-                    <strong>Last Name:</strong> {viewModalData.last_name}
-                  </div>
-                  <div>
-                    <strong>Primary Phone:</strong> {viewModalData.primary_phone || 'N/A'}
-                  </div>
-                  <div>
-                    <strong>Status:</strong> {viewModalData.is_active ? 'Active' : 'Inactive'}
-                  </div>
-                </div>
+              <div>
+                <dt>Username</dt>
+                <dd className="mono-mpa">{viewModalData.username}</dd>
               </div>
+              <div>
+                <dt>Phone</dt>
+                <dd>{viewModalData.primary_phone || 'N/A'}</dd>
+              </div>
+              <div>
+                <dt>Status</dt>
+                <dd>
+                  <StatusBadge active={viewModalData.is_active} />
+                </dd>
+              </div>
+            </dl>
 
-              <div className="details-section-mpa">
-                <h3>Linked Student Accounts</h3>
-                {viewModalData.linked_students && viewModalData.linked_students.length > 0 ? (
-                  <div className="student-grid-mpa">
-                    {viewModalData.linked_students.map((student) => (
-                      <div key={student.student_id} className="student-card-mpa">
-                        <div className="student-card-header-mpa">
-                          <GraduationCap size={18} />
-                          <span>{student.student_id}</span>
-                        </div>
-                        <div className="student-card-body-mpa">
-                          <p className="student-name-mpa">
-                            {student.first_name} {student.last_name}
-                          </p>
-                          <p>
-                            <strong>Program:</strong> {student.program_name || 'N/A'}
-                          </p>
-                          <p>
-                            <strong>Year Level & Section:</strong> Year {student.year_level} - {student.section}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-muted-mpa">No students currently linked to this parent account.</p>
-                )}
-              </div>
-            </div>
-            <div className="modal-footer-mpa">
-              <button type="button" className="btn-secondary-mpa" onClick={() => setViewModalData(null)}>
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+            <h3 className="section-title-mpa">
+              Linked students ({viewModalData.linked_students ? viewModalData.linked_students.length : 0})
+            </h3>
+            {viewModalData.linked_students && viewModalData.linked_students.length > 0 ? (
+              <ul className="student-grid-mpa">
+                {viewModalData.linked_students.map((student) => (
+                  <li key={student.student_id} className="student-card-mpa">
+                    <span className="avatar-mpa sm" aria-hidden="true">
+                      <GraduationCap size={16} />
+                    </span>
+                    <div>
+                      <p className="student-name-mpa">
+                        {student.first_name} {student.last_name}
+                      </p>
+                      <p className="sub-mpa mono-mpa">{student.student_id}</p>
+                      <p className="sub-mpa">{student.program_name || 'N/A'}</p>
+                      <p className="sub-mpa">
+                        Year {student.year_level} - {student.section}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="empty-line-mpa">
+                <Users size={16} aria-hidden="true" /> No linked students
+              </p>
+            )}
+          </>
+        )}
+      </Modal>
 
       {/* EDIT MODAL */}
-      {editModalData && (
-        <div className="modal-backdrop-mpa" onClick={() => setEditModalData(null)}>
-          <div
-            className="modal-content-mpa modal-lg-mpa"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="edit-modal-title"
-          >
-            <div className="modal-header-mpa">
-              <h2 id="edit-modal-title">Edit Parent Account</h2>
-              <button
-                type="button"
-                className="btn-close-mpa"
-                aria-label="Close edit parent modal"
-                onClick={() => setEditModalData(null)}
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveUpdate} className="modal-form-mpa">
-              <div className="modal-body-mpa">
-                {/* Account Details */}
-                <div className="form-section-mpa">
-                  <h3 className="section-title-mpa">Account Details</h3>
-                  <div className="grid-2-mpa">
-                    <div className="form-group-mpa">
-                      <label htmlFor="edit-parent-id">Parent ID</label>
-                      <input
-                        id="edit-parent-id"
-                        type="text"
-                        value={editForm.parent_id}
-                        onChange={(e) => setEditForm({ ...editForm, parent_id: e.target.value })}
-                        required
-                      />
-                    </div>
-                    <div className="form-group-mpa">
-                      <label htmlFor="edit-username">Username</label>
-                      <input
-                        id="edit-username"
-                        type="text"
-                        value={editForm.username}
-                        onChange={(e) => setEditForm({ ...editForm, username: e.target.value })}
-                        required
-                      />
-                    </div>
-                    <div className="form-group-mpa">
-                      <label htmlFor="edit-first-name">First Name</label>
-                      <input
-                        id="edit-first-name"
-                        type="text"
-                        value={editForm.first_name}
-                        onChange={(e) => setEditForm({ ...editForm, first_name: e.target.value })}
-                        required
-                      />
-                    </div>
-                    <div className="form-group-mpa">
-                      <label htmlFor="edit-last-name">Last Name</label>
-                      <input
-                        id="edit-last-name"
-                        type="text"
-                        value={editForm.last_name}
-                        onChange={(e) => setEditForm({ ...editForm, last_name: e.target.value })}
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  {/* Password Reset Checkbox */}
-                  <div className="form-group-mpa checkbox-group-mpa">
-                    <label className="checkbox-label-mpa">
-                      <input
-                        type="checkbox"
-                        checked={editForm.resetToDefault}
-                        onChange={(e) =>
-                          setEditForm({
-                            ...editForm,
-                            resetToDefault: e.target.checked,
-                            password: e.target.checked ? '123' : ''
-                          })
-                        }
-                      />
-                      <Key size={16} /> Reset Password to Default ("123")
-                    </label>
-                  </div>
-
-                  {/* Account Status */}
-                  <div className="form-group-mpa spacing-top-sm">
-                    <label htmlFor="edit-status">Account Status</label>
-                    <select
-                      id="edit-status"
-                      value={editForm.is_active}
-                      onChange={(e) => setEditForm({ ...editForm, is_active: parseInt(e.target.value, 10) })}
-                    >
-                      <option value={1}>Active</option>
-                      <option value={0}>Inactive</option>
-                    </select>
-                  </div>
+      <Modal
+        isOpen={Boolean(editModalData)}
+        onClose={requestCloseEdit}
+        closeOnBackdrop={false}
+        size="xl"
+        title="Edit account"
+        icon={
+          editModalData ? (
+            <span className="avatar-mpa lg" aria-hidden="true">
+              {initialsOf(editModalData.first_name, editModalData.last_name)}
+            </span>
+          ) : null
+        }
+        footer={
+          <div className="modal-footer-actions-mpa">
+            <button type="button" className="btn-mpa btn-secondary-mpa" onClick={requestCloseEdit}>
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="edit-parent-form"
+              className="btn-mpa btn-primary-mpa"
+              disabled={!isDirty || saving}
+            >
+              <Save size={16} aria-hidden="true" /> Save
+            </button>
+          </div>
+        }
+      >
+        <form id="edit-parent-form" onSubmit={handleSaveUpdate} noValidate>
+          <div className="edit-cols-mpa">
+            {/* Account */}
+            <section className="form-section-mpa" aria-labelledby="mpa-account-title">
+              <h3 id="mpa-account-title" className="section-title-mpa">
+                Account
+              </h3>
+              <div className="grid-2-mpa">
+                <div className="form-group-mpa">
+                  <label htmlFor="edit-first-name">First name</label>
+                  <input
+                    id="edit-first-name"
+                    className="input-mpa"
+                    type="text"
+                    value={editForm.first_name}
+                    onChange={(e) => setField('first_name', e.target.value)}
+                    aria-required="true"
+                    aria-invalid={invalidFields.includes('first_name') || undefined}
+                    autoComplete="off"
+                  />
                 </div>
+                <div className="form-group-mpa">
+                  <label htmlFor="edit-last-name">Last name</label>
+                  <input
+                    id="edit-last-name"
+                    className="input-mpa"
+                    type="text"
+                    value={editForm.last_name}
+                    onChange={(e) => setField('last_name', e.target.value)}
+                    aria-required="true"
+                    aria-invalid={invalidFields.includes('last_name') || undefined}
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="form-group-mpa">
+                  <label htmlFor="edit-parent-id">Parent ID</label>
+                  <input
+                    id="edit-parent-id"
+                    className="input-mpa"
+                    type="text"
+                    value={editForm.parent_id}
+                    onChange={(e) => setField('parent_id', e.target.value)}
+                    aria-required="true"
+                    aria-invalid={invalidFields.includes('parent_id') || undefined}
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="form-group-mpa">
+                  <label htmlFor="edit-username">Username</label>
+                  <input
+                    id="edit-username"
+                    className="input-mpa"
+                    type="text"
+                    value={editForm.username}
+                    onChange={(e) => setField('username', e.target.value)}
+                    aria-required="true"
+                    aria-invalid={invalidFields.includes('username') || undefined}
+                    autoComplete="off"
+                  />
+                </div>
+              </div>
 
-                {/* Manage Linked Students */}
-                <div className="form-section-mpa">
-                  <h3 className="section-title-mpa">Manage Linked Students</h3>
+              <fieldset className="form-group-mpa">
+                <legend>Status</legend>
+                <div className="seg-mpa">
+                  <label>
+                    <input
+                      type="radio"
+                      name="edit-status"
+                      value="1"
+                      checked={Number(editForm.is_active) === 1}
+                      onChange={() => setField('is_active', 1)}
+                    />
+                    <span>
+                      <UserCheck size={16} aria-hidden="true" /> Active
+                    </span>
+                  </label>
+                  <label>
+                    <input
+                      type="radio"
+                      name="edit-status"
+                      value="0"
+                      checked={Number(editForm.is_active) === 0}
+                      onChange={() => setField('is_active', 0)}
+                    />
+                    <span>
+                      <UserX size={16} aria-hidden="true" /> Inactive
+                    </span>
+                  </label>
+                </div>
+              </fieldset>
 
-                  {/* Search and Add Student */}
-                  <div className="student-search-container-mpa">
-                    <label htmlFor="search-student-input">Search Student to Link</label>
-                    <div className="search-box-mpa">
-                      <Search size={16} className="search-icon-mpa" />
-                      <input
-                        id="search-student-input"
-                        type="text"
-                        placeholder="Search student by ID or Name..."
-                        value={studentSearchInput}
-                        onChange={(e) => handleSearchStudents(e.target.value)}
-                      />
-                    </div>
+              <label className="switch-mpa">
+                <input
+                  type="checkbox"
+                  role="switch"
+                  checked={editForm.resetToDefault}
+                  onChange={(e) =>
+                    setEditForm({
+                      ...editForm,
+                      resetToDefault: e.target.checked,
+                      password: e.target.checked ? '123' : ''
+                    })
+                  }
+                />
+                <span className="switch-track-mpa" aria-hidden="true" />
+                <Key size={16} aria-hidden="true" /> Reset password
+              </label>
+            </section>
 
-                    {/* Search Loading / Results Dropdown */}
-                    {isSearchingStudents ? (
-                      <div className="search-results-dropdown-mpa">
-                        <div className="dropdown-item-mpa text-muted-mpa">Searching students...</div>
-                      </div>
+            {/* Linked students */}
+            <section className="form-section-mpa" aria-labelledby="mpa-students-title">
+              <h3 id="mpa-students-title" className="section-title-mpa">
+                Linked students ({editForm.linkedStudents.length})
+              </h3>
+
+              <div className="search-box-mpa">
+                <label htmlFor="search-student-input" className="vh-mpa">
+                  Find student
+                </label>
+                <Search size={16} className="search-icon-mpa" aria-hidden="true" />
+                <input
+                  id="search-student-input"
+                  className="input-mpa"
+                  type="search"
+                  placeholder="Find by ID or name"
+                  autoComplete="off"
+                  value={studentSearchInput}
+                  onChange={(e) => handleSearchStudents(e.target.value)}
+                />
+              </div>
+
+              {isSearchingStudents ? (
+                <p className="results-mpa sub-mpa" role="status">
+                  Searching...
+                </p>
+              ) : (
+                studentSearchInput.trim() && (
+                  <ul className="results-mpa" aria-label="Search results">
+                    {availableResults.length === 0 ? (
+                      <li className="empty-line-mpa">
+                        <Search size={16} aria-hidden="true" /> No match
+                      </li>
                     ) : (
-                      studentSearchResults.length > 0 && (
-                        <div className="search-results-dropdown-mpa">
-                          {studentSearchResults.map((student) => (
-                            <div key={student.student_id} className="dropdown-item-mpa">
-                              <div className="dropdown-item-text-mpa">
-                                <strong>{student.student_id}</strong> - {student.first_name} {student.last_name} (
-                                {student.program_name || 'N/A'})
-                              </div>
-                              <button
-                                type="button"
-                                className="btn-add-sm-mpa"
-                                onClick={() => handleAddStudent(student)}
-                              >
-                                <Plus size={14} /> Link
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )
+                      availableResults.slice(0, 6).map((student) => {
+                        const name = `${student.first_name} ${student.last_name}`;
+                        return (
+                          <li key={student.student_id}>
+                            <button
+                              type="button"
+                              className="result-row-mpa"
+                              onClick={() => handleAddStudent(student)}
+                              aria-label={`Link ${name}`}
+                            >
+                              <span className="result-text-mpa">
+                                <strong>{name}</strong>
+                                <span className="sub-mpa">
+                                  {student.student_id} · {student.program_name || 'N/A'}
+                                </span>
+                              </span>
+                              <Plus size={16} aria-hidden="true" />
+                            </button>
+                          </li>
+                        );
+                      })
                     )}
-                  </div>
+                  </ul>
+                )
+              )}
 
-                  {/* Currently Linked Students List */}
-                  <div className="linked-students-list-mpa">
-                    <h4>Currently Linked Students ({editForm.linkedStudents.length})</h4>
-                    {editForm.linkedStudents.length === 0 ? (
-                      <p className="text-muted-mpa">No students currently linked.</p>
-                    ) : (
-                      editForm.linkedStudents.map((student) => (
-                        <div key={student.student_id} className="linked-student-item-mpa">
-                          <div className="linked-student-info-mpa">
-                            <strong>{student.student_id}</strong> - {student.first_name} {student.last_name}
-                            <span className="sub-text-mpa">
-                              ({student.program_name || 'N/A'} | Year {student.year_level} - {student.section})
-                            </span>
+              <ul className="linked-list-mpa">
+                {editForm.linkedStudents.length === 0 ? (
+                  <li className="empty-line-mpa">
+                    <Users size={16} aria-hidden="true" /> No linked students
+                  </li>
+                ) : (
+                  editForm.linkedStudents.map((student) => {
+                    const name = `${student.first_name} ${student.last_name}`;
+                    return (
+                      <li key={student.student_id} className="linked-row-mpa">
+                        <div className="linked-main-mpa">
+                          <span className="avatar-mpa sm" aria-hidden="true">
+                            <GraduationCap size={16} />
+                          </span>
+                          <div>
+                            <p className="student-name-mpa">{name}</p>
+                            <p className="sub-mpa">
+                              <span className="mono-mpa">{student.student_id}</span> · {student.program_name || 'N/A'}
+                            </p>
+                            <p className="sub-mpa">
+                              Year {student.year_level} - {student.section}
+                            </p>
                           </div>
-                          <button
-                            type="button"
-                            className="btn-danger-sm-mpa"
-                            title={`Unlink ${student.student_id}`}
-                            aria-label={`Unlink student ${student.student_id}`}
-                            onClick={() => handleRemoveStudent(student.student_id)}
-                          >
-                            <Trash2 size={14} />
-                          </button>
                         </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Lower Portion Fixed Action Buttons */}
-              <div className="modal-footer-mpa">
-                <button type="button" className="btn-secondary-mpa" onClick={() => setEditModalData(null)}>
-                  Cancel
-                </button>
-                <button type="submit" className="btn-primary-mpa">
-                  <Save size={16} /> Save Changes
-                </button>
-              </div>
-            </form>
+                        <button
+                          type="button"
+                          className="btn-mpa btn-icon-mpa btn-danger-mpa"
+                          onClick={() => handleRemoveStudent(student)}
+                          title={`Unlink ${name}`}
+                          aria-label={`Unlink ${name}`}
+                        >
+                          <Trash2 size={18} aria-hidden="true" />
+                        </button>
+                      </li>
+                    );
+                  })
+                )}
+              </ul>
+            </section>
           </div>
-        </div>
-      )}
-
-      {/* CONFIRMATION MODAL */}
-      {confirmModal.isOpen && (
-        <div className="modal-backdrop-mpa modal-z-top" onClick={closeConfirm}>
-          <div
-            className="modal-content-mpa modal-sm-mpa"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-          >
-            <div className="modal-header-mpa">
-              <h2>{confirmModal.title}</h2>
-              <button
-                type="button"
-                className="btn-close-mpa"
-                onClick={closeConfirm}
-                aria-label="Close confirmation dialog"
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <div className="modal-body-mpa flex-center-body-mpa">
-              <div className="feedback-icon-wrapper-mpa icon-warning-mpa">
-                <AlertTriangle size={36} />
-              </div>
-              <p className="modal-message-mpa">{confirmModal.message}</p>
-            </div>
-            <div className="modal-footer-mpa">
-              <button type="button" className="btn-secondary-mpa" onClick={closeConfirm}>
-                {confirmModal.cancelText}
-              </button>
-              <button
-                type="button"
-                className={confirmModal.type === 'danger' ? 'btn-danger-mpa' : 'btn-primary-mpa'}
-                onClick={confirmModal.onConfirm}
-              >
-                {confirmModal.confirmText}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* FEEDBACK MODAL (Success / Error / Warning) */}
-      {feedbackModal.isOpen && (
-        <div className="modal-backdrop-mpa modal-z-top" onClick={closeFeedback}>
-          <div
-            className="modal-content-mpa modal-sm-mpa"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-          >
-            <div className="modal-header-mpa">
-              <h2>{feedbackModal.title}</h2>
-              <button
-                type="button"
-                className="btn-close-mpa"
-                onClick={closeFeedback}
-                aria-label="Close notification message"
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <div className="modal-body-mpa flex-center-body-mpa">
-              <div
-                className={`feedback-icon-wrapper-mpa ${
-                  feedbackModal.type === 'success'
-                    ? 'icon-success-mpa'
-                    : feedbackModal.type === 'warning'
-                    ? 'icon-warning-mpa'
-                    : 'icon-error-mpa'
-                }`}
-              >
-                {feedbackModal.type === 'success' && <CheckCircle2 size={40} />}
-                {feedbackModal.type === 'warning' && <AlertTriangle size={40} />}
-                {feedbackModal.type === 'error' && <AlertCircle size={40} />}
-              </div>
-              <p className="modal-message-mpa">{feedbackModal.message}</p>
-            </div>
-            <div className="modal-footer-mpa text-center-footer-mpa">
-              <button type="button" className="btn-primary-mpa" onClick={closeFeedback}>
-                OK
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+        </form>
+      </Modal>
     </div>
   );
 }

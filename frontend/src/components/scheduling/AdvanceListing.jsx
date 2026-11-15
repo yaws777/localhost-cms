@@ -16,7 +16,7 @@ import { ScheduleRequestModal, usePendingScheduleRequests } from './ScheduleRequ
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatDateTime } from '../../utils/datetime';
 import { fullName } from '../../utils/visitPurpose';
-import { API, to12h, coveredTypes, classLabel } from '../../utils/scheduling';
+import { API, to12h, coveredTypes, classLabel, CUTOFF_KINDS, cutoffKindLabel } from '../../utils/scheduling';
 import '../../styles/nurse/DoctorVisits.css';
 import '../../styles/nurse/DoctorSchedule.css';
 import '../../styles/doctor/DoctorLayout.css';
@@ -524,7 +524,7 @@ const AdvanceListing = ({ isNurse, doctors, nurseId, userId, refreshKey, onChang
                 <div className="table-card-dv">
                     <table className="sti-table-dv">
                         <thead>
-                            <tr><th style={{ width: 74 }}>No.</th><th>Student</th><th>Check-up service and reason</th><th>{cutoffTab && !pastListing ? 'Cut off' : 'Registered'}</th><th>Status</th>{isNurse && !pastListing && <th>Actions</th>}</tr>
+                            <tr><th style={{ width: 74 }}>No.</th><th>Student</th><th>Check-up service and reason</th><th>{cutoffTab && !pastListing ? 'Listed (priority)' : 'Registered'}</th><th>Status</th>{isNurse && !pastListing && <th>Actions</th>}</tr>
                         </thead>
                         <tbody>
                             {pageRows.map((e) => (
@@ -539,11 +539,15 @@ const AdvanceListing = ({ isNurse, doctors, nurseId, userId, refreshKey, onChang
                                     </td>
                                     <td className="reason-cell-sc"><strong>{e.visit_type}</strong><div>{e.reason}</div></td>
                                     <td>
-                                        {cutoffTab && !pastListing && e.cutoff_date ? formatDate(e.cutoff_date) : formatDate(e.created_at)}
+                                        {cutoffTab && !pastListing ? formatDateTime(e.listed_at || e.created_at) : formatDate(e.created_at)}
+                                        {cutoffTab && !pastListing && e.cutoff_date && <div className="muted-ds">Cut off {formatDate(e.cutoff_date)}</div>}
                                         {e.listing_title && <div className="muted-ds">{e.listing_title}</div>}
                                     </td>
                                     <td>
                                         <span className={`badge-ds ${STATUS_CLASS[e.status] || 'badge-expired-ds'}`}>{STATUS_TEXT[e.status] || e.status}</span>
+                                        {['Cutoff', 'Moved'].includes(e.status) && e.cutoff_kind && (
+                                            <div className="muted-ds" title={(CUTOFF_KINDS[e.cutoff_kind] || {}).hint}>{cutoffKindLabel(e.cutoff_kind)}</div>
+                                        )}
                                         {e.queue_label && e.session_date && (
                                             <div className="muted-ds">{e.queue_label}: {e.doctor_name}, {formatDate(e.session_date)}, {to12h(e.session_start)} - {to12h(e.session_end)}</div>
                                         )}

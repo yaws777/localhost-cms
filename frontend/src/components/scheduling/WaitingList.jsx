@@ -7,24 +7,26 @@
 // past sessions in a second panel. View list opens the list of one session (To review / Queue). Session cards / schedule rows land here with
 // `focusSchedule`: that session's list is already open.
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { XCircle, History, Search, RefreshCw, Check, UserPlus, Eye, ClipboardCheck, ArrowLeft } from 'lucide-react';
+import { XCircle, History, Search, RefreshCw, Check, UserPlus, Eye, ClipboardCheck, ArrowLeft, ArrowRightLeft, ChevronsRight } from 'lucide-react';
 import Modal from '../common/Modal';
 import { Pager } from '../common/RecordFolders';
 import { ReasonModal } from '../doctor/AppointmentModals';
-import { AppointModal } from './SessionModals';
+import { AppointModal, creatorBody } from './SessionModals';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatDateTime } from '../../utils/datetime';
 import { visitLabel, fullName } from '../../utils/visitPurpose';
-import { API, REQUEST_STATUS_CLASS, SCHEDULING_WAYS, wayOf, dayLabel, timeRange, classLabel } from '../../utils/scheduling';
+import { API, REQUEST_STATUS_CLASS, SCHEDULING_WAYS, wayOf, dayLabel, timeRange, classLabel, CUTOFF_KINDS, cutoffKindLabel } from '../../utils/scheduling';
 import '../../styles/nurse/DoctorVisits.css';
 import '../../styles/nurse/DoctorSchedule.css';
 import '../../styles/doctor/DoctorLayout.css';
 import '../../styles/scheduling/Scheduling.css';
 
 // `queue` is the whole queue of the session (advance listing students, accepted students, walk-ins); it is read from the session, not from the requests
+// `move` (nurse only): follow-ups and cut off students the nurse can move into this session, the earliest listing first
 const NURSE_GROUPS = [
     ['pending', 'To review', ['Waiting for Approval']],
-    ['queue', 'Queue', null]
+    ['queue', 'Queue', null],
+    ['move', 'Move in', null]
 ];
 const DOCTOR_GROUPS = NURSE_GROUPS.filter(([key]) => key === 'queue');
 const PAGE_SIZE = 8;
@@ -32,7 +34,7 @@ const pageCountOf = (total) => Math.max(1, Math.ceil(total / PAGE_SIZE));
 
 const QUEUE_STATE_TEXT = { Waiting: 'Waiting', Serving: 'In session', Done: 'Done', Void: 'Void' };
 const QUEUE_STATE_CLASS = { Waiting: 'badge-pending-ds', Serving: 'badge-open-ds', Done: 'badge-open-ds', Void: 'badge-closed-ds' };
-const queueWayText = (p) => (p.how === 'repeat' ? 'Repeat' : p.how === 'advance' && p.advance_label ? `Advance listing ${p.advance_label}` : SCHEDULING_WAYS[wayOf(p.booking_source, p.how)].label);
+const queueWayText = (p) => (p.how === 'repeat' ? 'Follow-up' : p.how === 'advance' && p.advance_label ? `Advance listing ${p.advance_label}` : SCHEDULING_WAYS[wayOf(p.booking_source, p.how)].label);
 
 const send = async (path, method, body) => {
     const res = await fetch(`${API}${path}`, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -49,7 +51,7 @@ const daysAgo = (n) => new Date(Date.now() - n * 86400000).toLocaleDateString('s
 const queuedOf = (s) => (s.queue_done || 0) + (s.queue_waiting || 0) + (s.queue_void || 0) + (s.queue_serving ? 1 : 0);
 
 const WaitingList = ({ fixedDoctorId, creator, userId, refreshKey, focusSchedule, onFocusConsumed, onChanged }) => {
-    const { showAlert } = useAlert();
+    const { showAlert, showConfirm } = useAlert();
     const [requests, setRequests] = useState([]);
     const [schedules, setSchedules] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -138,6 +140,55 @@ const WaitingList = ({ fixedDoctorId, creator, userId, refreshKey, focusSchedule
 
     useEffect(() => { loadQueue(); }, [loadQueue, refreshKey]);
 
+    // Students the nurse can move into this session: follow-ups waiting for a schedule (this doctor) and cut off students (by listing limit, by time,
+    // or a dropped listing). Only what the session's check-up service fits. Priority = date and time of the first listing, earliest first.
+    const [movables, setMovables] = useState([]);
+    const [moveLoading, setMoveLoading] = useState(false);
+    const canMove = isNurse && !!session && !pastSession;
+    const loadMovables = useCallback(async () => {
+        if (!canMove) { setMovables([]); return; }
+        setMoveLoading(true);
+        try {
+            const [cutRes, fuRes] = await Promise.all([
+                fetch(`${API}/api/advance-listing/entries?scope=cutoff`),
+                fetch(`${API}/api/follow-ups?doctor_id=${encodeURIComponent(session.doctor_id)}`)
+            ]);
+            const cutData = await cutRes.json();
+            const fuData = await fuRes.json();
+            const fitsCut = (vt) => session.visit_type === 'Any' || session.visit_type === vt;
+            const fitsFollow = (vt) => session.visit_type === 'Any' || session.visit_type === vt || ['Follow-up', 'Referral'].includes(vt);
+            const followUps = (fuData.success ? fuData.follow_ups : [])
+                .filter((f) => f.state === 'needs_time' && fitsFollow(f.visit_type))
+                .map((f) => ({
+                    key: `f-${f.appointment_id}-${f.student_id}`, kind: 'followup', id: f.appointment_id, student_id: f.student_id,
+                    student_name: fullName(f.student_first_name, f.student_last_name), class_text: classLabel(f), visit_type: f.visit_type, service_type: f.service_type, service_other: f.service_purpose_other, reason: f.follow_up_notes || f.diagnosis || '',
+                    listed_at: f.assessment_date
+                }))
+                .sort((a, b) => String(a.listed_at).localeCompare(String(b.listed_at)));
+            const cutoffs = (cutData.success ? cutData.entries : [])
+                .filter((e) => fitsCut(e.visit_type))
+                .map((e) => ({
+                    key: `c-${e.entry_id}`, kind: 'cutoff', id: e.entry_id, student_id: e.student_id, student_name: fullName(e.student_first_name, e.student_last_name),
+                    class_text: classLabel(e), visit_type: e.visit_type, reason: e.reason, listed_at: e.listed_at || e.created_at, cutoff_kind: e.cutoff_kind
+                }))
+                .sort((a, b) => String(a.listed_at).localeCompare(String(b.listed_at)));
+            setMovables([...followUps, ...cutoffs]);
+        } catch (e) {
+            setMovables([]);
+        } finally {
+            setMoveLoading(false);
+        }
+    }, [canMove, session]);
+
+    useEffect(() => { loadMovables(); }, [loadMovables, refreshKey]);
+
+    // a cut off student can only go after the ones of the same check-up service who listed earlier (the server checks it too)
+    const firstCutoffOf = useMemo(() => {
+        const first = new Map();
+        movables.filter((m) => m.kind === 'cutoff').forEach((m) => { if (!first.has(m.visit_type)) first.set(m.visit_type, m.key); });
+        return first;
+    }, [movables]);
+
     const queueRows = useMemo(() => {
         const q = search.trim().toLowerCase();
         return queue.filter((p) => !q || `${p.student_name} ${p.student_id} ${p.queue_label} ${p.advance_label || ''} ${p.booking_reason || ''}`.toLowerCase().includes(q));
@@ -146,10 +197,15 @@ const WaitingList = ({ fixedDoctorId, creator, userId, refreshKey, focusSchedule
     const counts = useMemo(() => {
         const map = {};
         GROUPS.forEach(([key, , statuses]) => {
-            map[key] = key === 'queue' ? queue.length : statuses ? inSession.filter((r) => statuses.includes(r.status)).length : inSession.length;
+            map[key] = key === 'move' ? movables.length : key === 'queue' ? queue.length : statuses ? inSession.filter((r) => statuses.includes(r.status)).length : inSession.length;
         });
         return map;
-    }, [inSession, GROUPS, queue]);
+    }, [inSession, GROUPS, queue, movables]);
+
+    const moveRows = useMemo(() => {
+        const q = search.trim().toLowerCase();
+        return movables.filter((m) => !q || `${m.student_name} ${m.student_id} ${m.reason}`.toLowerCase().includes(q));
+    }, [movables, search]);
 
     const rows = useMemo(() => {
         const statuses = GROUPS.find(([key]) => key === group)[2];
@@ -164,16 +220,47 @@ const WaitingList = ({ fixedDoctorId, creator, userId, refreshKey, focusSchedule
     // back to the first page when the list in view changes
     useEffect(() => { setPage(1); }, [group, search, sessionId, pastSession]);
     useEffect(() => { setTablePage(1); }, [panel]);
-    const curPage = Math.min(page, pageCountOf(group === 'queue' ? queueRows.length : rows.length));
+    const curPage = Math.min(page, pageCountOf(group === 'queue' ? queueRows.length : group === 'move' ? moveRows.length : rows.length));
     const slice = (list) => list.slice((curPage - 1) * PAGE_SIZE, curPage * PAGE_SIZE);
 
-    const changed = () => { load(); loadQueue(); if (onChanged) onChanged(); };
+    const changed = () => { load(); loadQueue(); loadMovables(); if (onChanged) onChanged(); };
 
     const accept = async (r) => {
         setBusy(true);
         try {
             const data = await send(`/api/consultation-requests/${r.request_id}/accept`, 'PUT', { sender_id: userId });
             if (data.success) { showAlert(data.message, 'success'); changed(); } else showAlert(data.message || 'Could not accept the request.', 'error');
+        } catch (e) {
+            showAlert('Could not reach the server.', 'error');
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    // move a follow-up or cut off students into the open session (the server checks the limit, the purpose and that nobody is listed twice)
+    const moveIn = async (list) => {
+        if (!session || list.length === 0) return;
+        const names = list.length === 1 ? list[0].student_name : `${list.length} students`;
+        const ok = await showConfirm(`Move ${names} into this session?`, { title: 'Move in', confirmLabel: 'Move in' });
+        if (!ok) return;
+        setBusy(true);
+        try {
+            const cut = list.filter((m) => m.kind === 'cutoff');
+            const follow = list.filter((m) => m.kind === 'followup');
+            const messages = [];
+            let failed = false;
+            for (const m of follow) {
+                const data = await send(`/api/doctor-visits/${m.id}/follow-up`, 'POST', {
+                    ...creatorBody(creator), sender_id: userId, student_id: m.student_id, schedule_id: session.schedule_id, date: session.listing_date
+                });
+                if (data.success) messages.push(data.message); else { failed = true; messages.push(`${m.student_name}: ${data.message || 'Could not move the follow-up.'}`); }
+            }
+            if (cut.length > 0) {
+                const data = await send(`/api/doctor-schedules/${session.schedule_id}/place-cutoff`, 'PUT', { sender_id: userId, date: session.listing_date, entry_ids: cut.map((m) => m.id) });
+                if (data.success) messages.push(data.message); else { failed = true; messages.push(data.message || 'Could not move the cut off students.'); }
+            }
+            showAlert(messages.join(' '), failed ? 'warning' : 'success');
+            changed();
         } catch (e) {
             showAlert('Could not reach the server.', 'error');
         } finally {
@@ -326,9 +413,60 @@ const WaitingList = ({ fixedDoctorId, creator, userId, refreshKey, focusSchedule
                                 </button>
                             ))}
                         </div>
+                        {canMove && (
+                            <div className="advance-actions-sc">
+                                <button type="button" className="icon-btn-ds" disabled={busy || session.listing_full} onClick={() => setAddFor(session)}
+                                    title={session.listing_full ? 'The listing is full' : 'Add a student'} aria-label="Add a student to this session"><UserPlus size={15} /></button>
+                                {group === 'move' && moveRows.length > 0 && (
+                                    <button type="button" className="icon-btn-ds" disabled={busy || session.listing_full} onClick={() => moveIn(moveRows)}
+                                        title="Move all that fit, earliest listing first" aria-label={`Move all ${moveRows.length} students that fit into this session`}><ChevronsRight size={15} /></button>
+                                )}
+                            </div>
+                        )}
                     </div>
 
-                    {group === 'queue' ? (
+                    {group === 'move' ? (
+                        moveRows.length === 0 ? (
+                            <div className="group-empty-ds">{moveLoading ? 'Loading...' : movables.length === 0 ? 'No follow-up or cut off student waits for this check-up service.' : 'Nobody matches.'}</div>
+                        ) : (
+                            <div className="table-card-dv">
+                                <table className="sti-table-dv">
+                                    <caption className="sr-only">Follow-ups and cut off students, earliest listing first</caption>
+                                    <thead>
+                                        <tr><th>Student</th><th>Check-up and reason</th><th>Listed (priority)</th><th>Type</th><th>Actions</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        {slice(moveRows).map((m) => {
+                                            const waitsFor = m.kind === 'cutoff' && firstCutoffOf.get(m.visit_type) !== m.key;
+                                            const full = !!session.listing_full;
+                                            return (
+                                                <tr key={m.key}>
+                                                    <td>{m.student_name}<div className="muted-ds">{m.student_id}{m.class_text ? ` - ${m.class_text}` : ''}</div></td>
+                                                    <td className="reason-cell-sc"><strong>{visitLabel(m.visit_type)}</strong>{m.service_type && m.service_type !== m.visit_type && <div><span className="badge-ds badge-open-ds" title="Check-up service">{visitLabel(m.service_type, m.service_other)}</span></div>}{m.reason && <div>{m.reason}</div>}</td>
+                                                    <td>{formatDateTime(m.listed_at)}</td>
+                                                    <td>
+                                                        {m.kind === 'followup'
+                                                            ? <span className="badge-ds badge-pending-ds">Follow-up</span>
+                                                            : <span className="badge-ds badge-closed-ds" title={(CUTOFF_KINDS[m.cutoff_kind] || CUTOFF_KINDS.LIMIT).hint}>Cut off: {cutoffKindLabel(m.cutoff_kind).toLowerCase()}</span>}
+                                                    </td>
+                                                    <td>
+                                                        <div className="row-actions-sc">
+                                                            <button
+                                                                type="button" className="icon-btn-ds" disabled={busy || full || waitsFor} onClick={() => moveIn([m])}
+                                                                aria-label={`Move ${m.student_name} into this session`}
+                                                                title={full ? 'The listing is full' : waitsFor ? 'A student of this check-up service listed earlier and goes first' : 'Move into this session'}
+                                                            ><ArrowRightLeft size={15} /></button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                                <Pager page={curPage} pageCount={pageCountOf(moveRows.length)} total={moveRows.length} pageSize={PAGE_SIZE} onPage={setPage} noun="students" />
+                            </div>
+                        )
+                    ) : group === 'queue' ? (
                         queueRows.length === 0 ? (
                             <div className="group-empty-ds">{queueLoading ? 'Loading the queue...' : queue.length === 0 ? 'Nobody holds a queue number yet.' : 'Nobody matches.'}</div>
                         ) : (

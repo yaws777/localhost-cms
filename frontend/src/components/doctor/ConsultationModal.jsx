@@ -23,6 +23,10 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
 
     const [templates, setTemplates] = useState([]);
     const [templateId, setTemplateId] = useState('');
+    // the doctor must pick the assessment form before documenting a new check-up: draft = the radio choice ('std' = the standard form), chosen = confirmed
+    const [chosen, setChosen] = useState(false);
+    const [draft, setDraft] = useState(null);
+    const [tplLoaded, setTplLoaded] = useState(false);
     const [std, setStd] = useState(STANDARD_FORM_DEFAULT);
     const [answers, setAnswers] = useState({});
     const [vals, setVals] = useState({}); // answers to the fields of the doctor's standard form (the four core ones are saved in the assessment itself)
@@ -54,6 +58,8 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
         (Array.isArray(appt.template_responses) ? appt.template_responses : []).forEach((r) => { if (/^s\d+$/.test(String(r.key))) saved[r.key] = r.value; });
         setVals(saved);
         setTemplateId('');
+        setChosen(!!appt.assessment_id);
+        setDraft(null);
         setBookFollowUp(false);
         setError('');
         setBusy(false);
@@ -85,10 +91,13 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
         if (!appt || !doctorId) return undefined;
         const savedId = editing ? appt.template_id : '';
         let live = true;
+        setTplLoaded(false);
         fetch(`${API}/api/doctor/${doctorId}/templates?include_inactive=1`)
             .then((r) => r.json())
             .then((d) => {
-                if (!live || !d.success) return;
+                if (!live) return;
+                setTplLoaded(true);
+                if (!d.success) return;
                 const fits = (t) => t.template_id === savedId || (t.is_active && (!t.visit_type || t.visit_type === visitType));
                 setTemplates(d.templates.filter(fits));
                 const picked = savedId ? d.templates.find((t) => t.template_id === savedId) : null;
@@ -100,13 +109,51 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
                     setAnswers(prefill);
                 }
             })
-            .catch(() => {});
+            .catch(() => { if (live) setTplLoaded(true); });
         return () => { live = false; };
     }, [appt, doctorId, editing, visitType]);
 
     const template = useMemo(() => templates.find((t) => t.template_id === templateId) || null, [templates, templateId]);
 
     if (!appt || !form) return null;
+
+    // a new check-up starts by choosing the form; with no template to choose from, the standard form is the only one
+    const formReady = chosen || editing || (tplLoaded && templates.length === 0);
+    if (!formReady) {
+        const confirmForm = () => {
+            if (draft === null) return;
+            setTemplateId(draft === 'std' ? '' : draft);
+            setAnswers({});
+            setChosen(true);
+        };
+        return (
+            <Modal isOpen onClose={onClose} title="Select assessment form" icon={<ClipboardPlus size={20} />} size="md" closeOnBackdrop={false}>
+                <div className="dp-form">
+                    <div className="dp-notice"><strong>{fullName(appt.student_first_name, appt.student_last_name)}</strong> ({appt.student_id}) - {visitLabel(visitType, appt.purpose_other)}</div>
+                    {!tplLoaded ? <p className="dp-hint" role="status">Loading forms...</p> : (
+                        <fieldset className="dp-form-pick" aria-describedby="form-pick-hint">
+                            <legend className="dp-section-label">Assessment form</legend>
+                            <label className={`dp-form-opt ${draft === 'std' ? 'on' : ''}`}>
+                                <input type="radio" name="assessment-form" checked={draft === 'std'} onChange={() => setDraft('std')} />
+                                <span><strong>Standard check-up form</strong></span>
+                            </label>
+                            {templates.map((t) => (
+                                <label key={t.template_id} className={`dp-form-opt ${draft === t.template_id ? 'on' : ''}`}>
+                                    <input type="radio" name="assessment-form" checked={draft === t.template_id} onChange={() => setDraft(t.template_id)} />
+                                    <span><strong>{t.template_name}</strong>{t.visit_type ? <small> {t.visit_type}</small> : null}</span>
+                                </label>
+                            ))}
+                            <small id="form-pick-hint" className="dp-hint">Pick one to start.</small>
+                        </fieldset>
+                    )}
+                    <div className="dp-modal-foot">
+                        <button type="button" className="dp-btn dp-btn-ghost" onClick={onClose}>Cancel</button>
+                        <button type="button" className="dp-btn dp-btn-primary" onClick={confirmForm} disabled={draft === null || !tplLoaded}>Continue</button>
+                    </div>
+                </div>
+            </Modal>
+        );
+    }
 
     const set = (patch) => setForm((f) => ({ ...f, ...patch }));
     const setRx = (i, patch) => set({ prescriptions: form.prescriptions.map((r, idx) => (idx === i ? { ...r, ...patch } : r)) });
@@ -134,7 +181,7 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
             return;
         }
 
-        if (form.follow_up_needed && bookFollowUp && !form.follow_up_date) { setError('Pick the repeat date to book it.'); return; }
+        if (form.follow_up_needed && bookFollowUp && !form.follow_up_date) { setError('Pick the follow-up date to book it.'); return; }
 
         setBusy(true);
         try {
@@ -180,7 +227,7 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
                     })
                 });
                 const fd = await fu.json();
-                followUpMessage = fd.success ? ' The repeat appointment was booked.' : ` The repeat could not be booked: ${fd.message}`;
+                followUpMessage = fd.success ? ' The follow-up appointment was booked.' : ` The follow-up could not be booked: ${fd.message}`;
             }
             showAlert(`Check-up saved.${followUpMessage}`, followUpMessage.includes('could not') ? 'warning' : 'success');
             onSaved?.();
@@ -210,7 +257,6 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
                             <option value="">Standard check-up form</option>
                             {templates.map((t) => <option key={t.template_id} value={t.template_id}>{t.template_name}{t.is_active ? '' : ' (archived)'}</option>)}
                         </select>
-                        <small className="dp-hint">Choose one: the standard check-up form or one template. Manage templates in the Templates page.</small>
                     </div>
                 )}
 
@@ -252,25 +298,25 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
                 ))}
                 {std.prescription_enabled && <div><button type="button" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => set({ prescriptions: [...form.prescriptions, { ...EMPTY_RX }] })}><Plus size={15} /> Add medicine</button></div>}
 
-                <div className="dp-section-label">Repeat</div>
+                <div className="dp-section-label">Follow-up</div>
                 <div style={{ display: 'flex', gap: 22, flexWrap: 'wrap' }}>
-                    <label className="dp-check"><input type="checkbox" checked={form.follow_up_needed} onChange={(e) => set({ follow_up_needed: e.target.checked })} /> Repeat needed</label>
+                    <label className="dp-check"><input type="checkbox" checked={form.follow_up_needed} onChange={(e) => set({ follow_up_needed: e.target.checked })} /> Follow-up needed</label>
                 </div>
                 {form.follow_up_needed && (
                     <>
                         <div className="dp-row">
                             <div className="dp-field">
-                                <label>Repeat date</label>
+                                <label>Follow-up date</label>
                                 <input className="dp-input" type="date" min={localDateStr()} value={form.follow_up_date} onChange={(e) => set({ follow_up_date: e.target.value })} />
                             </div>
                             <div className="dp-field" style={{ gridColumn: 'span 2' }}>
-                                <label>Repeat notes</label>
+                                <label>Follow-up notes</label>
                                 <input className="dp-input" maxLength={500} value={form.follow_up_notes} onChange={(e) => set({ follow_up_notes: e.target.value })} placeholder="e.g. Return if the headache persists after 3 days" />
                             </div>
                         </div>
                         {nurseId
-                            ? <label className="dp-check"><input type="checkbox" checked={bookFollowUp} onChange={(e) => setBookFollowUp(e.target.checked)} /> Appoint the repeat now (direct appointment on that date). Without it the student waits in the Repeats list for a schedule.</label>
-                            : <p className="dp-hint" style={{ margin: 0 }}>The student joins the Repeats list. The nurse puts the student in a schedule.</p>}
+                            ? <label className="dp-check"><input type="checkbox" checked={bookFollowUp} onChange={(e) => setBookFollowUp(e.target.checked)} /> Appoint the follow-up now (direct appointment on that date). Without it the student waits in the Follow-ups list for a schedule.</label>
+                            : <p className="dp-hint" style={{ margin: 0 }}>The student joins the Follow-ups list. The nurse puts the student in a schedule.</p>}
                         {nurseId && bookFollowUp && (
                             <div className="dp-row">
                                 <div className="dp-field"><label>Time</label><input className="dp-input" type="time" value={followTime} onChange={(e) => setFollowTime(e.target.value)} /></div>

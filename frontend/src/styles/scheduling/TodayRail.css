@@ -1,0 +1,151 @@
+/* ==========================================================================
+   Wide workspace: the section in the main column, a side rail from 1180px
+   (today's sessions, new updates, doctors on duty). The rail drops under the list on smaller screens.
+   ========================================================================== */
+.workspace-dv {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.25rem;
+    align-items: start;
+}
+
+.col-dv {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.rail-dv {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+    gap: 1rem;
+    min-width: 0;
+}
+
+.rail-card-dv {
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border: 0.0625rem solid var(--card-border);
+    border-radius: 0.875rem;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    min-width: 0;
+}
+
+.rail-card-dv h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.rail-head-dv {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.rail-icon-dv {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    display: inline-grid;
+    place-items: center;
+    border-radius: 0.625rem;
+    border: 0.0625rem solid var(--card-border);
+    background: var(--bg-card);
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.rail-icon-dv:hover { background: var(--sti-blue-light); }
+
+.rail-icon-dv:focus-visible {
+    outline: 0.1875rem solid var(--sti-blue-primary);
+    outline-offset: 0.125rem;
+}
+
+.rail-tiles-dv {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.5rem;
+}
+
+.rail-tile-dv {
+    background: var(--bg-muted);
+    border-radius: 0.75rem;
+    padding: 0.625rem 0.5rem;
+    text-align: center;
+}
+
+.rail-tile-dv b {
+    display: block;
+    font-size: 1.5rem;
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+}
+
+.rail-tile-dv span {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.rail-list-dv {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.rail-list-dv li {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+    font-size: 0.9375rem;
+}
+
+.rail-list-dv time {
+    display: block;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+}
+
+.rail-dot-dv {
+    width: 0.625rem;
+    height: 0.625rem;
+    border-radius: 50%;
+    margin-top: 0.5rem;
+    flex: none;
+    background: var(--text-secondary);
+}
+
+.rail-dot-dv.ok-dv { background: var(--status-adequate-bar, #1f9d55); }
+.rail-dot-dv.warn-dv { background: var(--status-low-bar, #d99a06); }
+
+.rail-empty-dv {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 0.9375rem;
+}
+
+@media (min-width: 1180px) {
+    .workspace-dv { grid-template-columns: minmax(0, 1fr) 20rem; }
+
+    .rail-dv {
+        display: flex;
+        flex-direction: column;
+        position: sticky;
+        top: 1rem;
+    }
+}
+
+@media (min-width: 1700px) {
+    .workspace-dv { grid-template-columns: minmax(0, 1fr) 24rem; }
+}

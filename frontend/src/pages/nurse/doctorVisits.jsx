@@ -2,6 +2,7 @@
 // Nurse > Doctor Visit. Two sections, the open one is kept in the URL (?section=) so a link or a notification can land on it:
 //   Check-up - the Upcoming / On going / Past lists, the same screen the doctor has in /DoctorCheckup
 //   Scheduling   - the shared scheduling hub (calendar, schedules, waiting list, repeats, chat)
+// Wide layout: the section sits in the main column; from 1180px a side rail shows today's sessions, the new updates and the doctors on duty.
 import React, { useState, useEffect, useCallback } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router-dom';
 import { CalendarClock, ClipboardList } from 'lucide-react';
@@ -9,6 +10,8 @@ import { CalendarClock, ClipboardList } from 'lucide-react';
 import '../../styles/nurse/DoctorVisits.css';
 import SchedulingHub from '../../components/scheduling/SchedulingHub';
 import ConsultationLists, { CONSULTATION_TABS } from '../../components/scheduling/ConsultationLists';
+import TodayRail from '../../components/scheduling/TodayRail';
+import { useTodaySessions } from '../../hooks/useTodaySessions';
 import { useDpAutoLabels } from '../../utils/autoLabels';
 
 const API = 'http://localhost:3001';
@@ -27,6 +30,7 @@ const DoctorVisit = () => {
     const [tab, setTab] = useState('upcoming');
     const [doctors, setDoctors] = useState([]);
     const [newUpdates, setNewUpdates] = useState([]);
+    const { sessions: todaySessions, reload: reloadToday } = useTodaySessions();
 
     const loadSummary = useCallback(async () => {
         try {
@@ -69,12 +73,18 @@ const DoctorVisit = () => {
         Promise.all(seen.map((n) => fetch(`${API}/api/notifications/${n.notification_id}/read`, { method: 'PATCH' }).catch(() => null)));
     }, [section, newUpdates]);
 
+    const onChanged = () => { loadSummary(); reloadToday(); };
+
+    const dutyDoctors = new Set(todaySessions.map((s) => s.doctor_id || s.doctor_name)).size;
+    const todayLabel = new Date().toLocaleDateString('en-PH', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+    const updatesText = `${newUpdates.length} new scheduling update${newUpdates.length === 1 ? '' : 's'}`;
+
     return (
         <div className="container-dv">
             <div className="header-dv">
                 <div>
                     <h2>Doctor Visit Management</h2>
-                    <p className="subtitle-dv">Schedule, track, and document student doctor visits, and set when each doctor is available.</p>
+                    <p className="subtitle-dv">{todayLabel} - {dutyDoctors} doctor{dutyDoctors === 1 ? '' : 's'} on duty</p>
                 </div>
             </div>
 
@@ -85,33 +95,36 @@ const DoctorVisit = () => {
                 <button type="button" className={`section-tab-dv ${section !== 'visits' ? 'active-dv' : ''}`} onClick={() => goSection('availability')}>
                     <CalendarClock size={16} /> Scheduling
                     {newUpdates.length > 0 && (
-                        <span className="section-badge-dv warn-dv" role="status" aria-label={`${newUpdates.length} new scheduling update${newUpdates.length === 1 ? '' : 's'}`} title={`${newUpdates.length} new scheduling update${newUpdates.length === 1 ? '' : 's'}`}>{newUpdates.length}</span>
+                        <span className="section-badge-dv warn-dv" role="status" aria-label={updatesText} title={updatesText}>{newUpdates.length}</span>
                     )}
                 </button>
             </nav>
 
-            {section !== 'visits' ? (
-                <SchedulingHub
-                    role="nurse"
-                    doctors={doctors}
-                    nurseId={nurseId}
-                    userId={userId}
-                    initialTab={HUB_TAB_FOR_SECTION[section] || 'calendar'}
-                    onChanged={loadSummary}
-                />
-            ) : (
-                <>
-                    <ConsultationLists
-                        role="nurse"
-                        doctors={doctors}
-                        nurseId={nurseId}
-                        userId={userId}
-                        tab={CONSULTATION_TABS.some(([k]) => k === tab) ? tab : 'upcoming'}
-                        onTab={setTab}
-                        onChanged={loadSummary}
-                    />
-                </>
-            )}
+            <div className="workspace-dv">
+                <div className="col-dv">
+                    {section !== 'visits' ? (
+                        <SchedulingHub
+                            role="nurse"
+                            doctors={doctors}
+                            nurseId={nurseId}
+                            userId={userId}
+                            initialTab={HUB_TAB_FOR_SECTION[section] || 'calendar'}
+                            onChanged={onChanged}
+                        />
+                    ) : (
+                        <ConsultationLists
+                            role="nurse"
+                            doctors={doctors}
+                            nurseId={nurseId}
+                            userId={userId}
+                            tab={CONSULTATION_TABS.some(([k]) => k === tab) ? tab : 'upcoming'}
+                            onTab={setTab}
+                            onChanged={onChanged}
+                        />
+                    )}
+                </div>
+                <TodayRail sessions={todaySessions} updates={newUpdates} onOpenUpdates={() => goSection('availability')} />
+            </div>
         </div>
     );
 };

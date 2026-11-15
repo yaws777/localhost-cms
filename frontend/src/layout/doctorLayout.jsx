@@ -2,8 +2,9 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
     LayoutDashboard, CalendarDays, ClipboardPlus, FolderHeart, LayoutTemplate,
-    UserRound, LogOut, Bell, Sun, Moon, Search, Menu, Phone, MessagesSquare
+    UserRound, LogOut, Bell, Sun, Moon, Search, Menu, Phone, MessagesSquare, PanelLeftClose, PanelLeftOpen
 } from 'lucide-react';
+import { useSidebar } from '../context/SidebarContext';
 import '../styles/doctor/DoctorLayout.css';
 import stiLogo from '../assets/sti-logof.png';
 import Modal from '../components/common/Modal';
@@ -63,6 +64,7 @@ export const DoctorLayout = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const { theme, toggleTheme } = useTheme();
+    const { collapsed, toggleCollapsed } = useSidebar();
     useDpAutoLabels();
 
     const storedUser = getStoredUser();
@@ -239,7 +241,7 @@ export const DoctorLayout = () => {
     }
 
     return (
-        <div className="dl-shell">
+        <div className={`dl-shell ${collapsed ? 'dl-collapsed' : ''}`}>
             <a href="#main-content" className="skip-link">Skip to main content</a>
             {sidebarOpen && <div className="dl-overlay" onClick={() => setSidebarOpen(false)} />}
 
@@ -252,9 +254,20 @@ export const DoctorLayout = () => {
                     </div>
                 </div>
 
+                <button
+                    type="button"
+                    className="dl-collapse-btn"
+                    onClick={toggleCollapsed}
+                    aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                    title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                    aria-expanded={!collapsed}
+                >
+                    {collapsed ? <PanelLeftOpen size={19} /> : <PanelLeftClose size={19} />}
+                </button>
+
                 <nav className="dl-nav">
                     {NAV.map(({ to, label, Icon, badge }) => (
-                        <NavLink key={to} to={to} className={({ isActive }) => `dl-nav-link ${isActive ? 'active' : ''}`} onClick={() => setSidebarOpen(false)}>
+                        <NavLink key={to} to={to} title={collapsed ? label : undefined} aria-label={label} className={({ isActive }) => `dl-nav-link ${isActive ? 'active' : ''}`} onClick={() => setSidebarOpen(false)}>
                             <Icon size={19} />
                             <span>{label}</span>
                             {badge === 'requests' && pendingRequests > 0 && <span className="dl-nav-count">{pendingRequests}</span>}
@@ -267,7 +280,7 @@ export const DoctorLayout = () => {
                 </nav>
 
                 <div className="dl-sidebar-foot">
-                    <button type="button" className="dl-nav-link dl-logout" onClick={() => setShowLogout(true)}>
+                    <button type="button" className="dl-nav-link dl-logout" aria-label="Logout" title="Logout" onClick={() => setShowLogout(true)}>
                         <LogOut size={19} />
                         <span>Logout</span>
                     </button>

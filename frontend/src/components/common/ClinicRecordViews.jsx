@@ -33,7 +33,7 @@ export const visitOutcome = (v) => {
 };
 
 export const visitDoctor = (v) => (v.doctor_first_name && v.doctor_last_name ? `Dr. ${v.doctor_first_name} ${v.doctor_last_name}` : v.doctor_id || 'N/A');
-export const visitTitle = (v) => (v.is_repeat ? 'Repeat check-up' : (v.visit_type || 'Check-up'));
+export const visitTitle = (v) => (v.is_repeat ? 'Follow-up check-up' : (v.visit_type || 'Check-up'));
 
 export const VisitStatus = ({ item }) => {
     const o = visitOutcome(item);
@@ -142,7 +142,7 @@ export function DoctorVisitDetail({ record: v }) {
                     )}
 
                     {v.follow_up_needed ? (
-                        <Section icon={Repeat} title="Repeat check-up">
+                        <Section icon={Repeat} title="Follow-up check-up">
                             <dl>
                                 <Row label="Advised by">{v.follow_up_date ? dayOnly(v.follow_up_date) : 'As soon as possible'}</Row>
                                 <Row label="Notes">{v.follow_up_notes}</Row>

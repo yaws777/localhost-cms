@@ -26,7 +26,10 @@ import jsQR from 'jsqr';
 import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/IncidentReports.css';
 import { useAlert } from '../../context/AlertContext';
-import { formatDate, formatDateTime } from '../../utils/datetime';
+import { formatDate, formatDateTime, formatTime } from '../../utils/datetime';
+
+// "BSIT - 4B"
+const classLabel = (r) => `${r.program_id || r.program_name || 'N/A'} - ${r.year_level || ''}${r.section || ''}`.trim();
 
 const IncidentReport = () => {
     // 1. Get nurseId from NurseLayout Outlet context
@@ -45,12 +48,10 @@ const IncidentReport = () => {
     // Modals
     const [showAddIncidentModal, setShowAddIncidentModal] = useState(false);
     const [showHotlineDirectoryModal, setShowHotlineDirectoryModal] = useState(false);
-    const [showViewModal, setShowViewModal] = useState(false);
     const [selectedReport, setSelectedReport] = useState(null);
 
     // Camera QR Scanning States & Refs
     const [isCameraScanning, setIsCameraScanning] = useState(false);
-    const [cameraPermissionError, setCameraPermissionError] = useState(null);
     const videoRef = useRef(null);
     const streamRef = useRef(null);
     const isProcessingScan = useRef(false);
@@ -91,9 +92,8 @@ const IncidentReport = () => {
 
     // Request Camera Access & Start Stream
     const requestCameraAndStartScan = useCallback(async () => {
-        setCameraPermissionError(null);
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            setCameraPermissionError("Camera access is not supported by your browser or environment.");
+            showAlert('Camera is not supported here.', 'error');
             return;
         }
 
@@ -106,9 +106,9 @@ const IncidentReport = () => {
         } catch (err) {
             console.error("Camera permission error:", err);
             setIsCameraScanning(false);
-            setCameraPermissionError("Unable to access camera: " + (err.message || ''));
+            showAlert('Unable to access the camera.', 'error');
         }
-    }, []);
+    }, [showAlert]);
 
     // Clean up camera stream on unmount
     useEffect(() => {
@@ -219,7 +219,7 @@ const IncidentReport = () => {
 
         const tableRowsHtml = rowsToExport.map(r => {
             const studentName = `${r.student_first_name || ''} ${r.student_last_name || ''}`.trim();
-            const progYrSec = `${r.program_name || 'N/A'} - ${r.year_level || ''}${r.section || ''}`.trim();
+            const progYrSec = classLabel(r);
             const incidentDate = r.incident_datetime ? formatDateTime(new Date(r.incident_datetime)) : 'N/A';
 
             return `
@@ -384,7 +384,7 @@ const IncidentReport = () => {
         const reportDate = formatDate(new Date());
 
         const studentName = `${selectedReport.student_first_name || ''} ${selectedReport.student_last_name || ''}`.trim();
-        const progYrSec = `${selectedReport.program_name || 'N/A'} - ${selectedReport.year_level || ''}${selectedReport.section || ''}`.trim();
+        const progYrSec = classLabel(selectedReport);
         const incidentDate = selectedReport.incident_datetime ? formatDateTime(new Date(selectedReport.incident_datetime)) : 'N/A';
 
         const htmlContent = `
@@ -756,6 +756,7 @@ const IncidentReport = () => {
             if (data.success) {
                 fetchHotlines();
                 resetHotlineForm();
+                showAlert('Hotline saved.', 'success');
             } else {
                 showAlert(data.message || 'Failed to save emergency contact.', 'error');
             }
@@ -779,7 +780,10 @@ const IncidentReport = () => {
         try {
             const res = await fetch(`http://localhost:3001/api/emergency-hotlines/${hotline_id}`, { method: 'DELETE' });
             const data = await res.json();
-            if (data.success) fetchHotlines();
+            if (data.success) {
+                fetchHotlines();
+                showAlert('Hotline deleted.', 'success');
+            }
         } catch (error) {
             console.error(error);
         }
@@ -790,113 +794,239 @@ const IncidentReport = () => {
         setHotlineFormData({ facility_name: '', contact_number: '', description_notes: '' });
     };
 
+    const medicineText = (r) => (r.medicine_name
+        ? `${r.medicine_name} - ${Math.round(r.dosage_consumption_unit_value)} ${r.dosage_consumption_unit_of_measure}`
+        : '');
+    const todayText = formatDate(new Date());
+    const statToday = reports.filter(r => r.incident_datetime && formatDate(new Date(r.incident_datetime)) === todayText).length;
+    const statMedicine = reports.filter(r => r.medicine_name).length;
+    const initialsOf = (r) => `${(r.student_first_name || 'U')[0]}${(r.student_last_name || 'S')[0]}`.toUpperCase();
+    const closeAddModal = () => { stopCameraScan(); setShowAddIncidentModal(false); };
+
+    // Esc closes the top-most dialog
+    useEffect(() => {
+        const onKey = (e) => {
+            if (e.key !== 'Escape') return;
+            if (isCameraScanning) stopCameraScan();
+            else if (showAddIncidentModal) closeAddModal();
+            else if (showHotlineDirectoryModal) setShowHotlineDirectoryModal(false);
+        };
+        document.addEventListener('keydown', onKey);
+        return () => document.removeEventListener('keydown', onKey);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isCameraScanning, showAddIncidentModal, showHotlineDirectoryModal, stopCameraScan]);
+
     return (
         <div className="incident-page-container">
-            {/* Header Banner */}
-            <div className="incident-header flex-between">
-                <div>
-                    <h2><AlertTriangle className="header-icon" /> Incident Reports</h2>
-                    <p>Document, review, and manage campus health and safety incidents.</p>
+            {/* Header */}
+            <header className="inc-header">
+                <div className="inc-title">
+                    <div className="inc-title-icon"><AlertTriangle size={26} aria-hidden="true" /></div>
+                    <div>
+                        <h2>Incident Reports</h2>
+                        <p>Campus health and safety incidents</p>
+                    </div>
                 </div>
-                <div className="header-actions">
-                    <button 
-                        type="button" 
-                        className="btn btn-secondary" 
-                        onClick={handleExportAllReport}
-                        style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                    >
-                        <Printer size={18} /> export
+                <div className="inc-actions">
+                    <button type="button" className="inc-ib" aria-label="Export" title="Export" onClick={handleExportAllReport}>
+                        <Printer size={20} aria-hidden="true" />
                     </button>
-                    <button className="btn btn-secondary" onClick={() => setShowHotlineDirectoryModal(true)}>
-                        <PhoneCall size={18} /> Emergency Hotlines
+                    <button type="button" className="inc-ib" aria-label="Emergency hotlines" title="Emergency hotlines" onClick={() => setShowHotlineDirectoryModal(true)}>
+                        <PhoneCall size={20} aria-hidden="true" />
                     </button>
-                    <button className="btn btn-primary" onClick={() => { resetIncidentForm(); setShowAddIncidentModal(true); }}>
-                        <Plus size={18} /> Document Incident
+                    <button type="button" className="inc-ib inc-ib-primary" aria-label="Document incident" title="Document incident" onClick={() => { resetIncidentForm(); setShowAddIncidentModal(true); }}>
+                        <Plus size={22} aria-hidden="true" />
                     </button>
                 </div>
-            </div>
+            </header>
 
-            {/* Filter and Search Section */}
-            <div className="filter-card">
-                <div className="search-group flex-grow">
-                    <Search className="search-icon" size={18} />
-                    <input 
-                        type="text" 
-                        placeholder="Search by student name, program, year level, or section..."
+            {/* Summary */}
+            <section className="inc-stats" aria-label="Summary">
+                <div className="inc-stat">
+                    <div className="inc-stat-icon"><FileText size={22} aria-hidden="true" /></div>
+                    <div><div className="inc-stat-value">{reports.length}</div><div className="inc-stat-label">Reports</div></div>
+                </div>
+                <div className="inc-stat">
+                    <div className="inc-stat-icon"><Calendar size={22} aria-hidden="true" /></div>
+                    <div><div className="inc-stat-value">{statToday}</div><div className="inc-stat-label">Today</div></div>
+                </div>
+                <div className="inc-stat">
+                    <div className="inc-stat-icon ok"><Pill size={22} aria-hidden="true" /></div>
+                    <div><div className="inc-stat-value">{statMedicine}</div><div className="inc-stat-label">Medicine given</div></div>
+                </div>
+            </section>
+
+            {/* Filters */}
+            <section className="filter-card" aria-label="Filters">
+                <div className="search-group">
+                    <label htmlFor="inc-search" className="visually-hidden">Search reports</label>
+                    <Search className="search-icon" size={18} aria-hidden="true" />
+                    <input
+                        id="inc-search"
+                        type="text"
+                        placeholder="Student, program, section"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         className="form-control"
                     />
                 </div>
                 <div className="date-group">
-                    <Calendar className="date-icon" size={18} />
-                    <input 
-                        type="date" 
+                    <label htmlFor="inc-date" className="visually-hidden">Date</label>
+                    <Calendar className="date-icon" size={18} aria-hidden="true" />
+                    <input
+                        id="inc-date"
+                        type="date"
                         value={dateFilter}
                         onChange={(e) => setDateFilter(e.target.value)}
                         className="form-control"
                     />
                 </div>
-                {(searchQuery || dateFilter) && (
-                    <button className="btn btn-light" onClick={() => { setSearchQuery(''); setDateFilter(''); }}>
-                        Reset
-                    </button>
-                )}
-            </div>
+                <button
+                    type="button"
+                    className="inc-ib"
+                    aria-label="Reset filters"
+                    title="Reset filters"
+                    disabled={!searchQuery && !dateFilter}
+                    onClick={() => { setSearchQuery(''); setDateFilter(''); }}
+                >
+                    <RefreshCw size={18} aria-hidden="true" />
+                </button>
+                <div className="inc-count" role="status" aria-live="polite">
+                    {reports.length} {reports.length === 1 ? 'report' : 'reports'}
+                </div>
+            </section>
 
-            {/* Incident Reports Table */}
-            <div className="table-card">
-                {loading ? (
-                    <div className="empty-state">
-                        <RefreshCw className="spin-icon" size={30} />
-                        <p>Loading reports...</p>
-                    </div>
-                ) : reports.length === 0 ? (
-                    <div className="empty-state">
-                        <AlertTriangle size={40} className="text-muted" />
-                        <p>No incident reports found.</p>
-                    </div>
-                ) : (
-                    <table className="sti-table">
-                        <thead>
-                            <tr>
-                                <th>Date & Time</th>
-                                <th>Student Name</th>
-                                <th>Program / Yr / Sec</th>
-                                <th>Location</th>
-                                <th>Documented By</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {reports.map((report) => (
-                                <tr key={report.incident_id}>
-                                    <td>{formatDateTime(new Date(report.incident_datetime))}</td>
-                                    <td>
-                                        <strong>{report.student_first_name || 'Unknown'} {report.student_last_name || 'Student'}</strong>
-                                        <br />
-                                        <small className="text-muted">{report.student_id}</small>
-                                    </td>
-                                    <td>
-                                        {report.program_name || 'N/A'} - {report.year_level || ''}{report.section || ''}
-                                    </td>
-                                    <td>{report.incident_location}</td>
-                                    <td>{report.nurse_first_name ? `Nurse ${report.nurse_first_name} ${report.nurse_last_name}` : 'N/A'}</td>
-                                    <td>
-                                        <button 
-                                            className="btn-icon btn-view" 
-                                            title="View Details"
-                                            aria-label="View Details"
-                                            onClick={() => { setSelectedReport(report); setShowViewModal(true); }}
-                                        >
-                                            <Eye size={16} />
-                                        </button>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                )}
+            {/* Table + details */}
+            <div className="inc-workspace">
+                <section className="table-card" aria-label="Reports">
+                    {loading ? (
+                        <div className="empty-state">
+                            <RefreshCw className="spin-icon" size={30} aria-hidden="true" />
+                            <p>Loading reports...</p>
+                        </div>
+                    ) : reports.length === 0 ? (
+                        <div className="empty-state">
+                            <AlertTriangle size={40} aria-hidden="true" />
+                            <p>No incident reports found.</p>
+                        </div>
+                    ) : (
+                        <div role="table" aria-label="Incident reports">
+                            <div role="row" className="inc-grid inc-head">
+                                <div role="columnheader">Date &amp; time</div>
+                                <div role="columnheader">Student</div>
+                                <div role="columnheader">Prog / Yr / Sec</div>
+                                <div role="columnheader">Location</div>
+                                <div role="columnheader">Medicine</div>
+                                <div role="columnheader">Documented by</div>
+                                <div role="columnheader"><span className="visually-hidden">Action</span></div>
+                            </div>
+                            {reports.map((report) => {
+                                const isSelected = selectedReport?.incident_id === report.incident_id;
+                                const med = medicineText(report);
+                                const studentName = `${report.student_first_name || 'Unknown'} ${report.student_last_name || 'Student'}`;
+                                return (
+                                    <div role="row" key={report.incident_id} className={`inc-grid inc-row${isSelected ? ' selected' : ''}`}>
+                                        <div role="cell">
+                                            <div className="inc-cell-strong">{formatDate(new Date(report.incident_datetime))}</div>
+                                            <div className="inc-cell-sub">{formatTime(new Date(report.incident_datetime))}</div>
+                                        </div>
+                                        <div role="cell">
+                                            <button type="button" className="inc-student" onClick={() => setSelectedReport(report)}>
+                                                <span className="inc-avatar" aria-hidden="true">{initialsOf(report)}</span>
+                                                <span>
+                                                    <span className="inc-name">{studentName}</span>
+                                                    <span className="inc-cell-sub">{report.student_id}</span>
+                                                </span>
+                                            </button>
+                                        </div>
+                                        <div role="cell">{classLabel(report)}</div>
+                                        <div role="cell">{report.incident_location}</div>
+                                        <div role="cell"><span className={`inc-chip${med ? ' ok' : ''}`}>{med || 'None'}</span></div>
+                                        <div role="cell">{report.nurse_first_name ? `${report.nurse_first_name} ${report.nurse_last_name}` : 'N/A'}</div>
+                                        <div role="cell">
+                                            <button
+                                                type="button"
+                                                className="inc-ib"
+                                                title="View details"
+                                                aria-label="View details"
+                                                aria-pressed={isSelected}
+                                                onClick={() => setSelectedReport(report)}
+                                            >
+                                                <Eye size={18} aria-hidden="true" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </section>
+
+                <aside className="inc-panel" aria-label="Incident details">
+                    {!selectedReport ? (
+                        <div className="inc-panel-empty">
+                            <Eye size={36} aria-hidden="true" />
+                            <span>Select a report</span>
+                        </div>
+                    ) : (
+                        <div>
+                            <div className="inc-panel-head">
+                                <h3><FileText size={20} aria-hidden="true" /> Details</h3>
+                                <div className="actions-inline" style={{ display: 'flex', gap: '0.25rem' }}>
+                                    <button type="button" className="inc-ib inc-ib-ghost" aria-label="Export report" title="Export report" onClick={handleExportSingleReport}>
+                                        <Printer size={18} aria-hidden="true" />
+                                    </button>
+                                    <button type="button" className="inc-ib inc-ib-ghost" aria-label="Close details" title="Close details" onClick={() => setSelectedReport(null)}>
+                                        <X size={18} aria-hidden="true" />
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="inc-panel-body">
+                                <div className="inc-panel-student">
+                                    <span className="inc-avatar" aria-hidden="true">{initialsOf(selectedReport)}</span>
+                                    <div>
+                                        <strong>{selectedReport.student_first_name} {selectedReport.student_last_name}</strong>
+                                        <span className="inc-cell-sub">
+                                            {selectedReport.student_id} · {classLabel(selectedReport)}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div className="inc-panel-meta">
+                                    <div>
+                                        <div className="inc-field-label"><Calendar size={14} aria-hidden="true" /> Date &amp; time</div>
+                                        <div className="inc-field-value">{formatDateTime(new Date(selectedReport.incident_datetime))}</div>
+                                    </div>
+                                    <div>
+                                        <div className="inc-field-label"><MapPin size={14} aria-hidden="true" /> Location</div>
+                                        <div className="inc-field-value">{selectedReport.incident_location}</div>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <div className="inc-field-label">Description</div>
+                                    <div className="inc-field-text">{selectedReport.incident_description || 'None recorded.'}</div>
+                                </div>
+                                <div>
+                                    <div className="inc-field-label">First aid</div>
+                                    <div className="inc-field-text">{selectedReport.first_aid_administered || 'None recorded.'}</div>
+                                </div>
+                                <div>
+                                    <div className="inc-field-label">Disposition</div>
+                                    <div className="inc-field-text">{selectedReport.current_physical_situation || 'None recorded.'}</div>
+                                </div>
+                                <div>
+                                    <div className="inc-field-label">Medicine</div>
+                                    <span className={`inc-chip${selectedReport.medicine_name ? ' ok' : ''}`}>{medicineText(selectedReport) || 'None'}</span>
+                                </div>
+
+                                <div className="inc-panel-foot">
+                                    Recorded by {selectedReport.nurse_first_name ? `Nurse ${selectedReport.nurse_first_name} ${selectedReport.nurse_last_name}` : 'N/A'}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </aside>
             </div>
 
             {/* =========================================
@@ -904,190 +1034,197 @@ const IncidentReport = () => {
             ========================================= */}
             {showAddIncidentModal && (
                 <div className="modal-overlay">
-                    <div className="modal-container large-modal">
+                    <div className="modal-container xl-modal" role="dialog" aria-modal="true" aria-labelledby="inc-add-title">
                         <div className="modal-header">
-                            <h3><AlertTriangle size={20} /> Document Incident Report</h3>
-                            <button className="close-btn" onClick={() => { stopCameraScan(); setShowAddIncidentModal(false); }}><X size={20} /></button>
+                            <h3 id="inc-add-title"><AlertTriangle size={22} aria-hidden="true" /> Document Incident</h3>
+                            <button type="button" className="inc-ib inc-ib-ghost" aria-label="Close" title="Close" onClick={closeAddModal}><X size={20} aria-hidden="true" /></button>
                         </div>
                         <form onSubmit={handleSaveIncident} className="modal-body">
-                            
-                            {/* Student Search & Camera QR Field */}
-                            <div className="form-group relative-container">
-                                <div className="flex-between" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                                    <label style={{ margin: 0 }}><User size={16} /> Search & Select Student *</label>
-                                    <button 
-                                        type="button" 
-                                        className="btn btn-secondary" 
-                                        style={{ padding: '4px 10px', fontSize: '0.875rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                                        onClick={requestCameraAndStartScan}
-                                    >
-                                        <Camera size={14} />
-                                        <span>Scan Student QR</span>
-                                    </button>
-                                </div>
-                                <input 
-                                    type="text" 
-                                    placeholder="Type student name or ID..."
-                                    value={studentSearch}
-                                    onChange={handleStudentSearchChange}
-                                    className="form-control"
-                                    autoComplete="off"
-                                    required
-                                />
-
-                                {cameraPermissionError && (
-                                    <div style={{ marginTop: '8px', padding: '8px 12px', backgroundColor: 'var(--status-critical-bg)', border: '1px solid #fca5a5', borderRadius: '6px', color: 'var(--status-critical-text)', fontSize: '0.875rem' }}>
-                                        <strong>{cameraPermissionError}</strong>
-                                    </div>
-                                )}
-
-                                {/* Search Results Dropdown */}
-                                {studentResults.length > 0 && (
-                                    <ul className="autocomplete-dropdown">
-                                        {studentResults.map((s, index) => {
-                                            const sId = s.student_id || s.id || index;
-                                            const fName = s.first_name || s.firstname || s.name || 'Student';
-                                            const lName = s.last_name || s.lastname || '';
-                                            const prog = s.program_name || s.program || '';
-                                            const yr = s.year_level || s.year || '';
-                                            const sec = s.section || '';
-
-                                            return (
-                                                <li key={sId} onMouseDown={() => handleSelectStudent(s)}>
-                                                    <strong>{fName} {lName}</strong> ({sId}) 
-                                                    {prog && <span> - {prog} {yr}{sec}</span>}
-                                                </li>
-                                            );
-                                        })}
-                                    </ul>
-                                )}
-
-                                {/* Selected Student Badge */}
-                                {selectedStudent && (
-                                    <div className="selected-student-badge">
-                                        <Check size={14} /> Selected: {selectedStudent.first_name || selectedStudent.firstname} {selectedStudent.last_name || selectedStudent.lastname} ({selectedStudent.student_id || selectedStudent.id})
-                                    </div>
-                                )}
-                            </div>
-
-                            <div className="form-grid-2">
-                                <div className="form-group">
-                                    <label><Calendar size={16} /> Date & Time of Incident *</label>
-                                    <input 
-                                        type="datetime-local" 
-                                        value={incidentData.incident_datetime}
-                                        onChange={(e) => setIncidentData({ ...incidentData, incident_datetime: e.target.value })}
-                                        className="form-control"
-                                        required
-                                    />
-                                </div>
-                                <div className="form-group">
-                                    <label><MapPin size={16} /> Incident Location *</label>
-                                    <input 
-                                        type="text" 
-                                        placeholder="e.g. 3rd Floor Gymnasium"
-                                        value={incidentData.incident_location}
-                                        onChange={(e) => setIncidentData({ ...incidentData, incident_location: e.target.value })}
-                                        className="form-control"
-                                        required
-                                    />
-                                </div>
-                            </div>
-
-                            <div className="form-group">
-                                <label><FileText size={16} /> Incident Description *</label>
-                                <textarea 
-                                    rows="3" 
-                                    placeholder="Describe what happened..."
-                                    value={incidentData.incident_description}
-                                    onChange={(e) => setIncidentData({ ...incidentData, incident_description: e.target.value })}
-                                    className="form-control"
-                                    required
-                                />
-                            </div>
-
-                            <div className="form-group">
-                                <label><Activity size={16} /> First Aid Administered *</label>
-                                <textarea 
-                                    rows="2" 
-                                    placeholder="Details of first aid or immediate care provided..."
-                                    value={incidentData.first_aid_administered}
-                                    onChange={(e) => setIncidentData({ ...incidentData, first_aid_administered: e.target.value })}
-                                    className="form-control"
-                                    required
-                                />
-                            </div>
-
-                            <div className="form-group">
-                                <label>Current Physical Situation / Disposition *</label>
-                                <textarea 
-                                    rows="2" 
-                                    placeholder="e.g. Sent home, Referred to hospital, Back to class..."
-                                    value={incidentData.current_physical_situation}
-                                    onChange={(e) => setIncidentData({ ...incidentData, current_physical_situation: e.target.value })}
-                                    className="form-control"
-                                    required
-                                />
-                            </div>
-
-                            <div className="form-group">
-                                <label htmlFor="incident-medicine"><Pill size={16} /> Medicine</label>
-                                <select
-                                    id="incident-medicine"
-                                    className="form-control"
-                                    value={dispenseMedicineId}
-                                    onChange={(e) => handleMedicineChange(e.target.value)}
-                                >
-                                    <option value="">None</option>
-                                    {medicineOptions.map(m => (
-                                        <option key={m.id} value={m.id}>{m.name}</option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            {dispenseMedicineId && (
-                                <div className="form-grid-2">
-                                    <div className="form-group">
-                                        <label htmlFor="incident-batch">Batch expiry *</label>
-                                        <select
-                                            id="incident-batch"
+                            <div className="inc-form-cols">
+                                {/* Left: who, when, where, medicine */}
+                                <div className="inc-form-col">
+                                    <div className="form-group relative-container">
+                                        <div className="inc-label-row">
+                                            <label htmlFor="inc-student"><User size={16} aria-hidden="true" /> Student *</label>
+                                            <button
+                                                type="button"
+                                                className="inc-ib"
+                                                aria-label="Scan student QR"
+                                                title="Scan student QR"
+                                                onClick={requestCameraAndStartScan}
+                                            >
+                                                <Camera size={20} aria-hidden="true" />
+                                            </button>
+                                        </div>
+                                        <input
+                                            id="inc-student"
+                                            type="text"
+                                            placeholder="Name or ID"
+                                            value={studentSearch}
+                                            onChange={handleStudentSearchChange}
                                             className="form-control"
+                                            autoComplete="off"
                                             required
-                                            value={dispenseData.batch_id}
-                                            onChange={(e) => handleBatchChange(e.target.value)}
-                                        >
-                                            <option value="">Select</option>
-                                            {medicineBatches.map(b => (
-                                                <option key={b.batch_id} value={b.batch_id}>
-                                                    {formatDate(new Date(b.expiration_date))} (Stock: {b.current_stock})
-                                                </option>
-                                            ))}
-                                        </select>
+                                        />
+
+                                        {studentResults.length > 0 && (
+                                            <ul className="autocomplete-dropdown">
+                                                {studentResults.map((s, index) => {
+                                                    const sId = s.student_id || s.id || index;
+                                                    const fName = s.first_name || s.firstname || s.name || 'Student';
+                                                    const lName = s.last_name || s.lastname || '';
+                                                    const prog = s.program_id || s.program_name || s.program || '';
+                                                    const yr = s.year_level || s.year || '';
+                                                    const sec = s.section || '';
+
+                                                    return (
+                                                        <li key={sId} onMouseDown={() => handleSelectStudent(s)}>
+                                                            <strong>{fName} {lName}</strong> ({sId})
+                                                            {prog && <span> - {prog} {yr}{sec}</span>}
+                                                        </li>
+                                                    );
+                                                })}
+                                            </ul>
+                                        )}
+
+                                        {selectedStudent && (
+                                            <div className="selected-student-badge">
+                                                <Check size={18} aria-hidden="true" />
+                                                <span>Selected: {selectedStudent.first_name || selectedStudent.firstname} {selectedStudent.last_name || selectedStudent.lastname} ({selectedStudent.student_id || selectedStudent.id})</span>
+                                            </div>
+                                        )}
                                     </div>
-                                    {dispenseData.batch_id && (
+
+                                    <div className="form-grid-2">
                                         <div className="form-group">
-                                            <label htmlFor="incident-qty">
-                                                Quantity ({dispenseData.unit}){dispenseLimit > 0 ? ` max ${dispenseLimit}` : ''} *
-                                            </label>
+                                            <label htmlFor="inc-when"><Calendar size={16} aria-hidden="true" /> Date &amp; time *</label>
                                             <input
-                                                id="incident-qty"
-                                                type="number"
-                                                min="1"
-                                                step="1"
-                                                max={dispenseLimit > 0 ? dispenseLimit : undefined}
+                                                id="inc-when"
+                                                type="datetime-local"
+                                                value={incidentData.incident_datetime}
+                                                onChange={(e) => setIncidentData({ ...incidentData, incident_datetime: e.target.value })}
                                                 className="form-control"
                                                 required
-                                                value={dispenseData.quantity}
-                                                onChange={(e) => setDispenseData({ ...dispenseData, quantity: e.target.value ? String(Math.max(1, Math.floor(Number(e.target.value)))) : '' })}
                                             />
                                         </div>
-                                    )}
+                                        <div className="form-group">
+                                            <label htmlFor="inc-loc"><MapPin size={16} aria-hidden="true" /> Location *</label>
+                                            <input
+                                                id="inc-loc"
+                                                type="text"
+                                                placeholder="e.g. Gymnasium"
+                                                value={incidentData.incident_location}
+                                                onChange={(e) => setIncidentData({ ...incidentData, incident_location: e.target.value })}
+                                                className="form-control"
+                                                required
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <fieldset className="inc-medicine">
+                                        <legend className="inc-legend"><Pill size={16} aria-hidden="true" /> Medicine</legend>
+                                        <div className="inc-medicine-grid">
+                                            <div className="form-group span-3">
+                                                <label htmlFor="incident-medicine">Medicine</label>
+                                                <select
+                                                    id="incident-medicine"
+                                                    className="form-control"
+                                                    value={dispenseMedicineId}
+                                                    onChange={(e) => handleMedicineChange(e.target.value)}
+                                                >
+                                                    <option value="">None</option>
+                                                    {medicineOptions.map(m => (
+                                                        <option key={m.id} value={m.id}>{m.name}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+
+                                            {dispenseMedicineId && (
+                                                <>
+                                                    <div className="form-group span-2">
+                                                        <label htmlFor="incident-batch">Batch expiry *</label>
+                                                        <select
+                                                            id="incident-batch"
+                                                            className="form-control"
+                                                            required
+                                                            value={dispenseData.batch_id}
+                                                            onChange={(e) => handleBatchChange(e.target.value)}
+                                                        >
+                                                            <option value="">Select</option>
+                                                            {medicineBatches.map(b => (
+                                                                <option key={b.batch_id} value={b.batch_id}>
+                                                                    {formatDate(new Date(b.expiration_date))} (Stock: {b.current_stock})
+                                                                </option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
+                                                    {dispenseData.batch_id && (
+                                                        <div className="form-group">
+                                                            <label htmlFor="incident-qty">Qty ({dispenseData.unit}) *</label>
+                                                            <input
+                                                                id="incident-qty"
+                                                                type="number"
+                                                                min="1"
+                                                                step="1"
+                                                                max={dispenseLimit > 0 ? dispenseLimit : undefined}
+                                                                className="form-control"
+                                                                required
+                                                                value={dispenseData.quantity}
+                                                                onChange={(e) => setDispenseData({ ...dispenseData, quantity: e.target.value ? String(Math.max(1, Math.floor(Number(e.target.value)))) : '' })}
+                                                            />
+                                                            {dispenseLimit > 0 && <div className="inc-hint">Max {dispenseLimit}</div>}
+                                                        </div>
+                                                    )}
+                                                </>
+                                            )}
+                                        </div>
+                                    </fieldset>
                                 </div>
-                            )}
+
+                                {/* Right: narrative */}
+                                <div className="inc-form-col">
+                                    <div className="form-group">
+                                        <label htmlFor="inc-desc"><FileText size={16} aria-hidden="true" /> Description *</label>
+                                        <textarea
+                                            id="inc-desc"
+                                            rows="5"
+                                            placeholder="What happened"
+                                            value={incidentData.incident_description}
+                                            onChange={(e) => setIncidentData({ ...incidentData, incident_description: e.target.value })}
+                                            className="form-control"
+                                            required
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label htmlFor="inc-aid"><Activity size={16} aria-hidden="true" /> First aid *</label>
+                                        <textarea
+                                            id="inc-aid"
+                                            rows="4"
+                                            placeholder="Care given"
+                                            value={incidentData.first_aid_administered}
+                                            onChange={(e) => setIncidentData({ ...incidentData, first_aid_administered: e.target.value })}
+                                            className="form-control"
+                                            required
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label htmlFor="inc-dispo">Disposition *</label>
+                                        <textarea
+                                            id="inc-dispo"
+                                            rows="3"
+                                            placeholder="Sent home, referred, back to class"
+                                            value={incidentData.current_physical_situation}
+                                            onChange={(e) => setIncidentData({ ...incidentData, current_physical_situation: e.target.value })}
+                                            className="form-control"
+                                            required
+                                        />
+                                    </div>
+                                </div>
+                            </div>
 
                             <div className="modal-footer">
-                                <button type="button" className="btn btn-light" onClick={() => { stopCameraScan(); setShowAddIncidentModal(false); }}>Cancel</button>
-                                <button type="submit" className="btn btn-primary">Save Incident Report</button>
+                                <button type="button" className="inc-ib inc-ib-text" onClick={closeAddModal}>Cancel</button>
+                                <button type="submit" className="inc-ib inc-ib-primary inc-ib-text">Save</button>
                             </div>
                         </form>
                     </div>
@@ -1099,99 +1236,15 @@ const IncidentReport = () => {
             ========================================= */}
             {isCameraScanning && (
                 <div className="modal-overlay" style={{ zIndex: 1200 }}>
-                    <div className="modal-container medium-modal" style={{ maxWidth: '480px' }}>
+                    <div className="modal-container medium-modal" role="dialog" aria-modal="true" aria-labelledby="inc-scan-title">
                         <div className="modal-header">
-                            <h3><Camera size={20} /> Scan Student QR Code</h3>
-                            <button type="button" className="close-btn" onClick={stopCameraScan}><X size={20} /></button>
+                            <h3 id="inc-scan-title"><Camera size={20} aria-hidden="true" /> Scan QR</h3>
+                            <button type="button" className="inc-ib inc-ib-ghost" aria-label="Close scanner" title="Close scanner" onClick={stopCameraScan}><X size={20} aria-hidden="true" /></button>
                         </div>
-                        <div className="modal-body" style={{ textAlign: 'center', padding: '20px' }}>
-                            <video 
-                                ref={videoRef} 
-                                style={{ width: '100%', maxHeight: '280px', borderRadius: '8px', backgroundColor: '#000000', objectFit: 'cover' }} 
-                                muted 
-                                playsInline 
-                            />
-                            <p style={{ marginTop: '12px', fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
-                                Point camera directly at the student's QR code to scan automatically.
-                            </p>
-                            <div className="modal-footer" style={{ marginTop: '16px', justifyContent: 'center' }}>
-                                <button type="button" className="btn btn-secondary" onClick={stopCameraScan}>Cancel Scanner</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* =========================================
-               MODAL 2: VIEW INCIDENT DETAILS
-            ========================================= */}
-            {showViewModal && selectedReport && (
-                <div className="modal-overlay">
-                    <div className="modal-container medium-modal">
-                        <div className="modal-header">
-                            <h3><FileText size={20} /> Incident Details</h3>
-                            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                                <button 
-                                    type="button" 
-                                    className="btn btn-secondary" 
-                                    onClick={handleExportSingleReport}
-                                    style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                                >
-                                    <Printer size={16} /> export
-                                </button>
-                                <button className="close-btn" onClick={() => setShowViewModal(false)}><X size={20} /></button>
-                            </div>
-                        </div>
-                        <div className="modal-body view-details-body">
-                            <div className="detail-card highlight-box">
-                                <div>
-                                    <label>Student Name</label>
-                                    <h4>{selectedReport.student_first_name} {selectedReport.student_last_name}</h4>
-                                    <p>{selectedReport.student_id} | {selectedReport.program_name} {selectedReport.year_level}-{selectedReport.section}</p>
-                                </div>
-                            </div>
-
-                            <div className="detail-grid">
-                                <div>
-                                    <label>Date & Time</label>
-                                    <p>{formatDateTime(new Date(selectedReport.incident_datetime))}</p>
-                                </div>
-                                <div>
-                                    <label>Location</label>
-                                    <p>{selectedReport.incident_location}</p>
-                                </div>
-                            </div>
-
-                            <div className="detail-section">
-                                <label>Incident Description</label>
-                                <div className="detail-text">{selectedReport.incident_description || 'No description provided.'}</div>
-                            </div>
-
-                            <div className="detail-section">
-                                <label>First Aid Administered</label>
-                                <div className="detail-text">{selectedReport.first_aid_administered || 'None recorded.'}</div>
-                            </div>
-
-                            <div className="detail-section">
-                                <label>Current Physical Situation / Disposition</label>
-                                <div className="detail-text">{selectedReport.current_physical_situation || 'None recorded.'}</div>
-                            </div>
-
-                            <div className="detail-section">
-                                <label>Medicine Dispensed</label>
-                                <div className="detail-text">
-                                    {selectedReport.medicine_name
-                                        ? `${selectedReport.medicine_name} - ${Math.round(selectedReport.dosage_consumption_unit_value)} ${selectedReport.dosage_consumption_unit_of_measure}`
-                                        : 'None.'}
-                                </div>
-                            </div>
-
-                            <div className="detail-section text-muted small">
-                                Recorded by: Nurse {selectedReport.nurse_first_name} {selectedReport.nurse_last_name}
-                            </div>
-
+                        <div className="modal-body">
+                            <video ref={videoRef} className="inc-camera-video" muted playsInline />
                             <div className="modal-footer">
-                                <button className="btn btn-secondary" onClick={() => setShowViewModal(false)}>Close</button>
+                                <button type="button" className="inc-ib inc-ib-text" onClick={stopCameraScan}>Cancel</button>
                             </div>
                         </div>
                     </div>
@@ -1203,86 +1256,87 @@ const IncidentReport = () => {
             ========================================= */}
             {showHotlineDirectoryModal && (
                 <div className="modal-overlay">
-                    <div className="modal-container large-modal">
+                    <div className="modal-container large-modal" role="dialog" aria-modal="true" aria-labelledby="inc-hot-title">
                         <div className="modal-header">
-                            <h3><PhoneCall size={20} /> Emergency Hotline Directory</h3>
-                            <button className="close-btn" onClick={() => setShowHotlineDirectoryModal(false)}><X size={20} /></button>
+                            <h3 id="inc-hot-title"><PhoneCall size={20} aria-hidden="true" /> Emergency Hotlines</h3>
+                            <button type="button" className="inc-ib inc-ib-ghost" aria-label="Close" title="Close" onClick={() => setShowHotlineDirectoryModal(false)}><X size={20} aria-hidden="true" /></button>
                         </div>
                         <div className="modal-body">
-                            {/* Inline Form to Add / Edit Hotline */}
                             <form onSubmit={handleSaveHotline} className="hotline-form-box">
-                                <h4>{editingHotlineId ? 'Edit Emergency Contact' : 'Add New Emergency Contact'}</h4>
+                                <h4>{editingHotlineId ? 'Edit contact' : 'New contact'}</h4>
                                 <div className="form-grid-3">
-                                    <input 
-                                        type="text" 
-                                        placeholder="Facility/Agency Name *" 
-                                        value={hotlineFormData.facility_name} 
+                                    <input
+                                        type="text"
+                                        aria-label="Facility or agency name"
+                                        placeholder="Facility / agency *"
+                                        value={hotlineFormData.facility_name}
                                         onChange={(e) => setHotlineFormData({ ...hotlineFormData, facility_name: e.target.value })}
                                         className="form-control"
-                                        required 
+                                        required
                                     />
-                                    <input 
-                                        type="text" 
-                                        placeholder="Contact Number *" 
-                                        value={hotlineFormData.contact_number} 
+                                    <input
+                                        type="text"
+                                        aria-label="Contact number"
+                                        placeholder="Contact number *"
+                                        value={hotlineFormData.contact_number}
                                         onChange={(e) => setHotlineFormData({ ...hotlineFormData, contact_number: e.target.value })}
                                         className="form-control"
-                                        required 
+                                        required
                                     />
-                                    <input 
-                                        type="text" 
-                                        placeholder="Notes / Description" 
-                                        value={hotlineFormData.description_notes} 
+                                    <input
+                                        type="text"
+                                        aria-label="Notes"
+                                        placeholder="Notes"
+                                        value={hotlineFormData.description_notes}
                                         onChange={(e) => setHotlineFormData({ ...hotlineFormData, description_notes: e.target.value })}
                                         className="form-control"
                                     />
                                 </div>
                                 <div className="hotline-form-actions">
                                     {editingHotlineId && (
-                                        <button type="button" className="btn btn-light" onClick={resetHotlineForm}>Cancel Edit</button>
+                                        <button type="button" className="inc-ib" aria-label="Cancel edit" title="Cancel edit" onClick={resetHotlineForm}>
+                                            <X size={18} aria-hidden="true" />
+                                        </button>
                                     )}
-                                    <button type="submit" className="btn btn-primary">
-                                        {editingHotlineId ? 'Update Hotline' : 'Add Hotline'}
+                                    <button
+                                        type="submit"
+                                        className="inc-ib inc-ib-primary"
+                                        aria-label={editingHotlineId ? 'Update hotline' : 'Add hotline'}
+                                        title={editingHotlineId ? 'Update hotline' : 'Add hotline'}
+                                    >
+                                        {editingHotlineId ? <Check size={20} aria-hidden="true" /> : <Plus size={20} aria-hidden="true" />}
                                     </button>
                                 </div>
                             </form>
 
-                            {/* Hotlines List */}
                             <div className="hotline-list">
                                 {hotlines.length === 0 ? (
-                                    <p className="text-muted text-center py-3">No emergency hotlines available.</p>
+                                    <div className="empty-state">No hotlines.</div>
                                 ) : (
-                                    <table className="sti-table">
-                                        <thead>
-                                            <tr>
-                                                <th>Facility / Agency</th>
-                                                <th>Contact Number</th>
-                                                <th>Notes</th>
-                                                <th>Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {hotlines.map((h) => (
-                                                <tr key={h.hotline_id}>
-                                                    <td><strong>{h.facility_name}</strong></td>
-                                                    <td><span className="contact-chip">{h.contact_number}</span></td>
-                                                    <td>{h.description_notes || '—'}</td>
-                                                    <td className="action-cell">
-                                                        <button className="btn-icon text-primary" onClick={() => handleEditHotline(h)}>
-                                                            <Edit size={16} />
-                                                        </button>
-                                                        <button className="btn-icon text-danger" onClick={() => handleDeleteHotline(h.hotline_id)}>
-                                                            <Trash2 size={16} />
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
+                                    <div role="table" aria-label="Emergency hotlines">
+                                        <div role="row" className="inc-hotline-row inc-head">
+                                            <div role="columnheader">Facility / agency</div>
+                                            <div role="columnheader">Contact</div>
+                                            <div role="columnheader">Notes</div>
+                                            <div role="columnheader"><span className="visually-hidden">Actions</span></div>
+                                        </div>
+                                        {hotlines.map((h) => (
+                                            <div role="row" className="inc-hotline-row" key={h.hotline_id}>
+                                                <div role="cell"><strong>{h.facility_name}</strong></div>
+                                                <div role="cell"><span className="contact-chip">{h.contact_number}</span></div>
+                                                <div role="cell">{h.description_notes || '—'}</div>
+                                                <div role="cell" className="action-cell">
+                                                    <button type="button" className="inc-ib" aria-label={`Edit ${h.facility_name}`} title="Edit" onClick={() => handleEditHotline(h)}>
+                                                        <Edit size={16} aria-hidden="true" />
+                                                    </button>
+                                                    <button type="button" className="inc-ib inc-ib-danger" aria-label={`Delete ${h.facility_name}`} title="Delete" onClick={() => handleDeleteHotline(h.hotline_id)}>
+                                                        <Trash2 size={16} aria-hidden="true" />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
                                 )}
-                            </div>
-                            <div className="modal-footer">
-                                <button className="btn btn-secondary" onClick={() => setShowHotlineDirectoryModal(false)}>Close</button>
                             </div>
                         </div>
                     </div>

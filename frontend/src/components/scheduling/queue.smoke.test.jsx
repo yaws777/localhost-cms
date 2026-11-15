@@ -51,26 +51,51 @@ test('a skipped number tells the student to be accommodated as a walk-in', () =>
     expect(screen.getByText('Your number was skipped')).toBeInTheDocument();
 });
 
-test('the doctor sees the queue with Call next, Void, Walk-in and the void number kept in the list', async () => {
+test('the doctor sees the queue with Call next, Void, Add walk-in and the void number kept in the list', async () => {
     global.fetch = jest.fn(() => json({ success: true, queue: QUEUE }));
     wrap(<QueuePanel scheduleId="S1" date="2026-10-29" creator={{ doctorId: 'DOC1' }} userId="U1" intervalMs={60000} onWalkIn={() => {}} />);
-    await waitFor(() => expect(screen.getByText('Call next')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Call next' })).toBeInTheDocument());
     expect(screen.getByText('W1', { selector: 'strong' })).toBeInTheDocument();
-    expect(screen.getByText('Walk-in', { selector: 'button' })).toBeInTheDocument();
-    expect(screen.getByText('In session')).toBeInTheDocument(); // the state of the number being served
+    expect(screen.getByRole('button', { name: 'Add walk-in' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Scan QR/ })).toBeNull();
+    expect(screen.getByText('In session')).toBeInTheDocument(); // the number being served has its time in
     expect(screen.getAllByRole('button', { name: /^Void$/ }).length).toBe(2); // the waiting listed number and the waiting walk-in
-    expect(screen.queryByText('Skip')).toBeNull();
-    expect(screen.getAllByText('Void and call next').length).toBe(1); // the serving number
-    expect(screen.getByText('Accommodated as W1')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Skip' })).toBeNull(); // a number with a time in cannot be skipped
+    expect(screen.queryByRole('button', { name: /Time in/ })).toBeNull(); // nobody is called without a time in
+    expect(screen.getByText('Walk-in W1')).toBeInTheDocument(); // the void student came back as a walk-in
 });
 
-test('the nurse does not get Call next or Void, only Time in', async () => {
-    global.fetch = jest.fn(() => json({ success: true, queue: QUEUE }));
-    wrap(<QueuePanel scheduleId="S1" date="2026-10-29" creator={{ nurseId: 'N1' }} userId="U2" intervalMs={60000} />);
-    await waitFor(() => expect(screen.getByText('Now in session')).toBeInTheDocument());
-    expect(screen.queryByText('Call next')).toBeNull();
+test('a called number waits for the time in: skip or void it, and call a skipped number again', async () => {
+    const CALLED = {
+        ...QUEUE,
+        entries: [
+            { appointment_id: 'A1', lane: 'Listed', queue_no: 1, label: '#1', state: 'Void', skipped: 1, student_id: 's1', student_name: 'Alberto Siason', visit_type: 'General Check Up', arrived: 0, documented: 0 },
+            { appointment_id: 'A2', lane: 'Listed', queue_no: 2, label: '#2', state: 'Serving', student_id: 's2', student_name: 'John Doe', visit_type: 'General Check Up', arrived: 0, documented: 0 },
+            { appointment_id: 'A3', lane: 'Listed', queue_no: 3, label: '#3', state: 'Waiting', student_id: 's3', student_name: 'Mico Bernardo', visit_type: 'General Check Up', arrived: 0, documented: 0 }
+        ]
+    };
+    global.fetch = jest.fn(() => json({ success: true, queue: CALLED }));
+    wrap(<QueuePanel scheduleId="S1" date="2026-10-29" creator={{ doctorId: 'DOC1' }} userId="U1" intervalMs={60000} />);
+    await waitFor(() => expect(screen.getByText('Called - time in')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Time in' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Skip' })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Void' }).length).toBe(2); // the called number and the waiting one
+    expect(screen.getAllByText('Skipped').length).toBeGreaterThan(0);
+    // another number can be called while this one waits for the time in: the called number is skipped by that call
+    expect(screen.getByRole('button', { name: 'Call' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Call next' })).toBeEnabled();
+});
+
+test('the nurse times in the called number but cannot call, skip or void', async () => {
+    const CALLED = { ...QUEUE, entries: QUEUE.entries.map((e) => (e.appointment_id === 'A2' ? { ...e, arrived: 0 } : e)) };
+    global.fetch = jest.fn(() => json({ success: true, queue: CALLED }));
+    wrap(<QueuePanel scheduleId="S1" date="2026-10-29" creator={{ nurseId: 'N1' }} userId="U2" intervalMs={60000} onWalkIn={() => {}} />);
+    await waitFor(() => expect(screen.getByText('Called - waiting for time in')).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: 'Call next' })).toBeNull();
     expect(screen.queryByRole('button', { name: /^Void/ })).toBeNull();
-    expect(screen.getAllByText(/Time in/).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: 'Skip' })).toBeNull();
+    expect(screen.getAllByRole('button', { name: 'Time in' }).length).toBe(1);
+    expect(screen.getByRole('button', { name: 'Add walk-in' })).toBeInTheDocument();
 });
 
 test('the listing of a schedule shows its limit and the asks waiting for the nurse', async () => {

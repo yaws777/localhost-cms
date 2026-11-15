@@ -127,8 +127,8 @@ const AppointFollowUpModal = ({ item, creator, userId, onClose, onDone }) => {
             if (!session) { setError('Pick the schedule the student goes into.'); return; }
             body = { schedule_id: session.schedule_id, date: session.next_date };
         } else {
-            if (!date) { setError('Pick the date of the repeat.'); return; }
-            if (!time) { setError('Pick the time of the repeat.'); return; }
+            if (!date) { setError('Pick the date of the follow-up.'); return; }
+            if (!time) { setError('Pick the time of the follow-up.'); return; }
             body = { start_time: `${date} ${time}:00`, duration_min: parseInt(duration, 10) };
         }
         setBusy(true);
@@ -137,7 +137,7 @@ const AppointFollowUpModal = ({ item, creator, userId, onClose, onDone }) => {
                 ...creatorBody(creator), sender_id: userId, student_id: item.student_id, ...body, notes
             });
             if (data.success) { showAlert(data.message, 'success'); onDone?.(); onClose(); }
-            else setError(data.message || 'Could not schedule the repeat.');
+            else setError(data.message || 'Could not schedule the follow-up.');
         } catch (err) {
             setError('Could not reach the server.');
         } finally {
@@ -146,10 +146,10 @@ const AppointFollowUpModal = ({ item, creator, userId, onClose, onDone }) => {
     };
 
     return (
-        <Modal isOpen={!!item} onClose={onClose} title="Appoint the repeat" icon={<CalendarPlus size={20} />} size="lg">
+        <Modal isOpen={!!item} onClose={onClose} title="Appoint the follow-up" icon={<CalendarPlus size={20} />} size="lg">
             <form className="dp-form" onSubmit={submit}>
                 <div className="dp-notice">
-                    <strong>{fullName(item.student_first_name, item.student_last_name)}</strong> - repeat of {visitLabel(item.visit_type, item.purpose_other)} on {formatDate(item.visit_start)}<br />
+                    <strong>{fullName(item.student_first_name, item.student_last_name)}</strong> - follow-up of {visitLabel(item.visit_type, item.purpose_other)} on {formatDate(item.visit_start)}<br />
                     Dr. {item.doc_first_name} {item.doc_last_name}
                     {item.follow_up_date ? ` - the doctor asked for ${formatDate(item.follow_up_date)}` : ''}
                     {item.follow_up_notes ? ` - ${item.follow_up_notes}` : ''}
@@ -208,7 +208,7 @@ const AppointFollowUpModal = ({ item, creator, userId, onClose, onDone }) => {
 
                 <div className="dp-modal-foot">
                     <button type="button" className="dp-btn dp-btn-ghost" onClick={onClose}>Cancel</button>
-                    <button type="submit" className="dp-btn dp-btn-primary" disabled={busy || (mode === 'schedule' && !session)}>{busy ? 'Saving...' : 'Appoint repeat'}</button>
+                    <button type="submit" className="dp-btn dp-btn-primary" disabled={busy || (mode === 'schedule' && !session)}>{busy ? 'Saving...' : 'Appoint follow-up'}</button>
                 </div>
             </form>
         </Modal>
@@ -238,7 +238,7 @@ export const RepeatModal = ({ appt, onClose, onDone }) => {
     // the repeat list only holds check-ups flagged "repeat needed": flag this one first
     const flag = async () => {
         const data = await send(`/api/follow-ups/${appt.appointment_id}/flag`, 'PUT', { student_id: appt.student_id, follow_up_date: wantedDate || undefined, notes: notes.trim() || undefined });
-        if (!data.success) setError(data.message || 'Could not set the repeat.');
+        if (!data.success) setError(data.message || 'Could not set the follow-up.');
         return !!data.success;
     };
 
@@ -249,7 +249,7 @@ export const RepeatModal = ({ appt, onClose, onDone }) => {
         setBusy(true);
         try {
             if (!(await flag())) return;
-            showAlert('The student is in the Repeats list. The nurse puts the student in a schedule.', 'success');
+            showAlert('The student is in the Follow-ups list. The nurse puts the student in a schedule.', 'success');
             onDone?.();
             onClose();
         } catch (err) {
@@ -260,16 +260,16 @@ export const RepeatModal = ({ appt, onClose, onDone }) => {
     };
 
     return (
-        <Modal isOpen onClose={onClose} title="Repeat check-up" icon={<CalendarClock size={20} />} size="md">
+        <Modal isOpen onClose={onClose} title="Follow-up check-up" icon={<CalendarClock size={20} />} size="md">
             <form className="dp-form" onSubmit={submit}>
                 <div className="dp-notice">
-                    <strong>{fullName(appt.student_first_name, appt.student_last_name)}</strong> - repeat of {visitLabel(appt.visit_type, appt.purpose_other)} on {formatDate(appt.start_time)}.
-                    The student joins the Repeats list and waits for a schedule. The nurse sets it.
+                    <strong>{fullName(appt.student_first_name, appt.student_last_name)}</strong> - follow-up of {visitLabel(appt.visit_type, appt.purpose_other)} on {formatDate(appt.start_time)}.
+                    The student joins the Follow-ups list and waits for a schedule. The nurse sets it.
                 </div>
                 {error && <div className="dp-error">{error}</div>}
                 <div className="dp-row">
                     <div className="dp-field">
-                        <label htmlFor="rp-date">Repeat around (optional)</label>
+                        <label htmlFor="rp-date">Follow-up around (optional)</label>
                         <input id="rp-date" className="dp-input" type="date" min={localDateStr()} value={wantedDate} onChange={(e) => setWantedDate(e.target.value)} />
                     </div>
                     <div className="dp-field" style={{ gridColumn: 'span 2' }}>
@@ -279,7 +279,7 @@ export const RepeatModal = ({ appt, onClose, onDone }) => {
                 </div>
                 <div className="dp-modal-foot">
                     <button type="button" className="dp-btn dp-btn-ghost" onClick={onClose}>Cancel</button>
-                    <button type="submit" className="dp-btn dp-btn-primary" disabled={busy}><Hourglass size={14} /> {busy ? 'Saving...' : 'Add to Repeats list'}</button>
+                    <button type="submit" className="dp-btn dp-btn-primary" disabled={busy}><Hourglass size={14} /> {busy ? 'Saving...' : 'Add to Follow-ups list'}</button>
                 </div>
             </form>
         </Modal>
@@ -310,7 +310,7 @@ const FollowUps = ({ fixedDoctorId, doctors, creator, userId, refreshKey, onChan
             const data = await res.json();
             if (data.success) setItems(data.follow_ups);
         } catch (e) {
-            showAlert('Could not load the repeat list.', 'error');
+            showAlert('Could not load the follow-up list.', 'error');
         } finally {
             setLoading(false);
         }
@@ -365,12 +365,12 @@ const FollowUps = ({ fixedDoctorId, doctors, creator, userId, refreshKey, onChan
         const r = dismissTarget;
         const data = await send(`/api/follow-ups/${r.appointment_id}/dismiss`, 'PUT', { student_id: r.student_id, dismissed: true, reason });
         setDismissTarget(null);
-        if (data.success) { showAlert(data.message, 'success'); changed(); } else showAlert(data.message || 'Could not update the repeat.', 'error');
+        if (data.success) { showAlert(data.message, 'success'); changed(); } else showAlert(data.message || 'Could not update the follow-up.', 'error');
     };
 
     const restore = async (r) => {
         const data = await send(`/api/follow-ups/${r.appointment_id}/dismiss`, 'PUT', { student_id: r.student_id, dismissed: false });
-        if (data.success) { showAlert(data.message, 'success'); changed(); } else showAlert(data.message || 'Could not update the repeat.', 'error');
+        if (data.success) { showAlert(data.message, 'success'); changed(); } else showAlert(data.message || 'Could not update the follow-up.', 'error');
     };
 
     return (
@@ -407,7 +407,7 @@ const FollowUps = ({ fixedDoctorId, doctors, creator, userId, refreshKey, onChan
                 </div>
             )}
 
-            {loading ? <div className="loading-dv">Loading the repeat list...</div> : !folder ? (
+            {loading ? <div className="loading-dv">Loading the follow-up list...</div> : !folder ? (
                 <div className="dp-day-grid">
                     {[{ key: ALL_FOLDER, all: true, rows: searched }, ...folders].map((x) => {
                         const t = tallies(x.rows);
@@ -416,23 +416,23 @@ const FollowUps = ({ fixedDoctorId, doctors, creator, userId, refreshKey, onChan
                             <button key={x.key} type="button" className="dp-day-folder" onClick={() => openFolder(x.key)} aria-label={`Open ${name}`}>
                                 <FolderOpen size={26} />
                                 <strong>{name}</strong>
-                                {x.all && <span>Every repeat, in every schedule</span>}
+                                {x.all && <span>Every follow-up, in every schedule</span>}
                                 {!x.all && x.key !== DIRECT_FOLDER && (
                                     <span>{formatTime(x.f.start_time)} - {formatTime(x.f.end_time)}{x.f.location ? ` - ${x.f.location}` : ''}</span>
                                 )}
-                                <span><Users size={13} /> {x.rows.length} repeat{x.rows.length === 1 ? '' : 's'}</span>
+                                <span><Users size={13} /> {x.rows.length} follow-up{x.rows.length === 1 ? '' : 's'}</span>
                                 <span>{t.needs_time} waiting - {t.scheduled} scheduled - {t.done} done</span>
                             </button>
                         );
                     })}
                 </div>
             ) : rows.length === 0 ? (
-                <div className="group-empty-ds"><CalendarClock size={16} /> {state === 'needs_time' ? 'No student is waiting for a repeat.' : 'Nothing in this list.'}</div>
+                <div className="group-empty-ds"><CalendarClock size={16} /> {state === 'needs_time' ? 'No student is waiting for a follow-up.' : 'Nothing in this list.'}</div>
             ) : (
                 <div className="table-card-dv">
                     <table className="sti-table-dv">
                         <thead>
-                            <tr><th>Student</th><th>Repeat of</th><th>Asked for</th><th>Status</th><th>Actions</th></tr>
+                            <tr><th>Student</th><th>Follow-up of</th><th>Asked for</th><th>Status</th><th>Actions</th></tr>
                         </thead>
                         <tbody>
                             {paged.items.map((r) => {
@@ -445,6 +445,9 @@ const FollowUps = ({ fixedDoctorId, doctors, creator, userId, refreshKey, onChan
                                         </td>
                                         <td>
                                             <strong>{visitLabel(r.visit_type, r.purpose_other)}</strong>
+                                            {r.service_type && r.service_type !== r.visit_type && (
+                                                <div><span className="badge-ds badge-open-ds" title="Check-up service">{visitLabel(r.service_type, r.service_purpose_other)}</span></div>
+                                            )}
                                             <div className="muted-ds">{formatDate(r.visit_start)} - Dr. {r.doc_first_name} {r.doc_last_name}</div>
                                             {r.diagnosis && <div className="muted-ds">{r.diagnosis}</div>}
                                         </td>
@@ -476,14 +479,14 @@ const FollowUps = ({ fixedDoctorId, doctors, creator, userId, refreshKey, onChan
                             })}
                         </tbody>
                     </table>
-                    <Pager page={paged.page} pageCount={paged.pageCount} total={paged.total} pageSize={REPEATS_PER_PAGE} onPage={setPage} noun="repeats" />
+                    <Pager page={paged.page} pageCount={paged.pageCount} total={paged.total} pageSize={REPEATS_PER_PAGE} onPage={setPage} noun="follow-ups" />
                 </div>
             )}
 
             <AppointFollowUpModal item={appointTarget} creator={creator} userId={userId} onClose={() => setAppointTarget(null)} onDone={changed} />
             <ReasonModal
-                isOpen={!!dismissTarget} title="Take the repeat off the list" confirmLabel="Take off the list" label="Reason"
-                message={dismissTarget ? `${fullName(dismissTarget.student_first_name, dismissTarget.student_last_name)} - repeat of ${visitLabel(dismissTarget.visit_type, dismissTarget.purpose_other)}` : ''}
+                isOpen={!!dismissTarget} title="Take the follow-up off the list" confirmLabel="Take off the list" label="Reason"
+                message={dismissTarget ? `${fullName(dismissTarget.student_first_name, dismissTarget.student_last_name)} - follow-up of ${visitLabel(dismissTarget.visit_type, dismissTarget.purpose_other)}` : ''}
                 placeholder="e.g. The student recovered, or was seen elsewhere" onSubmit={dismiss} onClose={() => setDismissTarget(null)}
             />
         </>

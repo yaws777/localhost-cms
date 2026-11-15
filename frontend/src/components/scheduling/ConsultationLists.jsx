@@ -1,6 +1,6 @@
 // ConsultationLists.jsx
 // The check-ups in three lists - Upcoming (not started: reschedule / cancel), On going (happening now: the queue of every running
-// session with Call next / Void / Walk-in / Accommodate, time in or QR scan before the check-up is recorded, extend, no-show) and Past (over: closed).
+// session: the doctor calls / skips / voids the numbers, the nurse or the doctor adds walk-ins, the time in is only for the called number, extend, no-show) and Past (over: closed).
 // Upcoming and Past are shown in one container per session day (a schedule on a date, or the direct appointments of a doctor on a date):
 // the container opens to all its participants.
 // The doctor (/DoctorCheckup) and the nurse (Doctor Visit > Check-up) mount this same screen:
@@ -65,7 +65,7 @@ const GROUPED_TABS = ['upcoming', 'past'];
 const dayTitle = (day) => new Date(`${day}T00:00:00`).toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 
 const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTab, focusId, onChanged }) => {
-    const { showAlert } = useAlert();
+    const { showAlert, showConfirm } = useAlert();
     const { visitTypes } = useSpecializations();
     const isNurse = role === 'nurse';
     const doctorPath = doctorId || 'all';
@@ -238,6 +238,10 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
     // manual time in (or a QR scan): the student is at the clinic, so the check-up can be recorded
     // openCheckup: the check-up form opens right after the time in (the server stamps the time of the click)
     const timeIn = async (a, quiet = false, openCheckup = false) => {
+        if (!quiet) {
+            const ok = await showConfirm(`Time in ${fullName(a.student_first_name, a.student_last_name)} now?`, { title: 'Confirm time in', confirmLabel: 'Time in' });
+            if (!ok) return false;
+        }
         const data = await put(`/api/doctor-visits/status/${a.appointment_id}`, { student_id: a.student_id, status: 'Present' });
         if (data.success) {
             if (!quiet) showAlert(`${fullName(a.student_first_name, a.student_last_name)} has a time in now.`, 'success');
@@ -326,7 +330,7 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
         if (documented) {
             buttons.push(act('sum', 'ghost', Printer, 'Summary', () => print(a, 'summary')));
             if (rxCount(a) > 0) buttons.push(act('rx', 'ghost', Pill, 'Prescription', () => print(a, 'prescription')));
-            buttons.push(act('rp', 'accent', Repeat, 'Repeat', () => setRepeatTarget(a), 'Repeat: direct appointment, or wait for a schedule'));
+            buttons.push(act('rp', 'accent', Repeat, 'Follow-up', () => setRepeatTarget(a), 'Follow-up: direct appointment, or wait for a schedule'));
         }
         buttons.push(act('log', 'ghost', History, 'Past assessments', () => setHistoryTarget(a), 'Past assessments of the student'));
         return buttons;
@@ -365,7 +369,7 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
                                 <span className="dp-chip source">{sourceLabel(a.booking_source)}</span>
                                 {documented && <span className="dp-chip st-completed">Documented</span>}
                                 {documented && rxCount(a) > 0 && <span className="dp-chip"><Pill size={12} /> {rxCount(a)} medicine{rxCount(a) === 1 ? '' : 's'}</span>}
-                                {!!a.follow_up_needed && <span className="dp-chip st-pending-approval">Repeat{a.follow_up_date ? `: ${formatDate(a.follow_up_date)}` : ''}</span>}
+                                {!!a.follow_up_needed && <span className="dp-chip st-pending-approval">Follow-up{a.follow_up_date ? `: ${formatDate(a.follow_up_date)}` : ''}</span>}
                                 {!!a.is_abnormal && <span className="dp-chip abnormal">Abnormal</span>}
                                 {a.template_name && <span className="dp-chip source">{a.template_name}</span>}
                             </div>
@@ -439,7 +443,7 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
                                             <div className="dp-cell-clip">{a.diagnosis}</div>
                                             <div className="dp-appt-chips">
                                                 {rxCount(a) > 0 && <span className="dp-chip"><Pill size={12} /> {rxCount(a)}</span>}
-                                                {!!a.follow_up_needed && <span className="dp-chip st-pending-approval">Repeat</span>}
+                                                {!!a.follow_up_needed && <span className="dp-chip st-pending-approval">Follow-up</span>}
                                                 {!!a.is_abnormal && <span className="dp-chip abnormal">Abnormal</span>}
                                             </div>
                                         </>
@@ -459,12 +463,6 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
 
     return (
         <>
-            <div className="dp-page-head">
-                <div>
-                    <h2>Check-ups</h2>
-                </div>
-            </div>
-
             <div className="dp-tabs" role="tablist" aria-label="Check-up lists">
                 {CONSULTATION_TABS.map(([key, label]) => (
                     <button key={key} role="tab" aria-selected={tab === key} className={`dp-tab ${tab === key ? 'active' : ''}`} onClick={() => setTab(key)}>
@@ -515,7 +513,7 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
                             <button type="button" className="dp-btn dp-btn-primary dp-btn-sm" onClick={() => setDismissedEnds((list) => list.filter((k) => k !== endKey(s)))}>Confirm or extend</button>
                         </div>
                     )}
-                    <QueuePanel scheduleId={s.schedule_id} date={s.date} creator={creator} userId={userId} refreshKey={queueKey} onChanged={refresh} onDocument={documentEntry} onView={viewEntry} onHistory={historyEntry} onWalkIn={isNurse ? undefined : () => setWalkInFor(s)} onExtend={() => setExtendSession(s)} />
+                    <QueuePanel scheduleId={s.schedule_id} date={s.date} creator={creator} userId={userId} refreshKey={queueKey} onChanged={refresh} onDocument={documentEntry} onView={viewEntry} onHistory={historyEntry} onWalkIn={() => setWalkInFor(s)} onExtend={() => setExtendSession(s)} />
                 </section>
             ))}
 

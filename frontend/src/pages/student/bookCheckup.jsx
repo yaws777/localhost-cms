@@ -2,7 +2,7 @@
 // The doctor sets a schedule with a listing limit and the nurse opens its listing. The student sees the open listings here and asks for a
 // place in one. When the nurse accepts, the student gets the next queue number of that session (in the order of acceptance) and sees which
 // number is being served; the nurse can also decline with a reason.
-// Layout: header (title + updates bell), "My number in line" on top, then tabs (Listings | Repeats | Past | Requests). Only the active tab is
+// Layout: header (title + updates bell), "My number in line" on top, then tabs (Listings | Follow-ups | Past | Requests). Only the active tab is
 // shown and the latest updates sit behind the bell, so nothing long is open when the page loads.
 // Look: one ticket per number (big number, now serving, people ahead, progress), a 3-step ticket for a request the nurse has not accepted,
 // session cards led by a date block with a capacity meter, and every status is one tag = color + icon + word.
@@ -12,7 +12,7 @@ import { ClipboardList, X, Clock, Info, Stethoscope, MapPin, Repeat, FileText, B
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatDateTime } from '../../utils/datetime';
 import { visitLabel, reasonPlaceholder } from '../../utils/visitPurpose';
-import { to12h } from '../../utils/scheduling';
+import { to12h, cutoffKindLabel } from '../../utils/scheduling';
 import { useQueueStatus } from '../../hooks/useQueueStatus';
 import '../../styles/student/BookCheckup.css';
 
@@ -214,7 +214,7 @@ const BookCheckup = () => {
             const res = await fetch(`${API}/api/student/${studentId}/checkup-history`);
             const data = await res.json();
             if (data.success) setCheckups({ past: data.past, scheduled: data.scheduled, waiting: data.waiting });
-        } catch (e) { if (!silent) showAlert('Could not load your repeats and past check-ups.', 'error'); }
+        } catch (e) { if (!silent) showAlert('Could not load your follow-ups and past check-ups.', 'error'); }
     }, [studentId, showAlert]);
 
     // the latest check-up news (accepted, declined, moved to a session, cut off, schedule cancelled, called, result ready)
@@ -384,7 +384,7 @@ const BookCheckup = () => {
     const advanceTag = (m) => {
         if (m.status === 'Pending') return { tone: 'low', Icon: Clock, text: 'Under review' };
         if (m.status === 'Waiting') return { tone: 'low', Icon: Clock, text: 'Waiting for a schedule' };
-        if (m.status === 'Cutoff') return { tone: 'bad', Icon: XCircle, text: 'Cut off' };
+        if (m.status === 'Cutoff') return { tone: 'bad', Icon: XCircle, text: `Cut off ${cutoffKindLabel(m.cutoff_kind).toLowerCase()}` };
         return { tone: 'brand', Icon: Ticket, text: `Number ${m.queue_label || ''}` };
     };
 
@@ -397,7 +397,7 @@ const BookCheckup = () => {
     // tabs: only the active one is rendered
     const tabs = [
         { id: 'listings', label: 'Listings', Icon: ClipboardList, count: visibleListings.length },
-        { id: 'repeats', label: 'Repeats', Icon: Repeat, count: checkups.waiting.length + checkups.scheduled.length },
+        { id: 'repeats', label: 'Follow-ups', Icon: Repeat, count: checkups.waiting.length + checkups.scheduled.length },
         { id: 'past', label: 'Past', Icon: FileText, count: checkups.past.length },
         ...(history.length > 0 ? [{ id: 'requests', label: 'Requests', Icon: Inbox, count: history.length }] : [])
     ];
@@ -495,7 +495,7 @@ const BookCheckup = () => {
                                             {mine.status === 'Pending' && <div className="booking-line-bc"><Info size={14} aria-hidden="true" /> Under review.</div>}
                                             {mine.status === 'Waiting' && <div className="booking-line-bc"><Clock size={14} aria-hidden="true" /> Waiting for a schedule.</div>}
                                             {mine.status === 'Cutoff' && (
-                                                <div className="booking-line-bc"><Info size={14} aria-hidden="true" /> Cut off{mine.cutoff_doctor_name ? `: ${mine.cutoff_doctor_name}` : ''}{mine.cutoff_date ? `, ${formatDate(mine.cutoff_date)}` : ''}.</div>
+                                                <div className="booking-line-bc"><Info size={14} aria-hidden="true" /> Cut off {cutoffKindLabel(mine.cutoff_kind).toLowerCase()}{mine.cutoff_doctor_name ? `: ${mine.cutoff_doctor_name}` : ''}{mine.cutoff_date ? `, ${formatDate(mine.cutoff_date)}` : ''}.</div>
                                             )}
                                             {['Waiting', 'Pending', 'Cutoff'].includes(mine.status) && (
                                                 <div className="booking-actions-bc">
@@ -572,15 +572,15 @@ const BookCheckup = () => {
                 )}
 
                 {activeTab === 'repeats' && (
-                    <section className="section-bc" aria-label="Repeats">
+                    <section className="section-bc" aria-label="Follow-ups">
                         {checkups.waiting.length === 0 && checkups.scheduled.length === 0 ? (
-                            <div className="empty-bc">No repeat check-up.</div>
+                            <div className="empty-bc">No follow-up check-up.</div>
                         ) : (
                             <div className="booking-grid-bc">
                                 {checkups.scheduled.map((f) => (
                                     <div key={f.appointment_id} className="booking-card-bc">
                                         <div className="booking-top-bc">
-                                            <strong>Repeat check-up</strong>
+                                            <strong>Follow-up check-up</strong>
                                             <Tag tone="brand" Icon={Ticket}>{f.label ? `Number ${f.label}` : 'Scheduled'}</Tag>
                                         </div>
                                         <div className="booking-line-bc"><Stethoscope size={14} aria-hidden="true" /> {f.doctor_name}</div>
@@ -611,7 +611,7 @@ const BookCheckup = () => {
                                 {checkups.past.map((c) => (
                                     <div key={c.appointment_id} className="booking-card-bc">
                                         <div className="booking-top-bc">
-                                            <strong>{c.is_repeat ? 'Repeat check-up' : visitLabel(c.visit_type, c.purpose_other)}</strong>
+                                            <strong>{c.is_repeat ? 'Follow-up check-up' : visitLabel(c.visit_type, c.purpose_other)}</strong>
                                             <Tag tone={c.outcome === 'Seen' ? 'ok' : c.outcome === 'Missed' ? 'bad' : 'low'} Icon={c.outcome === 'Seen' ? CheckCircle2 : c.outcome === 'Missed' ? XCircle : Clock}>{c.outcome}</Tag>
                                         </div>
                                         <div className="booking-line-bc"><Clock size={14} aria-hidden="true" /> {formatDate(c.date)}, {c.doctor_name}</div>
@@ -698,7 +698,7 @@ const BookCheckup = () => {
                                 </dd></div>
                             )}
                             {assessmentOf.assessment.referral_facility && <div><dt>Referral</dt><dd>{assessmentOf.assessment.referral_facility}{assessmentOf.assessment.referral_reason ? `: ${assessmentOf.assessment.referral_reason}` : ''}</dd></div>}
-                            {assessmentOf.assessment.follow_up_needed ? <div><dt>Repeat</dt><dd>{assessmentOf.assessment.follow_up_date ? `By ${formatDate(assessmentOf.assessment.follow_up_date)}` : 'Needed'}{assessmentOf.assessment.follow_up_notes ? `: ${assessmentOf.assessment.follow_up_notes}` : ''}</dd></div> : null}
+                            {assessmentOf.assessment.follow_up_needed ? <div><dt>Follow-up</dt><dd>{assessmentOf.assessment.follow_up_date ? `By ${formatDate(assessmentOf.assessment.follow_up_date)}` : 'Needed'}{assessmentOf.assessment.follow_up_notes ? `: ${assessmentOf.assessment.follow_up_notes}` : ''}</dd></div> : null}
                         </dl>
                     </div>
                 </div>

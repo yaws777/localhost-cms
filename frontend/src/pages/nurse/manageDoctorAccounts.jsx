@@ -3,10 +3,9 @@
 // the doctor adds their own phone number (used for password recovery) the first time they log in.
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { UserPlus, Edit, KeyRound, Power, Search, Stethoscope, Copy, CheckCircle2, RefreshCw, Users, Ban, Phone, LayoutGrid, List, RotateCcw } from 'lucide-react';
+import { UserPlus, Edit, KeyRound, Power, Search, Stethoscope, Copy, CheckCircle2, RefreshCw, Users, Ban, Phone, ArrowUpDown, ArrowUp, ArrowDown, RotateCcw } from 'lucide-react';
 import Modal from '../../components/common/Modal';
 import { useAlert } from '../../context/AlertContext';
-import { formatDate } from '../../utils/datetime';
 import { fullName, initials } from '../../utils/visitPurpose';
 import { coverageLabel } from '../../utils/scheduling';
 import { useSpecializations } from '../../hooks/useSpecializations';
@@ -124,6 +123,13 @@ const STATS = [
     { key: 'nophone', label: 'Phone not added', icon: Phone, tone: 'warn' }
 ];
 
+// sortable columns of the doctors table (status: active, inactive, no login yet)
+const SORTS = {
+    name: (d) => `${d.last_name} ${d.first_name}`.toLowerCase(),
+    specialization: (d) => String(d.specialization || '').toLowerCase(),
+    status: (d) => (!d.has_account ? 2 : d.is_active ? 0 : 1)
+};
+
 const ManageDoctorAccounts = () => {
     const { nurseId } = useOutletContext() || {};
     const { showAlert, showConfirm } = useAlert();
@@ -134,7 +140,7 @@ const ManageDoctorAccounts = () => {
     const [loadError, setLoadError] = useState('');
     const [search, setSearch] = useState('');
     const [filter, setFilter] = useState('all'); // all | active | inactive | nologin | nophone
-    const [view, setView] = useState('cards'); // cards | table
+    const [sort, setSort] = useState({ key: 'name', dir: 1 }); // key: name | specialization | status
 
     // create / link account
     const [form, setForm] = useState(null); // { link_doctor_id, first_name, last_name, specialization, username, usernameEdited }
@@ -174,7 +180,26 @@ const ManageDoctorAccounts = () => {
         return doctors.filter((d) => FILTERS[filter](d) && (!q || `${d.first_name} ${d.last_name} ${d.username || ''} ${d.specialization || ''}`.toLowerCase().includes(q)));
     }, [doctors, search, filter, FILTERS]);
 
+    const rows = useMemo(() => {
+        const get = SORTS[sort.key];
+        return [...visible].sort((a, b) => {
+            const x = get(a), y = get(b);
+            return (x < y ? -1 : x > y ? 1 : 0) * sort.dir;
+        });
+    }, [visible, sort]);
+
     const clearFilters = () => { setSearch(''); setFilter('all'); };
+    const isFiltered = filter !== 'all' || !!search.trim();
+
+    const sortHead = (key, label) => {
+        const on = sort.key === key;
+        const Icon = !on ? ArrowUpDown : sort.dir === 1 ? ArrowUp : ArrowDown;
+        return (
+            <th scope="col" aria-sort={on ? (sort.dir === 1 ? 'ascending' : 'descending') : 'none'}>
+                <button type="button" className="mda-sort" onClick={() => setSort({ key, dir: on ? -sort.dir : 1 })}>{label}<Icon size={14} aria-hidden="true" /></button>
+            </th>
+        );
+    };
 
     const openCreate = (doctor = null) => {
         setForm({
@@ -268,8 +293,8 @@ const ManageDoctorAccounts = () => {
     const phoneChip = (d) => (!d.has_account
         ? <span className="dp-chip dp-chip--neutral">Phone n/a</span>
         : d.phone_confirmed
-            ? <span className="dp-chip dp-chip--success"><CheckCircle2 size={12} aria-hidden="true" /> {d.contact_number || 'Phone confirmed'}</span>
-            : <span className="dp-chip dp-chip--warning">Phone not added</span>);
+            ? <span className="dp-chip dp-chip--success">{d.contact_number || 'Confirmed'}</span>
+            : <span className="dp-chip dp-chip--warning">Not added</span>);
     const actions = (d) => (
         <div className="mda-acts">
             <button type="button" className="dp-btn dp-btn-ghost dp-btn-icon" onClick={() => openEdit(d)} aria-label={`Edit Dr. ${d.last_name}`} title="Edit"><Edit size={18} aria-hidden="true" /></button>
@@ -314,10 +339,7 @@ const ManageDoctorAccounts = () => {
                     <input className="dp-input" type="search" placeholder="Search name, username or specialization" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search doctors" />
                 </div>
                 <p className="mda-count" role="status" aria-live="polite">{visible.length} of {doctors.length} shown</p>
-                <div className="mda-seg" role="group" aria-label="View">
-                    <button type="button" className="dp-btn dp-btn-ghost dp-btn-icon" aria-pressed={view === 'cards'} onClick={() => setView('cards')} aria-label="Card view" title="Card view"><LayoutGrid size={18} aria-hidden="true" /></button>
-                    <button type="button" className="dp-btn dp-btn-ghost dp-btn-icon" aria-pressed={view === 'table'} onClick={() => setView('table')} aria-label="Table view" title="Table view"><List size={18} aria-hidden="true" /></button>
-                </div>
+                {isFiltered && <button type="button" className="dp-btn dp-btn-ghost dp-btn-icon" onClick={clearFilters} aria-label="Clear filters" title="Clear filters"><RotateCcw size={18} aria-hidden="true" /></button>}
             </div>
 
             <div className="mda-cols">
@@ -341,38 +363,31 @@ const ManageDoctorAccounts = () => {
                                 <p><button type="button" className="dp-btn dp-btn-ghost dp-btn-icon" onClick={clearFilters} aria-label="Clear filters" title="Clear filters"><RotateCcw size={18} aria-hidden="true" /></button></p>
                             </div>
                         )
-                    ) : view === 'cards' ? (
-                        <div className="mda-grid">
-                            {visible.map((d) => (
-                                <article key={d.doctor_id} className="mda-doc">
-                                    <div className="mda-doc-top">
-                                        <span className="dl-avatar dl-avatar--lg" aria-hidden="true">{initials(d.first_name, d.last_name)}</span>
-                                        <div className="mda-doc-id">
-                                            <h3>Dr. {fullName(d.first_name, d.last_name)}</h3>
-                                            <p className="mda-sub">{d.specialization || 'No specialization'}</p>
-                                        </div>
-                                        <span className="mda-docno">{d.doctor_id}</span>
-                                    </div>
-                                    <dl className="mda-facts">
-                                        <div><dt>Username</dt><dd className="mda-mono">{d.has_account ? d.username : 'No login yet'}</dd></div>
-                                        <div><dt>Covers</dt><dd>{coverageLabel(d)}</dd></div>
-                                        {d.created_at && <div><dt>Added</dt><dd>{formatDate(d.created_at)}</dd></div>}
-                                    </dl>
-                                    <div className="mda-doc-foot">
-                                        <div className="mda-chips">{statusChip(d)}{phoneChip(d)}</div>
-                                        {actions(d)}
-                                    </div>
-                                </article>
-                            ))}
-                        </div>
                     ) : (
-                        <div className="mda-tbl-wrap" role="region" aria-label="Doctors table" tabIndex={0}>
+                        <div className="mda-tbl-wrap" role="region" aria-label="Doctors table">
                             <table className="mda-tbl">
+                                <colgroup>
+                                    <col className="mda-c-doctor" />
+                                    <col className="mda-c-spec" />
+                                    <col className="mda-c-user" />
+                                    <col className="mda-c-status" />
+                                    <col className="mda-c-phone" />
+                                    <col className="mda-c-covers" />
+                                    <col className="mda-c-acts" />
+                                </colgroup>
                                 <thead>
-                                    <tr><th scope="col">Doctor</th><th scope="col">Specialization</th><th scope="col">Username</th><th scope="col">Status</th><th scope="col">Phone</th><th scope="col">Added</th><th scope="col"><span className="sr-only">Actions</span></th></tr>
+                                    <tr>
+                                        {sortHead('name', 'Doctor')}
+                                        {sortHead('specialization', 'Specialization')}
+                                        <th scope="col">Username<span className="mda-th-sub">{DOMAIN}</span></th>
+                                        {sortHead('status', 'Status')}
+                                        <th scope="col">Phone</th>
+                                        <th scope="col">Covers</th>
+                                        <th scope="col"><span className="sr-only">Actions</span></th>
+                                    </tr>
                                 </thead>
                                 <tbody>
-                                    {visible.map((d) => (
+                                    {rows.map((d) => (
                                         <tr key={d.doctor_id}>
                                             <td>
                                                 <div className="mda-who">
@@ -381,10 +396,10 @@ const ManageDoctorAccounts = () => {
                                                 </div>
                                             </td>
                                             <td>{d.specialization || 'No specialization'}</td>
-                                            <td className="mda-mono">{d.has_account ? d.username : '-'}</td>
+                                            <td className="mda-mono">{d.has_account ? String(d.username || '').split('@')[0] : '-'}</td>
                                             <td>{statusChip(d)}</td>
                                             <td>{phoneChip(d)}</td>
-                                            <td>{d.created_at ? formatDate(d.created_at) : '-'}</td>
+                                            <td>{coverageLabel(d)}</td>
                                             <td>{actions(d)}</td>
                                         </tr>
                                     ))}
