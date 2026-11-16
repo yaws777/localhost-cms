@@ -20004,7 +20004,8 @@ app.post('/api/students/manageStudentAccounts', async (req, res) => {
 
     await connection.query(
       `INSERT INTO students (student_id, user_id, first_name, last_name, program_id, year_level, section, school_year) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [student_id, studentUserId, first_name, last_name, program_id, year_level, section, enrolledYear]
+      // trim: a trailing space makes the id unmatchable (utf8mb4_0900_ai_ci is PAD NO SPACE)
+      [String(student_id ?? '').trim(), studentUserId, String(first_name ?? '').trim(), String(last_name ?? '').trim(), program_id, year_level, section, enrolledYear]
     );
 
     let finalParentId = null;
@@ -20035,7 +20036,7 @@ app.post('/api/students/manageStudentAccounts', async (req, res) => {
     if (finalParentId) {
       await connection.query(
         `INSERT INTO parent_student_mapping (parent_id, student_id) VALUES (?, ?)`,
-        [finalParentId, student_id]
+        [finalParentId, String(student_id ?? '').trim()]
       );
     }
 
@@ -20083,10 +20084,10 @@ app.post('/api/students/import/manageStudentAccounts', async (req, res) => {
       await connection.query(
         `INSERT INTO students (student_id, user_id, first_name, last_name, program_id, year_level, section, school_year) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          item.student_id,
+          String(item.student_id).trim(),
           studentUserId,
-          item.first_name,
-          item.last_name,
+          String(item.first_name).trim(),
+          String(item.last_name).trim(),
           item.program_id || default_program_id || null,
           item.year_level || '1',
           item.section || '',
@@ -20182,7 +20183,7 @@ app.put('/api/students/:student_id/manageStudentAccounts', async (req, res) => {
     }
     await connection.query(
       `UPDATE students SET first_name = ?, last_name = ?, program_id = ?, year_level = ?, section = ?${newYear ? ', school_year = ?' : ''}${statusSql} WHERE student_id = ?`,
-      [first_name, last_name, program_id, year_level, section, ...(newYear ? [newYear] : []), ...statusParams, student_id]
+      [String(first_name ?? '').trim(), String(last_name ?? '').trim(), program_id, year_level, section, ...(newYear ? [newYear] : []), ...statusParams, student_id]
     );
 
     const formattedStudentUsername = formatUsername(username);

@@ -1,325 +1,690 @@
-/* --- Global Form Container ---
-   Every selector below is scoped under .form-container so these rules
-   cannot leak onto unrelated pages (CRA bundles all page CSS globally;
-   bare element selectors like `button`/`label`/`select` previously
-   applied app-wide and hijacked buttons/labels on other pages/roles). */
-.form-container {
-    background-color: var(--bg-card);
-    max-width: 650px;
-    margin: 40px auto;
-    padding: 40px;
-    border-radius: 12px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05); /* Soft drop shadow like the login card */
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+/* Student Health History Form.
+   Layout: blue title band, steps beside the form on desktop (stacked below 64rem),
+   one card per step, health conditions as selectable cards with their own fields,
+   sticky action bar. Every selector is prefixed `hh-` so nothing leaks onto other
+   pages (CRA bundles all page CSS globally). Colors and font come from theme.css. */
+
+.hh-page {
+    min-height: 100vh;
+    background-color: var(--bg-page);
     color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    line-height: 1.5;
 }
 
-/* --- Typography --- */
-.form-container h2 {
-    text-align: center;
-    color: var(--text-primary);
+.hh-page *,
+.hh-page *::before,
+.hh-page *::after {
+    box-sizing: border-box;
+}
+
+.hh-page h1,
+.hh-page h2,
+.hh-page h3 {
+    margin: 0;
+    text-wrap: balance;
+}
+
+.hh-ic {
+    width: 1.25rem;
+    height: 1.25rem;
+    flex: none;
+}
+
+.hh-wrap {
+    max-width: 80rem;
+    margin-inline: auto;
+    padding-inline: 1rem;
+}
+
+/* --- Title band --- */
+.hh-hero {
+    background-color: var(--sti-blue-dark);
+    color: var(--text-on-brand);
+    border-bottom: 0.25rem solid var(--sti-yellow);
+}
+
+.hh-hero .hh-wrap {
+    padding-block: 1.5rem;
+}
+
+.hh-hero h1 {
     font-size: 1.75rem;
     font-weight: 700;
-    margin-top: 0;
-    margin-bottom: 24px;
+    line-height: 1.25;
 }
 
-.form-container .form-section h3 {
-    color: var(--text-brand); /* STI Baliuag Blue */
-    font-size: 14px;
-    text-transform: uppercase;
-    letter-spacing: 1.5px;
-    font-weight: 700;
-    margin-bottom: 24px;
-    border-bottom: 2px solid var(--card-border);
-    padding-bottom: 10px;
+/* --- Page layout --- */
+.hh-layout {
+    padding-block: 1.5rem 2rem;
 }
 
-/* --- Input Fields (Text, Number, Date) --- */
-.form-container label {
-    display: block;
-    margin-bottom: 6px;
-    font-weight: 500;
-    color: var(--text-secondary);
-    font-size: 0.875rem;
+.hh-side {
+    margin-bottom: 1rem;
 }
 
-.form-container input[type="text"],
-.form-container input[type="number"],
-.form-container input[type="date"] {
-    width: 100%;
-    padding: 14px 16px;
-    margin-bottom: 20px;
-    border: 1px solid var(--card-border);
-    border-radius: 8px; /* Rounded corners like the login inputs */
-    font-size: 15px;
-    box-sizing: border-box;
-    background-color: var(--bg-card);
-    color: var(--text-primary);
-    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+.hh-main {
+    min-width: 0;
 }
 
-.form-container input[type="text"]:focus,
-.form-container input[type="number"]:focus,
-.form-container input[type="date"]:focus {
-    outline: none;
-    border-color: #004e9a;
-    box-shadow: 0 0 0 3px rgba(0, 78, 154, 0.1); /* Subtle blue glow on focus */
+@media (min-width: 64rem) {
+    .hh-layout {
+        display: grid;
+        grid-template-columns: 17rem minmax(0, 1fr);
+        gap: 2rem;
+        align-items: start;
+    }
+
+    .hh-side {
+        position: sticky;
+        top: 1.5rem;
+        margin-bottom: 0;
+    }
+
+    .hh-steps {
+        flex-direction: column;
+    }
+
+    .hh-steps .hh-step {
+        flex: none;
+    }
+
+    .hh-hero .hh-wrap {
+        padding-block: 2rem;
+    }
+
+    .hh-hero h1 {
+        font-size: 2rem;
+    }
+
+    .hh-card {
+        padding: 2rem;
+    }
 }
 
-.form-container .form-select{
-    appearance: none;
-    -webkit-appearance: none;
-    -moz-appearance: none;
-
-    /* Right padding prevents text from running into the arrow */
-    padding-right: 40px;
-
-    /* Clean inline SVG chevron arrow */
-    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
-    background-repeat: no-repeat;
-    background-position: right 16px center; /* Aligns the arrow perfectly on the right */
-    background-size: 16px;
-    cursor: pointer;
-}
-
-.form-container select{
-    width: 100%;
-    padding: 14px 16px;
-    margin-bottom: 20px;
-    border: 1px solid var(--card-border);
-    border-radius: 8px; /* Rounded corners like the login inputs */
-    font-size: 15px;
-    box-sizing: border-box;
-    background-color: var(--bg-card);
-    color: var(--text-primary);
-    transition: border-color 0.2s ease, box-shadow 0.2s ease;
-}
-
-.form-container select:focus{
-    outline: none;
-    border-color: #004e9a;
-    box-shadow: 0 0 0 3px rgba(0, 78, 154, 0.1); /* Subtle blue glow on focus */
-}
-
-/* --- Buttons --- */
-.form-container button {
-    background-color: #004e9a; /* STI Baliuag Blue */
-    color: #ffffff;
-    border: none;
-    border-radius: 8px;
-    padding: 14px 24px;
-    font-size: 1rem;
-    font-weight: 600;
-    cursor: pointer;
-    width: 100%; /* Full width to match the login button */
-    margin-top: 10px;
-    margin-bottom: 10px;
-    transition: background-color 0.2s ease;
-}
-
-.form-container button:hover {
-    background-color: #003d7a; /* Darker shade on hover */
-}
-
-/* If buttons are stacked next to each other, give them some space */
-.form-container button + button {
-    margin-top: 10px;
-}
-
-/* Optional: Make the "Back" button look slightly different (secondary style) */
-.form-container button:not(.btn-primary):not(.modal-btn):first-of-type {
-    background-color: var(--bg-subtle);
-    color: var(--text-primary);
-}
-
-.form-container button:not(.btn-primary):not(.modal-btn):first-of-type:hover {
-    background-color: var(--bg-muted);
-}
-
-.form-container button.btn-primary {
-    background-color: #004e9a;
-    color: #ffffff;
-}
-
-/* --- Health Section Specifics --- */
-.form-container .health-block {
-    background-color: var(--bg-subtle); /* Light gray box to separate health conditions */
-    padding: 16px 20px;
-    border-radius: 8px;
-    border: 1px solid var(--card-border);
-    margin-bottom: 16px;
-}
-
-.form-container .health-block > label {
+/* --- Step indicator --- */
+.hh-steps {
+    list-style: none;
     display: flex;
-    align-items: center;
-    font-weight: 600;
-    font-size: 0.9375rem;
-    color: var(--text-primary);
-    cursor: pointer;
-    margin-bottom: 0; /* Reset margin for inline checkboxes */
-}
-
-.form-container input[type="checkbox"] {
-    margin-right: 12px;
-    width: 18px;
-    height: 18px;
-    cursor: pointer;
-    accent-color: #004e9a; /* Colors the checkbox to match theme */
-}
-
-.form-container .sub-fields {
-    margin-top: 16px;
-    padding-left: 30px; /* Indent sub-fields for hierarchy */
-    border-top: 1px dashed #d1d5db;
-    padding-top: 16px;
-}
-
-.form-container .sub-fields label {
-    font-weight: 500;
-    margin-bottom: 4px;
-}
-
-.form-container .sub-fields h4 {
-    margin: 16px 0 10px 0;
-    font-size: 0.875rem;
-    color: var(--text-secondary);
-    font-weight: 600;
-}
-
-.form-container .sub-fields label:has(input[type="checkbox"]) {
-    display: flex;
-    align-items: center;
-    font-weight: normal;
-    margin-bottom: 10px;
-}
-
-/* --- Modal Styles --- */
-.form-container .modal-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background-color: rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-    animation: fadeIn 0.2s ease-out;
-}
-
-.form-container .modal-card {
-    background: var(--bg-card);
-    border-radius: 12px;
-    width: 90%;
-    max-width: 440px;
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
-    overflow: hidden;
-    animation: slideUp 0.25s ease-out;
-}
-
-.form-container .modal-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 16px 20px;
-    border-bottom: 1px solid var(--card-border);
-}
-
-.form-container .modal-header h3 {
-    margin: 0;
-    font-size: 1.125rem;
-    font-weight: 700;
-    letter-spacing: 0;
-    border-bottom: none;
-    padding-bottom: 0;
-    color: var(--text-primary);
-}
-
-.form-container .modal-error .modal-header h3 {
-    color: var(--status-critical-text);
-}
-
-.form-container .modal-success .modal-header h3 {
-    color: var(--status-adequate-text);
-}
-
-.form-container .modal-confirm .modal-header h3 {
-    color: var(--text-brand);
-}
-
-.form-container .modal-close-btn {
-    background: transparent;
-    border: none;
-    font-size: 1.5rem;
-    color: var(--text-secondary);
-    cursor: pointer;
-    line-height: 1;
-    width: auto;
+    gap: 0.75rem;
     margin: 0;
     padding: 0;
 }
 
-.form-container .modal-close-btn:hover {
+.hh-step {
+    flex: 1;
+    min-width: 0;
+}
+
+.hh-step button {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    width: 100%;
+    min-height: 2.75rem;
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+    cursor: pointer;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border: 1px solid var(--card-border);
+    border-radius: 0.75rem;
+    font: inherit;
+    font-weight: 600;
+}
+
+.hh-num {
+    flex: none;
+    width: 2rem;
+    height: 2rem;
+    display: grid;
+    place-items: center;
+    border: 2px solid var(--input-border);
+    border-radius: 50%;
+    font-size: 0.875rem;
+    font-weight: 700;
+}
+
+.hh-num .hh-ic {
+    width: 1rem;
+    height: 1rem;
+}
+
+.hh-step.is-current button {
+    background: var(--sti-blue-light);
+    border-color: var(--sti-blue-primary);
+}
+
+.hh-step.is-current .hh-num,
+.hh-step.is-done .hh-num {
+    background: var(--sti-blue-primary);
+    border-color: var(--sti-blue-primary);
+    color: var(--text-on-brand);
+}
+
+/* --- Cards and fields --- */
+.hh-card {
+    background: var(--bg-card);
+    border: 1px solid var(--card-border);
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+}
+
+.hh-card > h2 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    line-height: 1.4;
+    margin-bottom: 1.25rem;
+}
+
+.hh-sec-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+    margin-bottom: 1.25rem;
+}
+
+.hh-sec-head h2 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    line-height: 1.4;
+}
+
+.hh-hint {
+    font-size: 0.875rem;
+    font-weight: 400;
+    color: var(--text-secondary);
+}
+
+.hh-count {
+    margin: 0;
+    padding: 0.25rem 0.75rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    background: var(--sti-blue-light);
+    color: var(--text-brand);
+    border-radius: 999px;
+}
+
+.hh-grid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 1.25rem 1rem;
+}
+
+.hh-grid > * {
+    grid-column: span 12;
+    min-width: 0;
+}
+
+@media (min-width: 40rem) {
+    .hh-grid > .hh-s2 {
+        grid-column: span 4;
+    }
+
+    .hh-grid > .hh-s3 {
+        grid-column: span 6;
+    }
+}
+
+.hh-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+}
+
+.hh-lbl {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    overflow-wrap: anywhere;
+}
+
+/* Red asterisk on every required label / group legend */
+.hh-field.is-req > .hh-lbl::after,
+.hh-group.is-req > legend::after {
+    content: " *";
+    color: var(--status-critical-text);
+}
+
+.hh-chips-wrap.is-req > .hh-chips::after {
+    content: "*";
+    align-self: center;
+    color: var(--status-critical-text);
+    font-weight: 600;
+}
+
+.hh-page input[type="text"],
+.hh-page input[type="number"],
+.hh-page input[type="date"],
+.hh-page select {
+    width: 100%;
+    min-height: 2.75rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border: 1px solid var(--input-border);
+    border-radius: 0.5rem;
+    font: inherit;
+}
+
+.hh-page input[readonly] {
+    background: var(--bg-subtle);
+}
+
+.hh-page input::placeholder {
+    color: var(--text-secondary);
+    opacity: 1;
+}
+
+.hh-page [aria-invalid="true"] {
+    border-color: var(--status-critical-text);
+    box-shadow: 0 0 0 0.125rem var(--status-critical-text);
+}
+
+.hh-page input[type="checkbox"][aria-invalid="true"] {
+    box-shadow: none;
+}
+
+.hh-page button:focus-visible,
+.hh-page input:focus-visible,
+.hh-page select:focus-visible {
+    outline: 0.1875rem solid var(--focus-ring);
+    outline-offset: 0.125rem;
+}
+
+/* --- Buttons --- */
+.hh-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+    min-width: 2.75rem;
+    padding: 0 1.25rem;
+    border: 1px solid transparent;
+    border-radius: 0.5rem;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.hh-btn-primary {
+    background: var(--btn-primary-bg);
+    color: var(--text-on-brand);
+}
+
+.hh-btn-primary:hover {
+    background: var(--sti-blue-hover);
+}
+
+.hh-btn-secondary {
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border-color: var(--input-border);
+}
+
+.hh-btn-secondary:hover {
+    background: var(--bg-subtle);
+}
+
+.hh-btn-icon {
+    padding: 0;
+    width: 2.75rem;
     background: transparent;
     color: var(--text-primary);
 }
 
-.form-container .modal-body {
-    padding: 20px;
-    font-size: 0.9375rem;
-    color: var(--text-secondary);
-    line-height: 1.5;
+.hh-btn-icon:hover {
+    background: var(--bg-subtle);
 }
 
-.form-container .modal-body p {
-    margin: 0;
-}
-
-.form-container .modal-footer {
+.hh-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
     display: flex;
-    justify-content: flex-end;
-    gap: 10px;
-    padding: 12px 20px;
-    background-color: var(--bg-subtle);
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+    padding: 0.75rem 0;
+    background: var(--bg-page);
     border-top: 1px solid var(--card-border);
 }
 
-.form-container .modal-btn {
-    width: auto;
-    padding: 10px 18px;
-    font-size: 0.875rem;
-    font-weight: 600;
-    border-radius: 6px;
-    margin: 0;
+.hh-actions.is-end {
+    justify-content: flex-end;
 }
 
-.form-container .modal-btn-secondary {
-    background-color: var(--bg-muted);
+/* --- Health conditions --- */
+.hh-conds {
+    display: grid;
+    gap: 0.75rem;
+    align-items: start;
+}
+
+@media (min-width: 64rem) {
+    .hh-conds {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1rem;
+    }
+}
+
+.hh-cond {
+    background: var(--bg-card);
+    border: 1px solid var(--card-border);
+    border-radius: 0.75rem;
+    overflow: hidden;
+    min-width: 0;
+}
+
+.hh-cond.is-checked {
+    border-color: var(--sti-blue-primary);
+}
+
+.hh-cond.is-checked .hh-cond-head {
+    background: var(--sti-blue-light);
+}
+
+.hh-cond-head {
+    display: flex;
+    align-items: stretch;
+    min-height: 3.5rem;
+}
+
+.hh-cond-check {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 3.5rem;
+    cursor: pointer;
+}
+
+.hh-cond-check input {
+    width: 1.375rem;
+    height: 1.375rem;
+    margin: 0;
+    accent-color: var(--sti-blue-primary);
+    cursor: pointer;
+}
+
+.hh-cond-btn {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    min-height: 2.75rem;
+    padding: 0.5rem 1rem 0.5rem 0;
+    text-align: left;
+    cursor: pointer;
+    background: transparent;
+    color: var(--text-primary);
+    border: 0;
+    border-radius: 0;
+    font: inherit;
+    font-weight: 600;
+}
+
+.hh-chev {
     color: var(--text-secondary);
 }
 
-.form-container .modal-btn-secondary:hover {
-    background-color: var(--bg-muted);
+.hh-cond.is-open .hh-chev {
+    transform: rotate(180deg);
+    color: var(--text-brand);
 }
 
-.form-container .modal-btn-primary {
-    background-color: #004e9a;
-    color: #ffffff;
+.hh-panel {
+    border-top: 1px solid var(--card-border);
 }
 
-.form-container .modal-btn-primary:hover {
-    background-color: #003d7a;
+.hh-fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+    gap: 1rem;
+    margin: 0;
+    padding: 1rem;
+    border: 0;
+    min-width: 0;
 }
 
-@keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
+.hh-fields:disabled {
+    opacity: 0.55;
 }
 
-@keyframes slideUp {
-    from { transform: translateY(20px); opacity: 0; }
-    to { transform: translateY(0); opacity: 1; }
+.hh-fields:disabled * {
+    cursor: not-allowed;
+}
+
+.hh-span-all {
+    grid-column: 1 / -1;
+}
+
+.hh-group {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+}
+
+.hh-group legend {
+    padding: 0;
+    margin-bottom: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.hh-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.hh-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+    padding: 0 1rem 0 0.75rem;
+    cursor: pointer;
+    background: var(--bg-card);
+    border: 1px solid var(--input-border);
+    border-radius: 999px;
+}
+
+.hh-chip input {
+    width: 1.125rem;
+    height: 1.125rem;
+    margin: 0;
+    accent-color: var(--sti-blue-primary);
+    cursor: pointer;
+}
+
+.hh-chip:has(input:checked) {
+    background: var(--sti-blue-light);
+    border-color: var(--sti-blue-primary);
+    font-weight: 600;
+}
+
+.hh-chip:has(input[aria-invalid="true"]) {
+    border-color: var(--status-critical-text);
+    box-shadow: 0 0 0 0.125rem var(--status-critical-text);
+}
+
+/* --- Proof upload --- */
+.hh-proof {
+    padding: 0.75rem;
+    background: var(--bg-subtle);
+    border: 1px dashed var(--input-border);
+    border-radius: 0.5rem;
+}
+
+.hh-page input.hh-file {
+    display: block;
+    width: 100%;
+    min-height: 2.75rem;
+    margin-top: 0.25rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    color: var(--text-primary);
+}
+
+.hh-file::file-selector-button {
+    min-height: 2.75rem;
+    margin-right: 0.75rem;
+    padding: 0 1rem;
+    cursor: pointer;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border: 1px solid var(--input-border);
+    border-radius: 0.5rem;
+    font: inherit;
+    font-weight: 600;
+}
+
+.hh-proof-card {
+    margin-top: 0.75rem;
+    padding: 0.75rem;
+    background: var(--bg-card);
+    border: 1px solid var(--card-border);
+    border-radius: 0.5rem;
+}
+
+.hh-proof-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+}
+
+.hh-proof-name {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.hh-proof-card img {
+    display: block;
+    max-width: 100%;
+    max-height: 13.75rem;
+    margin-top: 0.75rem;
+    object-fit: contain;
+    border-radius: 0.375rem;
+}
+
+/* --- Modal --- */
+.hh-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: grid;
+    place-items: center;
+    padding: 1rem;
+    background: var(--scrim);
+}
+
+.hh-modal {
+    width: 100%;
+    max-width: 26rem;
+    background: var(--modal-panel-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--modal-border);
+    border-radius: 0.75rem;
+    box-shadow: 0 1.5rem 3rem rgba(0, 0, 0, 0.3);
+}
+
+.hh-modal-head {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1rem 1rem 0 1.25rem;
+}
+
+.hh-modal-head h3 {
+    flex: 1;
+    font-size: 1.125rem;
+    font-weight: 700;
+}
+
+.hh-modal-ico {
+    flex: none;
+    width: 2.25rem;
+    height: 2.25rem;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+}
+
+.hh-modal-ico.is-confirm {
+    background: var(--sti-blue-light);
+    color: var(--text-brand);
+}
+
+.hh-modal-ico.is-success {
+    background: var(--status-adequate-bg);
+    color: var(--status-adequate-text);
+}
+
+.hh-modal-ico.is-error {
+    background: var(--status-critical-bg);
+    color: var(--status-critical-text);
+}
+
+.hh-modal-body {
+    padding: 0.75rem 1.25rem 1.25rem;
+}
+
+.hh-modal-body p {
+    margin: 0;
+}
+
+.hh-modal-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    padding: 0 1.25rem 1.25rem;
+}
+
+@media (max-width: 36rem) {
+    .hh-hero h1 {
+        font-size: 1.5rem;
+    }
+
+    .hh-card {
+        padding: 1rem;
+    }
+
+    .hh-steps {
+        gap: 0.5rem;
+    }
+
+    .hh-step button {
+        padding: 0.5rem;
+        gap: 0.5rem;
+        font-size: 0.875rem;
+    }
+
+    .hh-modal-foot .hh-btn {
+        flex: 1;
+    }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .hh-chev,
+    .hh-btn,
+    .hh-cond,
+    .hh-chip {
+        transition: transform 0.2s ease, background-color 0.15s ease, border-color 0.15s ease;
+    }
 }
