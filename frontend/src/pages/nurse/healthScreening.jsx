@@ -5,7 +5,7 @@ import {
   Calendar, Clock, Users, Eye, Activity, Smile, HeartPulse, Ear, 
   X, CheckCircle, Edit3, Trash2, FileText, ArrowLeft, ArrowRight, Megaphone, Printer,
   Play, UserRoundPlus, Download, Search, ClipboardList, BellRing, History, LogIn, FolderPlus,
-  Plus, RotateCcw, CalendarDays, Folder, AlertTriangle, Lock, Scale, Upload, Layers
+  Plus, RotateCcw, CalendarDays, Folder, AlertTriangle, Lock, Scale, Upload, Layers, Archive, ArchiveRestore
 } from 'lucide-react';
 
 import { openReportWindow, writeReport, escapeHtml } from '../../utils/printReport';
@@ -37,17 +37,22 @@ const hasResult = (st) => !!(st.bmi_log_id || st.custom_record_id || st.vital_re
 
 // Two-dot step bar for the schedule form (replaces "Step 1 of 2" in the title)
 const StepDots = ({ step }) => (
-  <span className="steps-hs" role="img" aria-label={`Step ${step} of 2`}>
-    <i className={step === 1 ? 'on-hs' : ''} />
-    <i className={step === 2 ? 'on-hs' : ''} />
-  </span>
+  <ol className="pk-steps-hs" aria-label={`Step ${step} of 2`}>
+    <li className={step === 1 ? 'cur-hs' : 'done-hs'} aria-current={step === 1 ? 'step' : undefined}>
+      <span className="pk-step-n-hs">{step > 1 ? <CheckCircle size={16} aria-label="Done" role="img" /> : '1'}</span>Details
+    </li>
+    <li className="pk-step-line-hs" aria-hidden="true" />
+    <li className={step === 2 ? 'cur-hs' : ''} aria-current={step === 2 ? 'step' : undefined}>
+      <span className="pk-step-n-hs">2</span>Students
+    </li>
+  </ol>
 );
 
 // Cosmetic icon of a screening type by name (the result form still comes from form_kind)
-const TYPE_NAME_ICONS = { 'Vital Signs': HeartPulse, BMI: Scale, Hearing: Ear };
+const TYPE_NAME_ICONS = { 'Vital Signs': HeartPulse, BMI: Scale, 'BMI & Vital Signs': Activity, Hearing: Ear };
 const typeIcon = (name, formKind) => TYPE_NAME_ICONS[name] || KIND_ICONS[formKind] || ClipboardList;
 
-const FOLDER_VARIANT_ICONS = { all: CalendarDays, custom: Layers };
+const FOLDER_VARIANT_ICONS = { all: CalendarDays, custom: Layers, archive: Archive };
 const PHASE_META = { upcoming: [Calendar, 'Upcoming', 'chip-info-hs'], ongoing: [Clock, 'Ongoing', 'chip-ok-hs'], past: [CheckCircle, 'Past', ''] };
 
 // Folder cards: icon tile, name, one line below, then the pill of the open status tab (upcoming / ongoing / past) with icon + number.
@@ -81,6 +86,18 @@ const ScreeningFolders = ({ items, phase }) => {
       })}
     </div>
   );
+};
+
+// "2 h 30 min" between two HH:MM times, '' when the range is not valid yet
+const durationText = (start, end) => {
+  if (!start || !end) return '';
+  const [sh, sm] = String(start).split(':').map(Number);
+  const [eh, em] = String(end).split(':').map(Number);
+  const mins = (eh * 60 + em) - (sh * 60 + sm);
+  if (!Number.isFinite(mins) || mins <= 0) return '';
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `${h ? `${h} h` : ''}${h && m ? ' ' : ''}${m ? `${m} min` : ''}`;
 };
 
 // Red asterisk after the label of a required field (the input itself carries `required`)
@@ -159,7 +176,7 @@ const buildScreeningParams = (q) => {
 
 const SCREENINGS_PER_PAGE = 12;
 const PARTICIPANTS_PER_PAGE = 15;
-const PICKER_PER_PAGE = 10;
+const PICKER_PER_PAGE = 40;
 
 
 
@@ -284,6 +301,7 @@ export default function HealthScreening() {
   const [calendarSchedules, setCalendarSchedules] = useState([]);
   const [calendarLoading, setCalendarLoading] = useState(true);
   const [pickerSearch, setPickerSearch] = useState('');
+  const [pickerShow, setPickerShow] = useState('all'); // by-section roster filter: 'all' | 'added' | 'left'
   const [screeningTypes, setScreeningTypes] = useState([]);
   const [typesLoading, setTypesLoading] = useState(true);
   const [typesError, setTypesError] = useState('');
@@ -792,7 +810,12 @@ export default function HealthScreening() {
     (!scheduleForm.target_section || st.section === scheduleForm.target_section) &&
     (!pickerQuery || `${st.first_name || ''} ${st.last_name || ''} ${st.student_id || ''}`.toLowerCase().includes(pickerQuery))
   );
-  const pickerPageData = paginate(visibleStudents, pickerPage, PICKER_PER_PAGE);
+  const addedInView = visibleStudents.filter(st => selectedStudentIds.includes(st.student_id)).length;
+  // by section only: show everyone, who is added or who is left out (a mixed group has the tray instead)
+  const listedStudents = (!isCustomGrouping && pickerShow !== 'all')
+    ? visibleStudents.filter(st => (pickerShow === 'added') === selectedStudentIds.includes(st.student_id))
+    : visibleStudents;
+  const pickerPageData = paginate(listedStudents, pickerPage, PICKER_PER_PAGE);
   const pickedStudents = selectedStudentIds.map(id => studentCache[id]).filter(Boolean);
 
   useEffect(() => {
@@ -801,7 +824,43 @@ export default function HealthScreening() {
     }
   }, [showStudentSelectModal, handleFilterStudents]);
 
-  useEffect(() => { setPickerPage(1); }, [scheduleForm.target_program_id, scheduleForm.target_year_level, scheduleForm.target_section, pickerSearch]);
+  useEffect(() => { if (showStudentSelectModal) setPickerShow('all'); }, [showStudentSelectModal]);
+
+  // existing custom folder: the screening starts with the people of the folder's latest screening; the nurse adds or removes for this one only
+  const [folderSource, setFolderSource] = useState(null); // { title, scheduled_date } of the screening the list came from
+  const prefilledFolderRef = useRef('');
+  useEffect(() => {
+    if (!showStudentSelectModal) return;
+    const fid = scheduleForm.folder_id;
+    if (!(isCustomGrouping && scheduleForm.folder_mode === 'existing' && fid && fid !== 'new')) {
+      prefilledFolderRef.current = '';
+      setFolderSource(null);
+      return;
+    }
+    if (prefilledFolderRef.current === String(fid)) return;
+    prefilledFolderRef.current = String(fid);
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/screening-folders/${fid}/members`);
+        const data = await res.json();
+        if (cancelled || !res.ok || !Array.isArray(data.students)) return;
+        setStudentCache(prev => {
+          const next = { ...prev };
+          data.students.forEach(st => { next[st.student_id] = st; });
+          return next;
+        });
+        setSelectedStudentIds(data.students.map(st => st.student_id));
+        setFolderSource(data.source);
+      } catch (err) {
+        console.error('Error loading the folder members:', err);
+        prefilledFolderRef.current = '';
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [showStudentSelectModal, scheduleForm.folder_id, scheduleForm.folder_mode, isCustomGrouping]);
+
+  useEffect(() => { setPickerPage(1); }, [scheduleForm.target_program_id, scheduleForm.target_year_level, scheduleForm.target_section, pickerSearch, pickerShow]);
 
   const handleNextToStudents = (e) => {
     e.preventDefault();
@@ -846,16 +905,16 @@ export default function HealthScreening() {
 
   const handleSelectAllFiltered = (e) => {
     if (e.target.checked) {
-      const filteredIds = visibleStudents.map(st => st.student_id);
+      const filteredIds = listedStudents.map(st => st.student_id);
       setSelectedStudentIds(prev => Array.from(new Set([...prev, ...filteredIds])));
     } else {
-      const filteredSet = new Set(visibleStudents.map(st => st.student_id));
+      const filteredSet = new Set(listedStudents.map(st => st.student_id));
       setSelectedStudentIds(prev => prev.filter(id => !filteredSet.has(id)));
     }
   };
 
-  const areAllFilteredSelected = visibleStudents.length > 0 &&
-    visibleStudents.every(st => selectedStudentIds.includes(st.student_id));
+  const areAllFilteredSelected = listedStudents.length > 0 &&
+    listedStudents.every(st => selectedStudentIds.includes(st.student_id));
 
   const handleCreateSchedule = async (e) => {
     e.preventDefault();
@@ -1453,6 +1512,7 @@ export default function HealthScreening() {
     });
     setSelectedStudentIds([]);
     setPickerSearch('');
+    prefilledFolderRef.current = '';
   };
 
   // "New screening in this folder" (Past tab of an open folder): the form opens with that folder chosen
@@ -1470,12 +1530,21 @@ export default function HealthScreening() {
   // existing folder or a new one; the options of an existing folder match the kind (by section / custom)
   const changeFolderMode = (mode) => {
     if (mode === scheduleForm.folder_mode) return;
+    prefilledFolderRef.current = '';
     setSelectedStudentIds([]);
     setPickerSearch('');
-    setScheduleForm(prev => ({
-      ...prev, folder_mode: mode, section_key: '', target_program_id: '', target_year_level: '', target_section: '',
-      folder_id: prev.grouping === 'CUSTOM' && mode === 'new' ? 'new' : '', folder_name: ''
-    }));
+    setScheduleForm(prev => {
+      // an existing folder needs a group that has folders: fall back to the other group when this one is empty
+      let grouping = prev.grouping;
+      if (mode === 'existing') {
+        if (grouping === 'CUSTOM' && customFolderList.length === 0) grouping = 'SECTION';
+        else if (grouping === 'SECTION' && sectionFolders.length === 0) grouping = 'CUSTOM';
+      }
+      return {
+        ...prev, grouping, folder_mode: mode, section_key: '', target_program_id: '', target_year_level: '', target_section: '',
+        folder_id: grouping === 'CUSTOM' && mode === 'new' ? 'new' : '', folder_name: ''
+      };
+    });
   };
 
   const pickSectionFolder = (key) => {
@@ -1516,13 +1585,71 @@ export default function HealthScreening() {
   // switching between by-section and custom starts the student picks again (the class rule differs)
   const changeGrouping = (grouping) => {
     if (grouping === scheduleForm.grouping) return;
-    const mode = (grouping === 'CUSTOM' ? customFolderList.length : sectionFolders.length) ? 'existing' : 'new';
+    // the folder choice (existing / new) is made first and kept; it only falls back to new when this group has no folder
+    const hasFolders = (grouping === 'CUSTOM' ? customFolderList.length : sectionFolders.length) > 0;
+    const mode = scheduleForm.folder_mode === 'existing' && hasFolders ? 'existing' : 'new';
+    prefilledFolderRef.current = '';
     setSelectedStudentIds([]);
     setPickerSearch('');
     setScheduleForm(prev => ({
       ...prev, grouping, folder_mode: mode, section_key: '', target_program_id: '', target_year_level: '', target_section: '',
       folder_id: grouping === 'CUSTOM' && mode === 'new' ? 'new' : '', folder_name: ''
     }));
+  };
+
+  // archive / restore / delete for good (custom folders)
+  const folderRequest = async (url, options, okMessage, okTitle) => {
+    try {
+      const res = await fetch(url, options);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showAlert(data.error || 'The folder could not be changed.', 'Error', 'error');
+        return false;
+      }
+      await fetchFolders();
+      showAlert(okMessage, okTitle, 'success');
+      return true;
+    } catch (err) {
+      showAlert('The folder could not be changed.', 'Error', 'error');
+      return false;
+    }
+  };
+
+  const handleArchiveFolder = () => {
+    showConfirm(
+      `Archive the folder "${view.folder_name}"? You can restore it later.`,
+      async () => {
+        const ok = await folderRequest(
+          `${API_BASE}/screening-folders/${view.folder_id}/archive`,
+          { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sender_id: userId }) },
+          'Folder archived.', 'Archived'
+        );
+        if (ok) goRoot();
+      },
+      'Archive folder', 'Archive'
+    );
+  };
+
+  const handleRestoreFolder = (f) => {
+    folderRequest(
+      `${API_BASE}/screening-folders/${f.folder_id}/restore`,
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sender_id: userId }) },
+      'Folder restored.', 'Restored'
+    );
+  };
+
+  const handleDeleteArchivedFolder = (f) => {
+    showConfirm(
+      f.schedule_count > 0
+        ? `Delete "${f.name}" for good? Its ${f.schedule_count} screening${f.schedule_count === 1 ? '' : 's'}, participants and results are removed. This cannot be undone.`
+        : `Delete "${f.name}" for good? This cannot be undone.`,
+      () => folderRequest(
+        `${API_BASE}/screening-folders/${f.folder_id}?sender_id=${encodeURIComponent(userId || '')}`,
+        { method: 'DELETE' },
+        'Folder deleted.', 'Deleted'
+      ),
+      'Delete folder', 'Delete'
+    );
   };
 
   const handleDeleteFolder = () => {
@@ -1662,6 +1789,11 @@ export default function HealthScreening() {
         <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={handleExportAllReport} aria-label="Export folder report (PDF)" title="Export folder report (PDF)">
           <Printer size={18} aria-hidden="true" />
         </button>
+        {view.kind === 'custom' && (
+          <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={handleArchiveFolder} aria-label="Archive folder" title="Archive folder">
+            <Archive size={18} aria-hidden="true" />
+          </button>
+        )}
       </div>
     </aside>
   ) : null;
@@ -1701,7 +1833,8 @@ export default function HealthScreening() {
           ['screenings', Folder, 'Screenings'],
           ['calendar', CalendarDays, 'Calendar'],
           ['types', ClipboardList, 'Types'],
-          ['templates', FileText, 'Templates']
+          ['templates', FileText, 'Templates'],
+          ['archive', Archive, 'Archive']
         ].map(([key, Icon, label]) => (
           <button
             key={key}
@@ -1712,6 +1845,9 @@ export default function HealthScreening() {
             onClick={() => setMainView(key)}
           >
             <Icon size={16} aria-hidden="true" /> {label}
+            {key === 'archive' && (folders.archived_folders || []).length > 0 && (
+              <span className="phase-n-hs">{(folders.archived_folders || []).length}</span>
+            )}
           </button>
         ))}
       </div>
@@ -1742,6 +1878,7 @@ export default function HealthScreening() {
       {mainView === 'templates' && (
         <ScreeningTemplatesManager
           templates={templates}
+          types={screeningTypes}
           loading={templatesLoading}
           loadError={templatesError}
           senderId={userId}
@@ -1803,6 +1940,30 @@ export default function HealthScreening() {
 
       {mainView === 'screenings' && view.kind === 'section' && !searching && classTab === 'students' && (
         <SectionStudents apiBase={API_BASE} view={view} onOpenRecords={openStudentRecords} />
+      )}
+
+      {mainView === 'archive' && (folders.archived_folders || []).length === 0 && (
+        <div className="no-records-hs"><Archive size={28} aria-hidden="true" /><p>None</p></div>
+      )}
+
+      {mainView === 'archive' && (folders.archived_folders || []).length > 0 && (
+        <div className="pk-arch-list-hs">
+          {(folders.archived_folders || []).map(f => (
+            <div key={f.folder_id} className="pk-arch-row-hs">
+              <span className="fld-ico-hs fld-ico-custom-hs"><Layers size={20} aria-hidden="true" /></span>
+              <span className="pk-name-hs">
+                <span className="pk-name-main-hs">{f.name}</span>
+                <span className="pk-id-hs">{f.schedule_count} screening{f.schedule_count === 1 ? '' : 's'} &middot; {formatDate(f.archived_at)}</span>
+              </span>
+              <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => handleRestoreFolder(f)} aria-label={`Restore ${f.name}`} title="Restore">
+                <ArchiveRestore size={18} aria-hidden="true" />
+              </button>
+              <button type="button" className="btn-hs btn-icon-hs btn-danger-hs" onClick={() => handleDeleteArchivedFolder(f)} aria-label={`Delete ${f.name} permanently`} title="Delete permanently">
+                <Trash2 size={18} aria-hidden="true" />
+              </button>
+            </div>
+          ))}
+        </div>
       )}
 
       {mainView === 'screenings' && !listMode && (
@@ -1995,138 +2156,166 @@ export default function HealthScreening() {
       {/* MODAL 1: Schedule Screening Details */}
       {showScheduleModal && (
         <HsDialog onClose={() => setShowScheduleModal(false)}>
-          <HsDialogHeader onClose={() => setShowScheduleModal(false)} sub={<StepDots step={1} />}>New screening</HsDialogHeader>
+          <HsDialogHeader onClose={() => setShowScheduleModal(false)} icon={Plus} center={<StepDots step={1} />}>New screening</HsDialogHeader>
           <form onSubmit={handleNextToStudents} className="modal-form-hs">
             <div className="modal-body-hs">
-              <div className="form-group-hs">
-                <label htmlFor="hs-fld-1">Title <Req /></label>
-                <input id="hs-fld-1" 
-                  type="text" 
-                  required 
-                  value={scheduleForm.title}
-                  onChange={e => setScheduleForm({...scheduleForm, title: e.target.value})}
-                  placeholder="Title"
-                />
+              <div className="pk-title-row-hs">
+                <div className="form-group-hs">
+                  <label htmlFor="hs-fld-1">Title <Req /></label>
+                  <input id="hs-fld-1"
+                    type="text"
+                    required
+                    value={scheduleForm.title}
+                    onChange={e => setScheduleForm({...scheduleForm, title: e.target.value})}
+                    placeholder="Title"
+                  />
+                </div>
+                <div className="form-group-hs">
+                  <label htmlFor="hs-fld-2">Type <Req /></label>
+                  <select id="hs-fld-2"
+                    value={scheduleForm.screening_type}
+                    required
+                    aria-describedby={typesError ? 'screening-type-help-hs' : undefined}
+                    onChange={e => setScheduleForm({...scheduleForm, screening_type: e.target.value})}
+                  >
+                    {activeTypes.length === 0 && <option value="">No active screening type</option>}
+                    {activeTypes.map(t => <option key={t.screening_type_id} value={t.name}>{t.name}</option>)}
+                  </select>
+                  {typesError && (
+                    <small id="screening-type-help-hs" className="hint-hs">
+                      {typesError}
+                    </small>
+                  )}
+                </div>
               </div>
 
-              <fieldset className="form-group-hs hs-group-fieldset">
-                <legend>Group</legend>
-                <div className="chips-hs">
-                  <button type="button" className="chip-btn-hs" aria-pressed={!isCustomGrouping} onClick={() => changeGrouping('SECTION')}>By section</button>
-                  <button type="button" className="chip-btn-hs" aria-pressed={isCustomGrouping} onClick={() => changeGrouping('CUSTOM')}>Custom folder</button>
-                </div>
-
-                <div className="hs-subfield">
-                  <span className="hs-legend-sm-hs">Folder</span>
-                  <div className="chips-hs" role="group" aria-label="Existing or new folder">
-                    <button
-                      type="button"
-                      className="chip-btn-hs"
-                      aria-pressed={scheduleForm.folder_mode === 'existing'}
-                      disabled={(isCustomGrouping ? customFolderList.length : sectionFolders.length) === 0}
-                      onClick={() => changeFolderMode('existing')}
-                    >
-                      <Folder size={15} aria-hidden="true" /> Existing folder
-                    </button>
-                    <button type="button" className="chip-btn-hs" aria-pressed={scheduleForm.folder_mode === 'new'} onClick={() => changeFolderMode('new')}>
-                      <FolderPlus size={15} aria-hidden="true" /> New folder
-                    </button>
-                  </div>
-
-                  {/* Existing: only the folders of the chosen kind (by section, or custom) */}
-                  {scheduleForm.folder_mode === 'existing' && isCustomGrouping && (
-                    <>
-                      <label htmlFor="hs-folder-pick">Custom folder</label>
-                      <select
-                        id="hs-folder-pick"
-                        required
-                        value={scheduleForm.folder_id}
-                        onChange={e => setScheduleForm({ ...scheduleForm, folder_id: e.target.value })}
-                      >
-                        <option value="">-- Select --</option>
-                        {customFolderList.map(f => <option key={f.folder_id} value={String(f.folder_id)}>{f.name}</option>)}
-                      </select>
-                    </>
-                  )}
-                  {scheduleForm.folder_mode === 'existing' && !isCustomGrouping && (
-                    <>
-                      <label htmlFor="hs-folder-pick">Section folder</label>
-                      <select
-                        id="hs-folder-pick"
-                        required
-                        value={scheduleForm.section_key}
-                        onChange={e => pickSectionFolder(e.target.value)}
-                      >
-                        <option value="">-- Select --</option>
-                        {sectionFolders.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
-                      </select>
-                    </>
-                  )}
-
-                  {/* New: a custom folder needs a name; a by-section folder is the class picked on the next step */}
-                  {scheduleForm.folder_mode === 'new' && isCustomGrouping && (
-                    <>
-                      <label htmlFor="hs-folder-name">Folder name</label>
-                      <input
-                        id="hs-folder-name"
-                        type="text"
-                        required
-                        maxLength={80}
-                        value={scheduleForm.folder_name}
-                        onChange={e => setScheduleForm({ ...scheduleForm, folder_id: 'new', folder_name: e.target.value })}
-                        placeholder="Name"
-                      />
-                    </>
-                  )}
+              {/* Who: one class (by section) or a mixed group (custom folder) */}
+              <fieldset className="pk-block-hs">
+                <legend>Who is it for?</legend>
+                <div className="pk-cards-hs">
+                  <label className="pk-card-hs">
+                    <input
+                      type="radio"
+                      name="hs-grouping"
+                      checked={!isCustomGrouping}
+                      disabled={scheduleForm.folder_mode === 'existing' && sectionFolders.length === 0}
+                      onChange={() => changeGrouping('SECTION')}
+                    />
+                    <span className="pk-card-text-hs">
+                      <span className="pk-card-title-hs"><Users size={18} aria-hidden="true" /> One class</span>
+                      <span className="pk-card-sub-hs">Program, year, section</span>
+                    </span>
+                  </label>
+                  <label className="pk-card-hs">
+                    <input
+                      type="radio"
+                      name="hs-grouping"
+                      checked={isCustomGrouping}
+                      disabled={scheduleForm.folder_mode === 'existing' && customFolderList.length === 0}
+                      onChange={() => changeGrouping('CUSTOM')}
+                    />
+                    <span className="pk-card-text-hs">
+                      <span className="pk-card-title-hs"><Layers size={18} aria-hidden="true" /> Mixed group</span>
+                      <span className="pk-card-sub-hs">Any students</span>
+                    </span>
+                  </label>
                 </div>
               </fieldset>
 
-              <div className="form-group-hs">
-                <label htmlFor="hs-fld-2">Type <Req /></label>
-                <select id="hs-fld-2"
-                  value={scheduleForm.screening_type}
-                  required
-                  aria-describedby={typesError ? 'screening-type-help-hs' : undefined}
-                  onChange={e => setScheduleForm({...scheduleForm, screening_type: e.target.value})}
-                >
-                  {activeTypes.length === 0 && <option value="">No active screening type</option>}
-                  {activeTypes.map(t => <option key={t.screening_type_id} value={t.name}>{t.name}</option>)}
-                </select>
-                {typesError && (
-                  <small id="screening-type-help-hs" className="hint-hs">
-                    {typesError}
-                  </small>
+              {/* Folder: existing or new, one field */}
+              <div className="pk-block-hs">
+                <div className="pk-folder-head-hs">
+                  <span className="pk-block-title-hs">Folder</span>
+                  <div className="pk-seg-hs" role="group" aria-label="Existing or new folder">
+                    <button
+                      type="button"
+                      aria-pressed={scheduleForm.folder_mode === 'existing'}
+                      disabled={sectionFolders.length + customFolderList.length === 0}
+                      onClick={() => changeFolderMode('existing')}
+                    >
+                      <Folder size={16} aria-hidden="true" /> Existing
+                    </button>
+                    <button type="button" aria-pressed={scheduleForm.folder_mode === 'new'} onClick={() => changeFolderMode('new')}>
+                      <FolderPlus size={16} aria-hidden="true" /> New
+                    </button>
+                  </div>
+                </div>
+
+                {scheduleForm.folder_mode === 'existing' && isCustomGrouping && (
+                  <div className="form-group-hs">
+                    <select
+                      id="hs-folder-pick"
+                      aria-label="Custom folder"
+                      required
+                      value={scheduleForm.folder_id}
+                      onChange={e => { prefilledFolderRef.current = ''; setSelectedStudentIds([]); setScheduleForm({ ...scheduleForm, folder_id: e.target.value }); }}
+                    >
+                      <option value="">-- Select --</option>
+                      {customFolderList.map(f => <option key={f.folder_id} value={String(f.folder_id)}>{f.name}</option>)}
+                    </select>
+                  </div>
+                )}
+                {scheduleForm.folder_mode === 'existing' && !isCustomGrouping && (
+                  <div className="form-group-hs">
+                    <select
+                      id="hs-folder-pick"
+                      aria-label="Section folder"
+                      required
+                      value={scheduleForm.section_key}
+                      onChange={e => pickSectionFolder(e.target.value)}
+                    >
+                      <option value="">-- Select --</option>
+                      {sectionFolders.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
+                    </select>
+                  </div>
+                )}
+                {scheduleForm.folder_mode === 'new' && isCustomGrouping && (
+                  <div className="form-group-hs">
+                    <input
+                      id="hs-folder-name"
+                      type="text"
+                      aria-label="Folder name"
+                      required
+                      maxLength={80}
+                      value={scheduleForm.folder_name}
+                      onChange={e => setScheduleForm({ ...scheduleForm, folder_id: 'new', folder_name: e.target.value })}
+                      placeholder="Folder name"
+                    />
+                  </div>
+                )}
+                {scheduleForm.folder_mode === 'new' && !isCustomGrouping && (
+                  <p className="hint-hs pk-hint-hs"><Lock size={14} aria-hidden="true" /> Class is set on the next step</p>
                 )}
               </div>
 
-              <div className="form-group-hs">
-                <label htmlFor="hs-fld-3">Date <Req /></label>
-                <input id="hs-fld-3" 
-                  type="date" 
-                  required 
-                  min={getTodayString()}
-                  value={scheduleForm.scheduled_date} 
-                  onChange={e => {
-                    const newDate = e.target.value;
-                    setScheduleForm(prev => ({
-                      ...prev,
-                      scheduled_date: newDate,
-                      start_time: newDate === getTodayString() && prev.start_time < getCurrentTimeString() ? '' : prev.start_time,
-                      end_time: newDate === getTodayString() && prev.start_time < getCurrentTimeString() ? '' : prev.end_time
-                    }));
-                  }} 
-                />
-              </div>
-
-              <div className="form-grid-hs">
+              {/* When: date and time on one row */}
+              <div className="pk-when-hs">
+                <div className="form-group-hs">
+                  <label htmlFor="hs-fld-3">Date <Req /></label>
+                  <input id="hs-fld-3"
+                    type="date"
+                    required
+                    min={getTodayString()}
+                    value={scheduleForm.scheduled_date}
+                    onChange={e => {
+                      const newDate = e.target.value;
+                      setScheduleForm(prev => ({
+                        ...prev,
+                        scheduled_date: newDate,
+                        start_time: newDate === getTodayString() && prev.start_time < getCurrentTimeString() ? '' : prev.start_time,
+                        end_time: newDate === getTodayString() && prev.start_time < getCurrentTimeString() ? '' : prev.end_time
+                      }));
+                    }}
+                  />
+                </div>
                 <div className="form-group-hs">
                   <label htmlFor="hs-fld-4">Start <Req /></label>
-                  <input id="hs-fld-4" 
-                    type="time" 
-                    required 
+                  <input id="hs-fld-4"
+                    type="time"
+                    required
                     min={scheduleForm.scheduled_date === getTodayString() ? getCurrentTimeString() : undefined}
                     max={scheduleForm.end_time || undefined}
-                    value={scheduleForm.start_time} 
+                    value={scheduleForm.start_time}
                     onChange={e => {
                       const newStart = e.target.value;
                       setScheduleForm(prev => ({
@@ -2134,17 +2323,17 @@ export default function HealthScreening() {
                         start_time: newStart,
                         end_time: prev.end_time && newStart && prev.end_time <= newStart ? '' : prev.end_time
                       }));
-                    }} 
+                    }}
                   />
                 </div>
                 <div className="form-group-hs">
                   <label htmlFor="hs-fld-5">End <Req /></label>
-                  <input id="hs-fld-5" 
-                    type="time" 
-                    required 
+                  <input id="hs-fld-5"
+                    type="time"
+                    required
                     disabled={!scheduleForm.start_time}
                     min={getMinEndTime(scheduleForm.start_time)}
-                    value={scheduleForm.end_time} 
+                    value={scheduleForm.end_time}
                     onChange={e => {
                       const newEnd = e.target.value;
                       if (newEnd && scheduleForm.start_time && newEnd <= scheduleForm.start_time) {
@@ -2153,10 +2342,13 @@ export default function HealthScreening() {
                         return;
                       }
                       setScheduleForm(prev => ({ ...prev, end_time: newEnd }));
-                    }} 
+                    }}
                     placeholder={!scheduleForm.start_time ? "Select Start Time first" : ""}
                   />
                 </div>
+                {durationText(scheduleForm.start_time, scheduleForm.end_time) && (
+                  <span className="dur-hs" role="status"><Clock size={14} aria-hidden="true" /> {durationText(scheduleForm.start_time, scheduleForm.end_time)}</span>
+                )}
               </div>
 
               <div className="form-group-hs">
@@ -2171,6 +2363,13 @@ export default function HealthScreening() {
             </div>
 
             <div className="modal-footer-hs">
+              <div className="foot-sum-hs">
+                {scheduleForm.screening_type && <span className="chip-hs">{scheduleForm.screening_type}</span>}
+                {scheduleForm.scheduled_date && <span className="chip-hs">{formatDate(scheduleForm.scheduled_date)}</span>}
+                {scheduleForm.start_time && scheduleForm.end_time && (
+                  <span className="chip-hs">{formatTime(scheduleForm.start_time)} - {formatTime(scheduleForm.end_time)}</span>
+                )}
+              </div>
               <button type="button" className="btn-hs btn-secondary-hs" onClick={() => setShowScheduleModal(false)}>Cancel</button>
               <button type="submit" className="btn-hs btn-primary-hs">
                 Next <ArrowRight size={16} aria-hidden="true" />
@@ -2182,168 +2381,229 @@ export default function HealthScreening() {
 
       {/* MODAL 2: Select Target Students */}
       {showStudentSelectModal && (
-        <HsDialog onClose={() => setShowStudentSelectModal(false)} size="lg">
-          <HsDialogHeader onClose={() => setShowStudentSelectModal(false)} sub={<StepDots step={2} />}>New screening</HsDialogHeader>
+        <HsDialog onClose={() => setShowStudentSelectModal(false)} size={isCustomGrouping ? 'lg' : ''}>
+          <HsDialogHeader onClose={() => setShowStudentSelectModal(false)} icon={Users} center={<StepDots step={2} />}>New screening</HsDialogHeader>
           <form onSubmit={handleCreateSchedule} className="modal-form-hs">
             <div className="modal-body-hs">
-              {(isCustomGrouping || lockedClass) && (
-                <p className="picker-chip-hs">
-                  <span className="chip-hs chip-info-hs">
-                    {lockedClass ? <Lock size={14} aria-hidden="true" /> : <Folder size={14} aria-hidden="true" />}
-                    {isCustomGrouping
-                      ? (scheduleForm.folder_id === 'new' ? scheduleForm.folder_name.trim() : (customFolderList.find(f => String(f.folder_id) === String(scheduleForm.folder_id))?.name || ''))
-                      : (sectionFolders.find(f => f.key === scheduleForm.section_key)?.label || '')}
-                  </span>
-                </p>
-              )}
-              <div className="picker-bar-hs">
-                <div className="form-group-hs">
-                  <label htmlFor="pick-program-hs">Academic Program</label>
-                  <select
-                    id="pick-program-hs"
-                    required={!isCustomGrouping}
-                    disabled={lockedClass}
-                    value={scheduleForm.target_program_id}
-                    onChange={e => { if (!isCustomGrouping) setSelectedStudentIds([]); setScheduleForm({...scheduleForm, target_program_id: e.target.value, target_year_level: '', target_section: ''}); }}
-                  >
-                    <option value="">{isCustomGrouping ? '-- All programs --' : '-- Select program --'}</option>
-                    {programs.map(p => <option key={p.program_id} value={p.program_id}>{p.program_name}</option>)}
-                  </select>
-                </div>
-                <div className="form-group-hs">
-                  <label htmlFor="pick-year-hs">Year Level</label>
-                  <select
-                    id="pick-year-hs"
-                    required={!isCustomGrouping}
-                    disabled={lockedClass || (!isCustomGrouping && !scheduleForm.target_program_id)}
-                    value={scheduleForm.target_year_level}
-                    onChange={e => { if (!isCustomGrouping) setSelectedStudentIds([]); setScheduleForm({...scheduleForm, target_year_level: e.target.value, target_section: ''}); }}
-                  >
-                    <option value="">{isCustomGrouping ? '-- All year levels --' : '-- Select year --'}</option>
-                    <option value="1">1st Year</option>
-                    <option value="2">2nd Year</option>
-                    {String(programs.find(p => p.program_id === scheduleForm.target_program_id)?.type || '').toLowerCase() !== 'strand' && (
-                      <>
-                        <option value="3">3rd Year</option>
-                        <option value="4">4th Year</option>
-                      </>
-                    )}
-                  </select>
-                </div>
-                <div className="form-group-hs">
-                  <label htmlFor="pick-section-hs">Section</label>
-                  <select
-                    id="pick-section-hs"
-                    required={!isCustomGrouping}
-                    disabled={lockedClass || (!isCustomGrouping && !scheduleForm.target_year_level)}
-                    value={scheduleForm.target_section}
-                    onChange={e => { if (!isCustomGrouping) setSelectedStudentIds([]); setScheduleForm({...scheduleForm, target_section: e.target.value}); }}
-                  >
-                    <option value="">{isCustomGrouping ? '-- All sections --' : '-- Select section --'}</option>
-                    {sectionOptions.map(sec => <option key={sec} value={sec}>{sec}</option>)}
-                  </select>
-                </div>
-                <div className="form-group-hs">
-                  <label htmlFor="pick-search-hs">Student</label>
-                  <input
-                    id="pick-search-hs"
-                    type="search"
-                    placeholder="Search"
-                    value={pickerSearch}
-                    onChange={e => setPickerSearch(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="student-select-list-hs">
-                <span className="list-title-hs">
-                  Students ({visibleStudents.length}) &middot; {selectedStudentIds.length} selected
+              <div className="pk-ctx-hs">
+                <span className="chip-hs chip-info-hs">
+                  {lockedClass ? <Lock size={14} aria-hidden="true" /> : <Folder size={14} aria-hidden="true" />}
+                  {isCustomGrouping
+                    ? (scheduleForm.folder_id === 'new' ? scheduleForm.folder_name.trim() : (customFolderList.find(f => String(f.folder_id) === String(scheduleForm.folder_id))?.name || 'Mixed group'))
+                    : (sectionFolders.find(f => f.key === scheduleForm.section_key)?.label || 'New class folder')}
                 </span>
-                <div className="table-wrapper-hs">
-                  <table className="table-hs">
-                    <thead>
-                      <tr>
-                        <th className="col-checkbox-hs">
-                          <input 
-                            type="checkbox" 
-                            checked={areAllFilteredSelected} 
-                            onChange={handleSelectAllFiltered}
-                            disabled={visibleStudents.length === 0}
-                            aria-label="Select or deselect all matching students"
-                            title="Select/Deselect all matching students"
-                          />
-                        </th>
-                        <th>Student Name</th>
-                        <th>Class</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {visibleStudents.length === 0 ? (
-                        <tr>
-                          <td colSpan="3" className="empty-table-msg-hs">
-                            No students
-                          </td>
-                        </tr>
-                      ) : (
-                        pickerPageData.items.map(st => (
-                          <tr key={st.student_id}>
-                            <td className="col-checkbox-hs">
-                              <input
-                                type="checkbox"
-                                aria-label={`Select ${st.first_name} ${st.last_name}`}
-                                checked={selectedStudentIds.includes(st.student_id)}
-                                onChange={(e) => {
-                                  if (e.target.checked) setSelectedStudentIds([...selectedStudentIds, st.student_id]);
-                                  else setSelectedStudentIds(selectedStudentIds.filter(id => id !== st.student_id));
-                                }}
-                              />
-                            </td>
-                            <td>{st.first_name} {st.last_name}</td>
-                            <td>{classLabel(st.program_id, st.year_level, st.section)}</td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-                <Pager page={pickerPageData.page} pageCount={pickerPageData.pageCount} total={pickerPageData.total} pageSize={PICKER_PER_PAGE} onPage={setPickerPage} noun="students" />
+                {folderSource && (
+                  <span className="chip-hs" title="The list starts from the latest screening of this folder">
+                    <History size={14} aria-hidden="true" /> {folderSource.title}
+                  </span>
+                )}
+                {scheduleForm.screening_type && <span className="chip-hs">{scheduleForm.screening_type}</span>}
+                {scheduleForm.scheduled_date && <span className="chip-hs">{formatDate(scheduleForm.scheduled_date)}</span>}
+                {scheduleForm.start_time && scheduleForm.end_time && (
+                  <span className="chip-hs">{formatTime(scheduleForm.start_time)} - {formatTime(scheduleForm.end_time)}</span>
+                )}
               </div>
 
-              {isCustomGrouping && (
-                <div className="student-select-list-hs">
-                  <span className="list-title-hs" role="status">Selected students ({selectedStudentIds.length})</span>
-                  {pickedStudents.length === 0 ? (
-                    <p className="hint-hs">None</p>
-                  ) : (
-                    <div className="table-wrapper-hs">
-                      <table className="table-hs">
-                        <thead>
-                          <tr><th scope="col">Student Name</th><th scope="col">Class</th><th scope="col">Action</th></tr>
-                        </thead>
-                        <tbody>
-                          {pickedStudents.map(st => (
-                            <tr key={st.student_id}>
-                              <td>{st.first_name} {st.last_name}</td>
-                              <td>{classLabel(st.program_id, st.year_level, st.section)}</td>
-                              <td>
-                                <button
-                                  type="button"
-                                  className="btn-hs btn-icon-hs btn-danger-hs"
-                                  aria-label={`Remove ${st.first_name} ${st.last_name}`}
-                                  title="Remove"
-                                  onClick={() => setSelectedStudentIds(prev => prev.filter(id => id !== st.student_id))}
-                                >
-                                  <X size={16} aria-hidden="true" />
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+              <div className={`pk-panes-hs${isCustomGrouping ? ' pk-two-hs' : ''}`}>
+                {/* LEFT: find and tick */}
+                <section className="pk-find-hs" aria-label="Find students">
+                  {!lockedClass && (
+                    <div className="pk-filters-hs">
+                      <select
+                        id="pick-program-hs"
+                        aria-label="Academic Program"
+                        required={!isCustomGrouping}
+                        value={scheduleForm.target_program_id}
+                        onChange={e => { if (!isCustomGrouping) setSelectedStudentIds([]); setScheduleForm({...scheduleForm, target_program_id: e.target.value, target_year_level: '', target_section: ''}); }}
+                      >
+                        <option value="">{isCustomGrouping ? 'All programs' : '-- Program --'}</option>
+                        {programs.map(p => <option key={p.program_id} value={p.program_id}>{p.program_name}</option>)}
+                      </select>
+                      <select
+                        id="pick-year-hs"
+                        aria-label="Year Level"
+                        required={!isCustomGrouping}
+                        disabled={!isCustomGrouping && !scheduleForm.target_program_id}
+                        value={scheduleForm.target_year_level}
+                        onChange={e => { if (!isCustomGrouping) setSelectedStudentIds([]); setScheduleForm({...scheduleForm, target_year_level: e.target.value, target_section: ''}); }}
+                      >
+                        <option value="">{isCustomGrouping ? 'All years' : '-- Year --'}</option>
+                        <option value="1">1st Year</option>
+                        <option value="2">2nd Year</option>
+                        {String(programs.find(p => p.program_id === scheduleForm.target_program_id)?.type || '').toLowerCase() !== 'strand' && (
+                          <>
+                            <option value="3">3rd Year</option>
+                            <option value="4">4th Year</option>
+                          </>
+                        )}
+                      </select>
+                      <select
+                        id="pick-section-hs"
+                        aria-label="Section"
+                        required={!isCustomGrouping}
+                        disabled={!isCustomGrouping && !scheduleForm.target_year_level}
+                        value={scheduleForm.target_section}
+                        onChange={e => { if (!isCustomGrouping) setSelectedStudentIds([]); setScheduleForm({...scheduleForm, target_section: e.target.value}); }}
+                      >
+                        <option value="">{isCustomGrouping ? 'All sections' : '-- Section --'}</option>
+                        {sectionOptions.map(sec => <option key={sec} value={sec}>{sec}</option>)}
+                      </select>
+                      {isCustomGrouping && (scheduleForm.target_program_id || scheduleForm.target_year_level || scheduleForm.target_section) && (
+                        <button
+                          type="button"
+                          className="btn-hs btn-icon-hs btn-secondary-hs"
+                          aria-label="Reset filters"
+                          title="Reset filters"
+                          onClick={() => setScheduleForm({ ...scheduleForm, target_program_id: '', target_year_level: '', target_section: '' })}
+                        >
+                          <RotateCcw size={18} aria-hidden="true" />
+                        </button>
+                      )}
                     </div>
                   )}
-                </div>
-              )}
+
+                  <div className="pk-search-hs">
+                    <Search size={18} aria-hidden="true" />
+                    <input
+                      id="pick-search-hs"
+                      type="search"
+                      aria-label="Search by name or ID"
+                      placeholder="Name or ID"
+                      value={pickerSearch}
+                      onChange={e => setPickerSearch(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="pk-bar-hs">
+                    <label className="pk-all-hs">
+                      <input
+                        type="checkbox"
+                        checked={areAllFilteredSelected}
+                        onChange={handleSelectAllFiltered}
+                        disabled={listedStudents.length === 0}
+                        aria-label="Select or deselect all shown students"
+                      />
+                      <span>{isCustomGrouping ? `${listedStudents.length} shown` : 'Whole class'}</span>
+                    </label>
+                    {!isCustomGrouping && visibleStudents.length > 0 && (
+                      <>
+                        <span
+                          className="pk-progress-hs"
+                          role="progressbar"
+                          aria-label="Students selected"
+                          aria-valuemin={0}
+                          aria-valuemax={visibleStudents.length}
+                          aria-valuenow={addedInView}
+                        >
+                          <span style={{ width: `${Math.round((addedInView / visibleStudents.length) * 100)}%` }} />
+                        </span>
+                        <span className="pk-count-hs" role="status">{addedInView} of {visibleStudents.length}</span>
+                      </>
+                    )}
+                    {isCustomGrouping && <span className="pk-count-hs" role="status">{selectedStudentIds.length} added</span>}
+                  </div>
+
+                  {!isCustomGrouping && visibleStudents.length > 0 && (
+                    <div className="pk-seg-hs" role="group" aria-label="Show">
+                      <button type="button" aria-pressed={pickerShow === 'all'} onClick={() => setPickerShow('all')}>All {visibleStudents.length}</button>
+                      <button type="button" aria-pressed={pickerShow === 'added'} onClick={() => setPickerShow('added')}>Added {addedInView}</button>
+                      <button type="button" aria-pressed={pickerShow === 'left'} onClick={() => setPickerShow('left')}>Left out {visibleStudents.length - addedInView}</button>
+                    </div>
+                  )}
+
+                  <div className={`pk-list-hs${isCustomGrouping ? '' : ' pk-cols-hs'}`}>
+                    {listedStudents.length === 0 ? (
+                      <div className="pk-empty-hs">
+                        <Search size={24} aria-hidden="true" />
+                        {!isCustomGrouping && !scheduleForm.target_section ? 'Pick a class' : 'No match'}
+                      </div>
+                    ) : (
+                      pickerPageData.items.map(st => {
+                        const on = selectedStudentIds.includes(st.student_id);
+                        const fullName = `${st.first_name} ${st.last_name}`;
+                        return (
+                          <label key={st.student_id} className={`pk-row-hs${on ? ' on-hs' : ''}`}>
+                            <input
+                              type="checkbox"
+                              aria-label={`Select ${fullName}`}
+                              checked={on}
+                              onChange={(e) => {
+                                if (e.target.checked) setSelectedStudentIds([...selectedStudentIds, st.student_id]);
+                                else setSelectedStudentIds(selectedStudentIds.filter(id => id !== st.student_id));
+                              }}
+                            />
+                            <span className="pk-avatar-hs" aria-hidden="true">{`${(st.first_name || '').charAt(0)}${(st.last_name || '').charAt(0)}`.toUpperCase()}</span>
+                            <span className="pk-name-hs">
+                              <span className="pk-name-main-hs">{fullName}</span>
+                              <span className="pk-id-hs">{st.student_id}</span>
+                            </span>
+                            {isCustomGrouping && <span className="chip-hs">{classLabel(st.program_id, st.year_level, st.section)}</span>}
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                  <Pager page={pickerPageData.page} pageCount={pickerPageData.pageCount} total={pickerPageData.total} pageSize={PICKER_PER_PAGE} onPage={setPickerPage} noun="students" />
+                </section>
+
+                {/* RIGHT (mixed group): who is picked */}
+                {isCustomGrouping && (
+                  <section className="pk-tray-hs" aria-label="Selected students">
+                    <div className="pk-tray-head-hs">
+                      <Users size={18} aria-hidden="true" />
+                      <h3>Selected <span className="pk-badge-hs" role="status">{selectedStudentIds.length}</span></h3>
+                      {pickedStudents.length > 0 && (
+                        <button
+                          type="button"
+                          className="btn-hs btn-icon-hs btn-danger-hs"
+                          aria-label="Clear all"
+                          title="Clear all"
+                          onClick={() => showConfirm('Clear all selected students?', () => setSelectedStudentIds([]))}
+                        >
+                          <Trash2 size={18} aria-hidden="true" />
+                        </button>
+                      )}
+                    </div>
+                    {pickedStudents.length > 0 && (
+                      <div className="pk-groups-hs">
+                        {Object.entries(pickedStudents.reduce((acc, st) => {
+                          const k = classLabel(st.program_id, st.year_level, st.section);
+                          acc[k] = (acc[k] || 0) + 1;
+                          return acc;
+                        }, {})).sort(([a], [b]) => String(a).localeCompare(String(b))).map(([label, n]) => (
+                          <span key={label} className="chip-hs chip-info-hs">{label} &middot; {n}</span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="pk-list-hs">
+                      {pickedStudents.length === 0 ? (
+                        <div className="pk-empty-hs">
+                          <UserRoundPlus size={28} aria-hidden="true" />
+                          Tick students on the left
+                        </div>
+                      ) : (
+                        pickedStudents.map(st => (
+                          <div key={st.student_id} className="pk-row-hs pk-picked-hs">
+                            <span className="pk-name-hs">
+                              <span className="pk-name-main-hs">{st.first_name} {st.last_name}</span>
+                              <span className="pk-id-hs">{classLabel(st.program_id, st.year_level, st.section)}</span>
+                            </span>
+                            <button
+                              type="button"
+                              className="btn-hs btn-icon-hs"
+                              aria-label={`Remove ${st.first_name} ${st.last_name}`}
+                              title="Remove"
+                              onClick={() => setSelectedStudentIds(prev => prev.filter(id => id !== st.student_id))}
+                            >
+                              <X size={18} aria-hidden="true" />
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </section>
+                )}
+              </div>
             </div>
 
             <div className="modal-footer-hs">
@@ -2485,11 +2745,10 @@ export default function HealthScreening() {
         <HsDialog onClose={() => setShowViewModal(false)} size="lg">
           <HsDialogHeader
             onClose={() => setShowViewModal(false)}
+            icon={typeIcon(activeSchedule.screening_type, activeSchedule.form_kind)}
             sub={(
               <div className="modal-sub-hs">
-                <Users size={14} aria-hidden="true" /> <strong>
-                  {scheduleStudents.filter(st => st.attendance_status === 'PRESENT').length}/{scheduleStudents.length}
-                </strong> present
+                {activeSchedule.scheduled_date ? formatDate(String(activeSchedule.scheduled_date).split('T')[0]) : ''} &middot; {formatTime(activeSchedule.start_time)} - {formatTime(activeSchedule.end_time)}
               </div>
             )}
             actions={(
@@ -2519,23 +2778,34 @@ export default function HealthScreening() {
             )}
             {(() => {
               const presentN = scheduleStudents.filter(st => attendanceOf(st) === 'PRESENT').length;
+              const absentN = scheduleStudents.filter(st => attendanceOf(st) === 'ABSENT').length;
+              const pendingN = scheduleStudents.length - presentN - absentN;
+              const docN = scheduleStudents.filter(st => attendanceOf(st) === 'PRESENT' && hasResult(st)).length;
+              const todoN = presentN - docN;
               const totalN = scheduleStudents.length;
+              const pct = (n) => `${totalN ? (n / totalN) * 100 : 0}%`;
+              const countOf = (key) => (key === 'ALL' ? totalN : key === 'PRESENT' ? presentN : key === 'ABSENT' ? absentN : pendingN);
               return (
-                <div className="sum-hs">
-                  <div className="sc-meter-hs">
-                    <span className="sc-count-hs">{presentN}/{totalN} <small>present</small></span>
-                    <div className="track-hs" role="img" aria-label={`${presentN} of ${totalN} present`}>
-                      <i style={{ width: `${totalN ? Math.round((presentN / totalN) * 100) : 0}%` }} />
+                <>
+                  <div className="kpis-hs">
+                    <div className="kpi-hs"><b>{presentN}/{totalN}</b><span>Present</span></div>
+                    <div className="kpi-hs kpi-bad-hs"><b>{absentN}</b><span>Absent</span></div>
+                    <div className="kpi-hs kpi-ok-hs"><b>{docN}</b><span>Documented</span></div>
+                    <div className="kpi-hs kpi-warn-hs"><b>{todoN}</b><span>To document</span></div>
+                    <div className="stack-hs" role="img" aria-label={`${docN} documented, ${todoN} to document, ${absentN} absent`}>
+                      <i className="stack-ok-hs" style={{ width: pct(docN) }} />
+                      <i className="stack-warn-hs" style={{ width: pct(todoN) }} />
+                      <i className="stack-bad-hs" style={{ width: pct(absentN) }} />
                     </div>
                   </div>
                   <div className="chips-hs" role="group" aria-label="Attendance">
                     {[['ALL', 'All'], ['PRESENT', 'Present'], ['ABSENT', 'Absent'], ['PENDING', 'Pending']].map(([key, label]) => (
                       <button key={key} type="button" className="chip-btn-hs" aria-pressed={attFilter === key} onClick={() => { setAttFilter(key); setParticipantPage(1); }}>
-                        {label}
+                        {label} <span className="chip-n-hs">{countOf(key)}</span>
                       </button>
                     ))}
                   </div>
-                </div>
+                </>
               );
             })()}
             {scheduleStudents.length > 0 && (
@@ -2571,7 +2841,13 @@ export default function HealthScreening() {
 
                     return (
                       <tr key={st.student_id}>
-                        <td>{st.first_name} {st.last_name}</td>
+                        <td className="who-cell-hs">
+                          <span className="pk-avatar-hs" aria-hidden="true">{`${(st.first_name || '').charAt(0)}${(st.last_name || '').charAt(0)}`.toUpperCase()}</span>
+                          <span className="pk-name-hs">
+                            <span className="pk-name-main-hs">{st.first_name} {st.last_name}</span>
+                            <span className="pk-id-hs">{st.student_id}</span>
+                          </span>
+                        </td>
                         <td>{classLabel(st.program_id, st.year_level, st.section)}</td>
                         <td>
                           <span className={`badge-hs badge-status-${effectiveAttendanceStatus.toLowerCase()}-hs`}>
@@ -2636,9 +2912,20 @@ export default function HealthScreening() {
       {/* MODAL 6: Dynamic Screening Entry Form */}
       {showDocModal && selectedStudent && activeSchedule && (
         <HsDialog onClose={docLocked ? undefined : () => setShowDocModal(false)}>
-          <HsDialogHeader onClose={docLocked ? undefined : () => setShowDocModal(false)}>Document: {selectedStudent.first_name} {selectedStudent.last_name}</HsDialogHeader>
+          <HsDialogHeader
+            onClose={docLocked ? undefined : () => setShowDocModal(false)}
+            icon={typeIcon(activeSchedule.screening_type, activeSchedule.form_kind)}
+            sub={<div className="modal-sub-hs">{selectedStudent.student_id} &middot; {classLabel(selectedStudent.program_id, selectedStudent.year_level, selectedStudent.section)}</div>}
+          >
+            {selectedStudent.first_name} {selectedStudent.last_name}
+          </HsDialogHeader>
           <form onSubmit={handleDocSubmit} className="modal-form-hs">
             <div className="modal-body-hs">
+              <div className="doc-ctx-hs">
+                <span className="chip-hs chip-info-hs">{typeLabel(activeSchedule.screening_type)}</span>
+                {activeSchedule.scheduled_date && <span className="chip-hs">{formatDate(String(activeSchedule.scheduled_date).split('T')[0])}</span>}
+                {selectedStudent.attended_at && <span className="chip-hs"><Clock size={14} aria-hidden="true" /> Time in {formatTime(selectedStudent.attended_at)}</span>}
+              </div>
               {/* FORM TEMPLATE (CUSTOM) */}
               {activeSchedule.form_kind === 'CUSTOM' && (
                 <>
@@ -2735,6 +3022,20 @@ export default function HealthScreening() {
             </div>
 
             <div className="modal-footer-hs">
+              {(() => {
+                const fields = activeSchedule.form_kind === 'CUSTOM' ? (activeSchedule.template?.fields || []) : [];
+                const outN = fields.filter((f) => {
+                  if (f.type === 'calculated') {
+                    const c = calculate(f, docData.answers);
+                    return c && ((f.min !== undefined && c.value < f.min) || (f.max !== undefined && c.value > f.max));
+                  }
+                  const v = docData.answers?.[f.key];
+                  return f.type === 'number' && v !== undefined && v !== '' && ((f.min !== undefined && Number(v) < f.min) || (f.max !== undefined && Number(v) > f.max));
+                }).length;
+                return outN > 0 ? (
+                  <span className="foot-note-hs" role="status"><AlertTriangle size={14} aria-hidden="true" /> {outN} out of range</span>
+                ) : null;
+              })()}
               {!docLocked && <button type="button" className="btn-hs btn-secondary-hs" onClick={() => setShowDocModal(false)}>Cancel</button>}
               <button type="submit" className="btn-hs btn-primary-hs">Save</button>
             </div>

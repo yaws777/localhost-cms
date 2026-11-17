@@ -51,8 +51,9 @@ const TABS = [
   { id: 'inventory', label: 'Inventory', icon: Boxes }
 ];
 
-const COLORS = { visits: '#005691', incidents: '#dc2626', dispensed: '#16a34a', direct: '#005691', consultation: '#f5b301' };
-const TOOLTIP_STYLE = { borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' };
+const COLORS = { visits: '#005691', incidents: '#dc2626', dispensed: '#16a34a', direct: '#005691', consultation: '#f5b301', previous: '#667085' };
+const TOOLTIP_STYLE = { borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', backgroundColor: 'var(--bg-card)', color: 'var(--text-primary)' };
+const TOOLTIP_LABEL_STYLE = { color: 'var(--text-primary)', fontWeight: 600 };
 const TICK = { fontSize: '0.875rem', fill: 'var(--text-secondary)' };
 
 const ymd = (date) => {
@@ -115,16 +116,13 @@ const EMPTY_REPORT = {
   },
   trend: { unit: 'day', points: [] },
   health: { conditions: [], programs: [], frequentVisitors: [] },
-  medicine: { items: [], split: { direct: 0, consultation: 0 } },
+  medicine: { items: [], split: { direct: 0, consultation: 0 }, comparison: [] },
   incidents: { locations: [], recent: [] },
   services: { excuseSlips: [], referralSlips: [], appointments: [], appointmentTypes: [], requirements: [] },
   inventory: { summary: { total: 0, out: 0, critical: 0, low: 0, adequate: 0, expiring: 0, expired: 0 }, attention: [] }
 };
 
-const EMPTY_FORECAST = { periodLabel: '', items: [] };
-
 const sum = (list) => list.reduce((total, item) => total + item.count, 0);
-const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 const percentText = (p) => (p === null ? '—' : `${p > 0 ? '+' : ''}${p}%`);
 
 /* ---------- small building blocks ---------- */
@@ -199,11 +197,12 @@ const Table = ({ columns, children, empty, isEmpty }) => (
   )
 );
 
-const ChangeBadge = ({ row }) => {
+// badWhenUp: a rise is red (illness); off, a rise is green (medicine dispensed)
+const ChangeBadge = ({ row, badWhenUp = true }) => {
   if (row.trend === 'new') return <span className="ra-badge new">New</span>;
   if (row.trend === 'same') return <span className="ra-badge flat">No change</span>;
   const up = row.trend === 'up';
-  return <span className={`ra-badge ${up ? 'bad' : 'good'}`}>{up ? '▲ +' : '▼ '}{row.delta}</span>;
+  return <span className={`ra-badge ${up === badWhenUp ? 'bad' : 'good'}`}>{up ? '▲ +' : '▼ '}{row.delta}</span>;
 };
 
 const StatusPill = ({ status }) => <span className={`ra-pill ${status.toLowerCase().replace(/\s+/g, '-')}`}>{status}</span>;
@@ -226,9 +225,6 @@ const ReportsAnalytics = () => {
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const latestRequest = useRef(0);
-  const [forecast, setForecast] = useState(EMPTY_FORECAST);
-  const [forecastLoading, setForecastLoading] = useState(false);
-  const [forecastError, setForecastError] = useState('');
 
   const period = useMemo(() => getPeriod(granularity, offset), [granularity, offset]);
   const unitInfo = GRANULARITIES.find((g) => g.value === granularity);
@@ -273,45 +269,6 @@ const ReportsAnalytics = () => {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
-
-  // Predictive medicine demand: a rolling forecast for the next 30 days, so it is not tied to the selected period
-  const fetchForecast = useCallback(async () => {
-    setForecastLoading(true);
-    setForecastError('');
-    try {
-      const response = await fetch('http://localhost:3001/api/predictive-medicine');
-      if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
-      const result = await response.json();
-      const items = (result.data || []).map((m) => {
-        const containerStrength = Number(m.containerStrength) || 1;
-        const usedLast30 = (m.history || []).reduce((total, n) => total + (Number(n) || 0), 0) / containerStrength;
-        return {
-          name: m.name,
-          unit: m.unitOfMeasure,
-          stock: m.currentStock,
-          status: m.status,
-          last30d: round2(usedLast30),
-          forecast30d: round2(m.forecast30d),
-          suggestedRestock: m.suggestedRestock
-        };
-      }).sort((a, b) => b.forecast30d - a.forecast30d || a.name.localeCompare(b.name));
-      setForecast({ periodLabel: result.periodLabel || '', items });
-    } catch (error) {
-      console.error('Failed to fetch predictive medicine demand:', error);
-      setForecastError('Could not load the predictive medicine demand.');
-    } finally {
-      setForecastLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchForecast();
-  }, [fetchForecast]);
-
-  const refreshAll = () => {
-    fetchData();
-    fetchForecast();
-  };
 
   const { overview, trend, health, medicine, incidents, services, inventory } = data;
   const stockAlerts = inventory.summary.out + inventory.summary.critical + inventory.summary.low;
@@ -373,7 +330,7 @@ const ReportsAnalytics = () => {
           conditionsSection(health.conditions, 'Medical conditions'),
           {
             heading: 'Visits by program',
-            columns: ['Program', 'Visits', 'Students'],
+            columns: ['Program', 'Student visits (one per student per day)', 'Students'],
             rows: health.programs.map((p) => [p.name, p.count, p.students]),
             emptyText: 'No visits in this period.'
           },
@@ -389,16 +346,16 @@ const ReportsAnalytics = () => {
         details: [...periodDetails, ['Total dispensations', overview.totalDispensed], ['Direct dispensing', medicine.split.direct], ['During consultation', medicine.split.consultation]],
         sections: [
           {
+            heading: `Dispensed this ${unit} vs the previous ${unit}`,
+            columns: ['#', 'Medicine', `Previous ${unit}`, `This ${unit}`, 'Change', 'Change %'],
+            rows: medicine.comparison.map((m, i) => [i + 1, m.name, m.previousCount, m.count, m.delta > 0 ? `+${m.delta}` : m.delta, percentText(m.changePercent)]),
+            emptyText: 'No medicine dispensations for this period.'
+          },
+          {
             heading: 'Medicine dispensed',
             columns: ['#', 'Medicine', 'Total', 'Direct', 'During consultation'],
             rows: medicine.items.map((m, i) => [i + 1, m.name, m.count, m.direct, m.consultation]),
             emptyText: 'No medicine dispensations for this period.'
-          },
-          {
-            heading: `Predictive medicine demand${forecast.periodLabel ? ` (${forecast.periodLabel})` : ' (next 30 days)'}`,
-            columns: ['#', 'Medicine', 'Current stock', 'Status', 'Used last 30 days', 'Forecast next 30 days', 'Predicted Need'],
-            rows: forecast.items.map((m, i) => [i + 1, m.name, `${m.stock} ${m.unit}`, m.status, m.last30d, m.forecast30d, m.suggestedRestock]),
-            emptyText: forecastError || 'No predictive medicine demand available.'
           }
         ]
       },
@@ -450,31 +407,30 @@ const ReportsAnalytics = () => {
     });
   };
 
-  const forecastPanel = (
-    <Panel title="Predictive medicine demand" note={`Forecast for ${forecast.periodLabel || 'the next 30 days'} · live, not tied to the period`}>
-      {forecastError ? <Empty>{forecastError}</Empty> : forecast.items.length === 0 ? <Empty>{forecastLoading ? 'Loading the forecast…' : 'No predictive medicine demand available'}</Empty> : (
+  // each medicine: this period against the previous one, for the granularity picked (daily, weekly, monthly)
+  const comparisonPanel = (
+    <Panel title="Medicine Dispensed" note={`This ${unit} vs the previous ${unit}, per medicine`}>
+      {medicine.comparison.length === 0 ? <Empty>No medicine dispensations for this {unit} or the previous {unit}</Empty> : (
         <>
-          <ResponsiveContainer width="100%" height={Math.max(220, Math.min(10, forecast.items.length) * 40 + 50)}>
-            <BarChart layout="vertical" data={forecast.items.slice(0, 10)} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+          <ResponsiveContainer width="100%" height={Math.max(220, Math.min(10, medicine.comparison.length) * 46 + 50)}>
+            <BarChart layout="vertical" data={medicine.comparison.slice(0, 10)} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#E2E8F0" />
-              <XAxis type="number" tick={TICK} />
+              <XAxis type="number" tick={TICK} allowDecimals={false} />
               <YAxis type="category" dataKey="name" tick={TICK} width={150} />
-              <Tooltip contentStyle={TOOLTIP_STYLE} />
+              <Tooltip contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL_STYLE} />
               <Legend verticalAlign="top" height={28} iconType="rect" />
-              <Bar dataKey="stock" name="Current stock" fill={COLORS.direct} barSize={12} />
-              <Bar dataKey="forecast30d" name="Forecast next 30 days" fill={COLORS.consultation} barSize={12} radius={[0, 4, 4, 0]} />
+              <Bar dataKey="previousCount" name={`Previous ${unit}`} fill={COLORS.previous} barSize={14} />
+              <Bar dataKey="count" name={`This ${unit}`} fill={COLORS.dispensed} barSize={14} radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
-          <Table columns={['#', 'Medicine', 'Current stock', 'Status', 'Used last 30 days', 'Forecast next 30 days', 'Predicted Need']} isEmpty={false}>
-            {forecast.items.map((m, i) => (
+          <Table columns={['#', 'Medicine', `Previous ${unit}`, `This ${unit}`, 'Trends']} isEmpty={false}>
+            {medicine.comparison.map((m, i) => (
               <tr key={m.name}>
                 <td>{i + 1}</td>
                 <td>{m.name}</td>
-                <td className="nowrap">{m.stock} {m.unit}</td>
-                <td><StatusPill status={m.status} /></td>
-                <td>{m.last30d}</td>
-                <td><strong>{m.forecast30d}</strong></td>
-                <td><strong>{m.suggestedRestock}</strong></td>
+                <td>{m.previousCount}</td>
+                <td><strong>{m.count}</strong></td>
+                <td><ChangeBadge row={m} badWhenUp={false} /></td>
               </tr>
             ))}
           </Table>
@@ -492,7 +448,7 @@ const ReportsAnalytics = () => {
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
             <XAxis dataKey="label" tick={{ ...TICK, fontSize: '0.875rem' }} interval={trend.points.length > 16 ? 'preserveStartEnd' : 0} angle={-30} textAnchor="end" height={55} />
             <YAxis tick={TICK} allowDecimals={false} />
-            <Tooltip contentStyle={TOOLTIP_STYLE} />
+            <Tooltip contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL_STYLE} />
             <Legend verticalAlign="top" height={28} iconType="plainline" />
             <Line type="monotone" dataKey="visits" name="Visits" stroke={COLORS.visits} strokeWidth={2.5} dot={trend.points.length <= 16} />
             <Line type="monotone" dataKey="dispensed" name="Medicines dispensed" stroke={COLORS.dispensed} strokeWidth={2.5} dot={trend.points.length <= 16} />
@@ -560,7 +516,7 @@ const ReportsAnalytics = () => {
       </Panel>
 
       <div className="ra-grid-2">
-        <Panel title="Visits by program" note="Top 10 programs">
+        <Panel title="Visits by program" note="One count per student per day · top 10">
           <BarList items={health.programs.map((p) => ({ label: p.name, value: p.count, note: `${p.students} student${p.students === 1 ? '' : 's'}` }))} emptyText={`No visits in this ${unit}`} />
         </Panel>
         <Panel title="Frequent visitors" note={`More than one visit this ${unit}`}>
@@ -580,6 +536,8 @@ const ReportsAnalytics = () => {
         <Kpi icon={Pill} label="During consultation" tone="amber" value={v(medicine.split.consultation)} />
       </div>
 
+      {comparisonPanel}
+
       <Panel title="Most dispensed medicines" note="Top 10, direct vs during consultation">
         {medicine.items.length === 0 ? <Empty>No medicine dispensations for this {unit}</Empty> : (
           <ResponsiveContainer width="100%" height={Math.max(220, Math.min(10, medicine.items.length) * 34 + 50)}>
@@ -587,7 +545,7 @@ const ReportsAnalytics = () => {
               <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#E2E8F0" />
               <XAxis type="number" tick={TICK} allowDecimals={false} />
               <YAxis type="category" dataKey="name" tick={TICK} width={150} />
-              <Tooltip contentStyle={TOOLTIP_STYLE} />
+              <Tooltip contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL_STYLE} />
               <Legend verticalAlign="top" height={28} iconType="rect" />
               <Bar dataKey="direct" name="Direct" stackId="d" fill={COLORS.direct} barSize={18} />
               <Bar dataKey="consultation" name="During consultation" stackId="d" fill={COLORS.consultation} barSize={18} radius={[0, 4, 4, 0]} />
@@ -603,8 +561,6 @@ const ReportsAnalytics = () => {
           ))}
         </Table>
       </Panel>
-
-      {forecastPanel}
     </>
   );
 
@@ -628,7 +584,7 @@ const ReportsAnalytics = () => {
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
                 <XAxis dataKey="label" tick={{ ...TICK, fontSize: '0.875rem' }} interval={trend.points.length > 16 ? 'preserveStartEnd' : 0} angle={-30} textAnchor="end" height={55} />
                 <YAxis tick={TICK} allowDecimals={false} />
-                <Tooltip contentStyle={TOOLTIP_STYLE} />
+                <Tooltip contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL_STYLE} />
                 <Bar dataKey="incidents" name="Incidents" fill={COLORS.incidents} radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -716,11 +672,11 @@ const ReportsAnalytics = () => {
           <p className="ra-subtitle">Health trends, medicine dispensing, incidents, services and inventory in one place</p>
         </div>
         <div className="ra-header-actions">
-          <button className="ra-btn secondary" onClick={refreshAll} disabled={loading || forecastLoading} title="Refresh data" aria-label="Refresh data">
-            <RefreshCw size={16} className={loading || forecastLoading ? 'spin-icon' : ''} />
+          <button className="ra-btn secondary" onClick={fetchData} disabled={loading} title="Refresh data" aria-label="Refresh data">
+            <RefreshCw size={16} className={loading ? 'spin-icon' : ''} />
             <span>Refresh</span>
           </button>
-          <button className="ra-btn primary" onClick={handleExport} disabled={loading || forecastLoading} title={`Export the ${TABS.find((t) => t.id === tab).label} tab as a PDF report`} aria-label="Export PDF report">
+          <button className="ra-btn primary" onClick={handleExport} disabled={loading} title={`Export the ${TABS.find((t) => t.id === tab).label} tab as a PDF report`} aria-label="Export PDF report">
             <Download size={16} />
             <span>Export PDF</span>
           </button>

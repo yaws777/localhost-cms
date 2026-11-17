@@ -92,8 +92,9 @@ export function HsDialog({ onClose, size = '', zIndex, children }) {
 
 /**
  * children: the title. sub: line under the title. actions: buttons placed before the close button.
+ * icon: lucide component shown in a tile before the title. center: block pushed to the right of the title (a stepper).
  */
-export function HsDialogHeader({ onClose, sub, actions, children }) {
+export function HsDialogHeader({ onClose, sub, actions, icon: Icon, center, children }) {
   const titleId = useContext(TitleContext);
   const title = <h2 id={titleId}>{children}</h2>;
   // no onClose = a dialog that has to be completed first: no close button
@@ -104,7 +105,9 @@ export function HsDialogHeader({ onClose, sub, actions, children }) {
   ) : null;
   return (
     <div className="modal-header-hs">
-      {sub ? <div>{title}{sub}</div> : title}
+      {Icon && <span className="modal-ico-hs"><Icon size={20} aria-hidden="true" /></span>}
+      <div className="modal-title-wrap-hs">{title}{sub}</div>
+      {center && <div className="modal-center-hs">{center}</div>}
       {actions ? <div className="modal-header-actions-hs">{actions}{close}</div> : close}
     </div>
   );

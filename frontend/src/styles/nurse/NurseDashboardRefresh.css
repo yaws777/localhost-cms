@@ -1,0 +1,358 @@
+/* ==========================================================================
+   INTERFACE REFRESH: stat cards, quick-action tiles, icon-only buttons,
+   one tabbed analytics panel with micro-interactions.
+   Loaded after NurseDashboard.css, so it overrides it.
+   ========================================================================== */
+
+:root {
+  --nd-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --nd-shadow-1: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.08);
+  --nd-shadow-2: 0 10px 28px rgba(16, 24, 40, 0.14);
+  --nd-field-border: #8792a5;
+  --nd-tab-active-bg: var(--sti-blue-primary);
+}
+
+:root[data-theme="dark"] {
+  --nd-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --nd-shadow-2: 0 10px 28px rgba(0, 0, 0, 0.5);
+  --nd-field-border: #8a9ab0;
+  --nd-tab-active-bg: var(--sti-blue-dark);
+}
+
+@keyframes nd-rise {
+  from { opacity: 0; transform: translateY(0.75rem); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes nd-panel-in {
+  from { opacity: 0; transform: translateY(0.6rem); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes nd-wiggle {
+  0% { transform: scale(0.6) rotate(-20deg); }
+  60% { transform: scale(1.2) rotate(6deg); }
+  100% { transform: none; }
+}
+
+/* Stat cards: flat top, count-up number, chevron nudge */
+.overview-cards-grid-nd { gap: 1rem; }
+
+.overview-card-nd {
+  position: relative;
+  border-radius: 1rem;
+  border-top: 1px solid var(--border-color);
+  box-shadow: var(--nd-shadow-1);
+  padding: 1.1rem;
+  animation: nd-rise 0.55s var(--nd-ease) both;
+  transition: transform 0.25s var(--nd-ease), box-shadow 0.25s var(--nd-ease), border-color 0.2s;
+}
+
+.overview-card-nd:nth-child(2) { animation-delay: 70ms; }
+.overview-card-nd:nth-child(3) { animation-delay: 140ms; }
+.overview-card-nd:nth-child(4) { animation-delay: 210ms; }
+
+.overview-card-nd:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--nd-shadow-2);
+  border-color: var(--text-brand);
+}
+
+.overview-card-nd:active { transform: translateY(-1px) scale(0.99); }
+
+.overview-card-nd:focus-visible {
+  outline: 0.1875rem solid var(--focus-ring);
+  outline-offset: 0.125rem;
+}
+
+.stat-card-blue-nd,
+.stat-card-orange-nd,
+.stat-card-red-nd,
+.stat-card-green-nd { border-top: 1px solid var(--border-color); }
+
+.stat-card-label-nd { text-transform: none; letter-spacing: 0; }
+
+.stat-card-number-nd {
+  font-size: 2.25rem;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  margin: 0.15rem 0 0;
+}
+
+.stat-icon-wrapper-nd {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 0.75rem;
+  transition: transform 0.3s var(--nd-ease);
+}
+
+.overview-card-nd:hover .stat-icon-wrapper-nd { transform: rotate(-6deg) scale(1.08); }
+
+.stat-card-footer-nd { border-top: 0; padding-top: 0; margin-top: 0.9rem; padding-right: 2rem; }
+
+.stat-pill-nd { border-radius: 999px; padding: 0.15rem 0.6rem; border-color: transparent; }
+
+.overview-card-view-all-nd {
+  position: absolute;
+  right: 0.9rem;
+  bottom: 0.9rem;
+  margin: 0;
+  color: var(--text-secondary);
+  transition: transform 0.25s var(--nd-ease), color 0.2s;
+}
+
+.overview-card-nd:hover .overview-card-view-all-nd {
+  transform: translateX(0.25rem);
+  color: var(--text-brand);
+}
+
+/* Quick actions: icon-only tiles, the name shows on hover / focus */
+.quick-actions-section-nd .quick-actions-grid-nd {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: minmax(6rem, 1fr);
+  gap: 0.75rem;
+}
+
+.quick-action-card-nd {
+  position: relative;
+  justify-content: center;
+  align-items: center;
+  min-height: 6rem;
+  padding: 0.75rem;
+  color: var(--text-brand);
+  background: var(--bg-subtle);
+  border: 1px solid var(--card-border);
+  border-radius: 1rem;
+  transition: transform 0.25s var(--nd-ease), background 0.2s, box-shadow 0.25s;
+}
+
+.quick-action-card-nd svg { transition: transform 0.3s var(--nd-ease); }
+
+.quick-action-card-nd:hover {
+  background: var(--sti-blue-light);
+  border-color: var(--card-border);
+  transform: translateY(-3px);
+  box-shadow: var(--nd-shadow-2);
+}
+
+.quick-action-card-nd:hover svg { transform: scale(1.15) rotate(-5deg); }
+.quick-action-card-nd:active { transform: scale(0.96); }
+
+.quick-action-card-nd::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 50%;
+  bottom: 0.5rem;
+  transform: translate(-50%, 0.4rem);
+  opacity: 0;
+  white-space: nowrap;
+  background: var(--nd-tab-active-bg);
+  color: var(--text-on-brand);
+  font-size: 0.875rem;
+  font-weight: 600;
+  padding: 0.15rem 0.6rem;
+  border-radius: 0.5rem;
+  pointer-events: none;
+  transition: opacity 0.2s, transform 0.2s var(--nd-ease);
+}
+
+.quick-action-card-nd:hover::after,
+.quick-action-card-nd:focus-visible::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+@media (hover: none) {
+  .quick-action-card-nd::after {
+    opacity: 1;
+    transform: translate(-50%, 0);
+    background: transparent;
+    color: var(--text-secondary);
+    font-weight: 500;
+    bottom: 0.35rem;
+  }
+  .quick-action-card-nd svg { margin-bottom: 0.9rem; }
+}
+
+/* Icon-only buttons (export, view all, toggles) */
+.icon-only-nd {
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  height: 2.75rem;
+  padding: 0;
+  justify-content: center;
+  border-radius: 0.75rem;
+  transition: background 0.15s, transform 0.15s, box-shadow 0.15s;
+}
+
+.icon-only-nd:hover { transform: translateY(-1px); }
+.icon-only-nd:active { transform: scale(0.94); }
+
+.view-more-toggle-btn-nd.icon-only-nd {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 0.5rem;
+}
+
+/* Filters: 2.75rem targets, visible field borders, rem units */
+.filter-input-nd {
+  height: 2.75rem;
+  border-radius: 0.75rem;
+  border-color: var(--nd-field-border);
+  color: var(--text-primary);
+  font-size: 0.9375rem;
+  padding: 0 0.75rem;
+}
+
+.filter-input-nd:focus-visible {
+  outline: 0.1875rem solid var(--focus-ring);
+  outline-offset: 0.125rem;
+}
+
+.filter-select-nd { min-width: 11rem; }
+
+/* Analytics panel + tabs */
+.analytics-panel-nd {
+  background: var(--bg-card);
+  border: 1px solid var(--card-border);
+  border-radius: 1rem;
+  box-shadow: var(--nd-shadow-1);
+  overflow: hidden;
+}
+
+.analytics-tabbar-nd {
+  padding: 1rem 1.1rem;
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--card-border);
+}
+
+.analytics-tabs-nd {
+  position: relative;
+  display: inline-flex;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  max-width: 100%;
+  background: var(--bg-muted);
+  border-radius: 0.9rem;
+}
+
+.analytics-tab-pill-nd {
+  position: absolute;
+  top: 0.25rem;
+  bottom: 0.25rem;
+  left: 0;
+  z-index: 0;
+  border-radius: 0.65rem;
+  background: var(--nd-tab-active-bg);
+  box-shadow: var(--nd-shadow-1);
+  transition: transform 0.4s var(--nd-ease), width 0.4s var(--nd-ease);
+}
+
+.analytics-tab-nd {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  padding: 0 1rem;
+  border: 0;
+  border-radius: 0.65rem;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.25s;
+}
+
+.analytics-tab-nd svg { transition: transform 0.3s var(--nd-ease); }
+.analytics-tab-nd:hover svg { transform: scale(1.18); }
+.analytics-tab-nd[aria-selected="true"] { color: var(--text-on-brand); }
+.analytics-tab-nd[aria-selected="true"] svg { animation: nd-wiggle 0.5s var(--nd-ease); }
+
+.analytics-tab-nd:focus-visible {
+  outline: 0.1875rem solid var(--focus-ring);
+  outline-offset: 0.125rem;
+}
+
+.analytics-tabpanel-nd {
+  padding: 1.1rem;
+  animation: nd-panel-in 0.45s var(--nd-ease) both;
+}
+
+.analytics-tabpanel-nd .graph-container-nd { border-radius: 1rem; margin-bottom: 1rem; }
+
+/* Hovering a bar lifts it and dims its neighbours; the tooltip fades in */
+.chart-wrapper-nd .recharts-bar-rectangle { transition: opacity 0.2s, filter 0.2s; }
+
+.chart-wrapper-nd:has(.recharts-bar-rectangle:hover) .recharts-bar-rectangle:not(:hover) { opacity: 0.55; }
+
+.chart-wrapper-nd .recharts-bar-rectangle:hover { filter: brightness(1.1); }
+
+.custom-chart-tooltip-nd { animation: nd-panel-in 0.16s var(--nd-ease) both; }
+
+/* Averages / totals / compare cards rise in one after another and lift on hover */
+.average-badge-card-nd {
+  min-height: 2.75rem;
+  animation: nd-rise 0.45s var(--nd-ease) both;
+  transition: transform 0.2s var(--nd-ease), box-shadow 0.2s, border-color 0.2s;
+}
+
+.average-badge-card-nd:nth-child(2) { animation-delay: 45ms; }
+.average-badge-card-nd:nth-child(3) { animation-delay: 90ms; }
+.average-badge-card-nd:nth-child(4) { animation-delay: 135ms; }
+.average-badge-card-nd:nth-child(5) { animation-delay: 180ms; }
+.average-badge-card-nd:nth-child(n+6) { animation-delay: 225ms; }
+
+.average-badge-card-nd:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--nd-shadow-1);
+  border-color: var(--text-brand);
+}
+
+.forecast-compare-item-nd {
+  animation: nd-rise 0.5s var(--nd-ease) both;
+  transition: transform 0.25s var(--nd-ease), box-shadow 0.25s, border-color 0.2s;
+}
+
+.forecast-compare-item-nd:nth-child(2) { animation-delay: 60ms; }
+.forecast-compare-item-nd:nth-child(3) { animation-delay: 120ms; }
+.forecast-compare-item-nd:nth-child(4) { animation-delay: 180ms; }
+.forecast-compare-item-nd:nth-child(5) { animation-delay: 240ms; }
+.forecast-compare-item-nd:nth-child(6) { animation-delay: 300ms; }
+
+.forecast-compare-item-nd:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--nd-shadow-2);
+  border-color: var(--text-brand);
+}
+
+.alert-card-nd { transition: transform 0.25s var(--nd-ease), box-shadow 0.25s; }
+.alert-card-nd:hover { transform: translateY(-3px); box-shadow: var(--nd-shadow-2); }
+
+@media (max-width: 40rem) {
+  .analytics-tabs-nd { width: 100%; }
+  .analytics-tab-nd { flex: 1; flex-direction: column; gap: 0.1rem; padding: 0.35rem 0.25rem; font-size: 0.875rem; }
+  .analytics-tabbar-nd,
+  .analytics-tabpanel-nd { padding: 0.75rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overview-card-nd,
+  .average-badge-card-nd,
+  .forecast-compare-item-nd,
+  .analytics-tabpanel-nd,
+  .custom-chart-tooltip-nd,
+  .analytics-tab-nd[aria-selected="true"] svg { animation: none; }
+
+  .analytics-tab-pill-nd,
+  .overview-card-nd,
+  .quick-action-card-nd,
+  .quick-action-card-nd svg,
+  .average-badge-card-nd,
+  .forecast-compare-item-nd { transition: none; }
+}

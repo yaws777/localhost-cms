@@ -13,6 +13,17 @@
     color: var(--text-primary);
 }
 
+/* Parent layout (.page-content) already pads 40px: use the full width there. */
+.page-content:has(> .hrp-page) {
+    padding: 0.75rem 1rem 1.5rem;
+}
+
+.page-content > .hrp-page {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+}
+
 .hrp-page :focus-visible {
     outline: 0.1875rem solid var(--sti-blue-primary);
     outline-offset: 0.125rem;
@@ -204,18 +215,6 @@
     border-radius: 0.25rem;
     background: rgba(0, 0, 0, 0.3);
     font-family: var(--font-mono);
-    font-weight: 700;
-}
-
-.hrp-lock {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.375rem;
-    padding: 0.375rem 0.75rem;
-    border-radius: 0.5rem;
-    background: var(--sti-yellow);
-    color: var(--sti-blue-dark);
-    font-size: 0.875rem;
     font-weight: 700;
 }
 
@@ -502,7 +501,7 @@
 .hrp-backdrop {
     position: fixed;
     inset: 0;
-    z-index: 9999;
+    z-index: 1500;
     display: grid;
     place-items: center;
     padding: 1rem;
@@ -562,6 +561,79 @@
     padding: 0.75rem 1.25rem;
     background: var(--bg-subtle);
     border-top: 0.0625rem solid var(--card-border);
+}
+
+/* ---- requirement edit form ---- */
+.hrp-btn-text.ghost {
+    background: var(--bg-card);
+    color: var(--sti-blue-primary);
+    border-color: var(--sti-blue-primary);
+}
+
+.hrp-btn-text:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.hrp-modal-foot-split {
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.hrp-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+}
+
+.hrp-form-name {
+    margin: 0 0 0.5rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.hrp-form label {
+    margin-top: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.hrp-form select,
+.hrp-form input[type="date"],
+.hrp-form textarea {
+    width: 100%;
+    min-height: 2.75rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.5rem;
+    border: 0.0625rem solid var(--text-secondary);
+    background: var(--bg-card);
+    color: var(--text-primary);
+    font: inherit;
+}
+
+.hrp-form textarea {
+    resize: vertical;
+}
+
+.hrp-form .hrp-check {
+    min-height: 2.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    font-weight: 500;
+}
+
+.hrp-form .hrp-check input {
+    width: 1.25rem;
+    height: 1.25rem;
+    accent-color: var(--sti-blue-primary);
+}
+
+.hrp-form :focus-visible,
+.hrp-modal-foot :focus-visible {
+    outline: 0.1875rem solid var(--sti-blue-primary);
+    outline-offset: 0.125rem;
 }
 
 /* ---- print report ---- */

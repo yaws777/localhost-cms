@@ -18,6 +18,15 @@ const CONDITION_FILTERS = [
 ];
 const WARN_CHIP = /^(Allergies|Asthma|Heart|Blood|Seizures|Kidney|Metabolic)/i;
 
+// "BSIT - 4B": program + year level + section (section may already carry the year, e.g. "4B")
+const programClassLabel = (student) => {
+    const prog = student.program_id || 'N/A';
+    const year = student.year_level ? String(student.year_level) : '';
+    const sec = student.section ? String(student.section).trim() : '';
+    const yearSec = year && sec.startsWith(year) ? sec : `${year}${sec}`;
+    return yearSec ? `${prog} - ${yearSec}` : prog;
+};
+
 export default function HealthRecord() {
     const navigate = useNavigate();
     const { showAlert } = useAlert();
@@ -274,7 +283,14 @@ export default function HealthRecord() {
         return chips.some((c) => def.re.test(c));
     };
 
-    const visibleStudents = filteredStudents.filter((s) => matchesCondition(s, conditionFilter));
+    // chips shown only when at least one student has a condition; zero-count chips are hidden
+    const conditionChips = CONDITION_FILTERS
+        .map((f) => ({ ...f, count: filteredStudents.filter((s) => matchesCondition(s, f.key)).length }))
+        .filter((f) => f.key === 'all' || f.count > 0);
+    const hasAnyCondition = filteredStudents.some((s) => chipsOf(s).length > 0);
+    const activeCondition = conditionChips.some((f) => f.key === conditionFilter) ? conditionFilter : 'all';
+
+    const visibleStudents = filteredStudents.filter((s) => matchesCondition(s, activeCondition));
 
     // Print Preview PDF Export with Course/Strand Summary
     const handleExportPDF = () => {
@@ -309,9 +325,7 @@ export default function HealthRecord() {
             const stId = student.student_id || 'N/A';
             const lastName = student.last_name || 'N/A';
             const firstName = student.first_name || 'N/A';
-            const prog = student.program_id || 'N/A';
-            const yearLvl = student.year_level ? `Year ${student.year_level}` : 'N/A';
-            const sec = student.section || 'N/A';
+            const prog = programClassLabel(student);
             const historyText = formatHealthHistory(student);
 
             return `
@@ -320,8 +334,6 @@ export default function HealthRecord() {
                     <td><strong>${lastName}</strong></td>
                     <td>${firstName}</td>
                     <td>${prog}</td>
-                    <td>${yearLvl}</td>
-                    <td>${sec}</td>
                     <td>${historyText}</td>
                 </tr>
             `;
@@ -481,13 +493,11 @@ export default function HealthRecord() {
                             <th>Last Name</th>
                             <th>First Name</th>
                             <th>Program</th>
-                            <th>Year Level</th>
-                            <th>Section</th>
                             <th>Health History</th>
                         </tr>
                     </thead>
                     <tbody>
-                        ${tableRowsHtml || '<tr><td colspan="7">No student health records found matching criteria.</td></tr>'}
+                        ${tableRowsHtml || '<tr><td colspan="5">No student health records found matching criteria.</td></tr>'}
                     </tbody>
                 </table>
 
@@ -625,23 +635,23 @@ export default function HealthRecord() {
                     </div>
                 </div>
 
-                <div className="condition-chips" role="group" aria-label="Health condition">
-                    <span className="condition-chips-label">Condition</span>
-                    {CONDITION_FILTERS.map((f) => (
-                        <button
-                            key={f.key}
-                            type="button"
-                            className={`condition-chip ${conditionFilter === f.key ? 'active' : ''}`}
-                            aria-pressed={conditionFilter === f.key}
-                            onClick={() => setConditionFilter(f.key)}
-                        >
-                            {f.label}
-                            <span className="condition-chip-count">
-                                {filteredStudents.filter((s) => matchesCondition(s, f.key)).length}
-                            </span>
-                        </button>
-                    ))}
-                </div>
+                {hasAnyCondition && (
+                    <div className="condition-chips" role="group" aria-label="Health condition">
+                        <span className="condition-chips-label">Condition</span>
+                        {conditionChips.map((f) => (
+                            <button
+                                key={f.key}
+                                type="button"
+                                className={`condition-chip ${activeCondition === f.key ? 'active' : ''}`}
+                                aria-pressed={activeCondition === f.key}
+                                onClick={() => setConditionFilter(f.key)}
+                            >
+                                {f.label}
+                                <span className="condition-chip-count">{f.count}</span>
+                            </button>
+                        ))}
+                    </div>
+                )}
             </div>
 
             {errorMsg && <div className="error-message">{errorMsg}</div>}
@@ -662,7 +672,6 @@ export default function HealthRecord() {
                                 <tr>
                                     <th>Student</th>
                                     <th>Program</th>
-                                    <th>Year / Section</th>
                                     <th>Health History</th>
                                     <th className="action-col">Actions</th>
                                 </tr>
@@ -687,11 +696,8 @@ export default function HealthRecord() {
                                         </td>
                                         <td>
                                             <span className="program-tag-badge">
-                                                {student.program_id}
+                                                {programClassLabel(student)}
                                             </span>
-                                        </td>
-                                        <td>
-                                            {student.year_level ? `Year ${student.year_level}` : 'N/A'} / {student.section || 'N/A'}
                                         </td>
                                         <td>
                                             <span className="history-chips">

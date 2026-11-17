@@ -1,16 +1,19 @@
 // ScreeningParticipantsModal.jsx
 // View and edit the participants of an upcoming health screening. The working list starts as the saved participants and Save sends the whole list.
+// Two panes: the current participants (a removed student stays in the list, marked, until Save, and can be undone)
+// and the students to add.
 // - A screening is for one class (same program, year level and section): the picker is locked to the class of the participants,
-//   or asks for the program, year and section first.
+//   or asks for the program, year and section first. A screening in a custom folder takes students from any class.
 // - A make-up session only shows the students who were absent from the screening it makes up. Those can be added back with one click,
 //   and any other student of the same class can be found by name or ID.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { UserMinus, UserPlus, Save, Search } from 'lucide-react';
+import { UserMinus, UserPlus, Save, Search, RotateCcw, Users, AlertTriangle } from 'lucide-react';
 import { Pager, paginate } from '../common/RecordFolders';
 import { classLabel } from '../../utils/scheduling';
+import { formatDate } from '../../utils/datetime';
 import { HsDialog, HsDialogHeader } from './HsDialog';
 
-const PER_PAGE = 8;
+const PER_PAGE = 40;
 const SEARCH_LIMIT = 8;
 const fullName = (st) => `${st.first_name || ''} ${st.last_name || ''}`.trim();
 const classKey = (st) => `${st.program_id}|${st.year_level}|${st.section}`;
@@ -18,17 +21,18 @@ const toMember = (st) => ({
   student_id: st.student_id, first_name: st.first_name, last_name: st.last_name,
   program_id: st.program_id, program_name: st.program_name, year_level: st.year_level, section: st.section
 });
+const initialsOf = (st) => `${(st.first_name || '').charAt(0)}${(st.last_name || '').charAt(0)}`.toUpperCase();
 
 export default function ScreeningParticipantsModal({ schedule, programs, apiBase, senderId, onClose, onSaved, showAlert, showConfirm }) {
   const scheduleId = schedule.screening_schedule_id;
   const isMakeup = !!schedule.makeup_of;
   const isCustom = !!schedule.folder_id; // custom folder: students from any class
   const [members, setMembers] = useState([]);
+  const [savedList, setSavedList] = useState([]);
   const [savedIds, setSavedIds] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [memberSearch, setMemberSearch] = useState('');
-  const [memberPage, setMemberPage] = useState(1);
 
   const [filters, setFilters] = useState({ program_id: '', year_level: '', section: '' });
   const [pickerSearch, setPickerSearch] = useState('');
@@ -52,6 +56,7 @@ export default function ScreeningParticipantsModal({ schedule, programs, apiBase
         if (cancelled) return;
         const list = (data.students || []).map(toMember);
         setMembers(list);
+        setSavedList(list);
         setSavedIds(list.map((s) => s.student_id));
       } catch (err) {
         if (!cancelled) alertRef.current(err.message || 'Could not load the participants.', 'Error', 'error');
@@ -136,11 +141,15 @@ export default function ScreeningParticipantsModal({ schedule, programs, apiBase
       .slice(0, SEARCH_LIMIT);
   }, [isMakeup, addSearch, pool, memberIds, lockedClass]);
 
-  const memberData = useMemo(() => {
+  // left pane: the saved students and the new ones; a removed student stays in place (marked) so it can be undone
+  const currentRows = useMemo(() => {
+    const byId = new Map();
+    savedList.forEach((m) => byId.set(m.student_id, m));
+    members.forEach((m) => { if (!byId.has(m.student_id)) byId.set(m.student_id, m); });
     const q = memberSearch.trim().toLowerCase();
-    const list = members.filter((m) => !q || `${fullName(m)} ${m.student_id} ${m.program_name || ''} ${m.section || ''}`.toLowerCase().includes(q));
-    return paginate(list, memberPage, PER_PAGE);
-  }, [members, memberSearch, memberPage]);
+    return [...byId.values()].filter((m) => !q || `${fullName(m)} ${m.student_id} ${m.program_name || ''} ${m.section || ''}`.toLowerCase().includes(q));
+  }, [savedList, members, memberSearch]);
+
   const pickerData = useMemo(() => paginate(visiblePool, pickerPage, PER_PAGE), [visiblePool, pickerPage]);
 
   const toggle = (st, on) => {
@@ -155,6 +164,8 @@ export default function ScreeningParticipantsModal({ schedule, programs, apiBase
   const added = members.filter((m) => !savedIds.includes(m.student_id)).length;
   const removed = savedIds.filter((id) => !memberIds.has(id)).length;
   const changed = added + removed > 0;
+
+  const undoAll = () => setMembers(savedList);
 
   // unsaved picks are not lost by a stray Esc or Close
   const requestClose = () => {
@@ -195,8 +206,8 @@ export default function ScreeningParticipantsModal({ schedule, programs, apiBase
         onClose={requestClose}
         sub={(
           <p className="modal-sub-hs" role="status">
-            {members.length} student{members.length === 1 ? '' : 's'}
-            {changed && ` (${added} to add, ${removed} to remove - not saved yet)`}
+            <Users size={14} aria-hidden="true" /> {members.length} student{members.length === 1 ? '' : 's'}
+            {schedule.scheduled_date ? ` · ${formatDate(String(schedule.scheduled_date).split('T')[0])}` : ''}
           </p>
         )}
       >
@@ -204,177 +215,191 @@ export default function ScreeningParticipantsModal({ schedule, programs, apiBase
       </HsDialogHeader>
 
       <div className="modal-body-hs">
-        <span className="list-title-hs">Current participants</span>
-        <div className="form-group-hs">
-          <label htmlFor="part-member-search-hs">Search participants</label>
-          <input
-            id="part-member-search-hs"
-            type="text"
-            placeholder="Name, ID, program or section"
-            value={memberSearch}
-            onChange={(e) => { setMemberSearch(e.target.value); setMemberPage(1); }}
-          />
+        <div className={`pk-strip-hs${changed ? ' changed-hs' : ''}`} role="status">
+          {changed ? (
+            <>
+              <span className="pk-strip-title-hs"><AlertTriangle size={16} aria-hidden="true" /> Not saved</span>
+              <span className="chip-hs chip-info-hs">+{added} added</span>
+              <span className="chip-hs chip-bad-hs">-{removed} removed</span>
+              <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs pk-strip-undo-hs" onClick={undoAll} aria-label="Undo all changes" title="Undo all changes">
+                <RotateCcw size={18} aria-hidden="true" />
+              </button>
+            </>
+          ) : (
+            <span className="pk-count-hs pk-strip-none-hs">No changes</span>
+          )}
         </div>
-        <div className="table-wrapper-hs">
-          <table className="table-hs">
-            <thead>
-              <tr><th scope="col">Student Name</th><th scope="col">Class</th><th scope="col">Action</th></tr>
-            </thead>
-            <tbody>
+
+        <div className="pk-panes-hs pk-two-hs pk-even-hs">
+          {/* LEFT: current participants */}
+          <section className="pk-find-hs" aria-label="Current participants">
+            <h3 className="pk-pane-title-hs">Current</h3>
+            <div className="pk-search-hs">
+              <Search size={18} aria-hidden="true" />
+              <input
+                id="part-member-search-hs"
+                type="search"
+                aria-label="Search participants"
+                placeholder="Name, ID, program or section"
+                value={memberSearch}
+                onChange={(e) => setMemberSearch(e.target.value)}
+              />
+            </div>
+            <div className="pk-list-hs pk-tall-hs">
               {loading ? (
-                <tr><td colSpan="3" className="empty-table-msg-hs" role="status">Loading participants...</td></tr>
-              ) : memberData.total === 0 ? (
-                <tr><td colSpan="3" className="empty-table-msg-hs">{members.length === 0 ? 'No participants. Add students below.' : 'No participants match your search.'}</td></tr>
-              ) : memberData.items.map((m) => (
-                <tr key={m.student_id}>
-                  <td>{fullName(m)}{!savedIds.includes(m.student_id) && ' (new)'}</td>
-                  <td>{classText(m) || '-'}</td>
-                  <td>
-                    <button type="button" className="btn-hs btn-danger-hs" onClick={() => toggle(m, false)} aria-label={`Remove ${fullName(m)}`}>
-                      <UserMinus size={16} aria-hidden="true" /> Remove
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <Pager page={memberData.page} pageCount={memberData.pageCount} total={memberData.total} pageSize={PER_PAGE} onPage={setMemberPage} noun="participants" />
+                <div className="pk-empty-hs" role="status">Loading participants...</div>
+              ) : currentRows.length === 0 ? (
+                <div className="pk-empty-hs">
+                  <Search size={24} aria-hidden="true" />
+                  {members.length === 0 && savedList.length === 0 ? 'No participants yet' : 'No match'}
+                </div>
+              ) : currentRows.map((m) => {
+                const isNew = !savedIds.includes(m.student_id) && memberIds.has(m.student_id);
+                const isRemoved = savedIds.includes(m.student_id) && !memberIds.has(m.student_id);
+                return (
+                  <div key={m.student_id} className={`pk-row-hs pk-picked-hs${isRemoved ? ' rm-hs' : ''}${isNew ? ' on-hs' : ''}`}>
+                    <span className="pk-avatar-hs" aria-hidden="true">{initialsOf(m)}</span>
+                    <span className="pk-name-hs">
+                      <span className="pk-name-main-hs">{fullName(m)}</span>
+                      <span className="pk-id-hs">{classText(m) || '-'} &middot; {m.student_id}</span>
+                    </span>
+                    {isNew && <span className="chip-hs chip-info-hs">New</span>}
+                    {isRemoved && <span className="chip-hs chip-bad-hs">Removing</span>}
+                    {isRemoved ? (
+                      <button type="button" className="btn-hs btn-icon-hs" onClick={() => toggle(m, true)} aria-label={`Undo remove ${fullName(m)}`} title="Undo">
+                        <RotateCcw size={18} aria-hidden="true" />
+                      </button>
+                    ) : (
+                      <button type="button" className="btn-hs btn-icon-hs pk-remove-hs" onClick={() => toggle(m, false)} aria-label={`Remove ${fullName(m)}`} title="Remove">
+                        <UserMinus size={18} aria-hidden="true" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
 
-        {isMakeup ? (
-          <>
-            <span className="list-title-hs picker-title-hs">Absent from the recent screening ({absentToAdd.length} not in this make-up)</span>
-            <div className="table-wrapper-hs">
-              <table className="table-hs">
-                <thead>
-                  <tr><th scope="col">Student Name</th><th scope="col">Class</th><th scope="col">Action</th></tr>
-                </thead>
-                <tbody>
+          {/* RIGHT: students to add */}
+          <section className="pk-tray-hs" aria-label="Add students">
+            <h3 className="pk-pane-title-hs">Add students</h3>
+            {isMakeup ? (
+              <>
+                <div className="pk-list-hs">
+                  <div className="pk-sub-hs">Absent from the recent screening ({absentToAdd.length} not in this make-up)</div>
                   {absenteesLoading ? (
-                    <tr><td colSpan="3" className="empty-table-msg-hs" role="status">Loading absent students...</td></tr>
+                    <div className="pk-empty-hs" role="status">Loading absent students...</div>
                   ) : absentToAdd.length === 0 ? (
-                    <tr><td colSpan="3" className="empty-table-msg-hs">{absentees.length === 0 ? 'No student was absent from the recent screening.' : 'Every absent student is already in this make-up.'}</td></tr>
+                    <div className="pk-empty-hs">{absentees.length === 0 ? 'No student was absent' : 'Every absent student is in'}</div>
                   ) : absentToAdd.map((st) => (
-                    <tr key={st.student_id}>
-                      <td>{fullName(st)}</td>
-                      <td>{classText(st)}</td>
-                      <td>
-                        <button type="button" className="btn-hs btn-secondary-hs" onClick={() => toggle(st, true)} aria-label={`Add ${fullName(st)}`}>
-                          <UserPlus size={16} aria-hidden="true" /> Add
-                        </button>
-                      </td>
-                    </tr>
+                    <div key={st.student_id} className="pk-row-hs pk-picked-hs">
+                      <span className="pk-avatar-hs" aria-hidden="true">{initialsOf(st)}</span>
+                      <span className="pk-name-hs">
+                        <span className="pk-name-main-hs">{fullName(st)}</span>
+                        <span className="pk-id-hs">{classText(st)}</span>
+                      </span>
+                      <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => toggle(st, true)} aria-label={`Add ${fullName(st)}`} title="Add">
+                        <UserPlus size={18} aria-hidden="true" />
+                      </button>
+                    </div>
                   ))}
-                </tbody>
-              </table>
-            </div>
+                </div>
 
-            <span className="list-title-hs picker-title-hs">Add another student</span>
-            <div className="form-group-hs">
-              <label htmlFor="part-add-search-hs">Find a student by name or student ID</label>
-              <div className="folder-search-hs">
-                <Search size={16} aria-hidden="true" />
-                <input id="part-add-search-hs" type="text" placeholder="Type at least 2 letters" value={addSearch} onChange={(e) => setAddSearch(e.target.value)} />
-              </div>
-            </div>
-            {addSearch.trim().length >= 2 && (
-              <ul className="add-results-hs" aria-label="Matching students">
-                {addMatches.length === 0 ? (
-                  <li className="hint-hs">No student found{lockedClass ? ' in the same program, year level and section' : ''}.</li>
-                ) : addMatches.map((st) => (
-                  <li key={st.student_id}>
-                    <span>{fullName(st)} <span className="sub-note-hs">{st.student_id} - {classText(st)}</span></span>
-                    <button type="button" className="btn-hs btn-secondary-hs" onClick={() => { toggle(st, true); setAddSearch(''); }} aria-label={`Add ${fullName(st)}`}>
-                      <UserPlus size={16} aria-hidden="true" /> Add
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </>
-        ) : (
-          <>
-            <span className="list-title-hs picker-title-hs">Add students</span>
-            <p className="picker-note-hs">
-              {isCustom
-                ? 'This screening is in a custom folder, so students from any program, year level and section can be added. Use the filters only to find students; tick the ones to add. Unticking a student removes them.'
-                : lockedClass
-                ? 'A screening is for one class, so only students of the same program, year level and section can be added. Tick the ones to add; unticking a student removes them.'
-                : 'Choose the program, year level and section to list the students, then tick the ones to add. Unticking a student removes them.'}
-            </p>
-            <div className="picker-bar-hs">
-              <div className="form-group-hs">
-                <label htmlFor="part-program-hs">Academic Program</label>
-                <select id="part-program-hs" disabled={!!lockedClass} value={activeFilters.program_id} onChange={(e) => { setFilters({ program_id: e.target.value, year_level: '', section: '' }); setPickerPage(1); }}>
-                  <option value="">{isCustom ? '-- All programs --' : '-- Select program --'}</option>
-                  {programs.map((p) => <option key={p.program_id} value={p.program_id}>{p.program_name}</option>)}
-                </select>
-              </div>
-              <div className="form-group-hs">
-                <label htmlFor="part-year-hs">Year Level</label>
-                <select id="part-year-hs" disabled={!!lockedClass || (!isCustom && !activeFilters.program_id)} value={activeFilters.year_level} onChange={(e) => { setFilters({ ...filters, year_level: e.target.value, section: '' }); setPickerPage(1); }}>
-                  <option value="">{isCustom ? '-- All year levels --' : '-- Select year --'}</option>
-                  <option value="1">1st Year</option>
-                  <option value="2">2nd Year</option>
-                  {String(programs.find((p) => p.program_id === activeFilters.program_id)?.type || '').toLowerCase() !== 'strand' && (
-                    <>
-                      <option value="3">3rd Year</option>
-                      <option value="4">4th Year</option>
-                    </>
-                  )}
-                </select>
-              </div>
-              <div className="form-group-hs">
-                <label htmlFor="part-section-hs">Section</label>
-                <select id="part-section-hs" disabled={!!lockedClass || (!isCustom && !activeFilters.year_level)} value={activeFilters.section} onChange={(e) => { setFilters({ ...filters, section: e.target.value }); setPickerPage(1); }}>
-                  <option value="">{isCustom ? '-- All sections --' : '-- Select section --'}</option>
-                  {(lockedClass ? [lockedClass.section] : sections).map((sec) => <option key={sec} value={sec}>{sec}</option>)}
-                </select>
-              </div>
-              <div className="form-group-hs">
-                <label htmlFor="part-search-hs">Search student</label>
-                <input id="part-search-hs" type="text" placeholder="Name or student ID" value={pickerSearch} onChange={(e) => { setPickerSearch(e.target.value); setPickerPage(1); }} />
-              </div>
-            </div>
-            <div className="table-wrapper-hs">
-              <table className="table-hs">
-                <thead>
-                  <tr>
-                    <th scope="col" className="col-checkbox-hs">
-                      <input
-                        type="checkbox"
-                        checked={allVisibleOn}
-                        disabled={visiblePool.length === 0}
-                        onChange={(e) => toggleAllVisible(e.target.checked)}
-                        aria-label="Add or remove all matching students"
-                      />
-                    </th>
-                    <th scope="col">Student Name</th><th scope="col">Class</th>
-                  </tr>
-                </thead>
-                <tbody>
+                <div className="pk-search-hs">
+                  <Search size={18} aria-hidden="true" />
+                  <input id="part-add-search-hs" type="search" aria-label="Find another student by name or ID" placeholder="Another student: name or ID" value={addSearch} onChange={(e) => setAddSearch(e.target.value)} />
+                </div>
+                {addSearch.trim().length >= 2 && (
+                  <div className="pk-list-hs" aria-label="Matching students">
+                    {addMatches.length === 0 ? (
+                      <div className="pk-empty-hs">No student found{lockedClass ? ' in the same class' : ''}</div>
+                    ) : addMatches.map((st) => (
+                      <div key={st.student_id} className="pk-row-hs pk-picked-hs">
+                        <span className="pk-avatar-hs" aria-hidden="true">{initialsOf(st)}</span>
+                        <span className="pk-name-hs">
+                          <span className="pk-name-main-hs">{fullName(st)}</span>
+                          <span className="pk-id-hs">{st.student_id} &middot; {classText(st)}</span>
+                        </span>
+                        <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => { toggle(st, true); setAddSearch(''); }} aria-label={`Add ${fullName(st)}`} title="Add">
+                          <UserPlus size={18} aria-hidden="true" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <div className="pk-filters-hs">
+                  <select id="part-program-hs" aria-label="Academic Program" disabled={!!lockedClass} value={activeFilters.program_id} onChange={(e) => { setFilters({ program_id: e.target.value, year_level: '', section: '' }); setPickerPage(1); }}>
+                    <option value="">{isCustom ? 'All programs' : '-- Program --'}</option>
+                    {programs.map((p) => <option key={p.program_id} value={p.program_id}>{p.program_name}</option>)}
+                  </select>
+                  <select id="part-year-hs" aria-label="Year Level" disabled={!!lockedClass || (!isCustom && !activeFilters.program_id)} value={activeFilters.year_level} onChange={(e) => { setFilters({ ...filters, year_level: e.target.value, section: '' }); setPickerPage(1); }}>
+                    <option value="">{isCustom ? 'All years' : '-- Year --'}</option>
+                    <option value="1">1st Year</option>
+                    <option value="2">2nd Year</option>
+                    {String(programs.find((p) => p.program_id === activeFilters.program_id)?.type || '').toLowerCase() !== 'strand' && (
+                      <>
+                        <option value="3">3rd Year</option>
+                        <option value="4">4th Year</option>
+                      </>
+                    )}
+                  </select>
+                  <select id="part-section-hs" aria-label="Section" disabled={!!lockedClass || (!isCustom && !activeFilters.year_level)} value={activeFilters.section} onChange={(e) => { setFilters({ ...filters, section: e.target.value }); setPickerPage(1); }}>
+                    <option value="">{isCustom ? 'All sections' : '-- Section --'}</option>
+                    {(lockedClass ? [lockedClass.section] : sections).map((sec) => <option key={sec} value={sec}>{sec}</option>)}
+                  </select>
+                </div>
+
+                <div className="pk-search-hs">
+                  <Search size={18} aria-hidden="true" />
+                  <input id="part-search-hs" type="search" aria-label="Search by name or ID" placeholder="Name or ID" value={pickerSearch} onChange={(e) => { setPickerSearch(e.target.value); setPickerPage(1); }} />
+                </div>
+
+                <div className="pk-bar-hs">
+                  <label className="pk-all-hs">
+                    <input
+                      type="checkbox"
+                      checked={allVisibleOn}
+                      disabled={visiblePool.length === 0}
+                      onChange={(e) => toggleAllVisible(e.target.checked)}
+                      aria-label="Add or remove all shown students"
+                    />
+                    <span>{visiblePool.length} shown</span>
+                  </label>
+                </div>
+
+                <div className="pk-list-hs">
                   {pickerData.total === 0 ? (
-                    <tr><td colSpan="3" className="empty-table-msg-hs">{(isCustom || activeFilters.section) ? 'No students match the selected filters or search.' : 'Select the program, year level and section to list the students.'}</td></tr>
-                  ) : pickerData.items.map((st) => (
-                    <tr key={st.student_id}>
-                      <td className="col-checkbox-hs">
+                    <div className="pk-empty-hs">
+                      <Search size={24} aria-hidden="true" />
+                      {(isCustom || activeFilters.section) ? 'No match' : 'Pick a class'}
+                    </div>
+                  ) : pickerData.items.map((st) => {
+                    const on = memberIds.has(st.student_id);
+                    return (
+                      <label key={st.student_id} className={`pk-row-hs${on ? ' on-hs' : ''}`}>
                         <input
                           type="checkbox"
                           aria-label={`Include ${fullName(st)}`}
-                          checked={memberIds.has(st.student_id)}
+                          checked={on}
                           onChange={(e) => toggle(st, e.target.checked)}
                         />
-                      </td>
-                      <td>{fullName(st)}</td>
-                      <td>{classText(st)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <Pager page={pickerData.page} pageCount={pickerData.pageCount} total={pickerData.total} pageSize={PER_PAGE} onPage={setPickerPage} noun="students" />
-          </>
-        )}
+                        <span className="pk-name-hs">
+                          <span className="pk-name-main-hs">{fullName(st)}</span>
+                          <span className="pk-id-hs">{st.student_id}</span>
+                        </span>
+                        <span className="chip-hs">{classText(st)}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                <Pager page={pickerData.page} pageCount={pickerData.pageCount} total={pickerData.total} pageSize={PER_PAGE} onPage={setPickerPage} noun="students" />
+              </>
+            )}
+          </section>
+        </div>
       </div>
 
       <div className="modal-footer-hs">

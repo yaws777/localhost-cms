@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useLayoutEffect } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import {
   BarChart,
@@ -36,14 +36,58 @@ import {
   Edit3,
   Trash2,
   FolderHeart,
-  Plus
+  Plus,
+  HeartPulse,
+  TrendingUp
 } from 'lucide-react';
 import DashboardCalendar from '../../components/nurse/DashboardCalendar';
 import stiLogo from '../../assets/sti-logof.png';
 import { formatMonthDay, formatTime as formatTimeBase, formatDate as formatDateBase, formatDateTime as formatDateTimeBase } from '../../utils/datetime';
 import '../../styles/nurse/NurseDashboard.css';
+import '../../styles/nurse/NurseDashboardRefresh.css';
 
-const COLORS = ['#0250A3', '#F59E0B', '#EF4444', '#10B981', '#8B5CF6', '#EC4899', '#3B82F6', '#14B8A6', '#6366F1'];
+// Hues far apart from each other (no two blues / greens / reds that read alike).
+const COLORS = [
+  '#0250A3', // blue
+  '#F59E0B', // amber
+  '#DC2626', // red
+  '#059669', // green
+  '#7C3AED', // violet
+  '#DB2777', // pink
+  '#EA580C', // orange
+  '#0891B2', // cyan
+  '#92400E', // brown
+  '#64748B', // slate
+  '#84CC16', // lime
+  '#C026D3', // fuchsia
+  '#111827', // near black
+  '#A16207'  // olive gold
+];
+
+// One color per item name, kept for good: first come, first served, saved in the
+// browser so the same complaint / medicine has the same color in every filter,
+// period and visit. A color is reused only once all of them are taken.
+const colorRegistry = {};
+const getFixedColor = (scope, name) => {
+  const key = `nurseDashboardChartColors:${scope}`;
+  if (!colorRegistry[scope]) {
+    try {
+      colorRegistry[scope] = JSON.parse(localStorage.getItem(key)) || {};
+    } catch {
+      colorRegistry[scope] = {};
+    }
+  }
+  const map = colorRegistry[scope];
+  if (map[name] === undefined) {
+    const uses = COLORS.map(() => 0);
+    Object.values(map).forEach((i) => { uses[i] += 1; });
+    map[name] = uses.indexOf(Math.min(...uses));
+    try {
+      localStorage.setItem(key, JSON.stringify(map));
+    } catch { /* storage blocked: color still fixed for this visit */ }
+  }
+  return COLORS[map[name] % COLORS.length];
+};
 const STANDARD_UNITS = ['mg', 'g', 'mcg', 'ml', 'l'];
 
 const isStandardUnit = (unit) => {
@@ -516,6 +560,36 @@ const CustomXAxisTick = ({ x, y, payload, filterType, isCurrentYearSelected, cur
   );
 };
 
+/* --- MICRO-INTERACTIONS --- */
+// Number that counts up to its value (static under prefers-reduced-motion)
+const CountUp = ({ value, duration = 700 }) => {
+  const target = Number(value) || 0;
+  const [shown, setShown] = useState(target);
+  useEffect(() => {
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setShown(target);
+      return undefined;
+    }
+    let raf;
+    const t0 = performance.now();
+    const step = (t) => {
+      const p = Math.min(1, (t - t0) / duration);
+      setShown(Math.round(target * (1 - Math.pow(1 - p, 3))));
+      if (p < 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [target, duration]);
+  return <>{shown}</>;
+};
+
+// The three graphs share one panel; the tab only chooses which one is shown (filters live in the dashboard state)
+const ANALYTICS_TABS = [
+  { id: 'trends', label: 'Health Trends', Icon: HeartPulse },
+  { id: 'dispensed', label: 'Dispensed', Icon: Pill },
+  { id: 'forecast', label: 'Forecast', Icon: TrendingUp }
+];
+
 /* --- MAIN DASHBOARD COMPONENT --- */
 const NurseDashboard = () => {
   const navigate = useNavigate();
@@ -651,6 +725,34 @@ const NurseDashboard = () => {
   const [forecastAsOf, setForecastAsOf] = useState("");
   const [forecastStartDate, setForecastStartDate] = useState("");
 
+  // Analytics tabs: which graph shows + sliding highlight under the tab
+  const [analyticsTab, setAnalyticsTab] = useState('trends');
+  const tabRefs = useRef({});
+  const [tabPill, setTabPill] = useState({ left: 0, width: 0 });
+  useLayoutEffect(() => {
+    const place = () => {
+      const el = tabRefs.current[analyticsTab];
+      if (el) setTabPill({ left: el.offsetLeft, width: el.offsetWidth });
+    };
+    place();
+    window.addEventListener('resize', place);
+    return () => window.removeEventListener('resize', place);
+  }, [analyticsTab]);
+  const handleTabKeyDown = (event) => {
+    const index = ANALYTICS_TABS.findIndex((tab) => tab.id === analyticsTab);
+    let next = index;
+    if (event.key === 'ArrowRight') next = (index + 1) % ANALYTICS_TABS.length;
+    else if (event.key === 'ArrowLeft') next = (index + ANALYTICS_TABS.length - 1) % ANALYTICS_TABS.length;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = ANALYTICS_TABS.length - 1;
+    else return;
+    event.preventDefault();
+    const id = ANALYTICS_TABS[next].id;
+    setAnalyticsTab(id);
+    const el = tabRefs.current[id];
+    if (el) el.focus();
+  };
+
   // 4. Frequent Complaint Alerts State
   const [alerts, setAlerts] = useState([]);
   const [isAlertsLoading, setIsAlertsLoading] = useState(true);
@@ -704,15 +806,9 @@ const NurseDashboard = () => {
   const isCurrentYearSelected = selectedYear === realTimeDate.getFullYear().toString();
   const isDispensedCurrentYearSelected = dispensedSelectedYear === realTimeDate.getFullYear().toString();
 
-  const getComplaintColor = (complaint) => {
-    const index = complaintsList.indexOf(complaint);
-    return COLORS[(index >= 0 ? index : 0) % COLORS.length];
-  };
+  const getComplaintColor = (complaint) => getFixedColor('complaints', complaint);
 
-  const getMedicineColor = (medicine) => {
-    const index = medicinesList.indexOf(medicine);
-    return COLORS[(index >= 0 ? index : 0) % COLORS.length];
-  };
+  const getMedicineColor = (medicine) => getFixedColor('medicines', medicine);
 
   const combinedUnitsMap = {
     ...predictiveData.reduce((acc, med) => {
@@ -1406,21 +1502,6 @@ const NurseDashboard = () => {
   }));
   const yearOptions = Array.from({ length: 6 }, (_, i) => (new Date().getFullYear() - i).toString());
 
-  const viewAllBtnStyle = {
-    background: 'transparent',
-    border: 'none',
-    color: 'var(--text-brand)',
-    fontSize: '0.875rem',
-    fontWeight: '600',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '4px',
-    padding: '4px 8px',
-    borderRadius: '4px',
-    transition: 'background 0.2s ease'
-  };
-
   const handleOverviewCardKeyDown = (event, path) => {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
@@ -1456,8 +1537,7 @@ const NurseDashboard = () => {
             <div className="stat-card-header-nd">
               <div>
                 <span className="stat-card-label-nd">Requirements Overview</span>
-                <h3 className="stat-card-number-nd">{nurseDashboardData.requirementsOverview.totalAttentionCount || 0}</h3>
-                <p className="stat-card-subtext-nd">Students Needing Requirement Attention</p>
+                <h3 className="stat-card-number-nd"><CountUp value={nurseDashboardData.requirementsOverview.totalAttentionCount || 0} /></h3>
               </div>
               <div className="stat-icon-wrapper-nd bg-blue-light-nd">
                 <FileCheck size={24} color="var(--text-brand)" />
@@ -1473,7 +1553,7 @@ const NurseDashboard = () => {
                 <span><strong>{nurseDashboardData.requirementsOverview.incompleteCount || 0}</strong> Incomplete {pluralize('Requirement', nurseDashboardData.requirementsOverview.incompleteCount || 0)}</span>
               </div>
             </div>
-            <span className="overview-card-view-all-nd">View All <ChevronRight size={14} /></span>
+            <span className="overview-card-view-all-nd" aria-hidden="true"><ChevronRight size={18} /></span>
           </div>
 
           {/* Card 2: Document Requests Pending Approval */}
@@ -1487,8 +1567,7 @@ const NurseDashboard = () => {
             <div className="stat-card-header-nd">
               <div>
                 <span className="stat-card-label-nd">Pending Document Requests</span>
-                <h3 className="stat-card-number-nd">{nurseDashboardData.pendingDocumentRequests.total_pending_requests || 0}</h3>
-                <p className="stat-card-subtext-nd">Awaiting Nurse Review</p>
+                <h3 className="stat-card-number-nd"><CountUp value={nurseDashboardData.pendingDocumentRequests.total_pending_requests || 0} /></h3>
               </div>
               <div className="stat-icon-wrapper-nd bg-orange-light-nd">
                 <FileText size={24} color="var(--status-low-text)" />
@@ -1502,7 +1581,7 @@ const NurseDashboard = () => {
                 <span>Referral Slips: <strong>{nurseDashboardData.pendingDocumentRequests.pending_referral_slips || 0}</strong></span>
               </div>
             </div>
-            <span className="overview-card-view-all-nd">View All <ChevronRight size={14} /></span>
+            <span className="overview-card-view-all-nd" aria-hidden="true"><ChevronRight size={18} /></span>
           </div>
 
           {/* Card 3: Medicine Low & Critical Batch Stock */}
@@ -1516,8 +1595,7 @@ const NurseDashboard = () => {
             <div className="stat-card-header-nd">
               <div>
                 <span className="stat-card-label-nd">Medicine Stock Alerts</span>
-                <h3 className="stat-card-number-nd">{nurseDashboardData.medicineStockAlerts.length}</h3>
-                <p className="stat-card-subtext-nd">Medicines to Restock</p>
+                <h3 className="stat-card-number-nd"><CountUp value={nurseDashboardData.medicineStockAlerts.length} /></h3>
               </div>
               <div className="stat-icon-wrapper-nd bg-red-light-nd">
                 <ShieldAlert size={24} color="var(--status-critical-text)" />
@@ -1531,7 +1609,7 @@ const NurseDashboard = () => {
                 <span>Low Stock: <strong>{nurseDashboardData.medicineStockAlerts.filter(m => m.stock_status === 'LOW').length}</strong></span>
               </div>
             </div>
-            <span className="overview-card-view-all-nd">View All <ChevronRight size={14} /></span>
+            <span className="overview-card-view-all-nd" aria-hidden="true"><ChevronRight size={18} /></span>
           </div>
 
           {/* Card 4: Upcoming Screenings & Doctor Visits */}
@@ -1546,9 +1624,8 @@ const NurseDashboard = () => {
               <div>
                 <span className="stat-card-label-nd">Upcoming Schedules</span>
                 <h3 className="stat-card-number-nd">
-                  {upcomingHealthScreenings.length + upcomingDoctorVisits.length}
+                  <CountUp value={upcomingHealthScreenings.length + upcomingDoctorVisits.length} />
                 </h3>
-                <p className="stat-card-subtext-nd">Screenings & Doctor Visits</p>
               </div>
               <div className="stat-icon-wrapper-nd bg-green-light-nd">
                 <Calendar size={24} color="var(--status-adequate-text)" />
@@ -1562,7 +1639,7 @@ const NurseDashboard = () => {
                 <span>Doctor Visits: <strong>{upcomingDoctorVisits.length}</strong></span>
               </div>
             </div>
-            <span className="overview-card-view-all-nd">View All <ChevronRight size={14} /></span>
+            <span className="overview-card-view-all-nd" aria-hidden="true"><ChevronRight size={18} /></span>
           </div>
 
         </div>
@@ -1593,61 +1670,45 @@ const NurseDashboard = () => {
           <button
             type="button"
             className="quick-action-card-nd"
+            data-tip="Clinic visit with QR"
+            aria-label="Clinic visit with QR"
+            title="Clinic visit with QR"
             onClick={() => navigate('/VisitLogConsultation', { state: { openQrScanner: true } })}
           >
-            <span className="quick-action-icon-nd icon-blue-nd">
-              <QrCode size={22} />
-            </span>
-            <span className="quick-action-content-nd">
-              <strong>Clinic Visit with QR</strong>
-              <span>Scan a student QR code to start a clinic visit</span>
-            </span>
-            <ChevronRight size={18} className="quick-action-arrow-nd" />
+            <QrCode size={32} />
           </button>
 
           <button
             type="button"
             className="quick-action-card-nd"
+            data-tip="Dispense with QR"
+            aria-label="Dispense medicine with QR"
+            title="Dispense medicine with QR"
             onClick={() => navigate('/DispensedMedicine', { state: { openQrScanner: true } })}
           >
-            <span className="quick-action-icon-nd icon-indigo-nd">
-              <Pill size={22} />
-            </span>
-            <span className="quick-action-content-nd">
-              <strong>Dispense Medicine with QR</strong>
-              <span>Scan a student QR code to dispense medicine</span>
-            </span>
-            <ChevronRight size={18} className="quick-action-arrow-nd" />
+            <Pill size={32} />
           </button>
 
           <button
             type="button"
             className="quick-action-card-nd"
+            data-tip="Find health record"
+            aria-label="Find health record"
+            title="Find health record"
             onClick={() => navigate('/HealthRecords')}
           >
-            <span className="quick-action-icon-nd icon-blue-nd">
-              <FolderHeart size={22} />
-            </span>
-            <span className="quick-action-content-nd">
-              <strong>Find Health Record</strong>
-              <span>Search and manage student health records</span>
-            </span>
-            <ChevronRight size={18} className="quick-action-arrow-nd" />
+            <FolderHeart size={32} />
           </button>
           
           <button
             type="button"
             className="quick-action-card-nd"
+            data-tip="Announcements"
+            aria-label="Manage announcements"
+            title="Manage announcements"
             onClick={() => handleOpenAnnouncementModal('LIST')}
           >
-            <span className="quick-action-icon-nd icon-blue-nd">
-              <Megaphone size={22} />
-            </span>
-            <span className="quick-action-content-nd">
-              <strong>Manage Announcements</strong>
-              <span>Post announcements and set reminders</span>
-            </span>
-            <ChevronRight size={18} className="quick-action-arrow-nd" />
+            <Megaphone size={32} />
           </button>
         </div>
         </div>
@@ -1666,16 +1727,17 @@ const NurseDashboard = () => {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <span className="count-badge-nd count-badge-red-nd">{nurseDashboardData.medicineStockAlerts.length}</span>
-                <button type="button" className="export-btn-nd" onClick={() => navigate('/ReportsAnalytics?tab=inventory')}>
-                  <Pill size={16} /> Restock Report
+                <button type="button" className="export-btn-nd icon-only-nd" aria-label="Restock report" title="Restock report" onClick={() => navigate('/ReportsAnalytics?tab=inventory')}>
+                  <Download size={18} />
                 </button>
                 <button
-                  style={viewAllBtnStyle}
+                  type="button"
+                  className="export-btn-nd icon-only-nd"
+                  aria-label="View all"
+                  title="View all"
                   onClick={() => navigate('/ReportsAnalytics?tab=inventory')}
-                  onMouseOver={(e) => e.currentTarget.style.background = '#f0f5fa'}
-                  onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
                 >
-                  View All <ChevronRight size={14} />
+                  <ChevronRight size={18} />
                 </button>
               </div>
             </div>
@@ -1735,7 +1797,38 @@ const NurseDashboard = () => {
 
       <div className="dashboard-divider-line-nd" />
 
-      {/* SECTION 1: HEALTH TREND OVERVIEW */}
+      {/* ANALYTICS: one panel, three graphs. Tabs only choose which graph shows; each keeps its own filters. */}
+      <section className="analytics-panel-nd" aria-label="Analytics">
+        <div className="analytics-tabbar-nd">
+          <div className="analytics-tabs-nd" role="tablist" aria-label="Graphs" onKeyDown={handleTabKeyDown}>
+            <span
+              className="analytics-tab-pill-nd"
+              aria-hidden="true"
+              style={{ width: tabPill.width, transform: `translateX(${tabPill.left}px)` }}
+            />
+            {ANALYTICS_TABS.map(({ id, label, Icon }) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                id={`analytics-tab-${id}`}
+                aria-controls={`analytics-panel-${id}`}
+                aria-selected={analyticsTab === id}
+                tabIndex={analyticsTab === id ? 0 : -1}
+                ref={(el) => { tabRefs.current[id] = el; }}
+                className="analytics-tab-nd"
+                onClick={() => setAnalyticsTab(id)}
+              >
+                <Icon size={18} aria-hidden="true" />
+                <span>{label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* SECTION 1: HEALTH TREND OVERVIEW */}
+        {analyticsTab === 'trends' && (
+        <div className="analytics-tabpanel-nd" role="tabpanel" id="analytics-panel-trends" aria-labelledby="analytics-tab-trends">
       <div className="dashboard-header-nd">
         <h2 className="dashboard-title-nd">Health Trend Overview</h2>
         <div className="filter-group-nd">
@@ -1793,8 +1886,8 @@ const NurseDashboard = () => {
               {yearOptions.map(year => <option key={year} value={year}>{year}</option>)}
             </select>
           )}
-          <button type="button" className="export-btn-nd" onClick={handleExportHealthTrends}>
-            <Download size={16} /> Export
+          <button type="button" className="export-btn-nd icon-only-nd" aria-label="Export" title="Export" onClick={handleExportHealthTrends}>
+            <Download size={18} />
           </button>
         </div>
       </div>
@@ -1855,16 +1948,26 @@ const NurseDashboard = () => {
             </div>
           </div>
           {visibleComplaints.length > 3 && (
-            <button className="view-more-toggle-btn-nd" onClick={() => setIsAveragesExpanded(!isAveragesExpanded)}>
-              {isAveragesExpanded ? <>View Less <ChevronUp size={14} /></> : <>View More <ChevronDown size={14} /></>}
+            <button
+              type="button"
+              className="view-more-toggle-btn-nd icon-only-nd"
+              aria-expanded={isAveragesExpanded}
+              aria-label={isAveragesExpanded ? 'Show less' : 'Show more'}
+              title={isAveragesExpanded ? 'Show less' : 'Show more'}
+              onClick={() => setIsAveragesExpanded(!isAveragesExpanded)}
+            >
+              {isAveragesExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
             </button>
           )}
         </div>
       )}
 
-      {/* SECTION 2: MEDICINE DISPENSED OVERVIEW */}
-      <div className="dashboard-divider-line-nd" />
+        </div>
+        )}
 
+        {/* SECTION 2: MEDICINE DISPENSED OVERVIEW */}
+        {analyticsTab === 'dispensed' && (
+        <div className="analytics-tabpanel-nd" role="tabpanel" id="analytics-panel-dispensed" aria-labelledby="analytics-tab-dispensed">
       <div className="dashboard-header-nd">
         <h2 className="dashboard-title-nd">Medicine Dispensed Overview</h2>
         <div className="filter-group-nd">
@@ -1936,8 +2039,8 @@ const NurseDashboard = () => {
               {yearOptions.map(year => <option key={year} value={year}>{year}</option>)}
             </select>
           )}
-          <button type="button" className="export-btn-nd" onClick={handleExportMedicineDispensed}>
-            <Download size={16} /> Export
+          <button type="button" className="export-btn-nd icon-only-nd" aria-label="Export" title="Export" onClick={handleExportMedicineDispensed}>
+            <Download size={18} />
           </button>
         </div>
       </div>
@@ -2047,15 +2150,18 @@ const NurseDashboard = () => {
         </div>
       )}
 
-      {/* SECTION 3: PREDICTIVE MEDICINE DEMAND (CENTER ALIGNED GRAPH CONTAINER) */}
-      <div className="dashboard-divider-line-nd" />
+        </div>
+        )}
 
+        {/* SECTION 3: PREDICTIVE MEDICINE DEMAND (CENTER ALIGNED GRAPH CONTAINER) */}
+        {analyticsTab === 'forecast' && (
+        <div className="analytics-tabpanel-nd" role="tabpanel" id="analytics-panel-forecast" aria-labelledby="analytics-tab-forecast">
       <div className="dashboard-header-nd">
         <h2 className="dashboard-title-nd">{predictiveTitle}</h2>
         <div className="filter-group-nd">
           {predictivePeriod && <span className="filter-label-nd">Next 30 days: <strong>{predictivePeriod}</strong></span>}
-          <button type="button" className="export-btn-nd" onClick={handleExportPredictiveDemand}>
-            <Download size={16} /> Export
+          <button type="button" className="export-btn-nd icon-only-nd" aria-label="Export" title="Export" onClick={handleExportPredictiveDemand}>
+            <Download size={18} />
           </button>
         </div>
       </div>
@@ -2093,8 +2199,8 @@ const NurseDashboard = () => {
                 onChange={(e) => setForecastAsOf(e.target.value && e.target.value < forecastTodayStr ? e.target.value : '')}
               />
               {forecastAsOf && (
-                <button type="button" className="export-btn-nd" onClick={() => setForecastAsOf('')}>
-                  <Clock size={16} /> Back to today
+                <button type="button" className="export-btn-nd icon-only-nd" aria-label="Back to today" title="Back to today" onClick={() => setForecastAsOf('')}>
+                  <Clock size={18} />
                 </button>
               )}
               <span className="filter-label-nd" role="status">
@@ -2188,6 +2294,10 @@ const NurseDashboard = () => {
         )}
       </div>
 
+        </div>
+        )}
+      </section>
+
       {/* SECTION 5: FREQUENT COMPLAINT ALERTS */}
       <div className="dashboard-divider-line-nd" />
 
@@ -2197,11 +2307,11 @@ const NurseDashboard = () => {
           {visibleAlerts.length > 0 && <span className="alert-count-badge-nd">{visibleAlerts.length}</span>}
         </div>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-          <button type="button" className="export-btn-nd" onClick={handleExportFrequentComplaints}>
-            <Download size={16} /> Export
+          <button type="button" className="export-btn-nd icon-only-nd" aria-label="Export" title="Export" onClick={handleExportFrequentComplaints}>
+            <Download size={18} />
           </button>
-          <button className="view-all-btn-nd" onClick={() => setIsModalOpen(true)}>
-            <Eye size={16} /> View All Alerts
+          <button type="button" className="view-all-btn-nd icon-only-nd" aria-label="View all alerts" title="View all alerts" onClick={() => setIsModalOpen(true)}>
+            <Eye size={18} />
           </button>
         </div>
       </div>

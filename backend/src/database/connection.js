@@ -6722,7 +6722,7 @@ app.get('/api/reports-analytics', async (req, res) => {
     });
 
     const [programRows] = await pool.query(
-      `SELECT COALESCE(ap.program_name, 'Unassigned') AS name, COUNT(*) AS total_count, COUNT(DISTINCT cv.student_id) AS students
+      `SELECT COALESCE(ap.program_name, 'Unassigned') AS name, COUNT(DISTINCT cv.student_id, cv.visit_date) AS total_count, COUNT(DISTINCT cv.student_id) AS students
        FROM clinic_visits cv
        JOIN students s ON cv.student_id = s.student_id
        LEFT JOIN academic_programs ap ON s.program_id = ap.program_id
@@ -6748,7 +6748,7 @@ app.get('/api/reports-analytics', async (req, res) => {
 
     // ---- Medicine dispensed (direct + consultation)
     const [medicineRows] = await pool.query(
-      `SELECT CONCAT(m.generic_name, ' (', m.brand_name, ')') AS name,
+      `SELECT m.medicine_id, CONCAT(m.generic_name, ' (', m.brand_name, ')') AS name,
               COUNT(*) AS total_count,
               SUM(d.src = 'direct') AS direct_count,
               SUM(d.src = 'consultation') AS consultation_count
@@ -6770,6 +6770,31 @@ app.get('/api/reports-analytics', async (req, res) => {
       direct: medicines.reduce((sum, m) => sum + m.direct, 0),
       consultation: medicines.reduce((sum, m) => sum + m.consultation, 0)
     };
+
+    // dispensations of each medicine against the previous period (same length), medicines of either period included
+    const [prevMedicineRows] = await pool.query(
+      `SELECT m.medicine_id, CONCAT(m.generic_name, ' (', m.brand_name, ')') AS name, COUNT(*) AS total_count
+       FROM ${DISPENSED_UNION} d
+       JOIN medicine_inventory_batches b ON d.batch_id = b.batch_id
+       JOIN medicines m ON b.medicine_id = m.medicine_id
+       GROUP BY m.medicine_id, m.generic_name, m.brand_name`,
+      [prevFrom, prevTo, prevFrom, prevTo]
+    );
+    const comparisonById = new Map();
+    medicineRows.forEach((r) => comparisonById.set(r.medicine_id, { name: r.name, count: Number(r.total_count), previousCount: 0 }));
+    prevMedicineRows.forEach((r) => {
+      const row = comparisonById.get(r.medicine_id) || { name: r.name, count: 0, previousCount: 0 };
+      row.previousCount = Number(r.total_count);
+      comparisonById.set(r.medicine_id, row);
+    });
+    const medicineComparison = [...comparisonById.values()]
+      .map((row) => ({
+        ...row,
+        delta: row.count - row.previousCount,
+        changePercent: row.previousCount > 0 ? Math.round(((row.count - row.previousCount) / row.previousCount) * 100) : null,
+        trend: row.previousCount === 0 ? 'new' : row.count > row.previousCount ? 'up' : row.count < row.previousCount ? 'down' : 'same'
+      }))
+      .sort((a, b) => b.count - a.count || b.previousCount - a.previousCount || a.name.localeCompare(b.name));
 
     // ---- Incidents
     const [locationRows] = await pool.query(
@@ -6893,7 +6918,7 @@ app.get('/api/reports-analytics', async (req, res) => {
       },
       trend: { unit, points },
       health: { conditions: complaints, programs, frequentVisitors },
-      medicine: { items: medicines, split: dispenseSplit },
+      medicine: { items: medicines, split: dispenseSplit, comparison: medicineComparison },
       incidents: { locations: incidentLocations, recent: recentIncidents },
       services: { excuseSlips, referralSlips, appointments, appointmentTypes, requirements },
       inventory: { summary: summarizeStockStatuses(stock), attention: stockAttention }
@@ -8202,6 +8227,10 @@ const ensureScreeningTemplates = async () => {
   const [[col]] = await pool.query(
     `SELECT COUNT(*) AS n FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'screening_types' AND COLUMN_NAME = 'template_id'`);
   if (Number(col.n) === 0) await pool.query('ALTER TABLE screening_types ADD COLUMN template_id INT NULL AFTER form_kind');
+  // Archive tab of Form Templates: an archived template stays stored (results keep it) but cannot be picked for a type
+  const [[arch]] = await pool.query(
+    `SELECT COUNT(*) AS n FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'screening_form_templates' AND COLUMN_NAME = 'is_archived'`);
+  if (Number(arch.n) === 0) await pool.query('ALTER TABLE screening_form_templates ADD COLUMN is_archived TINYINT(1) NOT NULL DEFAULT 0 AFTER fields');
   const [[chk]] = await pool.query(
     `SELECT COUNT(*) AS n FROM information_schema.TABLE_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = 'screening_types' AND CONSTRAINT_NAME = 'chk_screening_types_form_kind'`);
   if (Number(chk.n) > 0) await pool.query('ALTER TABLE screening_types DROP CHECK chk_screening_types_form_kind');
@@ -8289,7 +8318,55 @@ const convertBuiltInForms = async () => {
   }
 };
 
-const screeningTemplatesReady = ensureScreeningTemplates().then(convertBuiltInForms).catch((e) => console.error('Could not set up the screening form templates:', e.message));
+// "BMI & Vital Signs": one type with one combined form (BMI block + vital signs block). Seeded once (flag in
+// screening_seed_flags), so a nurse who removes or edits the type or template is not overruled on the next start.
+const COMBINED_BMI_VITALS = {
+  flag: 'combined_bmi_vital_signs',
+  name: 'BMI & Vital Signs',
+  description: 'Height, weight, BMI, blood pressure, pulse, temperature, respiratory rate.',
+  fields: [
+    { key: 'f1', label: 'Height', type: 'number', unit: 'cm', required: true },
+    { key: 'f2', label: 'Weight', type: 'number', unit: 'kg', required: true },
+    {
+      key: 'f3', label: 'BMI', type: 'calculated', required: false, formula: '{f2} / (({f1} / 100) * ({f1} / 100))', decimals: 1, min: 18.5, max: 24.9,
+      bands: [{ upto: 18.5, label: 'Underweight' }, { upto: 25, label: 'Normal' }, { upto: 30, label: 'Overweight' }, { upto: null, label: 'Obese' }]
+    },
+    { key: 'f4', label: 'Systolic blood pressure', type: 'number', unit: 'mmHg', required: false, min: 90, max: 119 },
+    { key: 'f5', label: 'Diastolic blood pressure', type: 'number', unit: 'mmHg', required: false, min: 60, max: 79 },
+    { key: 'f6', label: 'Pulse rate', type: 'number', unit: 'bpm', required: false, min: 60, max: 100 },
+    { key: 'f7', label: 'Temperature', type: 'number', unit: 'C', required: false, min: 36.1, max: 37.5 },
+    { key: 'f8', label: 'Respiratory rate', type: 'number', unit: '/min', required: false, min: 12, max: 20 }
+  ]
+};
+const seedCombinedBmiVitals = async () => {
+  await pool.query(`CREATE TABLE IF NOT EXISTS screening_seed_flags (flag VARCHAR(60) NOT NULL PRIMARY KEY, seeded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  const spec = COMBINED_BMI_VITALS;
+  const [[done]] = await pool.query('SELECT COUNT(*) AS n FROM screening_seed_flags WHERE flag = ?', [spec.flag]);
+  if (Number(done.n) > 0) return;
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [[tpl]] = await conn.query('SELECT template_id FROM screening_form_templates WHERE name = ?', [spec.name]);
+    let templateId = tpl?.template_id;
+    if (!templateId) {
+      const [ins] = await conn.query('INSERT INTO screening_form_templates (name, description, fields) VALUES (?, ?, ?)', [spec.name, spec.description, JSON.stringify(spec.fields)]);
+      templateId = ins.insertId;
+    }
+    const [[type]] = await conn.query('SELECT screening_type_id FROM screening_types WHERE name = ?', [spec.name]);
+    if (!type) {
+      await conn.query(`INSERT INTO screening_types (name, description, form_kind, template_id, is_system, is_active) VALUES (?, ?, 'CUSTOM', ?, 0, 1)`, [spec.name, spec.description, templateId]);
+    }
+    await conn.query('INSERT INTO screening_seed_flags (flag) VALUES (?)', [spec.flag]);
+    await conn.commit();
+  } catch (e) {
+    await conn.rollback();
+    throw e;
+  } finally {
+    conn.release();
+  }
+};
+
+const screeningTemplatesReady = ensureScreeningTemplates().then(convertBuiltInForms).then(seedCombinedBmiVitals).catch((e) => console.error('Could not set up the screening form templates:', e.message));
 
 const SCREENING_FIELD_TYPES = ['number', 'calculated', 'text', 'select', 'yesno'];
 const TEMPLATE_MAX_FIELDS = 30;
@@ -8560,6 +8637,11 @@ const ensureScreeningEndColumns = () => {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
       if (!have.some((c) => c.COLUMN_NAME === 'folder_id')) {
         await pool.query('ALTER TABLE screening_schedules ADD COLUMN folder_id INT NULL, ADD INDEX idx_screening_folder (folder_id)');
+      }
+      // an archived folder leaves the lists but can be restored (or deleted for good)
+      const [folderCols] = await pool.query(`SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'screening_folders'`);
+      if (!folderCols.some((c) => c.COLUMN_NAME === 'archived_at')) {
+        await pool.query('ALTER TABLE screening_folders ADD COLUMN archived_at DATETIME NULL, ADD COLUMN archived_by VARCHAR(50) NULL');
       }
     })().catch((err) => { screeningEndReady = null; throw err; });
   }
@@ -8879,7 +8961,11 @@ app.post('/api/screening-types', async (req, res) => {
   if (validated.error) return res.status(400).json({ error: validated.error });
   const f = validated.data;
   try {
-    if (f.template_id && !(await loadTemplate(pool, f.template_id))) return res.status(400).json({ error: 'That form template no longer exists. Pick another one.' });
+    if (f.template_id) {
+      const tpl = await loadTemplate(pool, f.template_id);
+      if (!tpl) return res.status(400).json({ error: 'That form template no longer exists. Pick another one.' });
+      if (tpl.is_archived) return res.status(400).json({ error: `"${tpl.name}" is archived. Restore it or pick another form template.` });
+    }
     const [result] = await pool.query(
       'INSERT INTO screening_types (name, description, form_kind, template_id, is_system, is_active) VALUES (?, ?, ?, ?, 0, ?)',
       [f.name, f.description || null, f.form_kind, f.template_id || null, f.is_active === undefined ? 1 : f.is_active]
@@ -8917,9 +9003,16 @@ app.put('/api/screening-types/:id', async (req, res) => {
       await connection.rollback();
       return res.status(409).json({ error: `"${current.name}" already has ${usage.n} screening schedule(s), so its result form can no longer be changed.` });
     }
-    if (f.template_id && !(await loadTemplate(connection, f.template_id))) {
-      await connection.rollback();
-      return res.status(400).json({ error: 'That form template no longer exists. Pick another one.' });
+    if (f.template_id) {
+      const tpl = await loadTemplate(connection, f.template_id);
+      if (!tpl) {
+        await connection.rollback();
+        return res.status(400).json({ error: 'That form template no longer exists. Pick another one.' });
+      }
+      if (tpl.is_archived && Number(tpl.template_id) !== Number(current.template_id)) {
+        await connection.rollback();
+        return res.status(400).json({ error: `"${tpl.name}" is archived. Restore it or pick another form template.` });
+      }
     }
 
     const sets = Object.keys(f).map((k) => `${k} = ?`);
@@ -9045,6 +9138,7 @@ app.put('/api/screening-form-templates/:id', async (req, res) => {
     await screeningTemplatesReady;
     const [[current]] = await pool.query(`${TEMPLATE_LIST_SQL} WHERE tp.template_id = ?`, [req.params.id]);
     if (!current) return res.status(404).json({ error: 'Form template not found.' });
+    if (current.is_archived) return res.status(409).json({ error: `"${current.name}" is archived. Restore it before editing.` });
     if (Number(current.result_count) > 0) {
       // recorded answers are keyed by field: a field can be reworded or get new ranges, but not removed or turned into another type
       for (const old of jsonOf(current.fields) || []) {
@@ -9058,6 +9152,24 @@ app.put('/api/screening-form-templates/:id', async (req, res) => {
     res.json({ message: `Form template "${f.name}" saved.`, template: { ...row, fields: jsonOf(row.fields) || [] } });
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: `A form template named "${f.name}" already exists.` });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Archive (body.archived = true) or restore (false). A template that a screening type still uses cannot be archived.
+app.put('/api/screening-form-templates/:id/archive', async (req, res) => {
+  if (!(await requireNurse(req, res))) return;
+  const archive = req.body && (req.body.archived === true || req.body.archived === 1 || req.body.archived === '1');
+  try {
+    await screeningTemplatesReady;
+    const [[current]] = await pool.query(`${TEMPLATE_LIST_SQL} WHERE tp.template_id = ?`, [req.params.id]);
+    if (!current) return res.status(404).json({ error: 'Form template not found.' });
+    if (archive && Number(current.type_count) > 0) {
+      return res.status(409).json({ error: `"${current.name}" is the result form of ${current.type_count} screening type(s). Change those types first.` });
+    }
+    await pool.query('UPDATE screening_form_templates SET is_archived = ? WHERE template_id = ?', [archive ? 1 : 0, current.template_id]);
+    res.json({ message: archive ? `Form template "${current.name}" archived.` : `Form template "${current.name}" restored.` });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
@@ -9119,8 +9231,10 @@ app.get('/api/screenings', async (req, res) => {
 
 // ---------- Folders (Program > Year-Section) and paginated list ----------
 // A screening shows up in the folder of every section it has participants from (many are created for "All Programs").
-// type / schoolYear narrow the screenings. The folders follow the student's current program, year and section, and leave out
-// graduated students (they are in the Archive).
+// type / schoolYear narrow the screenings. A by-section screening stays in the folder of the class it was made for
+// (target_program_id / year / section), so a student who later transfers or moves up does not drag it into the new folder:
+// the record only shows in that student's Students & records. Old "All Programs" rows (no target) follow the participants'
+// current class. Graduated students are left out (they are in the Archive).
 const screeningCte = (type, schoolYear = null) => {
   const filters = [];
   const filterParams = [];
@@ -9134,11 +9248,20 @@ const screeningCte = (type, schoolYear = null) => {
                   WHEN NOW() >= TIMESTAMP(s.scheduled_date, s.start_time) THEN 'ongoing'
                   ELSE 'upcoming' END AS tab
       FROM screening_schedules s
-      ${filters.length ? `WHERE ${filters.join(' AND ')}` : ''}
+      LEFT JOIN screening_folders sfa ON sfa.folder_id = s.folder_id
+      WHERE sfa.archived_at IS NULL ${filters.length ? `AND ${filters.join(' AND ')}` : ''}
     ),
     pp AS (
-      SELECT p.screening_schedule_id, p.student_id, st.program_id, st.year_level, st.section
-      FROM screening_schedule_participants p JOIN students st ON st.student_id = p.student_id
+      SELECT p.screening_schedule_id, p.student_id,
+             CASE WHEN sc.target_program_id IS NOT NULL AND sc.target_year_level IS NOT NULL AND sc.target_section IS NOT NULL
+                  THEN sc.target_program_id ELSE st.program_id END AS program_id,
+             CASE WHEN sc.target_program_id IS NOT NULL AND sc.target_year_level IS NOT NULL AND sc.target_section IS NOT NULL
+                  THEN sc.target_year_level ELSE st.year_level END AS year_level,
+             CASE WHEN sc.target_program_id IS NOT NULL AND sc.target_year_level IS NOT NULL AND sc.target_section IS NOT NULL
+                  THEN sc.target_section ELSE st.section END AS section
+      FROM screening_schedule_participants p
+      JOIN students st ON st.student_id = p.student_id
+      JOIN sc ON sc.screening_schedule_id = p.screening_schedule_id
       WHERE st.graduated_at IS NULL
     ),
     res AS (
@@ -9179,6 +9302,7 @@ const customFolderSql = () => `
   FROM screening_folders f
   LEFT JOIN sc ON sc.folder_id = f.folder_id
   LEFT JOIN res r ON r.screening_schedule_id = sc.screening_schedule_id
+  WHERE f.archived_at IS NULL
   GROUP BY f.folder_id, f.name
   ORDER BY f.name`;
 
@@ -9207,8 +9331,18 @@ app.get('/api/screenings/folders', async (req, res) => {
     const [customRows] = await pool.query(`WITH ${cte.sql} ${customFolderSql()}`, cte.params);
     const customFolders = customRows.map((r) => ({ folder_id: r.folder_id, name: r.name, ...num(r) }));
 
+    const [archivedFolders] = await pool.query(
+      `SELECT f.folder_id, f.name, f.archived_at, COUNT(s.screening_schedule_id) AS schedule_count
+       FROM screening_folders f LEFT JOIN screening_schedules s ON s.folder_id = f.folder_id
+       WHERE f.archived_at IS NOT NULL GROUP BY f.folder_id, f.name, f.archived_at ORDER BY f.archived_at DESC`
+    );
     const [[archived]] = await pool.query('SELECT COUNT(*) AS n FROM students WHERE graduated_at IS NOT NULL');
-    res.json({ programs, custom_folders: customFolders, archived: Number(archived.n) });
+    res.json({
+      programs,
+      custom_folders: customFolders,
+      archived_folders: archivedFolders.map((r) => ({ ...r, schedule_count: Number(r.schedule_count) })),
+      archived: Number(archived.n)
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -9322,9 +9456,10 @@ app.get('/api/screening-folders', async (req, res) => {
   try {
     await ensureScreeningEndColumns();
     const [rows] = await pool.query(
-      `SELECT f.folder_id, f.name, f.created_at, COUNT(s.screening_schedule_id) AS schedule_count
+      `SELECT f.folder_id, f.name, f.created_at, f.archived_at, COUNT(s.screening_schedule_id) AS schedule_count
        FROM screening_folders f LEFT JOIN screening_schedules s ON s.folder_id = f.folder_id
-       GROUP BY f.folder_id, f.name, f.created_at ORDER BY f.name`
+       ${req.query.archived === '1' ? 'WHERE f.archived_at IS NOT NULL' : req.query.archived === '0' ? 'WHERE f.archived_at IS NULL' : ''}
+       GROUP BY f.folder_id, f.name, f.created_at, f.archived_at ORDER BY f.name`
     );
     res.json(rows.map((r) => ({ ...r, schedule_count: Number(r.schedule_count) })));
   } catch (err) {
@@ -9364,16 +9499,103 @@ app.put('/api/screening-folders/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/screening-folders/:id', async (req, res) => {
+// The people of a custom folder: the participants of its latest screening (not cancelled, not a make-up).
+// A new screening in the folder starts from this list; the nurse adds or removes students for that screening only.
+// The class is the student's current one, so a student who moved program / year / section shows the new class.
+app.get('/api/screening-folders/:id/members', async (req, res) => {
   try {
-    if (!(await requireNurse(req, res))) return;
-    const [[used]] = await pool.query('SELECT COUNT(*) AS n FROM screening_schedules WHERE folder_id = ?', [req.params.id]);
-    if (Number(used.n) > 0) return res.status(409).json({ error: 'This folder still has screenings. Only an empty folder can be deleted.' });
-    const [r] = await pool.query('DELETE FROM screening_folders WHERE folder_id = ?', [req.params.id]);
-    if (r.affectedRows === 0) return res.status(404).json({ error: 'Folder not found.' });
-    res.json({ message: 'Folder deleted.' });
+    await ensureScreeningEndColumns();
+    const [[last]] = await pool.query(
+      `SELECT screening_schedule_id, title, scheduled_date FROM screening_schedules
+       WHERE folder_id = ? AND status <> 'Cancelled' AND makeup_of IS NULL
+       ORDER BY scheduled_date DESC, start_time DESC LIMIT 1`,
+      [req.params.id]
+    );
+    if (!last) return res.json({ source: null, students: [] });
+    const [rows] = await pool.query(
+      `SELECT st.student_id, st.first_name, st.last_name, st.program_id, st.year_level, st.section, prog.program_name
+       FROM screening_schedule_participants p
+       JOIN students st ON st.student_id = p.student_id
+       LEFT JOIN academic_programs prog ON prog.program_id = st.program_id
+       WHERE p.screening_schedule_id = ? AND st.graduated_at IS NULL
+       ORDER BY st.last_name, st.first_name`,
+      [last.screening_schedule_id]
+    );
+    res.json({ source: { screening_schedule_id: last.screening_schedule_id, title: last.title, scheduled_date: last.scheduled_date }, students: rows });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Archive: the folder and its screenings leave the lists but nothing is lost. Not while a screening is upcoming or on going.
+app.put('/api/screening-folders/:id/archive', async (req, res) => {
+  try {
+    if (!(await requireNurse(req, res))) return;
+    await ensureScreeningEndColumns();
+    const [[folder]] = await pool.query('SELECT folder_id FROM screening_folders WHERE folder_id = ?', [req.params.id]);
+    if (!folder) return res.status(404).json({ error: 'Folder not found.' });
+    const [schedules] = await pool.query('SELECT * FROM screening_schedules WHERE folder_id = ?', [req.params.id]);
+    if (schedules.some((s) => ['upcoming', 'ongoing'].includes(screeningPhaseOf(s).phase))) {
+      return res.status(409).json({ error: 'This folder has an upcoming or ongoing screening. Cancel it or wait until it ends.' });
+    }
+    await pool.query('UPDATE screening_folders SET archived_at = NOW(), archived_by = ? WHERE folder_id = ? AND archived_at IS NULL', [req.body.sender_id || null, req.params.id]);
+    res.json({ message: 'Folder archived.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/screening-folders/:id/restore', async (req, res) => {
+  try {
+    if (!(await requireNurse(req, res))) return;
+    await ensureScreeningEndColumns();
+    const [r] = await pool.query('UPDATE screening_folders SET archived_at = NULL, archived_by = NULL WHERE folder_id = ?', [req.params.id]);
+    if (r.affectedRows === 0) return res.status(404).json({ error: 'Folder not found.' });
+    res.json({ message: 'Folder restored.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete: an empty folder any time; a folder with screenings only after it is archived, and then everything in it
+// (screenings, participants, results) is removed for good.
+app.delete('/api/screening-folders/:id', async (req, res) => {
+  let conn;
+  try {
+    if (!(await requireNurse(req, res))) return;
+    await ensureScreeningEndColumns();
+    const [[folder]] = await pool.query('SELECT folder_id, archived_at FROM screening_folders WHERE folder_id = ?', [req.params.id]);
+    if (!folder) return res.status(404).json({ error: 'Folder not found.' });
+    const [schedules] = await pool.query('SELECT screening_schedule_id FROM screening_schedules WHERE folder_id = ?', [req.params.id]);
+    if (schedules.length > 0 && !folder.archived_at) {
+      return res.status(409).json({ error: 'Archive the folder first. Only an archived folder with screenings can be deleted.' });
+    }
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+    if (schedules.length > 0) {
+      const ids = schedules.map((s) => s.screening_schedule_id);
+      const [tables] = await conn.query(
+        `SELECT DISTINCT TABLE_NAME FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND COLUMN_NAME = 'screening_schedule_id' AND TABLE_NAME <> 'screening_schedules'
+           AND TABLE_NAME IN (SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE')`
+      );
+      await conn.query('SET FOREIGN_KEY_CHECKS = 0');
+      try {
+        for (const t of tables) await conn.query(`DELETE FROM \`${t.TABLE_NAME}\` WHERE screening_schedule_id IN (?)`, [ids]);
+        await conn.query('UPDATE screening_schedules SET makeup_of = NULL WHERE makeup_of IN (?) AND folder_id <> ?', [ids, req.params.id]);
+        await conn.query('DELETE FROM screening_schedules WHERE folder_id = ?', [req.params.id]);
+      } finally {
+        await conn.query('SET FOREIGN_KEY_CHECKS = 1');
+      }
+    }
+    await conn.query('DELETE FROM screening_folders WHERE folder_id = ?', [req.params.id]);
+    await conn.commit();
+    res.json({ message: 'Folder deleted.' });
+  } catch (err) {
+    if (conn) { try { await conn.rollback(); } catch (e) { /* ignore */ } }
+    res.status(500).json({ error: err.message });
+  } finally {
+    if (conn) conn.release();
   }
 });
 
@@ -9456,15 +9678,21 @@ app.post('/api/screenings', async (req, res) => {
     let folderId = null;
     if (isCustom) {
       if (folderIdInput > 0) {
-        const [[folder]] = await connection.query('SELECT folder_id FROM screening_folders WHERE folder_id = ?', [folderIdInput]);
-        if (!folder) {
+        const [[folder]] = await connection.query('SELECT folder_id, archived_at FROM screening_folders WHERE folder_id = ?', [folderIdInput]);
+        if (!folder || folder.archived_at) {
           await connection.rollback();
           connection.release();
-          return res.status(400).json({ error: 'The chosen folder no longer exists.' });
+          return res.status(400).json({ error: folder ? 'The chosen folder is archived. Restore it first.' : 'The chosen folder no longer exists.' });
         }
         folderId = folder.folder_id;
       } else {
-        folderId = (await findOrCreateFolder(connection, folderName, sender_id || null)).folder_id;
+        const found = await findOrCreateFolder(connection, folderName, sender_id || null);
+        if (found.archived_at) {
+          await connection.rollback();
+          connection.release();
+          return res.status(400).json({ error: 'A folder with this name is archived. Restore it first.' });
+        }
+        folderId = found.folder_id;
       }
     }
 
@@ -13009,7 +13237,7 @@ app.post('/api/doctor-schedules/:id/appoint', async (req, res) => {
     const { student_id } = req.body;
     const date = req.body.date;
     if ((!creator.nurseId && !creator.doctorId) || !student_id) return res.status(400).json({ success: false, message: 'Who is appointing and the student are required.' });
-    if (!creator.nurseId) return res.status(403).json({ success: false, message: 'Only the nurse appoints a student into a schedule.' });
+    // the nurse appoints into any schedule; a doctor only into a schedule of their own (checked below)
     if (!isDateStr(date)) return res.status(400).json({ success: false, message: 'Pick the date of the session.' });
 
     const connection = await pool.getConnection();
@@ -18086,8 +18314,25 @@ app.delete('/api/doctor-unavailable-dates/:id', async (req, res) => {
 
 // ---- Doctor: patients (student clinic records) ----
 
+// A doctor can mark a student as "Need Attention" by hand (one flag per student, any doctor can clear it). The table is created on first use.
+let attentionTableReady = null;
+const ensureAttentionTable = () => {
+    if (!attentionTableReady) {
+        attentionTableReady = pool.query(`
+            CREATE TABLE IF NOT EXISTS student_attention_flags (
+                student_id           varchar(30) NOT NULL,
+                marked_by_doctor_id  varchar(30) NULL,
+                marked_at            timestamp   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (student_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+        `).catch((err) => { attentionTableReady = null; throw err; });
+    }
+    return attentionTableReady;
+};
+
 app.get('/api/doctor/:doctorId/patients', async (req, res) => {
     try {
+        await ensureAttentionTable();
         const search = textOrNull(req.query.q);
         const params = [req.params.doctorId];
         let where = '';
@@ -18095,13 +18340,15 @@ app.get('/api/doctor/:doctorId/patients', async (req, res) => {
             const like = `%${search}%`;
             where = `WHERE CONCAT(s.first_name, ' ', s.last_name) LIKE ? OR s.student_id LIKE ?`;
             params.push(like, like);
-        } else {
+        } else if (req.query.all !== '1') {
             where = `WHERE mine.visits IS NOT NULL`;
         }
         const [rows] = await pool.query(
             `SELECT s.student_id, s.first_name, s.last_name, s.program_id, s.year_level, s.section, p.program_name,
-                    COALESCE(mine.visits, 0) AS visits_with_me, mine.last_visit, COALESCE(mine.abnormal, 0) AS abnormal
+                    COALESCE(mine.visits, 0) AS visits_with_me, mine.last_visit, COALESCE(mine.abnormal, 0) AS abnormal,
+                    (att.student_id IS NOT NULL) AS flagged
              FROM students s
+             LEFT JOIN student_attention_flags att ON att.student_id = s.student_id
              LEFT JOIN academic_programs p ON p.program_id = s.program_id
              LEFT JOIN (
                 SELECT das.student_id, COUNT(DISTINCT da.appointment_id) AS visits, MAX(da.start_time) AS last_visit,
@@ -18127,6 +18374,7 @@ app.get('/api/doctor/:doctorId/patients', async (req, res) => {
 // Everything the clinic documented for one student (all doctors), newest first, plus their upcoming doctor appointments
 app.get('/api/doctor/patients/:studentId/record', async (req, res) => {
     try {
+        await ensureAttentionTable();
         const studentId = req.params.studentId;
         const [[student]] = await pool.query(
             `SELECT s.student_id, s.first_name, s.last_name, s.program_id, s.year_level, s.section, p.program_name
@@ -18143,15 +18391,45 @@ app.get('/api/doctor/patients/:studentId/record', async (req, res) => {
             `${DOCTOR_VISIT_SELECT} WHERE das.student_id = ? AND da.status IN ('Scheduled', 'Waiting for Approval') AND da.end_time >= NOW() ORDER BY da.start_time ASC LIMIT 20`,
             [studentId]
         );
+        // only this month's visits (Manila calendar)
+        const monthStart = `${nowManilaStr().slice(0, 7)}-01`;
         const [clinicVisits] = await pool.query(
             `SELECT cv.visit_id, cv.visit_date, cv.time_in, cv.time_out, cv.specify_complaint_text, cv.temperature, cv.blood_pressure,
                     cv.pulse_rate, cv.respiratory_rate, cv.assessment, cv.nursing_intervention
-             FROM clinic_visits cv WHERE cv.student_id = ? ORDER BY cv.visit_date DESC, cv.time_in DESC LIMIT 20`, [studentId]
+             FROM clinic_visits cv WHERE cv.student_id = ? AND cv.visit_date >= ? ORDER BY cv.visit_date DESC, cv.time_in DESC LIMIT 50`, [studentId, monthStart]
         );
-        res.json({ success: true, student, consultations, upcoming, clinic_visits: clinicVisits });
+        const [[flag]] = await pool.query(`SELECT COUNT(*) AS n FROM student_attention_flags WHERE student_id = ?`, [studentId]);
+        res.json({ success: true, student, consultations, upcoming, clinic_visits: clinicVisits, flagged: Number(flag.n) > 0 });
     } catch (error) {
         console.error('Error fetching patient record:', error);
         res.status(500).json({ success: false, message: 'Failed to load the patient record' });
+    }
+});
+
+// Mark / clear "Need Attention" on a student (doctors only)
+app.put('/api/doctor/patients/:studentId/attention', async (req, res) => {
+    try {
+        await ensureAttentionTable();
+        const doctorId = textOrNull(req.body.doctor_id);
+        if (!doctorId) return res.status(400).json({ success: false, message: 'Who is marking is required.' });
+        const [[doctor]] = await pool.query(`SELECT doctor_id FROM doctors WHERE doctor_id = ?`, [doctorId]);
+        if (!doctor) return res.status(403).json({ success: false, message: 'Only a doctor can mark a student.' });
+        const [[student]] = await pool.query(`SELECT student_id FROM students WHERE student_id = ?`, [req.params.studentId]);
+        if (!student) return res.status(404).json({ success: false, message: 'Student not found.' });
+        const flagged = !!req.body.flagged;
+        if (flagged) {
+            await pool.query(
+                `INSERT INTO student_attention_flags (student_id, marked_by_doctor_id) VALUES (?, ?)
+                 ON DUPLICATE KEY UPDATE marked_by_doctor_id = VALUES(marked_by_doctor_id), marked_at = CURRENT_TIMESTAMP`,
+                [student.student_id, doctorId]
+            );
+        } else {
+            await pool.query(`DELETE FROM student_attention_flags WHERE student_id = ?`, [student.student_id]);
+        }
+        res.json({ success: true, flagged, message: flagged ? 'Marked as Need Attention.' : 'Need Attention cleared.' });
+    } catch (error) {
+        console.error('Error marking student attention:', error);
+        res.status(500).json({ success: false, message: 'Failed to update the student' });
     }
 });
 
@@ -18485,6 +18763,22 @@ app.put('/api/doctor-templates/:templateId/archive', async (req, res) => {
     } catch (error) {
         console.error('Error archiving template:', error);
         res.status(500).json({ success: false, message: 'Failed to archive the template' });
+    }
+});
+
+// Permanent delete: only an archived template of that doctor. Past assessments keep their own saved copy of the answers and template name.
+// Body or query: doctor_id.
+app.delete('/api/doctor-templates/:templateId', async (req, res) => {
+    try {
+        const doctorId = req.body?.doctor_id || req.query.doctor_id || '';
+        const [[row]] = await pool.query(`SELECT is_active FROM doctor_assessment_templates WHERE template_id = ? AND doctor_id = ?`, [req.params.templateId, doctorId]);
+        if (!row) return res.status(404).json({ success: false, message: 'Template not found.' });
+        if (Number(row.is_active) === 1) return res.status(409).json({ success: false, message: 'Archive the template first.' });
+        await pool.query(`DELETE FROM doctor_assessment_templates WHERE template_id = ? AND doctor_id = ?`, [req.params.templateId, doctorId]);
+        res.json({ success: true, message: 'Template deleted.' });
+    } catch (error) {
+        console.error('Error deleting template:', error);
+        res.status(500).json({ success: false, message: 'Failed to delete the template' });
     }
 });
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-    ArrowLeft, Download, Lock, FileText, AlertTriangle, Clock,
+    ArrowLeft, Download, FileText, AlertTriangle, Clock, Pencil,
     User, X, ShieldCheck, CheckCircle, XCircle, HeartPulse, ListChecks
 } from 'lucide-react';
 import stiLogo from '../../assets/sti-logof.png';
@@ -43,7 +43,7 @@ const DAY_MS = 86400000;
 const requirementKind = (req) => {
     const s = (req.status || '').toLowerCase();
     if (['completed', 'submitted'].includes(s)) return 'complete';
-    if (['late', 'submitted late', 'overdue', 'missing'].includes(s)) return 'danger';
+    if (['late', 'submitted late', 'overdue', 'missing', 'not submitted'].includes(s)) return 'danger';
     return 'warning';
 };
 
@@ -65,6 +65,25 @@ const daysUntil = (value) => {
     return Math.round((due.getTime() - start.getTime()) / DAY_MS);
 };
 
+// status choices the nurse can set; Completed / Rejected need an uploaded file (the server checks too)
+const EDIT_STATUSES = [['Pending', 'Pending'], ['Not Submitted', 'Missed'], ['Completed', 'Completed'], ['Rejected', 'Rejected']];
+
+// local date as yyyy-mm-dd, the same day the table shows
+const toDateInput = (value) => {
+    if (!value) return '';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return '';
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+// the nurse's user id, to look up the nurse_id the update endpoint wants
+const storedUserId = () => {
+    try {
+        const u = JSON.parse(sessionStorage.getItem('user') || localStorage.getItem('user') || 'null');
+        return u?.user_id || u?.id || u?.UserID || u?.userId || null;
+    } catch (e) { return null; }
+};
+
 function Field({ label, value, full }) {
     const has = value !== null && value !== undefined && String(value).trim() !== '';
     return (
@@ -78,7 +97,7 @@ function Field({ label, value, full }) {
 export default function HealthRecordsProfile() {
     const { studentId } = useParams();
     const navigate = useNavigate();
-    const { showAlert } = useAlert();
+    const { showAlert, showConfirm } = useAlert();
 
     const [activeTab, setActiveTab] = useState('personal');
     const [loading, setLoading] = useState(true);
@@ -95,9 +114,27 @@ export default function HealthRecordsProfile() {
     const [parentDetails, setParentDetails] = useState(null);
     const [parentLoading, setParentLoading] = useState(false);
     const [parentError, setParentError] = useState('');
-    const parentOpenerRef = useRef(null);
+    const openerRef = useRef(null);
     const modalRef = useRef(null);
     const tabRefs = useRef({});
+    const busyRef = useRef(false);
+
+    // Nurse only: edit one requirement submission (doctors keep the read view)
+    const [nurseId, setNurseId] = useState(null);
+    const [editReq, setEditReq] = useState(null);
+    const [saving, setSaving] = useState(false);
+
+    useEffect(() => {
+        if (viewerIsDoctor()) return undefined;
+        const userId = storedUserId();
+        if (!userId) return undefined;
+        let cancelled = false;
+        fetch(`${API}/api/get-nurse/${encodeURIComponent(userId)}`)
+            .then((r) => r.json())
+            .then((d) => { if (!cancelled && d.success && d.nurse?.nurse_id) setNurseId(d.nurse.nurse_id); })
+            .catch(() => {});
+        return () => { cancelled = true; };
+    }, []);
 
     // header, profile and requirements load together; the summary strip needs all three
     useEffect(() => {
@@ -147,8 +184,73 @@ export default function HealthRecordsProfile() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [studentId]);
 
+    const reloadRequirements = async () => {
+        try {
+            const data = await fetch(`${API}/api/students/${encodeURIComponent(studentId)}/full-requirements`).then((r) => r.json());
+            setRequirementsList(Array.isArray(data) ? data : []);
+        } catch (err) {
+            showAlert('Cannot refresh requirements.', 'error');
+        }
+    };
+
+    const handleOpenEdit = (e, req) => {
+        openerRef.current = e.currentTarget;
+        setEditReq({
+            name: req.requirement_name,
+            type: req.type || 'Program',
+            config_id: req.config_id || null,
+            hasFile: !!req.file_url,
+            status: req.status || 'Pending',
+            deadline: toDateInput(req.submission_deadline),
+            allowLate: [1, true, '1'].includes(req.allow_late_submission),
+            remarks: req.nurse_remarks || ''
+        });
+    };
+
+    const handleSaveRequirement = async (e) => {
+        e.preventDefault();
+        const r = editReq;
+        if (!r || saving) return;
+        if (['Completed', 'Rejected'].includes(r.status) && !r.hasFile) {
+            showAlert('No file uploaded.', 'warning');
+            return;
+        }
+        busyRef.current = true;
+        const ok = await showConfirm(`Save changes to "${r.name}"?`, { title: 'Save changes', confirmLabel: 'Save' });
+        if (!ok) { busyRef.current = false; return; }
+        setSaving(true);
+        try {
+            const res = await fetch(`${API}/api/students/${encodeURIComponent(studentId)}/requirements/${encodeURIComponent(r.name)}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    status: r.status,
+                    nurse_remarks: r.remarks,
+                    submission_deadline: r.deadline || null,
+                    type: r.type,
+                    config_id: r.config_id,
+                    override_allow_late_submission: r.allowLate,
+                    nurse_id: nurseId
+                })
+            });
+            const data = await res.json().catch(() => null);
+            if (!res.ok || !data?.success) {
+                showAlert(data?.error || 'Cannot save.', 'error');
+                return;
+            }
+            closeModal();
+            showAlert('Saved.', 'success');
+            await reloadRequirements();
+        } catch (err) {
+            showAlert('Cannot save.', 'error');
+        } finally {
+            setSaving(false);
+            busyRef.current = false;
+        }
+    };
+
     const handleOpenParentModal = async (e) => {
-        parentOpenerRef.current = e.currentTarget;
+        openerRef.current = e.currentTarget;
         setShowParentModal(true);
         setParentLoading(true);
         setParentError('');
@@ -169,19 +271,22 @@ export default function HealthRecordsProfile() {
         }
     };
 
-    const handleCloseParentModal = () => {
+    const closeModal = () => {
         setShowParentModal(false);
-        if (parentOpenerRef.current) parentOpenerRef.current.focus();
+        setEditReq(null);
+        if (openerRef.current) openerRef.current.focus();
     };
 
-    // modal: focus the close button, Esc closes, Tab stays inside
+    // modal (parent profile or requirement edit): focus the close button, Esc closes, Tab stays inside
+    const modalOpen = showParentModal || !!editReq;
     useEffect(() => {
-        if (!showParentModal) return undefined;
+        if (!modalOpen) return undefined;
         const root = modalRef.current;
         const first = root && root.querySelector('button');
         if (first) first.focus();
         const onKey = (e) => {
-            if (e.key === 'Escape') { e.preventDefault(); handleCloseParentModal(); return; }
+            if (busyRef.current) return;
+            if (e.key === 'Escape') { e.preventDefault(); closeModal(); return; }
             if (e.key !== 'Tab' || !root) return;
             const items = root.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
             if (!items.length) return;
@@ -193,7 +298,7 @@ export default function HealthRecordsProfile() {
         document.addEventListener('keydown', onKey);
         return () => document.removeEventListener('keydown', onKey);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [showParentModal]);
+    }, [modalOpen]);
 
     const TABS = [['personal', 'Personal'], ['health', 'Health'], ['requirements', 'Requirements']];
     const onTabKey = (e, index) => {
@@ -261,7 +366,6 @@ export default function HealthRecordsProfile() {
                         <span className="hrp-id">{studentId}</span>
                     </div>
                 </div>
-                <span className="hrp-lock"><Lock size={14} aria-hidden="true" /> Read only</span>
             </header>
 
             <section className="hrp-summary hrp-no-print" aria-label="Summary">
@@ -410,6 +514,7 @@ export default function HealthRecordsProfile() {
                                         <th>Status</th>
                                         <th>Remarks</th>
                                         <th>File</th>
+                                        {nurseId && <th>Edit</th>}
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -452,6 +557,20 @@ export default function HealthRecordsProfile() {
                                                         <span className="hrp-muted">No file</span>
                                                     )}
                                                 </td>
+                                                {nurseId && (
+                                                    <td>
+                                                        <button
+                                                            type="button"
+                                                            className="hrp-btn-icon"
+                                                            onClick={(e) => handleOpenEdit(e, req)}
+                                                            aria-label={`Edit ${req.requirement_name}`}
+                                                            title="Edit"
+                                                            aria-haspopup="dialog"
+                                                        >
+                                                            <Pencil size={18} aria-hidden="true" />
+                                                        </button>
+                                                    </td>
+                                                )}
                                             </tr>
                                         );
                                     })}
@@ -464,11 +583,11 @@ export default function HealthRecordsProfile() {
 
             {/* CONNECTED PARENT PROFILE MODAL */}
             {showParentModal && (
-                <div className="hrp-backdrop hrp-no-print" onMouseDown={(e) => { if (e.target === e.currentTarget) handleCloseParentModal(); }}>
+                <div className="hrp-backdrop hrp-no-print" onMouseDown={(e) => { if (e.target === e.currentTarget) closeModal(); }}>
                     <div className="hrp-modal" role="dialog" aria-modal="true" aria-labelledby="hrp-parent-title" ref={modalRef}>
                         <div className="hrp-modal-head">
                             <h2 id="hrp-parent-title"><User size={20} aria-hidden="true" /> Parent profile</h2>
-                            <button type="button" className="hrp-btn-icon" onClick={handleCloseParentModal} aria-label="Close" title="Close">
+                            <button type="button" className="hrp-btn-icon" onClick={closeModal} aria-label="Close" title="Close">
                                 <X size={18} aria-hidden="true" />
                             </button>
                         </div>
@@ -503,8 +622,72 @@ export default function HealthRecordsProfile() {
                             ) : null}
                         </div>
                         <div className="hrp-modal-foot">
-                            <button type="button" className="hrp-btn-text" onClick={handleCloseParentModal}>Close</button>
+                            <button type="button" className="hrp-btn-text" onClick={closeModal}>Close</button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* NURSE: EDIT ONE REQUIREMENT SUBMISSION */}
+            {editReq && (
+                <div className="hrp-backdrop hrp-no-print" onMouseDown={(e) => { if (e.target === e.currentTarget && !busyRef.current) closeModal(); }}>
+                    <div className="hrp-modal" role="dialog" aria-modal="true" aria-labelledby="hrp-edit-title" ref={modalRef}>
+                        <div className="hrp-modal-head">
+                            <h2 id="hrp-edit-title"><Pencil size={20} aria-hidden="true" /> Edit requirement</h2>
+                            <button type="button" className="hrp-btn-icon" onClick={closeModal} aria-label="Close" title="Close">
+                                <X size={18} aria-hidden="true" />
+                            </button>
+                        </div>
+                        <form onSubmit={handleSaveRequirement}>
+                            <div className="hrp-modal-body hrp-form">
+                                <p className="hrp-form-name">{editReq.name}</p>
+
+                                <label htmlFor="hrp-edit-status">Status</label>
+                                <select
+                                    id="hrp-edit-status"
+                                    value={editReq.status}
+                                    onChange={(e) => setEditReq({ ...editReq, status: e.target.value })}
+                                >
+                                    {EDIT_STATUSES.map(([value, label]) => (
+                                        <option key={value} value={value} disabled={['Completed', 'Rejected'].includes(value) && !editReq.hasFile}>
+                                            {label}{['Completed', 'Rejected'].includes(value) && !editReq.hasFile ? ' (no file)' : ''}
+                                        </option>
+                                    ))}
+                                    {!EDIT_STATUSES.some(([value]) => value === editReq.status) && (
+                                        <option value={editReq.status}>{editReq.status}</option>
+                                    )}
+                                </select>
+
+                                <label htmlFor="hrp-edit-deadline">Deadline</label>
+                                <input
+                                    id="hrp-edit-deadline"
+                                    type="date"
+                                    value={editReq.deadline}
+                                    onChange={(e) => setEditReq({ ...editReq, deadline: e.target.value })}
+                                />
+
+                                <label className="hrp-check">
+                                    <input
+                                        type="checkbox"
+                                        checked={editReq.allowLate}
+                                        onChange={(e) => setEditReq({ ...editReq, allowLate: e.target.checked })}
+                                    />
+                                    Late allowed
+                                </label>
+
+                                <label htmlFor="hrp-edit-remarks">Remarks</label>
+                                <textarea
+                                    id="hrp-edit-remarks"
+                                    rows={3}
+                                    value={editReq.remarks}
+                                    onChange={(e) => setEditReq({ ...editReq, remarks: e.target.value })}
+                                />
+                            </div>
+                            <div className="hrp-modal-foot hrp-modal-foot-split">
+                                <button type="button" className="hrp-btn-text ghost" onClick={closeModal}>Cancel</button>
+                                <button type="submit" className="hrp-btn-text" disabled={saving}>Save</button>
+                            </div>
+                        </form>
                     </div>
                 </div>
             )}

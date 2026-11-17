@@ -181,6 +181,7 @@ export default function MedicineInventory() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [sortBy, setSortBy] = useState('name');
   const [expandedIds, setExpandedIds] = useState({});
+  const [isAttentionOpen, setIsAttentionOpen] = useState(true);
 
   const [isMedicineModalOpen, setIsMedicineModalOpen] = useState(false);
   const [isManageMedicinesOpen, setIsManageMedicinesOpen] = useState(false);
@@ -909,6 +910,48 @@ export default function MedicineInventory() {
       </section>
 
       <div className="inventory-workspace">
+        <aside className="inventory-rail" aria-label="Alerts">
+          <section className="inventory-panel">
+            <h2 className="rail-title">
+              <AlertTriangle size={18} /> Needs attention
+              <span className="pill-badge neutral rail-count">{attentionItems.length}</span>
+              <button
+                type="button"
+                className="action-icon-button rail-toggle"
+                aria-expanded={isAttentionOpen}
+                aria-controls="attention-list"
+                aria-label={isAttentionOpen ? 'Hide alerts' : 'Show alerts'}
+                title={isAttentionOpen ? 'Hide alerts' : 'Show alerts'}
+                onClick={() => setIsAttentionOpen(prev => !prev)}
+              >
+                <ChevronDown size={20} />
+              </button>
+            </h2>
+            {isAttentionOpen && (
+              attentionItems.length === 0 ? (
+                <p className="rail-empty">No alerts.</p>
+              ) : (
+                <ul className="attention-list" id="attention-list">
+                  {attentionItems.map(item => (
+                    <li key={item.key}>
+                      <button type="button" className="attention-item" onClick={() => jumpToMedicine(item.id)}>
+                        <span className={`pill-badge icon-only ${item.tone}`}>
+                          {item.kind === 'stock' ? <Activity size={16} /> : item.kind === 'expired' ? <AlertTriangle size={16} /> : <Clock size={16} />}
+                          <span className="sr-only">{item.tone === 'critical' ? 'Critical' : 'Warning'}</span>
+                        </span>
+                        <span className="attention-text">
+                          <strong>{item.title}</strong>
+                          <small>{item.text}</small>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )
+            )}
+          </section>
+        </aside>
+
         <section className="inventory-panel" aria-label="Inventory">
           <div className="inventory-toolbar">
             <div className="search-bar-container">
@@ -1112,35 +1155,6 @@ export default function MedicineInventory() {
           </div>
           <div className="inventory-foot">Showing {visibleMedicines.length} of {medicineGroups.length} medicines</div>
         </section>
-
-        <aside className="inventory-rail" aria-label="Alerts">
-          <section className="inventory-panel">
-            <h2 className="rail-title">
-              <AlertTriangle size={18} /> Needs attention
-              <span className="pill-badge neutral rail-count">{attentionItems.length}</span>
-            </h2>
-            {attentionItems.length === 0 ? (
-              <p className="rail-empty">No alerts.</p>
-            ) : (
-              <ul className="attention-list">
-                {attentionItems.map(item => (
-                  <li key={item.key}>
-                    <button type="button" className="attention-item" onClick={() => jumpToMedicine(item.id)}>
-                      <span className={`pill-badge icon-only ${item.tone}`}>
-                        {item.kind === 'stock' ? <Activity size={16} /> : item.kind === 'expired' ? <AlertTriangle size={16} /> : <Clock size={16} />}
-                        <span className="sr-only">{item.tone === 'critical' ? 'Critical' : 'Warning'}</span>
-                      </span>
-                      <span className="attention-text">
-                        <strong>{item.title}</strong>
-                        <small>{item.text}</small>
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        </aside>
       </div>
 
       {/* Manage Medicines Modal */}

@@ -2,7 +2,7 @@
 // The doctor builds templates of the assessment form (extra questions that appear in the check-up form). A template can be archived and restored.
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { LayoutTemplate, Plus, Copy, Edit, Eye, Archive, ArchiveRestore, ClipboardList } from 'lucide-react';
+import { LayoutTemplate, Plus, Copy, Edit, Eye, Archive, ArchiveRestore, ClipboardList, Trash2 } from 'lucide-react';
 import Modal from '../../components/common/Modal';
 import { useAlert } from '../../context/AlertContext';
 import { TemplateFields } from '../../components/doctor/TemplateFields';
@@ -299,7 +299,7 @@ const toStarter = (s) => ({
 
 const DoctorTemplates = () => {
     const { doctor, doctorId } = useOutletContext();
-    const { showAlert } = useAlert();
+    const { showAlert, showConfirm } = useAlert();
 
     const specialization = doctor?.specialization || '';
     const types = useMemo(() => allowedTypes(doctor), [doctor]);
@@ -468,6 +468,20 @@ const DoctorTemplates = () => {
         } catch (e) { showAlert('Could not reach the server.', 'error'); }
     };
 
+    // permanent delete, archived templates only
+    const deletePermanently = async (t) => {
+        const ok = await showConfirm(`Delete "${t.template_name}" permanently? This cannot be undone.`, { danger: true, confirmLabel: 'Delete', title: 'Delete template' });
+        if (!ok) return;
+        try {
+            const res = await fetch(`${API}/api/doctor-templates/${t.template_id}`, {
+                method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ doctor_id: doctorId })
+            });
+            const data = await res.json();
+            if (data.success) { showAlert(`"${t.template_name}" is deleted.`, 'success'); load(); }
+            else showAlert(data.message || 'Could not delete the template.', 'error');
+        } catch (e) { showAlert('Could not reach the server.', 'error'); }
+    };
+
     // only the templates of this specialization show: a Dentist sees the Dental ones, not General Check Up, counselling or any-purpose templates
     const ofSpecialization = templates.filter((t) => (t.visit_type ? mine.includes(t.visit_type) : COUNSELLING.test(specialization)));
     const activeList = ofSpecialization.filter((t) => t.is_active);
@@ -554,6 +568,7 @@ const DoctorTemplates = () => {
                                         {t.is_active
                                             ? <button className="dp-btn dp-btn-danger dp-btn-icon" onClick={() => setArchived(t, true)} aria-label={`Archive ${t.template_name}`} title="Archive"><Archive size={16} /></button>
                                             : <button className="dp-btn dp-btn-primary dp-btn-icon" onClick={() => setArchived(t, false)} aria-label={`Restore ${t.template_name}`} title="Restore"><ArchiveRestore size={16} /></button>}
+                                        {!t.is_active && <button className="dp-btn dp-btn-danger dp-btn-icon" onClick={() => deletePermanently(t)} aria-label={`Delete ${t.template_name} permanently`} title="Delete permanently"><Trash2 size={16} /></button>}
                                     </div>
                                 </td>
                             </tr>

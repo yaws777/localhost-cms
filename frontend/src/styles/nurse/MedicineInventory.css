@@ -591,7 +591,25 @@
 }
 
 .rail-count {
+  margin-left: 0.25rem;
+}
+
+.rail-toggle {
   margin-left: auto;
+}
+
+.rail-toggle svg {
+  transition: transform 0.15s;
+}
+
+.rail-toggle[aria-expanded="false"] svg {
+  transform: rotate(-90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail-toggle svg {
+    transition: none;
+  }
 }
 
 .rail-empty {
@@ -603,12 +621,19 @@
 .attention-list {
   list-style: none;
   margin: 0;
-  padding: 0.5rem;
-  display: grid;
-  gap: 0.25rem;
+  padding: 0.75rem;
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+}
+
+.attention-list > li {
+  flex: 0 0 17rem;
+  min-width: 0;
 }
 
 .attention-item {
+  border: 1px solid var(--card-border);
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -863,22 +888,13 @@
   }
 }
 
-@media (min-width: 80rem) {
-  .inventory-workspace {
-    grid-template-columns: minmax(0, 1fr) 22rem;
-  }
-}
-
 @media (min-width: 100rem) {
   .inventory-dashboard {
     padding: 2rem 3rem 3rem;
   }
-  .inventory-workspace {
-    grid-template-columns: minmax(0, 1fr) 26rem;
-  }
 }
 
-/* Rail sits under the table below 80rem; two cards side by side on tablets */
+/* Attention strip sits above the table at every width */
 @media (max-width: 47.99rem) {
   .inventory-dashboard {
     padding-left: max(1rem, env(safe-area-inset-left, 0px));
