@@ -5,6 +5,8 @@
 import React from 'react';
 import { Stethoscope, Activity, Pill, FileText, Repeat, AlertTriangle, CheckCircle2, Clock, XCircle, User, ShieldAlert } from 'lucide-react';
 import { formatDate as formatDateBase, formatTime, formatDateTime } from '../../utils/datetime';
+import { hasVitals, vitalsLine, inVitalsOf, outVitalsOf } from '../../utils/vitals';
+import { dispensedLine } from '../../utils/dispensed';
 import '../../styles/common/ClinicRecordViews.css';
 
 const asDate = (v) => (v ? new Date(String(v).includes(' ') && !String(v).includes('T') ? String(v).replace(' ', 'T') : v) : null);
@@ -100,6 +102,15 @@ export function DoctorVisitDetail({ record: v }) {
                 </dl>
             </Section>
 
+            {(hasVitals(inVitalsOf(v)) || hasVitals(outVitalsOf(v))) && (
+                <Section icon={Activity} title="Vital signs">
+                    <dl>
+                        <Row label="At time in">{vitalsLine(inVitalsOf(v))}</Row>
+                        <Row label="At time out">{vitalsLine(outVitalsOf(v))}</Row>
+                    </dl>
+                </Section>
+            )}
+
             {v.documented ? (
                 <>
                     <Section icon={FileText} title="Assessment">
@@ -152,6 +163,12 @@ export function DoctorVisitDetail({ record: v }) {
                 </>
             ) : (
                 <p className="empty-crv">{outcome.tone === 'info' ? 'The assessment shows here after the check-up.' : 'No assessment was recorded for this check-up.'}</p>
+            )}
+
+            {dispensedLine(v) && (
+                <Section icon={Pill} title="Medicine dispensed">
+                    <dl><Row label="Given at time out">{dispensedLine(v)}</Row></dl>
+                </Section>
             )}
 
             <FormValues record={v} keys={DENTAL_KEYS} title="Dental record" />

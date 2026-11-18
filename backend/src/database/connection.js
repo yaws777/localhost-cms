@@ -1421,8 +1421,9 @@ app.get('/api/students/:studentId/health-summary', async (req, res) => {
 
         try {
             await ensureVisitOutVitalsColumns();
+            await ensureCheckupVisitColumns();
             const [visits] = await pool.query(
-                `SELECT visit_date, time_in, time_out, temperature, respiratory_rate, pulse_rate, blood_pressure,
+                `SELECT visit_kind, visit_date, time_in, time_out, temperature, respiratory_rate, pulse_rate, blood_pressure,
                         out_temperature, out_respiratory_rate, out_pulse_rate, out_blood_pressure
                  FROM clinic_visits WHERE student_id = ? ORDER BY visit_date DESC, time_in DESC LIMIT 20`,
                 [studentId]
@@ -1439,7 +1440,7 @@ app.get('/api/students/:studentId/health-summary', async (req, res) => {
                     const num = (n) => (hasValue(n) && Number.isFinite(Number(n)) ? Number(n) : null);
                     vitalCandidates.push({
                         source: 'clinic_visit',
-                        label: i === 0 ? 'Clinic visit, time in' : 'Clinic visit, time out',
+                        label: `${v.visit_kind === 'Check-up' ? 'Check-up' : 'Clinic visit'}, ${i === 0 ? 'time in' : 'time out'}`,
                         date: day,
                         ts: new Date(`${day}T${clock(x.at)}`).getTime(),
                         is_abnormal: null,
@@ -1502,7 +1503,10 @@ app.get('/api/health-records/:studentId/latest-checkups', async (req, res) => {
                 diagnosis: r.diagnosis,
                 treatment_recommendations: r.treatment_recommendations,
                 is_abnormal: r.is_abnormal ? 1 : 0,
-                follow_up_needed: r.follow_up_needed ? 1 : 0
+                follow_up_needed: r.follow_up_needed ? 1 : 0,
+                in_blood_pressure: r.in_blood_pressure, in_temperature: r.in_temperature, in_pulse_rate: r.in_pulse_rate, in_respiratory_rate: r.in_respiratory_rate,
+                out_blood_pressure: r.out_blood_pressure, out_temperature: r.out_temperature, out_pulse_rate: r.out_pulse_rate, out_respiratory_rate: r.out_respiratory_rate,
+                dispensed_medicine: r.dispensed_medicine, dispensed_quantity: r.dispensed_quantity, dispensed_unit: r.dispensed_unit
             });
         });
         res.json({ success: true, checkups });
@@ -1532,6 +1536,21 @@ app.put('/api/update-profile', upload.any(), async (req, res) => {
     const proofFiles = (req.files || []).filter(f =>
         f.fieldname.startsWith('proof_') && HEALTH_PROOF_CONDITIONS.includes(proofKeyOf(f)) && healthInfo?.[proofKeyOf(f)]
     );
+    // Nurse edit (health record profile): same update, but no proof file is required for a ticked condition
+    let byNurse = false;
+    if (healthInfo && req.body.nurse_edit) {
+        try {
+            byNurse = (await resolveActor(pool, req.body.sender_id)).role === 'Nurse';
+        } catch (actorErr) {
+            dropAllFiles();
+            console.error('Nurse check failed:', actorErr);
+            return res.status(500).json({ success: false, message: 'Failed to update profile.' });
+        }
+        if (!byNurse) {
+            dropAllFiles();
+            return res.status(403).json({ success: false, message: 'Only the nurse can edit this.' });
+        }
+    }
     let existingProofs = [];
     if (healthInfo) {
         try {
@@ -1543,7 +1562,7 @@ app.put('/api/update-profile', upload.any(), async (req, res) => {
             return res.status(500).json({ success: false, message: 'Failed to update profile.' });
         }
         const have = new Set([...existingProofs.map(p => p.condition_key), ...proofFiles.map(proofKeyOf)]);
-        const missing = HEALTH_PROOF_CONDITIONS.filter(key => healthInfo[key] && !have.has(key));
+        const missing = byNurse ? [] : HEALTH_PROOF_CONDITIONS.filter(key => healthInfo[key] && !have.has(key));
         if (missing.length > 0) {
             dropAllFiles();
             return res.status(400).json({ success: false, message: 'Upload a proof file for each condition you ticked.', missing });
@@ -3062,6 +3081,100 @@ app.get('/api/academic-programs', async (req, res) => {
 });
 
 
+// Health information row (student_health_information) -> list of the conditions the student reported
+const healthConditionsOf = (student) => {
+    const parseBool = (val) => {
+        if (val === null || val === undefined) return false;
+        if (typeof val === 'boolean') return val;
+        if (typeof val === 'number') return val === 1;
+        if (typeof val === 'string') return val === '1' || val.toLowerCase() === 'true';
+        if (Buffer.isBuffer(val)) return val[0] === 1;
+        return Boolean(val);
+    };
+
+    const conditions = [];
+    
+    if (parseBool(student.has_allergies)) {
+        const allergyTypes = [
+            student.allergy_food && `Food (${student.allergy_food})`,
+            student.allergy_medicine && `Meds (${student.allergy_medicine})`,
+            student.allergy_insect_sting && `Sting (${student.allergy_insect_sting})`,
+            student.allergy_environmental && `Env (${student.allergy_environmental})`,
+            student.allergy_others
+        ].filter(Boolean);
+        conditions.push(allergyTypes.length > 0 ? `Allergies: ${allergyTypes.join(', ')}` : 'Allergies');
+    }
+    
+    if (parseBool(student.has_asthma)) {
+        conditions.push(student.asthma_triggers ? `Asthma (${student.asthma_triggers})` : 'Asthma');
+    }
+    
+    if (parseBool(student.has_other_respiratory)) {
+        conditions.push(student.other_respiratory_specify ? `Respiratory: ${student.other_respiratory_specify}` : 'Respiratory Issue');
+    }
+    
+    if (parseBool(student.has_blood_disorders)) {
+        const bloodTypes = [
+            parseBool(student.blood_disorder_anemia) && 'Anemia',
+            parseBool(student.blood_disorder_leukopenia) && 'Leukopenia',
+            parseBool(student.blood_disorder_thrombocytopenia) && 'Thrombocytopenia'
+        ].filter(Boolean);
+        conditions.push(bloodTypes.length > 0 ? `Blood Disorder: ${bloodTypes.join(', ')}` : 'Blood Disorder');
+    }
+    
+    if (parseBool(student.has_chicken_pox)) conditions.push('Chicken Pox');
+    if (parseBool(student.has_measles)) conditions.push('Measles');
+    
+    if (parseBool(student.has_digestive_disorders)) {
+        const digestiveTypes = [
+            parseBool(student.digestive_ulcer) && 'Ulcer',
+            parseBool(student.digestive_appendicitis) && 'Appendicitis',
+            parseBool(student.digestive_gastritis) && 'Gastritis',
+            parseBool(student.digestive_hemorrhoids) && 'Hemorrhoids'
+        ].filter(Boolean);
+        conditions.push(digestiveTypes.length > 0 ? `Digestive: ${digestiveTypes.join(', ')}` : 'Digestive Disorder');
+    }
+    
+    if (parseBool(student.has_heart_problems)) {
+        conditions.push(student.heart_problems_specify ? `Heart: ${student.heart_problems_specify}` : 'Heart Problem');
+    }
+    
+    if (parseBool(student.has_kidney_bladder_problems)) {
+        conditions.push(student.kidney_bladder_specify ? `Kidney/Bladder: ${student.kidney_bladder_specify}` : 'Kidney/Bladder Problem');
+    }
+    
+    if (parseBool(student.has_metabolic_diseases)) {
+        const metabolic = [
+            parseBool(student.metabolic_hyperglycemia) && 'Hyperglycemia',
+            parseBool(student.metabolic_hypoglycemia) && 'Hypoglycemia'
+        ].filter(Boolean);
+        conditions.push(metabolic.length > 0 ? `Metabolic: ${metabolic.join(', ')}` : 'Metabolic Disease');
+    }
+    
+    if (parseBool(student.has_muscle_bone_disorder)) {
+        conditions.push(student.muscle_bone_specify ? `Muscle/Bone: ${student.muscle_bone_specify}` : 'Muscle/Bone Disorder');
+    }
+    
+    if (parseBool(student.has_seizure_episode)) conditions.push('Seizures');
+    
+    if (parseBool(student.has_surgery)) {
+        conditions.push(student.surgery_specify ? `Surgery (${student.surgery_specify})` : 'Surgery History');
+    }
+    
+    if (parseBool(student.has_vision_problem)) {
+        conditions.push(student.vision_specify ? `Vision: ${student.vision_specify}` : 'Vision Problem');
+    }
+    
+    if (parseBool(student.has_hearing_problem)) {
+        conditions.push(student.hearing_specify ? `Hearing: ${student.hearing_specify}` : 'Hearing Problem');
+    }
+    
+    if (parseBool(student.has_other_condition)) {
+        conditions.push(student.other_condition_specify || 'Other Condition');
+    }
+    return conditions;
+};
+
 // GET /api/health-records/students
 app.get('/students', async (req, res) => {
     try {
@@ -3171,110 +3284,10 @@ app.get('/students', async (req, res) => {
 
         const [rows] = await db.query(query, queryParams);
 
-        // Helper to evaluate MySQL 1/0, true/false, '1', or Buffer <01>
-        const parseBool = (val) => {
-            if (val === null || val === undefined) return false;
-            if (typeof val === 'boolean') return val;
-            if (typeof val === 'number') return val === 1;
-            if (typeof val === 'string') return val === '1' || val.toLowerCase() === 'true';
-            if (Buffer.isBuffer(val)) return val[0] === 1;
-            return Boolean(val);
-        };
-
         const studentsWithHealthHistory = rows.map((student) => {
-            // Check if health record exists for student
-            if (!student.health_info_id) {
-                return {
-                    ...student,
-                    health_history: 'No Record Submitted'
-                };
-            }
-
-            const conditions = [];
-
-            if (parseBool(student.has_allergies)) {
-                const allergyTypes = [
-                    student.allergy_food && `Food (${student.allergy_food})`,
-                    student.allergy_medicine && `Meds (${student.allergy_medicine})`,
-                    student.allergy_insect_sting && `Sting (${student.allergy_insect_sting})`,
-                    student.allergy_environmental && `Env (${student.allergy_environmental})`,
-                    student.allergy_others
-                ].filter(Boolean);
-                conditions.push(allergyTypes.length > 0 ? `Allergies: ${allergyTypes.join(', ')}` : 'Allergies');
-            }
-
-            if (parseBool(student.has_asthma)) {
-                conditions.push(student.asthma_triggers ? `Asthma (${student.asthma_triggers})` : 'Asthma');
-            }
-
-            if (parseBool(student.has_other_respiratory)) {
-                conditions.push(student.other_respiratory_specify ? `Respiratory: ${student.other_respiratory_specify}` : 'Respiratory Issue');
-            }
-
-            if (parseBool(student.has_blood_disorders)) {
-                const bloodTypes = [
-                    parseBool(student.blood_disorder_anemia) && 'Anemia',
-                    parseBool(student.blood_disorder_leukopenia) && 'Leukopenia',
-                    parseBool(student.blood_disorder_thrombocytopenia) && 'Thrombocytopenia'
-                ].filter(Boolean);
-                conditions.push(bloodTypes.length > 0 ? `Blood Disorder: ${bloodTypes.join(', ')}` : 'Blood Disorder');
-            }
-
-            if (parseBool(student.has_chicken_pox)) conditions.push('Chicken Pox');
-            if (parseBool(student.has_measles)) conditions.push('Measles');
-
-            if (parseBool(student.has_digestive_disorders)) {
-                const digestiveTypes = [
-                    parseBool(student.digestive_ulcer) && 'Ulcer',
-                    parseBool(student.digestive_appendicitis) && 'Appendicitis',
-                    parseBool(student.digestive_gastritis) && 'Gastritis',
-                    parseBool(student.digestive_hemorrhoids) && 'Hemorrhoids'
-                ].filter(Boolean);
-                conditions.push(digestiveTypes.length > 0 ? `Digestive: ${digestiveTypes.join(', ')}` : 'Digestive Disorder');
-            }
-
-            if (parseBool(student.has_heart_problems)) {
-                conditions.push(student.heart_problems_specify ? `Heart: ${student.heart_problems_specify}` : 'Heart Problem');
-            }
-
-            if (parseBool(student.has_kidney_bladder_problems)) {
-                conditions.push(student.kidney_bladder_specify ? `Kidney/Bladder: ${student.kidney_bladder_specify}` : 'Kidney/Bladder Problem');
-            }
-
-            if (parseBool(student.has_metabolic_diseases)) {
-                const metabolic = [
-                    parseBool(student.metabolic_hyperglycemia) && 'Hyperglycemia',
-                    parseBool(student.metabolic_hypoglycemia) && 'Hypoglycemia'
-                ].filter(Boolean);
-                conditions.push(metabolic.length > 0 ? `Metabolic: ${metabolic.join(', ')}` : 'Metabolic Disease');
-            }
-
-            if (parseBool(student.has_muscle_bone_disorder)) {
-                conditions.push(student.muscle_bone_specify ? `Muscle/Bone: ${student.muscle_bone_specify}` : 'Muscle/Bone Disorder');
-            }
-
-            if (parseBool(student.has_seizure_episode)) conditions.push('Seizures');
-
-            if (parseBool(student.has_surgery)) {
-                conditions.push(student.surgery_specify ? `Surgery (${student.surgery_specify})` : 'Surgery History');
-            }
-
-            if (parseBool(student.has_vision_problem)) {
-                conditions.push(student.vision_specify ? `Vision: ${student.vision_specify}` : 'Vision Problem');
-            }
-
-            if (parseBool(student.has_hearing_problem)) {
-                conditions.push(student.hearing_specify ? `Hearing: ${student.hearing_specify}` : 'Hearing Problem');
-            }
-
-            if (parseBool(student.has_other_condition)) {
-                conditions.push(student.other_condition_specify || 'Other Condition');
-            }
-
-            return {
-                ...student,
-                health_history: conditions.length > 0 ? conditions.join('; ') : 'No Known Conditions'
-            };
+            if (!student.health_info_id) return { ...student, health_history: 'No Record Submitted' };
+            const conditions = healthConditionsOf(student);
+            return { ...student, health_history: conditions.length > 0 ? conditions.join('; ') : 'No Known Conditions' };
         });
 
         console.log(`[API Debug] Retrieved ${studentsWithHealthHistory.length} student records.`);
@@ -4374,16 +4387,21 @@ app.get('/api/students/search-visit', async (req, res) => {
 // GET: Retrieve history of all clinic visits (Latest Check-In First)
 app.get('/api/clinic-visits', async (req, res) => {
     try {
+        await ensureCheckupVisitColumns();
         const sql = `
-            SELECT 
-                cv.*, 
-                s.first_name, s.last_name, s.program_id, s.year_level, 
+            SELECT
+                cv.*,
+                s.first_name, s.last_name, s.program_id, s.year_level,
                 cc.complaint_name,
+                da.visit_type AS checkup_purpose, CONCAT('Dr. ', dr.first_name, ' ', dr.last_name) AS checkup_doctor,
+                EXISTS (SELECT 1 FROM doctor_assessments dax WHERE dax.appointment_id = cv.appointment_id) AS checkup_documented,
                 cd.batch_id, cd.dosage_consumption_unit_value, cd.dosage_consumption_unit_of_measure, cd.dispensed_at,
                 CONCAT(m.brand_name, ' (', m.generic_name, ')') AS medicine_name
             FROM clinic_visits cv
             JOIN students s ON cv.student_id = s.student_id
             LEFT JOIN chief_complaints cc ON cv.complaint_id = cc.complaint_id
+            LEFT JOIN doctor_appointments da ON da.appointment_id = cv.appointment_id
+            LEFT JOIN doctors dr ON dr.doctor_id = da.doctor_id
             LEFT JOIN consultation_dispensation cd ON cv.visit_id = cd.visit_id
             LEFT JOIN medicine_inventory_batches mib ON cd.batch_id = mib.batch_id
             LEFT JOIN medicines m ON mib.medicine_id = m.medicine_id
@@ -4394,6 +4412,24 @@ app.get('/api/clinic-visits', async (req, res) => {
     } catch (error) {
         console.error("Error fetching clinic visits:", error);
         res.status(500).json({ error: "Failed to fetch clinic visits" });
+    }
+});
+
+// GET: the doctor's assessment of a clinic visit that is a doctor check-up (Visit Log > view results). `assessment` is null until the doctor documents it.
+app.get('/api/clinic-visits/:visitId/result', async (req, res) => {
+    try {
+        await ensureCheckupVisitColumns();
+        const [[visit]] = await pool.query(`SELECT visit_id, student_id, appointment_id FROM clinic_visits WHERE visit_id = ?`, [req.params.visitId]);
+        if (!visit) return res.status(404).json({ success: false, message: 'Visit not found.' });
+        if (!visit.appointment_id) return res.json({ success: true, assessment: null });
+        const [rows] = await pool.query(
+            `${DOCTOR_VISIT_SELECT} WHERE da.appointment_id = ? AND das.student_id = ? AND da_assessment.assessment_id IS NOT NULL LIMIT 1`,
+            [visit.appointment_id, visit.student_id]
+        );
+        res.json({ success: true, assessment: rows[0] || null });
+    } catch (error) {
+        console.error('Error fetching the visit result:', error);
+        res.status(500).json({ success: false, message: 'Failed to load the visit result.' });
     }
 });
 
@@ -4688,6 +4724,17 @@ app.patch('/api/clinic-visits/:id/timeout', async (req, res) => {
 
     if (!time_out) {
         return res.status(400).json({ success: false, error: "Time Out is required" });
+    }
+    // a doctor check-up is timed out (with its vital signs) in Doctor Visit > On going, never from the Visit Log
+    try {
+        await ensureCheckupVisitColumns();
+        const [[kind]] = await pool.query(`SELECT visit_kind FROM clinic_visits WHERE visit_id = ?`, [id]);
+        if (kind && kind.visit_kind === 'Check-up') {
+            return res.status(409).json({ success: false, error: 'A check-up is timed out in Doctor Visit > On going.' });
+        }
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ error: "Failed to update time out" });
     }
     if (!outTemp || !outRr || !outPulse || !outBp) {
         return res.status(400).json({ success: false, error: "Record the time-out vital signs (BP, temperature, pulse, respiratory rate)." });
@@ -10766,6 +10813,23 @@ async function generateCustomId(prefix, tableName, idColumn, dbExecutor = pool) 
     }
   }
 
+  // a check-up time in (clinic_visits.appointment_id) outlives its appointment when the table was emptied: never reuse that id,
+  // or the new appointment would look already timed in
+  if (tableName === 'doctor_appointments') {
+    try {
+      const [linked] = await dbExecutor.query(
+        `SELECT appointment_id FROM clinic_visits WHERE appointment_id LIKE ? ORDER BY CHAR_LENGTH(appointment_id) DESC, appointment_id DESC LIMIT 1`,
+        [searchPattern]
+      );
+      if (linked.length > 0) {
+        const linkedSeq = parseInt(linked[0].appointment_id.slice(`${prefix}-${dateStr}`.length), 10);
+        if (!isNaN(linkedSeq) && linkedSeq + 1 > nextSequence) nextSequence = linkedSeq + 1;
+      }
+    } catch (error) {
+      if (error.code !== 'ER_BAD_FIELD_ERROR') throw error;
+    }
+  }
+
   const paddedSeq = String(nextSequence).padStart(3, '0');
   return `${prefix}-${dateStr}${paddedSeq}`;
 }
@@ -11473,10 +11537,13 @@ app.get('/api/doctor-schedules', async (req, res) => {
         const endedSet = new Set(endedToday.map((r) => r.schedule_id));
         const schedules = rows.map((s) => {
             let nextDate = null;
+            // today's session is over once its end was confirmed (the end time is the extended one when it was extended): it is past, not upcoming
+            const todayOver = endedSet.has(s.schedule_id) && scheduleOccursOn(s, today);
             if (s.status === 'Open') {
-                if (s.recurrence === 'Once') nextDate = s.schedule_date >= today ? s.schedule_date : null;
+                if (s.recurrence === 'Once') nextDate = (s.schedule_date > today || (s.schedule_date === today && !todayOver)) ? s.schedule_date : null;
                 else {
-                    for (let d = s.valid_from > today ? s.valid_from : today; d <= s.valid_until; d = addDaysStr(d, 1)) {
+                    const from = todayOver ? addDaysStr(today, 1) : today;
+                    for (let d = s.valid_from > from ? s.valid_from : from; d <= s.valid_until; d = addDaysStr(d, 1)) {
                         if (dayOfWeekOf(d) === Number(s.day_of_week)) { nextDate = d; break; }
                     }
                 }
@@ -12591,14 +12658,11 @@ const REQUEST_SELECT = `
 app.post('/api/student/consultation-requests', async (req, res) => {
     const { student_id } = req.body;
     const scheduleId = textOrNull(req.body.schedule_id);
-    const reason = textOrNull(req.body.reason);
     const purposeOther = null;
     const preferredNote = textOrNull(req.body.preferred_note);
 
     if (!student_id) return res.status(400).json({ success: false, message: 'Student ID is required.' });
     if (!scheduleId) return res.status(400).json({ success: false, message: 'Pick the open listing you want a place in.' });
-    if (!reason) return res.status(400).json({ success: false, message: 'Please tell the clinic the reason for your check-up.' });
-    if (reason.length > 255) return res.status(400).json({ success: false, message: 'The reason can be at most 255 characters.' });
 
     const connection = await pool.getConnection();
     let created = null;
@@ -12651,21 +12715,40 @@ app.post('/api/student/consultation-requests', async (req, res) => {
                     : `You are already on the ${visitLabel(visitType, purposeOther)} waiting list (${dupes[0].status.toLowerCase()}). Withdraw that request first if you want to send a new one.`);
         }
 
-        // no number yet: the student gets the next queue number of the session only when the nurse accepts
+        // no reason and no nurse approval: asking for a place in an open listing is accepted at once, the student gets the next queue number of the session
+        // (reason is NOT NULL in old databases, so an empty text is stored)
+        const studentName = `${student.first_name} ${student.last_name}`;
         const requestId = await generateCustomIdWithRetry(connection, 'CREQ', 'consultation_requests', 'request_id', async (id) => {
             await connection.query(
                 `INSERT INTO consultation_requests (request_id, student_id, visit_type, queue_no, purpose_other, reason, preferred_doctor_id, preferred_note, status, listing_schedule_id, listing_date)
-                 VALUES (?, ?, ?, NULL, ?, ?, ?, ?, 'Waiting for Approval', ?, ?)`,
-                [id, student_id, visitType, purposeOther, reason, doctor.doctor_id, preferredNote ? preferredNote.slice(0, 255) : null, schedule.schedule_id, listing.listing_date]
+                 VALUES (?, ?, ?, NULL, ?, '', ?, ?, 'Waiting List', ?, ?)`,
+                [id, student_id, visitType, purposeOther, doctor.doctor_id, preferredNote ? preferredNote.slice(0, 255) : null, schedule.schedule_id, listing.listing_date]
             );
         });
         await logRequest(connection, {
-            request_id: requestId, action: 'Requested', to_status: 'Waiting for Approval', reason, schedule_id: schedule.schedule_id,
-            actor_user_id: student.user_id, actor_role: 'Student', actor_name: `${student.first_name} ${student.last_name}`
+            request_id: requestId, action: 'Requested', to_status: 'Waiting List', reason: null, schedule_id: schedule.schedule_id,
+            actor_user_id: student.user_id, actor_role: 'Student', actor_name: studentName
         });
+        const appointed = await appointIntoSchedule(connection, {
+            schedule, doctor, studentId: student_id, request: { request_id: requestId, status: 'Waiting List' }, date: listing.listing_date,
+            visitType, purposeOther, reason: null,
+            creator: { nurseId: null, doctorId: null, userId: student.user_id, name: studentName, source: 'Student' }, how: 'Listed by the student'
+        });
+        await connection.query(
+            `UPDATE consultation_requests SET queue_no = ?, review_reason = NULL, reviewed_by_user_id = ?, reviewed_by_role = 'Student', reviewed_by_name = ?, reviewed_at = NOW()
+             WHERE request_id = ?`,
+            [appointed.queueNo, student.user_id, studentName, requestId]
+        );
+        await logRequest(connection, {
+            request_id: requestId, action: 'Accepted', from_status: 'Waiting List', to_status: 'Appointed',
+            reason: `Listed automatically. Queue number #${appointed.queueNo}`, schedule_id: schedule.schedule_id,
+            actor_user_id: student.user_id, actor_role: 'Student', actor_name: studentName
+        });
+        // a cut off student who got a place here is not waiting in the advance listing any more
+        const leftAdvance = await leaveAdvanceForService(connection, student_id, visitType, `Got a place in the ${visitType} session listing (#${appointed.queueNo}).`);
         await connection.commit();
         when = `${doctorDisplayName(doctor)}, ${fmtSessionWhen(listing.listing_date, schedule.start_time, schedule.end_time)}`;
-        created = { requestId, student };
+        created = { requestId, student, appointed, doctor, leftAdvance, queueNo: appointed.queueNo, actor: { role: 'Student', name: studentName } };
     } catch (error) {
         await connection.rollback();
         connection.release();
@@ -12675,19 +12758,24 @@ app.post('/api/student/consultation-requests', async (req, res) => {
     }
     connection.release();
 
+    // no approval step: the student (and parents) get the queue number, the doctor and the nurses are told that a student took a place
+    await notifyAppointed({
+        appointed: created.appointed, studentId: student_id, visitType, purposeOther, doctor: created.doctor,
+        senderId: created.student.user_id, actor: created.actor
+    });
     try {
-        // the nurse accepts the listing, so the nurse is the one who is told
         await notifyUsers({
             sender_id: created.student.user_id, recipient_ids: await getNurseUserIds(),
-            title: 'New Listing Request',
-            message: `${created.student.first_name} ${created.student.last_name} asked for a place in the ${visitLabel(visitType, purposeOther)} session of ${when}: ${reason}`,
-            type: 'CONSULTATION_REQUEST', payloadData: { request_id: created.requestId }
+            title: 'Student Listed',
+            message: `${created.student.first_name} ${created.student.last_name} took place #${created.queueNo} in the ${visitLabel(visitType, purposeOther)} session of ${when}.`,
+            type: 'APPOINTMENT_SCHEDULED', payloadData: { appointment_id: created.appointed.appointmentId }
         });
-    } catch (e) { console.error('Check-up request notification failed:', e.message); }
+    } catch (e) { console.error('Check-up listing notification failed:', e.message); }
+    if (created.leftAdvance.length > 0) await notifyLeftAdvance(student_id, created.leftAdvance, `you got a place in the ${visitType} session listing.`, created.student.user_id);
 
     res.status(201).json({
-        success: true, request_id: created.requestId, queue_no: null,
-        message: `Your request for the session of ${when} was sent. You get your queue number when the nurse accepts it.`
+        success: true, request_id: created.requestId, queue_no: created.queueNo,
+        message: `You are in the session of ${when}. Your queue number is #${created.queueNo}.`
     });
 });
 
@@ -13193,7 +13281,7 @@ const appointIntoSchedule = async (connection, { schedule, doctor, studentId, re
                  purpose_other, schedule_id, booking_source, booking_reason, queue_lane, queue_no, queue_state)
              VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, 'Scheduled', ?, ?, ?, ?, ?, 'Listed', ?, 'Waiting')`,
             [id, doctor.doctor_id, `${visitLabel(visitType, purposeOther)} Appointment`.slice(0, 45), reason || how, startStr, endStr,
-             creator.nurseId, creator.doctorId, visitType, purposeOther, schedule.schedule_id, creator.doctorId ? 'Doctor' : 'Nurse', reason ? reason.slice(0, 255) : null, queueNo]
+             creator.nurseId, creator.doctorId, visitType, purposeOther, schedule.schedule_id, creator.source || (creator.doctorId ? 'Doctor' : 'Nurse'), reason ? reason.slice(0, 255) : null, queueNo]
         );
     });
     await connection.query(`INSERT INTO doctor_appointment_students (appointment_id, student_id, attendance_status) VALUES (?, ?, 'Pending')`, [appointmentId, studentId]);
@@ -13203,7 +13291,7 @@ const appointIntoSchedule = async (connection, { schedule, doctor, studentId, re
     });
     await linkRequestToAppointment(connection, {
         requestId: request ? request.request_id : null, studentId, visitType, appointmentId, newStatus: 'Appointed', scheduleId: schedule.schedule_id,
-        actor: { user_id: creator.userId, role: creator.doctorId ? 'Doctor' : 'Nurse', name: creator.name },
+        actor: { user_id: creator.userId, role: creator.source || (creator.doctorId ? 'Doctor' : 'Nurse'), name: creator.name },
         reason: `Appointed to the session on ${date}, queue number ${queueNo}`
     });
     const when = `${fmtSessionWhen(date, schedule.start_time, schedule.end_time)}${schedule.location ? `, ${schedule.location}` : ''}`;
@@ -13393,7 +13481,8 @@ app.put('/api/doctor-schedules/:id/extend', async (req, res) => {
         if (!live.in_session_now) {
             throw new BookingError(nextOccurrenceOf(schedule, nowManilaStr().slice(0, 10)) ? 'Only a session that is happening now can be extended. Edit the schedule to change an upcoming one.' : 'This session is already over, so it cannot be extended.');
         }
-        if (req.body.created_by_doctor_id && req.body.created_by_doctor_id !== schedule.doctor_id) throw new BookingError('Doctors can only extend their own schedule.', 403);
+        if (!req.body.created_by_doctor_id) throw new BookingError('Only the doctor can extend a session.', 403);
+        if (req.body.created_by_doctor_id !== schedule.doctor_id) throw new BookingError('Doctors can only extend their own schedule.', 403);
         const doctor = await lockDoctor(connection, schedule.doctor_id);
 
         // an extension runs until the same date only; past the end time it counts from now
@@ -13500,7 +13589,8 @@ app.put('/api/doctor-visits/extend/:appointment_id', async (req, res) => {
         const nowStr = nowManilaStr();
         if (appt.start_time > nowStr) throw new BookingError('This appointment has not started yet. Reschedule it to change the time; only an ongoing appointment can be extended.');
         if (appt.end_time <= nowStr) throw new BookingError('This appointment is already over, so it cannot be extended.');
-        if (req.body.created_by_doctor_id && req.body.created_by_doctor_id !== appt.doctor_id) throw new BookingError('Doctors can only extend their own appointments.', 403);
+        if (!req.body.created_by_doctor_id) throw new BookingError('Only the doctor can extend an appointment.', 403);
+        if (req.body.created_by_doctor_id !== appt.doctor_id) throw new BookingError('Doctors can only extend their own appointments.', 403);
 
         const doctor = await lockDoctor(connection, appt.doctor_id);
         const newEnd = addMinutesToStr(appt.end_time, extra);
@@ -13807,8 +13897,17 @@ const scheduledServicesOf = async (conn) => {
 const syncAdvanceListing = async (conn, scheduledServices) => {
     const hasSchedule = (t) => scheduledServices.all || scheduledServices.types.has(t);
     const [[setting]] = await conn.query(`SELECT * FROM advance_listing_settings WHERE setting_id = 1`);
+    // the settings point at a listing that no longer exists (rows removed by hand): there is no current listing, so reset them. Otherwise the
+    // state says "open" with no batch, and creating a new listing never inserts its row.
+    const orphan = setting.current_listing_id
+        ? !(await conn.query(`SELECT 1 FROM advance_listings WHERE listing_id = ?`, [setting.current_listing_id]))[0].length
+        : !!setting.is_open;
+    if (orphan) {
+        await conn.query(`UPDATE advance_listing_settings SET is_open = 0, closes_at = NULL, current_listing_id = NULL WHERE setting_id = 1`);
+        setting.is_open = 0; setting.closes_at = null; setting.current_listing_id = null;
+    }
     const [services] = await conn.query(`SELECT visit_type, is_open, moved_at FROM advance_listing_services`);
-    const moved = services.filter((s) => hasSchedule(s.visit_type) && (s.is_open || !s.moved_at));
+    const moved =services.filter((s) => hasSchedule(s.visit_type) && (s.is_open || !s.moved_at));
     if (moved.length > 0) {
         await conn.query(`UPDATE advance_listing_services SET is_open = 0, moved_at = COALESCE(moved_at, NOW()) WHERE visit_type IN (?)`, [moved.map((s) => s.visit_type)]);
         moved.forEach((s) => { s.is_open = 0; s.moved_at = s.moved_at || new Date(); });
@@ -14173,11 +14272,10 @@ const nextAdvanceNo = async (conn, visitType) => {
 const registerAdvance = async (req, res, manual) => {
     const { student_id } = req.body;
     const visitType = String(req.body.visit_type || '').trim();
-    const reason = textOrNull(req.body.reason);
+    // no reason is asked any more (the column is NOT NULL in old databases, so an empty text is stored)
+    const reason = '';
     if (!student_id) return res.status(400).json({ success: false, message: manual ? 'Choose the student.' : 'Student ID is required.' });
     if (!visitType) return res.status(400).json({ success: false, message: 'Pick the check-up service you need.' });
-    if (!reason) return res.status(400).json({ success: false, message: 'Please tell the clinic the reason for your check-up.' });
-    if (reason.length > 255) return res.status(400).json({ success: false, message: 'The reason can be at most 255 characters.' });
 
     const connection = await pool.getConnection();
     let created = null;
@@ -14210,12 +14308,12 @@ const registerAdvance = async (req, res, manual) => {
         if (service.listing_full) throw new BookingError(`The ${visitType} advance listing is full (${service.registered} of ${service.listing_limit}).${manual ? ' Raise its limit in the settings first.' : ' Please choose another service.'}`);
         addedStudent = student;
 
-        // a student's request is reviewed first (no number yet); the nurse adding a student is the review, so that one is accepted at once
-        const advanceNo = manual ? await nextAdvanceNo(connection, visitType) : 0;
+        // no approval step: the student (or the student the nurse adds) is in the listing at once with the next advance number of the service
+        const advanceNo = await nextAdvanceNo(connection, visitType);
         const entryId = await generateCustomIdWithRetry(connection, 'ADVL', 'advance_listing_entries', 'entry_id', async (id) => {
             await connection.query(
                 `INSERT INTO advance_listing_entries (entry_id, student_id, visit_type, reason, advance_no, status, listing_id) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                [id, student_id, visitType, reason, advanceNo, manual ? 'Waiting' : 'Pending', state.listing ? state.listing.listing_id : null]
+                [id, student_id, visitType, reason, advanceNo, 'Waiting', state.listing ? state.listing.listing_id : null]
             );
         });
         await connection.commit();
@@ -14239,8 +14337,8 @@ const registerAdvance = async (req, res, manual) => {
     } else {
         try {
             await notifyUsers({
-                sender_id: student_id, recipient_ids: await getNurseUserIds(), title: 'Advance Listing Request',
-                message: `${addedStudent.first_name} ${addedStudent.last_name} asked for a place in the ${visitType} advance listing. Accept or decline the request.`,
+                sender_id: student_id, recipient_ids: await getNurseUserIds(), title: 'Advance Listing',
+                message: `${addedStudent.first_name} ${addedStudent.last_name} joined the ${visitType} advance listing with number ${advanceLabel(created.advanceNo)}.`,
                 type: 'ADVANCE_LISTING', payloadData: { entry_id: created.entryId }
             });
         } catch (e) { console.error('Advance listing request notification failed:', e.message); }
@@ -14249,7 +14347,7 @@ const registerAdvance = async (req, res, manual) => {
         success: true, entry_id: created.entryId, advance_no: created.advanceNo || null, label: created.advanceNo ? advanceLabel(created.advanceNo) : null,
         message: manual
             ? `${addedStudent.first_name} ${addedStudent.last_name} was added to the ${visitType} advance listing with number ${advanceLabel(created.advanceNo)}.`
-            : `Your ${visitType} advance listing request was sent. The nurse reviews it first: you get your advance number once it is accepted.`
+            : `You are in the ${visitType} advance listing. Your advance number is ${advanceLabel(created.advanceNo)}. You get your queue number when a doctor sets the schedule.`
     });
 };
 app.post('/api/student/advance-listing', (req, res) => registerAdvance(req, res, false));
@@ -14943,17 +15041,24 @@ app.get('/api/doctor-schedules/:id/participants', async (req, res) => {
 
         const [rows] = await pool.query(
             `SELECT da.appointment_id, da.start_time, da.end_time, da.status, da.visit_type, da.purpose_other, da.booking_source, da.booking_reason, da.extended_minutes,
-                    da.queue_lane, da.queue_no, da.queue_state, da.parent_appointment_id, ${APPOINTED_HOW_SQL}, ale.advance_no,
+                    da.queue_lane, da.queue_no, da.queue_state, da.parent_appointment_id,
+                    CASE
+                        WHEN da.booking_source = 'Walk-in' THEN 'walk_in'
+                        WHEN da.visit_type = 'Follow-up' AND da.parent_appointment_id IS NOT NULL THEN 'repeat'
+                        WHEN ale.entry_id IS NOT NULL THEN 'advance'
+                        ELSE 'session'
+                    END AS how, ale.advance_no,
                     das.student_id, das.attendance_status, s.first_name, s.last_name, s.year_level, s.section, s.program_id, p.program_name
              FROM doctor_appointments da
              JOIN doctor_appointment_students das ON das.appointment_id = da.appointment_id
              JOIN students s ON s.student_id = das.student_id
              LEFT JOIN academic_programs p ON p.program_id = s.program_id
-             LEFT JOIN advance_listing_entries ale ON ale.appointment_id = da.appointment_id
+             LEFT JOIN advance_listing_entries ale ON ale.appointment_id = da.appointment_id AND ale.student_id = das.student_id
+                  AND ale.schedule_id = ? AND DATE(ale.session_date) = ? AND ale.status = 'Scheduled'
              WHERE da.doctor_id = ? AND da.status IN ('Scheduled', 'Completed')
                AND da.start_time >= ? AND da.start_time < ?
              ORDER BY da.queue_lane IS NULL, FIELD(da.queue_lane, 'Listed', 'Walk-in'), da.queue_no ASC, da.start_time ASC, s.last_name ASC`,
-            [schedule.doctor_id, `${date} ${schedule.start_time}`, `${date} ${schedule.end_time}`]
+            [schedule.schedule_id, date, schedule.doctor_id, `${date} ${schedule.start_time}`, `${date} ${schedule.end_time}`]
         );
         res.json({
             success: true,
@@ -15585,6 +15690,14 @@ const runPastVisitJobs = () => {
 cron.schedule('*/5 * * * *', runPastVisitJobs, { timezone: 'Asia/Manila' });
 runPastVisitJobs();
 
+// Medicine the nurse gave at check-up time out (first dispensation of that clinic visit). visitIdCol = the clinic_visits.visit_id column of the query.
+const checkupDispensedSql = (visitIdCol) => `
+                (SELECT CONCAT(dm.brand_name, ' (', dm.generic_name, ')') FROM consultation_dispensation dcd
+                   JOIN medicine_inventory_batches dmb ON dmb.batch_id = dcd.batch_id JOIN medicines dm ON dm.medicine_id = dmb.medicine_id
+                  WHERE dcd.visit_id = ${visitIdCol} ORDER BY dcd.dispensed_at LIMIT 1) AS dispensed_medicine,
+                (SELECT dcd.dosage_consumption_unit_value FROM consultation_dispensation dcd WHERE dcd.visit_id = ${visitIdCol} ORDER BY dcd.dispensed_at LIMIT 1) AS dispensed_quantity,
+                (SELECT dcd.dosage_consumption_unit_of_measure FROM consultation_dispensation dcd WHERE dcd.visit_id = ${visitIdCol} ORDER BY dcd.dispensed_at LIMIT 1) AS dispensed_unit`;
+
 const DOCTOR_VISIT_SELECT = `
             SELECT
                 da.appointment_id, da.doctor_id, da.batch_id, da.title, da.announcement,
@@ -15611,9 +15724,19 @@ const DOCTOR_VISIT_SELECT = `
                 dr.referral_needed, dr.referral_to, dr.next_visit_recommendation, dr.remarks AS dental_remarks,
                 vr.visual_acuity_left, vr.visual_acuity_right, vr.va_left_corrected, vr.va_right_corrected,
                 vr.wears_eyeglasses, vr.wears_contacts, vr.color_vision, vr.eye_findings,
-                vr.recommended_action, vr.remarks AS vision_remarks
+                vr.recommended_action, vr.remarks AS vision_remarks,
+                ckv.visit_id AS checkup_visit_id, ckv.time_in AS visit_time_in, ckv.time_out AS visit_time_out,
+                ckv.temperature AS in_temperature, ckv.respiratory_rate AS in_respiratory_rate, ckv.pulse_rate AS in_pulse_rate, ckv.blood_pressure AS in_blood_pressure,
+                ckv.out_temperature, ckv.out_respiratory_rate, ckv.out_pulse_rate, ckv.out_blood_pressure,
+                ckv.out_nurse_note,
+                (SELECT CONCAT(dm.brand_name, ' (', dm.generic_name, ')') FROM consultation_dispensation dcd
+                   JOIN medicine_inventory_batches dmb ON dmb.batch_id = dcd.batch_id JOIN medicines dm ON dm.medicine_id = dmb.medicine_id
+                  WHERE dcd.visit_id = ckv.visit_id ORDER BY dcd.dispensed_at LIMIT 1) AS dispensed_medicine,
+                (SELECT dcd.dosage_consumption_unit_value FROM consultation_dispensation dcd WHERE dcd.visit_id = ckv.visit_id ORDER BY dcd.dispensed_at LIMIT 1) AS dispensed_quantity,
+                (SELECT dcd.dosage_consumption_unit_of_measure FROM consultation_dispensation dcd WHERE dcd.visit_id = ckv.visit_id ORDER BY dcd.dispensed_at LIMIT 1) AS dispensed_unit
             FROM doctor_appointments da
             JOIN doctor_appointment_students das ON da.appointment_id = das.appointment_id
+            LEFT JOIN clinic_visits ckv ON ckv.appointment_id = da.appointment_id
             JOIN students s ON das.student_id = s.student_id
             JOIN doctors d ON da.doctor_id = d.doctor_id
             LEFT JOIN doctor_assessments da_assessment
@@ -15813,6 +15936,13 @@ app.put('/api/doctor-visits/status/:appointment_id', async (req, res) => {
             });
         }
 
+        // the time in is recorded by the nurse together with the vital signs (PUT /api/doctor-visits/:id/time-in)
+        if (status === 'Present') {
+            await ensureCheckupVisitColumns();
+            const [[taken]] = await pool.query(`SELECT visit_id FROM clinic_visits WHERE appointment_id = ? LIMIT 1`, [appointment_id]);
+            if (!taken) return res.status(409).json({ success: false, message: 'The nurse records the time in and the vital signs first.' });
+        }
+
         const sets = ['attendance_status = ?'];
         const params = [status];
         // the time in is the moment of the click; a second call does not move it
@@ -15833,6 +15963,336 @@ app.put('/api/doctor-visits/status/:appointment_id', async (req, res) => {
     } catch (error) {
         console.error('Error updating status:', error);
         res.status(500).json({ success: false, message: 'Failed to update attendance status' });
+    }
+});
+
+// ==========================================
+// CHECK-UP TIME IN / TIME OUT WITH VITAL SIGNS
+// The nurse times the student in and records the vital signs; not normal values are saved and flagged, they do not stop the check-up.
+// The record is a clinic_visits row (visit_kind 'Check-up', appointment_id), so the Visit Log shows the check-up too.
+// After the check-up the nurse can time the student out; the vital signs at time out are optional.
+// ==========================================
+let checkupVisitReady = null;
+const ensureCheckupVisitColumns = () => {
+    if (!checkupVisitReady) {
+        checkupVisitReady = (async () => {
+            await ensureVisitOutVitalsColumns();
+            const [have] = await pool.query(
+                `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'clinic_visits'`
+            );
+            const names = have.map((c) => c.COLUMN_NAME);
+            if (!names.includes('appointment_id')) {
+                // same character set / collation as doctor_appointments.appointment_id so the two can be joined
+                const [[src]] = await pool.query(
+                    `SELECT CHARACTER_MAXIMUM_LENGTH AS len, CHARACTER_SET_NAME AS cs, COLLATION_NAME AS co FROM information_schema.COLUMNS
+                     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'doctor_appointments' AND COLUMN_NAME = 'appointment_id'`
+                );
+                const type = src ? `varchar(${src.len}) CHARACTER SET ${src.cs} COLLATE ${src.co}` : 'varchar(50)';
+                await pool.query(`ALTER TABLE clinic_visits ADD COLUMN appointment_id ${type} NULL, ADD UNIQUE KEY uq_clinic_visits_appointment (appointment_id)`);
+            }
+            if (!names.includes('visit_kind')) {
+                await pool.query(`ALTER TABLE clinic_visits ADD COLUMN visit_kind varchar(20) NOT NULL DEFAULT 'Clinic'`);
+            }
+        })().catch((err) => { checkupVisitReady = null; throw err; });
+    }
+    return checkupVisitReady;
+};
+ensureCheckupVisitColumns().catch((err) => console.error('Could not prepare the check-up visit columns:', err.message));
+
+const VITAL_NORMAL = { temperature: [36.1, 37.5], pulse_rate: [60, 100], respiratory_rate: [12, 20], systolic: [90, 120], diastolic: [60, 80] };
+const VITAL_VALID = { temperature: [30, 45], pulse_rate: [30, 250], respiratory_rate: [8, 60] };
+const VITAL_NAMES = { blood_pressure: 'Blood pressure', temperature: 'Temperature', pulse_rate: 'Pulse', respiratory_rate: 'Respiratory rate' };
+
+// src: { blood_pressure, temperature, pulse_rate, respiratory_rate }. Returns { values, abnormal: [text] } or { error }.
+// required: all four must be given; otherwise only what is given is checked.
+const readVitals = (src, required) => {
+    const values = {};
+    Object.keys(VITAL_NAMES).forEach((k) => { values[k] = String(src[k] ?? '').trim(); });
+    if (required && Object.values(values).some((v) => !v)) return { error: 'Record all four vital signs: blood pressure, temperature, pulse and respiratory rate.' };
+    const abnormal = [];
+    for (const k of ['temperature', 'pulse_rate', 'respiratory_rate']) {
+        if (!values[k]) continue;
+        const n = Number(values[k]);
+        const [lo, hi] = VITAL_VALID[k];
+        if (!Number.isFinite(n) || n < lo || n > hi) return { error: `${VITAL_NAMES[k]} must be a number from ${lo} to ${hi}.` };
+        const [nlo, nhi] = VITAL_NORMAL[k];
+        if (n < nlo || n > nhi) abnormal.push(`${VITAL_NAMES[k]} ${values[k]} (normal ${nlo} to ${nhi})`);
+    }
+    if (values.blood_pressure) {
+        const m = /^(\d{2,3})\/(\d{2,3})$/.exec(values.blood_pressure);
+        if (!m) return { error: 'Blood pressure must look like 120/80.' };
+        const sys = Number(m[1]);
+        const dia = Number(m[2]);
+        if (sys <= dia || sys > 260 || dia < 30) return { error: 'Check the blood pressure reading.' };
+        const [slo, shi] = VITAL_NORMAL.systolic;
+        const [dlo, dhi] = VITAL_NORMAL.diastolic;
+        if (sys < slo || sys > shi || dia < dlo || dia > dhi) abnormal.push(`Blood pressure ${values.blood_pressure} (normal ${slo} to ${shi} over ${dlo} to ${dhi})`);
+    }
+    return { values, abnormal };
+};
+const outVitalsOf = (row) => ({ blood_pressure: row.out_blood_pressure, temperature: row.out_temperature, pulse_rate: row.out_pulse_rate, respiratory_rate: row.out_respiratory_rate });
+const inVitalsOf = (row) => ({ blood_pressure: row.blood_pressure, temperature: row.temperature, pulse_rate: row.pulse_rate, respiratory_rate: row.respiratory_rate });
+const vitalFlags = (vitals) => { const r = readVitals(vitals, false); return r.error ? [] : r.abnormal; };
+
+const nurseIdOfUser = async (userId) => {
+    if (!userId) return null;
+    const [[n]] = await pool.query(`SELECT nurse_id FROM nurses WHERE user_id = ?`, [userId]);
+    return n ? n.nurse_id : null;
+};
+
+// Writes the check-up visit (time in + time-in vital signs) and marks the student Present. Runs inside the caller's transaction; returns the visit id.
+const recordCheckupTimeIn = async (connection, { appointmentId, studentId, nurseId, vitals }) => {
+    // a student the doctor already documented must be timed out before the next time in (same doctor, same day)
+    const [[openVisit]] = await connection.query(
+        `SELECT s.first_name, s.last_name, da2.queue_lane, da2.queue_no
+         FROM clinic_visits cv
+         JOIN doctor_appointments da2 ON da2.appointment_id = cv.appointment_id
+         JOIN doctor_appointments da1 ON da1.appointment_id = ? AND da1.doctor_id = da2.doctor_id AND DATE(da1.start_time) = DATE(da2.start_time)
+         JOIN doctor_assessments dasm ON dasm.appointment_id = cv.appointment_id
+         JOIN students s ON s.student_id = cv.student_id
+         WHERE cv.visit_kind = 'Check-up' AND cv.time_out IS NULL AND da2.appointment_id <> ? AND da2.status IN ('Scheduled', 'Completed')
+         LIMIT 1`, [appointmentId, appointmentId]
+    );
+    if (openVisit) {
+        const label = openVisit.queue_no ? `${queueLabel(openVisit.queue_lane, openVisit.queue_no)} ` : '';
+        throw new BookingError(`${label}${openVisit.first_name} ${openVisit.last_name} still needs a time out. Time out first, then time in the next student.`, 409);
+    }
+    const now = nowManilaStr();
+    const today = now.slice(0, 10);
+    const [yy, mm, dd] = today.split('-');
+    const [[{ n }]] = await connection.query(`SELECT COUNT(*) AS n FROM clinic_visits WHERE visit_date = ? FOR UPDATE`, [today]);
+    let seq = Number(n) + 1;
+    let visitId = '';
+    for (;;) {
+        visitId = `VISIT-${mm}${dd}${yy.slice(-2)}${String(seq).padStart(3, '0')}`;
+        const [dup] = await connection.query(`SELECT 1 FROM clinic_visits WHERE visit_id = ?`, [visitId]);
+        if (dup.length === 0) break;
+        seq += 1;
+    }
+    await connection.query(
+        `INSERT INTO clinic_visits (visit_id, student_id, nurse_id, visit_date, time_in, temperature, respiratory_rate, pulse_rate, blood_pressure, appointment_id, visit_kind)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Check-up')`,
+        [visitId, studentId, nurseId, today, now.slice(11, 16), vitals.temperature, vitals.respiratory_rate, vitals.pulse_rate, vitals.blood_pressure, appointmentId]
+    );
+    await connection.query(
+        `UPDATE doctor_appointment_students SET attendance_status = 'Present', notes = NULL,
+                check_in_time = IF(attendance_status = 'Present' AND check_in_time IS NOT NULL, check_in_time, NOW())
+         WHERE appointment_id = ? AND student_id = ?`, [appointmentId, studentId]
+    );
+    return visitId;
+};
+
+// Time in: attendance Present + the first vital signs, in one step. Abnormal vital signs are saved and reported, they do not stop the check-up.
+app.put('/api/doctor-visits/:appointment_id/time-in', async (req, res) => {
+    const { appointment_id } = req.params;
+    const studentId = textOrNull(req.body.student_id);
+    try {
+        await ensureCheckupVisitColumns();
+        const nurseId = await nurseIdOfUser(req.body.sender_id);
+        if (!nurseId) return res.status(403).json({ success: false, message: 'Only the nurse records the time in and the vital signs.' });
+        if (!studentId) return res.status(400).json({ success: false, message: 'Missing student_id.' });
+        const vitals = readVitals(req.body, true);
+        if (vitals.error) return res.status(400).json({ success: false, message: vitals.error });
+        // abnormal values are saved too: the student still goes to the doctor, who sees them in the health card
+    } catch (error) {
+        console.error('Error checking the time in:', error);
+        return res.status(500).json({ success: false, message: 'Failed to record the time in.' });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+        await connection.beginTransaction();
+        const [[appt]] = await connection.query(
+            `SELECT da.status, da.queue_state, das.attendance_status FROM doctor_appointments da
+             JOIN doctor_appointment_students das ON das.appointment_id = da.appointment_id AND das.student_id = ?
+             WHERE da.appointment_id = ? FOR UPDATE`, [studentId, appointment_id]
+        );
+        if (!appt) throw new BookingError('Appointment not found.', 404);
+        if (['Cancelled', 'Declined', 'Waiting for Approval'].includes(appt.status)) throw new BookingError(`A ${appt.status.toLowerCase()} appointment cannot be timed in.`, 409);
+        // the nurse can take the vital signs of a waiting number before it is called; a void or finished number cannot be timed in
+        if (appt.queue_state && !['Waiting', 'Serving'].includes(appt.queue_state)) throw new BookingError('This number is no longer in the queue.', 409);
+        const [[taken]] = await connection.query(`SELECT visit_id, student_id FROM clinic_visits WHERE appointment_id = ? LIMIT 1 FOR UPDATE`, [appointment_id]);
+        if (taken && taken.student_id === studentId) throw new BookingError('This student already has a time in.', 409);
+        // a row of another student on this appointment id is left over from an old appointment: free the id
+        if (taken) await connection.query(`UPDATE clinic_visits SET appointment_id = NULL WHERE visit_id = ?`, [taken.visit_id]);
+
+        const nurseId = await nurseIdOfUser(req.body.sender_id);
+        const visitId = await recordCheckupTimeIn(connection, { appointmentId: appointment_id, studentId, nurseId, vitals: readVitals(req.body, true).values });
+        await connection.commit();
+        res.json({ success: true, message: 'Timed in.', visit_id: visitId, abnormal: readVitals(req.body, true).abnormal });
+    } catch (error) {
+        await connection.rollback();
+        if (error instanceof BookingError) return res.status(error.status || 400).json({ success: false, message: error.message });
+        console.error('Error recording the time in:', error);
+        res.status(500).json({ success: false, message: 'Failed to record the time in.' });
+    } finally {
+        connection.release();
+    }
+});
+
+// Time out after the check-up. The vital signs (and the note) are optional; given values are saved and abnormal ones are reported.
+// Shared by the Doctor Visit page and the Visit Log (PATCH /api/clinic-visits/:id/timeout for a check-up row).
+const timeOutCheckupVisit = async (visitId, body) => {
+    await ensureCheckupVisitColumns();
+    const [[visit]] = await pool.query(`SELECT visit_id, appointment_id, time_out FROM clinic_visits WHERE visit_id = ? AND visit_kind = 'Check-up'`, [visitId]);
+    if (!visit) return { status: 404, body: { success: false, message: 'Check-up visit not found.' } };
+    if (visit.time_out) return { status: 409, body: { success: false, message: 'This student already has a time out.' } };
+    const [[doc]] = await pool.query(`SELECT assessment_id FROM doctor_assessments WHERE appointment_id = ? LIMIT 1`, [visit.appointment_id]);
+    if (!doc) return { status: 409, body: { success: false, message: 'The doctor has not documented the check-up yet.' } };
+    const vitals = readVitals({
+        blood_pressure: body.out_blood_pressure, temperature: body.out_temperature, pulse_rate: body.out_pulse_rate, respiratory_rate: body.out_respiratory_rate
+    }, false);
+    if (vitals.error) return { status: 400, body: { success: false, message: vitals.error } };
+    const note = textOrNull(body.out_nurse_note);
+    const timeOut = /^\d{2}:\d{2}(:\d{2})?$/.test(String(body.time_out || '')) ? String(body.time_out).slice(0, 5) : nowManilaStr().slice(11, 16);
+    const v = vitals.values;
+    // medicine given at time out (optional): { complaint_id, specify_complaint_text, batch_id, dosage_consumption_unit_value }
+    const dispense = body.dispense && body.dispense.batch_id ? body.dispense : null;
+    const connection = await pool.getConnection();
+    try {
+        await connection.beginTransaction();
+        if (dispense) await dispenseForCheckupVisit(connection, visitId, dispense);
+        await connection.query(
+            `UPDATE clinic_visits SET time_out = ?, out_blood_pressure = ?, out_temperature = ?, out_pulse_rate = ?, out_respiratory_rate = ?, out_nurse_note = ? WHERE visit_id = ?`,
+            [timeOut, v.blood_pressure || null, v.temperature || null, v.pulse_rate || null, v.respiratory_rate || null, note, visitId]
+        );
+        await connection.commit();
+    } catch (error) {
+        await connection.rollback();
+        if (error instanceof BookingError) return { status: error.status || 400, body: { success: false, message: error.message } };
+        throw error;
+    } finally {
+        connection.release();
+    }
+    return { status: 200, body: { success: true, message: dispense ? 'Time out recorded. Medicine dispensed.' : 'Time out recorded.', abnormal: vitals.abnormal } };
+};
+
+// Medicine given to a check-up student at time out: takes the stock out of the batch and logs it in consultation_dispensation
+// against the check-up's clinic visit, so the Visit Log, Dispensed Medicine, doctor check-up lists and student / parent records show it.
+const dispenseForCheckupVisit = async (connection, visitId, input) => {
+    const numericVal = parseInt(input.dosage_consumption_unit_value, 10);
+    if (!Number.isFinite(numericVal) || numericVal <= 0) throw new BookingError('Dosage must be a whole number above zero.', 400);
+    const complaintId = textOrNull(input.complaint_id); // ids are not always numbers
+    if (!complaintId) throw new BookingError('Pick the medical condition the medicine is for.', 400);
+    const [[complaint]] = await connection.query(`SELECT complaint_name FROM chief_complaints WHERE complaint_id = ?`, [complaintId]);
+    if (!complaint) throw new BookingError('Medical condition not found.', 400);
+    const specifyText = textOrNull(input.specify_complaint_text);
+    if (CONDITIONS_TO_SPECIFY.includes(String(complaint.complaint_name).trim().toLowerCase()) && !specifyText) {
+        throw new BookingError(`Specify the ${complaint.complaint_name} condition.`, 400);
+    }
+    const [[taken]] = await connection.query(`SELECT 1 AS x FROM consultation_dispensation WHERE visit_id = ? LIMIT 1`, [visitId]);
+    if (taken) throw new BookingError('Medicine was already dispensed for this visit.', 409);
+
+    const [batchRows] = await connection.query(
+        `SELECT mib.medicine_id, mib.current_stock, mib.remaining_volume, mib.expiration_date,
+                m.strength_unit_value, m.strength_unit_of_measure, m.dispense_limit, m.dispense_unit_of_measure
+         FROM medicine_inventory_batches mib JOIN medicines m ON mib.medicine_id = m.medicine_id
+         WHERE mib.batch_id = ? FOR UPDATE`, [input.batch_id]
+    );
+    if (batchRows.length === 0) throw new BookingError('Medicine batch not found.', 400);
+    const b = batchRows[0];
+    const currentStock = parseInt(b.current_stock, 10);
+    const remainingVolume = parseFloat(b.remaining_volume);
+    const strengthUnitVal = parseFloat(b.strength_unit_value);
+    const dispenseUnit = b.dispense_unit_of_measure;
+    const dispenseLimit = parseFloat(b.dispense_limit) || 0;
+    const expiry = new Date(b.expiration_date);
+    expiry.setHours(23, 59, 59, 999);
+    if (expiry < new Date()) throw new BookingError('Cannot dispense medicine from an expired batch.', 400);
+    if (!(await isMedicineLinkedToComplaint(connection, b.medicine_id, complaintId))) throw new BookingError('This medicine is not indicated for the selected medical condition.', 400);
+    if (dispenseLimit > 0 && numericVal > dispenseLimit) throw new BookingError(`Dispense limit exceeded. Maximum is ${dispenseLimit} ${dispenseUnit} per dispensation.`, 400);
+
+    if (!isDiscreteDispenseUnit(dispenseUnit)) {
+        const totalAvailable = currentStock > 0 ? remainingVolume + (currentStock - 1) * strengthUnitVal : 0;
+        const requested = convertUnit(numericVal, dispenseUnit, b.strength_unit_of_measure);
+        if (requested > totalAvailable) {
+            throw new BookingError(`Insufficient quantity. Requested ${numericVal} ${dispenseUnit}, but total available is ${convertUnit(totalAvailable, b.strength_unit_of_measure, dispenseUnit).toFixed(2)} ${dispenseUnit}.`, 400);
+        }
+        let newRemaining = remainingVolume - requested;
+        let newStock = currentStock;
+        while (newRemaining <= 0 && newStock > 0) {
+            newStock -= 1;
+            if (newRemaining === 0) { if (newStock >= 1) newRemaining = strengthUnitVal; break; }
+            if (newStock >= 1) newRemaining = strengthUnitVal + newRemaining;
+            else { newRemaining = 0; break; }
+        }
+        await connection.query('UPDATE medicine_inventory_batches SET current_stock = ?, remaining_volume = ? WHERE batch_id = ?', [newStock, newRemaining, input.batch_id]);
+    } else {
+        if (numericVal > currentStock) throw new BookingError(`Insufficient stock quantity. Requested ${numericVal}, but only ${currentStock} left.`, 400);
+        await connection.query('UPDATE medicine_inventory_batches SET current_stock = current_stock - ? WHERE batch_id = ?', [numericVal, input.batch_id]);
+    }
+
+    const now = new Date();
+    const prefix = `${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}${String(now.getFullYear()).slice(-2)}`;
+    const [[{ totalToday }]] = await connection.query(`SELECT COUNT(*) AS totalToday FROM consultation_dispensation WHERE DATE(dispensed_at) = CURDATE() FOR UPDATE`);
+    const dispensationId = `DISP-${prefix}${String(totalToday + 1).padStart(3, '0')}`;
+    await connection.query(
+        `INSERT INTO consultation_dispensation (consultation_dispense_id, visit_id, batch_id, dosage_consumption_unit_value, dosage_consumption_unit_of_measure, dispensed_at)
+         VALUES (?, ?, ?, ?, ?, NOW())`, [dispensationId, visitId, input.batch_id, numericVal, dispenseUnit]
+    );
+    // the medical condition the medicine was given for stays on the visit (Visit Log, student / parent records)
+    await connection.query(`UPDATE clinic_visits SET complaint_id = ?, specify_complaint_text = ? WHERE visit_id = ?`, [complaintId, specifyText, visitId]);
+};
+
+app.put('/api/doctor-visits/:appointment_id/time-out', async (req, res) => {
+    try {
+        await ensureCheckupVisitColumns();
+        if (!(await nurseIdOfUser(req.body.sender_id))) return res.status(403).json({ success: false, message: 'Only the nurse records the time out.' });
+        const [[visit]] = await pool.query(`SELECT visit_id FROM clinic_visits WHERE appointment_id = ?`, [req.params.appointment_id]);
+        if (!visit) return res.status(404).json({ success: false, message: 'This student has no time in yet.' });
+        const result = await timeOutCheckupVisit(visit.visit_id, req.body);
+        res.status(result.status).json(result.body);
+    } catch (error) {
+        console.error('Error recording the time out:', error);
+        res.status(500).json({ success: false, message: 'Failed to record the time out.' });
+    }
+});
+
+// Recent vital signs and the reported health information of a student (doctor and nurse). appointment_id adds the vitals of that check-up.
+app.get('/api/students/:studentId/health-snapshot', async (req, res) => {
+    try {
+        await ensureCheckupVisitColumns();
+        const studentId = req.params.studentId;
+        const [[student]] = await pool.query(
+            `SELECT s.student_id, s.user_id, s.first_name, s.last_name, s.year_level, s.section, p.program_name
+             FROM students s LEFT JOIN academic_programs p ON p.program_id = s.program_id WHERE s.student_id = ?`, [studentId]
+        );
+        if (!student) return res.status(404).json({ success: false, message: 'Student not found.' });
+
+        const [[health]] = await pool.query(
+            `SELECT * FROM student_health_information WHERE student_id = ? LIMIT 1`, [studentId]
+        );
+        const [recentRows] = await pool.query(
+            `SELECT cv.visit_id, cv.appointment_id, cv.visit_kind, cv.visit_date, cv.time_in, cv.time_out,
+                    cv.blood_pressure, cv.temperature, cv.pulse_rate, cv.respiratory_rate,
+                    cv.out_blood_pressure, cv.out_temperature, cv.out_pulse_rate, cv.out_respiratory_rate, cv.out_nurse_note,
+                    cc.complaint_name, cv.specify_complaint_text, da.visit_type AS checkup_purpose
+             FROM clinic_visits cv
+             LEFT JOIN chief_complaints cc ON cc.complaint_id = cv.complaint_id
+             LEFT JOIN doctor_appointments da ON da.appointment_id = cv.appointment_id
+             WHERE cv.student_id = ? ORDER BY cv.visit_date DESC, cv.time_in DESC, cv.visit_id DESC LIMIT 6`, [studentId]
+        );
+        const shape = (r) => ({ ...r, abnormal: vitalFlags(inVitalsOf(r)), out_abnormal: vitalFlags(outVitalsOf(r)) });
+        const recent = recentRows.map(shape);
+        const appointmentId = textOrNull(req.query.appointment_id);
+        const current = appointmentId ? recent.find((r) => r.appointment_id === appointmentId) || null : null;
+        let currentRow = current;
+        if (appointmentId && !currentRow) {
+            const [[r]] = await pool.query(
+                `SELECT cv.visit_id, cv.appointment_id, cv.visit_kind, cv.visit_date, cv.time_in, cv.time_out, cv.blood_pressure, cv.temperature, cv.pulse_rate, cv.respiratory_rate,
+                        cv.out_blood_pressure, cv.out_temperature, cv.out_pulse_rate, cv.out_respiratory_rate, cv.out_nurse_note
+                 FROM clinic_visits cv WHERE cv.appointment_id = ?`, [appointmentId]
+            );
+            currentRow = r ? shape(r) : null;
+        }
+        const conditions = health ? healthConditionsOf(health) : null;
+        res.json({
+            success: true, student, current: currentRow, recent, conditions, has_health_record: !!health,
+            normal: { ...VITAL_NORMAL }
+        });
+    } catch (error) {
+        console.error('Error loading the health snapshot:', error);
+        res.status(500).json({ success: false, message: 'Failed to load the health information.' });
     }
 });
 
@@ -16548,9 +17008,13 @@ app.post('/api/doctor-visits/walk-in', async (req, res) => {
     const purposeOther = null;
 
     if ((!nurse_id && !creatorDoctorId) || !student_id || !doctor_id) return res.status(400).json({ success: false, message: 'Nurse or doctor, student and doctor are required.' });
-    if (creatorDoctorId && creatorDoctorId !== doctor_id) return res.status(403).json({ success: false, message: 'Doctors can only register walk-ins for themselves.' });
+    if (creatorDoctorId) return res.status(403).json({ success: false, message: 'Only the nurse records walk-ins.' });
     if (!DOCTOR_VISIT_TYPES.includes(visitType)) return res.status(400).json({ success: false, message: `Visit type must be one of: ${DOCTOR_VISIT_TYPES.join(', ')}.` });
     if (!reason) return res.status(400).json({ success: false, message: 'Please enter the reason for the visit.' });
+    // a walk-in is timed in at registration: the four time-in vital signs are required (not normal values are saved and flagged)
+    const walkInVitals = readVitals(req.body, true);
+    if (walkInVitals.error) return res.status(400).json({ success: false, message: walkInVitals.error });
+    await ensureCheckupVisitColumns();
 
     const connection = await pool.getConnection();
     let created = null;
@@ -16576,6 +17040,7 @@ app.post('/api/doctor-visits/walk-in', async (req, res) => {
             [schedule.schedule_id, nowManilaStr().slice(0, 10), student_id]
         );
         const entry = await insertWalkInEntry(connection, { schedule, doctor, student, visitType, reason, creator, parentId: voidRow ? voidRow.appointment_id : null, senderId: req.body.sender_id || null });
+        await recordCheckupTimeIn(connection, { appointmentId: entry.appointmentId, studentId: student_id, nurseId: nurse_id, vitals: walkInVitals.values });
 
         // the waiting-list request of this student for the same visit goes with the walk-in; it is done once the student is documented
         const walkInActor = await resolveActor(connection, req.body.sender_id || null);
@@ -16614,7 +17079,7 @@ app.post('/api/doctor-visits/walk-in', async (req, res) => {
     }
     res.status(201).json({
         success: true, message: `Walk-in registered. ${queueNote}`,
-        appointment_id: created.appointmentId, student_id, queue_no: created.queueNo, queue_note: queueNote
+        appointment_id: created.appointmentId, student_id, queue_no: created.queueNo, queue_note: queueNote, abnormal: walkInVitals.abnormal
     });
 });
 
@@ -16637,11 +17102,13 @@ const SELECT_QUEUE_ENTRIES = `
     SELECT da.appointment_id, da.queue_lane, da.queue_no, da.queue_state, da.status, da.booking_source, da.visit_type, da.parent_appointment_id,
            da.queue_called_at, da.queue_skipped_at, da.request_id, das.student_id, das.attendance_status, das.check_in_time,
            s.first_name, s.last_name, s.program_id, s.year_level, s.section,
-           (a.assessment_id IS NOT NULL) AS documented
+           (a.assessment_id IS NOT NULL) AS documented,
+           ckv.visit_id AS checkup_visit_id, ckv.time_out AS checkup_time_out
     FROM doctor_appointments da
     JOIN doctor_appointment_students das ON das.appointment_id = da.appointment_id
     JOIN students s ON s.student_id = das.student_id
     LEFT JOIN doctor_assessments a ON a.appointment_id = da.appointment_id AND a.student_id = das.student_id
+    LEFT JOIN clinic_visits ckv ON ckv.appointment_id = da.appointment_id
     WHERE da.schedule_id = ? AND DATE(da.start_time) = ? AND da.queue_state IS NOT NULL AND da.status NOT IN ('Cancelled', 'Declined')
     ORDER BY FIELD(da.queue_lane, 'Listed', 'Walk-in'), da.queue_no ASC`;
 
@@ -16654,6 +17121,7 @@ const buildQueueSnapshot = async (conn, schedule, date) => {
         student_id: r.student_id, student_name: `${r.first_name} ${r.last_name}`, program_id: r.program_id, year_level: r.year_level, section: r.section,
         visit_type: r.visit_type, arrived: r.attendance_status === 'Present' ? 1 : 0, check_in_time: r.check_in_time, documented: r.documented ? 1 : 0,
         called_at: r.queue_called_at, skipped: r.queue_skipped_at ? 1 : 0, is_walk_in: r.booking_source === 'Walk-in' ? 1 : 0,
+        has_vitals: r.checkup_visit_id ? 1 : 0, timed_out: r.checkup_time_out ? 1 : 0,
         accommodated_as: accommodated.has(r.appointment_id) ? queueLabel('Walk-in', accommodated.get(r.appointment_id).queue_no) : null
     }));
     const serving = entries.find((e) => e.state === 'Serving') || null;
@@ -16745,8 +17213,15 @@ app.put('/api/doctor-schedules/:id/queue/call-next', async (req, res) => {
             snapshot = await buildQueueSnapshot(connection, schedule, date);
         }
         const waiting = snapshot.entries.filter((e) => e.state === 'Waiting');
-        const next = waiting.find((e) => e.lane === 'Listed') || waiting.find((e) => e.lane === 'Walk-in');
-        if (!next) throw new BookingError('Nobody is waiting in the queue.');
+        // only a number the nurse already timed in (vital signs recorded and normal) goes to the doctor
+        const ready = waiting.filter((e) => e.arrived && e.has_vitals);
+        // a number picked by the doctor (Call on a timed-in row) goes first; without one the lowest ready number is called
+        const targetId = req.body.appointment_id ? String(req.body.appointment_id) : null;
+        if (targetId && !ready.some((e) => String(e.appointment_id) === targetId)) throw new BookingError('That number has not timed in yet, or it is not waiting for a call.', 409);
+        const next = targetId
+            ? ready.find((e) => String(e.appointment_id) === targetId)
+            : (ready.find((e) => e.lane === 'Listed') || ready.find((e) => e.lane === 'Walk-in'));
+        if (!next) throw new BookingError(waiting.length > 0 ? 'No number has vital signs yet. The nurse records the time in and the vital signs first.' : 'Nobody is waiting in the queue.');
 
         await connection.query(`UPDATE doctor_appointments SET queue_state = 'Serving', queue_called_at = NOW() WHERE appointment_id = ?`, [next.appointment_id]);
         await logAppointment(connection, { appointment_id: next.appointment_id, action: 'Queue Called', reason: `Number ${next.label} was called`, actor_user_id: senderId });
@@ -16811,7 +17286,13 @@ app.put('/api/doctor-visits/:appointment_id/queue/skip', async (req, res) => {
     const reason = textOrNull(req.body.reason) || 'The student was not there when the number was called';
     // skip: the number can be called again while the session runs; void (default): the number is final, the student needs a new walk-in number
     const skipOnly = req.body.mode === 'skip';
-    if (!doctorId) return res.status(403).json({ success: false, message: 'Only the doctor can skip or void a number.' });
+    // skip = the doctor's; void = the nurse's
+    if (skipOnly && !doctorId) return res.status(403).json({ success: false, message: 'Only the doctor can skip a number.' });
+    if (!skipOnly) {
+        let nurseId = null;
+        try { nurseId = await nurseIdOfUser(senderId); } catch (e) { console.error('Error checking the nurse:', e.message); }
+        if (!nurseId) return res.status(403).json({ success: false, message: 'Only the nurse can void a number.' });
+    }
 
     await ensureQueueSkippedColumn();
     const connection = await pool.getConnection();
@@ -16820,12 +17301,15 @@ app.put('/api/doctor-visits/:appointment_id/queue/skip', async (req, res) => {
         await connection.beginTransaction();
         entry = await loadQueueEntry(connection, req.params.appointment_id);
         if (!entry || !entry.queue_state) throw new BookingError('This appointment has no queue number.', 404);
-        if (entry.doctor_id !== doctorId) throw new BookingError('Doctors can only void numbers in their own queue.', 403);
+        if (skipOnly && entry.doctor_id !== doctorId) throw new BookingError('Doctors can only skip numbers in their own queue.', 403);
         if (!['Waiting', 'Serving'].includes(entry.queue_state) || entry.status !== 'Scheduled') throw new BookingError(`This number is already ${entry.queue_state.toLowerCase()}.`);
-        if (entry.attendance_status === 'Present') throw new BookingError('The student already has a time in, so the number cannot be voided. Document the check-up instead.', 409);
+        // a void is final, so a timed-in student cannot be voided; the doctor can still skip a called, timed-in number whose student is not in the room (the time in and vital signs stay)
+        if (entry.attendance_status === 'Present' && !skipOnly) throw new BookingError('The student already has a time in, so the number cannot be voided. Document the check-up instead.', 409);
 
         await connection.query(`UPDATE doctor_appointments SET queue_state = 'Void', queue_skipped_at = ${skipOnly ? 'NOW()' : 'NULL'} WHERE appointment_id = ?`, [entry.appointment_id]);
-        await connection.query(`UPDATE doctor_appointment_students SET attendance_status = 'Absent', notes = COALESCE(notes, '${skipOnly ? 'Skipped' : 'Voided'} in the queue') WHERE appointment_id = ?`, [entry.appointment_id]);
+        if (entry.attendance_status !== 'Present') {
+            await connection.query(`UPDATE doctor_appointment_students SET attendance_status = 'Absent', notes = COALESCE(notes, '${skipOnly ? 'Skipped' : 'Voided'} in the queue') WHERE appointment_id = ?`, [entry.appointment_id]);
+        }
         await logAppointment(connection, { appointment_id: entry.appointment_id, action: skipOnly ? 'Queue Skipped' : 'Queue Voided', reason, actor_user_id: senderId });
         const [reqs] = await connection.query(`SELECT request_id, status FROM consultation_requests WHERE appointment_id = ? AND status = 'Appointed'`, [entry.appointment_id]);
         for (const r of reqs) {
@@ -16894,7 +17378,10 @@ app.put('/api/doctor-visits/:appointment_id/queue/restore', async (req, res) => 
         }
 
         await connection.query(`UPDATE doctor_appointments SET queue_state = 'Serving', queue_skipped_at = NULL, queue_called_at = NOW() WHERE appointment_id = ?`, [entry.appointment_id]);
-        await connection.query(`UPDATE doctor_appointment_students SET attendance_status = 'Pending', check_in_time = NULL, notes = NULL WHERE appointment_id = ?`, [entry.appointment_id]);
+        // a skipped number that already timed in (vital signs recorded) keeps its time in; the others wait for it again
+        if (entry.attendance_status !== 'Present') {
+            await connection.query(`UPDATE doctor_appointment_students SET attendance_status = 'Pending', check_in_time = NULL, notes = NULL WHERE appointment_id = ?`, [entry.appointment_id]);
+        }
         await logAppointment(connection, { appointment_id: entry.appointment_id, action: 'Queue Restored', reason: `Went back to number ${queueLabel(entry.queue_lane, entry.queue_no)}`, actor_user_id: senderId });
         const [reqs] = await connection.query(`SELECT request_id, status FROM consultation_requests WHERE appointment_id = ? AND status = 'Missed'`, [entry.appointment_id]);
         for (const r of reqs) {
@@ -17077,10 +17564,14 @@ app.get('/api/student/:studentId/checkup-history', async (req, res) => {
             `SELECT da.appointment_id, da.visit_type, da.purpose_other, da.start_time, da.end_time, da.status, da.queue_lane, da.queue_no, da.queue_state, da.parent_appointment_id,
                     das.attendance_status, ds.location, d.first_name AS doc_first_name, d.last_name AS doc_last_name, d.specialization,
                     a.assessment_id, a.chief_complaint, a.diagnosis, a.clinical_findings, a.treatment_recommendations, a.prescriptions, a.is_abnormal,
-                    a.follow_up_needed, a.follow_up_date, a.follow_up_notes, a.follow_up_closed, a.referral_facility, a.referral_reason, a.assessment_date
+                    a.follow_up_needed, a.follow_up_date, a.follow_up_notes, a.follow_up_closed, a.referral_facility, a.referral_reason, a.assessment_date,
+                    ckv.temperature AS in_temperature, ckv.respiratory_rate AS in_respiratory_rate, ckv.pulse_rate AS in_pulse_rate, ckv.blood_pressure AS in_blood_pressure,
+                    ckv.out_temperature, ckv.out_respiratory_rate, ckv.out_pulse_rate, ckv.out_blood_pressure,
+                    ${checkupDispensedSql('ckv.visit_id')}
              FROM doctor_appointments da
              JOIN doctor_appointment_students das ON das.appointment_id = da.appointment_id
              JOIN doctors d ON d.doctor_id = da.doctor_id
+             LEFT JOIN clinic_visits ckv ON ckv.appointment_id = da.appointment_id
              LEFT JOIN doctor_schedules ds ON ds.schedule_id = da.schedule_id
              LEFT JOIN doctor_assessments a ON a.appointment_id = da.appointment_id AND a.student_id = das.student_id
              WHERE das.student_id = ? AND da.status NOT IN ('Cancelled', 'Declined', 'Waiting for Approval')
@@ -17106,7 +17597,10 @@ app.get('/api/student/:studentId/checkup-history', async (req, res) => {
                     assessment: documented ? {
                         chief_complaint: v.chief_complaint, diagnosis: v.diagnosis, clinical_findings: v.clinical_findings, treatment_recommendations: v.treatment_recommendations,
                         prescriptions: parse(v.prescriptions), is_abnormal: v.is_abnormal ? 1 : 0, follow_up_needed: v.follow_up_needed ? 1 : 0, follow_up_date: v.follow_up_date,
-                        follow_up_notes: v.follow_up_notes, referral_facility: v.referral_facility, referral_reason: v.referral_reason, assessment_date: v.assessment_date
+                        follow_up_notes: v.follow_up_notes, referral_facility: v.referral_facility, referral_reason: v.referral_reason, assessment_date: v.assessment_date,
+                        in_blood_pressure: v.in_blood_pressure, in_temperature: v.in_temperature, in_pulse_rate: v.in_pulse_rate, in_respiratory_rate: v.in_respiratory_rate,
+                        out_blood_pressure: v.out_blood_pressure, out_temperature: v.out_temperature, out_pulse_rate: v.out_pulse_rate, out_respiratory_rate: v.out_respiratory_rate,
+                        dispensed_medicine: v.dispensed_medicine, dispensed_quantity: v.dispensed_quantity, dispensed_unit: v.dispensed_unit
                     } : null
                 });
             } else if (v.visit_type === 'Follow-up') {
@@ -19852,9 +20346,14 @@ app.get('/doctor-visits/clinicLogs&Records', async (req, res) => {
         dr.referral_needed, dr.referral_to, dr.next_visit_recommendation, dr.remarks AS dental_remarks,
         vr.visual_acuity_left, vr.visual_acuity_right, vr.va_left_corrected, vr.va_right_corrected,
         vr.wears_eyeglasses, vr.wears_contacts, vr.color_vision, vr.eye_findings,
-        vr.recommended_action, vr.remarks AS vision_remarks
+        vr.recommended_action, vr.remarks AS vision_remarks,
+        ckv.time_in AS visit_time_in, ckv.time_out AS visit_time_out,
+        ckv.temperature AS in_temperature, ckv.respiratory_rate AS in_respiratory_rate, ckv.pulse_rate AS in_pulse_rate, ckv.blood_pressure AS in_blood_pressure,
+        ckv.out_temperature, ckv.out_respiratory_rate, ckv.out_pulse_rate, ckv.out_blood_pressure,
+        ${checkupDispensedSql('ckv.visit_id')}
       FROM doctor_appointments da
       JOIN doctor_appointment_students das ON da.appointment_id = das.appointment_id
+      LEFT JOIN clinic_visits ckv ON ckv.appointment_id = da.appointment_id
       LEFT JOIN students st ON das.student_id = st.student_id
       LEFT JOIN doctors doc ON da.doctor_id = doc.doctor_id
       LEFT JOIN doctor_assessments doc_ast 

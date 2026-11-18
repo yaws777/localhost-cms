@@ -2233,17 +2233,17 @@ const NurseDashboard = () => {
                   </ResponsiveContainer>
                 </div>
               ) : (
-                <div style={{ width: '100%', minWidth: Math.max(800, demandOverviewData.length * 90), margin: '0 auto', height: 550 }}>
+                <div style={{ width: '100%', margin: '0 auto', height: Math.max(550, demandOverviewData.length * 84 + 110) }}>
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={demandOverviewData} margin={{ top: 20, right: 10, left: 10, bottom: 60 }} barCategoryGap="20%">
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
-                      <XAxis dataKey="name" interval={0} angle={-20} textAnchor="end" height={70} tick={{ fontSize: '0.875rem', fill: 'var(--text-secondary)', fontWeight: 500 }} tickLine={false} />
-                      <YAxis allowDecimals={false} tick={{ fill: 'var(--text-secondary)', fontSize: '0.875rem' }} axisLine={false} tickLine={false} />
+                    <BarChart layout="vertical" data={demandOverviewData} margin={{ top: 20, right: 24, left: 10, bottom: 10 }} barCategoryGap="20%">
+                      <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#F3F4F6" />
+                      <YAxis type="category" dataKey="name" interval={0} width={230} tick={{ fontSize: '0.875rem', fill: 'var(--text-secondary)', fontWeight: 500 }} tickLine={false} />
+                      <XAxis type="number" allowDecimals={false} tick={{ fill: 'var(--text-secondary)', fontSize: '0.875rem' }} axisLine={false} tickLine={false} />
                       <Tooltip content={<ForecastOverviewTooltip />} cursor={{ fill: 'var(--bg-muted)', opacity: 0.4 }} />
-                      <Legend verticalAlign="bottom" height={36} iconType="rect" iconSize={14} wrapperStyle={{ paddingTop: '20px' }} />
-                      <Bar dataKey="totalDemand" name="Total Predicted Demand" fill="#3B82F6" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="currentStock" name="Current Stock" fill="#10B981" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="predictedNeed" name="Predicted Need" fill="#F97316" radius={[4, 4, 0, 0]} />
+                      <Legend verticalAlign="bottom" height={36} iconType="rect" iconSize={14} wrapperStyle={{ paddingTop: '10px' }} />
+                      <Bar dataKey="totalDemand" name="Total Predicted Demand" fill="#3B82F6" radius={[0, 4, 4, 0]} />
+                      <Bar dataKey="currentStock" name="Current Stock" fill="#10B981" radius={[0, 4, 4, 0]} />
+                      <Bar dataKey="predictedNeed" name="Predicted Need" fill="#F97316" radius={[0, 4, 4, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>

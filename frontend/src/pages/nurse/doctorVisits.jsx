@@ -43,7 +43,7 @@ const DoctorVisit = () => {
 
     useEffect(() => { loadSummary(); }, [loadSummary]);
 
-    // unread scheduling notifications = new updates (doctor set / changed a schedule, a student asked a place or reconfirmed)
+    // unread scheduling notifications = new updates (doctor set / changed a schedule, advance listing); a student's place in a listing needs no approval
     const loadUpdates = useCallback(async () => {
         if (!nurseId) return;
         try {
@@ -52,7 +52,7 @@ const DoctorVisit = () => {
             setNewUpdates((data.data || []).filter((n) => {
                 const unread = !(n.is_read === 1 || n.is_read === '1' || n.is_read === true);
                 const type = (n.type || '').toLowerCase();
-                return unread && (type.startsWith('schedule') || type === 'consultation_request' || type === 'consultation_reconfirmed');
+                return unread && (type.startsWith('schedule') || type === 'advance_listing');
             }));
         } catch (err) {
             console.error('Error loading scheduling updates:', err);

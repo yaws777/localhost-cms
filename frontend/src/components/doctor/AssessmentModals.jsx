@@ -7,6 +7,8 @@ import { ClipboardList, Eye, History } from 'lucide-react';
 import Modal from '../common/Modal';
 import { formatDate, formatDateTime, formatTime } from '../../utils/datetime';
 import { visitLabel, sourceLabel, statusClass, statusLabel, fullName } from '../../utils/visitPurpose';
+import { hasVitals, vitalsLine, inVitalsOf, outVitalsOf } from '../../utils/vitals';
+import { dispensedLine } from '../../utils/dispensed';
 import '../../styles/doctor/DoctorLayout.css';
 
 const API = 'http://localhost:3001';
@@ -30,6 +32,14 @@ const Fact = ({ label, children }) => (
     </>
 );
 
+// Vital signs the nurse took at time in / time out of the check-up (nothing when none were recorded)
+const VitalFacts = ({ a }) => (
+    <>
+        {hasVitals(inVitalsOf(a)) && <Fact label="Vital signs (time in)">{vitalsLine(inVitalsOf(a))}</Fact>}
+        {hasVitals(outVitalsOf(a)) && <Fact label="Vital signs (time out)">{vitalsLine(outVitalsOf(a))}</Fact>}
+    </>
+);
+
 // What the doctor wrote for one check-up
 export const AssessmentDetails = ({ a }) => {
     const medicines = Array.isArray(a.prescriptions) ? a.prescriptions : [];
@@ -38,6 +48,7 @@ export const AssessmentDetails = ({ a }) => {
 
     return (
         <dl className="dp-kv">
+            <VitalFacts a={a} />
             {a.chief_complaint && <Fact label="Chief complaint">{a.chief_complaint}</Fact>}
             {a.clinical_findings && <Fact label="Clinical findings">{a.clinical_findings}</Fact>}
             {a.diagnosis && <Fact label="Diagnosis">{a.diagnosis}</Fact>}
@@ -52,6 +63,7 @@ export const AssessmentDetails = ({ a }) => {
                     </ul>
                 </Fact>
             )}
+            {dispensedLine(a) && <Fact label="Medicine dispensed">{dispensedLine(a)}</Fact>}
             {answers.map((r) => <Fact key={r.key} label={r.label}>{Array.isArray(r.value) ? r.value.join(', ') : String(r.value)}</Fact>)}
             {!!a.follow_up_needed && (
                 <Fact label="Follow-up">
@@ -93,6 +105,7 @@ export const AssessmentViewModal = ({ appt, onClose }) => {
             {documented ? <AssessmentDetails a={appt} /> : (
                 <dl className="dp-kv">
                     <Fact label="Attendance">{appt.attendance_status || 'Pending'}</Fact>
+                    <VitalFacts a={appt} />
                     <Fact label="Scheduled by">{sourceLabel(appt.booking_source)}</Fact>
                     {appt.booking_reason && <Fact label="Reason given">{appt.booking_reason}</Fact>}
                     {appt.decline_reason && <Fact label={appt.status === 'Declined' ? 'Declined because' : 'Cancelled because'}>{appt.decline_reason}</Fact>}

@@ -8,7 +8,7 @@
 //   past     : closed, nothing can be appointed or changed any more
 // Every session lists its participants and its queue.
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, UserPlus, TimerReset, CalendarX, Edit, Trash2, CalendarClock, Ban, Users, ListPlus, Footprints, Megaphone, Send, BellRing } from 'lucide-react';
+import { ChevronLeft, ChevronRight, UserPlus, TimerReset, CalendarX, Edit, Trash2, CalendarClock, Ban, Users, ListPlus, Megaphone, Send, BellRing } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
 import { visitLabel, statusClass } from '../../utils/visitPurpose';
 import {
@@ -21,7 +21,7 @@ import QueuePanel from './QueuePanel';
 import SessionEndPrompt from './SessionEndPrompt';
 import Modal from '../common/Modal';
 import UnavailableDates from '../doctor/UnavailableDates';
-import { ReasonModal, RescheduleModal, WalkInModal } from '../doctor/AppointmentModals';
+import { ReasonModal, RescheduleModal } from '../doctor/AppointmentModals';
 import '../../styles/scheduling/Scheduling.css';
 
 const CHIP_LIMIT = 2;
@@ -53,7 +53,6 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
     const [moveAppt, setMoveAppt] = useState(null);
     const [cancelAppt, setCancelAppt] = useState(null);
     const [participantsFor, setParticipantsFor] = useState(null);
-    const [walkInFor, setWalkInFor] = useState(null);
 
     // the month grid always starts on a Sunday and shows six weeks
     const gridDays = useMemo(() => {
@@ -317,10 +316,7 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
                                         {s.awaiting_end && (
                                             <button type="button" className="icon-btn-ds btn-icon-sc" aria-label="Confirm end time" title="Confirm end time" onClick={() => setEndFor(s)}><BellRing size={18} aria-hidden="true" /></button>
                                         )}
-                                        <button type="button" className="icon-btn-ds btn-icon-sc" aria-label="Extend" title="Extend" onClick={() => setExtendSession(s)}><TimerReset size={18} aria-hidden="true" /></button>
-                                        {hasWalkIn(s) && !isNurse && (
-                                            <button type="button" className="icon-btn-ds btn-icon-sc" aria-label="Add walk-in" title="Add walk-in" onClick={() => setWalkInFor(s)}><Footprints size={18} aria-hidden="true" /></button>
-                                        )}
+                                        {!isNurse && <button type="button" className="icon-btn-ds btn-icon-sc" aria-label="Extend" title="Extend" onClick={() => setExtendSession(s)}><TimerReset size={18} aria-hidden="true" /></button>}
                                     </>
                                 )}
                                 <button type="button" className="icon-btn-ds btn-icon-sc" aria-label="Participants" title="Participants" onClick={() => setParticipantsFor(s)}><Users size={18} aria-hidden="true" /></button>
@@ -357,7 +353,7 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
                                             <button type="button" className="icon-btn-ds" title="Cancel this appointment" onClick={() => setCancelAppt(a)}><Ban size={15} /></button>
                                         </>
                                     )}
-                                    {a.status === 'Scheduled' && a.state === 'ongoing' && (
+                                    {!isNurse && a.status === 'Scheduled' && a.state === 'ongoing' && (
                                         <button type="button" className="icon-btn-ds" title="Extend this appointment (it is happening now)" onClick={() => setExtendAppt(a)}><TimerReset size={15} /></button>
                                     )}
                                 </div>
@@ -390,10 +386,6 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
                 onClose={() => setAppointFor(null)} onDone={changed}
             />
             <ParticipantsModal schedule={participantsFor} userId={userId} onClose={() => setParticipantsFor(null)} onChanged={changed} />
-            <WalkInModal
-                isOpen={!!walkInFor} doctors={doctors} fixedDoctorId={walkInFor ? walkInFor.doctor_id : ''} schedule={walkInFor}
-                creator={creator} userId={userId} onClose={() => setWalkInFor(null)} onCreated={changed}
-            />
             <ExtendSessionModal schedule={extendSession} creator={creator} userId={userId} onClose={() => setExtendSession(null)} onDone={changed} />
             {endFor && (
                 <SessionEndPrompt
@@ -403,7 +395,7 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
                         if (!res.success) return res.message || 'Could not end the session.';
                         showAlert(res.message, 'success'); setEndFor(null); changed(); return '';
                     }}
-                    onExtend={async (minutes) => {
+                    onExtend={isNurse ? undefined : async (minutes) => {
                         const res = await putJson(`/api/doctor-schedules/${endFor.schedule_id}/extend`, { extra_minutes: minutes, sender_id: userId, created_by_doctor_id: creator.doctorId || undefined });
                         if (!res.success) return res.message || 'Could not extend the session.';
                         showAlert(res.message, 'success'); setEndFor(null); changed(); return '';

@@ -19,11 +19,11 @@ import {
   Pill,
   CheckCircle2,
   Clock,
-  Hourglass,
   MapPin
 } from 'lucide-react';
 import HealthTipsModal from '../../components/student/HealthTips';
 import MyQueue from '../../components/student/MyQueue';
+import QueueStatus, { QueuePill } from '../../components/student/QueueStatus';
 import DashboardCalendar, { todayKey } from '../../components/student/DashboardCalendar';
 import { useQueueStatus } from '../../hooks/useQueueStatus';
 import { formatDate as formatDateBase, formatDateTime as formatDateTimeBase, formatTime as formatTimeBase, formatCurrentDate } from '../../utils/datetime';
@@ -472,16 +472,6 @@ const StudentDashboard = () => {
   const tip = DAILY_HEALTH_TIPS[currentTipIndex];
   const latestNotice = announcements[0];
 
-  // the one status word on a queue number
-  const heroOf = (a) => {
-    if (a.state === 'Serving') return { text: 'Your turn', Icon: Stethoscope };
-    if (a.state === 'Void') return { text: 'Skipped', Icon: AlertCircle };
-    if (a.state === 'Done') return { text: 'Done', Icon: CheckCircle2 };
-    if (!a.in_session) return { text: 'Not started', Icon: Clock };
-    if (a.ahead === 0) return { text: 'You are next', Icon: Clock };
-    return { text: 'Waiting', Icon: Hourglass };
-  };
-
   // left / right arrows move between the two tabs
   const onTabKey = (e) => {
     if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
@@ -637,7 +627,6 @@ const StudentDashboard = () => {
               <p className="hero-live-sd" role="status" aria-live="polite">{queueNote}</p>
 
               {liveAppointments.map((a) => {
-                const st = heroOf(a);
                 const waiting = a.state === 'Waiting' && a.in_session;
                 return (
                   <div key={a.appointment_id} className="hero-item-sd">
@@ -646,7 +635,7 @@ const StudentDashboard = () => {
                         <span className="hero-small-sd">{a.lane === 'Walk-in' ? 'Walk-in' : 'Your number'}, {visitLabel(a.visit_type)}</span>
                         <div className="hero-numrow-sd">
                           <strong className="hero-no-sd" aria-label={`Your queue number ${a.label}`}>{a.label}</strong>
-                          <span className="pill-y-sd"><st.Icon size={14} aria-hidden="true" /> {st.text}</span>
+                          <QueuePill a={a} hero />
                         </div>
                       </div>
 
@@ -661,6 +650,8 @@ const StudentDashboard = () => {
                         {a.location && <li><MapPin size={16} aria-hidden="true" /> {a.location}</li>}
                       </ul>
                     </div>
+
+                    <QueueStatus a={a} hero />
 
                     {waiting && (
                       <ol className="qstrip-sd" aria-label="Queue order">

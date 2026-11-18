@@ -211,7 +211,6 @@ const AddStudentModal = ({ isOpen, state, presetService, userId, onClose, onSave
     const { showAlert } = useAlert();
     const [student, setStudent] = useState(null);
     const [visitType, setVisitType] = useState('');
-    const [reason, setReason] = useState('');
     const [busy, setBusy] = useState(false);
     const fail = (message) => showAlert(message, 'error');
 
@@ -219,7 +218,6 @@ const AddStudentModal = ({ isOpen, state, presetService, userId, onClose, onSave
         if (!isOpen) return;
         setStudent(null);
         setVisitType(presetService || '');
-        setReason('');
         setBusy(false);
     }, [isOpen, presetService]);
 
@@ -229,11 +227,10 @@ const AddStudentModal = ({ isOpen, state, presetService, userId, onClose, onSave
         e.preventDefault();
         if (!student) { fail('Choose the student.'); return; }
         if (!visitType) { fail('Pick the check-up service.'); return; }
-        if (!reason.trim()) { fail('Enter the reason.'); return; }
         setBusy(true);
         let data;
         try {
-            data = await send('/api/advance-listing/entries', 'POST', { sender_id: userId, student_id: student.student_id, visit_type: visitType, reason: reason.trim() });
+            data = await send('/api/advance-listing/entries', 'POST', { sender_id: userId, student_id: student.student_id, visit_type: visitType });
         } catch (err) {
             data = { message: 'Could not reach the server.' };
         }
@@ -251,10 +248,6 @@ const AddStudentModal = ({ isOpen, state, presetService, userId, onClose, onSave
                         <option value="">-- Select --</option>
                         {offered.map((s) => <option key={s.visit_type} value={s.visit_type} disabled={s.listing_full || s.scheduled}>{s.visit_type} ({s.scheduled ? 'scheduled' : `${s.registered}/${s.listing_limit}${s.listing_full ? ', full' : ''}`})</option>)}
                     </select>
-                </div>
-                <div className="dp-field">
-                    <label htmlFor="adv-add-reason">Reason</label>
-                    <textarea id="adv-add-reason" className="dp-textarea" rows={2} maxLength={255} value={reason} onChange={(e) => setReason(e.target.value)} />
                 </div>
                 <div className="dp-modal-foot">
                     <button type="button" className="dp-btn dp-btn-ghost" onClick={onClose}>Cancel</button>
@@ -466,6 +459,8 @@ const AdvanceListing = ({ isNurse, doctors, nurseId, userId, refreshKey, onChang
     const listServices = shownServices.filter((s) => s.offered || s.waiting > 0 || s.pending > 0 || s.cutoff > 0);
     const cutoffCount = shownServices.reduce((n, s) => n + s.cutoff, 0);
     const offeredAny = shownServices.some((s) => s.offered);
+    // students are listed at once now (no reason, no review); the review tab only shows for requests that were sent before and are still unanswered
+    const hasReview = isNurse && shownServices.some((s) => s.pending > 0);
     const currentService = service === 'all' ? null : shownServices.find((s) => s.visit_type === service) || null;
 
     // ---- the list of students (second view): the toolbar and the table only ----
@@ -494,7 +489,7 @@ const AdvanceListing = ({ isNurse, doctors, nurseId, userId, refreshKey, onChang
                         <button type="button" className={`status-chip-sc ${tab === 'list' ? 'active-sc' : ''}`} aria-pressed={tab === 'list'} onClick={() => setTab('list')}>
                             Advance list <em>{currentService ? currentService.waiting : shownServices.reduce((n, s) => n + s.waiting, 0)}</em>
                         </button>
-                        {isNurse && (
+                        {hasReview && (
                             <button type="button" className={`status-chip-sc ${tab === 'review' ? 'active-sc' : ''}`} aria-pressed={tab === 'review'} onClick={() => setTab('review')}>
                                 To review <em>{(currentService ? [currentService] : shownServices).reduce((n, s) => n + s.pending, 0)}</em>
                             </button>
@@ -524,7 +519,7 @@ const AdvanceListing = ({ isNurse, doctors, nurseId, userId, refreshKey, onChang
                 <div className="table-card-dv">
                     <table className="sti-table-dv">
                         <thead>
-                            <tr><th style={{ width: 74 }}>No.</th><th>Student</th><th>Check-up service and reason</th><th>{cutoffTab && !pastListing ? 'Listed (priority)' : 'Registered'}</th><th>Status</th>{isNurse && !pastListing && <th>Actions</th>}</tr>
+                            <tr><th style={{ width: 74 }}>No.</th><th>Student</th><th>Check-up service</th><th>{cutoffTab && !pastListing ? 'Listed (priority)' : 'Registered'}</th><th>Status</th>{isNurse && !pastListing && <th>Actions</th>}</tr>
                         </thead>
                         <tbody>
                             {pageRows.map((e) => (
@@ -537,7 +532,7 @@ const AdvanceListing = ({ isNurse, doctors, nurseId, userId, refreshKey, onChang
                                         {fullName(e.student_first_name, e.student_last_name)}
                                         <div className="muted-ds">{e.student_id}{classLabel(e) ? ` - ${classLabel(e)}` : ''}</div>
                                     </td>
-                                    <td className="reason-cell-sc"><strong>{e.visit_type}</strong><div>{e.reason}</div></td>
+                                    <td className="reason-cell-sc"><strong>{e.visit_type}</strong>{e.reason && <div>{e.reason}</div>}</td>
                                     <td>
                                         {cutoffTab && !pastListing ? formatDateTime(e.listed_at || e.created_at) : formatDate(e.created_at)}
                                         {cutoffTab && !pastListing && e.cutoff_date && <div className="muted-ds">Cut off {formatDate(e.cutoff_date)}</div>}
@@ -601,7 +596,7 @@ const AdvanceListing = ({ isNurse, doctors, nurseId, userId, refreshKey, onChang
             <table className="sti-table-dv">
                 <caption className="sr-only">Check-up services of the advance listing</caption>
                 <thead>
-                    <tr><th>Check-up service</th><th>Listed</th><th>To review</th><th>Cut off</th><th>Places left</th><th>Status</th><th>Actions</th></tr>
+                    <tr><th>Check-up service</th><th>Listed</th>{hasReview && <th>To review</th>}<th>Cut off</th><th>Numbers left</th><th>Status</th><th>Actions</th></tr>
                 </thead>
                 <tbody>
                     {pageOf(listServices, Math.min(servicePage, pageCountOf(listServices.length))).map((s) => {
@@ -614,7 +609,7 @@ const AdvanceListing = ({ isNurse, doctors, nurseId, userId, refreshKey, onChang
                                     <span className="advance-count-sc">{listedText(s)}</span>
                                     {s.listing_full && <div className="muted-ds">Full</div>}
                                 </td>
-                                <td>{s.pending}</td>
+                                {hasReview && <td>{s.pending}</td>}
                                 <td>
                                     {s.cutoff > 0 ? (
                                         <button type="button" className="sti-btn-dv sti-btn-light-dv btn-sm-sc" onClick={() => openList(null, s.visit_type, 'cutoff')} aria-label={`View the ${s.cutoff} cut off student(s) of ${s.visit_type}`}>
@@ -643,10 +638,12 @@ const AdvanceListing = ({ isNurse, doctors, nurseId, userId, refreshKey, onChang
                                         </button>
                                         {isNurse && (
                                             <>
-                                                <button type="button" className="icon-btn-ds" disabled={isDone} aria-disabled={s.scheduled || s.pending === 0} onClick={warnIf(s.scheduled ? 'This service has a schedule. Use the Session Listing.' : s.pending === 0 ? 'No requests to review.' : '', () => openList(null, s.visit_type, 'review'))}
-                                                    title="Review requests" aria-label={`Review the ${s.pending} request(s) of ${s.visit_type}`}>
-                                                    <ClipboardCheck size={15} />
-                                                </button>
+                                                {hasReview && (
+                                                    <button type="button" className="icon-btn-ds" disabled={isDone} aria-disabled={s.scheduled || s.pending === 0} onClick={warnIf(s.scheduled ? 'This service has a schedule. Use the Session Listing.' : s.pending === 0 ? 'No requests to review.' : '', () => openList(null, s.visit_type, 'review'))}
+                                                        title="Review requests" aria-label={`Review the ${s.pending} request(s) of ${s.visit_type}`}>
+                                                        <ClipboardCheck size={15} />
+                                                    </button>
+                                                )}
                                                 <button type="button" className="icon-btn-ds" disabled={isDone} aria-disabled={!s.offered || s.scheduled} title="Limit" aria-label={`Configure the listing limit of ${s.visit_type}`} onClick={warnIf(s.scheduled ? 'This service has a schedule. Use the Session Listing.' : !s.offered ? 'This service is not offered.' : '', () => setLimitFor(s))}><SlidersHorizontal size={15} /></button>
                                                 <button type="button" className="icon-btn-ds" disabled={isDone} aria-disabled={!s.offered || s.scheduled} title="Add a student" aria-label={`Add a student to ${s.visit_type}`} onClick={warnIf(s.scheduled ? 'This service has a schedule. Add the student in the Session Listing.' : !s.offered ? 'This service is not offered.' : '', () => setAddFor(s.visit_type))}><UserPlus size={15} /></button>
                                                 {(() => {

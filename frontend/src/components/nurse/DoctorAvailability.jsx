@@ -336,7 +336,7 @@ export const DoctorAvailability = ({ doctors, creator, userId, onChanged, prefil
                                                                             <button className="icon-btn-ds" title="Listing requests of this session" aria-label="Listing requests of this session" onClick={() => onAppointFromWaiting(s.schedule_id, s.next_date)}><ListChecks size={16} /></button>
                                                                         )}
                                                                         {isNurse && <button className="icon-btn-ds" title="Appoint a student directly" aria-label="Appoint a student directly" onClick={() => setAppointTarget(s)}><UserPlus size={16} /></button>}
-                                                                        {s.in_session_now && (
+                                                                        {!isNurse && s.in_session_now && (
                                                                             <button className="icon-btn-ds" title="Extend the session (it is happening now)" onClick={() => setExtendTarget(s)}><TimerReset size={16} /></button>
                                                                         )}
                                                                         {!isNurse && <button className="icon-btn-ds" title="Edit" onClick={() => setForm({ schedule: s, preset: null })}><Edit size={16} /></button>}

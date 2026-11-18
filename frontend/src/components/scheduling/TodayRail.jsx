@@ -35,7 +35,6 @@ const TodayRail = ({ sessions = [], updates = [], onOpenUpdates, showDoctor = tr
                 <h3><Stethoscope size={18} aria-hidden="true" /> Today</h3>
                 <div className="rail-tiles-dv">
                     <div className="rail-tile-dv"><b>{count('ongoing')}</b><span>On going</span></div>
-                    <div className="rail-tile-dv"><b>{count('upcoming')}</b><span>To come</span></div>
                     <div className="rail-tile-dv"><b>{count('past')}</b><span>Done</span></div>
                 </div>
             </section>

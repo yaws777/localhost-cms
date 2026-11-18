@@ -1,14 +1,17 @@
 // QueuePanel.jsx
 // The queue of one session day. Listed students (#1, #2, ...) are the ones the nurse appointed; walk-ins (W1, W2, ...) are served after them.
-//   doctor : Call next (the number is CALLED), Skip (the next number is called; a skipped number can be called again while the session runs),
-//            Void (final: the number cannot be called again, the student comes back as a walk-in), Call (a skipped number again), Document
-//   both   : Time in - only for the number that was called. The doctor records the check-up only after the time in.
-//   nurse  : adds a student as a walk-in (button beside Call next); a skipped or voided student gets a new walk-in number that way.
+//   doctor : Call next (the number is CALLED), Call on every timed-in row ("Waiting for call"; a called number that has not timed in is marked Skipped), Skip (the next number is called; a skipped number can be called again while the session runs),
+//            Call (a skipped number again), Document
+//   nurse  : Void (final: the number cannot be called again, the student comes back as a walk-in). Time in - only for the called number: opens the vital signs form (all four; not normal values are saved and flagged), then the student can go to the doctor.
+//            Time out - after the check-up is documented; its vital signs are optional.
+//   both   : the student health records button (doctor). The doctor records the check-up only after the nurse's time in.
+//   nurse  : the only one who adds a student as a walk-in (button beside Call next); a skipped or voided student gets a new walk-in number that way.
 // Refreshes by itself every few seconds so both sides see the same numbers.
 import React, { useState, useEffect, useCallback } from 'react';
-import { Megaphone, Ban, Clock, Footprints, RefreshCw, Check, Stethoscope, Eye, History, TimerReset, PhoneCall, ChevronsRight } from 'lucide-react';
+import { Megaphone, Ban, Clock, Footprints, RefreshCw, Check, CheckCircle, Stethoscope, Eye, TimerReset, PhoneCall, ChevronsRight, FolderHeart, LogOut } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
 import { ReasonModal } from '../doctor/AppointmentModals';
+import VitalsModal from './VitalsModal';
 import { visitLabel } from '../../utils/visitPurpose';
 import { API } from '../../utils/scheduling';
 import '../../styles/scheduling/Scheduling.css';
@@ -20,9 +23,6 @@ const send = async (path, method, body) => {
     return { ...data, httpStatus: res.status };
 };
 
-const STATE_CLASS = { Waiting: 'q-waiting-sc', Called: 'q-called-sc', Serving: 'q-serving-sc', Done: 'q-done-sc', Skipped: 'q-skipped-sc', Void: 'q-void-sc' };
-const STATE_LABEL = { Called: 'Called - time in', Serving: 'In session', Skipped: 'Skipped' };
-
 // the database keeps `Serving` for both the called number and the one in session; a time in tells them apart.
 // A void number is either skipped (can be called again) or voided (final).
 const stateOf = (e) => {
@@ -31,16 +31,63 @@ const stateOf = (e) => {
     return e.state;
 };
 
+// Status cell: a pill (icon + label), one line of what comes next for this role, and a four step tracker.
+// tone = css modifier of .q-pill-sc. Skipped and Void have no tracker (the number is out of the flow).
+const statusOf = (e, isDoctor) => {
+    const key = stateOf(e);
+    if (key === 'Waiting' && e.arrived) return { tone: 'ok', Icon: CheckCircle, label: 'Ready to call', hint: isDoctor ? 'Vital signs done. Call this number' : 'Vital signs done' };
+    if (key === 'Waiting') return { tone: 'mute', Icon: Clock, label: 'Waiting', hint: isDoctor ? 'Waiting for the nurse\'s time in' : 'Needs time in and vital signs' };
+    if (key === 'Called') return { tone: 'info', Icon: Megaphone, label: 'Called', hint: isDoctor ? 'Waiting for the nurse\'s time in' : 'Student called. Record time in' };
+    if (key === 'Serving') return { tone: 'live', Icon: Stethoscope, label: 'In session', hint: 'With the doctor' };
+    if (key === 'Skipped') return { tone: 'warn', Icon: ChevronsRight, label: 'Skipped', hint: isDoctor ? 'Can be called again' : 'The doctor can call again' };
+    if (key === 'Void') return { tone: 'bad', Icon: Ban, label: 'Void', hint: e.accommodated_as ? `Walk-in ${e.accommodated_as}` : 'Final. Comes back as a walk-in' };
+    if (!e.timed_out) return { tone: 'warn', Icon: LogOut, label: 'Needs time out', hint: isDoctor ? 'Documented. The nurse records the time out' : 'Documented. Record the time out' };
+    return { tone: 'ok', Icon: CheckCircle, label: 'Complete', hint: 'Timed out' };
+};
+
+const TRACKER = ['Vitals', 'Called', 'Documented', 'Out'];
+const trackerOf = (e) => {
+    const key = stateOf(e);
+    if (key === 'Skipped' || key === 'Void') return null;
+    const done = [!!e.arrived, ['Called', 'Serving', 'Done'].includes(key), !!e.documented, !!e.timed_out];
+    return { done, current: done.findIndex((d) => !d) };
+};
+
+const StatusCell = ({ entry, isDoctor }) => {
+    const { tone, Icon, label, hint } = statusOf(entry, isDoctor);
+    const tracker = trackerOf(entry);
+    return (
+        <>
+            <span className={`q-pill-sc q-pill-${tone}-sc`}><Icon size={14} aria-hidden="true" /> {label}</span>
+            <span className="q-hint-sc">{hint}</span>
+            {tracker && (
+                <ol className="q-steps-sc" aria-label="Progress">
+                    {TRACKER.map((name, i) => (
+                        <li key={name} className={tracker.done[i] ? 'done' : i === tracker.current ? 'now' : ''} aria-current={i === tracker.current ? 'step' : undefined}>
+                            <span className="q-dot-sc" aria-hidden="true">{tracker.done[i] && <Check size={10} strokeWidth={3.5} />}</span>
+                            {name}
+                            {tracker.done[i] && <span className="q-sr-sc"> done</span>}
+                        </li>
+                    ))}
+                </ol>
+            )}
+        </>
+    );
+};
+
 // scheduleId + date: the session day. creator: { nurseId } | { doctorId }. onDocument(entry): open the check-up of the number in session.
 // onWalkIn(): opens the walk-in form (the button sits beside Call next). onExtend(): opens the extend end time form.
 // Every button is icon only (name in aria-label and title).
-// onView(entry): the assessment of this check-up (a Done number). onHistory(entry): every assessment of the student.
-const QueuePanel = ({ scheduleId, date, creator, userId, onChanged, onDocument, onView, onHistory, onWalkIn, onExtend, refreshKey = 0, intervalMs = 5000 }) => {
+// onView(entry): the assessment of this check-up (a Done number).
+// onRecords(entry): the student's health records (doctor and nurse).
+// The nurse's Time in / Time out (vital signs forms) belong to the panel itself.
+const QueuePanel = ({ scheduleId, date, creator, userId, onChanged, onDocument, onView, onRecords, onWalkIn, onExtend, refreshKey = 0, intervalMs = 5000 }) => {
     const { showAlert, showConfirm } = useAlert();
     const [queue, setQueue] = useState(null);
     const [busy, setBusy] = useState(false);
     const [skipFor, setSkipFor] = useState(null);
     const [voidFor, setVoidFor] = useState(null);
+    const [vitalsFor, setVitalsFor] = useState(null); // { entry, mode: 'in' | 'out' }
     const isDoctor = !!creator.doctorId;
 
     const load = useCallback(async () => {
@@ -79,6 +126,20 @@ const QueuePanel = ({ scheduleId, date, creator, userId, onChanged, onDocument, 
         else showAlert(data.message || 'Could not call the next number.', 'warning');
     };
 
+    // Call on a timed-in row: that number is called. A called number that has not timed in is marked Skipped by the call.
+    const callNumber = async (e) => {
+        const waitingForTimeIn = calledWaiting();
+        if (waitingForTimeIn) {
+            const ok = await showConfirm(`${waitingForTimeIn.label} ${waitingForTimeIn.student_name} has not timed in. Calling ${e.label} marks ${waitingForTimeIn.label} as skipped.`, { title: `Call ${e.label}?`, confirmLabel: 'Call' });
+            if (!ok) return;
+        }
+        setBusy(true);
+        const data = await send(`/api/doctor-schedules/${scheduleId}/queue/call-next`, 'PUT', { date, created_by_doctor_id: creator.doctorId, sender_id: userId, appointment_id: e.appointment_id });
+        setBusy(false);
+        if (data.success) { showAlert(data.message, 'success'); if (data.queue) setQueue(data.queue); changed(); }
+        else showAlert(data.message || 'Could not call the number.', 'warning');
+    };
+
     // Skip: the number stays in the list (it can be called again) and the next number is called right away
     const skipNumber = async (reason) => {
         const target = skipFor;
@@ -94,7 +155,7 @@ const QueuePanel = ({ scheduleId, date, creator, userId, onChanged, onDocument, 
     // Void: final. The next number is not called by itself: press Call next
     const voidNumber = async (reason) => {
         const target = voidFor;
-        const data = await send(`/api/doctor-visits/${target.appointment_id}/queue/skip`, 'PUT', { created_by_doctor_id: creator.doctorId, sender_id: userId, reason, mode: 'void' });
+        const data = await send(`/api/doctor-visits/${target.appointment_id}/queue/skip`, 'PUT', { sender_id: userId, reason, mode: 'void' });
         setVoidFor(null);
         if (!data.success) { showAlert(data.message || 'Could not void the number.', 'error'); return; }
         showAlert(data.message, 'success');
@@ -115,24 +176,6 @@ const QueuePanel = ({ scheduleId, date, creator, userId, onChanged, onDocument, 
         if (data.success) { showAlert(data.message, 'success'); if (data.queue) setQueue(data.queue); changed(); } else showAlert(data.message || 'Could not call the number.', 'warning');
     };
 
-    // manual time in: only for the number that was called; the student is at the clinic, the check-up can be recorded
-    // openCheckup: the doctor's Time in button goes straight to the check-up form (the server stamps the time of the click)
-    const markArrived = async (e, quiet = false, openCheckup = false) => {
-        if (!quiet) {
-            const ok = await showConfirm(`${e.label} ${e.student_name} was called. Time in now?`, { title: 'Confirm time in', confirmLabel: 'Time in' });
-            if (!ok) return false;
-        }
-        const data = await send(`/api/doctor-visits/status/${e.appointment_id}`, 'PUT', { student_id: e.student_id, status: 'Present', ...(isDoctor ? { created_by_doctor_id: creator.doctorId } : {}) });
-        if (data.success) {
-            if (!quiet) showAlert(`${e.student_name} has a time in now.`, 'success');
-            changed();
-            if (openCheckup && isDoctor && onDocument) onDocument(e);
-            return true;
-        }
-        if (!quiet) showAlert(data.message || 'Could not record the time in.', 'error');
-        return false;
-    };
-
     // every action of a row is an icon; the name is in aria-label and title
     const iconBtn = (key, variant, Icon, label, onClick, title, disabled = false) => (
         <button key={key} type="button" className={`sti-btn-dv sti-btn-${variant}-dv btn-icon-sc`} disabled={disabled} onClick={onClick} aria-label={label} title={title || label}>
@@ -142,7 +185,10 @@ const QueuePanel = ({ scheduleId, date, creator, userId, onChanged, onDocument, 
 
     if (!queue) return <p className="dp-hint">Loading the queue...</p>;
 
-    const hasWaiting = queue.listed_waiting + queue.walkin_waiting > 0;
+    // the doctor can call only a waiting number the nurse timed in (vital signs recorded)
+    const waitingEntries = queue.entries.filter((e) => e.state === 'Waiting');
+    const readyCount = waitingEntries.filter((e) => e.arrived && e.has_vitals).length;
+    const hasWaiting = readyCount > 0;
     // the number in session must be finished (documented, skipped or voided) before the next one is called
     const current = queue.now_serving ? queue.entries.find((e) => e.appointment_id === queue.now_serving.appointment_id) : null;
     // only a number in session (time in done) blocks the calls; a called number that has not timed in is skipped when another number is called
@@ -152,6 +198,8 @@ const QueuePanel = ({ scheduleId, date, creator, userId, onChanged, onDocument, 
     const skippedList = queue.entries.filter((e) => e.state === 'Void' && e.skipped && !e.accommodated_as);
     const voidCount = queue.entries.filter((e) => e.state === 'Void' && !e.skipped).length;
     const called = current && !current.arrived;
+    // a student the doctor documented must be timed out before the next time in
+    const needsTimeOut = queue.entries.find((e) => e.arrived && e.documented && !e.timed_out && e.state !== 'Void');
 
     return (
         <div className="queue-panel-sc">
@@ -169,8 +217,8 @@ const QueuePanel = ({ scheduleId, date, creator, userId, onChanged, onDocument, 
                     <span><b>{queue.entries.filter((e) => e.state === 'Done').length}</b> done</span>
                 </div>
                 <div className="queue-actions-sc">
-                    {isDoctor && iconBtn('next', 'primary', Megaphone, 'Call next', callNext, callBlocked ? callBlockedText : 'Call next: the lowest listed number; walk-ins are called when no listed student is waiting', busy || !hasWaiting || callBlocked)}
-                    {onWalkIn && queue.allow_walk_in !== false && iconBtn('walkin', 'secondary', Footprints, 'Add walk-in', onWalkIn, 'Add walk-in: give a student a walk-in number (W1, W2, ...). A skipped or voided student comes back this way')}
+                    {isDoctor && iconBtn('next', 'primary', Megaphone, 'Call next', callNext, callBlocked ? callBlockedText : !hasWaiting && waitingEntries.length > 0 ? 'No number has vital signs yet. The nurse records them at time in first' : 'Call next: the lowest listed number with vital signs; walk-ins are called when no listed student is ready', busy || !hasWaiting || callBlocked)}
+                    {!isDoctor && onWalkIn && queue.allow_walk_in !== false && iconBtn('walkin', 'secondary', Footprints, 'Add walk-in', onWalkIn, 'Add walk-in: give a student a walk-in number (W1, W2, ...). A skipped or voided student comes back this way')}
                     {onExtend && iconBtn('extend', 'light', TimerReset, 'Extend end time', onExtend, 'Extend the end time of this session')}
                     {iconBtn('refresh', 'light', RefreshCw, 'Refresh', load)}
                 </div>
@@ -201,30 +249,29 @@ const QueuePanel = ({ scheduleId, date, creator, userId, onChanged, onDocument, 
                             {queue.entries.map((e) => {
                                 const key = stateOf(e);
                                 return (
-                                    <tr key={e.appointment_id} className={key === 'Void' ? 'void-row-sc' : ['Serving', 'Called'].includes(key) ? 'serving-row-sc' : ''}>
+                                    <tr key={e.appointment_id} className={`q-row-sc q-row-${key === 'Waiting' && e.arrived ? 'Ready' : key}-sc ${key === 'Void' ? 'void-row-sc' : ''}`}>
                                         <td><strong className="queue-no-sc">{e.label}</strong></td>
                                         <td>
                                             {e.student_name}
                                             <div className="muted-ds">{e.student_id}</div>
                                         </td>
                                         <td>{visitLabel(e.visit_type)}{e.is_walk_in ? <div className="muted-ds">Walk-in</div> : null}</td>
-                                        <td>
-                                            <span className={`q-state-sc ${STATE_CLASS[key] || ''}`}>{STATE_LABEL[key] || key}</span>
-                                            {e.arrived && ['Waiting', 'Serving'].includes(e.state) ? <span className="q-arrived-sc"><Check size={12} /> timed in</span> : null}
-                                            {e.accommodated_as && <div className="muted-ds">Walk-in {e.accommodated_as}</div>}
-                                        </td>
+                                        <td><StatusCell entry={e} isDoctor={isDoctor} /></td>
                                         <td>
                                             <div className="row-actions-sc">
-                                                {key === 'Called' && iconBtn('in', 'light', Clock, 'Time in', () => markArrived(e, false, true), 'Time in: the student is at the clinic. The check-up form opens for the doctor')}
-                                                {isDoctor && key === 'Called' && iconBtn('skip', 'light', ChevronsRight, 'Skip', () => setSkipFor(e), 'The student is not here: skip the number and call the next one. A skipped number can be called again')}
-                                                {isDoctor && ['Waiting', 'Called'].includes(key) && !e.documented && iconBtn('void', 'light', Ban, 'Void', () => setVoidFor(e), 'Void the number: it is final and cannot be called again. The student comes back as a walk-in')}
+                                                {!isDoctor && ['Waiting', 'Called'].includes(key) && !e.arrived && iconBtn('in', 'primary', Clock, 'Time in', () => setVitalsFor({ entry: e, mode: 'in' }), needsTimeOut ? `${needsTimeOut.label} ${needsTimeOut.student_name} still needs a time out first` : 'Time in: record the vital signs', !!needsTimeOut)}
+                                                {!isDoctor && e.state === 'Done' && !!e.documented && !!e.has_vitals && !e.timed_out && iconBtn('out', 'light', LogOut, 'Time out', () => setVitalsFor({ entry: e, mode: 'out' }), 'Time out: the vital signs after the check-up are optional')}
+                                                {isDoctor && key === 'Waiting' && !!e.arrived && !!e.has_vitals && iconBtn('callnow', 'primary', PhoneCall, `Call ${e.label}`, () => callNumber(e),
+                                                    inSession ? callBlockedText : called ? `Call ${e.label}: ${current.label} has not timed in and is marked skipped` : `Call ${e.label}`, busy || inSession)}
+                                                {isDoctor && ['Called', 'Serving'].includes(key) && !e.documented && iconBtn('skip', 'light', ChevronsRight, 'Skip', () => setSkipFor(e), 'The student is not here: skip the number and call the next one. A skipped number can be called again')}
+                                                {!isDoctor && ['Waiting', 'Called'].includes(key) && !e.documented && iconBtn('void', 'light', Ban, 'Void', () => setVoidFor(e), 'Void the number: it is final and cannot be called again. The student comes back as a walk-in')}
                                                 {isDoctor && key === 'Serving' && onDocument && iconBtn('doc', 'primary', Stethoscope, e.documented ? 'Edit check-up' : 'Document', () => onDocument(e))}
                                                 {isDoctor && key === 'Skipped' && !e.accommodated_as && iconBtn('call', 'primary', PhoneCall, 'Call', () => callAgain(e),
                                                     inSession ? callBlockedText : called ? `Call this number again: ${current.label} has not timed in and is skipped` : 'Call this number again', busy || inSession)}
                                                 {e.state === 'Done' && !!e.documented && onView && (
                                                     iconBtn('view', 'primary', Eye, 'View assessment', () => onView(e), 'View the assessment of this check-up')
                                                 )}
-                                                {onHistory && iconBtn('hist', 'light', History, 'Past assessments', () => onHistory(e), 'Past assessments of this student')}
+                                                {onRecords && iconBtn('records', 'light', FolderHeart, 'Student health records', () => onRecords(e), 'Health records of this student')}
                                             </div>
                                         </td>
                                     </tr>
@@ -237,7 +284,7 @@ const QueuePanel = ({ scheduleId, date, creator, userId, onChanged, onDocument, 
 
             <ReasonModal
                 isOpen={!!skipFor} title="Skip this number and call the next" confirmLabel="Skip number" required={false} label="Reason (optional)"
-                message={skipFor ? `${skipFor.label} ${skipFor.student_name} has not timed in. The number stays in the list and the next number is called.` : ''}
+                message={skipFor ? `${skipFor.label} ${skipFor.student_name} is not here. The number is marked Skipped and stays in the list and the next number is called.` : ''}
                 placeholder="e.g. Called three times, not at the clinic" onSubmit={skipNumber} onClose={() => setSkipFor(null)}
             />
             <ReasonModal
@@ -245,6 +292,12 @@ const QueuePanel = ({ scheduleId, date, creator, userId, onChanged, onDocument, 
                 message={voidFor ? `${voidFor.label} ${voidFor.student_name} will be removed from this schedule and cannot be called again. The student needs a new walk-in number.` : ''}
                 placeholder="e.g. Student went home" onSubmit={voidNumber} onClose={() => setVoidFor(null)}
             />
+            {vitalsFor && (
+                <VitalsModal
+                    appt={{ appointment_id: vitalsFor.entry.appointment_id, student_id: vitalsFor.entry.student_id, name: vitalsFor.entry.student_name, label: vitalsFor.entry.label }}
+                    mode={vitalsFor.mode} userId={userId} onClose={() => setVitalsFor(null)} onDone={changed}
+                />
+            )}
         </div>
     );
 };

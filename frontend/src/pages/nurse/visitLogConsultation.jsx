@@ -4,12 +4,14 @@ import { useLocation, useOutletContext } from 'react-router-dom';
 import { 
     Search, QrCode, User, Activity, ShieldAlert, Clock, 
     XCircle, CheckCircle, FileText, LogOut, RefreshCw, Camera, 
-    AlertTriangle, History, Filter, RotateCcw, Info, Printer, LogIn
+    AlertTriangle, History, Filter, RotateCcw, Info, Printer, LogIn, ClipboardList
 } from 'lucide-react';
 import jsQR from 'jsqr';
 import stiLogo from '../../assets/sti-logof.png';
 import { formatTime, formatDate } from '../../utils/datetime';
 import SearchableSelect from '../../components/common/SearchableSelect';
+import { vitalsLine, VITAL_FIELDS, vitalState } from '../../utils/vitals';
+import { AssessmentDetails } from '../../components/doctor/AssessmentModals';
 import '../../styles/nurse/VisitLogConsultation.css';
 
 const MEASURED_UNITS = ['mg', 'g', 'mcg', 'mL', 'L'];
@@ -85,7 +87,42 @@ const isLiveBatch = (b) => {
     return exp >= new Date();
 };
 
-const isVisitDocumented = (visit) => Boolean(visit?.complaint_id || visit?.complaint_name || visit?.nursing_intervention);
+// A doctor check-up is timed in (with vital signs) by the nurse here or in Doctor Visit; the DOCTOR documents it.
+const isCheckup = (visit) => visit?.visit_kind === 'Check-up';
+const isVisitDocumented = (visit) => (isCheckup(visit)
+    ? Boolean(Number(visit.checkup_documented))
+    : Boolean(visit?.complaint_id || visit?.complaint_name || visit?.nursing_intervention));
+const checkupLabel = (visit) => `Check-up${visit.checkup_purpose ? `: ${visit.checkup_purpose}` : ''}`;
+// the time-in vital signs of a check-up row, one short line
+const visitVitalsText = (visit) => vitalsLine({ blood_pressure: visit.blood_pressure, temperature: visit.temperature, pulse_rate: visit.pulse_rate, respiratory_rate: visit.respiratory_rate });
+
+const visitOutVitalsText = (visit) => vitalsLine({ blood_pressure: visit.out_blood_pressure, temperature: visit.out_temperature, pulse_rate: visit.out_pulse_rate, respiratory_rate: visit.out_respiratory_rate });
+
+// One set of vital signs (time in or time out) in the results modal. A value outside the normal range gets an Abnormal label (text, not color alone).
+const VitalsBlock = ({ title, time, values, note, emptyText }) => {
+    const filledFields = VITAL_FIELDS.filter((f) => String(values[f.key] ?? '').trim() !== '');
+    return (
+        <section className="result-card-vlc" aria-label={title}>
+            <h4>{title}{time ? <small>{formatTimeDisplay(time)}</small> : null}</h4>
+            {filledFields.length === 0 ? (
+                <p className="result-empty-vlc">{emptyText}</p>
+            ) : (
+                <dl className="result-vitals-vlc">
+                    {filledFields.map((f) => {
+                        const abnormal = vitalState(f.key, values[f.key]) === 'abnormal';
+                        return (
+                            <div key={f.key} className={abnormal ? 'abnormal-vlc' : ''}>
+                                <dt>{f.label}</dt>
+                                <dd>{values[f.key]} <small>{f.unit}</small>{abnormal && <span className="abnormal-tag-vlc"><AlertTriangle size={12} aria-hidden="true" /> Abnormal</span>}</dd>
+                            </div>
+                        );
+                    })}
+                </dl>
+            )}
+            {note ? <p className="result-note-vlc"><strong>Nurse note:</strong> {note}</p> : null}
+        </section>
+    );
+};
 
 const VisitLogConsultation = () => {
     const location = useLocation();
@@ -151,6 +188,11 @@ const VisitLogConsultation = () => {
     const [outVitals, setOutVitals] = useState(EMPTY_OUT_VITALS);
     const isSubmittingTimeout = useRef(false);
 
+    // View results: time in / time out vital signs and the assessment (the doctor's for a check-up, the nurse's documentation otherwise)
+    const [resultVisit, setResultVisit] = useState(null);
+    const [resultAssessment, setResultAssessment] = useState(null);
+    const [resultLoading, setResultLoading] = useState(false);
+
     const [feedbackModal, setFeedbackModal] = useState({
         isOpen: false,
         type: 'info',
@@ -176,7 +218,7 @@ const VisitLogConsultation = () => {
 
     const visitStats = {
         inClinic: todayVisits.filter(v => !v.time_out).length,
-        toDocument: todayVisits.filter(v => !isVisitDocumented(v)).length,
+        toDocument: todayVisits.filter(v => !isCheckup(v) && !isVisitDocumented(v)).length,
         timedOut: todayVisits.filter(v => Boolean(v.time_out)).length
     };
     const shownVisits = todayVisits.filter(v => (
@@ -370,9 +412,38 @@ const VisitLogConsultation = () => {
         });
     }, []);
 
+    const handleOpenResult = useCallback(async (visit) => {
+        setResultVisit(visit);
+        setResultAssessment(null);
+        setResultLoading(true);
+        try {
+            const res = await fetch(`http://localhost:3001/api/clinic-visits/${encodeURIComponent(visit.visit_id)}/result`);
+            const data = await res.json();
+            setResultAssessment(data.success ? data.assessment : null);
+        } catch (err) {
+            console.error('Error loading the visit result:', err);
+            setResultAssessment(null);
+        } finally {
+            setResultLoading(false);
+        }
+    }, []);
+
+    const handleCloseResult = () => { setResultVisit(null); setResultAssessment(null); };
+
+    useEffect(() => {
+        if (!resultVisit) return undefined;
+        const onKey = (e) => { if (e.key === 'Escape') { setResultVisit(null); setResultAssessment(null); } };
+        document.addEventListener('keydown', onKey);
+        return () => document.removeEventListener('keydown', onKey);
+    }, [resultVisit]);
+
     const handleOpenQrTimeoutModal = useCallback((visit) => {
+        if (isCheckup(visit)) {
+            showAlertModal('Time Out in Doctor Visit', 'A check-up is timed out, with its vital signs, in Doctor Visit > On going.', 'warning');
+            return;
+        }
         if (!isVisitDocumented(visit)) {
-            showAlertModal('Document First', 'Fill up the visit documentation before timing the student out.', 'warning');
+            showAlertModal(isCheckup(visit) ? 'Waiting for the Doctor' : 'Document First', isCheckup(visit) ? 'The doctor has not documented the check-up yet.' : 'Fill up the visit documentation before timing the student out.', 'warning');
             return;
         }
         setQrTimeoutVisit(visit);
@@ -392,7 +463,7 @@ const VisitLogConsultation = () => {
 
         stopCameraScan();
 
-        const pendingDocVisit = todayVisits.find(v => !isVisitDocumented(v));
+        const pendingDocVisit = todayVisits.find(v => !isCheckup(v) && !isVisitDocumented(v));
         if (pendingDocVisit) {
             showAlertModal(
                 'Finish Documentation First',
@@ -510,8 +581,12 @@ const VisitLogConsultation = () => {
     const handleManualTimeout = useCallback((visitId) => {
         const target = [...todayVisits, ...allVisits].find(v => v.visit_id === visitId);
         if (!target) return;
+        if (isCheckup(target)) {
+            showAlertModal('Time Out in Doctor Visit', 'A check-up is timed out, with its vital signs, in Doctor Visit > On going.', 'warning');
+            return;
+        }
         if (!isVisitDocumented(target)) {
-            showAlertModal('Document First', 'Fill up the visit documentation before timing the student out.', 'warning');
+            showAlertModal(isCheckup(target) ? 'Waiting for the Doctor' : 'Document First', isCheckup(target) ? 'The doctor has not documented the check-up yet.' : 'Fill up the visit documentation before timing the student out.', 'warning');
             return;
         }
         setOutVitals(EMPTY_OUT_VITALS);
@@ -529,19 +604,21 @@ const VisitLogConsultation = () => {
         if (!visit || isSubmittingTimeout.current) return;
 
         const v = outVitals;
-        if (!v.blood_pressure.trim() || !v.temperature || !v.pulse_rate || !v.respiratory_rate) {
+        // a doctor check-up: the time-out vital signs and the note are optional (what is filled is still checked)
+        const optional = isCheckup(visit);
+        if (!optional && (!v.blood_pressure.trim() || !v.temperature || !v.pulse_rate || !v.respiratory_rate)) {
             showAlertModal('Missing Vital Signs', 'Record all time-out vital signs before timing the student out.', 'warning');
             return;
         }
-        if (!v.nurse_note.trim()) {
+        if (!optional && !v.nurse_note.trim()) {
             showAlertModal('Nurse Note Required', "Write the student's health condition after the visit.", 'warning');
             return;
         }
-        if (!/^\d{2,3}\/\d{2,3}$/.test(v.blood_pressure.trim())) {
+        if (v.blood_pressure.trim() && !/^\d{2,3}\/\d{2,3}$/.test(v.blood_pressure.trim())) {
             showAlertModal('Invalid Blood Pressure', 'Use the format 120/80.', 'warning');
             return;
         }
-        const outOfRange = (val, min, max) => Number(val) < min || Number(val) > max;
+        const outOfRange = (val, min, max) => val !== '' && (Number(val) < min || Number(val) > max);
         if (outOfRange(v.temperature, 30, 45) || outOfRange(v.pulse_rate, 30, 250) || outOfRange(v.respiratory_rate, 8, 60)) {
             showAlertModal('Vital Sign Out of Range', 'Check temperature (30-45), pulse (30-250) and respiratory rate (8-60).', 'warning');
             return;
@@ -951,6 +1028,7 @@ const VisitLogConsultation = () => {
     const currentTimeRaw = new Date().toTimeString().split(' ')[0].substring(0, 5);
 
     const renderComplaintBadgeText = (visit) => {
+        if (isCheckup(visit)) return checkupLabel(visit);
         if (!visit.complaint_name) return 'General Checkup';
         const specifyText = visit.specify_complaint_text || visit.specify_complaints_text;
         return specifyText 
@@ -970,7 +1048,7 @@ const VisitLogConsultation = () => {
         const reportDate = formatDate(new Date());
 
         const complaintCounts = rowsToExport.reduce((acc, visit) => {
-            const name = visit.complaint_name ? visit.complaint_name.trim() : 'General Checkup';
+            const name = isCheckup(visit) ? 'Doctor Check-up' : visit.complaint_name ? visit.complaint_name.trim() : 'General Checkup';
             acc[name] = (acc[name] || 0) + 1;
             return acc;
         }, {});
@@ -1470,7 +1548,7 @@ const VisitLogConsultation = () => {
                 <div className="modal-viewport-backdrop-vlc" style={{ zIndex: 1300 }}>
                     <div className="modal-body-container-vlc">
                         <div className="modal-header-accent-vlc">
-                            <h3><Activity size={18} /> Time-Out Vital Signs</h3>
+                            <h3><Activity size={18} /> Time-Out Vital Signs{isCheckup(timeoutVitalsVisit) ? ' (optional)' : ''}</h3>
                             <button type="button" className="modal-dismiss-btn-vlc" aria-label="Close" title="Close" onClick={handleCloseTimeoutVitals}><XCircle size={22} /></button>
                         </div>
                         <form onSubmit={handleSubmitTimeoutVitals} className="confirm-modal-body-vlc" noValidate>
@@ -1482,7 +1560,7 @@ const VisitLogConsultation = () => {
                             </p>
                             <div className="form-fields-grid-layout-vlc four-col-layout-vlc">
                                 <div className="form-input-element-vlc">
-                                    <label htmlFor="out-bp">BP (mmHg) <span className="required-star-vlc">*</span></label>
+                                    <label htmlFor="out-bp">BP (mmHg) {!isCheckup(timeoutVitalsVisit) && <span className="required-star-vlc">*</span>}</label>
                                     <input
                                         id="out-bp"
                                         type="text"
@@ -1493,7 +1571,7 @@ const VisitLogConsultation = () => {
                                     />
                                 </div>
                                 <div className="form-input-element-vlc">
-                                    <label htmlFor="out-temp">Temp (°C) <span className="required-star-vlc">*</span></label>
+                                    <label htmlFor="out-temp">Temp (°C) {!isCheckup(timeoutVitalsVisit) && <span className="required-star-vlc">*</span>}</label>
                                     <input
                                         id="out-temp"
                                         type="number"
@@ -1506,7 +1584,7 @@ const VisitLogConsultation = () => {
                                     />
                                 </div>
                                 <div className="form-input-element-vlc">
-                                    <label htmlFor="out-pulse">Pulse (bpm) <span className="required-star-vlc">*</span></label>
+                                    <label htmlFor="out-pulse">Pulse (bpm) {!isCheckup(timeoutVitalsVisit) && <span className="required-star-vlc">*</span>}</label>
                                     <input
                                         id="out-pulse"
                                         type="number"
@@ -1518,7 +1596,7 @@ const VisitLogConsultation = () => {
                                     />
                                 </div>
                                 <div className="form-input-element-vlc">
-                                    <label htmlFor="out-resp">Resp Rate <span className="required-star-vlc">*</span></label>
+                                    <label htmlFor="out-resp">Resp Rate {!isCheckup(timeoutVitalsVisit) && <span className="required-star-vlc">*</span>}</label>
                                     <input
                                         id="out-resp"
                                         type="number"
@@ -1531,7 +1609,7 @@ const VisitLogConsultation = () => {
                                 </div>
                             </div>
                             <div className="form-input-element-vlc full-width-field-vlc">
-                                <label htmlFor="out-note">Student Condition After Time-out <span className="required-star-vlc">*</span></label>
+                                <label htmlFor="out-note">Student Condition After Time-out {isCheckup(timeoutVitalsVisit) ? '(optional)' : <span className="required-star-vlc">*</span>}</label>
                                 <textarea
                                     id="out-note"
                                     rows={3}
@@ -1545,6 +1623,62 @@ const VisitLogConsultation = () => {
                                 <button type="submit" className="btn-confirm-action-vlc">Confirm Time Out</button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {resultVisit && (
+                <div className="modal-viewport-backdrop-vlc" style={{ zIndex: 1400 }} onClick={(e) => { if (e.target === e.currentTarget) handleCloseResult(); }}>
+                    <div className="modal-body-container-vlc result-modal-vlc" role="dialog" aria-modal="true" aria-labelledby="result-title-vlc">
+                        <div className="modal-header-accent-vlc">
+                            <h3 id="result-title-vlc"><ClipboardList size={18} aria-hidden="true" /> Visit results</h3>
+                            <button type="button" className="modal-dismiss-btn-vlc" autoFocus aria-label="Close" title="Close" onClick={handleCloseResult}><XCircle size={22} /></button>
+                        </div>
+                        <div className="confirm-modal-body-vlc result-body-vlc">
+                            <p className="qr-timeout-notice-vlc">
+                                <strong>{resultVisit.first_name} {resultVisit.last_name}</strong> (ID: <code>{resultVisit.student_id}</code>) - {formatDateDisplay(resultVisit.visit_date)}
+<br />{checkupLabel(resultVisit)}{resultVisit.checkup_doctor ? `, ${resultVisit.checkup_doctor}` : ''}
+                            </p>
+
+                            <div className="result-vitals-grid-vlc">
+                                <VitalsBlock
+                                    title="Time in"
+                                    time={resultVisit.time_in}
+                                    values={{ blood_pressure: resultVisit.blood_pressure, temperature: resultVisit.temperature, pulse_rate: resultVisit.pulse_rate, respiratory_rate: resultVisit.respiratory_rate }}
+                                    emptyText="No vital signs recorded."
+                                />
+                                <VitalsBlock
+                                    title="Time out"
+                                    time={resultVisit.time_out}
+                                    values={{ blood_pressure: resultVisit.out_blood_pressure, temperature: resultVisit.out_temperature, pulse_rate: resultVisit.out_pulse_rate, respiratory_rate: resultVisit.out_respiratory_rate }}
+                                    note={resultVisit.out_nurse_note}
+                                    emptyText={resultVisit.time_out ? 'No vital signs recorded.' : 'Not timed out yet.'}
+                                />
+                            </div>
+
+                            <section className="result-card-vlc" aria-label="Assessment">
+                                <h4>Doctor assessment</h4>
+                                {resultLoading ? (
+                                    <p className="result-empty-vlc" role="status">Loading...</p>
+                                ) : resultAssessment ? (
+                                    <>
+                                        {(!!resultAssessment.is_abnormal || !!resultAssessment.follow_up_needed) && (
+                                            <p className="result-chips-vlc">
+                                                {!!resultAssessment.is_abnormal && <span className="abnormal-tag-vlc"><AlertTriangle size={12} aria-hidden="true" /> Abnormal</span>}
+                                                {!!resultAssessment.follow_up_needed && <span className="followup-tag-vlc"><Clock size={12} aria-hidden="true" /> Follow-up</span>}
+                                            </p>
+                                        )}
+                                        <AssessmentDetails a={resultAssessment} />
+                                    </>
+                                ) : (
+                                    <p className="result-empty-vlc">The doctor has not documented this check-up yet.</p>
+                                )}
+                            </section>
+
+                            <div className="modal-action-footer-vlc">
+                                <button type="button" className="btn-cancel-action-vlc" onClick={handleCloseResult}>Close</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}
@@ -1692,7 +1826,12 @@ const VisitLogConsultation = () => {
                                                             </div>
                                                         </td>
                                                         <td>
-                                                            {documented ? (
+                                                            {isCheckup(visit) ? (
+                                                                <div className="table-profile-cell-vlc">
+                                                                    <span className="complaint-badge-vlc">{checkupLabel(visit)}</span>
+                                                                    <small>{visit.checkup_doctor || 'Doctor'}{documented ? ' - documented' : ' - doctor has not documented yet'}</small>
+                                                                </div>
+                                                            ) : documented ? (
                                                                 <span className="complaint-badge-vlc">{renderComplaintBadgeText(visit)}</span>
                                                             ) : (
                                                                 <span className="status-pill-vlc status-undocumented-vlc" title="Visit needs documentation">
@@ -1714,6 +1853,8 @@ const VisitLogConsultation = () => {
                                                             <div className="table-time-range-vlc">
                                                                 <span>In: {formatTimeDisplay(visit.time_in)}</span>
                                                                 <small>Out: {formatTimeDisplay(visit.time_out)}</small>
+                                                                {isCheckup(visit) && <small>In: {visitVitalsText(visit) || '-'}</small>}
+                                                                {isCheckup(visit) && visitOutVitalsText(visit) && <small>Out: {visitOutVitalsText(visit)}</small>}
                                                             </div>
                                                         </td>
                                                         <td>
@@ -1725,8 +1866,20 @@ const VisitLogConsultation = () => {
                                                         </td>
                                                         <td>
                                                             <div className="action-button-group-vlc">
-                                                                <button 
-                                                                    type="button" 
+                                                                {isCheckup(visit) && (
+                                                                <button
+                                                                    type="button"
+                                                                    className="icon-action-btn-vlc btn-result-vlc"
+                                                                    title="View vital signs and assessment"
+                                                                    aria-label={`View results of ${visit.first_name} ${visit.last_name}`}
+                                                                    onClick={() => handleOpenResult(visit)}
+                                                                >
+                                                                    <ClipboardList size={16} />
+                                                                </button>
+                                                                )}
+                                                                {!isCheckup(visit) && (
+                                                                <button
+                                                                    type="button"
                                                                     className={`icon-action-btn-vlc btn-document-vlc ${!documented ? 'needs-doc-vlc' : ''}`}
                                                                     title={documented ? "View or Edit Documentation" : "Needs Documentation"}
                                                                     aria-label="Document Visit"
@@ -1735,8 +1888,9 @@ const VisitLogConsultation = () => {
                                                                     <FileText size={16} />
                                                                     {!documented && <span className="doc-warning-dot-vlc" title="Not documented yet" />}
                                                                 </button>
+                                                                )}
 
-                                                                {!isTimedOut && (
+                                                                {!isTimedOut && !isCheckup(visit) && (
                                                                     <>
                                                                         <button 
                                                                             type="button" 
@@ -2130,7 +2284,12 @@ const VisitLogConsultation = () => {
                                                 </div>
                                             </td>
                                             <td>
-                                                {documented ? (
+                                                {isCheckup(visit) ? (
+                                                    <div className="table-profile-cell-vlc">
+                                                        <span className="complaint-badge-vlc">{checkupLabel(visit)}</span>
+                                                        <small>{visit.checkup_doctor || 'Doctor'}{documented ? ' - documented' : ' - waiting for the doctor'}</small>
+                                                    </div>
+                                                ) : documented ? (
                                                     <span className="complaint-badge-vlc">{renderComplaintBadgeText(visit)}</span>
                                                 ) : (
                                                     <span className="status-pill-vlc status-undocumented-vlc">
@@ -2151,6 +2310,8 @@ const VisitLogConsultation = () => {
                                             <td>
                                                 <div className="table-time-range-vlc">
                                                     {formatTimeDisplay(visit.time_in)} – {isTimedOut ? formatTimeDisplay(visit.time_out) : <span className="time-pending-vlc">–:–</span>}
+                                                    {isCheckup(visit) && <small style={{ display: 'block' }}>In: {visitVitalsText(visit) || '-'}</small>}
+                                                    {isCheckup(visit) && visitOutVitalsText(visit) && <small style={{ display: 'block' }}>Out: {visitOutVitalsText(visit)}</small>}
                                                 </div>
                                             </td>
                                             <td>
@@ -2162,6 +2323,18 @@ const VisitLogConsultation = () => {
                                             </td>
                                             <td>
                                                 <div className="action-button-group-vlc">
+                                                    {isCheckup(visit) && (
+                                                    <button
+                                                        type="button"
+                                                        className="icon-action-btn-vlc btn-result-vlc"
+                                                        title="View vital signs and assessment"
+                                                        aria-label={`View results of ${visit.first_name} ${visit.last_name}`}
+                                                        onClick={() => handleOpenResult(visit)}
+                                                    >
+                                                        <ClipboardList size={18} />
+                                                    </button>
+                                                    )}
+                                                    {!isCheckup(visit) && (
                                                     <button
                                                         type="button"
                                                         className={`icon-action-btn-vlc btn-document-vlc ${!documented ? 'needs-doc-vlc' : ''}`}
@@ -2171,8 +2344,9 @@ const VisitLogConsultation = () => {
                                                     >
                                                         <FileText size={18} />
                                                     </button>
+                                                    )}
 
-                                                    {!isTimedOut && (
+                                                    {!isTimedOut && !isCheckup(visit) && (
                                                         <>
                                                             <button
                                                                 type="button"

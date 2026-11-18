@@ -1,6 +1,7 @@
 // ConsultationLists.jsx
 // The check-ups in three lists - Upcoming (not started: reschedule / cancel), On going (happening now: the queue of every running
-// session: the doctor calls / skips / voids the numbers, the nurse or the doctor adds walk-ins, the time in is only for the called number, extend, no-show) and Past (over: closed).
+// session: the doctor calls / skips / voids the numbers, the nurse or the doctor adds walk-ins, the NURSE times in the called number with its vital signs
+// (not normal values are saved and flagged, then the doctor can document) and times out after the check-up (vital signs optional), extend, no-show) and Past (over: closed).
 // Upcoming and Past are shown in one container per session day (a schedule on a date, or the direct appointments of a doctor on a date):
 // the container opens to all its participants.
 // The doctor (/DoctorCheckup) and the nurse (Doctor Visit > Check-up) mount this same screen:
@@ -9,7 +10,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
     Search, CalendarClock, History, ClipboardPlus, UserX, Ban, FileText, Printer, Pill, Stethoscope, TimerReset,
-    FolderOpen, ChevronLeft, ClipboardList, Eye, Repeat, Clock, QrCode, Users, BellRing
+    FolderOpen, FolderHeart, ChevronLeft, Eye, Repeat, Clock, Users, BellRing, LogOut
 } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatTime } from '../../utils/datetime';
@@ -20,7 +21,9 @@ import { ExtendAppointmentModal } from './SessionModals';
 import SessionEndPrompt from './SessionEndPrompt';
 import ExtendSessionModal from './ExtendSessionModal';
 import QueuePanel from './QueuePanel';
-import AttendanceScanModal from './AttendanceScanModal';
+import VitalsModal from './VitalsModal';
+import StudentHealthRecordModal from '../doctor/StudentHealthRecordModal';
+import { vitalsLine, inVitalsOf, outVitalsOf } from '../../utils/vitals';
 import { RepeatModal } from './FollowUps';
 import {
     ReasonModal, RescheduleModal, LogModal, WalkInModal
@@ -65,7 +68,7 @@ const GROUPED_TABS = ['upcoming', 'past'];
 const dayTitle = (day) => new Date(`${day}T00:00:00`).toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 
 const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTab, focusId, onChanged }) => {
-    const { showAlert, showConfirm } = useAlert();
+    const { showAlert } = useAlert();
     const { visitTypes } = useSpecializations();
     const isNurse = role === 'nurse';
     const doctorPath = doctorId || 'all';
@@ -96,7 +99,8 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
     const [extendSession, setExtendSession] = useState(null);
     const [runningSessions, setRunningSessions] = useState([]);
     const [dismissedEnds, setDismissedEnds] = useState([]);
-    const [scanning, setScanning] = useState(false);
+    const [vitalsTarget, setVitalsTarget] = useState(null); // { appt, mode: 'in' | 'out' }: the nurse's vital signs form
+    const [recordTarget, setRecordTarget] = useState(null);
     const [queueKey, setQueueKey] = useState(0);
     const reqSeq = useRef(0);
 
@@ -214,7 +218,8 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
     const documentEntry = async (entry) => { const row = await rowOfEntry(entry); if (row) setConsultTarget(row); };
     // the assessment of a Done number, and every assessment of its student
     const viewEntry = async (entry) => { const row = await rowOfEntry(entry); if (row) setViewTarget(row); };
-    const historyEntry = async (entry) => { const row = await rowOfEntry(entry); if (row) setHistoryTarget(row); };
+    // the student's health records (doctor): the queue entry already carries the student
+    const recordEntry = (entry) => setRecordTarget({ student_id: entry.student_id, student_name: entry.student_name });
 
     // ---- lifecycle actions ----
     const cancelAppointment = async (reason) => {
@@ -235,26 +240,17 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
         else showAlert(data.message || 'Could not update the attendance.', 'error');
     };
 
-    // manual time in (or a QR scan): the student is at the clinic, so the check-up can be recorded
-    // openCheckup: the check-up form opens right after the time in (the server stamps the time of the click)
-    const timeIn = async (a, quiet = false, openCheckup = false) => {
-        if (!quiet) {
-            const ok = await showConfirm(`Time in ${fullName(a.student_first_name, a.student_last_name)} now?`, { title: 'Confirm time in', confirmLabel: 'Time in' });
-            if (!ok) return false;
-        }
-        const data = await put(`/api/doctor-visits/status/${a.appointment_id}`, { student_id: a.student_id, status: 'Present' });
-        if (data.success) {
-            if (!quiet) showAlert(`${fullName(a.student_first_name, a.student_last_name)} has a time in now.`, 'success');
-            refresh();
-            if (openCheckup) documentEntry(a);
-            return true;
-        }
-        if (!quiet) showAlert(data.message || 'Could not record the time in.', 'error');
-        return false;
-    };
+    // Time in / Time out are the nurse's: the vital signs form (VitalsModal). The doctor documents only after the time in.
+    const openVitals = (a, mode) => setVitalsTarget({ appt: { appointment_id: a.appointment_id, student_id: a.student_id, name: fullName(a.student_first_name, a.student_last_name), label: a.queue_state ? `${a.queue_lane === 'Walk-in' ? 'W' : '#'}${a.queue_no}` : '', prescriptions: a.prescriptions }, mode });
+    // the nurse times the student out after the check-up is documented; its vital signs are optional
+    const canTimeOut = (a) => isNurse && !!a.assessment_id && !!a.checkup_visit_id && !a.visit_time_out;
 
     // the walk-in waits in the walk-in queue: the doctor calls the number
-    const afterWalkIn = () => { setTab('ongoing'); refresh(); };
+    // the walk-in form takes the time in vital signs, so the walk-in is already timed in
+    const afterWalkIn = () => {
+        setTab('ongoing');
+        refresh();
+    };
 
     const print = (a, kind) => printDocument(
         kind === 'prescription' ? 'Prescription' : 'Doctor visit summary',
@@ -266,12 +262,13 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
     const withName = (a) => ({ ...a, student_name: fullName(a.student_first_name, a.student_last_name) });
 
     // every action is an icon only; the name is in aria-label and title
-    const act = (key, variant, Icon, label, onClick, title) => (
-        <button key={key} type="button" className={`dp-btn dp-btn-${variant} dp-btn-icon`} onClick={onClick}
+    const act = (key, variant, Icon, label, onClick, title, disabled = false) => (
+        <button key={key} type="button" className={`dp-btn dp-btn-${variant} dp-btn-icon`} onClick={onClick} disabled={disabled}
             title={title || label} aria-label={label}>
             <Icon size={17} aria-hidden="true" />
         </button>
     );
+
 
     // ---- the actions of Upcoming and On going rows (the same for the doctor and the nurse) ----
     const renderActions = (a) => {
@@ -286,9 +283,16 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
             } else if (documented) {
                 buttons.push(act('doc', 'primary', ClipboardPlus, 'View / edit check-up', () => setConsultTarget(a)));
             } else if (phase === 'ongoing' && (!a.queue_state || a.queue_state === 'Serving')) {
-                // the check-up is recorded only after the time in (by hand or QR code)
+                // the check-up is recorded only after the nurse's time in with the vital signs
                 if (a.attendance_status === 'Present') buttons.push(act('doc', 'primary', Stethoscope, 'Document', () => setConsultTarget(a)));
-                else buttons.push(act('in', 'primary', Clock, 'Time in', () => timeIn(a, false, !isNurse), 'Record the time in now and open the check-up form, or scan the QR code of the student'));
+                else if (isNurse) {
+                    // a student the doctor documented must be timed out before the next time in
+                    const open = items.find((x) => x.appointment_id !== a.appointment_id && x.doctor_id === a.doctor_id && !!x.checkup_visit_id && !x.visit_time_out && !!x.assessment_id
+                        && String(x.start_time).slice(0, 10) === String(a.start_time).slice(0, 10) && ['Scheduled', 'Completed'].includes(x.status));
+                    buttons.push(act('in', 'primary', Clock, 'Time in', () => openVitals(a, 'in'),
+                        open ? `${fullName(open.student_first_name, open.student_last_name)} still needs a time out first` : 'Time in: record the vital signs', !!open));
+                }
+                else buttons.push(<span key="wait" className="dp-chip st-pending-approval">Waiting for time in</span>);
             }
             if (phase === 'upcoming') {
                 // a place in a session queue has no time of its own: the doctor reschedules the whole session instead (My Schedule)
@@ -297,16 +301,18 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
             }
             if (phase === 'ongoing' && !documented && !a.queue_state) {
                 if (a.attendance_status === 'Pending') buttons.push(act('ns', 'ghost', UserX, 'No-show', () => markNoShow(a)));
-                buttons.push(act('ex', 'ghost', TimerReset, 'Extend', () => setExtendTarget(withName(a))));
+                if (!isNurse) buttons.push(act('ex', 'ghost', TimerReset, 'Extend', () => setExtendTarget(withName(a))));
             }
         } else if (a.status === 'Completed' && documented) {
             buttons.push(act('doc', 'ghost', ClipboardPlus, 'View / edit check-up', () => setConsultTarget(a)));
         }
+        if (canTimeOut(a)) buttons.push(act('out', 'primary', LogOut, 'Time out', () => openVitals(a, 'out'), 'Time out: the vital signs after the check-up are optional'));
         if (documented) {
             buttons.push(act('sum', 'ghost', Printer, 'Summary', () => print(a, 'summary')));
             if (rxCount(a) > 0) buttons.push(act('rx', 'ghost', Pill, 'Prescription', () => print(a, 'prescription')));
         }
-        buttons.push(act('past', 'ghost', ClipboardList, 'Past assessments', () => setHistoryTarget(a), 'Past assessments of the student'));
+        // the student's health records
+        buttons.push(act('rec', 'ghost', FolderHeart, 'Student health records', () => setRecordTarget(withName(a)), 'Health records of the student'));
         buttons.push(act('log', 'ghost', History, 'History', () => setLogTarget(a), 'History and reasons'));
         return buttons;
     };
@@ -317,6 +323,7 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
         // the nurse can only look: the assessment, or the details when nothing was documented, and the past assessments of the student
         if (isNurse) {
             return [
+                ...(canTimeOut(a) ? [act('out', 'primary', LogOut, 'Time out', () => openVitals(a, 'out'), 'Time out: the vital signs after the check-up are optional')] : []),
                 act('view', 'ghost', Eye, documented ? 'View assessment' : 'View details', () => setViewTarget(a)),
                 act('log', 'ghost', History, 'Past assessments', () => setHistoryTarget(a), 'Past assessments of the student')
             ];
@@ -332,7 +339,7 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
             if (rxCount(a) > 0) buttons.push(act('rx', 'ghost', Pill, 'Prescription', () => print(a, 'prescription')));
             buttons.push(act('rp', 'accent', Repeat, 'Follow-up', () => setRepeatTarget(a), 'Follow-up: direct appointment, or wait for a schedule'));
         }
-        buttons.push(act('log', 'ghost', History, 'Past assessments', () => setHistoryTarget(a), 'Past assessments of the student'));
+        buttons.push(act('rec', 'ghost', FolderHeart, 'Student health records', () => setRecordTarget(withName(a)), 'Health records of the student'));
         return buttons;
     };
 
@@ -364,8 +371,13 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
                                     {a.treatment_recommendations && <div className="dp-appt-sub">Plan: {a.treatment_recommendations}</div>}
                                 </>
                             )}
+                            {a.checkup_visit_id && <div className="dp-appt-sub">Vital signs in: {vitalsLine(inVitalsOf(a)) || '-'}</div>}
+                            {a.visit_time_out && vitalsLine(outVitalsOf(a)) && <div className="dp-appt-sub">Vital signs out: {vitalsLine(outVitalsOf(a))}</div>}
+                            {a.dispensed_medicine && <div className="dp-appt-sub"><Pill size={13} aria-hidden="true" /> Dispensed: {a.dispensed_medicine} ({Math.round(a.dispensed_quantity)} {a.dispensed_unit})</div>}
                             <div className="dp-appt-chips">
                                 <span className={`dp-chip ${statusClass(a.status)}`}>{statusLabel(a.status)}</span>
+                                {a.checkup_visit_id && <span className="dp-chip st-completed">Timed in {formatTime(a.visit_time_in)}</span>}
+                                {a.visit_time_out && <span className="dp-chip source">Timed out {formatTime(a.visit_time_out)}</span>}
                                 <span className="dp-chip source">{sourceLabel(a.booking_source)}</span>
                                 {documented && <span className="dp-chip st-completed">Documented</span>}
                                 {documented && rxCount(a) > 0 && <span className="dp-chip"><Pill size={12} /> {rxCount(a)} medicine{rxCount(a) === 1 ? '' : 's'}</span>}
@@ -437,7 +449,7 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
                                 </td>
                                 <td>
                                     {tab === 'upcoming' ? (
-                                        a.booking_reason ? <div className="dp-cell-clip">{a.booking_reason}</div> : <span className="dp-hint">No reason given</span>
+                                        a.booking_reason ? <div className="dp-cell-clip">{a.booking_reason}</div> : <span className="dp-hint">-</span>
                                     ) : documented ? (
                                         <>
                                             <div className="dp-cell-clip">{a.diagnosis}</div>
@@ -513,15 +525,9 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
                             <button type="button" className="dp-btn dp-btn-primary dp-btn-sm" onClick={() => setDismissedEnds((list) => list.filter((k) => k !== endKey(s)))}>Confirm or extend</button>
                         </div>
                     )}
-                    <QueuePanel scheduleId={s.schedule_id} date={s.date} creator={creator} userId={userId} refreshKey={queueKey} onChanged={refresh} onDocument={documentEntry} onView={viewEntry} onHistory={historyEntry} onWalkIn={() => setWalkInFor(s)} onExtend={() => setExtendSession(s)} />
+                    <QueuePanel scheduleId={s.schedule_id} date={s.date} creator={creator} userId={userId} refreshKey={queueKey} onChanged={refresh} onDocument={documentEntry} onView={viewEntry} onRecords={recordEntry} onWalkIn={isNurse ? () => setWalkInFor(s) : undefined} onExtend={isNurse ? undefined : () => setExtendSession(s)} />
                 </section>
             ))}
-
-            {tab === 'ongoing' && !isNurse && items.some((a) => !a.queue_state && a.status === 'Scheduled' && a.attendance_status === 'Pending') && (
-                <div className="dp-actions" style={{ marginBottom: 12 }}>
-                    <button type="button" className="dp-btn dp-btn-ghost" onClick={() => setScanning(true)} title="Scan the QR code of a student to record the time in"><QrCode size={17} /> Scan QR for attendance</button>
-                </div>
-            )}
 
             {loading ? (
                 <div className="dp-card dp-empty">Loading check-ups...</div>
@@ -555,7 +561,7 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
                 <SessionEndPrompt
                     item={{ key: endKey(endAsk), kind: 'check-up', endTime: endAsk.end_time, title: `${endAsk.doctor_name}'s ${endAsk.visit_type === 'Any' ? 'check-up' : endAsk.visit_type} session on ${formatDate(endAsk.date)}` }}
                     onConfirm={() => confirmEnd(endAsk)}
-                    onExtend={(minutes) => extendEnd(endAsk, minutes)}
+                    onExtend={isNurse ? undefined : (minutes) => extendEnd(endAsk, minutes)}
                     onLater={() => setDismissedEnds((list) => [...list, endKey(endAsk)])}
                 />
             )}
@@ -567,14 +573,8 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
                 />
             )}
 
-            <AttendanceScanModal
-                isOpen={scanning} onClose={() => setScanning(false)}
-                entries={items.filter((a) => !a.queue_state && a.status === 'Scheduled').map((a) => ({
-                    appointment_id: a.appointment_id, student_id: a.student_id, student_name: fullName(a.student_first_name, a.student_last_name),
-                    label: formatTime(a.start_time), state: 'Waiting', arrived: a.attendance_status === 'Present' ? 1 : 0, raw: a
-                }))}
-                onArrived={(entry) => timeIn(entry.raw, true)}
-            />
+            {vitalsTarget && <VitalsModal appt={vitalsTarget.appt} mode={vitalsTarget.mode} userId={userId} onClose={() => setVitalsTarget(null)} onDone={refresh} />}
+            <StudentHealthRecordModal appt={recordTarget} onClose={() => setRecordTarget(null)} />
             <WalkInModal isOpen={!!walkInFor} doctors={doctors} fixedDoctorId={walkInFor ? walkInFor.doctor_id || doctorId : doctorId} schedule={walkInFor} creator={creator} userId={userId} onClose={() => setWalkInFor(null)} onCreated={afterWalkIn} />
         </>
     );

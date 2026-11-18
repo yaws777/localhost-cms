@@ -1,7 +1,7 @@
 // bookCheckup.jsx - the student's check-up page (route /BookCheckup).
-// The doctor sets a schedule with a listing limit and the nurse opens its listing. The student sees the open listings here and asks for a
-// place in one. When the nurse accepts, the student gets the next queue number of that session (in the order of acceptance) and sees which
-// number is being served; the nurse can also decline with a reason.
+// The doctor sets a schedule with a listing limit and the nurse opens its listing. The student sees the open listings here and takes a
+// place in one: no reason and no nurse approval, the student gets the next queue number of that session at once (in the order of asking)
+// and sees which number is being served.
 // Layout: header (title + updates bell), "My number in line" on top, then tabs (Listings | Follow-ups | Past | Requests). Only the active tab is
 // shown and the latest updates sit behind the bell, so nothing long is open when the page loads.
 // Look: one ticket per number (big number, now serving, people ahead, progress), a 3-step ticket for a request the nurse has not accepted,
@@ -11,14 +11,17 @@ import { useOutletContext } from 'react-router-dom';
 import { ClipboardList, X, Clock, Info, Stethoscope, MapPin, Repeat, FileText, Bell, Footprints, UserPlus, ListPlus, XCircle, Undo2, Eye, Inbox, Ticket, CheckCircle2, AlertCircle, Check } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatDateTime } from '../../utils/datetime';
-import { visitLabel, reasonPlaceholder } from '../../utils/visitPurpose';
+import { visitLabel } from '../../utils/visitPurpose';
 import { to12h, cutoffKindLabel } from '../../utils/scheduling';
+import { vitalsLine, inVitalsOf, outVitalsOf } from '../../utils/vitals';
+import { dispensedLine } from '../../utils/dispensed';
 import { useQueueStatus } from '../../hooks/useQueueStatus';
+import QueueStatus, { QueuePill } from '../../components/student/QueueStatus';
 import '../../styles/student/BookCheckup.css';
 
 const API = 'http://localhost:3001';
 
-const EMPTY_REQUEST = { visit_type: '', reason: '', preferred_note: '' };
+const EMPTY_REQUEST = { visit_type: '' };
 const FINISHED = ['Missed', 'Denied', 'Withdrawn']; // a fulfilled request shows under Past check-ups
 const LIVE_REFRESH_MS = 10000;
 const UPDATE_TYPES = /^(ADVANCE_LISTING|CONSULTATION_|QUEUE_|APPOINTMENT_|BOOKING_|SCHEDULE_UPDATE|ASSESSMENT_|DOCTOR_VISIT)/;
@@ -60,17 +63,6 @@ const requestTag = (status) => {
     return { tone: 'low', Icon: Clock };
 };
 
-// state of a session number: the tag, and one short line when the student must act
-const numberView = (a) => {
-    if (a.state === 'Serving') return { tone: 'ok', Icon: CheckCircle2, tag: 'Your turn', text: 'Go to the check-up room now.' };
-    if (a.state === 'Void') return { tone: 'bad', Icon: XCircle, tag: 'Skipped', text: 'Tell the nurse you are here. You join the walk-ins.' };
-    if (a.state === 'Done') return { tone: 'ok', Icon: CheckCircle2, tag: 'Done', text: '' };
-    if (!a.in_session) return { tone: 'soft', Icon: Clock, tag: 'Not started', text: `Session starts ${to12h(a.session_start)}.` };
-    if (a.lane === 'Walk-in') return { tone: 'low', Icon: Clock, tag: 'Waiting', text: 'Walk-ins are called after the listed numbers.' };
-    if (a.ahead === 0) return { tone: 'low', Icon: Clock, tag: 'You are next', text: 'Stay close to the check-up room.' };
-    return { tone: 'low', Icon: Clock, tag: 'Waiting', text: '' };
-};
-
 // how far the called number is from mine (listed numbers only, when both are plain numbers)
 const queueProgress = (a) => {
     if (a.lane === 'Walk-in' || /^w/i.test(String(a.now_serving || ''))) return null;
@@ -81,8 +73,7 @@ const queueProgress = (a) => {
 };
 
 const NumberTicket = ({ a }) => {
-    const v = numberView(a);
-    const live = !['Serving', 'Void', 'Done'].includes(a.state);
+    const live =!['Serving', 'Void', 'Done'].includes(a.state);
     const prog = live && a.in_session ? queueProgress(a) : null;
     return (
         <article className="ticket-bc" aria-label={`Your queue number ${a.label}`}>
@@ -90,14 +81,14 @@ const NumberTicket = ({ a }) => {
             <div className="ticket-body-bc">
                 <div className="booking-top-bc">
                     <strong>{visitLabel(a.visit_type)}</strong>
-                    <Tag tone={v.tone} Icon={v.Icon}>{v.tag}</Tag>
+                    <QueuePill a={a} />
                 </div>
                 <div className="booking-line-bc"><Stethoscope size={14} aria-hidden="true" /> {a.doctor_name}, {formatDate(a.date)}, {to12h(a.session_start)} - {to12h(a.session_end)}</div>
                 {a.location && <div className="booking-line-bc"><MapPin size={14} aria-hidden="true" /> {a.location}</div>}
-                {v.text && <p className="request-help-bc ticket-text-bc">{v.text}</p>}
+                <QueueStatus a={a} />
                 {a.state !== 'Done' && a.state !== 'Void' && (
                     <div className="stats-bc">
-                        <div className="stat-bc"><span>Now serving</span><b>{a.state === 'Serving' ? 'You' : a.now_serving || 'None yet'}</b></div>
+                        <div className="stat-bc"><span>In Session</span><b>{a.state === 'Serving' ? 'You' : a.now_serving || 'None yet'}</b></div>
                         <div className="stat-bc"><span>Ahead of you</span><b>{a.state === 'Serving' ? 0 : a.ahead}</b></div>
                     </div>
                 )}
@@ -139,7 +130,6 @@ const RequestTicket = ({ r, onWithdraw }) => {
                     ))}
                 </ol>
                 <div className="request-foot-bc">
-                    <span className="muted-bc">Reason: {r.reason}</span>
                     <button type="button" className="btn-bc btn-danger-bc btn-icon-bc" onClick={onWithdraw} aria-label="Withdraw the request" title="Withdraw the request"><Undo2 size={18} aria-hidden="true" /></button>
                 </div>
             </div>
@@ -165,7 +155,7 @@ const BookCheckup = () => {
     const [listingsLoaded, setListingsLoaded] = useState(false);
     const [inAdvance, setInAdvance] = useState(false);
     const [advance, setAdvance] = useState(null); // the advance listing: open?, services with their limit, and my own entry
-    const [advanceForm, setAdvanceForm] = useState({ visit_type: '', reason: '' });
+    const [advanceForm, setAdvanceForm] = useState({ visit_type: '' });
     const [advanceBusy, setAdvanceBusy] = useState(false);
     const [advanceOpen, setAdvanceOpen] = useState(false); // the request form opens only from the button
     const [history, setHistory] = useState([]);
@@ -284,14 +274,13 @@ const BookCheckup = () => {
     const registerAdvance = async (e) => {
         e.preventDefault();
         if (!advanceForm.visit_type) { showAlert('Please select the check-up service you need.', 'warning'); return; }
-        if (!advanceForm.reason.trim()) { showAlert('Please tell the clinic why you need a check-up.', 'warning'); return; }
         setAdvanceBusy(true);
         try {
             const res = await fetch(`${API}/api/student/advance-listing`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ student_id: studentId, ...advanceForm })
             });
             const data = await res.json();
-            if (data.success) { showAlert(data.message, 'success'); setAdvanceForm({ visit_type: '', reason: '' }); setAdvanceOpen(false); reloadAll(); }
+            if (data.success) { showAlert(data.message, 'success'); setAdvanceForm({ visit_type: '' }); setAdvanceOpen(false); reloadAll(); }
             else { showAlert(data.message || 'Could not register in the advance listing.', 'error'); fetchAdvance(); }
         } catch (err) {
             showAlert('Server error. Please try again.', 'error');
@@ -317,30 +306,42 @@ const BookCheckup = () => {
         }
     };
 
-    const openRequestForm = (listing) => {
-        if (listing.mine) return; // the student already has a request or a number in this session
-        setRequestForm({ ...EMPTY_REQUEST, visit_type: listing.purposes.length === 1 ? listing.purposes[0] : '' });
-        setRequestFor(listing);
-    };
-
-    const sendRequest = async (e) => {
-        e.preventDefault();
-        if (!requestForm.visit_type) { showAlert('Please select the check-up you need.', 'warning'); return; }
-        if (!requestForm.reason.trim()) { showAlert('Please tell the clinic why you need a check-up.', 'warning'); return; }
+    // no reason and no nurse approval: the place (queue number) is given at once
+    const takePlace = async (listing, visitType) => {
         setSubmitting(true);
         try {
             const res = await fetch(`${API}/api/student/consultation-requests`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ student_id: studentId, schedule_id: requestFor.schedule_id, ...requestForm })
+                body: JSON.stringify({ student_id: studentId, schedule_id: listing.schedule_id, visit_type: visitType })
             });
             const data = await res.json();
             if (data.success) { showAlert(data.message, 'success'); setRequestFor(null); setRequestForm(EMPTY_REQUEST); reloadAll(); }
-            else { showAlert(data.message || 'Could not send the request.', 'error'); fetchListings(); }
+            else { showAlert(data.message || 'Could not take a place.', 'error'); fetchListings(); }
         } catch (err) {
             showAlert('Server error. Please try again.', 'error');
         } finally {
             setSubmitting(false);
         }
+    };
+
+    const openRequestForm = async (listing) => {
+        if (listing.mine || submitting) return; // the student already has a number in this session
+        if (listing.purposes.length === 1) {
+            const ok = await showConfirm(
+                `Take a place in the session of ${listing.doctor_name}, ${formatDate(listing.date)}, ${to12h(listing.start_time)} - ${to12h(listing.end_time)}?`,
+                { confirmLabel: 'Take place', cancelLabel: 'Cancel', title: 'Take a place' }
+            );
+            if (ok) takePlace(listing, listing.purposes[0]);
+            return;
+        }
+        setRequestForm(EMPTY_REQUEST);
+        setRequestFor(listing);
+    };
+
+    const sendRequest = (e) => {
+        e.preventDefault();
+        if (!requestForm.visit_type) { showAlert('Please select the check-up you need.', 'warning'); return; }
+        takePlace(requestFor, requestForm.visit_type);
     };
 
     const withdrawRequest = async (r) => {
@@ -491,7 +492,6 @@ const BookCheckup = () => {
                                         <div className="booking-line-bc"><Info size={14} aria-hidden="true" /> Moved to the session listing.</div>
                                     ) : (
                                         <>
-                                            <div className="booking-reason-bc">Reason: {mine.reason}</div>
                                             {mine.status === 'Pending' && <div className="booking-line-bc"><Info size={14} aria-hidden="true" /> Under review.</div>}
                                             {mine.status === 'Waiting' && <div className="booking-line-bc"><Clock size={14} aria-hidden="true" /> Waiting for a schedule.</div>}
                                             {mine.status === 'Cutoff' && (
@@ -558,7 +558,7 @@ const BookCheckup = () => {
                                                 <Meter accepted={l.accepted} limit={l.listing_limit} left={placesLeft(l)} />
                                                 {!l.mine && (
                                                     <div className="booking-actions-bc">
-                                                        <button type="button" className="btn-bc btn-primary-bc btn-icon-bc" disabled={!l.can_request} onClick={() => openRequestForm(l)} aria-label={l.listing_full ? 'Ask for a place, listing full' : 'Ask for a place'} title={l.listing_full ? 'Listing full' : 'Ask for a place'}><UserPlus size={20} aria-hidden="true" /></button>
+                                                        <button type="button" className="btn-bc btn-primary-bc btn-icon-bc" disabled={!l.can_request || submitting} onClick={() => openRequestForm(l)} aria-label={l.listing_full ? 'Take a place, listing full' : 'Take a place'} title={l.listing_full ? 'Listing full' : 'Take a place'}><UserPlus size={20} aria-hidden="true" /></button>
                                                     </div>
                                                 )}
                                             </div>
@@ -639,7 +639,6 @@ const BookCheckup = () => {
                                         <strong>{visitLabel(r.visit_type, r.purpose_other)}</strong>
                                         <Tag tone={requestTag(r.status).tone} Icon={requestTag(r.status).Icon}>{r.status}</Tag>
                                     </div>
-                                    <div className="booking-reason-bc">Reason: {r.reason}</div>
                                     <div className="booking-line-bc"><Clock size={14} aria-hidden="true" /> Sent {formatDate(r.created_at)}</div>
                                     <p className="request-help-bc">{historyHelp(r)}</p>
                                 </div>
@@ -688,7 +687,7 @@ const BookCheckup = () => {
                         </div>
                         <p className="request-help-bc">{assessmentOf.doctor_name}, {formatDate(assessmentOf.date)}</p>
                         <dl className="assess-bc">
-                            {[['Reason', assessmentOf.assessment.chief_complaint], ['Findings', assessmentOf.assessment.clinical_findings], ['Diagnosis', assessmentOf.assessment.diagnosis], ['Advice', assessmentOf.assessment.treatment_recommendations]]
+                            {[['Vital signs (time in)', vitalsLine(inVitalsOf(assessmentOf.assessment))], ['Vital signs (time out)', vitalsLine(outVitalsOf(assessmentOf.assessment))], ['Reason', assessmentOf.assessment.chief_complaint], ['Findings', assessmentOf.assessment.clinical_findings], ['Diagnosis', assessmentOf.assessment.diagnosis], ['Advice', assessmentOf.assessment.treatment_recommendations]]
                                 .filter(([, v]) => v).map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}
                             {assessmentOf.assessment.prescriptions.length > 0 && (
                                 <div><dt>Prescription</dt><dd>
@@ -697,6 +696,7 @@ const BookCheckup = () => {
                                     ))}
                                 </dd></div>
                             )}
+                            {dispensedLine(assessmentOf.assessment) && <div><dt>Medicine dispensed</dt><dd>{dispensedLine(assessmentOf.assessment)}</dd></div>}
                             {assessmentOf.assessment.referral_facility && <div><dt>Referral</dt><dd>{assessmentOf.assessment.referral_facility}{assessmentOf.assessment.referral_reason ? `: ${assessmentOf.assessment.referral_reason}` : ''}</dd></div>}
                             {assessmentOf.assessment.follow_up_needed ? <div><dt>Follow-up</dt><dd>{assessmentOf.assessment.follow_up_date ? `By ${formatDate(assessmentOf.assessment.follow_up_date)}` : 'Needed'}{assessmentOf.assessment.follow_up_notes ? `: ${assessmentOf.assessment.follow_up_notes}` : ''}</dd></div> : null}
                         </dl>
@@ -722,10 +722,6 @@ const BookCheckup = () => {
                                 ))}
                             </select>
                         </div>
-                        <div className="field-bc">
-                            <label htmlFor="bc-adv-reason">Reason</label>
-                            <textarea id="bc-adv-reason" rows="3" maxLength={255} required value={advanceForm.reason} onChange={(e) => setAdvanceForm({ ...advanceForm, reason: e.target.value })} placeholder={reasonPlaceholder(advanceForm.visit_type)} />
-                        </div>
                         <div className="modal-footer-bc">
                             <button type="button" className="btn-bc btn-light-bc" onClick={() => setAdvanceOpen(false)}>Cancel</button>
                             <button type="submit" className="btn-bc btn-primary-bc" disabled={advanceBusy || !advanceForm.visit_type}>{advanceBusy ? 'Saving...' : 'Save'}</button>
@@ -738,7 +734,7 @@ const BookCheckup = () => {
                 <div className="modal-overlay-bc" role="dialog" aria-modal="true" aria-labelledby="bc-request-title">
                     <form className="modal-bc" onSubmit={sendRequest}>
                         <div className="modal-header-bc">
-                            <h3 id="bc-request-title">Ask for a place</h3>
+                            <h3 id="bc-request-title">Take a place</h3>
                             <button type="button" className="close-bc" onClick={() => setRequestFor(null)} aria-label="Close" title="Close"><X size={20} aria-hidden="true" /></button>
                         </div>
                         <p className="request-help-bc form-summary-bc">
@@ -751,17 +747,9 @@ const BookCheckup = () => {
                                 {requestFor.purposes.map((t) => <option key={t} value={t}>{t}</option>)}
                             </select>
                         </div>
-                        <div className="field-bc">
-                            <label htmlFor="bc-reason">Reason</label>
-                            <textarea id="bc-reason" rows="3" maxLength={255} required value={requestForm.reason} onChange={e => setRequestForm({ ...requestForm, reason: e.target.value })} placeholder={reasonPlaceholder(requestForm.visit_type)} />
-                        </div>
-                        <div className="field-bc">
-                            <label htmlFor="bc-note">Note (optional)</label>
-                            <input id="bc-note" type="text" maxLength={255} value={requestForm.preferred_note} onChange={e => setRequestForm({ ...requestForm, preferred_note: e.target.value })} />
-                        </div>
                         <div className="modal-footer-bc">
                             <button type="button" className="btn-bc btn-light-bc" onClick={() => setRequestFor(null)}>Cancel</button>
-                            <button type="submit" className="btn-bc btn-primary-bc" disabled={submitting || !requestForm.visit_type}>{submitting ? 'Sending...' : 'Send'}</button>
+                            <button type="submit" className="btn-bc btn-primary-bc" disabled={submitting || !requestForm.visit_type}>{submitting ? 'Saving...' : 'Save'}</button>
                         </div>
                     </form>
                 </div>

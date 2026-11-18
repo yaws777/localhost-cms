@@ -11,6 +11,8 @@ import { formatDate, formatTime, formatTimeRange } from '../../utils/datetime';
 import { classLabel } from '../../utils/scheduling';
 import { visitLabel, initials, fullName, statusClass, statusLabel } from '../../utils/visitPurpose';
 import { printDocument, visitDocumentHtml } from '../../utils/doctorVisitDocuments';
+import { hasVitals, vitalsLine, inVitalsOf, outVitalsOf } from '../../utils/vitals';
+import { dispensedLine } from '../../utils/dispensed';
 import '../../styles/doctor/DoctorLayout.css';
 
 const API = 'http://localhost:3001';
@@ -46,6 +48,8 @@ const ConsultationDetails = ({ c, onPrint }) => {
         <>
             <dl className="dp-kv">
                 <dt>Doctor</dt><dd>Dr. {c.doc_first_name} {c.doc_last_name}{c.specialization ? ` (${c.specialization})` : ''}</dd>
+                {hasVitals(inVitalsOf(c)) && <><dt>Vital signs (time in)</dt><dd>{vitalsLine(inVitalsOf(c))}</dd></>}
+                {hasVitals(outVitalsOf(c)) && <><dt>Vital signs (time out)</dt><dd>{vitalsLine(outVitalsOf(c))}</dd></>}
                 <dt>Findings</dt><dd>{c.clinical_findings}</dd>
                 <dt>Diagnosis</dt><dd>{c.diagnosis}</dd>
                 {c.treatment_recommendations && <><dt>Treatment plan</dt><dd>{c.treatment_recommendations}</dd></>}
@@ -55,6 +59,7 @@ const ConsultationDetails = ({ c, onPrint }) => {
                         <dd>{rx.map((p, i) => <div key={i}><strong>{p.medicine}</strong>{[p.dosage, p.frequency, p.duration ? `for ${p.duration}` : ''].filter(Boolean).length > 0 ? ` - ${[p.dosage, p.frequency, p.duration ? `for ${p.duration}` : ''].filter(Boolean).join(', ')}` : ''}{p.instructions ? ` (${p.instructions})` : ''}</div>)}</dd>
                     </>
                 )}
+                {dispensedLine(c) && <><dt>Medicine dispensed</dt><dd>{dispensedLine(c)}</dd></>}
                 {answers.map((r) => <React.Fragment key={r.key}><dt>{r.label}</dt><dd>{Array.isArray(r.value) ? r.value.join(', ') : r.value}</dd></React.Fragment>)}
                 {(c.follow_up_date || c.follow_up_notes) && <><dt>Follow-up</dt><dd>{[c.follow_up_date ? formatDate(c.follow_up_date) : '', c.follow_up_notes || ''].filter(Boolean).join(' - ')}</dd></>}
             </dl>

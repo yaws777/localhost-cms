@@ -4,6 +4,8 @@ import stiLogo from '../assets/sti-logof.png';
 import { formatTime, formatDate } from './datetime';
 import { escapeHtml } from './printReport';
 import { visitLabel } from './visitPurpose';
+import { vitalsLine, inVitalsOf, outVitalsOf } from './vitals';
+import { dispensedLine } from './dispensed';
 
 export const printDocument = (title, bodyHtml, onBlocked) => {
     const w = window.open('', '_blank', 'width=900,height=800');
@@ -49,6 +51,8 @@ const visitDetailRows = (a) => {
         ['Attendance', a.attendance_status || 'Pending']
     ];
     if (a.chief_complaint || a.booking_reason) rows.push(['Chief complaint', a.chief_complaint || a.booking_reason]);
+    if (vitalsLine(inVitalsOf(a))) rows.push(['Vital signs (time in)', vitalsLine(inVitalsOf(a))]);
+    if (vitalsLine(outVitalsOf(a))) rows.push(['Vital signs (time out)', vitalsLine(outVitalsOf(a))]);
     if (a.visit_type === 'Dental' && a.oral_hygiene) {
         const dmft = (Number(a.caries_count) || 0) + (Number(a.missing_count) || 0) + (Number(a.filled_count) || 0);
         rows.push(['Oral hygiene', a.oral_hygiene]);
@@ -74,6 +78,7 @@ const visitDetailRows = (a) => {
     rows.push(['Treatment / recommendations', a.treatment_recommendations || '-']);
     const rx = Array.isArray(a.prescriptions) ? a.prescriptions : [];
     if (rx.length > 0) rows.push(['Prescription', rx.map(prescriptionLine).join('\n')]);
+    if (dispensedLine(a)) rows.push(['Medicine dispensed (time out)', dispensedLine(a)]);
     const answers = Array.isArray(a.template_responses) ? a.template_responses : [];
     answers.forEach((r) => rows.push([r.label, Array.isArray(r.value) ? r.value.join(', ') : r.value]));
     if (a.follow_up_date) rows.push(['Follow-up date', formatDate(a.follow_up_date)]);

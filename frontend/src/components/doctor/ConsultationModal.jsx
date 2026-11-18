@@ -2,8 +2,9 @@
 // Clinical check-up documentation for one doctor visit: findings, diagnosis, treatment plan,
 // prescriptions and follow-up notes, plus the doctor's own template fields. Exam questions (Dental / Vision examination) are templates, not fixed forms.
 import React, { useState, useEffect, useMemo } from 'react';
-import { ClipboardPlus, Plus, Trash2 } from 'lucide-react';
+import { ClipboardPlus, Plus, Trash2, HeartPulse } from 'lucide-react';
 import Modal from '../common/Modal';
+import StudentHealthCard from './StudentHealthCard';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatTime } from '../../utils/datetime';
 import { visitLabel, fullName, localDateStr } from '../../utils/visitPurpose';
@@ -174,6 +175,8 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
         setError('');
 
         if (['Absent', 'Excused'].includes(appt.attendance_status)) { setError(`The student is marked ${appt.attendance_status}. Change the attendance first.`); return; }
+        // the check-up is documented only after the nurse's time in with normal vital signs
+        if (appt.attendance_status === 'Pending') { setError('The nurse records the time in and the vital signs first.'); return; }
         const missing = missingRequired(template ? template.fields : stdFields, template ? answers : vals);
         if (missing.length > 0) { setError(`Please answer: ${missing.join(', ')}.`); return; }
         if (form.prescriptions.some((r) => (r.dosage || r.frequency || r.duration || r.instructions) && !r.medicine.trim())) {
@@ -185,13 +188,6 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
 
         setBusy(true);
         try {
-            // documenting a visit means the student attended
-            if (appt.attendance_status === 'Pending') {
-                await fetch(`${API}/api/doctor-visits/status/${appt.appointment_id}`, {
-                    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ student_id: appt.student_id, status: 'Present' })
-                });
-            }
-
             const payload = {
                 appointment_id: appt.appointment_id,
                 student_id: appt.student_id,
@@ -249,6 +245,11 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
                     {appt.booking_reason ? <><br />Reason given: {appt.booking_reason}</> : null}
                 </div>
                 {error && <div className="dp-error" role="alert">{error}</div>}
+
+                <details className="dp-card hs-details" open>
+                    <summary><HeartPulse size={16} aria-hidden="true" /> Vital signs and health information</summary>
+                    <StudentHealthCard studentId={appt.student_id} appointmentId={appt.appointment_id} />
+                </details>
 
                 {templates.length > 0 && (
                     <div className="dp-field">

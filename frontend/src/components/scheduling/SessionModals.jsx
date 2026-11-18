@@ -122,8 +122,8 @@ export const AppointModal = ({ isOpen, schedule, request, fixedDate, creator, us
 
                 {request ? (
                     <div className="dp-notice">
-                        <strong>{fullName(request.student_first_name, request.student_last_name)}</strong> - {visitLabel(request.visit_type, request.purpose_other)} (list no. #{request.queue_no})<br />
-                        Reason: {request.reason}
+                        <strong>{fullName(request.student_first_name, request.student_last_name)}</strong> - {visitLabel(request.visit_type, request.purpose_other)} (list no. #{request.queue_no})
+                        {request.reason ? <><br />Reason: {request.reason}</> : null}
                     </div>
                 ) : <StudentPicker value={student} onChange={setStudent} />}
 

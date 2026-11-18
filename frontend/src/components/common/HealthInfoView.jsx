@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { Activity, AlertTriangle, CheckCircle2, ClipboardList, HeartPulse, Scale, Stethoscope } from 'lucide-react';
+import { Activity, AlertTriangle, CheckCircle2, ClipboardList, HeartPulse, Pencil, Scale, Stethoscope } from 'lucide-react';
 import { formatDate } from '../../utils/datetime';
+import { hasVitals, vitalsLine, inVitalsOf } from '../../utils/vitals';
+import { dispensedLine } from '../../utils/dispensed';
 import HealthProofList from './HealthProofList';
 import '../../styles/common/HealthInfoView.css';
 
 // Each condition: the has_* flag, then the detail rows to show. Only conditions the student ticked are listed,
 // and only the details the student filled in.
 //   text  = plain value, date = formatted date, flags = list of ticked checkboxes
-const CONDITIONS = [
+export const CONDITIONS = [
     {
         flag: 'has_allergies', label: 'History of Allergies', details: [
             { type: 'text', label: 'Food', key: 'allergy_food' },
@@ -215,7 +217,8 @@ function VitalsCard({ vitals }) {
 
 // Health Information tab, read only: body measurements and health history side by side, then (nurse only)
 // the latest doctor assessment of each check-up service, the latest result of each screening type and the uploaded proofs.
-export default function HealthInfoView({ studentId, healthInfo, healthProofs, showCheckups = false }) {
+// onEditHistory (nurse profile only) adds an edit button beside the Health History heading.
+export default function HealthInfoView({ studentId, healthInfo, healthProofs, showCheckups = false, onEditHistory }) {
     const info = healthInfo || {};
     const [screenings, setScreenings] = useState([]);
     const [body, setBody] = useState(null);
@@ -258,7 +261,21 @@ export default function HealthInfoView({ studentId, healthInfo, healthProofs, sh
                 <BodyCard body={body} />
 
                 <section className="hiv-section" aria-labelledby="hiv-history">
-                    <h4 id="hiv-history" className="hiv-heading"><ClipboardList size={18} aria-hidden="true" /> Health History</h4>
+                    <h4 id="hiv-history" className="hiv-heading">
+                        <ClipboardList size={18} aria-hidden="true" /> Health History
+                        {onEditHistory && (
+                            <button
+                                type="button"
+                                className="hiv-edit"
+                                onClick={onEditHistory}
+                                aria-label="Edit health history"
+                                title="Edit health history"
+                                aria-haspopup="dialog"
+                            >
+                                <Pencil size={18} aria-hidden="true" />
+                            </button>
+                        )}
+                    </h4>
                     {conditions.length === 0 ? (
                         <p className="hiv-muted">No health history filled in.</p>
                     ) : (
@@ -301,10 +318,12 @@ export default function HealthInfoView({ studentId, healthInfo, healthProofs, sh
                                     </header>
                                     <p className="hiv-date">{[c.doctor_name, c.date ? formatDate(c.date) : ''].filter(Boolean).join(', ')}</p>
                                     <dl className="hiv-list">
+                                        {hasVitals(inVitalsOf(c)) && <div className="hiv-row"><dt>Vital signs</dt><dd>{vitalsLine(inVitalsOf(c))}</dd></div>}
                                         {filled(c.chief_complaint) && <div className="hiv-row"><dt>Complaint</dt><dd>{c.chief_complaint}</dd></div>}
                                         {filled(c.clinical_findings) && <div className="hiv-row"><dt>Findings</dt><dd>{c.clinical_findings}</dd></div>}
                                         {filled(c.diagnosis) && <div className="hiv-row"><dt>Diagnosis</dt><dd>{c.diagnosis}</dd></div>}
                                         {filled(c.treatment_recommendations) && <div className="hiv-row"><dt>Plan</dt><dd>{c.treatment_recommendations}</dd></div>}
+                                        {dispensedLine(c) && <div className="hiv-row"><dt>Medicine</dt><dd>{dispensedLine(c)}</dd></div>}
                                     </dl>
                                 </article>
                             ))}

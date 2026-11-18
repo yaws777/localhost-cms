@@ -35,7 +35,8 @@ const SessionEndPrompt = ({ item, onConfirm, onExtend, onLater }) => {
 
     if (!item) return null;
     const room = extensionRoom(item.endTime);
-    const options = EXTRA_MINUTES.filter((m) => m <= room);
+    // no onExtend = this user cannot extend (the nurse for a check-up): only Confirm / Ask me later
+    const options = onExtend ? EXTRA_MINUTES.filter((m) => m <= room) : [];
     const chosen = options.includes(extra) ? extra : options[options.length - 1];
     const past = item.kind === 'screening' ? 'Past Screening' : 'Past Check-up';
 
@@ -66,9 +67,9 @@ const SessionEndPrompt = ({ item, onConfirm, onExtend, onLater }) => {
                             {options.map((m) => <option key={m} value={m}>{m} minutes</option>)}
                         </select>
                     </div>
-                ) : (
+                ) : onExtend ? (
                     <div className="dp-hint">No time left today to extend.</div>
-                )}
+                ) : null}
                 <div className="dp-modal-foot">
                     <button type="button" className="dp-btn dp-btn-ghost dp-btn-icon" onClick={onLater} disabled={busy} aria-label="Ask me later" title="Ask me later">
                         <Clock size={18} aria-hidden="true" />

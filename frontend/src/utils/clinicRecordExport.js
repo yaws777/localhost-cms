@@ -4,6 +4,8 @@
 // doctor check-up assessment). Used by the student, parent and nurse (Health Records) screens.
 import { formatDate, formatTime, formatDateTime } from './datetime';
 import { openReportWindow, writeDetailedReport } from './printReport';
+import { vitalsLine, inVitalsOf, outVitalsOf } from './vitals';
+import { dispensedLine } from './dispensed';
 import { visitOutcome, visitDoctor, visitTitle, detailPairs } from '../components/common/ClinicRecordViews';
 
 export const EXPORT_TITLES = {
@@ -140,7 +142,9 @@ const doctorVisitRows = (v) => {
         ['Attendance', v.attendance_status],
         ['Time in', v.check_in_time ? dateTime(v.check_in_time) : null],
         ['Reason declined', v.decline_reason],
-        ['Notes', v.student_notes]
+        ['Notes', v.student_notes],
+        ['Vital signs - At time in', vitalsLine(inVitalsOf(v))],
+        ['Vital signs - At time out', vitalsLine(outVitalsOf(v))]
     ];
     if (v.documented) {
         rows.push(['Assessment - Findings', v.clinical_findings]);
@@ -164,6 +168,7 @@ const doctorVisitRows = (v) => {
     } else {
         rows.push(['Assessment', outcome.tone === 'info' ? 'Not yet available.' : 'No assessment was recorded for this check-up.']);
     }
+    rows.push(['Medicine dispensed (time out)', dispensedLine(v)]);
     ['oral_hygiene', 'caries_count', 'missing_count', 'filled_count', 'gum_condition', 'malocclusion', 'tooth_notes', 'treatment_done', 'treatment_needed',
         'referral_needed', 'referral_to', 'next_visit_recommendation', 'dental_remarks'].forEach((k) => rows.push([`Dental - ${keyLabel(k)}`, has(v[k]) ? genericValue(v[k]) : null]));
     ['visual_acuity_left', 'visual_acuity_right', 'va_left_corrected', 'va_right_corrected', 'wears_eyeglasses', 'wears_contacts', 'color_vision',

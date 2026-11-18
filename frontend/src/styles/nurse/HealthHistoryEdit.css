@@ -1,0 +1,127 @@
+/* Nurse edit of a student's health history (HealthHistoryEditModal.jsx). Theme tokens only. */
+
+.hhe-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1500;
+    display: grid;
+    place-items: center;
+    padding: 1rem;
+    background: rgba(15, 23, 42, 0.6);
+}
+
+.hhe-modal {
+    width: min(100%, 44rem);
+    max-height: calc(100vh - 2rem);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    border: 0.0625rem solid var(--card-border);
+    border-radius: 0.75rem;
+}
+
+.hhe-modal > form {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+}
+
+.hhe-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem 0.75rem 1.25rem;
+    background: var(--sti-blue-dark);
+    color: var(--text-on-brand);
+}
+
+.hhe-head h2 {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 1.0625rem;
+    color: var(--text-on-brand);
+}
+
+.hhe-icon {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    display: inline-grid;
+    place-items: center;
+    padding: 0;
+    border-radius: 0.5rem;
+    border: 0.0625rem solid transparent;
+    background: transparent;
+    color: var(--text-on-brand);
+    cursor: pointer;
+}
+
+.hhe-icon:hover {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.hhe-head :focus-visible {
+    outline: 0.1875rem solid var(--sti-yellow);
+    outline-offset: 0.125rem;
+}
+
+.hhe-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 1rem 1.25rem;
+}
+
+/* The cards come from the student's form (hh-* styles); undo its full-page look inside the modal */
+.hhe-body.hh-page {
+    min-height: 0;
+    background: transparent;
+}
+
+.hhe-body .hh-conds {
+    grid-template-columns: 1fr;
+}
+
+.hhe-foot {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.75rem 1.25rem;
+    background: var(--bg-subtle);
+    border-top: 0.0625rem solid var(--card-border);
+}
+
+.hhe-btn {
+    min-height: 2.75rem;
+    padding: 0 1.25rem;
+    border-radius: 0.5rem;
+    border: 0.0625rem solid var(--sti-blue-dark);
+    background: var(--sti-blue-dark);
+    color: var(--text-on-brand);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.hhe-btn.ghost {
+    background: var(--bg-card);
+    color: var(--sti-blue-primary);
+    border-color: var(--sti-blue-primary);
+}
+
+.hhe-btn:disabled,
+.hhe-icon:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.hhe-modal :focus-visible {
+    outline: 0.1875rem solid var(--sti-blue-primary);
+    outline-offset: 0.125rem;
+}

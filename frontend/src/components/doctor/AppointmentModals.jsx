@@ -10,7 +10,9 @@ import { formatDate, formatDateTime, formatTime } from '../../utils/datetime';
 import { visitLabel, localDateStr, fullName } from '../../utils/visitPurpose';
 import { eligibleDoctors, visitRefusal, coveredTypes, upcomingDates, dayLabel, to12h, classLabel } from '../../utils/scheduling';
 import { useSpecializations } from '../../hooks/useSpecializations';
+import { VITAL_FIELDS, EMPTY_VITALS, vitalState } from '../../utils/vitals';
 import '../../styles/doctor/DoctorLayout.css';
+import '../../styles/scheduling/Vitals.css';
 
 const API = 'http://localhost:3001';
 
@@ -468,6 +470,7 @@ export const WalkInModal = ({ isOpen, doctors, fixedDoctorId, schedule, creator,
     const [student, setStudent] = useState(null);
     const [visitType, setVisitType] = useState('General Check Up');
     const [reason, setReason] = useState('');
+    const [vitals, setVitals] = useState(EMPTY_VITALS);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
 
@@ -477,6 +480,7 @@ export const WalkInModal = ({ isOpen, doctors, fixedDoctorId, schedule, creator,
         setStudent(null);
         setVisitType(sessionType || 'General Check Up');
         setReason('');
+        setVitals(EMPTY_VITALS);
         setError('');
         setBusy(false);
     }, [isOpen, fixedDoctorId, sessionType]);
@@ -494,15 +498,19 @@ export const WalkInModal = ({ isOpen, doctors, fixedDoctorId, schedule, creator,
         if (!doctorId) { setError('Choose the doctor.'); return; }
         if (!student) { setError('Choose the student.'); return; }
         if (refusal) { setError(refusal); return; }
+        const states = VITAL_FIELDS.map((f) => vitalState(f.key, vitals[f.key]));
+        if (states.includes('empty')) { setError('Record all four time in vital signs.'); return; }
+        if (states.includes('invalid')) { setError('Check the vital signs. A value is not valid.'); return; }
         setBusy(true);
         try {
             const data = await postJson('/api/doctor-visits/walk-in', 'POST', {
                 ...creatorBody(creator), sender_id: userId, doctor_id: doctorId, student_id: student.student_id,
-                visit_type: visitType, reason, schedule_id: schedule ? schedule.schedule_id : undefined
+                visit_type: visitType, reason, schedule_id: schedule ? schedule.schedule_id : undefined, ...vitals
             });
             if (data.success) {
                 showAlert(data.message, 'success');
-                onCreated?.(data);
+                if (data.abnormal && data.abnormal.length > 0) showAlert(`Not normal: ${data.abnormal.join('; ')}.`, 'warning');
+                onCreated?.({ ...data, student_name: `${student.first_name || ''} ${student.last_name || ''}`.trim() || student.student_id });
                 onClose();
             } else {
                 setError(data.message || 'Could not register the walk-in.');
@@ -541,6 +549,25 @@ export const WalkInModal = ({ isOpen, doctors, fixedDoctorId, schedule, creator,
                 <div className="dp-field">
                     <label>Reason for the visit</label>
                     <input className="dp-input" type="text" required maxLength={255} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Fever since this morning" />
+                </div>
+
+                <div className="dp-row vitals-grid-vt">
+                    {VITAL_FIELDS.map((f) => {
+                        const st = vitalState(f.key, vitals[f.key]);
+                        return (
+                            <div className="dp-field" key={f.key}>
+                                <label htmlFor={`walkin-vt-${f.key}`}>{f.label} ({f.unit}) *</label>
+                                <input
+                                    id={`walkin-vt-${f.key}`} className="dp-input" inputMode={f.key === 'blood_pressure' ? 'text' : 'decimal'} autoComplete="off" required
+                                    placeholder={f.placeholder} value={vitals[f.key]} onChange={(e) => setVitals((v) => ({ ...v, [f.key]: e.target.value }))}
+                                    aria-describedby={`walkin-vt-${f.key}-hint`} aria-invalid={st === 'invalid'}
+                                />
+                                <small id={`walkin-vt-${f.key}-hint`} className={`vt-state-vt ${st}`}>
+                                    {st === 'abnormal' ? 'Not normal' : st === 'invalid' ? 'Check value' : st === 'normal' ? 'Normal' : `Normal ${f.normal}`}
+                                </small>
+                            </div>
+                        );
+                    })}
                 </div>
 
                 <div className="dp-modal-foot">

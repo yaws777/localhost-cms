@@ -8,6 +8,7 @@ import stiLogo from '../../assets/sti-logof.png';
 import { formatDate } from '../../utils/datetime';
 import { useAlert } from '../../context/AlertContext';
 import HealthInfoView from '../../components/common/HealthInfoView';
+import HealthHistoryEditModal from '../../components/nurse/HealthHistoryEditModal';
 import '../../styles/nurse/HealthRecordProfile.css';
 import '../../styles/nurse/HealthRecordProfilePage.css';
 
@@ -84,6 +85,18 @@ const storedUserId = () => {
     } catch (e) { return null; }
 };
 
+// dates as yyyy-mm-dd, checkbox columns (1 / 0) as true / false
+const normalizeHealth = (raw) => {
+    const health = { ...(raw || {}) };
+    ['seizure_last_episode_date', 'surgery_date'].forEach((k) => {
+        if (health[k]) health[k] = String(health[k]).split('T')[0];
+    });
+    Object.keys(health).forEach((key) => {
+        if (FLAG_KEY.test(key) && (health[key] === 1 || health[key] === 0)) health[key] = health[key] === 1;
+    });
+    return health;
+};
+
 function Field({ label, value, full }) {
     const has = value !== null && value !== undefined && String(value).trim() !== '';
     return (
@@ -123,6 +136,8 @@ export default function HealthRecordsProfile() {
     const [nurseId, setNurseId] = useState(null);
     const [editReq, setEditReq] = useState(null);
     const [saving, setSaving] = useState(false);
+    const [editHistory, setEditHistory] = useState(false);
+    const [historySaving, setHistorySaving] = useState(false);
 
     useEffect(() => {
         if (viewerIsDoctor()) return undefined;
@@ -159,17 +174,9 @@ export default function HealthRecordsProfile() {
                 const personal = { ...(profileData.personalInfo || {}) };
                 if (personal.birth_date) personal.birth_date = String(personal.birth_date).split('T')[0];
 
-                const health = { ...(profileData.healthInfo || {}) };
-                ['seizure_last_episode_date', 'surgery_date'].forEach((k) => {
-                    if (health[k]) health[k] = String(health[k]).split('T')[0];
-                });
-                Object.keys(health).forEach((key) => {
-                    if (FLAG_KEY.test(key) && (health[key] === 1 || health[key] === 0)) health[key] = health[key] === 1;
-                });
-
                 setStudentHeader(headerData.student);
                 setPersonalInfo(personal);
-                setHealthInfo(health);
+                setHealthInfo(normalizeHealth(profileData.healthInfo));
                 setHealthProofs(profileData.healthProofs || {});
                 setRequirementsList(Array.isArray(reqData) ? reqData : []);
             } catch (err) {
@@ -190,6 +197,50 @@ export default function HealthRecordsProfile() {
             setRequirementsList(Array.isArray(data) ? data : []);
         } catch (err) {
             showAlert('Cannot refresh requirements.', 'error');
+        }
+    };
+
+    const handleOpenHistory = (e) => {
+        openerRef.current = e.currentTarget;
+        setEditHistory(true);
+    };
+
+    const closeHistory = () => {
+        setEditHistory(false);
+        if (openerRef.current) openerRef.current.focus();
+    };
+
+    // files = [[has_* flag, File], ...]; multipart like the student's form (student_id first: the upload name uses it)
+    const handleSaveHistory = async (info, files = []) => {
+        if (historySaving) return;
+        setHistorySaving(true);
+        const ok = await showConfirm('Save changes to the health history?', { title: 'Save changes', confirmLabel: 'Save' });
+        if (!ok) { setHistorySaving(false); return; }
+        try {
+            const formData = new FormData();
+            formData.append('student_id', studentId);
+            formData.append('healthInfo', JSON.stringify(info));
+            formData.append('nurse_edit', '1');
+            const senderId = storedUserId();
+            if (senderId) formData.append('sender_id', senderId);
+            files.forEach(([key, file]) => formData.append(`proof_${key}`, file));
+            const res = await fetch(`${API}/api/update-profile`, { method: 'PUT', body: formData });
+            const data = await res.json().catch(() => null);
+            if (!res.ok || !data?.success) {
+                showAlert(data?.message || 'Cannot save.', 'error');
+                return;
+            }
+            const fresh = await fetch(`${API}/api/profile/${encodeURIComponent(studentId)}`).then((r) => r.json());
+            if (fresh.success) {
+                setHealthInfo(normalizeHealth(fresh.healthInfo));
+                setHealthProofs(fresh.healthProofs || {});
+            }
+            closeHistory();
+            showAlert('Saved.', 'success');
+        } catch (err) {
+            showAlert('Cannot save.', 'error');
+        } finally {
+            setHistorySaving(false);
         }
     };
 
@@ -486,7 +537,7 @@ export default function HealthRecordsProfile() {
                 {/* HEALTH: body, history, latest check-up per service, latest screening per type */}
                 <section id="hrp-panel-health" role="tabpanel" aria-labelledby="hrp-tab-health" className="hrp-panel" hidden={activeTab !== 'health'}>
                     <div className="hrp-card">
-                        <HealthInfoView studentId={studentId} healthInfo={healthInfo} healthProofs={healthProofs} showCheckups />
+                        <HealthInfoView studentId={studentId} healthInfo={healthInfo} healthProofs={healthProofs} showCheckups onEditHistory={nurseId ? handleOpenHistory : undefined} />
                     </div>
                 </section>
 
@@ -689,6 +740,13 @@ export default function HealthRecordsProfile() {
                             </div>
                         </form>
                     </div>
+                </div>
+            )}
+
+            {/* NURSE: EDIT HEALTH HISTORY */}
+            {editHistory && (
+                <div className="hrp-no-print">
+                    <HealthHistoryEditModal initial={healthInfo} savedProofs={healthProofs} saving={historySaving} onSave={handleSaveHistory} onClose={closeHistory} />
                 </div>
             )}
 
