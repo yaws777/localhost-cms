@@ -21,7 +21,7 @@ export const queueStatusOf = (a) => {
     return { tone: 'ok', Icon: CheckCircle, label: 'Ready', hint: `Vital signs done. ${ahead} ahead of you.` };
 };
 
-const STEPS = ['Time in', 'Called', 'Seen'];
+const STEPS = ['Time in', 'Called', 'Completed'];
 const trackerOf = (a) => {
     if (a.state === 'Void') return null;
     const seen = a.state === 'Done' || !!a.documented;

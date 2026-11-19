@@ -1,0 +1,10 @@
+/* AssessmentForm: read-only copy of the doctor's check-up form. Colors come from the STI tokens in theme.css. */
+.af-form { font-family: var(--font-sans); }
+.af-bar { display: flex; align-items: flex-start; gap: 0.75rem; }
+.af-head { flex: 1; min-width: 0; }
+.af-pdf { flex: none; margin-left: auto; min-width: 2.75rem; min-height: 2.75rem; }
+.af-pdf:focus-visible { outline: 0.1875rem solid var(--sti-blue-primary); outline-offset: 0.125rem; }
+.af-form .dp-input[readonly], .af-form .dp-textarea[readonly] { background: var(--bg-page); color: var(--text-primary); cursor: default; }
+.af-form .dp-textarea[readonly] { resize: none; }
+.af-rx { padding: 0.75rem; box-shadow: none; display: flex; flex-direction: column; gap: 0.625rem; }
+.af-foot { margin: 0; }

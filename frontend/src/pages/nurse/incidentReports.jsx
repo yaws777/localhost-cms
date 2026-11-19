@@ -27,6 +27,9 @@ import stiLogo from '../../assets/sti-logof.png';
 import '../../styles/nurse/IncidentReports.css';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatDateTime, formatTime } from '../../utils/datetime';
+import FormDocument from '../../components/common/FormDocument';
+import { buildIncidentModel } from '../../utils/formModels';
+import { printFormDocument } from '../../utils/formDocument';
 
 // "BSIT - 4B"
 const classLabel = (r) => `${r.program_id || r.program_name || 'N/A'} - ${r.year_level || ''}${r.section || ''}`.trim();
@@ -371,176 +374,10 @@ const IncidentReport = () => {
         printWindow.document.close();
     };
 
-    // EXPORT REPORT FOR SPECIFIC INCIDENT REPORT
+    // EXPORT THE FILLED-IN INCIDENT REPORT FORM AS PDF (same layout as the form shown in the details panel)
     const handleExportSingleReport = () => {
         if (!selectedReport) return;
-
-        const printWindow = window.open('', '_blank', 'width=950,height=750');
-        if (!printWindow) {
-            showAlert('Please allow popups to preview and print the report.', 'warning');
-            return;
-        }
-
-        const reportDate = formatDate(new Date());
-
-        const studentName = `${selectedReport.student_first_name || ''} ${selectedReport.student_last_name || ''}`.trim();
-        const progYrSec = classLabel(selectedReport);
-        const incidentDate = selectedReport.incident_datetime ? formatDateTime(new Date(selectedReport.incident_datetime)) : 'N/A';
-
-        const htmlContent = `
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>Individual Incident Report - ${selectedReport.student_id || 'Student'}</title>
-                <style>
-                    body {
-                        font-family: Arial, Helvetica, sans-serif;
-                        margin: 25px;
-                        color: #0f172a;
-                    }
-                    .report-header {
-                        display: flex;
-                        align-items: center;
-                        border-bottom: 2px solid #0056b3;
-                        padding-bottom: 12px;
-                        margin-bottom: 16px;
-                    }
-                    .report-header img {
-                        height: 60px;
-                        margin-right: 20px;
-                    }
-                    .report-title h2 {
-                        margin: 0;
-                        font-size: 20px;
-                        color: #1e3a8a;
-                    }
-                    .report-title p {
-                        margin: 4px 0 0;
-                        font-size: 13px;
-                        color: #475569;
-                    }
-                    .meta-info {
-                        display: flex;
-                        justify-content: space-between;
-                        font-size: 13px;
-                        color: #475569;
-                        margin-bottom: 16px;
-                        font-weight: 500;
-                    }
-                    .details-card {
-                        background-color: #f8fafc;
-                        border: 1px solid #cbd5e1;
-                        padding: 12px 16px;
-                        border-radius: 6px;
-                        margin-bottom: 20px;
-                        display: grid;
-                        grid-template-columns: 1fr 1fr;
-                        gap: 10px;
-                        font-size: 13px;
-                    }
-                    table {
-                        width: 100%;
-                        border-collapse: collapse;
-                        font-size: 12px;
-                        margin-bottom: 35px;
-                    }
-                    th {
-                        background-color: #f1f5f9;
-                        color: #0f172a;
-                        text-align: left;
-                        padding: 9px 10px;
-                        border: 1px solid #cbd5e1;
-                        font-weight: bold;
-                    }
-                    td {
-                        padding: 8px 10px;
-                        border: 1px solid #e2e8f0;
-                    }
-                    tr:nth-child(even) {
-                        background-color: #f8fafc;
-                    }
-                    .signature-section {
-                        margin-top: 40px;
-                        font-size: 13px;
-                    }
-                    .signature-title {
-                        color: #475569;
-                        margin-bottom: 35px;
-                    }
-                    .signature-name {
-                        font-weight: bold;
-                        font-size: 14px;
-                        color: #0f172a;
-                    }
-                    .signature-role {
-                        font-style: italic;
-                        color: #64748b;
-                    }
-                    @media print {
-                        body { margin: 0; }
-                    }
-                </style>
-            </head>
-            <body>
-                <div class="report-header">
-                    <img src="${stiLogo}" alt="STI Logo" />
-                    <div class="report-title">
-                        <h2>STI COLLEGE BALIUAG</h2>
-                        <p>Address: Gil Carlos Street, Poblacion, Baliuag, 3006 Bulacan</p>
-                    </div>
-                </div>
-
-                <div class="meta-info">
-                    <span><strong>INDIVIDUAL INCIDENT REPORT</strong></span>
-                    <span>Date Generated: ${reportDate}</span>
-                </div>
-
-                <div class="details-card">
-                    <div><strong>Student Name:</strong> ${studentName}</div>
-                    <div><strong>Student ID:</strong> ${selectedReport.student_id || 'N/A'}</div>
-                    <div><strong>Program / Year / Section:</strong> ${progYrSec}</div>
-                    <div><strong>Incident Date & Time:</strong> ${incidentDate}</div>
-                </div>
-
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Location</th>
-                            <th>Incident Description</th>
-                            <th>First Aid Administered</th>
-                            <th>Medicine Dispensed</th>
-                            <th>Current Situation / Disposition</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td>${selectedReport.incident_location || 'N/A'}</td>
-                            <td>${selectedReport.incident_description || 'N/A'}</td>
-                            <td>${selectedReport.first_aid_administered || 'N/A'}</td>
-                            <td>${selectedReport.medicine_name ? `${selectedReport.medicine_name} - ${Math.round(selectedReport.dosage_consumption_unit_value)} ${selectedReport.dosage_consumption_unit_of_measure}` : 'None'}</td>
-                            <td>${selectedReport.current_physical_situation || 'N/A'}</td>
-                        </tr>
-                    </tbody>
-                </table>
-
-                <div class="signature-section">
-                    <div class="signature-title">Prepared by:</div>
-                    <div class="signature-name">Marilou H. Balarao</div>
-                    <div class="signature-role">School Nurse</div>
-                </div>
-
-                <script>
-                    window.onload = function() {
-                        window.print();
-                    };
-                </script>
-            </body>
-            </html>
-        `;
-
-        printWindow.document.open();
-        printWindow.document.write(htmlContent);
-        printWindow.document.close();
+        printFormDocument(buildIncidentModel(selectedReport), () => showAlert('Please allow popups to preview and print the report.', 'warning'));
     };
 
     const handleSelectStudent = useCallback((student) => {
@@ -982,47 +819,7 @@ const IncidentReport = () => {
                                 </div>
                             </div>
                             <div className="inc-panel-body">
-                                <div className="inc-panel-student">
-                                    <span className="inc-avatar" aria-hidden="true">{initialsOf(selectedReport)}</span>
-                                    <div>
-                                        <strong>{selectedReport.student_first_name} {selectedReport.student_last_name}</strong>
-                                        <span className="inc-cell-sub">
-                                            {selectedReport.student_id} · {classLabel(selectedReport)}
-                                        </span>
-                                    </div>
-                                </div>
-
-                                <div className="inc-panel-meta">
-                                    <div>
-                                        <div className="inc-field-label"><Calendar size={14} aria-hidden="true" /> Date &amp; time</div>
-                                        <div className="inc-field-value">{formatDateTime(new Date(selectedReport.incident_datetime))}</div>
-                                    </div>
-                                    <div>
-                                        <div className="inc-field-label"><MapPin size={14} aria-hidden="true" /> Location</div>
-                                        <div className="inc-field-value">{selectedReport.incident_location}</div>
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <div className="inc-field-label">Description</div>
-                                    <div className="inc-field-text">{selectedReport.incident_description || 'None recorded.'}</div>
-                                </div>
-                                <div>
-                                    <div className="inc-field-label">First aid</div>
-                                    <div className="inc-field-text">{selectedReport.first_aid_administered || 'None recorded.'}</div>
-                                </div>
-                                <div>
-                                    <div className="inc-field-label">Disposition</div>
-                                    <div className="inc-field-text">{selectedReport.current_physical_situation || 'None recorded.'}</div>
-                                </div>
-                                <div>
-                                    <div className="inc-field-label">Medicine</div>
-                                    <span className={`inc-chip${selectedReport.medicine_name ? ' ok' : ''}`}>{medicineText(selectedReport) || 'None'}</span>
-                                </div>
-
-                                <div className="inc-panel-foot">
-                                    Recorded by {selectedReport.nurse_first_name ? `Nurse ${selectedReport.nurse_first_name} ${selectedReport.nurse_last_name}` : 'N/A'}
-                                </div>
+                                <FormDocument model={buildIncidentModel(selectedReport)} showPdf={false} compact />
                             </div>
                         </div>
                     )}

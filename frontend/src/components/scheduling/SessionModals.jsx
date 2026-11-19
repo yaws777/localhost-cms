@@ -75,7 +75,6 @@ export const AppointModal = ({ isOpen, schedule, request, fixedDate, creator, us
     const pickDate = (d) => { setDate(d); loadQueue(d); };
 
     const listed = queue ? queue.entries.filter((e) => e.lane === 'Listed' && e.state !== 'Void') : [];
-    const nextNo = queue ? Math.max(0, ...queue.entries.filter((e) => e.lane === 'Listed').map((e) => e.queue_no)) + 1 : null;
     const full = !!queue && listed.length >= queue.capacity;
 
     const submit = async (e) => {
@@ -109,15 +108,10 @@ export const AppointModal = ({ isOpen, schedule, request, fixedDate, creator, us
     };
 
     if (!schedule) return null;
-    const docName = schedule.doctor_name || `Dr. ${schedule.doc_first_name || ''} ${schedule.doc_last_name || ''}`.trim();
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="Appoint a student" icon={<CalendarPlus size={20} />} size="md">
             <form className="dp-form" onSubmit={submit}>
-                <div className="dp-notice">
-                    {docName} - {to12h(schedule.start_time)} to {to12h(schedule.end_time)}{schedule.location ? ` - ${schedule.location}` : ''}.
-                    {schedule.covered_visit_types && <> Covers: <strong>{schedule.covered_visit_types.join(', ')}</strong>.</>}
-                </div>
                 {error && <div className="dp-error">{error}</div>}
 
                 {request ? (
@@ -149,13 +143,7 @@ export const AppointModal = ({ isOpen, schedule, request, fixedDate, creator, us
                     </select>
                 </div>
 
-                {queue && (
-                    <div className={full ? 'dp-error' : 'dp-notice'}>
-                        {full
-                            ? `This session day is full (${queue.capacity} students).`
-                            : <>The student will get queue number <strong>#{nextNo}</strong>. {listed.length} of {queue.capacity} places are taken.</>}
-                    </div>
-                )}
+                {full && <div className="dp-error">{`This session day is full (${queue.capacity} students).`}</div>}
 
                 <div className="dp-field">
                     <label>Note for the student (optional)</label>

@@ -6,6 +6,10 @@ import { escapeHtml } from './printReport';
 import { visitLabel } from './visitPurpose';
 import { vitalsLine, inVitalsOf, outVitalsOf } from './vitals';
 import { dispensedLine } from './dispensed';
+import { NURSE_NAME } from './assessmentModel';
+
+// the school nurse who signs the papers (a generic role name falls back to her name)
+const nurseOf = (name) => (name && name !== 'School Nurse' ? name : NURSE_NAME);
 
 export const printDocument = (title, bodyHtml, onBlocked) => {
     const w = window.open('', '_blank', 'width=900,height=800');
@@ -109,7 +113,7 @@ export const visitDocumentHtml = (kind, a, issuedBy) => {
                 ${a.follow_up_needed ? '<tr><th>Remarks</th><td>Follow-up visit is needed.</td></tr>' : ''}
             </table>
             <p>This certificate is issued upon the request of the student for whatever legal purpose it may serve.</p>
-            <div class="sign"><div>${escapeHtml(doctor)}<br/>Attending Doctor</div><div>${escapeHtml(issuedBy || 'School Nurse')}<br/>School Nurse</div></div>`;
+            <div class="sign"><div>${escapeHtml(doctor)}<br/>Attending Doctor</div><div>${escapeHtml(nurseOf(issuedBy))}<br/>School Nurse</div></div>`;
     }
 
     if (kind === 'referral') {
@@ -123,7 +127,7 @@ export const visitDocumentHtml = (kind, a, issuedBy) => {
                 <tr><th>Findings</th><td>${escapeHtml(a.clinical_findings || '-')}</td></tr>
             </table>
             <p>Kindly evaluate and manage the patient. Thank you.</p>
-            <div class="sign"><div>${escapeHtml(doctor)}<br/>Referring Doctor</div><div>${escapeHtml(issuedBy || 'School Nurse')}<br/>School Nurse</div></div>`;
+            <div class="sign"><div>${escapeHtml(doctor)}<br/>Referring Doctor</div><div>${escapeHtml(nurseOf(issuedBy))}<br/>School Nurse</div></div>`;
     }
 
     if (kind === 'prescription') {
@@ -142,5 +146,5 @@ export const visitDocumentHtml = (kind, a, issuedBy) => {
     return `<h2>DOCTOR VISIT SUMMARY</h2>
         <p>Patient: ${studentLine}</p>
         ${rowsHtml(visitDetailRows(a))}
-        <div class="sign"><div>${escapeHtml(doctor)}<br/>Attending Doctor</div><div>${escapeHtml(issuedBy || 'School Nurse')}<br/>School Nurse</div></div>`;
+        <div class="sign"><div>${escapeHtml(doctor)}<br/>Attending Doctor</div><div>${escapeHtml(nurseOf(issuedBy))}<br/>School Nurse</div></div>`;
 };

@@ -60,7 +60,7 @@ const COLORS = [
   '#64748B', // slate
   '#84CC16', // lime
   '#C026D3', // fuchsia
-  '#111827', // near black
+  '#14B8A6', // teal
   '#A16207'  // olive gold
 ];
 
@@ -1393,7 +1393,7 @@ const NurseDashboard = () => {
     setIsDetailLoading(true);
 
     try {
-      const targetMonth = alertData.date ? alertData.date.slice(0, 7) : new Date().toISOString().slice(0, 7);
+      const targetMonth = alertData.date ? alertData.date.slice(0, 7) : new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Manila' }).slice(0, 7);
       const response = await fetch(
         `http://localhost:3001/api/frequent-complaints/details?studentId=${alertData.studentId}&complaint=${encodeURIComponent(alertData.complaint)}&month=${targetMonth}`
       );

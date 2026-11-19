@@ -1385,6 +1385,7 @@
 .hist-main-hs { min-width: 0; }
 .hist-top-hs { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.25rem 0.75rem; }
 .hist-title-hs { min-width: 0; }
+.hist-actions-hs { display: flex; align-items: center; gap: 0.5rem; }
 .hist-title-hs h4 { margin: 0; font-size: 1.0625rem; font-weight: 600; line-height: 1.35; }
 .hist-title-hs .type { font-size: 0.9375rem; color: var(--text-secondary); }
 

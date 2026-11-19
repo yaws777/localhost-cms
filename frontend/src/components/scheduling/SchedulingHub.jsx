@@ -1,20 +1,19 @@
 // SchedulingHub.jsx
 // The one check-up scheduling screen. The nurse (every doctor) and the doctor (their own schedule) get the same
 // tabs and the same data, so whatever one of them posts, appoints or approves is what the other sees:
-//   Calendar | Schedules | Listings | Repeats | Assistant | Chat (nurse <-> doctor)
+//   Calendar | Schedules | Listings | Repeats | Chat (nurse <-> doctor)
 // The nurse asks a doctor for a schedule; the doctor sets it with a listing limit; the nurse opens its listing; students ask for a place and the
 // nurse accepts (the student gets the next queue number of the session) or declines. The tab key stays `waiting`.
 // Walk-ins are registered from a session that is running right now (the session card in the calendar), not from here.
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { CalendarDays, ListChecks, Users, Lightbulb, CalendarClock, MessagesSquare } from 'lucide-react';
+import { CalendarDays, ListChecks, Users, CalendarClock, MessagesSquare } from 'lucide-react';
 import { DoctorAvailability } from '../nurse/DoctorAvailability';
 import ScheduleCalendar from './ScheduleCalendar';
 import WaitingList from './WaitingList';
 import AdvanceListing from './AdvanceListing';
 import FollowUps from './FollowUps';
 import StaffChat from './StaffChat';
-import SchedulingAssistant from './SchedulingAssistant';
 import { API } from '../../utils/scheduling';
 import '../../styles/scheduling/Scheduling.css';
 
@@ -23,7 +22,6 @@ const TABS = [
     ['schedules', 'Schedules', ListChecks],
     ['waiting', 'Listings', Users],
     ['followups', 'Follow-ups', CalendarClock],
-    ['assistant', 'Assistant', Lightbulb],
     ['chat', 'Chat', MessagesSquare]
 ];
 
@@ -92,7 +90,6 @@ const SchedulingHub = ({ role, doctors, fixedDoctorId, nurseId, userId, initialT
     const goTab = useCallback((next) => setTab(next), []);
     // from a session card / schedule row: opens the listing requests of that session
     const appointFromWaiting = useCallback((scheduleId, date) => { setFocusSchedule({ schedule_id: scheduleId, date }); setListingMode('sessions'); goTab('waiting'); }, [goTab]);
-    const useSuggestion = useCallback((suggestion) => { setPrefill(suggestion); goTab('schedules'); }, [goTab]);
     const prefillUsed = useCallback(() => setPrefill(null), []);
     const focusUsed = useCallback(() => setFocusSchedule(null), []);
 
@@ -112,7 +109,7 @@ const SchedulingHub = ({ role, doctors, fixedDoctorId, nurseId, userId, initialT
             {tab === 'calendar' && (
                 <ScheduleCalendar
                     doctors={doctorList} fixedDoctorId={fixedDoctorId} creator={creator} userId={userId} refreshKey={refreshKey}
-                    onChanged={changed} onAppointFromWaiting={appointFromWaiting}
+                    onChanged={changed} onAppointFromWaiting={appointFromWaiting} hidePast
                 />
             )}
 
@@ -150,10 +147,6 @@ const SchedulingHub = ({ role, doctors, fixedDoctorId, nurseId, userId, initialT
 
             {tab === 'followups' && (
                 <FollowUps doctors={doctorList} fixedDoctorId={fixedDoctorId} creator={creator} userId={userId} refreshKey={refreshKey} onChanged={changed} />
-            )}
-
-            {tab === 'assistant' && (
-                <SchedulingAssistant fixedDoctorId={fixedDoctorId} refreshKey={refreshKey} onUseSuggestion={role === 'doctor' ? undefined : useSuggestion} onGoTab={goTab} role={role} />
             )}
 
             {tab === 'chat' && <StaffChat userId={userId} onUnreadChange={setChatUnread} />}

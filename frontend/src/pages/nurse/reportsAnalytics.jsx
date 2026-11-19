@@ -382,8 +382,7 @@ const ReportsAnalytics = () => {
           statusSection('Excuse slips', services.excuseSlips, 'No excuse slip requests in this period.'),
           statusSection('Referral slips', services.referralSlips, 'No referral slip requests in this period.'),
           statusSection('Doctor appointments by status', services.appointments, 'No doctor appointments in this period.'),
-          { ...statusSection('Doctor appointments by type', services.appointmentTypes, 'No doctor appointments in this period.'), columns: ['Type', 'Count'] },
-          statusSection('Medical requirement submissions (all students, not tied to the period)', services.requirements, 'No requirement submissions yet.')
+          { ...statusSection('Doctor appointments by type', services.appointmentTypes, 'No doctor appointments in this period.'), columns: ['Type', 'Count'] }
         ]
       },
       inventory: {
@@ -391,8 +390,8 @@ const ReportsAnalytics = () => {
         sections: [
           {
             heading: 'Medicines needing attention',
-            columns: ['Medicine', 'Status', 'Current stock', 'Expiring soon', 'Expired', 'Nearest expiry', '30-day forecast', 'Predicted Need'],
-            rows: inventory.attention.map((m) => [m.name, m.status, `${m.stock} ${m.unit}`, m.expiringStock, m.expiredStock, m.nearestExpiry ? formatDate(m.nearestExpiry) : '—', m.forecast30d, m.suggestedRestock]),
+            columns: ['Medicine', 'Status', 'Current stock', 'Expiring soon', 'Expired', 'Nearest expiry'],
+            rows: inventory.attention.map((m) => [m.name, m.status, `${m.stock} ${m.unit}`, m.expiringStock, m.expiredStock, m.nearestExpiry ? formatDate(m.nearestExpiry) : '—']),
             emptyText: 'Every medicine is adequately stocked and in date.'
           }
         ]
@@ -403,7 +402,8 @@ const ReportsAnalytics = () => {
     writeSectionedReport(win, {
       title: tab === 'inventory' ? `${tabLabel} Report` : `${unitInfo.label} ${tabLabel} Report`,
       details,
-      sections
+      sections,
+      editable: tab === 'inventory'
     });
   };
 
@@ -617,9 +617,6 @@ const ReportsAnalytics = () => {
         <ServiceGroup title="Doctor appointments by status" items={services.appointments} emptyText={`No doctor appointments this ${unit}`} color={COLORS.dispensed} />
         <ServiceGroup title="Doctor appointments by type" items={services.appointmentTypes} emptyText={`No doctor appointments this ${unit}`} color={COLORS.visits} />
       </div>
-      <Panel title="Medical requirement submissions" note="All students, current standing (not tied to the period)">
-        <BarList items={services.requirements.map((r) => ({ label: r.label, value: r.count }))} color={COLORS.direct} emptyText="No requirement submissions yet" />
-      </Panel>
     </>
   );
 
@@ -638,7 +635,7 @@ const ReportsAnalytics = () => {
 
       <Panel title="Medicines needing attention" note="Out of stock, low, expiring or expired">
         <Table
-          columns={['Medicine', 'Status', 'Current stock', 'Expiring soon', 'Expired', 'Nearest expiry', '30-day forecast', 'Predicted Need']}
+          columns={['Medicine', 'Status', 'Current stock', 'Expiring soon', 'Expired', 'Nearest expiry']}
           isEmpty={inventory.attention.length === 0}
           empty="Every medicine is adequately stocked and in date."
         >
@@ -650,8 +647,6 @@ const ReportsAnalytics = () => {
               <td>{m.expiringStock || '—'}</td>
               <td>{m.expiredStock || '—'}</td>
               <td className="nowrap">{m.nearestExpiry ? formatDate(m.nearestExpiry) : '—'}</td>
-              <td>{m.forecast30d}</td>
-              <td><strong>{m.suggestedRestock}</strong></td>
             </tr>
           ))}
         </Table>

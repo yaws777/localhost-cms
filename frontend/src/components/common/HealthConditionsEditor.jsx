@@ -161,7 +161,13 @@ export function useHealthConditions(initial, { openTicked = false } = {}) {
     // The title / arrow only expands or collapses, never checks
     const toggleCard = useCallback((key) => setOpenCards((prev) => ({ ...prev, [key]: !prev[key] })), []);
 
-    const setProof = useCallback((key, file) => setProofFiles((prev) => ({ ...prev, [key]: file })), []);
+    // Conditions flagged for a missing proof (only when the caller runs validateProofs)
+    const [proofInvalid, setProofInvalid] = useState({});
+
+    const setProof = useCallback((key, file) => {
+        setProofFiles((prev) => ({ ...prev, [key]: file }));
+        if (file) setProofInvalid((prev) => { if (!prev[key]) return prev; const next = { ...prev }; delete next[key]; return next; });
+    }, []);
 
     // Flags the empty conditions and opens them. Returns the problems found.
     const validate = useCallback(() => {
@@ -182,14 +188,24 @@ export function useHealthConditions(initial, { openTicked = false } = {}) {
     // Files that go with the request: only for conditions still ticked
     const filesToSend = () => Object.entries(proofFiles).filter(([key, file]) => file && info[key]);
 
-    return { info, openCards, invalid, proofFiles, setField, toggleCondition, toggleCard, setProof, validate, filesToSend };
+    // Required-proof check: each ticked condition needs a picked file or one already saved.
+    const validateProofs = (savedProofs) => {
+        const missing = CONDITIONS.filter((c) => info[c.key] && !proofFiles[c.key] && !(savedProofs && savedProofs[c.key]));
+        const flags = {};
+        missing.forEach((c) => { flags[c.key] = true; });
+        setProofInvalid(flags);
+        if (missing.length) setOpenCards((prev) => { const next = { ...prev }; missing.forEach((c) => { next[c.key] = true; }); return next; });
+        return { keys: missing.map((c) => c.key), labels: missing.map((c) => c.label) };
+    };
+
+    return { info, openCards, invalid, proofInvalid, proofFiles, setField, toggleCondition, toggleCard, setProof, validate, validateProofs, filesToSend };
 }
 
 // ---------------------------------------------------------------------------
 // Optional proof file input with a live preview (image thumbnail, or file name for PDFs)
 // `saved` = the proof already stored for this condition (shown until a new file is picked)
 // ---------------------------------------------------------------------------
-export function ProofUpload({ id, file, onChange, saved }) {
+export function ProofUpload({ id, file, onChange, saved, required = false, invalid = false }) {
     const [previewUrl, setPreviewUrl] = useState(null);
     // Bumped on Remove so the native file input is remounted and clears its filename
     const [inputKey, setInputKey] = useState(0);
@@ -206,7 +222,9 @@ export function ProofUpload({ id, file, onChange, saved }) {
 
     return (
         <div className="hh-proof hh-span-all">
-            <label className="hh-lbl" htmlFor={id}>{saved ? 'Replace Proof (Optional):' : 'Upload Proof (Optional):'}</label>
+            <label className="hh-lbl" htmlFor={id}>
+                {saved ? 'Replace Proof' : 'Upload Proof'} {required ? (saved ? '(Required):' : '(Required *):') : '(Optional):'}
+            </label>
             {saved && !file && (
                 <p className="hh-proof-row">
                     <span className="hh-proof-name">
@@ -221,6 +239,8 @@ export function ProofUpload({ id, file, onChange, saved }) {
                 className="hh-file"
                 type="file"
                 accept="image/*,application/pdf"
+                aria-required={required && !saved ? 'true' : undefined}
+                aria-invalid={invalid ? 'true' : undefined}
                 onChange={(e) => onChange(e.target.files[0] || null)}
             />
             {file && (
@@ -249,8 +269,8 @@ export function ProofUpload({ id, file, onChange, saved }) {
 // The cards. `editor` = useHealthConditions(); `savedProofs` = { has_x: { file_url, original_name } }
 // `idPrefix` keeps ids unique when two editors could exist on a page.
 // ---------------------------------------------------------------------------
-export default function HealthConditionsEditor({ editor, savedProofs, idPrefix = '' }) {
-    const { info, openCards, invalid, proofFiles, setField, toggleCondition, toggleCard, setProof } = editor;
+export default function HealthConditionsEditor({ editor, savedProofs, idPrefix = '', requireProof = false }) {
+    const { info, openCards, invalid, proofInvalid, proofFiles, setField, toggleCondition, toggleCard, setProof } = editor;
     const pid = (name) => `${idPrefix}${name}`;
 
     const renderField = (f) => {
@@ -335,6 +355,8 @@ export default function HealthConditionsEditor({ editor, savedProofs, idPrefix =
                                         file={proofFiles[c.key]}
                                         onChange={(file) => setProof(c.key, file)}
                                         saved={savedProofs ? savedProofs[c.key] : undefined}
+                                        required={requireProof}
+                                        invalid={!!proofInvalid[c.key]}
                                     />
                                     {c.fields.map(renderField)}
                                 </fieldset>

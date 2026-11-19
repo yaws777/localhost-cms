@@ -30,6 +30,8 @@ import {
 import jsQR from 'jsqr';
 import stiLogo from '../../assets/sti-logof.png';
 import { formatDate, formatDateTime } from '../../utils/datetime';
+import FormDocument from '../../components/common/FormDocument';
+import { buildDispensedModel } from '../../utils/formModels';
 import '../../styles/nurse/DispensedMedicine.css';
 
 // Measured units allow continuous decimal values (liquids, weights, volumes)
@@ -1908,45 +1910,8 @@ const DispensedMedicine = () => {
                 <X size={20} aria-hidden="true" />
               </button>
             </div>
-            <div className="modal-body-dm detail-grid-dm">
-              <div className="detail-item-dm">
-                <span className="detail-label-dm">Transaction ID</span>
-                <span className="detail-value-dm">#{selectedLogDetail.id}</span>
-              </div>
-              <div className="detail-item-dm">
-                <span className="detail-label-dm">Date & Time</span>
-                <span className="detail-value-dm">{formatDateTime(new Date(selectedLogDetail.dispensed_at))}</span>
-              </div>
-              <div className="detail-item-dm">
-                <span className="detail-label-dm">Student Name</span>
-                <span className="detail-value-dm">{selectedLogDetail.first_name} {selectedLogDetail.last_name}</span>
-              </div>
-              <div className="detail-item-dm">
-                <span className="detail-label-dm">Student ID</span>
-                <span className="detail-value-dm"><code className="sid-code-dm">{selectedLogDetail.student_id}</code></span>
-              </div>
-              <div className="detail-item-dm">
-                <span className="detail-label-dm">Medicine Name</span>
-                <span className="detail-value-dm">{selectedLogDetail.medicine_name}</span>
-              </div>
-              <div className="detail-item-dm">
-                <span className="detail-label-dm">Medical Condition</span>
-                <span className="detail-value-dm">{conditionText(selectedLogDetail)}</span>
-              </div>
-              <div className="detail-item-dm">
-                <span className="detail-label-dm">Dispensed Amount</span>
-                <span className="detail-value-dm">{formatUnitValue(selectedLogDetail.dosage_consumption_unit_value, selectedLogDetail.dosage_consumption_unit_of_measure)} {selectedLogDetail.dosage_consumption_unit_of_measure}</span>
-              </div>
-              <div className="detail-item-dm">
-                <span className="detail-label-dm">Dispensation Type</span>
-                <span className="detail-value-dm">{selectedLogDetail.dispensation_type}</span>
-              </div>
-              {selectedLogDetail.nurse_name && (
-                <div className="detail-item-dm">
-                  <span className="detail-label-dm">Dispensed By</span>
-                  <span className="detail-value-dm">{selectedLogDetail.nurse_name}</span>
-                </div>
-              )}
+            <div className="modal-body-dm">
+              <FormDocument model={buildDispensedModel(selectedLogDetail)} />
             </div>
             <div className="modal-footer-dm">
               <button

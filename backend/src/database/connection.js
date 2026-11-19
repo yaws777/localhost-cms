@@ -10,12 +10,13 @@ const fs = require('fs');
 const app = express();
 const twilio = require('twilio');
 const crypto = require('crypto');
-const { todayManilaStr, currentMonthManilaStr, formatDateManila, formatTimeManila, formatDateTimeManila } = require('../utils/time');
+const { nowManila, todayManilaStr, currentMonthManilaStr, formatDateManila, formatTimeManila, formatDateTimeManila } = require('../utils/time');
 const { forecastMedicineDemand, roundUpTotal } = require('../utils/medicineForecast');
 
-const uploadDir = 'uploads/';
+// absolute, so uploads land (and are served from) backend/uploads whatever folder the server is started from
+const uploadDir = path.join(__dirname, '..', '..', 'uploads');
 if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir);
+    fs.mkdirSync(uploadDir, { recursive: true });
 }
 
 // Passwords are stored as bcrypt hashes; chat message content is stored AES-256-GCM encrypted.
@@ -28,25 +29,93 @@ const twilioClient = twilio(
 );
 
 // 2. Serve the uploads folder statically so the React frontend can actually view/download the files
-app.use('/uploads', express.static('uploads'));
+app.use('/uploads', express.static(uploadDir, {
+    setHeaders: (res) => res.setHeader('X-Content-Type-Options', 'nosniff')
+}));
 app.use(cors());
 
 
 
 // 3. Configure Multer Storage Engine
+// Extensions a user may upload (images, documents, chat audio/video). Anything else is refused.
+const UPLOAD_EXTENSIONS = new Set([
+    '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.heic',
+    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.txt', '.csv',
+    '.mp4', '.webm', '.mov', '.3gp', '.mp3', '.wav', '.ogg', '.m4a', '.aac', '.weba'
+]);
+const MIME_EXTENSIONS = {
+    'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp', 'image/bmp': '.bmp', 'image/heic': '.heic',
+    'application/pdf': '.pdf', 'text/plain': '.txt', 'text/csv': '.csv',
+    'video/mp4': '.mp4', 'video/webm': '.webm', 'video/quicktime': '.mov', 'video/3gpp': '.3gp',
+    'audio/mpeg': '.mp3', 'audio/wav': '.wav', 'audio/ogg': '.ogg', 'audio/mp4': '.m4a', 'audio/aac': '.aac', 'audio/webm': '.weba'
+};
+// extension of the uploaded file: the one in its name, or (camera / recorder blobs have none) the one of its mime type
+const uploadExtensionOf = (file) => {
+    const fromName = path.extname(String(file.originalname || '')).toLowerCase();
+    if (fromName) return fromName;
+    return MIME_EXTENSIONS[String(file.mimetype || '').split(';')[0].trim().toLowerCase()] || '';
+};
+// the name prefix comes from the request (student id, request id): keep letters, digits, - and _ only, so it cannot leave uploads/
+const safeUploadPrefix = (value) => {
+    const clean = String(value ?? '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40);
+    return clean && clean !== 'undefined' && clean !== 'null' ? clean : 'doc';
+};
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         cb(null, uploadDir);
     },
     filename: (req, file, cb) => {
         // Appends a unique suffix timestamp to prevent file collision issues
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        const prefix = req.params?.id || req.body?.request_id || req.body?.student_id || 'doc';
-        cb(null, prefix + '-' + uniqueSuffix + path.extname(file.originalname));
+        const uniqueSuffix = Date.now() + '-' + crypto.randomBytes(5).toString('hex');
+        const prefix = safeUploadPrefix(req.params?.id || req.body?.request_id || req.body?.student_id);
+        cb(null, prefix + '-' + uniqueSuffix + uploadExtensionOf(file));
     }
 });
 
-const upload = multer({ storage: storage });
+const upload = multer({
+    storage: storage,
+    limits: { fileSize: MAX_UPLOAD_BYTES, files: 20 },
+    fileFilter: (req, file, cb) => {
+        if (!UPLOAD_EXTENSIONS.has(uploadExtensionOf(file))) {
+            const err = new Error('This file type is not allowed.');
+            err.code = 'UPLOAD_TYPE_REFUSED';
+            return cb(err);
+        }
+        cb(null, true);
+    }
+});
+
+// Every file multer stored for this request
+const uploadedFilesOf = (req) => {
+    if (Array.isArray(req.files)) return req.files;
+    if (req.files && typeof req.files === 'object') return Object.values(req.files).flat();
+    return req.file ? [req.file] : [];
+};
+const removeUploadedFiles = (req) => uploadedFilesOf(req).forEach((f) => fs.unlink(f.path, () => {}));
+// Put after upload.single(...): when the request ends with an error status the stored file is deleted, so a refused request leaves no orphan.
+const dropUploadsOnFailure = (req, res, next) => {
+    res.on('finish', () => { if (res.statusCode >= 400) removeUploadedFiles(req); });
+    next();
+};
+const uploadOne = (field) => [upload.single(field), dropUploadsOnFailure];
+// PREFIX-MMDDYY-<16 hex of a uuid>, e.g. DVSCHED-111926-3f2b8c1e5a474d9e. The old daily counter (001) is a random uuid part, so ids cannot repeat.
+// 16 hex = 64 random bits; the whole id stays under 36 characters (the width of the appointment / assessment id columns).
+const dailyUuidId = (prefix, dateStr) => {
+    const [yyyy, mm, dd] = (dateStr || new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Manila' })).split('-');
+    return `${prefix}-${mm}${dd}${yyyy.slice(-2)}-${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+};
+// Id for rows with no daily sequence: time + 32 random bits, so two requests in the same millisecond cannot collide
+const shortId = (prefix) => `${prefix}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+// Delete a stored upload by its saved url ('/uploads/x.png' or 'http://localhost:3001/uploads/x.png'); anything else is ignored
+const removeStoredUpload = (url) => {
+    if (typeof url !== 'string') return;
+    const match = url.match(/\/uploads\/([^/?#]+)$/);
+    if (!match) return;
+    const name = path.basename(match[1]);
+    if (name) fs.unlink(path.join(uploadDir, name), () => {});
+};
 app.use(express.json());
 app.use(cors());
 app.use(bodyParser.json());
@@ -93,14 +162,30 @@ pool.on('connection', (connection) => {
 
 const cron = require('node-cron');
 
-// Runs at 23:59 on the 28th, 29th, 30th, and 31st of every month
-cron.schedule('59 23 28-31 * *', async () => {
-  const today = new Date();
-  const tomorrow = new Date(today);
-  tomorrow.setDate(today.getDate() + 1);
+// A batch is expired only after its expiration day ends (Manila calendar day), on any host timezone.
+// Takes the 'YYYY-MM-DD' string the pool returns (dateStrings) or a Date made from it with new Date('YYYY-MM-DD').
+const isBatchExpired = (expirationDate) => {
+  const day = expirationDate instanceof Date
+    ? (isNaN(expirationDate.getTime()) ? '' : expirationDate.toISOString().slice(0, 10))
+    : String(expirationDate || '').slice(0, 10);
+  return day !== '' && day < todayManilaStr();
+};
 
-  // Check if today is truly the last day of the month
-  if (tomorrow.getDate() === 1) {
+// Parse a DB 'YYYY-MM-DD HH:mm:ss' (Manila wall time, pool uses dateStrings) into the right instant on any host timezone.
+const parseManilaTimestamp = (value) => {
+  if (value instanceof Date) return value;
+  const text = String(value || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(text)) return new Date(`${text.replace(' ', 'T')}+08:00`);
+  return new Date(text);
+};
+
+// Runs at 23:59 Manila on the 28th, 29th, 30th, and 31st of every month
+cron.schedule('59 23 28-31 * *', async () => {
+  const [year, month, day] = todayManilaStr().split('-').map(Number);
+  const lastDayOfMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+
+  // Check if today (Manila) is truly the last day of the month
+  if (day === lastDayOfMonth) {
     try {
       console.log('Running monthly stock snapshot process...');
 
@@ -124,7 +209,7 @@ cron.schedule('59 23 28-31 * *', async () => {
       console.error('Error saving monthly stock snapshot:', error);
     }
   }
-});
+}, { timezone: 'Asia/Manila' });
 
 const webpush = require('web-push');
 
@@ -1127,6 +1212,13 @@ app.post('/api/submit-health-form', upload.any(), async (req, res) => {
         healthInfo?.[f.fieldname.slice('proof_'.length)]
     );
     const removeUploadedFiles = () => (req.files || []).forEach(f => fs.unlink(f.path, () => {}));
+    // every ticked condition needs a proof file
+    const haveProof = new Set(proofFiles.map(f => f.fieldname.slice('proof_'.length)));
+    const missingProof = HEALTH_PROOF_CONDITIONS.filter(key => healthInfo?.[key] && !haveProof.has(key));
+    if (missingProof.length > 0) {
+        removeUploadedFiles();
+        return res.status(400).json({ success: false, message: 'Upload a proof file for each condition you ticked.', missing: missingProof });
+    }
     const connection = await pool.getConnection();
 
     try {
@@ -1536,7 +1628,7 @@ app.put('/api/update-profile', upload.any(), async (req, res) => {
     const proofFiles = (req.files || []).filter(f =>
         f.fieldname.startsWith('proof_') && HEALTH_PROOF_CONDITIONS.includes(proofKeyOf(f)) && healthInfo?.[proofKeyOf(f)]
     );
-    // Nurse edit (health record profile): same update, but no proof file is required for a ticked condition
+    // Nurse edit (health record profile): same update and the same rule, a ticked condition needs a proof file
     let byNurse = false;
     if (healthInfo && req.body.nurse_edit) {
         try {
@@ -1562,7 +1654,7 @@ app.put('/api/update-profile', upload.any(), async (req, res) => {
             return res.status(500).json({ success: false, message: 'Failed to update profile.' });
         }
         const have = new Set([...existingProofs.map(p => p.condition_key), ...proofFiles.map(proofKeyOf)]);
-        const missing = byNurse ? [] : HEALTH_PROOF_CONDITIONS.filter(key => healthInfo[key] && !have.has(key));
+        const missing = HEALTH_PROOF_CONDITIONS.filter(key => healthInfo[key] && !have.has(key));
         if (missing.length > 0) {
             dropAllFiles();
             return res.status(400).json({ success: false, message: 'Upload a proof file for each condition you ticked.', missing });
@@ -1772,7 +1864,7 @@ app.get('/api/students', async (req, res) => {
                             currentStatus = 'pending';
                         }
                     } else {
-                        const subTimestamp = sub.submitted_at ? new Date(sub.submitted_at) : now;
+                        const subTimestamp = sub.submitted_at ? parseManilaTimestamp(sub.submitted_at) : now;
                         const isLate = deadlineDate && subTimestamp > deadlineDate;
 
                         if (isLate && allowsLate) {
@@ -1888,8 +1980,8 @@ app.get('/api/students/:id/full-requirements', async (req, res) => {
                         currentStatus = 'pending';
                     }
                 } else {
-                    const subTimestamp = sub.submitted_at && !isNaN(new Date(sub.submitted_at).getTime()) 
-                        ? new Date(sub.submitted_at) 
+                    const subTimestamp = sub.submitted_at && !isNaN(parseManilaTimestamp(sub.submitted_at).getTime())
+                        ? parseManilaTimestamp(sub.submitted_at)
                         : now;
                     const isLate = deadlineDate && subTimestamp > deadlineDate;
 
@@ -2234,7 +2326,9 @@ app.delete('/api/students/:id/special-requirements/:reqName', async (req, res) =
         }
 
         await pool.query(`DELETE FROM student_special_requirements WHERE student_id = ? AND requirement_name = ?`, [studentId, reqName]);
+        const [oldSubmissionFiles] = await pool.query(`SELECT file_url FROM student_requirement_submissions WHERE student_id = ? AND requirement_name = ?`, [studentId, reqName]);
         await pool.query(`DELETE FROM student_requirement_submissions WHERE student_id = ? AND requirement_name = ?`, [studentId, reqName]);
+        oldSubmissionFiles.forEach((f) => removeStoredUpload(f.file_url));
 
         // Retrieve connected active parent user IDs
         const parentUserIds = await getConnectedParentUserIds(studentId);
@@ -2364,7 +2458,7 @@ app.post('/api/programs/:programId/requirements', async (req, res) => {
             });
         }
 
-        const newConfigId = `CFG-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+        const newConfigId = shortId('CFG');
         const insertConfigQuery = `
             INSERT INTO program_requirements_config 
             (config_id, program_id, requirement_name, year_level, submission_deadline, allow_late_submission) 
@@ -2625,7 +2719,7 @@ app.delete('/api/programs/:programId/requirements/:configId', async (req, res) =
 
 // 11. Student Upload Requirement & send notification with navigate_id (submission_id)
 // 11. Student Upload Requirement & send notification (Active Accounts Only)
-app.post('/api/students/:id/requirements/:reqName/submit', upload.single('file'), async (req, res) => {
+app.post('/api/students/:id/requirements/:reqName/submit', ...uploadOne('file'), async (req, res) => {
     const studentId = req.params.id;
     const reqName = req.params.reqName;
 
@@ -2698,7 +2792,7 @@ app.post('/api/students/:id/requirements/:reqName/submit', upload.single('file')
         const isLateTinyInt = isLate ? 1 : 0;
 
         const [checkExisting] = await pool.query(
-            `SELECT submission_id FROM student_requirement_submissions WHERE student_id = ? AND requirement_name = ?`,
+            `SELECT submission_id, file_url FROM student_requirement_submissions WHERE student_id = ? AND requirement_name = ?`,
             [studentId, reqName]
         );
 
@@ -2707,13 +2801,15 @@ app.post('/api/students/:id/requirements/:reqName/submit', upload.single('file')
         if (checkExisting.length > 0) {
             activeSubmissionId = checkExisting[0].submission_id;
             await pool.query(
-                `UPDATE student_requirement_submissions 
-                 SET file_url = ?, status = ?, is_late = ?, submitted_at = NOW() 
+                `UPDATE student_requirement_submissions
+                 SET file_url = ?, status = ?, is_late = ?, submitted_at = NOW()
                  WHERE student_id = ? AND requirement_name = ?`,
                 [file_url, targetStatus, isLateTinyInt, studentId, reqName]
             );
+            // the new file replaces the old one: delete the old file from disk
+            if (checkExisting[0].file_url && checkExisting[0].file_url !== file_url) removeStoredUpload(checkExisting[0].file_url);
         } else {
-            activeSubmissionId = `SUB-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+            activeSubmissionId = shortId('SUB');
             await pool.query(
                 `INSERT INTO student_requirement_submissions 
                  (submission_id, student_id, requirement_name, file_url, status, is_late, submitted_at, nurse_remarks) 
@@ -2810,7 +2906,7 @@ app.post('/api/medical-requirements', async (req, res) => {
         const [othersFacility] = await connection.query('SELECT facility_id FROM partner_facilities WHERE facility_name = "Others"');
         if (othersFacility.length > 0) {
             const facilityId = othersFacility[0].facility_id;
-            const newServiceId = `FS-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+            const newServiceId = shortId('FS');
             await connection.query(
                 `INSERT INTO facility_services (service_id, facility_id, requirement_name, description, created_at) VALUES (?, ?, ?, ?, NOW())`,
                 [newServiceId, facilityId, trimmed, 'Auto-generated service for new medical requirement']
@@ -2914,7 +3010,9 @@ app.delete('/api/medical-requirements/:reqName', async (req, res) => {
         if (programIds.length > 0) {
             await connection.query('DELETE FROM program_requirements_config WHERE requirement_name = ?', [reqName]);
         }
+        let deletedSubmissionFiles = [];
         if (submissionIds.length > 0) {
+            [deletedSubmissionFiles] = await connection.query('SELECT file_url FROM student_requirement_submissions WHERE requirement_name = ?', [reqName]);
             await connection.query('DELETE FROM student_requirement_submissions WHERE requirement_name = ?', [reqName]);
         }
         if (serviceIds.length > 0) {
@@ -2927,6 +3025,7 @@ app.delete('/api/medical-requirements/:reqName', async (req, res) => {
         await connection.query('DELETE FROM medical_requirements WHERE requirement_name = ?', [reqName]);
 
         await connection.commit();
+        deletedSubmissionFiles.forEach((f) => removeStoredUpload(f.file_url));
         res.json({ success: true, message: `Medical requirement "${reqName}" and all connected records were successfully deleted.` });
     } catch (err) {
         await connection.rollback();
@@ -4065,7 +4164,7 @@ app.post('/api/dispensation', async (req, res) => {
     const genericName = batchRows[0].generic_name;
     const medicineName = brandName ? `${brandName} (${genericName})` : genericName;
 
-    if (expirationDate < new Date()) {
+    if (isBatchExpired(expirationDate)) {
       await connection.rollback();
       return res.status(400).json({ error: 'Cannot dispense medicine from an expired batch.' });
     }
@@ -4143,18 +4242,8 @@ app.post('/api/dispensation', async (req, res) => {
       [newStock, newRemaining, batch_id]
     );
 
-    // --- Generate Custom Sequential Direct Dispense ID (DISP-MMDDYYXXX) ---
-    const now = new Date();
-    const monthStr = String(now.getMonth() + 1).padStart(2, '0');
-    const dayStr = String(now.getDate()).padStart(2, '0');
-    const yearStr = String(now.getFullYear()).slice(-2);
-    const datePrefix = `${monthStr}${dayStr}${yearStr}`;
-
-    const [dispenseCountRows] = await connection.execute(
-      `SELECT COUNT(*) AS totalToday FROM direct_dispensation WHERE DATE(dispensed_at) = CURDATE() FOR UPDATE`
-    );
-    const sequenceNum = String(dispenseCountRows[0].totalToday + 1).padStart(3, '0');
-    const direct_dispense_id = `DISP-${datePrefix}${sequenceNum}`;
+    // --- Direct dispense id (uuid) ---
+    const direct_dispense_id = await nextDispenseId(connection, 'direct_dispensation', 'direct_dispense_id');
 
     await connection.execute(
       `INSERT INTO direct_dispensation 
@@ -4433,6 +4522,11 @@ app.get('/api/clinic-visits/:visitId/result', async (req, res) => {
     }
 });
 
+// id of a dispensation row: DISP-MMDDYY-<uuid part>
+function nextDispenseId() {
+    return dailyUuidId('DISP');
+}
+
 // POST: Add a new Visit Log Consultation
 // POST: Add a new Visit Log Consultation
 // ==========================================
@@ -4492,26 +4586,15 @@ app.post('/api/clinic-visits', async (req, res) => {
             });
         }
 
-        // Generate Custom Sequential Visit ID (VISIT-MMDDYYXXX)
-        const [yearStr, monthStr, dayStr] = visit_date.split('-');
-        const datePrefix = `${monthStr}${dayStr}${yearStr.slice(-2)}`;
+        const visit_id = dailyUuidId('VISIT', visit_date);
 
-        const [countRows] = await connection.execute(
-            `SELECT COUNT(*) AS totalToday FROM clinic_visits WHERE visit_date = ? FOR UPDATE`,
-            [visit_date]
-        );
-
-        const sequenceNum = String(countRows[0].totalToday + 1).padStart(3, '0');
-        const visit_id = `VISIT-${datePrefix}${sequenceNum}`;
-
-        const visitSql = `
+        await connection.execute(`
             INSERT INTO clinic_visits (
-                visit_id, student_id, nurse_id, complaint_id, specify_complaint_text, visit_date, 
-                time_in, time_out, temperature, respiratory_rate, pulse_rate, 
+                visit_id, student_id, nurse_id, complaint_id, specify_complaint_text, visit_date,
+                time_in, time_out, temperature, respiratory_rate, pulse_rate,
                 blood_pressure, nursing_intervention, assessment
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `;
-        await connection.execute(visitSql, [
+        `, [
             visit_id, student_id, nurse_id || null, complaint_id || null, specifyText, visit_date,
             time_in || null, time_out || null, temperature || null, respiratory_rate || null,
             pulse_rate || null, blood_pressure || null, nursing_intervention || null, assessment || null
@@ -4543,7 +4626,7 @@ app.post('/api/clinic-visits', async (req, res) => {
             const strengthUnitVal = parseFloat(batchRows[0].strength_unit_value);
             const expirationDate = new Date(batchRows[0].expiration_date);
 
-            if (expirationDate < new Date()) {
+            if (isBatchExpired(expirationDate)) {
                 throw new Error("Cannot dispense medicine from an expired batch.");
             }
 
@@ -4584,18 +4667,8 @@ app.post('/api/clinic-visits', async (req, res) => {
                 );
             }
 
-            // Generate Custom Sequential Consultation Dispensation ID (DISP-MMDDYYXXX)
-            const now = new Date();
-            const dispMonthStr = String(now.getMonth() + 1).padStart(2, '0');
-            const dispDayStr = String(now.getDate()).padStart(2, '0');
-            const dispYearStr = String(now.getFullYear()).slice(-2);
-            const dispDatePrefix = `${dispMonthStr}${dispDayStr}${dispYearStr}`;
-
-            const [dispCountRows] = await connection.execute(
-                `SELECT COUNT(*) AS totalToday FROM consultation_dispensation WHERE DATE(dispensed_at) = CURDATE() FOR UPDATE`
-            );
-            const dispSeq = String(dispCountRows[0].totalToday + 1).padStart(3, '0');
-            const dispensation_id = `DISP-${dispDatePrefix}${dispSeq}`;
+            // Consultation dispensation id (uuid)
+            const dispensation_id = await nextDispenseId(connection, 'consultation_dispensation', 'consultation_dispense_id');
 
             await connection.execute(
                 `INSERT INTO consultation_dispensation 
@@ -4943,7 +5016,7 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
                 const dispenseLimit = parseFloat(batchRows[0].dispense_limit) || 0;
                 const usesVolume = !isDiscreteDispenseUnit(dispenseUnit);
 
-                if (expirationDate < new Date()) {
+                if (isBatchExpired(expirationDate)) {
                     throw new Error("Cannot dispense medicine from an expired batch.");
                 }
 
@@ -4999,18 +5072,8 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
                     );
                 }
 
-                // Generate Custom Sequential Consultation Dispensation ID (DISP-MMDDYYXXX)
-                const now = new Date();
-                const dispMonthStr = String(now.getMonth() + 1).padStart(2, '0');
-                const dispDayStr = String(now.getDate()).padStart(2, '0');
-                const dispYearStr = String(now.getFullYear()).slice(-2);
-                const dispDatePrefix = `${dispMonthStr}${dispDayStr}${dispYearStr}`;
-
-                const [dispCountRows] = await connection.execute(
-                    `SELECT COUNT(*) AS totalToday FROM consultation_dispensation WHERE DATE(dispensed_at) = CURDATE() FOR UPDATE`
-                );
-                const dispSeq = String(dispCountRows[0].totalToday + 1).padStart(3, '0');
-                const dispensation_id = `DISP-${dispDatePrefix}${dispSeq}`;
+                // Consultation dispensation id (uuid)
+                const dispensation_id = await nextDispenseId(connection, 'consultation_dispensation', 'consultation_dispense_id');
 
                 await connection.execute(
                     `INSERT INTO consultation_dispensation 
@@ -5236,8 +5299,8 @@ async function getDailyDispenseHistory(anchorStr) {
 }
 
 // Calculate dynamic baseline average date range (Jan 1 to last day of previous completed month)
-function getAverageDateWindow(referenceDate = new Date()) {
-  const realTimeDate = new Date();
+function getAverageDateWindow(referenceDate = nowManila()) {
+  const realTimeDate = nowManila();
   
   // Cap target date to real-time date to prevent future month calculations
   const evalDate = referenceDate > realTimeDate ? realTimeDate : referenceDate;
@@ -5565,7 +5628,7 @@ app.get('/api/medicine-dispensed-overview', async (req, res) => {
   try {
     // daily = one bar per day of a month, weekly = per week of a month, monthly = per month of a year, range = custom From -> To
     const filterType = req.query.filterType === 'monthly' ? 'yearly' : (req.query.filterType || 'current');
-    let targetDate = new Date();
+    let targetDate = nowManila();
 
     if (req.query.date) {
       const dateParts = req.query.date.split('-');
@@ -5672,7 +5735,7 @@ app.get('/api/medicine-dispensed-overview', async (req, res) => {
         const d = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
         return isNaN(d.getTime()) ? null : d;
       };
-      const today = new Date();
+      const today = nowManila();
       today.setHours(0, 0, 0, 0);
       if (filterType === 'daily') {
         startDate = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
@@ -6977,31 +7040,7 @@ app.get('/api/reports-analytics', async (req, res) => {
 });
 
 async function generateRequestId(pool, prefix, tableName) {
-    const today = new Date();
-    const day = String(today.getDate()).padStart(2, '0');
-    const month = String(today.getMonth() + 1).padStart(2, '0');
-    const year = String(today.getFullYear()).slice(-2);
-
-    const dateStr = `${month}${day}${year}`; // e.g., 100126
-    const prefixWithDate = `${prefix}-${dateStr}`;
-
-    // Get the highest existing request ID for today
-    const [rows] = await pool.query(
-        `SELECT request_id FROM ${tableName} WHERE request_id LIKE ? ORDER BY request_id DESC LIMIT 1`,
-        [`${prefixWithDate}%`]
-    );
-
-    let nextNumber = 1;
-    if (rows.length > 0) {
-        const lastId = rows[0].request_id;
-        const lastSeq = parseInt(lastId.slice(-3), 10);
-        if (!isNaN(lastSeq)) {
-            nextNumber = lastSeq + 1;
-        }
-    }
-
-    const paddedIncrement = String(nextNumber).padStart(3, '0');
-    return `${prefixWithDate}${paddedIncrement}`;
+    return generateCustomId(prefix, tableName, 'request_id', pool);
 }
 
 
@@ -7009,11 +7048,11 @@ async function generateRequestId(pool, prefix, tableName) {
 // =========================================================================
 // 1. POST: Submit Excuse Slip Request (Notifies All Nurses)
 // =========================================================================
-app.post('/api/requests/excuse-slip', upload.single('proof'), async (req, res) => {
+app.post('/api/requests/excuse-slip', ...uploadOne('proof'), async (req, res) => {
     try {
         const { student_id, reason_for_excuse, valid_absence_start, valid_absence_end } = req.body;
         
-        // Generate formatted request ID: EXC-DDMMYY001
+        // Request id (uuid)
         const request_id = await generateRequestId(pool, 'EXC', 'excuse_slip_requests');
         const student_proof_url = req.file ? `/uploads/${req.file.filename}` : null;
 
@@ -7151,7 +7190,7 @@ app.post('/api/partner-facilities/:facilityId/services', async (req, res) => {
             });
         }
 
-        const service_id = `SRV-${uuidv4().substring(0, 8)}`;
+        const service_id = `SRV-${uuidv4().substring(0, 12)}`;
         await pool.query(
             'INSERT INTO facility_services (service_id, facility_id, requirement_name, description) VALUES (?, ?, ?, ?)',
             [service_id, facilityId, requirement_name.trim(), description || null]
@@ -7240,7 +7279,7 @@ app.post('/api/requests/referral-slip', async (req, res) => {
 
         await connection.beginTransaction();
 
-        // Generate formatted request ID inside transaction: REF-DDMMYY001
+        // Request id (uuid)
         const request_id = await generateRequestId(connection, 'REF', 'referral_slip_requests');
 
         const insertRequestQuery = `
@@ -7317,7 +7356,7 @@ app.post('/api/requests/referral-slip', async (req, res) => {
 // =========================================================================
 // 4. POST: Nurse Issues/Processes Document Request (Notifies Student & Parent)
 // =========================================================================
-app.post('/api/requests/issue', upload.single('issued_slip'), async (req, res) => {
+app.post('/api/requests/issue', ...uploadOne('issued_slip'), async (req, res) => {
     try {
         const { request_id, request_type, status, nurse_id, remarks } = req.body;
 
@@ -7339,7 +7378,15 @@ app.post('/api/requests/issue', upload.single('issued_slip'), async (req, res) =
         updateSql += ` WHERE request_id = ?`;
         params.push(request_id);
 
-        await pool.query(updateSql, params);
+        let oldIssuedUrl = null;
+        if (issued_slip_url) {
+            const [oldRows] = await pool.query(`SELECT issued_slip_url FROM ${tableName} WHERE request_id = ?`, [request_id]);
+            oldIssuedUrl = oldRows[0]?.issued_slip_url || null;
+        }
+        const [issueResult] = await pool.query(updateSql, params);
+        // a new issued slip replaces the old file; no matching request = the new file has no owner
+        if (issued_slip_url && oldIssuedUrl && oldIssuedUrl !== issued_slip_url) removeStoredUpload(oldIssuedUrl);
+        if (issued_slip_url && issueResult.affectedRows === 0) removeStoredUpload(issued_slip_url);
 
         // Map nurse_id to users.user_id
         const [nurseUser] = await pool.query(
@@ -7456,7 +7503,7 @@ app.post('/api/requests/:type/:request_id/notes', async (req, res) => {
     try {
         const { type, request_id } = req.params;
         const { sender_type, sender_id, message } = req.body;
-        const note_id = `NOTE-${uuidv4().substring(0, 8)}`;
+        const note_id = `NOTE-${uuidv4().substring(0, 12)}`;
         const tableName = type === 'Excuse Slip' ? 'excuse_slip_notes' : 'referral_slip_notes';
         const requestTable = type === 'Excuse Slip' ? 'excuse_slip_requests' : 'referral_slip_requests';
 
@@ -7554,7 +7601,7 @@ const syncOthersFacilityServices = async () => {
         for (const req of reqRows) {
             const reqName = req.requirement_name.trim();
             if (!existingMap.has(reqName.toLowerCase())) {
-                const service_id = `SRV-OTH-${uuidv4().substring(0, 8)}`;
+                const service_id = `SRV-OTH-${uuidv4().substring(0, 12)}`;
                 await pool.query(
                     `INSERT INTO facility_services (service_id, facility_id, requirement_name, description) VALUES (?, ?, ?, ?)`,
                     [service_id, othersFacilityId, reqName, 'Medical Requirement Service']
@@ -7652,14 +7699,14 @@ app.get('/api/document-requests', async (req, res) => {
 // ==========================================
 // 2. CREATE EXCUSE SLIP REQUEST
 // ==========================================
-app.post('/api/document-requests/excuse-slip', upload.single('student_proof'), async (req, res) => {
+app.post('/api/document-requests/excuse-slip', ...uploadOne('student_proof'), async (req, res) => {
     const { student_id, reason_for_excuse, valid_absence_start, valid_absence_end } = req.body;
 
     if (!student_id || !reason_for_excuse) {
         return res.status(400).json({ success: false, message: 'Missing required fields.' });
     }
 
-    const request_id = `EXC-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const request_id = shortId('EXC');
     const student_proof_url = req.file ? `/uploads/${req.file.filename}` : null;
 
     try {
@@ -7708,7 +7755,7 @@ app.post('/api/document-requests/referral-slip', async (req, res) => {
         return res.status(400).json({ success: false, message: 'Missing required fields.' });
     }
 
-    const request_id = `REF-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const request_id = shortId('REF');
 
     try {
         await pool.query(
@@ -7779,7 +7826,7 @@ app.get('/api/document-requests/notes/:requestType/:requestId', async (req, res)
 // ==========================================
 // 5. ACTION ENDPOINT: APPROVE / DENY & NOTE
 // ==========================================
-app.post('/api/document-requests/action', upload.single('issued_slip'), async (req, res) => {
+app.post('/api/document-requests/action', ...uploadOne('issued_slip'), async (req, res) => {
     const { request_id, request_type, action, nurse_id, message } = req.body;
     
     if (!request_id || !request_type || !action || !nurse_id) {
@@ -7808,10 +7855,18 @@ app.post('/api/document-requests/action', upload.single('issued_slip'), async (r
         updateQuery += ` WHERE request_id = ?`;
         params.push(request_id);
 
-        await pool.query(updateQuery, params);
+        let oldIssuedUrl = null;
+        if (issued_slip_url) {
+            const [oldRows] = await pool.query(`SELECT issued_slip_url FROM ${requestTable} WHERE request_id = ?`, [request_id]);
+            oldIssuedUrl = oldRows[0]?.issued_slip_url || null;
+        }
+        const [actionResult] = await pool.query(updateQuery, params);
+        // a new issued slip replaces the old file; no matching request = the new file has no owner
+        if (issued_slip_url && oldIssuedUrl && oldIssuedUrl !== issued_slip_url) removeStoredUpload(oldIssuedUrl);
+        if (issued_slip_url && actionResult.affectedRows === 0) removeStoredUpload(issued_slip_url);
 
         if (message && message.trim() !== '') {
-            const noteId = `NOTE-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+            const noteId = shortId('NOTE');
             const insertNoteQuery = `
                 INSERT INTO ${notesTable} (note_id, request_id, sender_type, sender_id, message, created_at)
                 VALUES (?, ?, 'Nurse', ?, ?, NOW())
@@ -7889,7 +7944,7 @@ app.post('/api/document-requests/notes', async (req, res) => {
     const requestTable = isExcuse ? 'excuse_slip_requests' : 'referral_slip_requests';
 
     try {
-        const noteId = `NOTE-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+        const noteId = shortId('NOTE');
         const query = `
             INSERT INTO ${notesTable} (note_id, request_id, sender_type, sender_id, message, created_at)
             VALUES (?, ?, ?, ?, ?, NOW())
@@ -8003,7 +8058,7 @@ app.post('/api/partner-facilities', async (req, res) => {
         return res.status(400).json({ success: false, message: 'Facility name is required.' });
     }
 
-    const facility_id = `FAC-${uuidv4().substring(0, 8)}`;
+    const facility_id = `FAC-${uuidv4().substring(0, 12)}`;
     try {
         await pool.query(
             'INSERT INTO partner_facilities (facility_id, facility_name, address, contact_number) VALUES (?, ?, ?, ?)',
@@ -8075,7 +8130,7 @@ app.post('/api/partner-facilities/:facilityId/services', async (req, res) => {
             });
         }
 
-        const service_id = `SRV-${uuidv4().substring(0, 8)}`;
+        const service_id = `SRV-${uuidv4().substring(0, 12)}`;
         await pool.query(
             'INSERT INTO facility_services (service_id, facility_id, requirement_name, description) VALUES (?, ?, ?, ?)',
             [service_id, facilityId, requirement_name.trim(), description || null]
@@ -8155,41 +8210,7 @@ app.delete('/api/facility-services/:serviceId', async (req, res) => {
 // HEALTH SCREENING API ENDPOINTS
 // ==========================================
 
-/**
- * Generates formatted IDs in the pattern: PREFIX-MMDDYYXXX
- * @param {string} prefix - e.g., 'HSSCHED', 'BMI', 'VSN', 'DENT'
- * @param {string} tableName - Database table to check
- * @param {string} idColumn - Column name holding the custom ID
- * @returns {Promise<string>} e.g., 'HSSCHED-100226001'
- */
-async function generateCustomId(prefix, tableName, idColumn) {
-  const now = new Date();
-  const mm = String(now.getMonth() + 1).padStart(2, '0');
-  const dd = String(now.getDate()).padStart(2, '0');
-  const yy = String(now.getFullYear()).slice(-2);
-  
-  const dateStr = `${mm}${dd}${yy}`;
-  const searchPattern = `${prefix}-${dateStr}%`;
-
-  const [rows] = await pool.query(
-    `SELECT ${idColumn} FROM ${tableName} WHERE ${idColumn} LIKE ? ORDER BY ${idColumn} DESC LIMIT 1`,
-    [searchPattern]
-  );
-
-  let nextSequence = 1;
-
-  if (rows.length > 0) {
-    const lastId = rows[0][idColumn];
-    const lastSeqStr = lastId.slice(-3);
-    const parsedSeq = parseInt(lastSeqStr, 10);
-    if (!isNaN(parsedSeq)) {
-      nextSequence = parsedSeq + 1;
-    }
-  }
-
-  const paddedSeq = String(nextSequence).padStart(3, '0');
-  return `${prefix}-${dateStr}${paddedSeq}`;
-}
+// generateCustomId: see the single definition further down (race-safe, Manila date)
 
 // 1. Get Academic Programs
 app.get('/api/programs', async (req, res) => {
@@ -8803,7 +8824,7 @@ app.get('/api/school-years', async (req, res) => {
        FROM school_years y ORDER BY y.start_date DESC`
     );
     const current = years.find((y) => y.is_current) || years[0] || null;
-    const nextStart = current ? Number(String(current.school_year).slice(0, 4)) + 1 : new Date().getFullYear();
+    const nextStart = current ? Number(String(current.school_year).slice(0, 4)) + 1 : nowManila().getFullYear();
     res.json({
       current: current ? current.school_year : null,
       years,
@@ -10782,60 +10803,14 @@ const textOrNull = (v) => {
 };
 
 /**
- * Generates formatted IDs in the pattern: PREFIX-MMDDYYXXX
- * @param {string} prefix - e.g., 'DVSCHED', 'DVAS'
- * @param {string} tableName - Target database table
- * @param {string} idColumn - Primary ID column name
- * @param {object} [dbExecutor=pool] - Optional database pool or connection (for transactions)
- * @returns {Promise<string>} e.g., 'DVSCHED-100226001'
+ * New row id: PREFIX-MMDDYY-<random uuid part>, e.g. DVSCHED-111926-3f2b8c1e5a474d9e (Manila date, no daily counter).
+ * tableName / idColumn / dbExecutor are kept so existing callers do not change; they are not used.
  */
 async function generateCustomId(prefix, tableName, idColumn, dbExecutor = pool) {
-  // the clinic's day, not the server's
-  const [yyyy, mm, dd] = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Manila' }).split('-');
-  const yy = yyyy.slice(-2);
-
-  const dateStr = `${mm}${dd}${yy}`;
-  const searchPattern = `${prefix}-${dateStr}%`;
-
-  // longest first so a 4-digit sequence (1000+) sorts after 999
-  const [rows] = await dbExecutor.query(
-    `SELECT ${idColumn} FROM ${tableName} WHERE ${idColumn} LIKE ? ORDER BY CHAR_LENGTH(${idColumn}) DESC, ${idColumn} DESC LIMIT 1`,
-    [searchPattern]
-  );
-
-  let nextSequence = 1;
-
-  if (rows.length > 0) {
-    const lastId = rows[0][idColumn];
-    const parsedSeq = parseInt(lastId.slice(`${prefix}-${dateStr}`.length), 10);
-    if (!isNaN(parsedSeq)) {
-      nextSequence = parsedSeq + 1;
-    }
-  }
-
-  // a check-up time in (clinic_visits.appointment_id) outlives its appointment when the table was emptied: never reuse that id,
-  // or the new appointment would look already timed in
-  if (tableName === 'doctor_appointments') {
-    try {
-      const [linked] = await dbExecutor.query(
-        `SELECT appointment_id FROM clinic_visits WHERE appointment_id LIKE ? ORDER BY CHAR_LENGTH(appointment_id) DESC, appointment_id DESC LIMIT 1`,
-        [searchPattern]
-      );
-      if (linked.length > 0) {
-        const linkedSeq = parseInt(linked[0].appointment_id.slice(`${prefix}-${dateStr}`.length), 10);
-        if (!isNaN(linkedSeq) && linkedSeq + 1 > nextSequence) nextSequence = linkedSeq + 1;
-      }
-    } catch (error) {
-      if (error.code !== 'ER_BAD_FIELD_ERROR') throw error;
-    }
-  }
-
-  const paddedSeq = String(nextSequence).padStart(3, '0');
-  return `${prefix}-${dateStr}${paddedSeq}`;
+  return dailyUuidId(prefix);
 }
 
-// generateCustomId reads MAX+1, so two requests at the same moment can pick the same id. The insert runs in `insertFn(id)`;
-// on a duplicate key a fresh id is taken and the insert is tried again.
+// The insert runs in `insertFn(id)`; on a duplicate key (practically never with a uuid) a fresh id is taken and it is tried again.
 async function generateCustomIdWithRetry(dbExecutor, prefix, tableName, idColumn, insertFn, attempts = 5) {
   for (let i = 0; i < attempts; i++) {
     const id = await generateCustomId(prefix, tableName, idColumn, dbExecutor);
@@ -10942,7 +10917,7 @@ app.post('/api/mass-schedules', async (req, res) => {
         if (refusal) throw new BookingError(refusal, 400);
         const doctorName = doctorDisplayName(doctor);
 
-        const batch_id = `BATCH-${uuidv4().substring(0, 8)}`;
+        const batch_id = `BATCH-${uuidv4().substring(0, 12)}`;
 
         await connection.query(
             `INSERT INTO mass_schedule_batches 
@@ -10952,7 +10927,7 @@ app.post('/api/mass-schedules', async (req, res) => {
         );
 
         for (const appt of student_appointments) {
-            // Generates appointment ID in DVSCHED-MMDDYYXXX format
+            // Appointment id (uuid)
             const appointment_id = await generateCustomId('DVSCHED', 'doctor_appointments', 'appointment_id', connection);
 
             await assertAppointmentFits(connection, {
@@ -16059,16 +16034,7 @@ const recordCheckupTimeIn = async (connection, { appointmentId, studentId, nurse
     }
     const now = nowManilaStr();
     const today = now.slice(0, 10);
-    const [yy, mm, dd] = today.split('-');
-    const [[{ n }]] = await connection.query(`SELECT COUNT(*) AS n FROM clinic_visits WHERE visit_date = ? FOR UPDATE`, [today]);
-    let seq = Number(n) + 1;
-    let visitId = '';
-    for (;;) {
-        visitId = `VISIT-${mm}${dd}${yy.slice(-2)}${String(seq).padStart(3, '0')}`;
-        const [dup] = await connection.query(`SELECT 1 FROM clinic_visits WHERE visit_id = ?`, [visitId]);
-        if (dup.length === 0) break;
-        seq += 1;
-    }
+    const visitId = dailyUuidId('VISIT', today);
     await connection.query(
         `INSERT INTO clinic_visits (visit_id, student_id, nurse_id, visit_date, time_in, temperature, respiratory_rate, pulse_rate, blood_pressure, appointment_id, visit_kind)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Check-up')`,
@@ -16196,9 +16162,7 @@ const dispenseForCheckupVisit = async (connection, visitId, input) => {
     const strengthUnitVal = parseFloat(b.strength_unit_value);
     const dispenseUnit = b.dispense_unit_of_measure;
     const dispenseLimit = parseFloat(b.dispense_limit) || 0;
-    const expiry = new Date(b.expiration_date);
-    expiry.setHours(23, 59, 59, 999);
-    if (expiry < new Date()) throw new BookingError('Cannot dispense medicine from an expired batch.', 400);
+    if (isBatchExpired(b.expiration_date)) throw new BookingError('Cannot dispense medicine from an expired batch.', 400);
     if (!(await isMedicineLinkedToComplaint(connection, b.medicine_id, complaintId))) throw new BookingError('This medicine is not indicated for the selected medical condition.', 400);
     if (dispenseLimit > 0 && numericVal > dispenseLimit) throw new BookingError(`Dispense limit exceeded. Maximum is ${dispenseLimit} ${dispenseUnit} per dispensation.`, 400);
 
@@ -16222,10 +16186,7 @@ const dispenseForCheckupVisit = async (connection, visitId, input) => {
         await connection.query('UPDATE medicine_inventory_batches SET current_stock = current_stock - ? WHERE batch_id = ?', [numericVal, input.batch_id]);
     }
 
-    const now = new Date();
-    const prefix = `${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}${String(now.getFullYear()).slice(-2)}`;
-    const [[{ totalToday }]] = await connection.query(`SELECT COUNT(*) AS totalToday FROM consultation_dispensation WHERE DATE(dispensed_at) = CURDATE() FOR UPDATE`);
-    const dispensationId = `DISP-${prefix}${String(totalToday + 1).padStart(3, '0')}`;
+    const dispensationId = await nextDispenseId(connection, 'consultation_dispensation', 'consultation_dispense_id');
     await connection.query(
         `INSERT INTO consultation_dispensation (consultation_dispense_id, visit_id, batch_id, dosage_consumption_unit_value, dosage_consumption_unit_of_measure, dispensed_at)
          VALUES (?, ?, ?, ?, ?, NOW())`, [dispensationId, visitId, input.batch_id, numericVal, dispenseUnit]
@@ -17565,6 +17526,7 @@ app.get('/api/student/:studentId/checkup-history', async (req, res) => {
                     das.attendance_status, ds.location, d.first_name AS doc_first_name, d.last_name AS doc_last_name, d.specialization,
                     a.assessment_id, a.chief_complaint, a.diagnosis, a.clinical_findings, a.treatment_recommendations, a.prescriptions, a.is_abnormal,
                     a.follow_up_needed, a.follow_up_date, a.follow_up_notes, a.follow_up_closed, a.referral_facility, a.referral_reason, a.assessment_date,
+                    a.template_name, a.template_responses, a.documented_by_name, a.documented_by_role,
                     ckv.temperature AS in_temperature, ckv.respiratory_rate AS in_respiratory_rate, ckv.pulse_rate AS in_pulse_rate, ckv.blood_pressure AS in_blood_pressure,
                     ckv.out_temperature, ckv.out_respiratory_rate, ckv.out_pulse_rate, ckv.out_blood_pressure,
                     ${checkupDispensedSql('ckv.visit_id')}
@@ -17593,11 +17555,13 @@ app.get('/api/student/:studentId/checkup-history', async (req, res) => {
                 past.push({
                     appointment_id: v.appointment_id, visit_type: v.visit_type, purpose_other: v.purpose_other, date, start_time: v.start_time, end_time: v.end_time,
                     doctor_name: doctorName(v), specialization: v.specialization, location: v.location, label: label(v),
-                    is_repeat: v.visit_type === 'Follow-up' ? 1 : 0, outcome: documented ? 'Seen' : missed ? 'Missed' : 'Not documented',
+                    is_repeat: v.visit_type === 'Follow-up' ? 1 : 0, outcome: documented ? 'Completed' : missed ? 'Missed' : 'Not documented',
                     assessment: documented ? {
                         chief_complaint: v.chief_complaint, diagnosis: v.diagnosis, clinical_findings: v.clinical_findings, treatment_recommendations: v.treatment_recommendations,
                         prescriptions: parse(v.prescriptions), is_abnormal: v.is_abnormal ? 1 : 0, follow_up_needed: v.follow_up_needed ? 1 : 0, follow_up_date: v.follow_up_date,
                         follow_up_notes: v.follow_up_notes, referral_facility: v.referral_facility, referral_reason: v.referral_reason, assessment_date: v.assessment_date,
+                        template_name: v.template_name, template_responses: parse(v.template_responses), documented_by_name: v.documented_by_name, documented_by_role: v.documented_by_role,
+                        visit_type: v.visit_type, purpose_other: v.purpose_other, start_time: v.start_time, end_time: v.end_time, queue_state: v.queue_state,
                         in_blood_pressure: v.in_blood_pressure, in_temperature: v.in_temperature, in_pulse_rate: v.in_pulse_rate, in_respiratory_rate: v.in_respiratory_rate,
                         out_blood_pressure: v.out_blood_pressure, out_temperature: v.out_temperature, out_pulse_rate: v.out_pulse_rate, out_respiratory_rate: v.out_respiratory_rate,
                         dispensed_medicine: v.dispensed_medicine, dispensed_quantity: v.dispensed_quantity, dispensed_unit: v.dispensed_unit
@@ -18194,7 +18158,7 @@ app.post('/api/doctor-accounts', async (req, res) => {
                 [userId, firstName, lastName, listed, nurseId, doctorId]
             );
         } else {
-            doctorId = `DOC-${uuidv4().substring(0, 8)}`;
+            doctorId = `DOC-${uuidv4().substring(0, 12)}`;
             await connection.query(
                 `INSERT INTO doctors (doctor_id, user_id, first_name, last_name, specialization, contact_number, created_by_nurse_id) VALUES (?, ?, ?, ?, ?, NULL, ?)`,
                 [doctorId, userId, firstName, lastName, listed, nurseId]
@@ -18755,7 +18719,7 @@ app.post('/api/doctor-unavailable-dates', async (req, res) => {
             });
         }
 
-        const unavailableId = `UNV-${uuidv4().substring(0, 8)}`;
+        const unavailableId = `UNV-${uuidv4().substring(0, 12)}`;
         const actor = await resolveActor(connection, actorUserId);
         await connection.query(
             `INSERT INTO doctor_unavailable_dates (unavailable_id, doctor_id, start_date, end_date, start_time, end_time, reason, created_by_user_id, created_by_role)
@@ -19008,7 +18972,7 @@ const saveTemplate = async (req, res, templateId) => {
         );
         if (dupe.length > 0) { await connection.rollback(); return res.status(409).json({ success: false, message: 'You already have a template with that name.' }); }
 
-        const id = templateId || `TPL-${uuidv4().substring(0, 8)}`;
+        const id = templateId || `TPL-${uuidv4().substring(0, 12)}`;
         if (isDefault) {
             await connection.query(`UPDATE doctor_assessment_templates SET is_default = 0 WHERE doctor_id = ? AND visit_type <=> ? AND template_id <> ?`, [doctorId, visitType, id]);
         }
@@ -19047,7 +19011,7 @@ app.post('/api/doctor-templates/:templateId/duplicate', async (req, res) => {
             if (!dupe) break;
             name = `${src.template_name} (copy ${n})`.slice(0, 120);
         }
-        const id = `TPL-${uuidv4().substring(0, 8)}`;
+        const id = `TPL-${uuidv4().substring(0, 12)}`;
         await pool.query(
             `INSERT INTO doctor_assessment_templates (template_id, doctor_id, template_name, visit_type, description, fields, is_default) VALUES (?, ?, ?, ?, ?, ?, 0)`,
             [id, src.doctor_id, name, src.visit_type, src.description, typeof src.fields === 'string' ? src.fields : JSON.stringify(src.fields)]
@@ -19090,7 +19054,7 @@ const addStarterTemplates = async (connection, doctorId, starters) => {
             && (await connection.query(`SELECT 1 FROM doctor_assessment_templates WHERE doctor_id = ? AND visit_type <=> ? AND is_default = 1 AND is_active = 1`, [doctorId, visitType]))[0].length === 0;
         await connection.query(
             `INSERT INTO doctor_assessment_templates (template_id, doctor_id, template_name, visit_type, description, fields, is_default) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [`TPL-${uuidv4().substring(0, 8)}`, doctorId, name.slice(0, 120), visitType, textOrNull(s.description)?.slice(0, 255) || null, JSON.stringify(cleaned.fields), makeDefault ? 1 : 0]
+            [`TPL-${uuidv4().substring(0, 12)}`, doctorId, name.slice(0, 120), visitType, textOrNull(s.description)?.slice(0, 255) || null, JSON.stringify(cleaned.fields), makeDefault ? 1 : 0]
         );
         added++;
     }
@@ -19279,35 +19243,11 @@ app.delete('/api/doctor-templates/:templateId', async (req, res) => {
 
 // Incident Reports API
 
-// Helper function to generate daily resetting incremental IDs (e.g., INC-100226001)
-const generateDailyId = async (prefix, tableName, idColumn) => {
-    const now = new Date();
-    const mm = String(now.getMonth() + 1).padStart(2, '0');
-    const dd = String(now.getDate()).padStart(2, '0');
-    const yy = String(now.getFullYear()).slice(-2);
-    const dateStr = `${mm}${dd}${yy}`;
-
-    const searchPattern = `${prefix}-${dateStr}%`;
-    const [rows] = await pool.query(
-        `SELECT ${idColumn} FROM ${tableName} WHERE ${idColumn} LIKE ? ORDER BY ${idColumn} DESC LIMIT 1`,
-        [searchPattern]
-    );
-
-    let sequence = 1;
-    if (rows.length > 0) {
-        const lastId = rows[0][idColumn];
-        const lastSeq = parseInt(lastId.slice(-3), 10);
-        if (!isNaN(lastSeq)) {
-            sequence = lastSeq + 1;
-        }
-    }
-
-    const seqStr = String(sequence).padStart(3, '0');
-    return `${prefix}-${dateStr}${seqStr}`;
-};
+// Incident ids are uuids too
+const generateDailyId = async (prefix, tableName, idColumn) => generateCustomId(prefix, tableName, idColumn);
 
 // Standard fallback helper for non-daily unique IDs
-const generateId = (prefix) => `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+const generateId = (prefix) => shortId(prefix);
 
 // ----------------================================================--
 // 1. INCIDENT REPORTS API
@@ -19466,7 +19406,7 @@ app.post('/api/incident-reports', async (req, res) => {
                 const remainingVolume = parseFloat(batch.remaining_volume);
                 const strengthUnitVal = parseFloat(batch.strength_unit_value);
 
-                if (new Date(batch.expiration_date) < new Date()) {
+                if (isBatchExpired(batch.expiration_date)) {
                     throw Object.assign(new Error('Cannot dispense medicine from an expired batch.'), { userFacing: true });
                 }
 
@@ -19502,13 +19442,8 @@ app.post('/api/incident-reports', async (req, res) => {
                     );
                 }
 
-                // Same DISP-MMDDYYXXX numbering as the clinic visit dispensation
-                const now = new Date();
-                const dispPrefix = `${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}${String(now.getFullYear()).slice(-2)}`;
-                const [dispCountRows] = await connection.execute(
-                    `SELECT COUNT(*) AS totalToday FROM consultation_dispensation WHERE DATE(dispensed_at) = CURDATE() FOR UPDATE`
-                );
-                const dispensation_id = `DISP-${dispPrefix}${String(dispCountRows[0].totalToday + 1).padStart(3, '0')}`;
+                // Same uuid id as the clinic visit dispensation
+                const dispensation_id = await nextDispenseId(connection, 'consultation_dispensation', 'consultation_dispense_id');
 
                 await connection.execute(
                     `INSERT INTO consultation_dispensation
@@ -19822,7 +19757,7 @@ app.get('/api/insurance-vault/student/:student_id/files', async (req, res) => {
 // 4. Initialize Vault Folder for Student
 app.post('/api/insurance-vault/create-vault', async (req, res) => {
     const { student_id, managed_by_nurse_id } = req.body;
-    const vault_file_id = 'VF-' + Date.now();
+    const vault_file_id = shortId('VF');
 
     if (!student_id || !managed_by_nurse_id) {
         return res.status(400).json({ error: "Student ID and Nurse ID are required" });
@@ -19848,10 +19783,10 @@ app.post('/api/insurance-vault/create-vault', async (req, res) => {
 });
 
 // 5. Add File Inside Vault Folder
-app.post('/api/insurance-vault/add-file', upload.single('file'), async (req, res) => {
+app.post('/api/insurance-vault/add-file', ...uploadOne('file'), async (req, res) => {
     const { student_id, document_name, description_notes, managed_by_nurse_id } = req.body;
     const file_url = req.file ? `/uploads/${req.file.filename}` : '';
-    const vault_file_id = 'VF-' + Date.now();
+    const vault_file_id = shortId('VF');
 
     if (!student_id || !document_name || !managed_by_nurse_id) {
         return res.status(400).json({ error: "Missing required fields" });
@@ -19875,7 +19810,9 @@ app.post('/api/insurance-vault/add-file', upload.single('file'), async (req, res
 app.delete('/api/insurance-vault/file/:id', async (req, res) => {
     const { id } = req.params;
     try {
+        const [oldFiles] = await pool.query(`SELECT file_url FROM insurance_vault_files WHERE vault_file_id = ?`, [id]);
         await pool.query(`DELETE FROM insurance_vault_files WHERE vault_file_id = ?`, [id]);
+        oldFiles.forEach((f) => removeStoredUpload(f.file_url));
         res.json({ success: true, message: "File deleted successfully" });
     } catch (err) {
         console.error("Error deleting file:", err);
@@ -19887,7 +19824,9 @@ app.delete('/api/insurance-vault/file/:id', async (req, res) => {
 app.delete('/api/insurance-vault/student/:student_id', async (req, res) => {
     const { student_id } = req.params;
     try {
+        const [oldFiles] = await pool.query(`SELECT file_url FROM insurance_vault_files WHERE student_id = ?`, [student_id]);
         await pool.query(`DELETE FROM insurance_vault_files WHERE student_id = ?`, [student_id]);
+        oldFiles.forEach((f) => removeStoredUpload(f.file_url));
         res.json({ success: true, message: "Vault folder deleted successfully" });
     } catch (err) {
         console.error("Error deleting vault folder:", err);
@@ -20007,6 +19946,7 @@ app.get('/medicine-dispensed/clinicLogs&Records', async (req, res) => {
     const { studentId, startDate, endDate } = req.query;
     if (!studentId) return res.status(400).json({ error: 'studentId is required' });
 
+    await ensureDirectDispenseSpecifyColumn();
     const params = [];
 
     let directWhere = ` WHERE d.student_id = ?`;
@@ -20031,15 +19971,21 @@ app.get('/medicine-dispensed/clinicLogs&Records', async (req, res) => {
         s.first_name,
         s.last_name,
         d.nurse_id,
+        nd.first_name AS nurse_first_name,
+        nd.last_name AS nurse_last_name,
         NULL AS visit_id,
         m.brand_name,
         m.generic_name,
         d.dosage_consumption_unit_value,
         d.dosage_consumption_unit_of_measure,
         CONCAT(d.dosage_consumption_unit_value, ' ', d.dosage_consumption_unit_of_measure) AS quantity_dispensed,
-        d.dispensed_at
+        d.dispensed_at,
+        ccd.complaint_name,
+        d.specify_complaint_text
       FROM direct_dispensation d
       LEFT JOIN students s ON d.student_id = s.student_id
+      LEFT JOIN nurses nd ON d.nurse_id = nd.nurse_id
+      LEFT JOIN chief_complaints ccd ON d.complaint_id = ccd.complaint_id
       LEFT JOIN medicine_inventory_batches b ON d.batch_id = b.batch_id
       LEFT JOIN medicines m ON b.medicine_id = m.medicine_id
       ${directWhere}
@@ -20053,15 +19999,21 @@ app.get('/medicine-dispensed/clinicLogs&Records', async (req, res) => {
         s.first_name,
         s.last_name,
         cv.nurse_id,
+        nc.first_name AS nurse_first_name,
+        nc.last_name AS nurse_last_name,
         c.visit_id,
         m.brand_name,
         m.generic_name,
         c.dosage_consumption_unit_value,
         c.dosage_consumption_unit_of_measure,
         CONCAT(c.dosage_consumption_unit_value, ' ', c.dosage_consumption_unit_of_measure) AS quantity_dispensed,
-        c.dispensed_at
+        c.dispensed_at,
+        ccc.complaint_name,
+        cv.specify_complaint_text
       FROM consultation_dispensation c
       LEFT JOIN clinic_visits cv ON c.visit_id = cv.visit_id
+      LEFT JOIN nurses nc ON cv.nurse_id = nc.nurse_id
+      LEFT JOIN chief_complaints ccc ON cv.complaint_id = ccc.complaint_id
       LEFT JOIN students s ON cv.student_id = s.student_id
       LEFT JOIN medicine_inventory_batches b ON c.batch_id = b.batch_id
       LEFT JOIN medicines m ON b.medicine_id = m.medicine_id
@@ -20083,16 +20035,27 @@ app.get('/incident-reports/clinicLogs&Records', async (req, res) => {
     const { studentId, startDate, endDate } = req.query;
     if (!studentId) return res.status(400).json({ error: 'studentId is required' });
 
+    await ensureIncidentDispenseColumns();
+    // same columns as the nurse's Incident Reports list, so the student / parent form shows the same filled-in report
     let query = `
-      SELECT 
+      SELECT
         ir.*,
         s.first_name AS student_first_name,
         s.last_name AS student_last_name,
+        s.year_level,
+        s.section,
+        s.program_id,
         n.first_name AS nurse_first_name,
-        n.last_name AS nurse_last_name
+        n.last_name AS nurse_last_name,
+        CONCAT(m.brand_name, ' (', m.generic_name, ')') AS medicine_name,
+        cd.dosage_consumption_unit_value,
+        cd.dosage_consumption_unit_of_measure
       FROM incident_reports ir
       LEFT JOIN students s ON ir.student_id = s.student_id
       LEFT JOIN nurses n ON ir.nurse_id = n.nurse_id
+      LEFT JOIN consultation_dispensation cd ON cd.incident_id = ir.incident_id
+      LEFT JOIN medicine_inventory_batches mib ON cd.batch_id = mib.batch_id
+      LEFT JOIN medicines m ON mib.medicine_id = m.medicine_id
       WHERE ir.student_id = ?
     `;
     const params = [studentId];
@@ -21478,7 +21441,7 @@ app.put('/api/messages/read/:userId/:contactId', async (req, res) => {
 // ==========================================
 // 3. SEND MESSAGE & TRIGGER WEB PUSH (IF USER OFFLINE)
 // ==========================================
-app.post('/api/messages/send', upload.single('media'), async (req, res) => {
+app.post('/api/messages/send', ...uploadOne('media'), async (req, res) => {
     const { sender_id, receiver_id, message_type, content } = req.body;
 
     if (!sender_id || !receiver_id || sender_id === 'undefined' || receiver_id === 'undefined') {
@@ -21559,7 +21522,9 @@ app.delete('/api/messages/:messageId', async (req, res) => {
     const { messageId } = req.params;
 
     try {
+        const [oldMedia] = await pool.query('SELECT media_url FROM messages WHERE message_id = ?', [messageId]);
         await pool.query('DELETE FROM messages WHERE message_id = ?', [messageId]);
+        oldMedia.forEach((m) => removeStoredUpload(m.media_url));
         res.json({ success: true, message: 'Message deleted successfully' });
     } catch (error) {
         console.error('Error deleting message:', error);
@@ -21578,7 +21543,9 @@ app.delete('/api/messages/conversations/:userId/:contactId', async (req, res) =>
     `;
 
     try {
+        const [oldMedia] = await pool.query('SELECT media_url FROM messages WHERE media_url IS NOT NULL AND ((sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?))', [userId, contactId, contactId, userId]);
         await pool.query(sql, [userId, contactId, contactId, userId]);
+        oldMedia.forEach((m) => removeStoredUpload(m.media_url));
         res.json({ success: true, message: 'Conversation cleared successfully' });
     } catch (error) {
         console.error('Error deleting conversation:', error);
@@ -21854,75 +21821,6 @@ app.put('/api/messages/read/:userId/:contactId', async (req, res) => {
     }
 });
 
-// 6. Send Message with File/Audio/Video/Image Upload
-// 6. Send Message with File/Audio/Video/Image Upload & Web Push
-app.post('/api/messages/send', upload.single('media'), async (req, res) => {
-    const { sender_id, receiver_id, message_type, content } = req.body;
-
-    if (!sender_id || !receiver_id || sender_id === 'undefined' || receiver_id === 'undefined') {
-        return res.status(400).json({ 
-            success: false, 
-            message: 'Invalid sender_id or receiver_id provided.' 
-        });
-    }
-
-    const media_url = req.file ? `/uploads/${req.file.filename}` : null;
-    const safeContent = content && content.trim() !== '' ? content.trim() : null;
-
-    const sql = `
-        INSERT INTO messages (sender_id, receiver_id, message_type, content, media_url, is_read)
-        VALUES (?, ?, ?, ?, ?, FALSE);
-    `;
-
-    try {
-        const [result] = await pool.query(sql, [
-            sender_id,
-            receiver_id,
-            message_type || 'text',
-            encryptText(safeContent),
-            media_url
-        ]);
-
-        const [newMessage] = await pool.query('SELECT * FROM messages WHERE message_id = ?', [result.insertId]);
-
-        // Trigger Web Push ONLY if recipient is NOT currently active in the system
-        if (!isUserActiveInSystem(receiver_id)) {
-            // Fetch sender full name for notification preview
-            const [senderRows] = await pool.query(
-                `SELECT first_name, last_name FROM (
-                    SELECT user_id, first_name, last_name FROM students
-                    UNION ALL
-                    SELECT user_id, first_name, last_name FROM parents
-                    UNION ALL
-                    SELECT user_id, first_name, last_name FROM nurses
-                ) u WHERE user_id = ? LIMIT 1`,
-                [sender_id]
-            );
-
-            const senderName = senderRows.length > 0 
-                ? `${senderRows[0].first_name} ${senderRows[0].last_name}` 
-                : 'Someone';
-
-            const pushMessage = safeContent 
-                ? (safeContent.length > 60 ? safeContent.substring(0, 57) + '...' : safeContent)
-                : (media_url ? `Sent an attachment (${message_type || 'file'})` : 'Sent a new message');
-
-            await notifyUsers({
-                sender_id,
-                recipient_ids: [receiver_id],
-                title: `New Message from ${senderName}`,
-                message: pushMessage,
-                type: 'MESSAGE',
-                payloadData: { sender_id, type: 'MESSAGE' }
-            });
-        }
-
-        res.json({ success: true, message: decryptMessageRows(newMessage[0]) });
-    } catch (error) {
-        console.error('Database Error in /api/messages/send:', error);
-        res.status(500).json({ success: false, message: 'Database failed to store message.', error: error.message });
-    }
-});
 
 // 7. Delete an Individual Message
 app.delete('/api/messages/:messageId', async (req, res) => {
@@ -22127,7 +22025,7 @@ app.get('/api/nurse/dashboard', async (req, res) => {
 app.get('/api/nurse/dashboard-calendar', async (req, res) => {
   try {
     const match = /^(\d{4})-(\d{2})$/.exec(String(req.query.month || ''));
-    const now = new Date();
+    const now = nowManila();
     const year = match ? Number(match[1]) : now.getFullYear();
     const month = match ? Number(match[2]) : now.getMonth() + 1;
     if (month < 1 || month > 12) return res.status(400).json({ success: false, message: 'Invalid month.' });
@@ -23297,7 +23195,7 @@ app.post('/api/push-subscribe', async (req, res) => {
                 [actualUserId, keys.p256dh, keys.auth, endpoint]
             );
         } else {
-            const subscription_id = `SUB-${uuidv4().substring(0, 8)}`;
+            const subscription_id = `SUB-${uuidv4().substring(0, 12)}`;
             await pool.query(
                 `INSERT INTO push_subscriptions (subscription_id, user_id, endpoint, p256dh, auth, created_at)
                  VALUES (?, ?, ?, ?, ?, NOW())`,
@@ -23313,34 +23211,6 @@ app.post('/api/push-subscribe', async (req, res) => {
 });
 
 
-//Parent Messaging
-// 1. SEND MESSAGE (Parent -> Nurse or Nurse -> Parent / Student)
-app.post('/api/messages/send', async (req, res) => {
-    const { sender_id, receiver_id, content, message_type = 'text' } = req.body;
-
-    if (!sender_id || !receiver_id || !content) {
-        return res.status(400).json({ success: false, message: 'Missing required fields' });
-    }
-
-    try {
-        const query = `
-            INSERT INTO messages (sender_id, receiver_id, message_type, content, is_read, created_at)
-            VALUES (?, ?, ?, ?, 0, NOW(3));
-        `;
-        // Explicitly cast parameters to String to prevent MySQL type coercion
-        const [result] = await pool.query(query, [
-            String(sender_id), 
-            String(receiver_id), 
-            String(message_type), 
-            encryptText(String(content))
-        ]);
-
-        res.json({ success: true, message_id: result.insertId });
-    } catch (err) {
-        console.error('Error sending message:', err);
-        res.status(500).json({ success: false, message: 'Failed to send message' });
-    }
-});
 
 // 2. RECEIVE / FETCH MESSAGES THREAD (Both Sent & Received)
 app.get('/api/messages/:userId/:contactUserId', async (req, res) => {
@@ -23452,80 +23322,6 @@ app.get('/api/parent/:parentId/contacts', async (req, res) => {
 
 
 
-//unified
-// 1. Unified Send Message (Handles Text, Image, Video, Audio, and Documents)
-// 1. Unified Send Message Endpoint with Inactive Web Push Trigger
-app.post('/api/messages/send', upload.single('media'), async (req, res) => {
-    const { sender_id, receiver_id, message_type, content } = req.body;
-
-    if (!sender_id || !receiver_id || sender_id === 'undefined' || receiver_id === 'undefined') {
-        return res.status(400).json({ 
-            success: false, 
-            message: 'Invalid sender_id or receiver_id provided.' 
-        });
-    }
-
-    const media_url = req.file ? `/uploads/${req.file.filename}` : null;
-    const safeContent = content && content.trim() !== '' ? content.trim() : null;
-
-    if (!safeContent && !media_url) {
-        return res.status(400).json({ success: false, message: 'Message content or file attachment is required.' });
-    }
-
-    const sql = `
-        INSERT INTO messages (sender_id, receiver_id, message_type, content, media_url, is_read, created_at)
-        VALUES (?, ?, ?, ?, ?, FALSE, NOW(3));
-    `;
-
-    try {
-        const [result] = await pool.query(sql, [
-            String(sender_id),
-            String(receiver_id),
-            message_type || 'text',
-            encryptText(safeContent),
-            media_url
-        ]);
-
-        const [newMessage] = await pool.query('SELECT * FROM messages WHERE message_id = ?', [result.insertId]);
-
-        // Trigger Web Push Notification ONLY if the recipient is NOT currently active in the system
-        if (!isUserActiveInSystem(receiver_id)) {
-            // Resolve sender full name across role tables
-            const [senderRows] = await pool.query(
-                `SELECT first_name, last_name FROM (
-                    SELECT user_id, first_name, last_name FROM students
-                    UNION ALL
-                    SELECT user_id, first_name, last_name FROM parents
-                    UNION ALL
-                    SELECT user_id, first_name, last_name FROM nurses
-                ) u WHERE user_id = ? LIMIT 1`,
-                [String(sender_id)]
-            );
-
-            const senderName = senderRows.length > 0 
-                ? `${senderRows[0].first_name} ${senderRows[0].last_name}` 
-                : 'Someone';
-
-            const pushMessage = safeContent 
-                ? (safeContent.length > 60 ? safeContent.substring(0, 57) + '...' : safeContent)
-                : (media_url ? `Sent an attachment (${message_type || 'file'})` : 'Sent a new message');
-
-            await notifyUsers({
-                sender_id: String(sender_id),
-                recipient_ids: [String(receiver_id)],
-                title: `New Message from ${senderName}`,
-                message: pushMessage,
-                type: 'MESSAGE',
-                payloadData: { sender_id: String(sender_id), type: 'MESSAGE' }
-            });
-        }
-
-        res.json({ success: true, message: decryptMessageRows(newMessage[0]), message_id: result.insertId });
-    } catch (error) {
-        console.error('Database error in /api/messages/send:', error);
-        res.status(500).json({ success: false, message: 'Database failed to store message.', error: error.message });
-    }
-});
 
 // 2. Fetch Chat History / Thread (Both Nurse & Parent)
 app.get('/api/messages/:userId/:contactUserId', async (req, res) => {
@@ -24183,5 +23979,20 @@ ensureDirectDispenseSpecifyColumn().catch((err) => console.error('Could not prep
 ensureSessionEndTable().catch((err) => console.error('Could not prepare the session end table:', err.message));
 ensureScreeningEndColumns().catch((err) => console.error('Could not prepare the screening end columns:', err.message));
 ensureSchoolYears().catch((err) => console.error('Could not prepare the school years:', err.message));
+
+// Upload errors (too big, type refused, too many files) answer in JSON instead of the default 500 page
+app.use((err, req, res, next) => {
+    if (res.headersSent) return next(err);
+    const isMulter = err instanceof multer.MulterError;
+    if (isMulter || err?.code === 'UPLOAD_TYPE_REFUSED') {
+        removeUploadedFiles(req);
+        const message = err.code === 'LIMIT_FILE_SIZE'
+            ? `The file is too large (max ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)} MB).`
+            : err.code === 'UPLOAD_TYPE_REFUSED' ? err.message : 'The upload was refused.';
+        return res.status(err.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ success: false, message, error: message });
+    }
+    console.error('Unhandled error:', err);
+    res.status(500).json({ success: false, message: 'Server error.', error: 'Server error.' });
+});
 
 app.listen(3001, () => console.log('Server running on port 3001'));

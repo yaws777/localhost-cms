@@ -268,6 +268,18 @@ export default function HealthHistoryForm() {
             return;
         }
 
+        const noProof = health.validateProofs();
+        if (noProof.keys.length) {
+            showError(
+                `Please upload a proof file for: ${noProof.labels.join(', ')}.`,
+                () => {
+                    const first = document.querySelector('.hh-page input[type="file"][aria-invalid="true"]');
+                    if (first) first.focus();
+                }
+            );
+            return;
+        }
+
         showConfirm(
             'Are you sure you want to submit this Health History record?',
             executeSubmit
@@ -412,7 +424,7 @@ export default function HealthHistoryForm() {
                                     <p className="hh-count" role="status">{selectedCount} selected</p>
                                 </div>
 
-                                <HealthConditionsEditor editor={health} />
+                                <HealthConditionsEditor editor={health} requireProof />
                             </section>
 
                             <div className="hh-actions">

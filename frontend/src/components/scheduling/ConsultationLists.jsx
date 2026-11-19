@@ -167,7 +167,7 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
     // the sessions running right now: each one has a queue the doctor works through
     const fetchRunning = useCallback(async () => {
         try {
-            const today = new Date().toLocaleDateString('sv-SE');
+            const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Manila' });
             const qs = new URLSearchParams({ from: today, to: today });
             if (doctorId) qs.set('doctor_id', doctorId);
             else if (isNurse && doctorFilter) qs.set('doctor_id', doctorFilter);

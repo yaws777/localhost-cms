@@ -3,16 +3,14 @@
 // A doctor appoints a student only into a schedule the doctor already has (no schedule, no appointing).
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useOutletContext, useSearchParams, useNavigate } from 'react-router-dom';
-import { Search, FolderHeart, CalendarClock, CalendarX, Printer, Users, ChevronDown, X, Check, AlertTriangle, ExternalLink, Flag, FlagOff } from 'lucide-react';
+import { Search, FolderHeart, CalendarClock, CalendarX, Users, ChevronDown, X, Check, AlertTriangle, ExternalLink, Flag, FlagOff } from 'lucide-react';
 import Modal from '../../components/common/Modal';
 import { useAlert } from '../../context/AlertContext';
 import { useSpecializations } from '../../hooks/useSpecializations';
 import { formatDate, formatTime, formatTimeRange } from '../../utils/datetime';
 import { classLabel } from '../../utils/scheduling';
 import { visitLabel, initials, fullName, statusClass, statusLabel } from '../../utils/visitPurpose';
-import { printDocument, visitDocumentHtml } from '../../utils/doctorVisitDocuments';
-import { hasVitals, vitalsLine, inVitalsOf, outVitalsOf } from '../../utils/vitals';
-import { dispensedLine } from '../../utils/dispensed';
+import AssessmentForm from '../../components/doctor/AssessmentForm';
 import '../../styles/doctor/DoctorLayout.css';
 
 const API = 'http://localhost:3001';
@@ -41,34 +39,10 @@ const AttentionButton = ({ flagged, name, onClick }) => {
 
 const AttentionChip = () => <span className="dp-chip attention"><AlertTriangle size={14} aria-hidden="true" /> Need Attention</span>;
 
-const ConsultationDetails = ({ c, onPrint }) => {
-    const rx = Array.isArray(c.prescriptions) ? c.prescriptions : [];
-    const answers = Array.isArray(c.template_responses) ? c.template_responses : [];
-    return (
-        <>
-            <dl className="dp-kv">
-                <dt>Doctor</dt><dd>Dr. {c.doc_first_name} {c.doc_last_name}{c.specialization ? ` (${c.specialization})` : ''}</dd>
-                {hasVitals(inVitalsOf(c)) && <><dt>Vital signs (time in)</dt><dd>{vitalsLine(inVitalsOf(c))}</dd></>}
-                {hasVitals(outVitalsOf(c)) && <><dt>Vital signs (time out)</dt><dd>{vitalsLine(outVitalsOf(c))}</dd></>}
-                <dt>Findings</dt><dd>{c.clinical_findings}</dd>
-                <dt>Diagnosis</dt><dd>{c.diagnosis}</dd>
-                {c.treatment_recommendations && <><dt>Treatment plan</dt><dd>{c.treatment_recommendations}</dd></>}
-                {rx.length > 0 && (
-                    <>
-                        <dt>Prescription</dt>
-                        <dd>{rx.map((p, i) => <div key={i}><strong>{p.medicine}</strong>{[p.dosage, p.frequency, p.duration ? `for ${p.duration}` : ''].filter(Boolean).length > 0 ? ` - ${[p.dosage, p.frequency, p.duration ? `for ${p.duration}` : ''].filter(Boolean).join(', ')}` : ''}{p.instructions ? ` (${p.instructions})` : ''}</div>)}</dd>
-                    </>
-                )}
-                {dispensedLine(c) && <><dt>Medicine dispensed</dt><dd>{dispensedLine(c)}</dd></>}
-                {answers.map((r) => <React.Fragment key={r.key}><dt>{r.label}</dt><dd>{Array.isArray(r.value) ? r.value.join(', ') : r.value}</dd></React.Fragment>)}
-                {(c.follow_up_date || c.follow_up_notes) && <><dt>Follow-up</dt><dd>{[c.follow_up_date ? formatDate(c.follow_up_date) : '', c.follow_up_notes || ''].filter(Boolean).join(' - ')}</dd></>}
-            </dl>
-            <div className="dpt-cu-foot">
-                <button type="button" className="dp-btn dp-btn-ghost dp-btn-icon" onClick={() => onPrint(c)} aria-label="Print summary" title="Print summary"><Printer size={20} aria-hidden="true" /></button>
-            </div>
-        </>
-    );
-};
+// one documented check-up: the assessment form, read only, with the PDF button
+const ConsultationDetails = ({ c, student }) => (
+    <AssessmentForm a={c} ctx={{ student: fullName(student?.first_name, student?.last_name), studentId: student?.student_id }} />
+);
 
 // A student is appointed into one of the doctor's own schedules (a place in its queue), never at a free time
 const sessionLabel = (s) => {
@@ -273,8 +247,6 @@ const DoctorPatients = () => {
 
     const toggle = (id) => setOpen((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
 
-    const print = (c) => printDocument('Doctor visit summary', visitDocumentHtml('summary', c, 'School Nurse'),
-        () => showAlert('The print window was blocked. Allow pop-ups for this site and try again.', 'warning'));
 
     const clearSearch = () => { setSearch(''); setQuery(''); if (urlQuery) setParams({}, { replace: true }); };
     const pickScope = (key) => { setScope(key); clearSearch(); };
@@ -396,7 +368,7 @@ const DoctorPatients = () => {
                                                 {!!c.is_abnormal && <AttentionChip />}
                                                 <ChevronDown size={20} className="dpt-chev" aria-hidden="true" />
                                             </button>
-                                            {isOpen && <div id={panelId} className="dpt-cu-body"><ConsultationDetails c={c} onPrint={print} /></div>}
+                                            {isOpen && <div id={panelId} className="dpt-cu-body"><ConsultationDetails c={c} student={record.student} /></div>}
                                         </div>
                                     );
                                 })}

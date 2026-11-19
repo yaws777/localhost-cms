@@ -5,7 +5,7 @@ import { useAlert } from '../../context/AlertContext';
 import '../../styles/nurse/HealthHistoryEdit.css';
 
 // Nurse edits the student's health history with the same cards as the student's Health History form:
-// tick a condition, fill at least one of its fields, optionally attach a proof file.
+// tick a condition, fill at least one of its fields, attach a proof file (required unless one is already saved).
 // onSave(info, files): `files` = [[has_* flag, File], ...] for the ticked conditions.
 export default function HealthHistoryEditModal({ initial, savedProofs, saving, onSave, onClose }) {
     const { showAlert } = useAlert();
@@ -45,6 +45,13 @@ export default function HealthHistoryEditModal({ initial, savedProofs, saving, o
             if (first) first.focus();
             return;
         }
+        const noProof = editor.validateProofs(savedProofs);
+        if (noProof.keys.length) {
+            await showAlert(`Upload a proof file for: ${noProof.labels.join(', ')}.`, 'warning');
+            const first = rootRef.current && rootRef.current.querySelector('input[type="file"][aria-invalid="true"]');
+            if (first) first.focus();
+            return;
+        }
         onSave(editor.info, editor.filesToSend());
     };
 
@@ -59,7 +66,7 @@ export default function HealthHistoryEditModal({ initial, savedProofs, saving, o
                 </div>
                 <form onSubmit={submit} noValidate>
                     <div className="hhe-body hh-page">
-                        <HealthConditionsEditor editor={editor} savedProofs={savedProofs} idPrefix="hhe-" />
+                        <HealthConditionsEditor editor={editor} savedProofs={savedProofs} idPrefix="hhe-" requireProof />
                     </div>
                     <div className="hhe-foot">
                         <button type="button" className="hhe-btn ghost" onClick={onClose} disabled={saving}>Cancel</button>

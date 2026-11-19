@@ -313,7 +313,7 @@ const WaitingList = ({ fixedDoctorId, creator, userId, refreshKey, focusSchedule
                             <table className="sti-table-dv">
                                 <caption className="sr-only">Past session listings</caption>
                                 <thead>
-                                    <tr><th>Check-up service</th><th>Date and time</th><th>Listed</th><th>Seen</th><th>Actions</th></tr>
+                                    <tr><th>Check-up service</th><th>Date and time</th><th>Listed</th><th>Completed</th><th>Actions</th></tr>
                                 </thead>
                                 <tbody>
                                     {pageOf(pastSessions, tablePageCur).map((x) => (

@@ -1228,7 +1228,7 @@ export const RequirementManagement = () => {
     const programTypeLabel = (p) => (getYearLevelOptions(p).length === 2 ? 'Strand' : 'Course');
     const programStudentCount = (id) => students.filter(s => String(s.program_id) === String(id)).length;
     const nextDueOf = (list) => {
-        const today = new Date().toISOString().split('T')[0];
+        const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Manila' });
         const upcoming = list.map(c => formatDeadlineDate(c.submission_deadline)).filter(d => d && d >= today).sort();
         return upcoming[0] || null;
     };

@@ -22,6 +22,8 @@ import SectionStudents from '../../components/nurse/SectionStudents';
 import StudentScreeningHistoryModal from '../../components/nurse/StudentScreeningHistoryModal';
 import { calculate } from '../../utils/formula';
 import { classLabel } from '../../utils/scheduling';
+import { FormPdfButton } from '../../components/common/FormDocument';
+import { buildScreeningModel } from '../../utils/formModels';
 import SessionEndPrompt from '../../components/scheduling/SessionEndPrompt';
 import { HsDialog, HsDialogHeader } from '../../components/nurse/HsDialog';
 import ConfirmModal from '../../components/common/ConfirmModal';
@@ -375,7 +377,7 @@ export default function HealthScreening() {
   const screeningOver = (sch) => {
     if (!sch) return false;
     if (sch.end_confirmed_at) return true;
-    return String(sch.scheduled_date).split('T')[0] < new Date().toLocaleDateString('sv-SE');
+    return String(sch.scheduled_date).split('T')[0] < new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Manila' });
   };
 
   // Helper Modal Trigger Functions
@@ -1464,6 +1466,36 @@ export default function HealthScreening() {
     });
     setDocLocked(locked);
     setShowDocModal(true);
+  };
+
+  // the result in the Document Result modal as the filled-in screening form (for the PDF icon)
+  const screeningFormModel = () => {
+    const sch = activeSchedule;
+    const st = selectedStudent;
+    const answers = docData.answers || {};
+    const results = sch.form_kind === 'CUSTOM'
+      ? (sch.template?.fields || []).map((f) => {
+        if (f.type === 'calculated') {
+          const c = calculate(f, answers);
+          return { label: f.label, value: c ? c.value : '', unit: f.unit, note: c ? c.label : '' };
+        }
+        return { label: f.label, value: answers[f.key] ?? '', unit: f.unit };
+      })
+      : [{ label: 'Left ear', value: docData.left_ear_result }, { label: 'Right ear', value: docData.right_ear_result }];
+    return buildScreeningModel({
+      student: `${st.first_name || ''} ${st.last_name || ''}`.trim(),
+      studentId: st.student_id,
+      classText: classLabel(st.program_id, st.year_level, st.section),
+      type: sch.screening_type,
+      title: sch.title && sch.title !== sch.screening_type ? sch.title : '',
+      date: sch.scheduled_date,
+      time: sch.start_time && sch.end_time ? `${formatTime(sch.start_time)} - ${formatTime(sch.end_time)}` : '',
+      status: 'Completed',
+      attendance: 'Present',
+      results,
+      remarks: docData.remarks,
+      abnormal: !!st.is_abnormal
+    });
   };
 
   const handleDocSubmit = async (e) => {
@@ -3036,6 +3068,7 @@ export default function HealthScreening() {
                   <span className="foot-note-hs" role="status"><AlertTriangle size={14} aria-hidden="true" /> {outN} out of range</span>
                 ) : null;
               })()}
+              {hasResult(selectedStudent) && <FormPdfButton model={screeningFormModel()} />}
               {!docLocked && <button type="button" className="btn-hs btn-secondary-hs" onClick={() => setShowDocModal(false)}>Cancel</button>}
               <button type="submit" className="btn-hs btn-primary-hs">Save</button>
             </div>

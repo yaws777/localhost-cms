@@ -2,9 +2,11 @@
 // Every screening of one student (results, absences), grouped by school year. Trends on top, school year / status chips,
 // one card per record with a tile per reading (the result string is split into readings by parseSummary).
 import React, { useMemo, useState } from 'react';
-import { AlertTriangle, Check, FileText, UserX } from 'lucide-react';
+import { AlertTriangle, Check, Eye, FileText, UserX } from 'lucide-react';
 import { HsDialog, HsDialogHeader } from './HsDialog';
 import { classLabel as classLabelOf } from '../../utils/scheduling';
+import { FormDocumentModal } from '../common/FormDocument';
+import { buildScreeningModel } from '../../utils/formModels';
 
 const ATTENDANCE_LABEL = { ABSENT: 'Absent', CANCELLED: 'Cancelled', PENDING: 'Not documented', PRESENT: 'Present' };
 const MISS_LINE = { ABSENT: 'Did not attend', CANCELLED: 'Screening cancelled' };
@@ -110,6 +112,7 @@ const Tile = ({ m }) => (
 export default function StudentScreeningHistoryModal({ student, rows, loading, onClose, zIndex = 1050 }) {
   const [year, setYear] = useState('ALL');
   const [status, setStatus] = useState('ALL');
+  const [formModel, setFormModel] = useState(null); // the screening opened as its filled-in form
 
   const records = useMemo(() => rows.map((r) => ({
     ...r,
@@ -135,6 +138,22 @@ export default function StudentScreeningHistoryModal({ student, rows, loading, o
   const name = `${student.first_name || ''} ${student.last_name || ''}`.trim();
   const classLabel = classLabelOf(student.program_id || student.program_name, student.year_level, student.section);
 
+  // one record as the filled-in screening form (with the PDF icon)
+  const openForm = (h) => setFormModel(buildScreeningModel({
+    student: name,
+    studentId: student.student_id,
+    classText: classLabel,
+    type: h.screening_type,
+    title: h.title !== h.screening_type ? h.title : '',
+    date: h.date,
+    status: h.status === 'miss' ? 'Missed' : 'Completed',
+    attendance: ATTENDANCE_LABEL[h.attendance_status] || '',
+    schoolYear: h.school_year,
+    results: h.metrics.map((m) => ({ label: m.label, value: m.value, unit: m.unit, note: m.tag })),
+    remarks: h.remarks,
+    abnormal: !!h.is_abnormal
+  }));
+
   const yearChip = (value, label, n) => (
     <button key={value} type="button" className="hist-chip-hs" aria-pressed={year === value} onClick={() => setYear(value)}>
       {label}<span className="n">{n}</span>
@@ -147,6 +166,7 @@ export default function StudentScreeningHistoryModal({ student, rows, loading, o
   );
 
   return (
+    <>
     <HsDialog onClose={onClose} zIndex={zIndex}>
       <HsDialogHeader
         onClose={onClose}
@@ -203,7 +223,12 @@ export default function StudentScreeningHistoryModal({ student, rows, loading, o
                               <h4>{h.title}</h4>
                               <span className="type">{h.screening_type}</span>
                             </div>
-                            <StatusBadge row={h} />
+                            <div className="hist-actions-hs">
+                              <StatusBadge row={h} />
+                              <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => openForm(h)} aria-label="Open form" title="Open form">
+                                <Eye size={18} aria-hidden="true" />
+                              </button>
+                            </div>
                           </div>
                           {h.status === 'miss' ? (
                             <p className="hist-miss-line-hs"><UserX size={16} aria-hidden="true" />{MISS_LINE[h.attendance_status] || 'Not documented'}</p>
@@ -227,5 +252,7 @@ export default function StudentScreeningHistoryModal({ student, rows, loading, o
         <button type="button" className="btn-hs btn-secondary-hs" onClick={onClose}>Close</button>
       </div>
     </HsDialog>
+    {formModel && <FormDocumentModal model={formModel} onClose={() => setFormModel(null)} />}
+    </>
   );
 }

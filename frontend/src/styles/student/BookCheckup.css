@@ -264,6 +264,8 @@
     box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
 }
 
+.modal-wide-bc { width: 760px; }
+
 .modal-header-bc {
     display: flex;
     justify-content: space-between;

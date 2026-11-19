@@ -525,7 +525,6 @@ export const WalkInModal = ({ isOpen, doctors, fixedDoctorId, schedule, creator,
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="Walk-in patient" icon={<Footprints size={20} />} size="md">
             <form className="dp-form" onSubmit={submit}>
-                <div className="dp-notice">A walk-in joins the walk-in queue (W1, W2, ...) of the session that is running now. The doctor calls the walk-ins after the appointed students.</div>
                 {error && <div className="dp-error">{error}</div>}
 
                 {!fixedDoctorId && (

@@ -11,7 +11,7 @@ export const useTodaySessions = (doctorId) => {
 
     const reload = useCallback(async () => {
         try {
-            const today = new Date().toLocaleDateString('sv-SE');
+            const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Manila' });
             const qs = new URLSearchParams({ from: today, to: today });
             if (doctorId) qs.set('doctor_id', doctorId);
             const data = await fetch(`${API}/api/schedule-calendar?${qs.toString()}`).then((r) => r.json());

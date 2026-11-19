@@ -17,7 +17,7 @@ import {
 import { useAlert } from '../../context/AlertContext';
 import { exportClinicRecords, exportClinicRecord } from '../../utils/clinicRecordExport';
 import { Pager, paginate } from '../../components/common/RecordFolders';
-import { ClinicVisitForm, DoctorVisitDetail, ScreeningDetail, VisitStatus, ScreeningStatus, visitDoctor, visitTitle } from '../../components/common/ClinicRecordViews';
+import { ClinicVisitForm, DispensedForm, IncidentForm, DoctorVisitDetail, ScreeningDetail, VisitStatus, ScreeningStatus, visitDoctor, visitTitle } from '../../components/common/ClinicRecordViews';
 import { formatTime, formatDate as formatDateBase, formatDateTime } from '../../utils/datetime';
 import '../../styles/student/ClinicLogs&Records.css';
 
@@ -441,7 +441,7 @@ function Modal({ tab, record, onClose, onExport }) {
           <button type="button" className="modal-close-clr" onClick={onClose} aria-label="Close" title="Close"><X size={20} aria-hidden="true" /></button>
         </div>
         <div className="modal-body-clr">
-          {tab === 'clinic-visits' ? <ClinicVisitForm record={record} /> : tab === 'doctor-visits' ? <DoctorVisitDetail record={record} /> : tab === 'health-screenings' ? <ScreeningDetail record={record} /> : Object.entries(record).map(([key, value]) => (
+          {tab === 'clinic-visits' ? <ClinicVisitForm record={record} /> : tab === 'medicine-dispensed' ? <DispensedForm record={record} /> : tab === 'incident-reports' ? <IncidentForm record={record} /> : tab === 'doctor-visits' ? <DoctorVisitDetail record={record} /> : tab === 'health-screenings' ? <ScreeningDetail record={record} /> : Object.entries(record).map(([key, value]) => (
             <div className="modal-field-clr" key={key}>
               <span className="field-key-clr">{formatKeyLabel(key)}:</span>
               <span className="field-value-clr">

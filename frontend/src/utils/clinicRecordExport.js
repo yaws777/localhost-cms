@@ -4,9 +4,13 @@
 // doctor check-up assessment). Used by the student, parent and nurse (Health Records) screens.
 import { formatDate, formatTime, formatDateTime } from './datetime';
 import { openReportWindow, writeDetailedReport } from './printReport';
+import { printAssessment, assessmentBodyHtml } from './assessmentPdf';
+import { buildAssessmentModel } from './assessmentModel';
+import { FORM_CSS, formBodyHtml, printFormDocument } from './formDocument';
+import { buildClinicVisitModel, buildDispensedModel, buildIncidentModel, buildScreeningRecordModel } from './formModels';
 import { vitalsLine, inVitalsOf, outVitalsOf } from './vitals';
 import { dispensedLine } from './dispensed';
-import { visitOutcome, visitDoctor, visitTitle, detailPairs } from '../components/common/ClinicRecordViews';
+import { visitOutcome, visitDoctor, visitTitle } from '../components/common/ClinicRecordViews';
 
 export const EXPORT_TITLES = {
     'clinic-visits': 'Clinic Visit Log',
@@ -59,7 +63,6 @@ const genericRows = (record) => Object.entries(record)
     .map(([k, v]) => [keyLabel(k), genericValue(v)]);
 
 const compact = (rows) => rows.filter(([, v]) => has(v));
-const orDash = (v) => (has(v) ? String(v) : '--');
 
 const COLUMNS = {
     'clinic-visits': ['Visit ID', 'Student ID', 'Nurse Name', 'Date', 'Time In / Out', 'Vital Signs'],
@@ -93,36 +96,6 @@ const listRow = (tab, r) => {
         default:
             return [];
     }
-};
-
-// Clinic visit: same sections as the visit form
-const clinicVisitRows = (v) => {
-    const fullName = [v.student_first_name || v.first_name, v.student_last_name || v.last_name].filter(Boolean).join(' ') || '--';
-    const dispensed = Boolean(v.batch_id || v.medicine_name);
-    const qty = v.dosage_consumption_unit_value ? String(Math.round(parseFloat(v.dosage_consumption_unit_value))) : '';
-    const rows = [
-        ['Full Name', fullName],
-        ['Student ID', orDash(v.student_id)],
-        ['Visit Date', dateOnly(v.visit_date)],
-        ['Nurse', nurseName(v)],
-        ['Time In', v.time_in ? timeText(v.time_in) : '--'],
-        ['Time Out', v.time_out ? timeText(v.time_out) : '--'],
-        ['Medical Condition', orDash(v.complaint_name || v.complaint_id)],
-        ['Specify Medical Condition', v.specify_complaint_text || v.specify_complaints_text],
-        ['Vital Signs - Time In', `BP ${orDash(v.blood_pressure)} mmHg | Temp ${orDash(v.temperature)} °C | Pulse ${orDash(v.pulse_rate)} bpm | Resp Rate ${orDash(v.respiratory_rate)}`]
-    ];
-    if (v.time_out) {
-        rows.push(['Vital Signs - Time Out', `BP ${orDash(v.out_blood_pressure)} mmHg | Temp ${orDash(v.out_temperature)} °C | Pulse ${orDash(v.out_pulse_rate)} bpm | Resp Rate ${orDash(v.out_respiratory_rate)}`]);
-        rows.push(['Student Condition After Time-out', orDash(v.out_nurse_note)]);
-    }
-    rows.push(['Nursing Intervention', orDash(v.nursing_intervention)]);
-    rows.push(['Assessment', orDash(v.assessment || v.health_advice)]);
-    rows.push(['Dispensed Medicine', dispensed ? orDash(v.medicine_name || v.batch_id) : 'No medication dispensed']);
-    if (dispensed) {
-        rows.push(['Dosage / Quantity', orDash(qty)]);
-        rows.push(['Unit of Measure', orDash(v.dosage_consumption_unit_of_measure)]);
-    }
-    return compact(rows);
 };
 
 // Doctor visit: check-up + the doctor's assessment
@@ -176,32 +149,16 @@ const doctorVisitRows = (v) => {
     return compact(rows);
 };
 
-// Health screening: schedule + result values
-const screeningRows = (s) => {
-    const results = Array.isArray(s.results) && s.results.length > 0 ? s.results : detailPairs(s.details);
-    const rows = [
-        ['Screening', s.screening_type],
-        ['Title', s.title && s.title !== s.screening_type ? s.title : null],
-        ['Date', `${dateOnly(s.record_date)}${s.start_time && s.end_time ? `, ${formatTime(s.start_time)} - ${formatTime(s.end_time)}` : ''}`],
-        ['Status', s.status],
-        ['Attendance', s.attendance ? s.attendance.charAt(0) + s.attendance.slice(1).toLowerCase() : null],
-        ['Reason cancelled', s.cancelled_reason],
-        ['Notes', s.announcement]
-    ];
-    if (s.status === 'Completed') {
-        results.forEach((r) => rows.push([`Result - ${r.label || 'Result'}`, `${r.value}${r.note ? ` (${r.note})` : ''}`]));
-        rows.push(['Remarks', s.remarks]);
-        if (s.is_abnormal) rows.push(['Attention', 'Some values are outside the normal range. See the clinic.']);
-    } else {
-        rows.push(['Result', s.status === 'Upcoming' || s.status === 'Ongoing' ? 'Not yet available.' : 'No result was recorded.']);
-    }
-    return compact(rows);
+// the four forms the nurse fills up are exported as the filled-in form (same layout as the screen), the rest as label / value rows
+const FORM_MODELS = {
+    'clinic-visits': buildClinicVisitModel,
+    'medicine-dispensed': buildDispensedModel,
+    'incident-reports': buildIncidentModel,
+    'health-screenings': buildScreeningRecordModel
 };
 
 export const recordRows = (tab, record) => {
-    if (tab === 'clinic-visits') return clinicVisitRows(record);
     if (tab === 'doctor-visits') return doctorVisitRows(record);
-    if (tab === 'health-screenings') return screeningRows(record);
     return genericRows(record);
 };
 
@@ -211,6 +168,13 @@ const recordHeading = (tab, r, i) => {
         : tab === 'health-screenings' ? `${r.screening_type || 'Screening'} - ${dateOnly(r.record_date)}`
         : `${EXPORT_TITLES[tab]} ${id || i + 1}`;
     return `${i + 1}. ${base}`;
+};
+
+// what one record shows in the report: the filled-in form, or rows
+const recordBlock = (tab, r, heading) => {
+    if (FORM_MODELS[tab]) return { heading, html: formBodyHtml(FORM_MODELS[tab](r)) };
+    if (tab === 'doctor-visits' && r.documented) return { heading, html: assessmentBodyHtml(buildAssessmentModel(r)) };
+    return { heading, rows: recordRows(tab, r) };
 };
 
 // records: the rows of the tab as shown | studentLabel: "Name (ID)" or "All Linked Students" | range: { startDate, endDate }
@@ -226,12 +190,23 @@ export const exportClinicRecords = ({ tab, records, studentLabel, range, onBlock
         columns: COLUMNS[tab] || [],
         rows: list.map((r) => listRow(tab, r).map(text)),
         emptyText: 'No records found.',
-        records: list.map((r, i) => ({ heading: recordHeading(tab, r, i), rows: recordRows(tab, r) }))
+        extraCss: FORM_CSS,
+        records: list.map((r, i) => recordBlock(tab, r, recordHeading(tab, r, i)))
     });
 };
 
 // one record (from its detail modal)
 export const exportClinicRecord = ({ tab, record, studentLabel, onBlocked }) => {
+    // the four nurse forms export as the filled-in form
+    if (FORM_MODELS[tab]) {
+        printFormDocument(FORM_MODELS[tab](record), onBlocked);
+        return;
+    }
+    // a documented check-up exports as the assessment form
+    if (tab === 'doctor-visits' && record.documented) {
+        printAssessment(record, undefined, onBlocked);
+        return;
+    }
     const win = openReportWindow(onBlocked);
     if (!win) return;
     writeDetailedReport(win, {

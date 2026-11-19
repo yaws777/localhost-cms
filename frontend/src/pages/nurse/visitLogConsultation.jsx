@@ -10,8 +10,10 @@ import jsQR from 'jsqr';
 import stiLogo from '../../assets/sti-logof.png';
 import { formatTime, formatDate } from '../../utils/datetime';
 import SearchableSelect from '../../components/common/SearchableSelect';
-import { vitalsLine, VITAL_FIELDS, vitalState } from '../../utils/vitals';
+import { VITAL_FIELDS, vitalState } from '../../utils/vitals';
 import { AssessmentDetails } from '../../components/doctor/AssessmentModals';
+import { FormPdfButton } from '../../components/common/FormDocument';
+import { buildClinicVisitModel } from '../../utils/formModels';
 import '../../styles/nurse/VisitLogConsultation.css';
 
 const MEASURED_UNITS = ['mg', 'g', 'mcg', 'mL', 'L'];
@@ -93,10 +95,6 @@ const isVisitDocumented = (visit) => (isCheckup(visit)
     ? Boolean(Number(visit.checkup_documented))
     : Boolean(visit?.complaint_id || visit?.complaint_name || visit?.nursing_intervention));
 const checkupLabel = (visit) => `Check-up${visit.checkup_purpose ? `: ${visit.checkup_purpose}` : ''}`;
-// the time-in vital signs of a check-up row, one short line
-const visitVitalsText = (visit) => vitalsLine({ blood_pressure: visit.blood_pressure, temperature: visit.temperature, pulse_rate: visit.pulse_rate, respiratory_rate: visit.respiratory_rate });
-
-const visitOutVitalsText = (visit) => vitalsLine({ blood_pressure: visit.out_blood_pressure, temperature: visit.out_temperature, pulse_rate: visit.out_pulse_rate, respiratory_rate: visit.out_respiratory_rate });
 
 // One set of vital signs (time in or time out) in the results modal. A value outside the normal range gets an Abnormal label (text, not color alone).
 const VitalsBlock = ({ title, time, values, note, emptyText }) => {
@@ -885,6 +883,16 @@ const VisitLogConsultation = () => {
     const calculatedTotalAvailableVolume = activeBatchInfo && isVolumeUnit ? getTotalAvailableStock(activeBatchInfo) : 0;
     const isAlreadyDispensed = Boolean(documentingVisit?.batch_id || documentingVisit?.medicine_name);
 
+    // the visit as the filled-in form (what is typed in the form now), for the PDF
+    const documentFormModel = documentingVisit ? buildClinicVisitModel({
+        ...documentingVisit,
+        ...formData,
+        time_out: formData.time_out || documentingVisit.time_out,
+        complaint_name: (complaints.find(c => String(c.complaint_id) === String(formData.complaint_id)) || {}).complaint_name || documentingVisit.complaint_name,
+        batch_id: formData.batch_id || documentingVisit.batch_id,
+        medicine_name: documentingVisit.medicine_name || (batches.find(b => b.batch_id === formData.batch_id) || {}).medicine_name
+    }) : null;
+
     const selectedComplaintObj = complaints.find(c => String(c.complaint_id) === String(formData.complaint_id));
     const isSpecifyComplaintRequired = selectedComplaintObj && CONDITIONAL_COMPLAINT_NAMES.includes(
         selectedComplaintObj.complaint_name.trim().toLowerCase()
@@ -1662,13 +1670,7 @@ const VisitLogConsultation = () => {
                                     <p className="result-empty-vlc" role="status">Loading...</p>
                                 ) : resultAssessment ? (
                                     <>
-                                        {(!!resultAssessment.is_abnormal || !!resultAssessment.follow_up_needed) && (
-                                            <p className="result-chips-vlc">
-                                                {!!resultAssessment.is_abnormal && <span className="abnormal-tag-vlc"><AlertTriangle size={12} aria-hidden="true" /> Abnormal</span>}
-                                                {!!resultAssessment.follow_up_needed && <span className="followup-tag-vlc"><Clock size={12} aria-hidden="true" /> Follow-up</span>}
-                                            </p>
-                                        )}
-                                        <AssessmentDetails a={resultAssessment} />
+                                        <AssessmentDetails a={resultAssessment} showHeader={false} showVitals={false} />
                                     </>
                                 ) : (
                                     <p className="result-empty-vlc">The doctor has not documented this check-up yet.</p>
@@ -1853,8 +1855,6 @@ const VisitLogConsultation = () => {
                                                             <div className="table-time-range-vlc">
                                                                 <span>In: {formatTimeDisplay(visit.time_in)}</span>
                                                                 <small>Out: {formatTimeDisplay(visit.time_out)}</small>
-                                                                {isCheckup(visit) && <small>In: {visitVitalsText(visit) || '-'}</small>}
-                                                                {isCheckup(visit) && visitOutVitalsText(visit) && <small>Out: {visitOutVitalsText(visit)}</small>}
                                                             </div>
                                                         </td>
                                                         <td>
@@ -1937,7 +1937,10 @@ const VisitLogConsultation = () => {
                     <div className="modal-body-container-vlc">
                         <div className="modal-header-accent-vlc">
                             <h3>Document Visit - {documentingVisit.first_name} {documentingVisit.last_name}</h3>
-                            <button className="modal-dismiss-btn-vlc" aria-label="Close documentation" onClick={handleCloseDocumentModal}><XCircle size={22} /></button>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                {isVisitDocumented(documentingVisit) && <FormPdfButton model={documentFormModel} className="fd-pdf-light" />}
+                                <button className="modal-dismiss-btn-vlc" aria-label="Close documentation" onClick={handleCloseDocumentModal}><XCircle size={22} /></button>
+                            </div>
                         </div>
                         <form onSubmit={handleDocumentSubmit} className="modal-form-scrollable-vlc">
                             {!isVisitDocumented(documentingVisit) && (
@@ -2310,8 +2313,6 @@ const VisitLogConsultation = () => {
                                             <td>
                                                 <div className="table-time-range-vlc">
                                                     {formatTimeDisplay(visit.time_in)} – {isTimedOut ? formatTimeDisplay(visit.time_out) : <span className="time-pending-vlc">–:–</span>}
-                                                    {isCheckup(visit) && <small style={{ display: 'block' }}>In: {visitVitalsText(visit) || '-'}</small>}
-                                                    {isCheckup(visit) && visitOutVitalsText(visit) && <small style={{ display: 'block' }}>Out: {visitOutVitalsText(visit)}</small>}
                                                 </div>
                                             </td>
                                             <td>

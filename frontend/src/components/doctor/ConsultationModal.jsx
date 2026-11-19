@@ -2,9 +2,9 @@
 // Clinical check-up documentation for one doctor visit: findings, diagnosis, treatment plan,
 // prescriptions and follow-up notes, plus the doctor's own template fields. Exam questions (Dental / Vision examination) are templates, not fixed forms.
 import React, { useState, useEffect, useMemo } from 'react';
-import { ClipboardPlus, Plus, Trash2, HeartPulse } from 'lucide-react';
+import { ClipboardPlus, Plus, Trash2 } from 'lucide-react';
 import Modal from '../common/Modal';
-import StudentHealthCard from './StudentHealthCard';
+import { VITAL_FIELDS } from '../../utils/vitals';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatTime } from '../../utils/datetime';
 import { visitLabel, fullName, localDateStr } from '../../utils/visitPurpose';
@@ -235,21 +235,25 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
         }
     };
 
+    const inVitals = VITAL_FIELDS
+        .map((f) => ({ ...f, value: appt[`in_${f.key}`] }))
+        .filter((f) => f.value);
+
     return (
         <Modal isOpen onClose={locked ? undefined : onClose} title={editing ? 'Edit check-up' : 'Document check-up'} icon={<ClipboardPlus size={20} />} size="xl" closeOnBackdrop={false}>
             <form className="dp-form" onSubmit={submit}>
                 <div className="dp-notice">
                     <strong>{fullName(appt.student_first_name, appt.student_last_name)}</strong> ({appt.student_id}) - {visitLabel(visitType, appt.purpose_other)}<br />
                     {appt.queue_state ? formatDate(appt.start_time) : <>{formatDate(appt.start_time)}, {formatTime(appt.start_time)} - {formatTime(appt.end_time)}</>}
-                    {appt.check_in_time ? <><br />Time in: {formatTime(appt.check_in_time)}</> : null}
+                    {appt.check_in_time || inVitals.length > 0 ? (
+                        <><br />
+                            {appt.check_in_time ? <>Time in: {formatTime(appt.check_in_time)}</> : null}
+                            {inVitals.length > 0 ? <>{appt.check_in_time ? ' · ' : ''}{inVitals.map((v) => `${v.label} ${v.value} ${v.unit}`).join(' · ')}</> : null}
+                        </>
+                    ) : null}
                     {appt.booking_reason ? <><br />Reason given: {appt.booking_reason}</> : null}
                 </div>
                 {error && <div className="dp-error" role="alert">{error}</div>}
-
-                <details className="dp-card hs-details" open>
-                    <summary><HeartPulse size={16} aria-hidden="true" /> Vital signs and health information</summary>
-                    <StudentHealthCard studentId={appt.student_id} appointmentId={appt.appointment_id} />
-                </details>
 
                 {templates.length > 0 && (
                     <div className="dp-field">

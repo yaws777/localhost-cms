@@ -13,8 +13,7 @@ import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatDateTime } from '../../utils/datetime';
 import { visitLabel } from '../../utils/visitPurpose';
 import { to12h, cutoffKindLabel } from '../../utils/scheduling';
-import { vitalsLine, inVitalsOf, outVitalsOf } from '../../utils/vitals';
-import { dispensedLine } from '../../utils/dispensed';
+import AssessmentForm from '../../components/doctor/AssessmentForm';
 import { useQueueStatus } from '../../hooks/useQueueStatus';
 import QueueStatus, { QueuePill } from '../../components/student/QueueStatus';
 import '../../styles/student/BookCheckup.css';
@@ -138,7 +137,7 @@ const RequestTicket = ({ r, onWithdraw }) => {
 };
 
 const BookCheckup = () => {
-    const { studentId } = useOutletContext() || {};
+    const { studentId, firstName, lastName } = useOutletContext() || {};
     const { showAlert, showConfirm } = useAlert();
 
     // the live numbers in line: pending asks and session queue numbers
@@ -365,7 +364,7 @@ const BookCheckup = () => {
     const historyHelp = (r) => {
         if (r.status === 'Denied') return r.review_reason ? `Declined: ${r.review_reason}` : 'Declined.';
         if (r.status === 'Missed') return 'Number skipped.';
-        if (r.status === 'Fulfilled') return r.appointment_start ? `Seen ${formatDateTime(r.appointment_start)}, Dr. ${r.appt_doc_first_name} ${r.appt_doc_last_name}.` : 'Seen.';
+        if (r.status === 'Fulfilled') return r.appointment_start ? `Completed ${formatDateTime(r.appointment_start)}, Dr. ${r.appt_doc_first_name} ${r.appt_doc_last_name}.` : 'Completed.';
         return 'Withdrawn.';
     };
 
@@ -612,7 +611,7 @@ const BookCheckup = () => {
                                     <div key={c.appointment_id} className="booking-card-bc">
                                         <div className="booking-top-bc">
                                             <strong>{c.is_repeat ? 'Follow-up check-up' : visitLabel(c.visit_type, c.purpose_other)}</strong>
-                                            <Tag tone={c.outcome === 'Seen' ? 'ok' : c.outcome === 'Missed' ? 'bad' : 'low'} Icon={c.outcome === 'Seen' ? CheckCircle2 : c.outcome === 'Missed' ? XCircle : Clock}>{c.outcome}</Tag>
+                                            <Tag tone={c.outcome === 'Completed' ? 'ok' : c.outcome === 'Missed' ? 'bad' : 'low'} Icon={c.outcome === 'Completed' ? CheckCircle2 : c.outcome === 'Missed' ? XCircle : Clock}>{c.outcome}</Tag>
                                         </div>
                                         <div className="booking-line-bc"><Clock size={14} aria-hidden="true" /> {formatDate(c.date)}, {c.doctor_name}</div>
                                         {c.assessment && (
@@ -680,26 +679,15 @@ const BookCheckup = () => {
 
             {assessmentOf && (
                 <div className="modal-overlay-bc" role="dialog" aria-modal="true" aria-labelledby="bc-assess-title">
-                    <div className="modal-bc">
+                    <div className="modal-bc modal-wide-bc">
                         <div className="modal-header-bc">
                             <h3 id="bc-assess-title">Assessment</h3>
                             <button type="button" className="close-bc" autoFocus onClick={() => setAssessmentOf(null)} aria-label="Close" title="Close"><X size={20} aria-hidden="true" /></button>
                         </div>
-                        <p className="request-help-bc">{assessmentOf.doctor_name}, {formatDate(assessmentOf.date)}</p>
-                        <dl className="assess-bc">
-                            {[['Vital signs (time in)', vitalsLine(inVitalsOf(assessmentOf.assessment))], ['Vital signs (time out)', vitalsLine(outVitalsOf(assessmentOf.assessment))], ['Reason', assessmentOf.assessment.chief_complaint], ['Findings', assessmentOf.assessment.clinical_findings], ['Diagnosis', assessmentOf.assessment.diagnosis], ['Advice', assessmentOf.assessment.treatment_recommendations]]
-                                .filter(([, v]) => v).map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}
-                            {assessmentOf.assessment.prescriptions.length > 0 && (
-                                <div><dt>Prescription</dt><dd>
-                                    {assessmentOf.assessment.prescriptions.map((m, i) => (
-                                        <div key={i}>{[m.medicine, m.dosage, m.frequency, m.duration].filter(Boolean).join(', ')}{m.instructions ? ` (${m.instructions})` : ''}</div>
-                                    ))}
-                                </dd></div>
-                            )}
-                            {dispensedLine(assessmentOf.assessment) && <div><dt>Medicine dispensed</dt><dd>{dispensedLine(assessmentOf.assessment)}</dd></div>}
-                            {assessmentOf.assessment.referral_facility && <div><dt>Referral</dt><dd>{assessmentOf.assessment.referral_facility}{assessmentOf.assessment.referral_reason ? `: ${assessmentOf.assessment.referral_reason}` : ''}</dd></div>}
-                            {assessmentOf.assessment.follow_up_needed ? <div><dt>Follow-up</dt><dd>{assessmentOf.assessment.follow_up_date ? `By ${formatDate(assessmentOf.assessment.follow_up_date)}` : 'Needed'}{assessmentOf.assessment.follow_up_notes ? `: ${assessmentOf.assessment.follow_up_notes}` : ''}</dd></div> : null}
-                        </dl>
+                        <AssessmentForm
+                            a={{ ...assessmentOf.assessment, assessment_id: assessmentOf.appointment_id }}
+                            ctx={{ student: `${firstName || ''} ${lastName || ''}`.trim(), studentId, doctor: assessmentOf.doctor_name, when: formatDate(assessmentOf.date), purpose: assessmentOf.is_repeat ? 'Follow-up check-up' : visitLabel(assessmentOf.visit_type, assessmentOf.purpose_other) }}
+                        />
                     </div>
                 </div>
             )}

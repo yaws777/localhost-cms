@@ -27,7 +27,7 @@ const STATUS_CLASS = {
     'No show': 'badge-closed-ds', Cutoff: 'badge-closed-ds', Moved: 'badge-expired-ds', Withdrawn: 'badge-closed-ds', Removed: 'badge-closed-ds'
 };
 const STATUS_TEXT = {
-    Pending: 'To review', Denied: 'Declined', Waiting: 'Waiting', Scheduled: 'Queued', Done: 'Seen', Ended: 'Ended', 'No show': 'No show',
+    Pending: 'To review', Denied: 'Declined', Waiting: 'Waiting', Scheduled: 'Queued', Done: 'Completed', Ended: 'Ended', 'No show': 'No show',
     Cutoff: 'Cut off', Moved: 'Moved', Withdrawn: 'Left', Removed: 'Removed'
 };
 const SERVICE_STATUS_CLASS = { Open: 'badge-open-ds', Closed: 'badge-closed-ds', Scheduled: 'badge-expired-ds', Done: 'badge-done-ds' };
@@ -47,9 +47,7 @@ const send = async (path, method, body) => {
 
 // value for <input type="datetime-local">
 const localNow = () => {
-    const d = new Date();
-    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-    return d.toISOString().slice(0, 16);
+    return new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Manila' }).slice(0, 16).replace(' ', 'T');
 };
 
 // "1/10" of a service: registered / listing limit

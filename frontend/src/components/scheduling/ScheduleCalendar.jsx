@@ -34,7 +34,7 @@ const putJson = async (path, body) => {
     return data;
 };
 
-const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey, onChanged, onAppointFromWaiting }) => {
+const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey, onChanged, onAppointFromWaiting, hidePast = false }) => {
     const { showAlert, showConfirm } = useAlert();
     const [cursor, setCursor] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
     const [selected, setSelected] = useState(todayKey());
@@ -82,16 +82,17 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
 
     const sessionsByDay = useMemo(() => {
         const map = {};
-        data.sessions.forEach((s) => { (map[s.date] = map[s.date] || []).push(s); });
+        // hidePast (nurse and doctor): closed sessions leave the calendar
+        data.sessions.filter((s) => !(hidePast && s.state === 'past')).forEach((s) => { (map[s.date] = map[s.date] || []).push(s); });
         return map;
-    }, [data.sessions]);
+    }, [data.sessions, hidePast]);
 
     const apptsByDay = useMemo(() => {
         const map = {};
         // places in a session queue belong to their session card; only timed appointments (direct, follow-up, referral) are listed here
-        data.appointments.filter((a) => !a.queue_state).forEach((a) => { (map[a.date] = map[a.date] || []).push(a); });
+        data.appointments.filter((a) => !a.queue_state && !(hidePast && a.state === 'past')).forEach((a) => { (map[a.date] = map[a.date] || []).push(a); });
         return map;
-    }, [data.appointments]);
+    }, [data.appointments, hidePast]);
 
     const absentOn = (day) => data.absences.filter((u) => u.start_date <= day && u.end_date >= day);
 

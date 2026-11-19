@@ -20,7 +20,7 @@ import {
 import { useAlert } from '../../context/AlertContext';
 import { exportClinicRecords, exportClinicRecord } from '../../utils/clinicRecordExport';
 import { formatTime, formatDate as formatDateBase, formatDateTime } from '../../utils/datetime';
-import { ClinicVisitForm, DoctorVisitDetail, ScreeningDetail, VisitStatus, ScreeningStatus, visitDoctor, visitTitle } from '../../components/common/ClinicRecordViews';
+import { ClinicVisitForm, DispensedForm, IncidentForm, DoctorVisitDetail, ScreeningDetail, VisitStatus, ScreeningStatus, visitDoctor, visitTitle } from '../../components/common/ClinicRecordViews';
 import '../../styles/parent/ChildClinicRecords.css';
 
 const API_BASE = 'http://localhost:3001';
@@ -621,7 +621,7 @@ function Modal({ tab, record, onClose, onExport }) {
         </div>
 
         <div className="modal-body-ccr">
-          {tab === 'clinic-visits' ? <ClinicVisitForm record={record} /> : tab === 'doctor-visits' ? <DoctorVisitDetail record={record} /> : tab === 'health-screenings' ? <ScreeningDetail record={record} /> : Object.entries(record).map(([key, value]) => {
+          {tab === 'clinic-visits' ? <ClinicVisitForm record={record} /> : tab === 'medicine-dispensed' ? <DispensedForm record={record} /> : tab === 'incident-reports' ? <IncidentForm record={record} /> : tab === 'doctor-visits' ? <DoctorVisitDetail record={record} /> : tab === 'health-screenings' ? <ScreeningDetail record={record} /> : Object.entries(record).map(([key, value]) => {
             if (value === null || value === undefined || value === '') {
               return (
                 <div className="modal-field-ccr" key={key}>

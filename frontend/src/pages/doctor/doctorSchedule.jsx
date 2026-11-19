@@ -6,7 +6,7 @@ import { useOutletContext, useSearchParams } from 'react-router-dom';
 import SchedulingHub from '../../components/scheduling/SchedulingHub';
 import '../../styles/doctor/DoctorLayout.css';
 
-const TABS = ['calendar', 'schedules', 'waiting', 'followups', 'assistant', 'chat'];
+const TABS = ['calendar', 'schedules', 'waiting', 'followups', 'chat'];
 
 const DoctorSchedule = () => {
     const { doctor, doctorId, userId } = useOutletContext();
