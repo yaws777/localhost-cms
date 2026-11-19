@@ -513,7 +513,8 @@ async function sendPhilSms(recipient, message) {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json'
             },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(15000) // a hanging SMS provider must not hold anything open
         });
 
         const responseTimeMs = Math.round(performance.now() - startTime);
@@ -537,6 +538,25 @@ async function sendPhilSms(recipient, message) {
         const responseTimeMs = Math.round(performance.now() - startTime);
         console.error(`[PhilSMS Fetch Error] (${responseTimeMs}ms):`, error.message);
         return { success: false, responseTimeMs, error: error.message };
+    }
+}
+
+/**
+ * Fire-and-forget SMS: returns at once, never throws, never rejects.
+ * Use this in request handlers so a slow or failing SMS provider cannot delay or break the flow.
+ * @param {string} phone - Raw phone number as stored (formatted here)
+ * @param {string} message
+ */
+function queueSms(phone, message) {
+    try {
+        const formattedPhone = formatPhoneNumber(phone);
+        if (!formattedPhone || !message) return false;
+        sendPhilSms(formattedPhone, message)
+            .catch((err) => console.error('[SMS Queue Error]:', err && err.message));
+        return true;
+    } catch (err) {
+        console.error('[SMS Queue Error]:', err && err.message);
+        return false;
     }
 }
 
@@ -4905,21 +4925,15 @@ app.patch('/api/clinic-visits/:id/timeout', async (req, res) => {
                     payloadData: { visit_id: id, time_out }
                 });
 
-                // The only SMS of a visit: sent once the visit is documented and the student is timed out.
+                // SMS 2 of 2: the student left. Carries the nurse note on the student's condition after time out.
+                // (SMS 1 was sent when the visit was documented.)
                 if (info.primary_phone) {
                     const formattedPhone = formatPhoneNumber(info.primary_phone);
                     if (formattedPhone) {
-                        const complaintText = info.specify_complaint_text || info.complaint_name || 'General Checkup';
-                        const dosageVal = info.dosage_consumption_unit_value ? Math.round(info.dosage_consumption_unit_value) : '';
-                        const medicineText = info.medicine_name
-                            ? `${info.medicine_name} (${dosageVal} ${info.dosage_consumption_unit_of_measure || ''})`.replace(' )', ')')
-                            : 'None';
                         const smsMessage =
-                            `${studentFullName} visited the clinic from ${formatTime(info.time_in)} to ${formattedTimeOut} ` +
-                            `with a medical condition of ${complaintText}. Assessment: ${info.assessment || 'N/A'}. ` +
-                            `Medicine given: ${medicineText}. For more details, log in to the parent portal.`;
-                        const smsResult = await sendPhilSms(formattedPhone, smsMessage);
-                        smsNotificationSent = smsResult.success;
+                            `${studentFullName} left the clinic at ${formattedTimeOut} (in at ${formatTime(info.time_in)}). ` +
+                            `Condition after time out: ${outNote}. For more details, log in to the parent portal.`;
+                        smsNotificationSent = queueSms(formattedPhone, smsMessage); // queued, never awaited
                     }
                 }
             }
@@ -4961,9 +4975,16 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
     try {
         await connection.beginTransaction();
 
+        // Was the visit already documented? The parent is texted only the first time it becomes documented.
+        const [[priorDoc]] = await connection.execute(
+            'SELECT complaint_id, nursing_intervention, assessment FROM clinic_visits WHERE visit_id = ?',
+            [id]
+        );
+        const wasDocumented = Boolean(priorDoc && priorDoc.complaint_id && priorDoc.nursing_intervention && priorDoc.assessment);
+
         const visitQuery = `
-            UPDATE clinic_visits 
-            SET 
+            UPDATE clinic_visits
+            SET
                 time_in = COALESCE(?, time_in),
                 complaint_id = ?,
                 specify_complaint_text = ?,
@@ -5108,6 +5129,9 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
                     p.user_id AS parent_user_id,
                     p.primary_phone,
                     n.user_id AS nurse_user_id,
+                    cv.time_in,
+                    cv.complaint_id,
+                    cv.nursing_intervention,
                     cc.complaint_name,
                     cv.specify_complaint_text,
                     cv.assessment,
@@ -5156,7 +5180,19 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
                     payloadData: { visit_id: id }
                 });
 
-                // No SMS here: the parent is texted once, when the documented visit is timed out.
+                // SMS 1 of 2: first time the visit is documented. The time shown is the time in that confirmed the visit.
+                // SMS 2 is sent at time out (with the nurse note).
+                const nowDocumented = Boolean(info.complaint_id && info.nursing_intervention && info.assessment);
+                if (!wasDocumented && nowDocumented && info.primary_phone) {
+                    const formattedPhone = formatPhoneNumber(info.primary_phone);
+                    if (formattedPhone) {
+                        const smsMessage =
+                            `${studentFullName} visited the clinic at ${formatTime(info.time_in)} ` +
+                            `with a medical condition of ${complaintText}. Assessment: ${assessmentText}. ` +
+                            `Medicine given: ${medicineText}. You will get another text when the student leaves the clinic.`;
+                        smsNotificationSent = queueSms(formattedPhone, smsMessage); // queued, never awaited
+                    }
+                }
             }
         } catch (notifError) {
             console.error('[Notification Error] System/Push failed:', notifError.message);
@@ -16094,6 +16130,7 @@ app.put('/api/doctor-visits/:appointment_id/time-in', async (req, res) => {
         const nurseId = await nurseIdOfUser(req.body.sender_id);
         const visitId = await recordCheckupTimeIn(connection, { appointmentId: appointment_id, studentId, nurseId, vitals: readVitals(req.body, true).values });
         await connection.commit();
+        void smsCheckupParents(visitId, 'in');
         res.json({ success: true, message: 'Timed in.', visit_id: visitId, abnormal: readVitals(req.body, true).abnormal });
     } catch (error) {
         await connection.rollback();
@@ -16104,6 +16141,52 @@ app.put('/api/doctor-visits/:appointment_id/time-in', async (req, res) => {
         connection.release();
     }
 });
+
+// SMS to the parents of a check-up student: phase 'in' = timed in with vital signs, 'out' = timed out (nurse note + medicine given).
+// Runs after the commit and never blocks or fails the request.
+const smsCheckupParents = async (visitId, phase) => {
+    try {
+        const [[v]] = await pool.query(
+            `SELECT cv.student_id, cv.time_in, cv.time_out, cv.blood_pressure, cv.temperature, cv.pulse_rate, cv.respiratory_rate, cv.out_nurse_note,
+                    s.first_name, s.last_name, da.visit_type, d.first_name AS doctor_first, d.last_name AS doctor_last,
+                    m.brand_name AS medicine_name, cd.dosage_consumption_unit_value, cd.dosage_consumption_unit_of_measure
+             FROM clinic_visits cv
+             JOIN students s ON s.student_id = cv.student_id
+             LEFT JOIN doctor_appointments da ON da.appointment_id = cv.appointment_id
+             LEFT JOIN doctors d ON d.doctor_id = da.doctor_id
+             LEFT JOIN consultation_dispensation cd ON cd.visit_id = cv.visit_id
+             LEFT JOIN medicine_inventory_batches mib ON mib.batch_id = cd.batch_id
+             LEFT JOIN medicines m ON m.medicine_id = mib.medicine_id
+             WHERE cv.visit_id = ? LIMIT 1`, [visitId]
+        );
+        if (!v) return;
+        const [parents] = await pool.query(
+            `SELECT DISTINCT p.primary_phone FROM parents p
+             JOIN parent_student_mapping psm ON psm.parent_id = p.parent_id
+             WHERE psm.student_id = ? AND p.primary_phone IS NOT NULL AND p.primary_phone <> ''`, [v.student_id]
+        );
+        if (parents.length === 0) return;
+        const name = `${v.first_name} ${v.last_name}`;
+        const purpose = v.visit_type && v.visit_type !== 'Any' ? v.visit_type : 'check-up';
+        const doctor = v.doctor_first ? ` with Dr. ${v.doctor_first} ${v.doctor_last || ''}`.trimEnd() : '';
+        let message;
+        if (phase === 'in') {
+            message = `${name} timed in at the clinic at ${formatTime(v.time_in)} for a ${purpose} check-up${doctor}. ` +
+                `Vital signs: BP ${v.blood_pressure || 'N/A'}, Temp ${v.temperature || 'N/A'} C, Pulse ${v.pulse_rate || 'N/A'}, Resp ${v.respiratory_rate || 'N/A'}. ` +
+                `You will get another text when the student leaves the clinic.`;
+        } else {
+            const dose = v.dosage_consumption_unit_value ? Math.round(v.dosage_consumption_unit_value) : '';
+            const medicine = v.medicine_name ? `${v.medicine_name} (${dose} ${v.dosage_consumption_unit_of_measure || ''})`.replace(' )', ')') : 'None';
+            message = `${name} finished the ${purpose} check-up${doctor} and left the clinic at ${formatTime(v.time_out)} (in at ${formatTime(v.time_in)}). ` +
+                `Condition after time out: ${v.out_nurse_note || 'No note'}. Medicine given: ${medicine}. For more details, log in to the parent portal.`;
+        }
+        for (const parent of parents) {
+            queueSms(parent.primary_phone, message);
+        }
+    } catch (error) {
+        console.error('[SMS Error] Check-up parent SMS failed:', error.message);
+    }
+};
 
 // Time out after the check-up. The vital signs (and the note) are optional; given values are saved and abnormal ones are reported.
 // Shared by the Doctor Visit page and the Visit Log (PATCH /api/clinic-visits/:id/timeout for a check-up row).
@@ -16139,6 +16222,7 @@ const timeOutCheckupVisit = async (visitId, body) => {
     } finally {
         connection.release();
     }
+    void smsCheckupParents(visitId, 'out');
     return { status: 200, body: { success: true, message: dispense ? 'Time out recorded. Medicine dispensed.' : 'Time out recorded.', abnormal: vitals.abnormal } };
 };
 
@@ -17010,7 +17094,7 @@ app.post('/api/doctor-visits/walk-in', async (req, res) => {
             [schedule.schedule_id, nowManilaStr().slice(0, 10), student_id]
         );
         const entry = await insertWalkInEntry(connection, { schedule, doctor, student, visitType, reason, creator, parentId: voidRow ? voidRow.appointment_id : null, senderId: req.body.sender_id || null });
-        await recordCheckupTimeIn(connection, { appointmentId: entry.appointmentId, studentId: student_id, nurseId: nurse_id, vitals: walkInVitals.values });
+        const walkInVisitId = await recordCheckupTimeIn(connection, { appointmentId: entry.appointmentId, studentId: student_id, nurseId: nurse_id, vitals: walkInVitals.values });
 
         // the waiting-list request of this student for the same visit goes with the walk-in; it is done once the student is documented
         const walkInActor = await resolveActor(connection, req.body.sender_id || null);
@@ -17027,7 +17111,7 @@ app.post('/api/doctor-visits/walk-in', async (req, res) => {
         // a student in the advance listing (waiting, pending or cut off) of this check-up service who walks in is not waiting for a schedule any more
         const leftAdvance = await leaveAdvanceForService(connection, student_id, visitType, `Walked in for ${visitType} (W${entry.queueNo}).`);
         await connection.commit();
-        created = { appointmentId: entry.appointmentId, queueNo: entry.queueNo, student, doctor, ahead: Number(ahead.n), leftAdvance };
+        created = { appointmentId: entry.appointmentId, queueNo: entry.queueNo, student, doctor, ahead: Number(ahead.n), leftAdvance, visitId: walkInVisitId };
     } catch (error) {
         await connection.rollback();
         connection.release();
@@ -17036,6 +17120,7 @@ app.post('/api/doctor-visits/walk-in', async (req, res) => {
         return res.status(500).json({ success: false, message: 'Failed to register walk-in visit' });
     }
     connection.release();
+    if (created.visitId) void smsCheckupParents(created.visitId, 'in');
     if (created.leftAdvance.length > 0) await notifyLeftAdvance(student_id, created.leftAdvance, `you walked in for ${visitType}, so you do not wait for a schedule any more.`, req.body.sender_id || null);
     const queueNote = `Walk-in number W${created.queueNo}. ${created.ahead} student(s) are ahead: walk-ins are called after the listed students.`;
     if (created.doctor.user_id && created.doctor.user_id !== req.body.sender_id) {
@@ -19473,6 +19558,8 @@ app.post('/api/incident-reports', async (req, res) => {
             connection.release();
         }
 
+        let parentSmsResults = [];
+        try {
         // Query student details and nurse sender ID[cite: 4]
         const [studentData] = await pool.query(
             `SELECT s.user_id AS student_user_id, s.first_name, s.last_name, n.user_id AS nurse_user_id
@@ -19531,19 +19618,18 @@ app.post('/api/incident-reports', async (req, res) => {
             });
         }
 
-        // 3. Send SMS to Parents via PhilSMS (using EXACT SAME parentMessage)[cite: 3]
-        let parentSmsResults = [];
+        // 3. Queue SMS to Parents via PhilSMS (using EXACT SAME parentMessage); never awaited, a failed SMS cannot break the save
         for (const parent of parentData) {
             if (parent.primary_phone) {
                 const formattedPhone = formatPhoneNumber(parent.primary_phone);
                 if (formattedPhone) {
-                    const smsResult = await sendPhilSms(formattedPhone, parentMessage);
-                    parentSmsResults.push({
-                        phone: formattedPhone,
-                        sent: smsResult.success
-                    });
+                    parentSmsResults.push({ phone: formattedPhone, queued: queueSms(formattedPhone, parentMessage) });
                 }
             }
+        }
+        } catch (notifyError) {
+            // the report is already saved: a notification problem must not turn it into an error
+            console.error('[Notification Error] Incident report notifications failed:', notifyError.message);
         }
 
         res.json({ 
