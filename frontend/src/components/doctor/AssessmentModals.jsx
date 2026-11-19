@@ -11,7 +11,7 @@ import { visitLabel, sourceLabel, statusClass, statusLabel, fullName } from '../
 import { hasVitals, vitalsLine, inVitalsOf, outVitalsOf } from '../../utils/vitals';
 import '../../styles/doctor/DoctorLayout.css';
 
-const API = 'http://localhost:3001';
+const API = 'https://localhost-cms.onrender.com';
 
 const Fact = ({ label, children }) => (
     <>

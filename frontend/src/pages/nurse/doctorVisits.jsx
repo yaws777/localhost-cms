@@ -14,7 +14,7 @@ import TodayRail from '../../components/scheduling/TodayRail';
 import { useTodaySessions } from '../../hooks/useTodaySessions';
 import { useDpAutoLabels } from '../../utils/autoLabels';
 
-const API = 'http://localhost:3001';
+const API = 'https://localhost-cms.onrender.com';
 
 const SECTIONS = ['visits', 'availability', 'requests', 'waiting', 'followups', 'chat'];
 const HUB_TAB_FOR_SECTION = { availability: 'calendar', requests: 'waiting', waiting: 'waiting', followups: 'followups', chat: 'chat' };

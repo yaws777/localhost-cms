@@ -21,7 +21,7 @@ import { useAlert } from '../../context/AlertContext';
 import { formatDate } from '../../utils/datetime';
 import '../../styles/nurse/ManageParentAccounts.css';
 
-const API_BASE = 'http://localhost:3001/manageParentAccount';
+const API_BASE = 'https://localhost-cms.onrender.com/manageParentAccount';
 
 const EMPTY_FORM = {
   original_parent_id: '',

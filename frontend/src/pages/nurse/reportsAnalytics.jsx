@@ -241,7 +241,7 @@ const ReportsAnalytics = () => {
     setErrorMessage('');
     try {
       const query = new URLSearchParams({ startDate: period.startDate, endDate: period.endDate }).toString();
-      const response = await fetch(`http://localhost:3001/api/reports-analytics?${query}`);
+      const response = await fetch(`https://localhost-cms.onrender.com/api/reports-analytics?${query}`);
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || `HTTP error! Status: ${response.status}`);

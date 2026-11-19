@@ -6,7 +6,7 @@ import { useAlert } from '../../context/AlertContext';
 import HealthInfoView from '../../components/common/HealthInfoView';
 import '../../styles/nurse/HealthRecordProfilePage.css';
 
-const API = 'http://localhost:3001';
+const API = 'https://localhost-cms.onrender.com';
 const DAY_MS = 86400000;
 
 // Conditions that show as a chip in the summary strip. tone: bad = needs attention first.

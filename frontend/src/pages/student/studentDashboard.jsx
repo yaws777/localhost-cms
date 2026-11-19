@@ -31,8 +31,8 @@ import { visitLabel } from '../../utils/visitPurpose';
 import { to12h } from '../../utils/scheduling';
 import '../../styles/student/StudentDashboard.css';
 
-const API_BASE = 'http://localhost:3001/api';
-const BASE_URL = 'http://localhost:3001';
+const API_BASE = 'https://localhost-cms.onrender.com/api';
+const BASE_URL = 'https://localhost-cms.onrender.com';
 const LIVE_REFRESH_MS = 10000;
 // events shown in "Coming up"; the full calendar opens from its icon
 const AGENDA_LIMIT = 4;

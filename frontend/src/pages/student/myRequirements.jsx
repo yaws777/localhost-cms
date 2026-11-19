@@ -79,7 +79,7 @@ export default function MyRequirements() {
                     return;
                 }
 
-                const studentRes = await fetch(`http://localhost:3001/api/get-student/${targetUserId}`);
+                const studentRes = await fetch(`https://localhost-cms.onrender.com/api/get-student/${targetUserId}`);
                 const studentData = await studentRes.json();
 
                 if (studentData.success) {
@@ -115,7 +115,7 @@ export default function MyRequirements() {
         if (!id) return;
         setReqLoading(true);
         try {
-            const response = await fetch(`http://localhost:3001/api/students/${id}/full-requirements`);
+            const response = await fetch(`https://localhost-cms.onrender.com/api/students/${id}/full-requirements`);
             const data = await response.json();
             if (Array.isArray(data)) {
                 setRequirementsList(data);
@@ -148,7 +148,7 @@ export default function MyRequirements() {
             formData.append('file', targetFile);
             formData.append('is_late', isPastDeadline);
 
-            const response = await fetch(`http://localhost:3001/api/students/${studentId}/requirements/${encodeURIComponent(reqName)}/submit`, {
+            const response = await fetch(`https://localhost-cms.onrender.com/api/students/${studentId}/requirements/${encodeURIComponent(reqName)}/submit`, {
                 method: 'POST',
                 body: formData
             });

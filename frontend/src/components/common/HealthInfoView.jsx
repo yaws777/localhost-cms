@@ -120,7 +120,7 @@ function ResultBadge({ abnormal }) {
     );
 }
 
-const API = 'http://localhost:3001';
+const API = 'https://localhost-cms.onrender.com';
 
 const changeText = (now, before, unit) => {
     if (now == null || before == null) return '';

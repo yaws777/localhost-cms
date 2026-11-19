@@ -34,7 +34,7 @@ import { AssessmentViewModal, AssessmentHistoryModal } from '../doctor/Assessmen
 import ConsultationModal from '../doctor/ConsultationModal';
 import '../../styles/doctor/DoctorLayout.css';
 
-const API = 'http://localhost:3001';
+const API = 'https://localhost-cms.onrender.com';
 // small pages keep a list on one screen
 const PAGE_SIZE = 5;
 const GROUP_PAGE_SIZE = 8;

@@ -7,7 +7,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import { FileSpreadsheet, ScanText, Upload, Download, CheckCircle, X, Lock, AlertTriangle, Loader } from 'lucide-react';
 import { HsDialog, HsDialogHeader } from './HsDialog';
 
-const API_BASE = 'http://localhost:3001/api';
+const API_BASE = 'https://localhost-cms.onrender.com/api';
 const norm = (v) => String(v ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 const digits = (v) => { const m = String(v ?? '').match(/\d+/); return m ? Number(m[0]) : null; };
 

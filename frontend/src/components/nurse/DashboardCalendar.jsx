@@ -42,7 +42,7 @@ const DashboardCalendar = () => {
     const load = async () => {
       setIsLoading(true);
       try {
-        const res = await fetch(`http://localhost:3001/api/nurse/dashboard-calendar?month=${cursor.year}-${pad(cursor.month + 1)}`);
+        const res = await fetch(`https://localhost-cms.onrender.com/api/nurse/dashboard-calendar?month=${cursor.year}-${pad(cursor.month + 1)}`);
         const result = await res.json();
         if (!cancelled) setEvents(res.ok && Array.isArray(result.events) ? result.events : []);
       } catch (err) {

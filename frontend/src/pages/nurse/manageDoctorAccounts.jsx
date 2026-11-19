@@ -14,7 +14,7 @@ import ConsultationsOffered from '../../components/scheduling/ConsultationsOffer
 import { useDpAutoLabels } from '../../utils/autoLabels';
 import '../../styles/doctor/DoctorLayout.css';
 
-const API = 'http://localhost:3001';
+const API = 'https://localhost-cms.onrender.com';
 const DOMAIN = '@baliuag.sti.edu.ph';
 
 // {lastname}.{specialization}@baliuag.sti.edu.ph, e.g. bernardo.physician (the specialization part is its last word: General Physician -> physician)

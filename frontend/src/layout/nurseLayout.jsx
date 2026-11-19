@@ -16,7 +16,7 @@ import { useTodayCheckupStatus, useTodayScreeningStatus, TODAY_LABELS, SCREENING
 import ConfirmModal from '../components/common/ConfirmModal';
 import { formatCurrentDate, formatDateTime } from '../utils/datetime';
 
-const API_BASE_URL = 'http://localhost:3001';
+const API_BASE_URL = 'https://localhost-cms.onrender.com';
 
 export const NurseLayout = () => {
     const navigate = useNavigate();

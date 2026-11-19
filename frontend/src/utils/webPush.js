@@ -17,7 +17,7 @@ export async function registerAndSubscribeUser(userId) {
     await navigator.serviceWorker.ready;
 
     // 2. Fetch public VAPID key from Node.js backend
-    const keyRes = await fetch('/api/push/public-key');
+    const keyRes = await fetch('https://localhost-cms.onrender.com/api/push/public-key');
     if (!keyRes.ok) throw new Error('Failed to retrieve VAPID key from server.');
     const { publicKey } = await keyRes.json();
 
@@ -34,7 +34,7 @@ export async function registerAndSubscribeUser(userId) {
     });
 
     // 5. Save subscription to DB via Express API
-    const saveRes = await fetch('/api/push/subscribe', {
+    const saveRes = await fetch('https://localhost-cms.onrender.com/api/push/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: userId, subscription })
@@ -56,7 +56,7 @@ export async function unsubscribeUser(userId) {
         await subscription.unsubscribe();
 
         // Remove from DB
-        await fetch('/api/push/unsubscribe', {
+        await fetch('https://localhost-cms.onrender.com/api/push/unsubscribe', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

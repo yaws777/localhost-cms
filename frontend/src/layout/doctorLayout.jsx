@@ -16,7 +16,7 @@ import { initials } from '../utils/visitPurpose';
 import { useTodayCheckupStatus, TODAY_LABELS } from '../hooks/useTodayCheckupStatus';
 import { useDpAutoLabels } from '../utils/autoLabels';
 
-const API = 'http://localhost:3001';
+const API = 'https://localhost-cms.onrender.com';
 
 const PAGE_TITLES = {
     '/DoctorDashboard': 'Dashboard',
