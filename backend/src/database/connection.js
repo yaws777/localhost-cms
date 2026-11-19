@@ -143,11 +143,20 @@ const pool = mysql.createPool({
 });
 */
 
+    // Aiven (or any remote MySQL) when DB_HOST is set in backend/.env; local MySQL otherwise.
+    // Aiven requires TLS: set DB_SSL=true (and optionally DB_CA_PATH to the downloaded ca.pem to verify the server).
+    const dbUsesSsl = String(process.env.DB_SSL || '').toLowerCase() === 'true';
+    const dbSsl = !dbUsesSsl ? undefined
+        : process.env.DB_CA_PATH
+            ? { ca: require('fs').readFileSync(process.env.DB_CA_PATH, 'utf8'), rejectUnauthorized: true }
+            : { rejectUnauthorized: false };
     const pool = mysql.createPool({
-        host: "localhost",
-        user: "root",
-        password: "Yahweh0512",
-        database: "ClinicManagementSystem",
+        host: process.env.DB_HOST || "localhost",
+        port: Number(process.env.DB_PORT) || 3306,
+        user: process.env.DB_HOST ? process.env.DB_USER : "root",
+        password: process.env.DB_HOST ? process.env.DB_PASSWORD : "Yahweh0512",
+        database: process.env.DB_HOST ? process.env.DB_NAME : "ClinicManagementSystem",
+        ssl: dbSsl,
         dateStrings: true,
         charset: 'utf8mb4', // Forces UTF-8 encoding on client connections
         timezone: '+08:00', // Philippine Standard Time, regardless of host/MySQL server default
