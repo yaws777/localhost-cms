@@ -16,7 +16,7 @@ const VIEWS = [['active', 'Active'], ['archive', 'Archive']];
 const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
 const keyNumber = (key) => Number(String(key || '').replace(/\D/g, '')) || 0;
 const blankField = (key, type = 'number') => ({
-  key, label: '', type, required: false, unit: '', min: '', max: '',
+  key, label: '', type, required: false, unit: '', min: '', max: '', playMin: '', playMax: '', role: '', playBlock: [],
   options: type === 'select' ? ['Normal', 'Abnormal'] : [], abnormal: [], formulaText: '', decimals: '1', bands: [], fresh: true
 });
 
@@ -35,6 +35,10 @@ const toEditorField = (f, all) => ({
   unit: f.unit || '',
   min: f.min ?? '',
   max: f.max ?? '',
+  playMin: f.play_min ?? '',
+  playMax: f.play_max ?? '',
+  role: f.role || '',
+  playBlock: [...(f.play_block_options || [])],
   options: f.type === 'select' ? [...(f.options || [])] : [],
   abnormal: [...(f.abnormal_options || [])],
   formulaText: f.type === 'calculated' ? keysToLabels(f.formula, all) : '',
@@ -53,6 +57,8 @@ const toPreviewField = (f) => ({
   unit: f.unit,
   min: f.min,
   max: f.max,
+  play_min: f.playMin,
+  play_max: f.playMax,
   options: optionsOf(f),
   abnormal_options: f.abnormal,
   formula: f.formulaText,
@@ -136,6 +142,29 @@ function FieldBody({ f, locked, numberLabels, patch, onType }) {
         </div>
       )}
 
+      {(f.type === 'number' || f.type === 'calculated') && (
+        <div className="sx-row-hs">
+          <div className="form-group-hs">
+            <label htmlFor={`${id}-pmin`}>Play low</label>
+            <input id={`${id}-pmin`} type="number" step="any" value={f.playMin} onChange={(e) => patch({ playMin: e.target.value })} />
+          </div>
+          <div className="form-group-hs">
+            <label htmlFor={`${id}-pmax`}>Play high</label>
+            <input id={`${id}-pmax`} type="number" step="any" value={f.playMax} onChange={(e) => patch({ playMax: e.target.value })} />
+          </div>
+          {f.type === 'number' && (
+            <div className="form-group-hs">
+              <label htmlFor={`${id}-role`}>Blood pressure</label>
+              <select id={`${id}-role`} value={f.role} onChange={(e) => patch({ role: e.target.value })}>
+                <option value="">None</option>
+                <option value="systolic">Systolic</option>
+                <option value="diastolic">Diastolic</option>
+              </select>
+            </div>
+          )}
+        </div>
+      )}
+
       {f.type === 'calculated' && (
         <>
           <div className="form-group-hs">
@@ -211,6 +240,25 @@ function FieldBody({ f, locked, numberLabels, patch, onType }) {
             {answerOptions.map((o) => (
               <button type="button" key={o} className="sx-pill-hs" aria-pressed={f.abnormal.includes(o)} onClick={() => toggleAbnormal(o)}>
                 {f.abnormal.includes(o) && <TriangleAlert size={14} aria-hidden="true" />}{o}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(f.type === 'select' || f.type === 'yesno') && answerOptions.length > 0 && (
+        <div className="sx-abn-hs" role="group" aria-label="Answers that block play">
+          <span className="sx-muted-hs">Not allowed to play</span>
+          <div className="sx-chips-hs">
+            {answerOptions.map((o) => (
+              <button
+                type="button"
+                key={o}
+                className="sx-pill-hs"
+                aria-pressed={f.playBlock.includes(o)}
+                onClick={() => patch({ playBlock: f.playBlock.includes(o) ? f.playBlock.filter((x) => x !== o) : [...f.playBlock, o] })}
+              >
+                {f.playBlock.includes(o) && <TriangleAlert size={14} aria-hidden="true" />}{o}
               </button>
             ))}
           </div>
@@ -315,10 +363,12 @@ export default function ScreeningTemplatesManager({ templates, types = [], loadi
   const toPayloadField = (f) => {
     const label = f.label.replace(/\s+/g, ' ').trim();
     const out = { key: f.key, label, type: f.type, required: f.required, unit: f.unit.trim() };
-    if (f.type === 'number' || f.type === 'calculated') { out.min = f.min; out.max = f.max; }
+    if (f.type === 'number' || f.type === 'calculated') { out.min = f.min; out.max = f.max; out.play_min = f.playMin; out.play_max = f.playMax; }
+    if (f.type === 'number' && f.role) out.role = f.role;
     if (f.type === 'select' || f.type === 'yesno') {
       out.options = optionsOf(f);
       out.abnormal_options = f.abnormal.filter((a) => out.options.includes(a));
+      out.play_block_options = f.playBlock.filter((a) => out.options.includes(a));
     }
     if (f.type === 'calculated') {
       let unknown = null;

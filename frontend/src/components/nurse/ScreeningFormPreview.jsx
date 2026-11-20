@@ -27,6 +27,15 @@ export const rangeText = (f) => {
   return '';
 };
 
+// "Play 90 to 139" (the range inside which a student may play)
+export const playText = (f) => {
+  if (f.type !== 'number' && f.type !== 'calculated') return '';
+  if (has(f.play_min) && has(f.play_max)) return `Play ${f.play_min} to ${f.play_max}`;
+  if (has(f.play_min)) return `Play from ${f.play_min}`;
+  if (has(f.play_max)) return `Play up to ${f.play_max}`;
+  return '';
+};
+
 // the value, result label and abnormal flag of one field for the answers typed so far (answers = { key: text })
 export const evalField = (f, fields, answers) => {
   const raw = answers[f.key];
@@ -63,7 +72,8 @@ export const evalField = (f, fields, answers) => {
       value = Number(value.toFixed(dec));
     }
     const abnormal = (has(f.min) && value < Number(f.min)) || (has(f.max) && value > Number(f.max));
-    return { value, band, abnormal: !!abnormal };
+    const noPlay = (has(f.play_min) && value < Number(f.play_min)) || (has(f.play_max) && value > Number(f.play_max));
+    return { value, band, abnormal: !!abnormal, noPlay: !!noPlay };
   }
   return { value: raw || null, abnormal: !!(raw && (f.abnormal_options || []).includes(raw)) };
 };
@@ -149,8 +159,9 @@ export function FormPreview({ fields }) {
               </div>
             )}
 
-            {range && <span className="sx-hint-line-hs">{range}</span>}
+            {(range || playText(f)) && <span className="sx-hint-line-hs">{[range, playText(f)].filter(Boolean).join(' · ')}</span>}
             <span className="sx-flag-hs" aria-live="polite">
+              {r.noPlay && <span className="sx-chip-hs sx-crit-hs"><TriangleAlert size={14} aria-hidden="true" /> Not allowed to play</span>}
               {r.abnormal && <span className="sx-chip-hs sx-crit-hs"><TriangleAlert size={14} aria-hidden="true" /> Abnormal</span>}
               {!r.abnormal && answered && f.type !== 'text' && <span className="sx-chip-hs sx-ok-hs"><CircleCheck size={14} aria-hidden="true" /> Normal</span>}
             </span>

@@ -65,7 +65,8 @@ const ymd = (date) => {
 
 // The period shown for a granularity and an offset (0 = the current day / week / month, 1 = the one before ...)
 const getPeriod = (granularity, offset) => {
-  const today = new Date();
+  // the clinic's own calendar (Manila), whatever the computer's time zone is
+  const today = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
 
   if (granularity === 'daily') {
     const day = new Date(today.getFullYear(), today.getMonth(), today.getDate() - offset);
@@ -353,8 +354,8 @@ const ReportsAnalytics = () => {
           },
           {
             heading: 'Medicine dispensed',
-            columns: ['#', 'Medicine', 'Total', 'Direct', 'During consultation'],
-            rows: medicine.items.map((m, i) => [i + 1, m.name, m.count, m.direct, m.consultation]),
+            columns: ['#', 'Medicine', 'Quantity given', 'Releases', 'Direct', 'During consultation'],
+            rows: medicine.items.map((m, i) => [i + 1, m.name, `${m.quantity} ${m.unit}`.trim(), m.count, m.direct, m.consultation]),
             emptyText: 'No medicine dispensations for this period.'
           }
         ]
@@ -389,9 +390,9 @@ const ReportsAnalytics = () => {
         details: [['Stock as of', formatCurrentDate(new Date())], ['Medicines', inventory.summary.total], ['Adequate', inventory.summary.adequate], ['Low', inventory.summary.low], ['Critical', inventory.summary.critical], ['Out of stock', inventory.summary.out], ['Expiring soon', inventory.summary.expiring], ['Expired', inventory.summary.expired]],
         sections: [
           {
-            heading: 'Medicines needing attention',
-            columns: ['Medicine', 'Status', 'Current stock', 'Expiring soon', 'Expired', 'Nearest expiry'],
-            rows: inventory.attention.map((m) => [m.name, m.status, `${m.stock} ${m.unit}`, m.expiringStock, m.expiredStock, m.nearestExpiry ? formatDate(m.nearestExpiry) : '—']),
+            heading: 'Medicines to request',
+            columns: ['Medicine', 'Status', 'Current stock', 'Forecast (30 days)', 'Quantity to request', 'Expiring soon', 'Expired', 'Nearest expiry'],
+            rows: inventory.attention.map((m) => [m.name, m.status, `${m.stock} ${m.unit}`, `${m.forecast30d} ${m.unit}`, m.suggestedRestock > 0 ? `${m.suggestedRestock} ${m.unit}` : 'None', m.expiringStock, m.expiredStock, m.nearestExpiry ? formatDate(m.nearestExpiry) : '—']),
             emptyText: 'Every medicine is adequately stocked and in date.'
           }
         ]
@@ -402,8 +403,7 @@ const ReportsAnalytics = () => {
     writeSectionedReport(win, {
       title: tab === 'inventory' ? `${tabLabel} Report` : `${unitInfo.label} ${tabLabel} Report`,
       details,
-      sections,
-      editable: tab === 'inventory'
+      sections
     });
   };
 
@@ -555,9 +555,9 @@ const ReportsAnalytics = () => {
       </Panel>
 
       <Panel title="All medicines dispensed">
-        <Table columns={['#', 'Medicine', 'Total', 'Direct', 'Consultation']} isEmpty={medicine.items.length === 0} empty={`No medicine dispensations for this ${unit}`}>
+        <Table columns={['#', 'Medicine', 'Quantity given', 'Releases', 'Direct', 'Consultation']} isEmpty={medicine.items.length === 0} empty={`No medicine dispensations for this ${unit}`}>
           {medicine.items.map((m, i) => (
-            <tr key={m.name}><td>{i + 1}</td><td>{m.name}</td><td><strong>{m.count}</strong></td><td>{m.direct}</td><td>{m.consultation}</td></tr>
+            <tr key={m.name}><td>{i + 1}</td><td>{m.name}</td><td className="nowrap"><strong>{m.quantity} {m.unit}</strong></td><td>{m.count}</td><td>{m.direct}</td><td>{m.consultation}</td></tr>
           ))}
         </Table>
       </Panel>
@@ -633,9 +633,9 @@ const ReportsAnalytics = () => {
         <Kpi icon={Boxes} label="Expired" tone="red" value={v(inventory.summary.expired)} />
       </div>
 
-      <Panel title="Medicines needing attention" note="Out of stock, low, expiring or expired">
+      <Panel title="Medicines to request" note="Forecast for 30 days minus the stock in inventory">
         <Table
-          columns={['Medicine', 'Status', 'Current stock', 'Expiring soon', 'Expired', 'Nearest expiry']}
+          columns={['Medicine', 'Status', 'Current stock', 'Forecast (30 days)', 'Quantity to request', 'Expiring soon', 'Expired', 'Nearest expiry']}
           isEmpty={inventory.attention.length === 0}
           empty="Every medicine is adequately stocked and in date."
         >
@@ -644,6 +644,8 @@ const ReportsAnalytics = () => {
               <td>{m.name}</td>
               <td><StatusPill status={m.status} /></td>
               <td className="nowrap">{m.stock} {m.unit}</td>
+              <td className="nowrap">{m.forecast30d} {m.unit}</td>
+              <td className="nowrap"><strong>{m.suggestedRestock > 0 ? `${m.suggestedRestock} ${m.unit}` : 'None'}</strong></td>
               <td>{m.expiringStock || '—'}</td>
               <td>{m.expiredStock || '—'}</td>
               <td className="nowrap">{m.nearestExpiry ? formatDate(m.nearestExpiry) : '—'}</td>

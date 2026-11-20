@@ -18,9 +18,11 @@ import ScreeningCalendar from '../../components/nurse/ScreeningCalendar';
 import ScreeningParticipantsModal from '../../components/nurse/ScreeningParticipantsModal';
 import ScreeningTemplatesManager from '../../components/nurse/ScreeningTemplatesManager';
 import ScreeningImportModal from '../../components/nurse/ScreeningImportModal';
+import AutoTimeFields from '../../components/nurse/AutoTimeFields';
 import SectionStudents from '../../components/nurse/SectionStudents';
 import StudentScreeningHistoryModal from '../../components/nurse/StudentScreeningHistoryModal';
 import { calculate } from '../../utils/formula';
+import { buildAutoRemark, playDecision, playRangeText, bloodPressureLabel } from '../../utils/screeningRemarks';
 import { classLabel } from '../../utils/scheduling';
 import { FormPdfButton } from '../../components/common/FormDocument';
 import { buildScreeningModel } from '../../utils/formModels';
@@ -90,17 +92,6 @@ const ScreeningFolders = ({ items, phase }) => {
   );
 };
 
-// "2 h 30 min" between two HH:MM times, '' when the range is not valid yet
-const durationText = (start, end) => {
-  if (!start || !end) return '';
-  const [sh, sm] = String(start).split(':').map(Number);
-  const [eh, em] = String(end).split(':').map(Number);
-  const mins = (eh * 60 + em) - (sh * 60 + sm);
-  if (!Number.isFinite(mins) || mins <= 0) return '';
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return `${h ? `${h} h` : ''}${h && m ? ' ' : ''}${m ? `${m} min` : ''}`;
-};
 
 // Red asterisk after the label of a required field (the input itself carries `required`)
 const Req = () => <span className="req-hs" aria-hidden="true">*</span>;
@@ -197,25 +188,6 @@ const getTodayString = () => getDateString(0);
 // Past Screenings lists every finished screening of the folder (a folder sits under Past because it has one), narrow it with the dates
 const defaultPastRange = () => ({ from: '', to: '' });
 
-// Helper to get current local time in HH:MM format
-const getCurrentTimeString = () => {
-  const d = new Date();
-  const hours = String(d.getHours()).padStart(2, '0');
-  const minutes = String(d.getMinutes()).padStart(2, '0');
-  return `${hours}:${minutes}`;
-};
-
-// Helper to calculate minimum end time (1 minute after start time)
-const getMinEndTime = (startTime) => {
-  if (!startTime) return undefined;
-  const [h, m] = startTime.split(':').map(Number);
-  if (isNaN(h) || isNaN(m)) return startTime;
-  const totalMinutes = h * 60 + m + 1;
-  if (totalMinutes >= 24 * 60) return '23:59';
-  const nextH = String(Math.floor(totalMinutes / 60)).padStart(2, '0');
-  const nextM = String(totalMinutes % 60).padStart(2, '0');
-  return `${nextH}:${nextM}`;
-};
 
 export default function HealthScreening() {
   const [activeTab, setActiveTab] = useState('upcoming');
@@ -281,6 +253,16 @@ export default function HealthScreening() {
 
   // Documentation Dynamic Form State
   const [docData, setDocData] = useState({});
+  // the remark writes itself from the answers until the nurse types in it
+  const [remarksTouched, setRemarksTouched] = useState(false);
+  const docFields = activeSchedule?.form_kind === 'CUSTOM' ? (activeSchedule?.template?.fields || []) : [];
+  const docAsthma = selectedStudent ? { has: Number(selectedStudent.has_asthma_history) === 1, triggers: selectedStudent.asthma_triggers || '' } : null;
+  useEffect(() => {
+    if (!showDocModal || remarksTouched || docFields.length === 0) return;
+    const auto = buildAutoRemark(docFields, docData.answers, docAsthma);
+    setDocData((prev) => (prev.remarks === auto ? prev : { ...prev, remarks: auto }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showDocModal, remarksTouched, docData.answers, selectedStudent, activeSchedule]);
 
   // Extra screening transactions: reasons, make-up, doctor referral, history, results report
   const { nurseId, userId } = useOutletContext() || {};
@@ -872,8 +854,8 @@ export default function HealthScreening() {
       return;
     }
 
-    if (scheduleForm.scheduled_date === getTodayString() && scheduleForm.start_time < getCurrentTimeString()) {
-      showAlert('Start time cannot be in the past for today.', 'Invalid Time', 'warning');
+    if (!scheduleForm.start_time || !scheduleForm.end_time) {
+      showAlert('Pick a date. The time fills itself.', 'Time Required', 'warning');
       return;
     }
 
@@ -986,8 +968,8 @@ export default function HealthScreening() {
       return;
     }
 
-    if (cleanDate === getTodayString() && editingSchedule.start_time < getCurrentTimeString()) {
-      showAlert('Start time cannot be in the past for today.', 'Invalid Time', 'warning');
+    if (!editingSchedule.start_time || !editingSchedule.end_time) {
+      showAlert('Pick a date. The time fills itself.', 'Time Required', 'warning');
       return;
     }
 
@@ -1223,8 +1205,9 @@ export default function HealthScreening() {
       schedule: sch,
       title: `Make-up: ${sch.title}`.slice(0, 150),
       scheduled_date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
-      start_time: (sch.start_time || '09:00').slice(0, 5),
-      end_time: (sch.end_time || '10:00').slice(0, 5),
+      // the time fills itself with the next free time of that day
+      start_time: '',
+      end_time: '',
       announcement: ''
     });
   };
@@ -1458,6 +1441,8 @@ export default function HealthScreening() {
     }
 
     setSelectedStudent(student);
+    // a result saved before keeps its own remark; a new one gets the automatic remark
+    setRemarksTouched(!!student.remarks);
     setDocData({
       left_ear_result: student.left_ear_result || '',
       right_ear_result: student.right_ear_result || '',
@@ -2331,56 +2316,16 @@ export default function HealthScreening() {
                     value={scheduleForm.scheduled_date}
                     onChange={e => {
                       const newDate = e.target.value;
-                      setScheduleForm(prev => ({
-                        ...prev,
-                        scheduled_date: newDate,
-                        start_time: newDate === getTodayString() && prev.start_time < getCurrentTimeString() ? '' : prev.start_time,
-                        end_time: newDate === getTodayString() && prev.start_time < getCurrentTimeString() ? '' : prev.end_time
-                      }));
+                      setScheduleForm(prev => ({ ...prev, scheduled_date: newDate, start_time: '', end_time: '' }));
                     }}
                   />
                 </div>
-                <div className="form-group-hs">
-                  <label htmlFor="hs-fld-4">Start <Req /></label>
-                  <input id="hs-fld-4"
-                    type="time"
-                    required
-                    min={scheduleForm.scheduled_date === getTodayString() ? getCurrentTimeString() : undefined}
-                    max={scheduleForm.end_time || undefined}
-                    value={scheduleForm.start_time}
-                    onChange={e => {
-                      const newStart = e.target.value;
-                      setScheduleForm(prev => ({
-                        ...prev,
-                        start_time: newStart,
-                        end_time: prev.end_time && newStart && prev.end_time <= newStart ? '' : prev.end_time
-                      }));
-                    }}
-                  />
-                </div>
-                <div className="form-group-hs">
-                  <label htmlFor="hs-fld-5">End <Req /></label>
-                  <input id="hs-fld-5"
-                    type="time"
-                    required
-                    disabled={!scheduleForm.start_time}
-                    min={getMinEndTime(scheduleForm.start_time)}
-                    value={scheduleForm.end_time}
-                    onChange={e => {
-                      const newEnd = e.target.value;
-                      if (newEnd && scheduleForm.start_time && newEnd <= scheduleForm.start_time) {
-                        showAlert('End time must be after Start time.', 'Invalid Time Range', 'warning');
-                        setScheduleForm(prev => ({ ...prev, end_time: '' }));
-                        return;
-                      }
-                      setScheduleForm(prev => ({ ...prev, end_time: newEnd }));
-                    }}
-                    placeholder={!scheduleForm.start_time ? "Select Start Time first" : ""}
-                  />
-                </div>
-                {durationText(scheduleForm.start_time, scheduleForm.end_time) && (
-                  <span className="dur-hs" role="status"><Clock size={14} aria-hidden="true" /> {durationText(scheduleForm.start_time, scheduleForm.end_time)}</span>
-                )}
+                <AutoTimeFields
+                  date={scheduleForm.scheduled_date}
+                  value={{ start_time: scheduleForm.start_time, end_time: scheduleForm.end_time }}
+                  onChange={(t) => setScheduleForm(prev => ({ ...prev, ...t }))}
+                  onNotice={(msg) => showAlert(msg, 'No Free Time', 'warning')}
+                />
               </div>
 
               <div className="form-group-hs">
@@ -2711,53 +2656,18 @@ export default function HealthScreening() {
                   value={editingSchedule.scheduled_date ? editingSchedule.scheduled_date.split('T')[0] : ''} 
                   onChange={e => {
                     const newDate = e.target.value;
-                    setEditingSchedule(prev => ({
-                      ...prev,
-                      scheduled_date: newDate,
-                      start_time: newDate === getTodayString() && prev.start_time < getCurrentTimeString() ? '' : prev.start_time,
-                      end_time: newDate === getTodayString() && prev.start_time < getCurrentTimeString() ? '' : prev.end_time
-                    }));
-                  }} 
+                    setEditingSchedule(prev => ({ ...prev, scheduled_date: newDate, start_time: '', end_time: '' }));
+                  }}
                 />
               </div>
               <div className="form-grid-hs">
-                <div className="form-group-hs">
-                  <label htmlFor="hs-fld-10">Start Time</label>
-                  <input id="hs-fld-10" 
-                    type="time" 
-                    required 
-                    min={editingSchedule.scheduled_date?.split('T')[0] === getTodayString() ? getCurrentTimeString() : undefined}
-                    max={editingSchedule.end_time || undefined}
-                    value={editingSchedule.start_time} 
-                    onChange={e => {
-                      const newStart = e.target.value;
-                      setEditingSchedule(prev => ({
-                        ...prev,
-                        start_time: newStart,
-                        end_time: prev.end_time && newStart && prev.end_time <= newStart ? '' : prev.end_time
-                      }));
-                    }} 
-                  />
-                </div>
-                <div className="form-group-hs">
-                  <label htmlFor="hs-fld-11">End Time</label>
-                  <input id="hs-fld-11" 
-                    type="time" 
-                    required 
-                    disabled={!editingSchedule.start_time}
-                    min={getMinEndTime(editingSchedule.start_time)}
-                    value={editingSchedule.end_time} 
-                    onChange={e => {
-                      const newEnd = e.target.value;
-                      if (newEnd && editingSchedule.start_time && newEnd <= editingSchedule.start_time) {
-                        showAlert('End time must be after Start time.', 'Invalid Time Range', 'warning');
-                        setEditingSchedule(prev => ({ ...prev, end_time: '' }));
-                        return;
-                      }
-                      setEditingSchedule(prev => ({ ...prev, end_time: newEnd }));
-                    }} 
-                  />
-                </div>
+                <AutoTimeFields
+                  date={editingSchedule.scheduled_date ? editingSchedule.scheduled_date.split('T')[0] : ''}
+                  value={{ start_time: (editingSchedule.start_time || '').slice(0, 5), end_time: (editingSchedule.end_time || '').slice(0, 5) }}
+                  onChange={(t) => setEditingSchedule(prev => ({ ...prev, ...t }))}
+                  excludeId={editingSchedule.screening_schedule_id}
+                  onNotice={(msg) => showAlert(msg, 'No Free Time', 'warning')}
+                />
               </div>
               <div className="form-group-hs">
                 <label htmlFor="hs-fld-12">Notes</label>
@@ -2953,6 +2863,16 @@ export default function HealthScreening() {
           </HsDialogHeader>
           <form onSubmit={handleDocSubmit} className="modal-form-hs">
             <div className="modal-body-hs">
+              {/* the student stays in view while the form is filled in */}
+              <div className="doc-student-hs" role="group" aria-label="Student">
+                <strong className="doc-student-name-hs">{selectedStudent.first_name} {selectedStudent.last_name}</strong>
+                <span className="doc-student-meta-hs">{selectedStudent.student_id} &middot; {classLabel(selectedStudent.program_id, selectedStudent.year_level, selectedStudent.section)}</span>
+                {docAsthma?.has && (
+                  <span className="chip-hs chip-warn-hs" title={docAsthma.triggers || 'History of asthma'}>
+                    <AlertTriangle size={14} aria-hidden="true" /> Asthma{docAsthma.triggers ? `: ${docAsthma.triggers}` : ''}
+                  </span>
+                )}
+              </div>
               <div className="doc-ctx-hs">
                 <span className="chip-hs chip-info-hs">{typeLabel(activeSchedule.screening_type)}</span>
                 {activeSchedule.scheduled_date && <span className="chip-hs">{formatDate(String(activeSchedule.scheduled_date).split('T')[0])}</span>}
@@ -2998,6 +2918,8 @@ export default function HealthScreening() {
                       );
                     }
                     const outside = f.type === 'number' && value !== '' && ((f.min !== undefined && Number(value) < f.min) || (f.max !== undefined && Number(value) > f.max));
+                    const noPlay = playDecision([f], docData.answers).blocked;
+                    const hasRange = f.type === 'number' && (f.min !== undefined || f.max !== undefined || playRangeText(f));
                     return (
                       <div className="form-group-hs" key={f.key}>
                         {label}
@@ -3009,19 +2931,52 @@ export default function HealthScreening() {
                           required={f.required}
                           value={value}
                           onChange={e => setAnswer(e.target.value)}
-                          aria-describedby={outside ? `${id}-flag` : undefined}
+                          aria-describedby={`${id}-range ${outside ? `${id}-flag` : ''}`.trim()}
                         />
+                        {hasRange && (
+                          <small id={`${id}-range`} className="range-hint-hs">
+                            {(f.min !== undefined || f.max !== undefined) && <>Normal {rangeFlagText(f)}</>}
+                            {playRangeText(f) && <>{(f.min !== undefined || f.max !== undefined) ? ' · ' : ''}Play {playRangeText(f)}</>}
+                          </small>
+                        )}
                         {outside && (
                           <small id={`${id}-flag`} className="flag-hs">
-                            <AlertTriangle size={14} aria-hidden="true" /> Outside {rangeFlagText(f)}
+                            <AlertTriangle size={14} aria-hidden="true" /> {Number(value) < (f.min ?? -Infinity) ? 'Low' : 'High'}: outside {rangeFlagText(f)}
+                          </small>
+                        )}
+                        {noPlay && (
+                          <small className="flag-hs" role="status">
+                            <AlertTriangle size={14} aria-hidden="true" /> Not allowed to play
                           </small>
                         )}
                       </div>
                     );
                   })}
+                  {(() => {
+                    const bp = bloodPressureLabel(docFields, docData.answers);
+                    const play = playDecision(docFields, docData.answers);
+                    if (!bp && !play.hasRule) return null;
+                    return (
+                      <div className="doc-verdict-hs" role="status">
+                        {bp && <span className={`chip-hs ${bp === 'Normal' ? 'chip-ok-hs' : 'chip-warn-hs'}`}>{bp !== 'Normal' && <AlertTriangle size={14} aria-hidden="true" />} Blood pressure: {bp}</span>}
+                        {play.hasRule && (
+                          <span className={`chip-hs ${play.blocked ? 'chip-warn-hs' : 'chip-ok-hs'}`}>
+                            {play.blocked ? <AlertTriangle size={14} aria-hidden="true" /> : <CheckCircle size={14} aria-hidden="true" />}
+                            {play.blocked ? ' Not allowed to play' : ' Allowed to play'}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })()}
                   <div className="form-group-hs">
                     <label htmlFor="cf-remarks-hs">Remarks</label>
-                    <textarea id="cf-remarks-hs" value={docData.remarks} onChange={e => setDocData({...docData, remarks: e.target.value})} rows={2} placeholder="Remarks" />
+                    <textarea
+                      id="cf-remarks-hs"
+                      value={docData.remarks}
+                      onChange={e => { setRemarksTouched(true); setDocData({ ...docData, remarks: e.target.value }); }}
+                      rows={4}
+                      placeholder="Remarks"
+                    />
                   </div>
                 </>
               )}
@@ -3146,17 +3101,16 @@ export default function HealthScreening() {
               </div>
               <div className="form-group-hs">
                 <label htmlFor="hs-fld-18">Date</label>
-                <input id="hs-fld-18" type="date" required min={getTodayString()} value={makeupModal.scheduled_date} onChange={e => setMakeupModal({ ...makeupModal, scheduled_date: e.target.value })} />
+                <input id="hs-fld-18" type="date" required min={getTodayString()} value={makeupModal.scheduled_date} onChange={e => setMakeupModal({ ...makeupModal, scheduled_date: e.target.value, start_time: '', end_time: '' })} />
               </div>
               <div className="form-grid-hs">
-                <div className="form-group-hs">
-                  <label htmlFor="hs-fld-19">Start Time</label>
-                  <input id="hs-fld-19" type="time" required value={makeupModal.start_time} onChange={e => setMakeupModal({ ...makeupModal, start_time: e.target.value })} />
-                </div>
-                <div className="form-group-hs">
-                  <label htmlFor="hs-fld-20">End Time</label>
-                  <input id="hs-fld-20" type="time" required value={makeupModal.end_time} onChange={e => setMakeupModal({ ...makeupModal, end_time: e.target.value })} />
-                </div>
+                <AutoTimeFields
+                  date={makeupModal.scheduled_date}
+                  value={{ start_time: makeupModal.start_time, end_time: makeupModal.end_time }}
+                  onChange={(t) => setMakeupModal(prev => (prev ? { ...prev, ...t } : prev))}
+                  autoOnMount
+                  onNotice={(msg) => showAlert(msg, 'No Free Time', 'warning')}
+                />
               </div>
               <div className="form-group-hs">
                 <label htmlFor="hs-fld-21">Notes</label>

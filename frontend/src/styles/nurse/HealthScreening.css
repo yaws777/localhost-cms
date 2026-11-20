@@ -2755,9 +2755,24 @@
 }
 
 .pk-when-hs {
-  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   align-items: end;
 }
+.auto-len-row-hs { display: flex; gap: 0.5rem; align-items: center; }
+.auto-len-row-hs select { flex: 1; min-width: 0; }
+.auto-conflict-hs {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  padding: 0.625rem 0.75rem;
+  border-radius: 0.5rem;
+  background: var(--status-critical-bg);
+  color: var(--status-critical-text);
+  font-weight: 600;
+}
+.form-group-hs input[readonly] { cursor: default; }
 
 .dur-hs {
   display: inline-flex;
@@ -2882,6 +2897,27 @@
   gap: 0.5rem;
   margin-bottom: 1rem;
 }
+
+/* the student stays pinned at the top of the form while it scrolls */
+.doc-student-hs {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  margin: 0 0 0.75rem;
+  padding: 0.625rem 0.75rem;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 0.0625rem solid var(--card-border);
+  border-radius: 0.5rem;
+}
+.doc-student-name-hs { font-size: 1rem; font-weight: 700; overflow-wrap: anywhere; }
+.doc-student-meta-hs { font-size: 0.875rem; color: var(--text-secondary); }
+.doc-verdict-hs { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; }
+.range-hint-hs { display: block; margin-top: 0.25rem; font-size: 0.875rem; color: var(--text-secondary); }
 
 @media (max-width: 40rem) {
   .modal-header-hs { flex-wrap: wrap; }

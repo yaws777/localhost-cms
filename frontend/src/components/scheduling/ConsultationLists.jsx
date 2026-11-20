@@ -10,7 +10,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
     Search, CalendarClock, History, ClipboardPlus, UserX, Ban, FileText, Printer, Pill, Stethoscope, TimerReset,
-    FolderOpen, FolderHeart, ChevronLeft, Eye, Repeat, Clock, Users, BellRing, LogOut
+    Folder, FolderOpen, FolderHeart, ChevronLeft, ChevronRight, Eye, Repeat, Clock, Users, BellRing, LogOut
 } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatTime } from '../../utils/datetime';
@@ -67,6 +67,16 @@ const GROUPED_TABS = ['upcoming', 'past'];
 
 const dayTitle = (day) => new Date(`${day}T00:00:00`).toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 
+// "today", "2 days ago", "in 3 days"; further out the plain date (the right column of a folder row)
+const relativeDay = (day) => {
+    const diff = Math.round((new Date(`${day}T00:00:00`) - new Date(new Date().toDateString())) / 86400000);
+    if (diff === 0) return 'today';
+    if (diff === 1) return 'tomorrow';
+    if (diff === -1) return 'yesterday';
+    if (Math.abs(diff) <= 14) return diff > 0 ? `in ${diff} days` : `${-diff} days ago`;
+    return new Date(`${day}T00:00:00`).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
+};
+
 const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTab, focusId, onChanged }) => {
     const { showAlert } = useAlert();
     const { visitTypes } = useSpecializations();
@@ -86,6 +96,8 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
     const [day, setDay] = useState('');
     const [doctorFilter, setDoctorFilter] = useState('');
     const [openGroup, setOpenGroup] = useState(null);
+    const [openDoctor, setOpenDoctor] = useState(null); // nurse: the doctor folder opened from All folders
+    const [doctorFolders, setDoctorFolders] = useState([]);
 
     const [cancelTarget, setCancelTarget] = useState(null);
     const [moveTarget, setMoveTarget] = useState(null);
@@ -104,16 +116,20 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
     const [queueKey, setQueueKey] = useState(0);
     const reqSeq = useRef(0);
 
-    // upcoming / past check-ups: the containers of the sessions, until one is opened
-    const inFolders = GROUPED_TABS.includes(tab) && !openGroup;
+    // upcoming / past check-ups. Nurse: All folders (one folder per doctor) > the doctor's session containers > the participants.
+    // Doctor: the session containers > the participants.
+    const grouped = GROUPED_TABS.includes(tab);
+    const doctorScope = isNurse ? (openDoctor ? openDoctor.doctor_id : doctorFilter) : '';
+    const atRoot = grouped && isNurse && !openGroup && !doctorScope;
+    const inFolders = grouped && !openGroup && !atRoot;
     const pageSize = inFolders ? GROUP_PAGE_SIZE : tab === 'past' || tab === 'upcoming' ? TABLE_SIZE : PAGE_SIZE;
 
-    const setTab = (key) => { onTab(key); setOpenGroup(null); setPage(1); };
+    const setTab = (key) => { onTab(key); setOpenGroup(null); setOpenDoctor(null); setPage(1); };
 
     useEffect(() => { const t = setTimeout(() => { setQuery(search.trim()); setPage(1); }, 300); return () => clearTimeout(t); }, [search]);
 
     // the other tab of the list the nurse or doctor came from
-    useEffect(() => { setOpenGroup(null); setPage(1); }, [tab]);
+    useEffect(() => { setOpenGroup(null); setOpenDoctor(null); setPage(1); }, [tab]);
 
     const filterParams = useCallback((scope) => {
         const qs = new URLSearchParams({ scope });
@@ -141,17 +157,30 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
         try {
             const qs = filterParams(tab);
             qs.set('page', page);
-            qs.set('pageSize', pageSize);
+            qs.set('pageSize', atRoot ? 'all' : pageSize);
             if (openGroup) {
                 qs.set('from', openGroup.day); qs.set('to', openGroup.day);
                 qs.set('schedule_id', openGroup.schedule_id || 'none');
                 if (openGroup.doctor_id) qs.set('doctor_id', openGroup.doctor_id);
-            } else if (day) { qs.set('from', day); qs.set('to', day); }
-            const res = await fetch(`${API}/api/doctor/${doctorPath}/${inFolders ? 'appointment-groups' : 'appointments'}?${qs.toString()}`);
+            } else {
+                if (day) { qs.set('from', day); qs.set('to', day); }
+                if (openDoctor) qs.set('doctor_id', openDoctor.doctor_id);
+            }
+            const res = await fetch(`${API}/api/doctor/${doctorPath}/${atRoot || inFolders ? 'appointment-groups' : 'appointments'}?${qs.toString()}`);
             const data = await res.json();
             if (seq !== reqSeq.current) return;
             if (data.success) {
-                if (inFolders) setGroups(data.groups); else setItems(data.appointments);
+                if (atRoot) {
+                    // one folder per doctor, built from the session containers
+                    const byDoctor = new Map();
+                    data.groups.forEach((g) => {
+                        const f = byDoctor.get(g.doctor_id) || { doctor_id: g.doctor_id, name: `Dr. ${g.doc_first_name} ${g.doc_last_name}`, sessions: 0, total: 0, documented: 0, missed: 0, abnormal: 0, day: g.day };
+                        f.sessions += 1; f.total += g.total; f.documented += g.documented; f.missed += g.missed; f.abnormal += g.abnormal;
+                        if (tab === 'past' ? g.day > f.day : g.day < f.day) f.day = g.day;
+                        byDoctor.set(g.doctor_id, f);
+                    });
+                    setDoctorFolders([...byDoctor.values()].sort((a, b) => a.name.localeCompare(b.name)));
+                } else if (inFolders) setGroups(data.groups); else setItems(data.appointments);
                 setTotal(data.total);
             } else showAlert(data.message || 'Could not load the check-ups.', 'error');
         } catch (e) {
@@ -159,7 +188,7 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
         } finally {
             if (seq === reqSeq.current) setLoading(false);
         }
-    }, [doctorPath, tab, page, pageSize, inFolders, openGroup, day, filterParams, showAlert]);
+    }, [doctorPath, tab, page, pageSize, inFolders, atRoot, openGroup, openDoctor, day, filterParams, showAlert]);
 
     useEffect(() => { fetchList(); }, [fetchList]);
     useEffect(() => { fetchCounts(); }, [fetchCounts]);
@@ -303,6 +332,10 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
                 if (a.attendance_status === 'Pending') buttons.push(act('ns', 'ghost', UserX, 'No-show', () => markNoShow(a)));
                 if (!isNurse) buttons.push(act('ex', 'ghost', TimerReset, 'Extend', () => setExtendTarget(withName(a))));
             }
+            // an on going check-up is cancelled by the doctor only (a number already voided / done has nothing left to cancel)
+            if (phase === 'ongoing' && !documented && !isNurse && !['Void', 'Done'].includes(a.queue_state)) {
+                buttons.push(act('cx', 'danger', Ban, 'Cancel', () => setCancelTarget(a)));
+            }
         } else if (a.status === 'Completed' && documented) {
             buttons.push(act('doc', 'ghost', ClipboardPlus, 'View / edit check-up', () => setConsultTarget(a)));
         }
@@ -400,18 +433,35 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
         return `${who}${purpose || 'Check-up session'}`;
     };
 
-    // one container per session day: it opens to all its participants
+    // All folders (nurse): one row per doctor, like a repository file list - icon + name, what is inside, when
+    const renderDoctorFolders = () => (
+        <div className="dp-card dp-repo-list" role="list" aria-label="All folders">
+            {doctorFolders.map((f) => (
+                <button key={f.doctor_id} role="listitem" type="button" className="dp-repo-row" onClick={() => { setOpenDoctor(f); setPage(1); }} aria-label={`Open ${f.name}`}>
+                    <span className="dp-repo-name"><Folder size={18} aria-hidden="true" /> <strong>{f.name}</strong></span>
+                    <span className="dp-repo-desc">
+                        {f.sessions} session{f.sessions === 1 ? '' : 's'} - {f.total} participant{f.total === 1 ? '' : 's'}{tab === 'past' ? ` - ${f.documented} documented` : ''}
+                        {f.abnormal > 0 && <span className="dp-chip abnormal">{f.abnormal} abnormal</span>}
+                        {tab === 'past' && f.missed > 0 && <span className="dp-chip st-no-show">{f.missed} missed or cancelled</span>}
+                    </span>
+                    <span className="dp-repo-when">{relativeDay(f.day)}</span>
+                </button>
+            ))}
+        </div>
+    );
+
+    // one container per session day, same list style: it opens to all its participants
     const renderFolders = () => (
-        <div className="dp-day-grid">
+        <div className="dp-card dp-repo-list" role="list" aria-label="Sessions">
             {groups.map((g) => (
-                <button key={`${g.schedule_id || 'none'}-${g.doctor_id}-${g.day}`} type="button" className="dp-day-folder" onClick={() => { setOpenGroup(g); setPage(1); }} aria-label={`Open ${groupName(g)}, ${dayTitle(g.day)}`}>
-                    <FolderOpen size={26} />
-                    <strong>{groupName(g)}</strong>
-                    <span>{dayTitle(g.day)}</span>
-                    <span>{formatTime(g.first_start)} - {formatTime(g.last_end)}{g.location ? ` - ${g.location}` : ''}</span>
-                    <span><Users size={13} /> {g.total} participant{g.total === 1 ? '' : 's'}{tab === 'past' ? ` - ${g.documented} documented` : ''}</span>
-                    {g.abnormal > 0 && <span className="dp-chip abnormal">{g.abnormal} abnormal</span>}
-                    {tab === 'past' && g.missed > 0 && <span className="dp-chip st-no-show">{g.missed} missed or cancelled</span>}
+                <button key={`${g.schedule_id || 'none'}-${g.doctor_id}-${g.day}`} role="listitem" type="button" className="dp-repo-row" onClick={() => { setOpenGroup(g); setPage(1); }} aria-label={`Open ${groupName(g)}, ${dayTitle(g.day)}`}>
+                    <span className="dp-repo-name"><Folder size={18} aria-hidden="true" /> <strong>{groupName(g)}</strong></span>
+                    <span className="dp-repo-desc">
+                        {dayTitle(g.day)} - {formatTime(g.first_start)} to {formatTime(g.last_end)}{g.location ? ` - ${g.location}` : ''} - <Users size={13} aria-hidden="true" /> {g.total}{tab === 'past' ? ` - ${g.documented} documented` : ''}
+                        {g.abnormal > 0 && <span className="dp-chip abnormal">{g.abnormal} abnormal</span>}
+                        {tab === 'past' && g.missed > 0 && <span className="dp-chip st-no-show">{g.missed} missed or cancelled</span>}
+                    </span>
+                    <span className="dp-repo-when">{relativeDay(g.day)}</span>
                 </button>
             ))}
         </div>
@@ -470,8 +520,9 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
         </div>
     );
 
-    const rows = inFolders ? groups : items;
+    const rows = atRoot ? doctorFolders : inFolders ? groups : items;
     const unit = inFolders ? 'sessions' : 'participants';
+    const backToRoot = () => { setOpenGroup(null); setOpenDoctor(null); setPage(1); };
 
     return (
         <>
@@ -504,12 +555,36 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
                 {filtering && <button className="dp-btn dp-btn-ghost" onClick={clearFilters}>Clear</button>}
             </div>
 
-            {GROUPED_TABS.includes(tab) && openGroup && (
-                <div className="dp-crumbs">
-                    <button type="button" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => { setOpenGroup(null); setPage(1); }}><ChevronLeft size={15} /> All sessions</button>
-                    <FolderOpen size={17} />
-                    <strong>{groupName(openGroup)} - {dayTitle(openGroup.day)}</strong>
-                </div>
+            {grouped && !atRoot && (openGroup || openDoctor) && (
+                <nav className="dp-crumbs" aria-label="Folder path">
+                    {isNurse ? (
+                        <>
+                            <button type="button" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={backToRoot}><ChevronLeft size={15} aria-hidden="true" /> All folders</button>
+                            <ChevronRight size={15} aria-hidden="true" />
+                            {openGroup ? (
+                                <>
+                                    <button type="button" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => { setOpenGroup(null); setOpenDoctor(openDoctor || { doctor_id: openGroup.doctor_id, name: `Dr. ${openGroup.doc_first_name} ${openGroup.doc_last_name}` }); setPage(1); }}>
+                                        {openDoctor ? openDoctor.name : `Dr. ${openGroup.doc_first_name} ${openGroup.doc_last_name}`}
+                                    </button>
+                                    <ChevronRight size={15} aria-hidden="true" />
+                                    <FolderOpen size={17} aria-hidden="true" />
+                                    <strong>{groupName(openGroup).replace(/^Dr\. [^-]+ - /, '')} - {dayTitle(openGroup.day)}</strong>
+                                </>
+                            ) : (
+                                <>
+                                    <FolderOpen size={17} aria-hidden="true" />
+                                    <strong>{openDoctor.name}</strong>
+                                </>
+                            )}
+                        </>
+                    ) : (
+                        <>
+                            <button type="button" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => { setOpenGroup(null); setPage(1); }}><ChevronLeft size={15} aria-hidden="true" /> All sessions</button>
+                            <FolderOpen size={17} aria-hidden="true" />
+                            <strong>{groupName(openGroup)} - {dayTitle(openGroup.day)}</strong>
+                        </>
+                    )}
+                </nav>
             )}
 
             {tab === 'ongoing' && runningSessions.map((s) => (
@@ -536,9 +611,9 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
                     <FileText size={36} />
                     <p>No {tabLabel} to show here.</p>
                 </div>
-            ) : inFolders ? renderFolders() : tab === 'past' || tab === 'upcoming' ? renderDayTable() : renderCards()}
+            ) : atRoot ? renderDoctorFolders() : inFolders ? renderFolders() : tab === 'past' || tab === 'upcoming' ? renderDayTable() : renderCards()}
 
-            {!loading && <Pager page={page} pageCount={pageCount} total={total} pageSize={pageSize} onPage={setPage} noun={unit} />}
+            {!loading && !atRoot && <Pager page={page} pageCount={pageCount} total={total} pageSize={pageSize} onPage={setPage} noun={unit} />}
 
             <ReasonModal
                 isOpen={!!cancelTarget}

@@ -336,7 +336,7 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
                     <>
                         <h3 style={{ fontSize: '0.92rem' }}>Appointments ({dayAppts.length})</h3>
                         {dayAppts.map((a) => (
-                            <div key={a.appointment_id} className="appt-row-sc">
+                            <div key={`${a.appointment_id}-${a.student_id}`} className="appt-row-sc">
                                 <div>
                                     <strong>{to12h(a.start_time)} - {to12h(a.end_time)}</strong> {a.student_name}
                                     <small>

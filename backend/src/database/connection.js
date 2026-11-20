@@ -3487,6 +3487,81 @@ const isMedicineLinkedToComplaint = async (connection, medicineId, complaintId) 
   return rows.length > 0;
 };
 
+// Hours a student must wait before the same medicine can be released to them again (NULL = no gap).
+let medicineIntervalReady = null;
+const ensureMedicineIntervalColumn = () => {
+  if (!medicineIntervalReady) {
+    medicineIntervalReady = (async () => {
+      const [have] = await pool.query(
+        `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'medicines' AND COLUMN_NAME = 'min_hours_between_doses'`
+      );
+      if (have.length === 0) {
+        await pool.query('ALTER TABLE medicines ADD COLUMN min_hours_between_doses decimal(5,2) NULL');
+      }
+    })().catch((err) => { medicineIntervalReady = null; throw err; });
+  }
+  return medicineIntervalReady;
+};
+
+const readIntervalHours = (value) => {
+  if (value === undefined || value === null || String(value).trim() === '') return null;
+  const n = parseFloat(value);
+  return Number.isFinite(n) && n > 0 ? Math.min(n, 999) : null;
+};
+
+const formatManilaTime = (dateTimeText) => {
+  const [datePart, timePart = '00:00:00'] = String(dateTimeText).split(' ');
+  const [h, m] = timePart.split(':').map(Number);
+  const suffix = h >= 12 ? 'PM' : 'AM';
+  const hour12 = h % 12 || 12;
+  return { date: datePart, text: `${hour12}:${String(m).padStart(2, '0')} ${suffix}` };
+};
+
+// Refuses a second release of the same medicine to the same student inside its time gap.
+// Looks at direct dispensations, check-up / visit dispensations and incident first aid. Returns null when allowed,
+// otherwise { message, next_allowed_at }.
+const checkDoseGap = async (connection, studentId, medicineId) => {
+  if (!studentId || !medicineId) return null;
+  await ensureMedicineIntervalColumn();
+  await ensureIncidentDispenseColumns();
+  const [meds] = await connection.query(
+    'SELECT brand_name, generic_name, min_hours_between_doses FROM medicines WHERE medicine_id = ?',
+    [medicineId]
+  );
+  const gapHours = readIntervalHours(meds[0]?.min_hours_between_doses);
+  if (!gapHours) return null;
+  const gapMinutes = Math.round(gapHours * 60);
+  const [rows] = await connection.query(
+    `SELECT DATE_FORMAT(MAX(t.dispensed_at), '%Y-%m-%d %H:%i:%s') AS last_at,
+            DATE_FORMAT(DATE_ADD(MAX(t.dispensed_at), INTERVAL ? MINUTE), '%Y-%m-%d %H:%i:%s') AS next_at,
+            TIMESTAMPDIFF(MINUTE, MAX(t.dispensed_at), NOW()) AS minutes_ago
+     FROM (
+       SELECT dd.dispensed_at
+       FROM direct_dispensation dd
+       JOIN medicine_inventory_batches b ON b.batch_id = dd.batch_id
+       WHERE dd.student_id = ? AND b.medicine_id = ?
+       UNION ALL
+       SELECT cd.dispensed_at
+       FROM consultation_dispensation cd
+       JOIN medicine_inventory_batches b ON b.batch_id = cd.batch_id
+       LEFT JOIN clinic_visits cv ON cv.visit_id = cd.visit_id
+       LEFT JOIN incident_reports ir ON ir.incident_id = cd.incident_id
+       WHERE b.medicine_id = ? AND COALESCE(cv.student_id, ir.student_id) = ?
+     ) t`,
+    [gapMinutes, studentId, medicineId, medicineId, studentId]
+  );
+  const last = rows[0];
+  if (!last?.last_at || last.minutes_ago === null || Number(last.minutes_ago) >= gapMinutes) return null;
+  const name = meds[0].brand_name ? `${meds[0].brand_name} (${meds[0].generic_name})` : meds[0].generic_name;
+  const next = formatManilaTime(last.next_at);
+  const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+  const when = next.date === today ? next.text : `${next.date} ${next.text}`;
+  return {
+    message: `${name} was already given to this student ${Number(last.minutes_ago)} min ago. It can be released once every ${gapHours} hour${gapHours === 1 ? '' : 's'}. Next release: ${when}.`,
+    next_allowed_at: last.next_at
+  };
+};
+
 // Auto-depletion helper (extracts 1 stock unit when volume reaches 0 and refills remaining_volume)
 const syncDepletedBatches = async (connection) => {
   const [depletedBatches] = await connection.execute(`
@@ -3696,6 +3771,7 @@ app.post('/api/medicines', async (req, res) => {
   const validationError = validateMedicinePayload(payload);
   if (validationError) return res.status(400).json({ error: validationError });
 
+  await ensureMedicineIntervalColumn();
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
@@ -3706,13 +3782,15 @@ app.post('/api/medicines', async (req, res) => {
         medicine_id, generic_name, brand_name, dosage_form,
         strength_unit_value, strength_unit_of_measure,
         dispense_limit, dispense_unit_of_measure,
-        low_stock_level, critical_stock_level, adequate_stock_level
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        low_stock_level, critical_stock_level, adequate_stock_level,
+        min_hours_between_doses
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         medicine_id, generic_name.trim(), brand_name.trim(), dosage_form,
         strength_unit_value, strength_unit_of_measure,
         dispense_limit, dispense_unit_of_measure,
-        low_stock_level || 0, critical_stock_level || 0, adequate_stock_level || 0
+        low_stock_level || 0, critical_stock_level || 0, adequate_stock_level || 0,
+        readIntervalHours(payload.min_hours_between_doses)
       ]
     );
 
@@ -3757,6 +3835,7 @@ app.put('/api/medicines/:id', async (req, res) => {
   const validationError = validateMedicinePayload(payload);
   if (validationError) return res.status(400).json({ error: validationError });
 
+  await ensureMedicineIntervalColumn();
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
@@ -3766,13 +3845,15 @@ app.put('/api/medicines/:id', async (req, res) => {
         generic_name = ?, brand_name = ?, dosage_form = ?,
         strength_unit_value = ?, strength_unit_of_measure = ?,
         dispense_limit = ?, dispense_unit_of_measure = ?,
-        low_stock_level = ?, critical_stock_level = ?, adequate_stock_level = ?
+        low_stock_level = ?, critical_stock_level = ?, adequate_stock_level = ?,
+        min_hours_between_doses = ?
       WHERE medicine_id = ?`,
       [
         generic_name.trim(), brand_name.trim(), dosage_form,
         strength_unit_value, strength_unit_of_measure,
         dispense_limit, dispense_unit_of_measure,
         low_stock_level || 0, critical_stock_level || 0, adequate_stock_level || 0,
+        readIntervalHours(payload.min_hours_between_doses),
         id
       ]
     );
@@ -4218,21 +4299,27 @@ app.post('/api/dispensation', async (req, res) => {
       return res.status(400).json({ error: `Dispense limit exceeded. Maximum is ${dispenseLimit} ${dispenseUnit} per dispensation.` });
     }
 
+    const doseGap = await checkDoseGap(connection, student_id, batchRows[0].medicine_id);
+    if (doseGap) {
+      await connection.rollback();
+      return res.status(409).json({ error: doseGap.message, code: 'DOSE_GAP', next_allowed_at: doseGap.next_allowed_at });
+    }
+
     let newStock = currentStock;
     let newRemaining = remainingVolume;
 
     if (isMeasured) {
       const requestedInBatchUnit = convertUnit(numericVal, dosage_consumption_unit_of_measure, strengthUnitMeasure);
 
-      const totalAvailableVolume = currentStock > 0 
-        ? remainingVolume + (currentStock - 1) * strengthUnitVal 
+      const totalAvailableVolume = currentStock > 0
+        ? remainingVolume + (currentStock - 1) * strengthUnitVal
         : 0;
 
       if (requestedInBatchUnit > totalAvailableVolume) {
         await connection.rollback();
         const availableInDispenseUnit = convertUnit(totalAvailableVolume, strengthUnitMeasure, dosage_consumption_unit_of_measure);
-        return res.status(400).json({ 
-          error: `Insufficient available count. Requested ${numericVal} ${dosage_consumption_unit_of_measure}, but total available is ${availableInDispenseUnit.toFixed(2)} ${dosage_consumption_unit_of_measure}.` 
+        return res.status(400).json({
+          error: `Insufficient available count. Requested ${numericVal} ${dosage_consumption_unit_of_measure}, but total available is ${availableInDispenseUnit.toFixed(2)} ${dosage_consumption_unit_of_measure}.`
         });
       }
 
@@ -4259,8 +4346,8 @@ app.post('/api/dispensation', async (req, res) => {
     } else {
       if (numericVal > currentStock) {
         await connection.rollback();
-        return res.status(400).json({ 
-          error: `Insufficient stock quantity. Requested ${numericVal}, but only ${currentStock} left.` 
+        return res.status(400).json({
+          error: `Insufficient stock quantity. Requested ${numericVal}, but only ${currentStock} left.`
         });
       }
       newStock = currentStock - numericVal;
@@ -4641,9 +4728,9 @@ app.post('/api/clinic-visits', async (req, res) => {
             const usesVolume = volumeUnits.includes(dosage_consumption_unit_of_measure);
 
             const [batchRows] = await connection.execute(
-                `SELECT mib.current_stock, mib.remaining_volume, mib.expiration_date, m.strength_unit_value 
-                 FROM medicine_inventory_batches mib 
-                 JOIN medicines m ON mib.medicine_id = m.medicine_id 
+                `SELECT mib.medicine_id, mib.current_stock, mib.remaining_volume, mib.expiration_date, m.strength_unit_value
+                 FROM medicine_inventory_batches mib
+                 JOIN medicines m ON mib.medicine_id = m.medicine_id
                  WHERE mib.batch_id = ? FOR UPDATE`,
                 [batch_id]
             );
@@ -4657,6 +4744,12 @@ app.post('/api/clinic-visits', async (req, res) => {
 
             if (isBatchExpired(expirationDate)) {
                 throw new Error("Cannot dispense medicine from an expired batch.");
+            }
+
+            const doseGap = await checkDoseGap(connection, student_id, batchRows[0].medicine_id);
+            if (doseGap) {
+                await connection.rollback();
+                return res.status(409).json({ success: false, error: doseGap.message, code: 'DOSE_GAP', next_allowed_at: doseGap.next_allowed_at });
             }
 
             if (usesVolume) {
@@ -5062,9 +5155,16 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
                     throw new Error(`Dispense limit exceeded. Maximum is ${dispenseLimit} ${dispenseUnit} per dispensation.`);
                 }
 
+                const [[visitOwner]] = await connection.execute('SELECT student_id FROM clinic_visits WHERE visit_id = ?', [id]);
+                const doseGap = await checkDoseGap(connection, visitOwner?.student_id, batchRows[0].medicine_id);
+                if (doseGap) {
+                    await connection.rollback();
+                    return res.status(409).json({ success: false, error: doseGap.message, code: 'DOSE_GAP', next_allowed_at: doseGap.next_allowed_at });
+                }
+
                 if (usesVolume) {
-                    const totalAvailableVolume = currentStock > 0 
-                        ? remainingVolume + (currentStock - 1) * strengthUnitVal 
+                    const totalAvailableVolume = currentStock > 0
+                        ? remainingVolume + (currentStock - 1) * strengthUnitVal
                         : 0;
 
                     const requestedInBatchUnit = convertUnit(numericVal, dispenseUnit, strengthUnitMeasure);
@@ -5391,9 +5491,16 @@ function getAverageDateWindow(referenceDate = nowManila()) {
 // ==========================================
 // HEALTH TRENDS, ILLNESS SUMMARY
 // ==========================================
-// Every clinic visit is counted (a student who comes three times for a cough is three cases) and the number of
-// DISTINCT students is shown next to it. Doctor-visit diagnoses are added as a second source of health issues.
+// A condition counts once per student per calendar month, however many times the student came for it (the count starts again each month),
+// and the number of DISTINCT students is shown next to it. Sources: clinic visits AND medicine given on request (direct dispensation, which
+// has no visit row), then doctor-visit diagnoses as a second source of health issues.
 // There is no lab results table yet, so lab-based conditions cannot be included.
+// One row per (student, condition, day): the shared source of every health-trend / report count.
+const CONDITION_EVENTS_SQL = `(
+  SELECT cv.student_id, cv.complaint_id, cv.visit_date AS event_date FROM clinic_visits cv WHERE cv.complaint_id IS NOT NULL
+  UNION ALL
+  SELECT dd.student_id, dd.complaint_id, DATE(dd.dispensed_at) AS event_date FROM direct_dispensation dd WHERE dd.complaint_id IS NOT NULL
+) ce`;
 
 const TREND_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const TREND_MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -5487,7 +5594,7 @@ async function getDoctorDiagnosisCounts(startStr, endStr) {
     const key = name.toLowerCase();
     const prev = merged.get(key) || { name, count: 0, students: 0 };
     prev.count += Number(r.cnt);
-    prev.students += Number(r.students);
+    prev.students = Math.max(prev.students, Number(r.students));
     merged.set(key, prev);
   });
   return [...merged.values()];
@@ -5497,9 +5604,9 @@ async function getDoctorDiagnosisCounts(startStr, endStr) {
 // A condition counts once per student per calendar month, however many visits it took (the count starts again each month).
 async function getClinicConditionCounts(startStr, endStr) {
   const [rows] = await pool.query(
-    `SELECT cc.complaint_name AS name, COUNT(DISTINCT cv.student_id, DATE_FORMAT(cv.visit_date, '%Y-%m')) AS cnt, COUNT(DISTINCT cv.student_id) AS students
-     FROM clinic_visits cv JOIN chief_complaints cc ON cv.complaint_id = cc.complaint_id
-     WHERE cv.visit_date BETWEEN ? AND ? AND DAYOFWEEK(cv.visit_date) <> 1
+    `SELECT cc.complaint_name AS name, COUNT(DISTINCT ce.student_id, DATE_FORMAT(ce.event_date, '%Y-%m')) AS cnt, COUNT(DISTINCT ce.student_id) AS students
+     FROM ${CONDITION_EVENTS_SQL} JOIN chief_complaints cc ON ce.complaint_id = cc.complaint_id
+     WHERE ce.event_date BETWEEN ? AND ? AND DAYOFWEEK(ce.event_date) <> 1
      GROUP BY cc.complaint_id, cc.complaint_name`,
     [startStr, endStr]
   );
@@ -5569,10 +5676,10 @@ app.get('/api/health-trends', async (req, res) => {
     // a condition counts once per student per calendar month (on the student's first visit for it that month),
     // so repeat visits for the same condition do not add up; the count starts again every month
     const [visits] = await pool.query(
-      `SELECT cc.complaint_name, DATE_FORMAT(MIN(cv.visit_date), '%Y-%m-%d') AS d
-       FROM clinic_visits cv JOIN chief_complaints cc ON cv.complaint_id = cc.complaint_id
-       WHERE cv.visit_date BETWEEN ? AND ? AND DAYOFWEEK(cv.visit_date) <> 1
-       GROUP BY cc.complaint_id, cc.complaint_name, cv.student_id, DATE_FORMAT(cv.visit_date, '%Y-%m')`,
+      `SELECT cc.complaint_name, DATE_FORMAT(MIN(ce.event_date), '%Y-%m-%d') AS d
+       FROM ${CONDITION_EVENTS_SQL} JOIN chief_complaints cc ON ce.complaint_id = cc.complaint_id
+       WHERE ce.event_date BETWEEN ? AND ? AND DAYOFWEEK(ce.event_date) <> 1
+       GROUP BY cc.complaint_id, cc.complaint_name, ce.student_id, DATE_FORMAT(ce.event_date, '%Y-%m')`,
       [startStr, endStr]
     );
     visits.forEach((v) => {
@@ -6610,26 +6717,26 @@ app.get('/api/frequent-complaints', async (req, res) => {
 
     // SQL Query without DB recommendations
     const query = `
-      SELECT 
-        cv.student_id AS studentId,
+      SELECT
+        ce.student_id AS studentId,
         CONCAT(s.first_name, ' ', s.last_name) AS studentName,
         CONCAT(s.program_id, ' - Year ', s.year_level) AS gradeSection,
         cc.complaint_name AS complaint,
-        COUNT(cv.visit_id) AS visitCount,
-        MAX(DATE_FORMAT(cv.visit_date, '%Y-%m-%d')) AS date
-      FROM clinic_visits cv
-      INNER JOIN students s ON cv.student_id = s.student_id
-      INNER JOIN chief_complaints cc ON cv.complaint_id = cc.complaint_id
-      WHERE DATE_FORMAT(cv.visit_date, '%Y-%m') = ?
-      GROUP BY 
-        cv.student_id, 
-        cv.complaint_id, 
-        s.first_name, 
-        s.last_name, 
-        s.program_id, 
-        s.year_level, 
+        COUNT(*) AS visitCount,
+        MAX(DATE_FORMAT(ce.event_date, '%Y-%m-%d')) AS date
+      FROM ${CONDITION_EVENTS_SQL}
+      INNER JOIN students s ON ce.student_id = s.student_id
+      INNER JOIN chief_complaints cc ON ce.complaint_id = cc.complaint_id
+      WHERE DATE_FORMAT(ce.event_date, '%Y-%m') = ?
+      GROUP BY
+        ce.student_id,
+        ce.complaint_id,
+        s.first_name,
+        s.last_name,
+        s.program_id,
+        s.year_level,
         cc.complaint_name
-      HAVING COUNT(cv.visit_id) >= 3
+      HAVING COUNT(*) >= 3
       ORDER BY visitCount DESC, date DESC;
     `;
 
@@ -6808,8 +6915,16 @@ app.get('/api/reports-analytics', async (req, res) => {
   // the same-length period right before this one, for the comparison
   // the clinic is closed on Sunday, so a single Monday is compared with the Saturday before it
   const isMonday = new Date(`${startDate}T00:00:00Z`).getUTCDay() === 1;
-  const prevEnd = addDaysStr(startDate, lengthDays === 1 && isMonday ? -2 : -1);
-  const prevStart = addDaysStr(prevEnd, -(lengthDays - 1));
+  // a whole calendar month is compared with the whole month before it (not with the same number of days)
+  const isWholeMonth = startDate.slice(8) === '01'
+    && endDate === `${endDate.slice(0, 7)}-${pad2(daysInMonth(Number(endDate.slice(0, 4)), Number(endDate.slice(5, 7))))}`
+    && startDate.slice(0, 7) === endDate.slice(0, 7);
+  let prevEnd = addDaysStr(startDate, lengthDays === 1 && isMonday ? -2 : -1);
+  let prevStart = addDaysStr(prevEnd, -(lengthDays - 1));
+  if (isWholeMonth) {
+    prevEnd = addDaysStr(startDate, -1);
+    prevStart = `${prevEnd.slice(0, 7)}-01`;
+  }
 
   // TIMESTAMP columns need full bounds
   const from = `${startDate} 00:00:00`;
@@ -6817,15 +6932,19 @@ app.get('/api/reports-analytics', async (req, res) => {
   const prevFrom = `${prevStart} 00:00:00`;
   const prevTo = `${prevEnd} 23:59:59`;
 
+  // Sundays are closed days: no data counts for them anywhere in the report
   const DISPENSED_UNION = `(
-    SELECT batch_id, 'direct' AS src, dispensed_at FROM direct_dispensation WHERE dispensed_at >= ? AND dispensed_at <= ?
+    SELECT batch_id, 'direct' AS src, dispensed_at, dosage_consumption_unit_value AS qty FROM direct_dispensation WHERE dispensed_at >= ? AND dispensed_at <= ? AND DAYOFWEEK(dispensed_at) <> 1
     UNION ALL
-    SELECT batch_id, 'consultation' AS src, dispensed_at FROM consultation_dispensation WHERE dispensed_at >= ? AND dispensed_at <= ?
+    SELECT batch_id, 'consultation' AS src, dispensed_at, dosage_consumption_unit_value AS qty FROM consultation_dispensation WHERE dispensed_at >= ? AND dispensed_at <= ? AND DAYOFWEEK(dispensed_at) <> 1
   )`;
+  // a doctor check-up is a doctor appointment (counted under Requests & Services), not a clinic visit of the nurse
+  const CLINIC_ONLY = `COALESCE(visit_kind, 'Clinic') <> 'Check-up' AND DAYOFWEEK(visit_date) <> 1`;
 
   try {
+    await ensureCheckupVisitColumns();
     const countVisits = async (d1, d2) => {
-      const [[row]] = await pool.query('SELECT COUNT(*) AS n, COUNT(DISTINCT student_id) AS students FROM clinic_visits WHERE visit_date >= ? AND visit_date <= ?', [d1, d2]);
+      const [[row]] = await pool.query(`SELECT COUNT(*) AS n, COUNT(DISTINCT student_id) AS students FROM clinic_visits WHERE visit_date >= ? AND visit_date <= ? AND ${CLINIC_ONLY}`, [d1, d2]);
       return { visits: Number(row.n), students: Number(row.students) };
     };
     const countIncidents = async (t1, t2) => {
@@ -6838,9 +6957,9 @@ app.get('/api/reports-analytics', async (req, res) => {
     };
     const complaintRows = async (d1, d2) => {
       const [rows] = await pool.query(
-        `SELECT cc.complaint_name AS name, COUNT(DISTINCT cv.student_id, DATE_FORMAT(cv.visit_date, '%Y-%m')) AS total_count, COUNT(DISTINCT cv.student_id) AS students
-         FROM clinic_visits cv JOIN chief_complaints cc ON cv.complaint_id = cc.complaint_id
-         WHERE cv.visit_date >= ? AND cv.visit_date <= ?
+        `SELECT cc.complaint_name AS name, COUNT(DISTINCT ce.student_id, DATE_FORMAT(ce.event_date, '%Y-%m')) AS total_count, COUNT(DISTINCT ce.student_id) AS students
+         FROM ${CONDITION_EVENTS_SQL} JOIN chief_complaints cc ON ce.complaint_id = cc.complaint_id
+         WHERE ce.event_date >= ? AND ce.event_date <= ? AND DAYOFWEEK(ce.event_date) <> 1
          GROUP BY cc.complaint_id, cc.complaint_name
          ORDER BY total_count DESC, cc.complaint_name ASC`,
         [d1, d2]
@@ -6881,7 +7000,7 @@ app.get('/api/reports-analytics', async (req, res) => {
        FROM clinic_visits cv
        JOIN students s ON cv.student_id = s.student_id
        LEFT JOIN academic_programs ap ON s.program_id = ap.program_id
-       WHERE cv.visit_date >= ? AND cv.visit_date <= ?
+       WHERE cv.visit_date >= ? AND cv.visit_date <= ? AND COALESCE(cv.visit_kind, 'Clinic') <> 'Check-up' AND DAYOFWEEK(cv.visit_date) <> 1
        GROUP BY ap.program_id, ap.program_name
        ORDER BY total_count DESC, name ASC
        LIMIT 10`,
@@ -6892,7 +7011,7 @@ app.get('/api/reports-analytics', async (req, res) => {
     const [repeatRows] = await pool.query(
       `SELECT cv.student_id, CONCAT(s.first_name, ' ', s.last_name) AS name, COUNT(*) AS total_count
        FROM clinic_visits cv JOIN students s ON cv.student_id = s.student_id
-       WHERE cv.visit_date >= ? AND cv.visit_date <= ?
+       WHERE cv.visit_date >= ? AND cv.visit_date <= ? AND COALESCE(cv.visit_kind, 'Clinic') <> 'Check-up' AND DAYOFWEEK(cv.visit_date) <> 1
        GROUP BY cv.student_id, s.first_name, s.last_name
        HAVING total_count > 1
        ORDER BY total_count DESC, name ASC
@@ -6906,7 +7025,8 @@ app.get('/api/reports-analytics', async (req, res) => {
       `SELECT m.medicine_id, CONCAT(m.generic_name, ' (', m.brand_name, ')') AS name,
               COUNT(*) AS total_count,
               SUM(d.src = 'direct') AS direct_count,
-              SUM(d.src = 'consultation') AS consultation_count
+              SUM(d.src = 'consultation') AS consultation_count,
+              SUM(d.qty) AS total_qty, MAX(m.dispense_unit_of_measure) AS unit
        FROM ${DISPENSED_UNION} d
        JOIN medicine_inventory_batches b ON d.batch_id = b.batch_id
        JOIN medicines m ON b.medicine_id = m.medicine_id
@@ -6916,6 +7036,8 @@ app.get('/api/reports-analytics', async (req, res) => {
     );
     const medicines = medicineRows.map((r) => ({
       name: r.name,
+      quantity: Math.round(Number(r.total_qty || 0) * 100) / 100,
+      unit: r.unit || '',
       count: Number(r.total_count),
       direct: Number(r.direct_count),
       consultation: Number(r.consultation_count),
@@ -6998,9 +7120,8 @@ app.get('/api/reports-analytics', async (req, res) => {
     // ---- Inventory (live: not tied to the period)
     const stock = await getMedicineStockStatuses();
     const stockAttention = stock
-      .filter((m) => m.needs_attention)
+      .filter((m) => m.needs_attention || m.suggested_qty > 0)
       .sort((a, b) => (STOCK_ALERT_RANK[b.status] || 0) - (STOCK_ALERT_RANK[a.status] || 0) || b.expiring_stock - a.expiring_stock || a.name.localeCompare(b.name))
-      .slice(0, 15)
       .map((m) => ({
         name: m.name,
         status: m.status,
@@ -7021,7 +7142,7 @@ app.get('/api/reports-analytics', async (req, res) => {
     else if (lengthDays > 62) unit = 'month';
 
     const keyOf = (col) => (unit === 'hour' ? `HOUR(${col})` : `DATE_FORMAT(${col}, '${unit === 'day' ? '%Y-%m-%d' : '%Y-%m'}')`);
-    const [visitSeries] = await pool.query(`SELECT ${keyOf(unit === 'hour' ? 'time_in' : 'visit_date')} AS k, COUNT(*) AS n FROM clinic_visits WHERE visit_date >= ? AND visit_date <= ? GROUP BY k`, [startDate, endDate]);
+    const [visitSeries] = await pool.query(`SELECT ${keyOf(unit === 'hour' ? 'time_in' : 'visit_date')} AS k, COUNT(*) AS n FROM clinic_visits WHERE visit_date >= ? AND visit_date <= ? AND ${CLINIC_ONLY} GROUP BY k`, [startDate, endDate]);
     const [incidentSeries] = await pool.query(`SELECT ${keyOf('incident_datetime')} AS k, COUNT(*) AS n FROM incident_reports WHERE incident_datetime >= ? AND incident_datetime <= ? GROUP BY k`, [from, to]);
     const [dispensedSeries] = await pool.query(`SELECT ${keyOf('dispensed_at')} AS k, COUNT(*) AS n FROM ${DISPENSED_UNION} d GROUP BY k`, [from, to, from, to]);
 
@@ -8479,7 +8600,40 @@ const seedCombinedBmiVitals = async () => {
   }
 };
 
-const screeningTemplatesReady = ensureScreeningTemplates().then(convertBuiltInForms).then(seedCombinedBmiVitals).catch((e) => console.error('Could not set up the screening form templates:', e.message));
+// Play ranges for the vital sign fields of the seeded forms (blood pressure fields also get their role). Runs once (flag), so a
+// nurse who changes the ranges afterwards is never overruled.
+const PLAY_DEFAULTS = [
+  { re: /systolic/i, role: 'systolic', play_min: 90, play_max: 139 },
+  { re: /diastolic/i, role: 'diastolic', play_min: 60, play_max: 89 },
+  { re: /pulse/i, play_min: 50, play_max: 120 },
+  { re: /temperature/i, play_max: 37.5 },
+  { re: /respiratory/i, play_min: 10, play_max: 24 }
+];
+const seedPlayDefaults = async () => {
+  await pool.query(`CREATE TABLE IF NOT EXISTS screening_seed_flags (flag VARCHAR(60) NOT NULL PRIMARY KEY, seeded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  const [[done]] = await pool.query(`SELECT COUNT(*) AS n FROM screening_seed_flags WHERE flag = 'play_defaults'`);
+  if (Number(done.n) > 0) return;
+  const [templates] = await pool.query('SELECT template_id, fields FROM screening_form_templates');
+  for (const t of templates) {
+    const fields = jsonOf(t.fields) || [];
+    let changed = false;
+    for (const f of fields) {
+      if (f.type !== 'number') continue;
+      const rule = PLAY_DEFAULTS.find((d) => d.re.test(f.label));
+      if (!rule) continue;
+      if (rule.role && !f.role) { f.role = rule.role; changed = true; }
+      if (f.play_min === undefined && f.play_max === undefined) {
+        if (rule.play_min !== undefined) f.play_min = rule.play_min;
+        if (rule.play_max !== undefined) f.play_max = rule.play_max;
+        changed = true;
+      }
+    }
+    if (changed) await pool.query('UPDATE screening_form_templates SET fields = ? WHERE template_id = ?', [JSON.stringify(fields), t.template_id]);
+  }
+  await pool.query(`INSERT INTO screening_seed_flags (flag) VALUES ('play_defaults')`);
+};
+
+const screeningTemplatesReady = ensureScreeningTemplates().then(convertBuiltInForms).then(seedCombinedBmiVitals).then(seedPlayDefaults).catch((e) => console.error('Could not set up the screening form templates:', e.message));
 
 const SCREENING_FIELD_TYPES = ['number', 'calculated', 'text', 'select', 'yesno'];
 const TEMPLATE_MAX_FIELDS = 30;
@@ -8521,6 +8675,16 @@ const validateTemplateFields = (raw) => {
         }
       }
       if (out.min !== undefined && out.max !== undefined && out.min > out.max) return { error: `The lowest normal value of "${label}" is above the highest.` };
+      // allowed-to-play range: a value outside it means the student may not play
+      for (const bound of ['play_min', 'play_max']) {
+        if (f[bound] !== undefined && f[bound] !== null && f[bound] !== '') {
+          const v = Number(f[bound]);
+          if (!Number.isFinite(v)) return { error: `The ${bound === 'play_min' ? 'lowest' : 'highest'} value to play of "${label}" must be a number.` };
+          out[bound] = v;
+        }
+      }
+      if (out.play_min !== undefined && out.play_max !== undefined && out.play_min > out.play_max) return { error: `The lowest value to play of "${label}" is above the highest.` };
+      if (f.type === 'number' && (f.role === 'systolic' || f.role === 'diastolic')) out.role = f.role;
     }
     if (f.type === 'calculated') {
       out.required = false;
@@ -8552,6 +8716,7 @@ const validateTemplateFields = (raw) => {
       if (options.length > 12 || options.some((o) => o.length > 40)) return { error: `"${label}" can have 12 choices of 40 characters each at most.` };
       out.options = options;
       out.abnormal_options = (Array.isArray(f.abnormal_options) ? f.abnormal_options : []).filter((o) => options.includes(o));
+      out.play_block_options = (Array.isArray(f.play_block_options) ? f.play_block_options : []).filter((o) => options.includes(o));
     }
     fields.push(out);
   }
@@ -8674,7 +8839,68 @@ const evaluateTemplateAnswers = (fields, given) => {
     if (label) answers[`${f.key}__label`] = label;
     if ((f.min !== undefined && v < f.min) || (f.max !== undefined && v > f.max)) abnormal = 1;
   }
-  return { answers, is_abnormal: abnormal };
+  // not allowed to play: a value outside the play range (or a blocking choice) is stored as <key>__play = 'blocked'
+  const playReasons = [];
+  for (const f of fields) {
+    const v = answers[f.key];
+    if (v === undefined) continue;
+    if (f.type === 'number' || f.type === 'calculated') {
+      if (f.play_min !== undefined && v < f.play_min) playReasons.push(`${f.label} ${v}${f.unit ? ` ${f.unit}` : ''} is below ${f.play_min}`);
+      else if (f.play_max !== undefined && v > f.play_max) playReasons.push(`${f.label} ${v}${f.unit ? ` ${f.unit}` : ''} is above ${f.play_max}`);
+      else continue;
+    } else if ((f.play_block_options || []).includes(v)) {
+      playReasons.push(`${f.label}: ${v}`);
+    } else continue;
+    answers[`${f.key}__play`] = 'blocked';
+  }
+  const hasPlayRule = fields.some((f) => f.play_min !== undefined || f.play_max !== undefined || (f.play_block_options || []).length > 0);
+  return { answers, is_abnormal: abnormal, has_play_rule: hasPlayRule, play_blocked: playReasons.length > 0, play_reasons: playReasons };
+};
+
+// Blood pressure fields of a form: by the field's role, else by its label (Systolic / Diastolic)
+const bpFieldsOf = (fields) => {
+  const pick = (role, re) => fields.find((f) => f.type === 'number' && (f.role === role || (!f.role && re.test(f.label))));
+  return { sys: pick('systolic', /systolic/i), dia: pick('diastolic', /diastolic/i) };
+};
+
+// Automatic remark of one result: blood pressure Normal / High Blood / Low Blood, other numbers Low / High against their normal range,
+// the play decision and the student's asthma history. Same wording as frontend/src/utils/screeningRemarks.js.
+const buildAutoRemarks = (fields, answers, evaluated, asthma) => {
+  const lines = [];
+  const { sys, dia } = bpFieldsOf(fields);
+  const used = new Set();
+  const sv = sys ? answers[sys.key] : undefined;
+  const dv = dia ? answers[dia.key] : undefined;
+  if (sv !== undefined || dv !== undefined) {
+    if (sys) used.add(sys.key);
+    if (dia) used.add(dia.key);
+    const low = (sv !== undefined && sys.min !== undefined && sv < sys.min) || (dv !== undefined && dia.min !== undefined && dv < dia.min);
+    const high = (sv !== undefined && sys.max !== undefined && sv > sys.max) || (dv !== undefined && dia.max !== undefined && dv > dia.max);
+    const reading = `${sv !== undefined ? sv : '?'}/${dv !== undefined ? dv : '?'}`;
+    lines.push(`Blood pressure ${reading} mmHg: ${high ? 'High Blood' : low ? 'Low Blood' : 'Normal'}.`);
+  }
+  for (const f of fields) {
+    if (used.has(f.key) || (f.type !== 'number' && f.type !== 'calculated')) continue;
+    const v = answers[f.key];
+    if (v === undefined) continue;
+    const unit = f.unit ? ` ${f.unit}` : '';
+    const band = answers[`${f.key}__label`];
+    if (f.min !== undefined && v < f.min) lines.push(`${f.label} ${v}${unit}: Low${band ? ` (${band})` : ''}.`);
+    else if (f.max !== undefined && v > f.max) lines.push(`${f.label} ${v}${unit}: High${band ? ` (${band})` : ''}.`);
+    else if (f.min !== undefined || f.max !== undefined) lines.push(`${f.label} ${v}${unit}: Normal${band ? ` (${band})` : ''}.`);
+  }
+  for (const f of fields) {
+    if (f.type !== 'select' && f.type !== 'yesno') continue;
+    const v = answers[f.key];
+    if (v !== undefined && (f.abnormal_options || []).includes(v)) lines.push(`${f.label}: ${v} (needs attention).`);
+  }
+  if (evaluated && evaluated.has_play_rule) {
+    lines.push(evaluated.play_blocked
+      ? `Not allowed to play: ${evaluated.play_reasons.join('; ')}.`
+      : 'Allowed to play.');
+  }
+  if (asthma && asthma.has) lines.push(`History of asthma${asthma.triggers ? ` (${asthma.triggers})` : ''}.`);
+  return lines.join(' ');
 };
 
 const customSummary = (fields, answers) => {
@@ -9731,6 +9957,65 @@ const validateScreeningFields = (input) => {
   };
 };
 
+// Conflicts of a screening slot: another active screening at the same time (one nurse runs them one after another). Back to back is allowed.
+// A screening may share date and time with a doctor session / appointment (the two never block each other). Returns a list of texts.
+// studentIds is kept for the callers but no longer used.
+const findScreeningConflicts = async (conn, { date, start, end, studentIds = [], excludeId = null }) => {
+  const out = [];
+  const [clash] = await conn.query(
+    `SELECT title, screening_type, start_time, end_time FROM screening_schedules
+     WHERE scheduled_date = ? AND status <> 'Cancelled' AND start_time < ? AND end_time > ? ${excludeId ? 'AND screening_schedule_id <> ?' : ''}
+     ORDER BY start_time`,
+    excludeId ? [date, end, start, excludeId] : [date, end, start]
+  );
+  for (const c of clash) {
+    out.push(`"${c.title}" (${c.screening_type}) already runs ${formatTimeManila(`${date} ${c.start_time}`)} - ${formatTimeManila(`${date} ${c.end_time}`)}.`);
+  }
+  return out;
+};
+
+// Next free time of a day for a screening of `duration` minutes (after now when the day is today). Used to fill the time automatically.
+app.get('/api/screenings/free-slot', async (req, res) => {
+  try {
+    const date = String(req.query.date || '');
+    if (!isDateStr(date)) return res.status(400).json({ error: 'A valid date is required.' });
+    const duration = Math.min(Math.max(parseInt(req.query.duration, 10) || 30, 5), 240);
+    const exclude = req.query.exclude_id ? String(req.query.exclude_id) : null;
+    const nowStr = nowManilaStr();
+    const OPEN = 7 * 60, CLOSE = 20 * 60;
+    let cursor = OPEN;
+    if (date === nowStr.slice(0, 10)) cursor = Math.max(cursor, Math.ceil((hmsToMin(nowStr.slice(11, 19)) + 1) / 5) * 5);
+    const [rows] = await pool.query(
+      `SELECT start_time, end_time FROM screening_schedules WHERE scheduled_date = ? AND status <> 'Cancelled' ${exclude ? 'AND screening_schedule_id <> ?' : ''} ORDER BY start_time`,
+      exclude ? [date, exclude] : [date]
+    );
+    for (const r of rows) {
+      const s = hmsToMin(r.start_time), e = hmsToMin(r.end_time);
+      if (cursor + duration <= s) break;
+      if (e > cursor) cursor = Math.ceil(e / 5) * 5;
+    }
+    if (cursor + duration > CLOSE) return res.json({ available: false, message: 'No free time is left on this day.' });
+    res.json({ available: true, start_time: minToHms(cursor).slice(0, 5), end_time: minToHms(cursor + duration).slice(0, 5), now: nowStr });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Live check of the schedule form: the conflicts of a slot (same rules as saving).
+app.get('/api/screenings/conflicts', async (req, res) => {
+  try {
+    const date = String(req.query.date || '');
+    const start = toHms(req.query.start_time);
+    const end = toHms(req.query.end_time);
+    if (!isDateStr(date) || !isTimeStr(start) || !isTimeStr(end) || end <= start) return res.json({ conflicts: [] });
+    const studentIds = String(req.query.student_ids || '').split(',').map((s) => s.trim()).filter(Boolean).slice(0, 500);
+    const conflicts = await findScreeningConflicts(pool, { date, start, end, studentIds, excludeId: req.query.exclude_id ? String(req.query.exclude_id) : null });
+    res.json({ conflicts });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // 4. Create New Screening Schedule (schedule + participants in one transaction)
 app.post('/api/screenings', async (req, res) => {
   const { sender_id, target_program_id, target_year_level, target_section, student_ids } = req.body;
@@ -9756,6 +10041,10 @@ app.post('/api/screenings', async (req, res) => {
   if (f.scheduled_date < todayManilaStr()) return res.status(400).json({ error: 'The scheduled date cannot be in the past.' });
 
   const uniqueIds = [...new Set(student_ids)];
+  try {
+    const conflicts = await findScreeningConflicts(pool, { date: f.scheduled_date, start: f.start_time, end: f.end_time, studentIds: uniqueIds });
+    if (conflicts.length > 0) return res.status(409).json({ error: `This time overlaps. ${conflicts.join(' ')}`, conflicts });
+  } catch (err) { return res.status(500).json({ error: err.message }); }
   const connection = await pool.getConnection();
   let scheduleId;
   let recipientUserIds = [];
@@ -9896,6 +10185,10 @@ app.put('/api/screenings/:id', async (req, res) => {
     } else {
       f.screening_type = existing.screening_type;
     }
+
+    const [partRows] = await pool.query('SELECT student_id FROM screening_schedule_participants WHERE screening_schedule_id = ?', [id]);
+    const conflicts = await findScreeningConflicts(pool, { date: f.scheduled_date, start: f.start_time, end: f.end_time, studentIds: partRows.map((r) => r.student_id), excludeId: id });
+    if (conflicts.length > 0) return res.status(409).json({ error: `This time overlaps. ${conflicts.join(' ')}`, conflicts });
 
     const schoolYear = await schoolYearForDate(pool, f.scheduled_date);
     await pool.query(
@@ -10186,6 +10479,10 @@ app.put('/api/screenings/:id/extend', async (req, res) => {
     const newEndMin = Math.max(endMin, nowMin) + extra;
     if (newEndMin > 23 * 60 + 59) return res.status(400).json({ error: 'An extension runs until the same date only, and that goes past midnight. Confirm the end instead, or pick a shorter extension.' });
     const newEnd = minToHms(newEndMin);
+    const conflicts = await findScreeningConflicts(pool, {
+      date: String(schedule.scheduled_date).slice(0, 10), start: schedule.start_time, end: newEnd, excludeId: schedule.screening_schedule_id
+    });
+    if (conflicts.length > 0) return res.status(409).json({ error: `Extending to ${fmtClock(newEnd)} overlaps. ${conflicts.join(' ')}`, conflicts });
     await pool.query(
       `UPDATE screening_schedules SET end_time = ?, extended_minutes = extended_minutes + ?, original_end_time = COALESCE(original_end_time, ?) WHERE screening_schedule_id = ?`,
       [newEnd, newEndMin - endMin, schedule.end_time, schedule.screening_schedule_id]
@@ -10275,9 +10572,11 @@ app.get('/api/screenings/:id/students', async (req, res) => {
 
     const [rows] = await pool.query(`
       SELECT ${docQuery ? 'record.*, ' : ''}st.*, prog.program_name, p.participant_id, p.screening_schedule_id, p.attendance_status, p.attended_at, p.attendance_note, p.referral_appointment_id,
-             ra.start_time AS referral_start_time, ra.status AS referral_status
+             ra.start_time AS referral_start_time, ra.status AS referral_status,
+             (COALESCE(shi.has_asthma + 0, 0) = 1) AS has_asthma_history, shi.asthma_triggers AS asthma_triggers
       FROM screening_schedule_participants p
       JOIN students st ON p.student_id = st.student_id
+      LEFT JOIN student_health_information shi ON shi.student_id = st.student_id
       LEFT JOIN academic_programs prog ON st.program_id = prog.program_id
       LEFT JOIN doctor_appointments ra ON ra.appointment_id = p.referral_appointment_id
       ${docQuery}
@@ -10471,6 +10770,14 @@ app.post('/api/screenings/:id/document', async (req, res) => {
       if (checked.error) return res.status(400).json({ error: checked.error });
       abnormal = checked.is_abnormal;
       const recordId = await generateCustomId('CUSTOM', 'screening_custom_results', 'custom_record_id');
+      // automatic remark (blood pressure label, ranges, play decision, asthma history); the nurse's own text is kept
+      const [[health]] = await pool.query('SELECT has_asthma, asthma_triggers FROM student_health_information WHERE student_id = ? LIMIT 1', [student_id]);
+      const hasAsthma = health && Number(Buffer.isBuffer(health.has_asthma) ? health.has_asthma[0] : health.has_asthma) === 1;
+      const autoRemark = buildAutoRemarks(template.fields, checked.answers, checked, { has: hasAsthma, triggers: textOrNull(health && health.asthma_triggers) });
+      let finalRemarks = textOrNull(formData.remarks);
+      if (!finalRemarks) finalRemarks = autoRemark || null;
+      else if (hasAsthma && !/asthma/i.test(finalRemarks)) finalRemarks = `${finalRemarks} History of asthma${health.asthma_triggers ? ` (${health.asthma_triggers})` : ''}.`;
+      formData.remarks = finalRemarks;
 
       await pool.query(`
         INSERT INTO screening_custom_results
@@ -10478,7 +10785,7 @@ app.post('/api/screenings/:id/document', async (req, res) => {
         VALUES (?, ?, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE template_id = VALUES(template_id), answers = VALUES(answers),
           is_abnormal = VALUES(is_abnormal), remarks = VALUES(remarks), recorded_at = NOW()
-      `, [recordId, student_id, id, template.template_id, JSON.stringify(checked.answers), abnormal, textOrNull(formData.remarks)]);
+      `, [recordId, student_id, id, template.template_id, JSON.stringify(checked.answers), abnormal, finalRemarks]);
       // a BMI result moves the student's height and weight (only when it is the newest reading)
       try { await syncBodyFromScreening(pool, student_id); } catch (e) { console.error('Body sync failed:', e.message); }
     }
@@ -10641,6 +10948,8 @@ app.post('/api/screenings/:id/makeup', async (req, res) => {
       [id, id]
     );
     if (absentees.length === 0) throw new BookingError('There is no absent student left who still needs a make-up session.');
+    const makeupConflicts = await findScreeningConflicts(connection, { date: f.scheduled_date, start: f.start_time, end: f.end_time, studentIds: absentees.map((a) => a.student_id) });
+    if (makeupConflicts.length > 0) throw new BookingError(`This time overlaps. ${makeupConflicts.join(' ')}`, 409);
 
     const newId = await generateCustomId('HSSCHED', 'screening_schedules', 'screening_schedule_id', connection);
     const makeupYear = await schoolYearForDate(connection, f.scheduled_date);
@@ -11507,6 +11816,17 @@ const validateScheduleInput = async (conn, input, { excludeScheduleId = null } =
         }
     }
 
+    // A session cannot sit on a day (or hours) the doctor marked unavailable
+    const [absences] = await conn.query(
+        `SELECT * FROM doctor_unavailable_dates WHERE doctor_id = ? AND end_date >= ? AND start_date <= ?`,
+        [input.doctor_id, dates[0], dates[dates.length - 1]]
+    );
+    for (const d of dates) {
+        if (d < today) continue;
+        const blocked = absences.find((u) => unavailabilityApplies(u, `${d} ${normalized.start_time}`, `${d} ${normalized.end_time}`));
+        if (blocked) return { error: `${doctorDisplayName(doctor)} is unavailable on ${d}: ${unavailabilityLabel(blocked)}.` };
+    }
+
     return { doctor, data: normalized };
 };
 
@@ -11642,13 +11962,15 @@ app.post('/api/doctor-schedules', async (req, res) => {
         }
         const d = result.data;
         const scheduleId = await generateCustomId('DSCH', 'doctor_schedules', 'schedule_id', connection);
+        // a normal request (not the advance listing) opens the session listing at once, so students see it; the advance one opens it after placing its students
+        const opensListing = !!fulfilled && !fulfilled.for_advance;
         await connection.query(
             `INSERT INTO doctor_schedules
                 (schedule_id, doctor_id, schedule_type, allow_appointment, allow_open_booking, allow_walk_in, announcement, visit_type, recurrence, schedule_date, day_of_week, valid_from, valid_until, start_time, end_time,
-                 slot_duration_min, max_patients_per_slot, listing_limit, location, notes, auto_confirm, template_id, status, created_by_nurse_id, created_by_doctor_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Open', ?, ?)`,
+                 slot_duration_min, max_patients_per_slot, listing_limit, location, notes, auto_confirm, template_id, status, created_by_nurse_id, created_by_doctor_id, listing_open, listing_opened_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Open', ?, ?, ?, ${opensListing ? 'NOW()' : 'NULL'})`,
             [scheduleId, d.doctor_id, d.schedule_type, d.allow_appointment, d.allow_open_booking, d.allow_walk_in, d.announcement, d.visit_type, d.recurrence, d.schedule_date, d.day_of_week, d.valid_from, d.valid_until, d.start_time, d.end_time,
-             d.slot_duration_min, d.max_patients_per_slot, d.listing_limit, d.location, d.notes, d.auto_confirm, d.template_id, nurseId, creatorDoctorId]
+             d.slot_duration_min, d.max_patients_per_slot, d.listing_limit, d.location, d.notes, d.auto_confirm, d.template_id, nurseId, creatorDoctorId, opensListing ? 1 : 0]
         );
         if (fulfilled) {
             await connection.query(`UPDATE schedule_requests SET status = 'Scheduled', schedule_id = ?, responded_at = NOW() WHERE schedule_request_id = ?`, [scheduleId, fulfilled.schedule_request_id]);
@@ -11664,7 +11986,7 @@ app.post('/api/doctor-schedules', async (req, res) => {
             await notifyUsers({
                 sender_id: actorUserId, recipient_ids: await getNurseUserIds(),
                 title: fulfilled ? 'Schedule Request Accepted' : 'Doctor Posted a Schedule',
-                message: `${doctorDisplayName(doctor)} ${fulfilled ? 'set the schedule you asked for' : 'posted'}: ${text} Open its listing so students can ask for a place.`,
+                message: `${doctorDisplayName(doctor)} ${fulfilled ? 'set the schedule you asked for' : 'posted'}: ${text} ${opensListing ? 'Its listing is open: students can ask for a place.' : 'Open its listing so students can ask for a place.'}`,
                 type: 'SCHEDULE_UPDATE', payloadData: { schedule_id: scheduleId }
             });
         } catch (e) { console.error('Schedule notification failed:', e.message); }
@@ -11682,6 +12004,7 @@ app.post('/api/doctor-schedules', async (req, res) => {
         }
 
         const parts = ['Doctor schedule created.'];
+        if (opensListing) parts.push('Listing opened for students.');
         if (repeats) parts.push(`${repeats.placed} repeat student(s) got the first queue numbers${repeats.left > 0 ? `; ${repeats.left} could not be placed and still wait in the Repeats list` : ''}.`);
         if (advance) parts.push(`${advance.placed} advance listing student(s) got their numbers${advance.places_left > 0 ? `; ${advance.places_left} place(s) are open for other students` : ''}${advance.cutoff > 0 ? `; ${advance.cutoff} student(s) over the listing limit were cut off` : ''}.`);
         res.status(201).json({ success: true, schedule_id: scheduleId, advance, repeats, message: parts.join(' ') });
@@ -12173,6 +12496,12 @@ app.post('/api/schedule-requests', async (req, res) => {
                 ? absences.find((u) => unavailabilityApplies(u, `${date} ${start}:00`, `${date} ${end}:00`))
                 : absences.find((u) => !u.start_time); // no hours asked: only a whole-day absence blocks the date
             if (blocked) throw new BookingError(`${doctorDisplayName(doctor)} is unavailable on that date: ${unavailabilityLabel(blocked)}. Pick another date.`, 409);
+            // the asked hours cannot overlap a session the doctor already holds that day
+            if (start && end) {
+                const [sessions] = await connection.query(`SELECT * FROM doctor_schedules WHERE doctor_id = ? AND status = 'Open'`, [doctor_id]);
+                const clash = sessions.find((o) => scheduleOccursOn(o, date) && hmsToMin(o.start_time) < hmsToMin(end) && hmsToMin(start) < hmsToMin(o.end_time));
+                if (clash) throw new BookingError(`${doctorDisplayName(doctor)} already has a session on that date (${String(clash.start_time).slice(0, 5)}-${String(clash.end_time).slice(0, 5)}). Pick other hours.`, 409);
+            }
         }
         const [[dupe]] = await connection.query(
             `SELECT COUNT(*) AS n FROM schedule_requests WHERE doctor_id = ? AND visit_type = ? AND status = 'Pending' AND preferred_date <=> ?`, [doctor_id, visitType, date]
@@ -14986,7 +15315,8 @@ app.get('/api/schedule-calendar', async (req, res) => {
             for (const s of schedules) {
                 if (!scheduleOccursOn(s, d)) continue;
                 const inWindow = appts.filter((a) => a.doctor_id === s.doctor_id && a.start_time.slice(0, 10) === d
-                    && (a.schedule_id ? a.schedule_id === s.schedule_id : (a.start_time.slice(11) >= s.start_time && a.start_time.slice(11) < s.end_time)));
+                    // a timed direct appointment (no schedule, no queue number) is listed on its own, never counted into a session
+                    && (a.schedule_id ? a.schedule_id === s.schedule_id : (a.queue_state && a.start_time.slice(11) >= s.start_time && a.start_time.slice(11) < s.end_time)));
                 const queued = inWindow.filter((a) => a.queue_state);
                 const serving = queued.find((a) => a.queue_state === 'Serving');
                 const slotCount = Math.max(Math.floor((hmsToMin(s.end_time) - hmsToMin(s.start_time)) / s.slot_duration_min), 0);
@@ -15021,6 +15351,8 @@ app.get('/api/schedule-calendar', async (req, res) => {
                 });
             }
         }
+        // earliest first, so sessions of one day read in time order
+        sessions.sort((x, y) => (x.date === y.date ? String(x.start_time).localeCompare(String(y.start_time)) : x.date.localeCompare(y.date)));
         res.json({
             success: true,
             sessions,
@@ -15077,8 +15409,9 @@ app.get('/api/doctor-schedules/:id/participants', async (req, res) => {
                   AND ale.schedule_id = ? AND DATE(ale.session_date) = ? AND ale.status = 'Scheduled'
              WHERE da.doctor_id = ? AND da.status IN ('Scheduled', 'Completed')
                AND da.start_time >= ? AND da.start_time < ?
+               AND (da.schedule_id = ? OR (da.schedule_id IS NULL AND da.queue_state IS NOT NULL))
              ORDER BY da.queue_lane IS NULL, FIELD(da.queue_lane, 'Listed', 'Walk-in'), da.queue_no ASC, da.start_time ASC, s.last_name ASC`,
-            [schedule.schedule_id, date, schedule.doctor_id, `${date} ${schedule.start_time}`, `${date} ${schedule.end_time}`]
+            [schedule.schedule_id, date, schedule.doctor_id, `${date} ${schedule.start_time}`, `${date} ${schedule.end_time}`, schedule.schedule_id]
         );
         res.json({
             success: true,
@@ -16258,6 +16591,9 @@ const dispenseForCheckupVisit = async (connection, visitId, input) => {
     if (isBatchExpired(b.expiration_date)) throw new BookingError('Cannot dispense medicine from an expired batch.', 400);
     if (!(await isMedicineLinkedToComplaint(connection, b.medicine_id, complaintId))) throw new BookingError('This medicine is not indicated for the selected medical condition.', 400);
     if (dispenseLimit > 0 && numericVal > dispenseLimit) throw new BookingError(`Dispense limit exceeded. Maximum is ${dispenseLimit} ${dispenseUnit} per dispensation.`, 400);
+    const [[visitOwner]] = await connection.query('SELECT student_id FROM clinic_visits WHERE visit_id = ?', [visitId]);
+    const doseGap = await checkDoseGap(connection, visitOwner?.student_id, b.medicine_id);
+    if (doseGap) throw new BookingError(doseGap.message, 409);
 
     if (!isDiscreteDispenseUnit(dispenseUnit)) {
         const totalAvailable = currentStock > 0 ? remainingVolume + (currentStock - 1) * strengthUnitVal : 0;
@@ -16455,6 +16791,13 @@ app.put('/api/doctor-visits/cancel/:appointment_id', async (req, res) => {
             return res.status(409).json({ success: false, message: `This appointment is already ${appt.status.toLowerCase()}.` });
         }
         if (appt.end_time <= nowManilaStr()) return res.status(409).json({ success: false, message: 'This visit is already over, so it is closed and cannot be cancelled.' });
+        // a check-up that already started (on going) is cancelled by the doctor only, and not once it is documented
+        if (appt.start_time <= nowManilaStr()) {
+            const actor = await resolveActor(pool, sender_id || null);
+            if (actor.role !== 'Doctor') return res.status(403).json({ success: false, message: 'Only the doctor can cancel a check-up that is on going.' });
+            const [[doc]] = await pool.query(`SELECT assessment_id FROM doctor_assessments WHERE appointment_id = ? LIMIT 1`, [appointment_id]);
+            if (doc) return res.status(409).json({ success: false, message: 'This check-up is already documented, so it cannot be cancelled.' });
+        }
 
         await pool.query(
             `UPDATE doctor_appointments SET status = 'Cancelled', queue_state = IF(queue_state IS NULL, NULL, 'Void'), decline_reason = ? WHERE appointment_id = ?`,
@@ -18797,6 +19140,41 @@ app.post('/api/doctor-unavailable-dates', async (req, res) => {
         if (!doctor) { await connection.rollback(); connection.release(); return res.status(404).json({ success: false, message: 'Doctor not found.' }); }
 
         const window = { start_date: startDate, end_date: endDate, start_time: startTime ? minToHms(hmsToMin(startTime)) : null, end_time: endTime ? minToHms(hmsToMin(endTime)) : null };
+
+        // the same absence cannot be entered twice: no overlap with the doctor's other absences
+        const [existingAbs] = await connection.query(
+            `SELECT * FROM doctor_unavailable_dates WHERE doctor_id = ? AND end_date >= ? AND start_date <= ?`,
+            [doctor_id, startDate, endDate]
+        );
+        const sameTime = existingAbs.find((u) => {
+            for (let d = startDate > u.start_date ? startDate : u.start_date; d <= endDate && d <= u.end_date; d = addDaysStr(d, 1)) {
+                const aS = u.start_time ? `${d} ${String(u.start_time).slice(0, 8)}` : `${d} 00:00:00`;
+                const aE = u.start_time ? `${d} ${String(u.end_time).slice(0, 8)}` : `${d} 23:59:59`;
+                const bS = window.start_time ? `${d} ${window.start_time}` : `${d} 00:00:00`;
+                const bE = window.start_time ? `${d} ${window.end_time}` : `${d} 23:59:59`;
+                if (aS < bE && aE > bS) return true;
+            }
+            return false;
+        });
+        if (sameTime) {
+            await connection.rollback();
+            connection.release();
+            return res.status(409).json({ success: false, message: `This overlaps an absence already saved (${unavailabilityLabel(sameTime)}).` });
+        }
+
+        // an open session of the doctor inside the absence has to be moved or removed first
+        const [openSessions] = await connection.query(`SELECT * FROM doctor_schedules WHERE doctor_id = ? AND status = 'Open'`, [doctor_id]);
+        const today = nowManilaStr().slice(0, 10);
+        for (let d = startDate < today ? today : startDate; d <= endDate; d = addDaysStr(d, 1)) {
+            const hit = openSessions.find((o) => scheduleOccursOn(o, d)
+                && unavailabilityApplies(window, `${d} ${String(o.start_time).slice(0, 8)}`, `${d} ${String(o.end_time).slice(0, 8)}`));
+            if (hit) {
+                await connection.rollback();
+                connection.release();
+                return res.status(409).json({ success: false, message: `A session on ${d} (${String(hit.start_time).slice(0, 5)}-${String(hit.end_time).slice(0, 5)}) falls in this absence. Move or remove it first.` });
+            }
+        }
+
         const [candidates] = await connection.query(
             `SELECT da.appointment_id, da.start_time, da.end_time, da.status, da.visit_type, da.purpose_other, das.student_id
              FROM doctor_appointments da JOIN doctor_appointment_students das ON das.appointment_id = da.appointment_id
@@ -19485,7 +19863,7 @@ app.post('/api/incident-reports', async (req, res) => {
             // Medicine given (optional): reduces batch stock and is logged in consultation_dispensation
             if (batch_id) {
                 const [batchRows] = await connection.execute(
-                    `SELECT mib.current_stock, mib.remaining_volume, mib.expiration_date,
+                    `SELECT mib.medicine_id, mib.current_stock, mib.remaining_volume, mib.expiration_date,
                             m.strength_unit_value, m.strength_unit_of_measure, m.dispense_unit_of_measure
                      FROM medicine_inventory_batches mib
                      JOIN medicines m ON mib.medicine_id = m.medicine_id
@@ -19493,6 +19871,9 @@ app.post('/api/incident-reports', async (req, res) => {
                     [batch_id]
                 );
                 if (batchRows.length === 0) throw Object.assign(new Error('Medicine batch not found.'), { userFacing: true });
+
+                const doseGap = await checkDoseGap(connection, student_id, batchRows[0].medicine_id);
+                if (doseGap) throw Object.assign(new Error(doseGap.message), { userFacing: true, status: 409 });
 
                 const batch = batchRows[0];
                 const unit = batch.dispense_unit_of_measure || batch.strength_unit_of_measure || 'pcs.';
@@ -19551,7 +19932,7 @@ app.post('/api/incident-reports', async (req, res) => {
         } catch (txError) {
             await connection.rollback();
             if (txError.userFacing) {
-                return res.status(400).json({ success: false, message: txError.message });
+                return res.status(txError.status || 400).json({ success: false, message: txError.message });
             }
             throw txError;
         } finally {
@@ -24071,6 +24452,7 @@ ensureAdvanceListing().catch((err) => console.error('Could not prepare the advan
 ensureVisitOutVitalsColumns().catch((err) => console.error('Could not prepare the visit time-out vital columns:', err.message));
 ensureQueueSkippedColumn().catch((err) => console.error('Could not prepare the queue skipped column:', err.message));
 ensureDirectDispenseSpecifyColumn().catch((err) => console.error('Could not prepare the direct dispensation condition column:', err.message));
+ensureMedicineIntervalColumn().catch((err) => console.error('Could not prepare the medicine dose gap column:', err.message));
 ensureSessionEndTable().catch((err) => console.error('Could not prepare the session end table:', err.message));
 ensureScreeningEndColumns().catch((err) => console.error('Could not prepare the screening end columns:', err.message));
 ensureSchoolYears().catch((err) => console.error('Could not prepare the school years:', err.message));

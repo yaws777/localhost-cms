@@ -204,6 +204,7 @@ export default function MedicineInventory() {
     low_stock_level: 10,
     critical_stock_level: 5,
     adequate_stock_level: 20,
+    min_hours_between_doses: '',
     indications: []
   };
 
@@ -641,6 +642,7 @@ export default function MedicineInventory() {
       low_stock_level: med.low_stock_level,
       critical_stock_level: med.critical_stock_level,
       adequate_stock_level: med.adequate_stock_level,
+      min_hours_between_doses: med.min_hours_between_doses == null ? '' : String(parseFloat(med.min_hours_between_doses)),
       indications: med.indications || []
     });
     setIsEditingMedicine(true);
@@ -1354,6 +1356,22 @@ export default function MedicineInventory() {
                   </div>
                 </div>
                 <small className="field-help-text field-help-inline">Most that can be dispensed at once.</small>
+
+                <div className="modal-form-row">
+                  <div className="modal-form-group">
+                    <label htmlFor="med-gap-hours">Hours Between Releases</label>
+                    <input
+                      id="med-gap-hours"
+                      type="number"
+                      min="0"
+                      step="0.5"
+                      className="modal-input-field"
+                      placeholder="No gap"
+                      value={medForm.min_hours_between_doses}
+                      onChange={e => setMedForm({ ...medForm, min_hours_between_doses: e.target.value })}
+                    />
+                  </div>
+                </div>
 
                 <div className="modal-form-row">
                   <div className="modal-form-group">

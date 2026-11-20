@@ -853,13 +853,13 @@ const NurseDashboard = () => {
     const rows = visibleComplaints.map((complaint, index) => {
       const totalCases = trendData.reduce((sum, item) => sum + (Number(item[complaint]) || 0), 0);
       const avgVal = averages && averages[complaint] !== undefined ? averages[complaint] : 0;
-      const ceilAvg = Math.ceil(Number(avgVal) || 0);
+      const exactAvg = parseFloat((Number(avgVal) || 0).toFixed(1));
 
       return [
         index + 1,
         complaint,
         totalCases,
-        `${ceilAvg} avg/${averageUnit}`
+        `${exactAvg} avg/${averageUnit}`
       ];
     });
 
