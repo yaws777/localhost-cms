@@ -11,8 +11,8 @@ import '../../styles/student/RequestModuleRedesign.css';
 import { useAlert } from '../../context/AlertContext';
 import { formatTime, formatDate, formatDateTime } from '../../utils/datetime';
 
-const API_BASE = 'https://localhost-cms.onrender.com/api';
-const BASE_URL = 'https://localhost-cms.onrender.com';
+const API_BASE = 'http://localhost:3001/api';
+const BASE_URL = 'http://localhost:3001';
 
 const statusLabel = (status) =>
   !status || status.toLowerCase() === 'pending' ? 'Waiting for Approval' : status;

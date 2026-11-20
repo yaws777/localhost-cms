@@ -151,7 +151,7 @@ const downloadCsv = (filename, rows) => {
   URL.revokeObjectURL(url);
 };
 
-const API_BASE = 'https://localhost-cms.onrender.com/api';
+const API_BASE = 'http://localhost:3001/api';
 
 // Query string for GET /api/screenings/page from the current folder / tab / type / search / dates
 const buildScreeningParams = (q) => {

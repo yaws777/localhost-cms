@@ -2,7 +2,7 @@
 // A student's place in the waiting list(s) and in the session queue(s), refreshed every few seconds so "now serving" stays current.
 import { useState, useEffect, useCallback, useRef } from 'react';
 
-const API = 'https://localhost-cms.onrender.com';
+const API = 'http://localhost:3001';
 
 export const useQueueStatus = (studentId, { intervalMs = 10000 } = {}) => {
     const [state, setState] = useState({ requests: [], appointments: [] });

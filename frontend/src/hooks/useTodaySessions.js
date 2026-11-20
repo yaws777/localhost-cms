@@ -3,7 +3,7 @@
 // doctorId: only that doctor's sessions (the doctor portal); omit it for every doctor (the nurse page).
 import { useState, useEffect, useCallback } from 'react';
 
-const API = 'https://localhost-cms.onrender.com';
+const API = 'http://localhost:3001';
 const REFRESH_MS = 30000;
 
 export const useTodaySessions = (doctorId) => {

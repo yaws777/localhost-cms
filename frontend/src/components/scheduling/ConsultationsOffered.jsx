@@ -9,7 +9,7 @@ import { useAlert } from '../../context/AlertContext';
 import { useSpecializations } from '../../hooks/useSpecializations';
 import '../../styles/doctor/DoctorLayout.css';
 
-const API = 'https://localhost-cms.onrender.com';
+const API = 'http://localhost:3001';
 const OTHER = '__other__';
 
 const call = async (path, method, body) => {

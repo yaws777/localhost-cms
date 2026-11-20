@@ -11,7 +11,7 @@ import { allowedTypes, GENERAL_VISIT_TYPE } from '../../utils/scheduling';
 import { CORE_NAMES, CORE_KEYS, STANDARD_FORM_DEFAULT } from '../../utils/standardForm';
 import '../../styles/doctor/DoctorLayout.css';
 
-const API = 'https://localhost-cms.onrender.com';
+const API = 'http://localhost:3001';
 
 // Ready-made templates, one per specialization. Each one is copied to the doctor's list once and is theirs to edit, duplicate or archive.
 const opts = (...o) => o.join('\n');

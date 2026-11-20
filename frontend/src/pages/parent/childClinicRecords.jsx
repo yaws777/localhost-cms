@@ -23,7 +23,7 @@ import { formatTime, formatDate as formatDateBase, formatDateTime } from '../../
 import { ClinicVisitForm, DispensedForm, IncidentForm, DoctorVisitDetail, ScreeningDetail, VisitStatus, ScreeningStatus, visitDoctor, visitTitle } from '../../components/common/ClinicRecordViews';
 import '../../styles/parent/ChildClinicRecords.css';
 
-const API_BASE = 'https://localhost-cms.onrender.com';
+const API_BASE = 'http://localhost:3001';
 
 // divider: the first two tabs are requests, the rest are clinic records
 const TABS = [

@@ -165,7 +165,7 @@ const DocumentIssuance = () => {
     const fetchRequests = async () => {
         setLoading(true);
         try {
-            const response = await fetch('https://localhost-cms.onrender.com/api/document-requests');
+            const response = await fetch('http://localhost:3001/api/document-requests');
             const data = await response.json();
             if (data.success) {
                 setRequests(data.requests || []);
@@ -185,7 +185,7 @@ const DocumentIssuance = () => {
         setConfigLoading(true);
         setConfigError('');
         try {
-            const res = await fetch('https://localhost-cms.onrender.com/api/partner-facilities');
+            const res = await fetch('http://localhost:3001/api/partner-facilities');
             if (!res.ok) throw new Error(`Server returned status ${res.status}`);
             const data = await res.json();
             
@@ -209,7 +209,7 @@ const DocumentIssuance = () => {
 
     const fetchMedicalRequirements = async () => {
         try {
-            const res = await fetch('https://localhost-cms.onrender.com/api/medical-requirements');
+            const res = await fetch('http://localhost:3001/api/medical-requirements');
             const data = await res.json();
             
             let list = [];
@@ -240,7 +240,7 @@ const DocumentIssuance = () => {
         fetchMedicalRequirements();
 
         // Establish WebSockets connection to backend
-        const socket = io('https://localhost-cms.onrender.com');
+        const socket = io('http://localhost:3001');
 
         // Listen for real-time document request events
         socket.on('document_request_updated', () => {
@@ -261,7 +261,7 @@ const DocumentIssuance = () => {
     useEffect(() => {
         if (!selectedRequest) return;
 
-        const socket = io('https://localhost-cms.onrender.com');
+        const socket = io('http://localhost:3001');
 
         socket.on('note_added', (data) => {
             if (
@@ -348,7 +348,7 @@ const DocumentIssuance = () => {
 
     const fetchNotes = async (requestType, requestId) => {
         try {
-            const res = await fetch(`https://localhost-cms.onrender.com/api/document-requests/notes/${requestType}/${requestId}`);
+            const res = await fetch(`http://localhost:3001/api/document-requests/notes/${requestType}/${requestId}`);
             const data = await res.json();
             if (data.success) {
                 setNotes(data.notes || []);
@@ -659,8 +659,8 @@ const DocumentIssuance = () => {
     const executeSaveFacility = async () => {
         const targetId = facilityForm.facility_id;
         const url = isEditingFacility 
-            ? `https://localhost-cms.onrender.com/api/partner-facilities/${targetId}`
-            : 'https://localhost-cms.onrender.com/api/partner-facilities';
+            ? `http://localhost:3001/api/partner-facilities/${targetId}`
+            : 'http://localhost:3001/api/partner-facilities';
         const method = isEditingFacility ? 'PUT' : 'POST';
 
         try {
@@ -700,7 +700,7 @@ const DocumentIssuance = () => {
 
     const executeDeleteFacility = async (facId) => {
         try {
-            const res = await fetch(`https://localhost-cms.onrender.com/api/partner-facilities/${facId}`, {
+            const res = await fetch(`http://localhost:3001/api/partner-facilities/${facId}`, {
                 method: 'DELETE'
             });
             const data = await res.json();
@@ -759,8 +759,8 @@ const DocumentIssuance = () => {
     const executeSaveService = async () => {
         const targetServiceId = serviceForm.service_id;
         const url = isEditingService 
-            ? `https://localhost-cms.onrender.com/api/facility-services/${targetServiceId}`
-            : `https://localhost-cms.onrender.com/api/partner-facilities/${serviceForm.facility_id}/services`;
+            ? `http://localhost:3001/api/facility-services/${targetServiceId}`
+            : `http://localhost:3001/api/partner-facilities/${serviceForm.facility_id}/services`;
         const method = isEditingService ? 'PUT' : 'POST';
 
         try {
@@ -817,7 +817,7 @@ const DocumentIssuance = () => {
 
     const executeDeleteService = async (serviceId) => {
         try {
-            const res = await fetch(`https://localhost-cms.onrender.com/api/facility-services/${serviceId}`, {
+            const res = await fetch(`http://localhost:3001/api/facility-services/${serviceId}`, {
                 method: 'DELETE'
             });
             const data = await res.json();
@@ -856,7 +856,7 @@ const DocumentIssuance = () => {
         setModalError('');
 
         try {
-            const response = await fetch('https://localhost-cms.onrender.com/api/document-requests/notes', {
+            const response = await fetch('http://localhost:3001/api/document-requests/notes', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1129,7 +1129,7 @@ const DocumentIssuance = () => {
         }
 
         try {
-            const response = await fetch('https://localhost-cms.onrender.com/api/document-requests/action', {
+            const response = await fetch('http://localhost:3001/api/document-requests/action', {
                 method: 'POST',
                 body: formData,
             });
@@ -1366,7 +1366,7 @@ const DocumentIssuance = () => {
                                                     ? formatDate(new Date(slipDetails.validityEnd || selectedRequest.valid_absence_end)) : 'N/A'}
                                             </p>
                                             {selectedRequest.student_proof_url && (
-                                                <a className="file-attachment-di" href={`https://localhost-cms.onrender.com${selectedRequest.student_proof_url}`} target="_blank" rel="noreferrer">
+                                                <a className="file-attachment-di" href={`http://localhost:3001${selectedRequest.student_proof_url}`} target="_blank" rel="noreferrer">
                                                     <Paperclip className="ic-di" aria-hidden="true" />Student proof
                                                 </a>
                                             )}
@@ -1430,17 +1430,17 @@ const DocumentIssuance = () => {
                                                 {/\.(png|jpe?g)$/i.test(selectedRequest.issued_slip_url) ? (
                                                     <img
                                                         className="issued-preview-di"
-                                                        src={`https://localhost-cms.onrender.com${selectedRequest.issued_slip_url}`}
+                                                        src={`http://localhost:3001${selectedRequest.issued_slip_url}`}
                                                         alt="Issued slip"
                                                     />
                                                 ) : (
                                                     <iframe
                                                         className="issued-preview-di"
-                                                        src={`https://localhost-cms.onrender.com${selectedRequest.issued_slip_url}`}
+                                                        src={`http://localhost:3001${selectedRequest.issued_slip_url}`}
                                                         title="Issued slip"
                                                     />
                                                 )}
-                                                <a className="file-attachment-di" href={`https://localhost-cms.onrender.com${selectedRequest.issued_slip_url}`} target="_blank" rel="noreferrer">
+                                                <a className="file-attachment-di" href={`http://localhost:3001${selectedRequest.issued_slip_url}`} target="_blank" rel="noreferrer">
                                                     <FileText className="ic-di" aria-hidden="true" />Open issued slip
                                                 </a>
                                             </>
@@ -1666,7 +1666,7 @@ const DocumentIssuance = () => {
                             <p className="quote-di">{selectedRequest.reason || selectedRequest.reason_for_excuse || 'N/A'}</p>
                         </div>
                         {isExcuseRequest && selectedRequest.student_proof_url && (
-                            <a className="file-attachment-di" href={`https://localhost-cms.onrender.com${selectedRequest.student_proof_url}`} target="_blank" rel="noreferrer">
+                            <a className="file-attachment-di" href={`http://localhost:3001${selectedRequest.student_proof_url}`} target="_blank" rel="noreferrer">
                                 <Paperclip className="ic-di" aria-hidden="true" />Student proof
                             </a>
                         )}

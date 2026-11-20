@@ -29,7 +29,7 @@ import Modal from '../../components/common/Modal';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate } from '../../utils/datetime';
 
-const API = 'https://localhost-cms.onrender.com';
+const API = 'http://localhost:3001';
 const DRAWER_FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
 
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => (

@@ -12,7 +12,7 @@ import { TemplateFields, missingRequired, toResponses } from './TemplateFields';
 import { STANDARD_FORM_DEFAULT, isCoreKey, asText } from '../../utils/standardForm';
 import '../../styles/doctor/DoctorLayout.css';
 
-const API = 'https://localhost-cms.onrender.com';
+const API = 'http://localhost:3001';
 
 const EMPTY_RX = { medicine: '', dosage: '', frequency: '', duration: '', instructions: '' };
 

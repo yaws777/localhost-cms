@@ -7,7 +7,7 @@ import DoctorServices from '../../components/scheduling/DoctorServices';
 import { initials } from '../../utils/visitPurpose';
 import '../../styles/doctor/DoctorLayout.css';
 
-const API = 'https://localhost-cms.onrender.com';
+const API = 'http://localhost:3001';
 
 const strength = (p) => ({
     'At least 8 characters': p.length >= 8,

@@ -117,7 +117,7 @@ export const findHealthProblems = (info) => {
 const proofUrl = (url) => {
     if (!url) return '#';
     if (/^https?:\/\//.test(url)) return url;
-    return `https://localhost-cms.onrender.com${url.startsWith('/') ? '' : '/'}${url}`;
+    return `http://localhost:3001${url.startsWith('/') ? '' : '/'}${url}`;
 };
 
 // ---------------------------------------------------------------------------

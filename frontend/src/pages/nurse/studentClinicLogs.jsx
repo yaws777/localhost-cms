@@ -7,7 +7,7 @@ import { ArrowLeft, AlertTriangle } from 'lucide-react';
 import ClinicLogsAndRecords from '../student/clinicLogs&Records';
 import '../../styles/nurse/StudentClinicLogs.css';
 
-const API_BASE = 'https://localhost-cms.onrender.com';
+const API_BASE = 'http://localhost:3001';
 
 // health_information flag -> short alert label
 const ALERTS = [

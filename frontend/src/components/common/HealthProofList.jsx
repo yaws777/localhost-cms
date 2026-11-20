@@ -22,7 +22,7 @@ export const CONDITION_LABELS = {
 const getFileUrl = (url) => {
     if (!url) return '#';
     if (url.startsWith('http://') || url.startsWith('https://')) return url;
-    return `https://localhost-cms.onrender.com${url.startsWith('/') ? '' : '/'}${url}`;
+    return `http://localhost:3001${url.startsWith('/') ? '' : '/'}${url}`;
 };
 
 // Lists the optional proof files uploaded with the Health History form.

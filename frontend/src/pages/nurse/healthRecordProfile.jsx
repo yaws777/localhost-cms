@@ -12,7 +12,7 @@ import HealthHistoryEditModal from '../../components/nurse/HealthHistoryEditModa
 import '../../styles/nurse/HealthRecordProfile.css';
 import '../../styles/nurse/HealthRecordProfilePage.css';
 
-const API = 'https://localhost-cms.onrender.com';
+const API = 'http://localhost:3001';
 
 // doctors open this page from their Patient Records, so "back" returns there
 const viewerIsDoctor = () => {

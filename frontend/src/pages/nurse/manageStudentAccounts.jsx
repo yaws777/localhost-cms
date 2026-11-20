@@ -34,7 +34,7 @@ import stiLogo from '../../assets/sti-logof.png';
 import { formatDate } from '../../utils/datetime';
 import '../../styles/nurse/ManageStudentAccounts.css';
 
-const API_BASE = 'https://localhost-cms.onrender.com/api';
+const API_BASE = 'http://localhost:3001/api';
 const DOMAIN_EXTENSION = '@baliuag.sti.edu.ph';
 const SECTIONS = ['A', 'B', 'C'];
 const STATUS_CHIPS = [

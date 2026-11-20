@@ -1,7 +1,7 @@
 // scheduling.js
 // Shared by the nurse and the doctor scheduling screens (one interface, one set of rules) and the student booking page.
 
-export const API = 'https://localhost-cms.onrender.com';
+export const API = 'http://localhost:3001';
 
 // A schedule is a session with a queue: the nurse accepts the students who asked for a place in its listing (they get a queue number) and the only
 // switch is allow_walk_in. What is categorized is HOW A STUDENT GOT IN, from doctor_appointments.booking_source:

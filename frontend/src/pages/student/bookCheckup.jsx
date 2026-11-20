@@ -18,7 +18,7 @@ import { useQueueStatus } from '../../hooks/useQueueStatus';
 import QueueStatus, { QueuePill } from '../../components/student/QueueStatus';
 import '../../styles/student/BookCheckup.css';
 
-const API = 'https://localhost-cms.onrender.com';
+const API = 'http://localhost:3001';
 
 const EMPTY_REQUEST = { visit_type: '' };
 const FINISHED = ['Missed', 'Denied', 'Withdrawn']; // a fulfilled request shows under Past check-ups

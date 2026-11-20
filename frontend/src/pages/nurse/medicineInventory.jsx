@@ -22,7 +22,7 @@ import '../../styles/nurse/MedicineInventory.css';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate } from '../../utils/datetime';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://localhost-cms.onrender.com/api';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
 
 // Batches start to warn this many days before the expiry date (2 months)
 const EXPIRY_WARN_DAYS = 60;
