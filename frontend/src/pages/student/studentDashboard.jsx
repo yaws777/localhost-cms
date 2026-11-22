@@ -314,7 +314,7 @@ const StudentDashboard = () => {
       const badges = [];
       if (l.mine) badges.push({ text: 'Request sent', tone: 'info' });
       else if (l.listing_full) badges.push({ text: 'Full', tone: 'bad' });
-      else badges.push({ text: 'Open for requests', tone: 'ok' });
+      else badges.push({ text: 'Open for listing', tone: 'ok' });
       events.push({
         id: `lst-${l.schedule_id}-${l.date}`, date: l.date, kind: 'listing', sort: String(l.start_time || ''),
         title: `${l.doctor_name}, ${l.purposes.map((p) => visitLabel(p)).join(', ') || 'Check-up'}`,

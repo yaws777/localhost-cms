@@ -275,6 +275,13 @@
     background: var(--bg-subtle);
 }
 
+/* Read-only student details and auto-calculated fields: "not allowed" cursor on hover */
+.hh-page input[readonly],
+.hh-page input.hh-locked,
+.hh-field:has(input[readonly]) {
+    cursor: not-allowed;
+}
+
 .hh-page input::placeholder {
     color: var(--text-secondary);
     opacity: 1;

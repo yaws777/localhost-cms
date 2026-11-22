@@ -54,12 +54,20 @@ export const useTodayCheckupStatus = (doctorId, { enabled = true, refreshKey } =
         if (!doctorId) return;
         try {
             const day = localDateStr();
-            const [ongoing, upcoming, past] = await Promise.all(['ongoing', 'upcoming', 'past'].map((scope) => (
-                fetch(`${API}/api/doctor/${encodeURIComponent(doctorId)}/appointments?scope=${scope}&from=${day}&to=${day}&pageSize=1`).then((r) => r.json())
-            )));
-            if (ongoing.total > 0) setStatus('ongoing');
-            else if (upcoming.total > 0) setStatus('upcoming');
-            else if (past.total > 0) setStatus('past');
+            const calendarQs = new URLSearchParams({ from: day, to: day });
+            if (doctorId !== 'all') calendarQs.set('doctor_id', doctorId);
+            // the sessions the doctor set count even when nobody is in them (a student's check-up is only one thing a session holds)
+            const [ongoing, upcoming, past, calendar] = await Promise.all([
+                ...['ongoing', 'upcoming', 'past'].map((scope) => (
+                    fetch(`${API}/api/doctor/${encodeURIComponent(doctorId)}/appointments?scope=${scope}&from=${day}&to=${day}&pageSize=1`).then((r) => r.json())
+                )),
+                fetch(`${API}/api/schedule-calendar?${calendarQs.toString()}`).then((r) => r.json())
+            ]);
+            const sessions = calendar.success ? calendar.sessions || [] : [];
+            const sessionsIn = (state) => sessions.filter((s) => s.state === state).length;
+            if (ongoing.total > 0 || sessionsIn('ongoing') > 0) setStatus('ongoing');
+            else if (upcoming.total > 0 || sessionsIn('upcoming') > 0) setStatus('upcoming');
+            else if (past.total > 0 || sessionsIn('past') > 0) setStatus('past');
             else setStatus('none');
         } catch (e) { /* the next poll tries again */ }
     }, [doctorId]);

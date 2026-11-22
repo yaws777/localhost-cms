@@ -14,6 +14,9 @@ import WaitingList from './WaitingList';
 import AdvanceListing from './AdvanceListing';
 import FollowUps from './FollowUps';
 import StaffChat from './StaffChat';
+import TabDot from '../common/TabDot';
+import { HUB_TAB_TYPES } from '../../utils/tabNotificationTypes';
+import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { API } from '../../utils/scheduling';
 import '../../styles/scheduling/Scheduling.css';
 
@@ -24,6 +27,9 @@ const TABS = [
     ['followups', 'Follow-ups', CalendarClock],
     ['chat', 'Chat', MessagesSquare]
 ];
+
+// notification types that put a red dot on a tab (cleared when the tab is opened)
+const TAB_NOTIFICATION_TYPES = HUB_TAB_TYPES;
 
 // role: 'nurse' | 'doctor'. The doctor portal passes fixedDoctorId (their own doctor id).
 const SchedulingHub = ({ role, doctors, fixedDoctorId, nurseId, userId, initialTab = 'calendar', onChanged }) => {
@@ -93,6 +99,8 @@ const SchedulingHub = ({ role, doctors, fixedDoctorId, nurseId, userId, initialT
     const prefillUsed = useCallback(() => setPrefill(null), []);
     const focusUsed = useCallback(() => setFocusSchedule(null), []);
 
+    const { dots } = useTabNotifications({ userId, typeMap: TAB_NOTIFICATION_TYPES, activeTab: tab });
+
     const badgeFor = (key) => (key === 'waiting' ? counts.waiting : key === 'followups' ? counts.followups : key === 'chat' ? chatUnread : 0);
 
     return (
@@ -102,6 +110,7 @@ const SchedulingHub = ({ role, doctors, fixedDoctorId, nurseId, userId, initialT
                     <button key={key} type="button" className={`hub-tab-sc ${tab === key ? 'active-sc' : ''}`} onClick={() => goTab(key)}>
                         <Icon size={16} /> {label}
                         {badgeFor(key) > 0 && <span className="tab-badge-sc">{badgeFor(key)}</span>}
+                        <TabDot show={tab !== key && dots[key] > 0} label={`New in ${label}`} />
                     </button>
                 ))}
             </nav>

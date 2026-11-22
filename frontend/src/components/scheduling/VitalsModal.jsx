@@ -1,14 +1,14 @@
 // VitalsModal.jsx
 // The nurse's vital signs of a doctor check-up.
 //   mode "in"  - Time in: all four vital signs are required; not normal values are saved and flagged, the student still goes to the doctor.
-//   mode "out" - Time out after the check-up: the vital signs and the note are optional.
+//   mode "out" - Time out after the check-up: the vital signs and the remarks are optional (remarks are written from the vital signs).
 // appt: { appointment_id, student_id, name, label }. onDone() runs after the server saved it.
 import React, { useEffect, useMemo, useState } from 'react';
 import { HeartPulse, Check, AlertTriangle, CircleAlert, Pill } from 'lucide-react';
 import Modal from '../common/Modal';
 import { useAlert } from '../../context/AlertContext';
 import { API } from '../../utils/scheduling';
-import { VITAL_FIELDS, EMPTY_VITALS, vitalState, hasVitals } from '../../utils/vitals';
+import { VITAL_FIELDS, EMPTY_VITALS, vitalState, hasVitals, vitalsRemarks } from '../../utils/vitals';
 import '../../styles/scheduling/Vitals.css';
 
 const STATE_TEXT = { normal: 'Normal', abnormal: 'Not normal', invalid: 'Check value' };
@@ -30,6 +30,7 @@ const VitalsModal = ({ appt, mode, userId, onClose, onDone }) => {
     const isIn = mode === 'in';
     const [values, setValues] = useState(EMPTY_VITALS);
     const [note, setNote] = useState('');
+    const [noteEdited, setNoteEdited] = useState(false); // the nurse typed her own remarks: stop writing them from the vital signs
     const [busy, setBusy] = useState(false);
     const [dispense, setDispense] = useState(EMPTY_DISPENSE);
     const [complaints, setComplaints] = useState([]);
@@ -45,6 +46,12 @@ const VitalsModal = ({ appt, mode, userId, onClose, onDone }) => {
         ]).then(([c, b]) => { if (live) { setComplaints(Array.isArray(c) ? c : []); setBatches(Array.isArray(b) ? b : []); } });
         return () => { live = false; };
     }, [isIn, appt]);
+
+    // remarks follow the vital signs until the nurse writes her own
+    useEffect(() => {
+        if (isIn || noteEdited) return;
+        setNote(vitalsRemarks(values));
+    }, [isIn, noteEdited, values]);
 
     const liveBatches = useMemo(
         () => batches.filter((b) => isLiveBatch(b) && String(b.complaint_ids || '').split(',').includes(String(dispense.complaintId))),
@@ -131,8 +138,8 @@ const VitalsModal = ({ appt, mode, userId, onClose, onDone }) => {
                 </div>
                 {!isIn && (
                     <div className="dp-field">
-                        <label htmlFor="vt-note">Nurse note</label>
-                        <textarea id="vt-note" className="dp-textarea" rows={2} maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} />
+                        <label htmlFor="vt-note">Remarks</label>
+                        <textarea id="vt-note" className="dp-textarea" rows={2} maxLength={500} value={note} onChange={(e) => { setNote(e.target.value); setNoteEdited(e.target.value.trim() !== ''); }} />
                     </div>
                 )}
                 {!isIn && (

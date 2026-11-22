@@ -65,7 +65,7 @@ export const StudentHealthCard = ({ studentId, appointmentId }) => {
                 <section aria-label="Vital signs at time out">
                     <h4 className="hs-sub">At time out{current.time_out ? ` (${formatTime(current.time_out)})` : ''}</h4>
                     <VitalTiles values={current} prefix="out_" />
-                    {current.out_nurse_note && <p className="dp-hint">Nurse note: {current.out_nurse_note}</p>}
+                    {current.out_nurse_note && <p className="dp-hint">Remarks: {current.out_nurse_note}</p>}
                 </section>
             )}
 

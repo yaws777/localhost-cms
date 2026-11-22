@@ -10,7 +10,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
     Search, CalendarClock, History, ClipboardPlus, UserX, Ban, FileText, Printer, Pill, Stethoscope, TimerReset,
-    Folder, FolderOpen, FolderHeart, ChevronLeft, ChevronRight, Eye, Repeat, Clock, Users, BellRing, LogOut
+    Folder, FolderOpen, FolderHeart, ChevronLeft, ChevronRight, Eye, Repeat, Clock, Users, BellRing, LogOut, Square
 } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatTime } from '../../utils/datetime';
@@ -78,7 +78,7 @@ const relativeDay = (day) => {
 };
 
 const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTab, focusId, onChanged }) => {
-    const { showAlert } = useAlert();
+    const { showAlert, showConfirm } = useAlert();
     const { visitTypes } = useSpecializations();
     const isNurse = role === 'nurse';
     const doctorPath = doctorId || 'all';
@@ -97,6 +97,7 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
     const [doctorFilter, setDoctorFilter] = useState('');
     const [openGroup, setOpenGroup] = useState(null);
     const [openDoctor, setOpenDoctor] = useState(null); // nurse: the doctor folder opened from All folders
+    const [openAll, setOpenAll] = useState(false); // nurse, Past Check-up: the All doctors folder is open (its doctor folders show)
     const [doctorFolders, setDoctorFolders] = useState([]);
 
     const [cancelTarget, setCancelTarget] = useState(null);
@@ -120,16 +121,20 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
     // Doctor: the session containers > the participants.
     const grouped = GROUPED_TABS.includes(tab);
     const doctorScope = isNurse ? (openDoctor ? openDoctor.doctor_id : doctorFilter) : '';
+    // Past Check-up (nurse) has one more level above the doctors: the All doctors folder
+    const treePast = isNurse && tab === 'past';
+    // Past Check-up (doctor): All Schedules > a folder per schedule date > the participants of that date
+    const treeDate = !isNurse && tab === 'past';
     const atRoot = grouped && isNurse && !openGroup && !doctorScope;
     const inFolders = grouped && !openGroup && !atRoot;
     const pageSize = inFolders ? GROUP_PAGE_SIZE : tab === 'past' || tab === 'upcoming' ? TABLE_SIZE : PAGE_SIZE;
 
-    const setTab = (key) => { onTab(key); setOpenGroup(null); setOpenDoctor(null); setPage(1); };
+    const setTab = (key) => { onTab(key); setOpenGroup(null); setOpenDoctor(null); setOpenAll(false); setPage(1); };
 
     useEffect(() => { const t = setTimeout(() => { setQuery(search.trim()); setPage(1); }, 300); return () => clearTimeout(t); }, [search]);
 
     // the other tab of the list the nurse or doctor came from
-    useEffect(() => { setOpenGroup(null); setOpenDoctor(null); setPage(1); }, [tab]);
+    useEffect(() => { setOpenGroup(null); setOpenDoctor(null); setOpenAll(false); setPage(1); }, [tab]);
 
     const filterParams = useCallback((scope) => {
         const qs = new URLSearchParams({ scope });
@@ -157,10 +162,10 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
         try {
             const qs = filterParams(tab);
             qs.set('page', page);
-            qs.set('pageSize', atRoot ? 'all' : pageSize);
+            qs.set('pageSize', atRoot || (treeDate && inFolders) ? 'all' : pageSize);
             if (openGroup) {
                 qs.set('from', openGroup.day); qs.set('to', openGroup.day);
-                qs.set('schedule_id', openGroup.schedule_id || 'none');
+                if (!openGroup.allSchedules) qs.set('schedule_id', openGroup.schedule_id || 'none');
                 if (openGroup.doctor_id) qs.set('doctor_id', openGroup.doctor_id);
             } else {
                 if (day) { qs.set('from', day); qs.set('to', day); }
@@ -188,7 +193,7 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
         } finally {
             if (seq === reqSeq.current) setLoading(false);
         }
-    }, [doctorPath, tab, page, pageSize, inFolders, atRoot, openGroup, openDoctor, day, filterParams, showAlert]);
+    }, [doctorPath, tab, page, pageSize, inFolders, atRoot, treeDate, openGroup, openDoctor, day, filterParams, showAlert]);
 
     useEffect(() => { fetchList(); }, [fetchList]);
     useEffect(() => { fetchCounts(); }, [fetchCounts]);
@@ -216,12 +221,28 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
     // the end time passed: confirm the end (the session moves to Past Check-up) or extend it; "Ask me later" keeps the question on the session card
     const endKey = (s) => `${s.schedule_id}|${s.date}|${s.end_time}`;
     const endAsk = runningSessions.find((s) => s.awaiting_end && !dismissedEnds.includes(endKey(s))) || null;
-    const confirmEnd = async (s) => {
-        const data = await put(`/api/doctor-schedules/${s.schedule_id}/end-session`, { sender_id: userId, created_by_doctor_id: creator.doctorId || undefined });
-        if (!data.success) return data.message || 'Could not end the session.';
+    // `early` = the End time button (before the end time). Students not documented yet raise a warning first; the staff can end anyway.
+    const confirmEnd = async (s, early = false) => {
+        const url = `/api/doctor-schedules/${s.schedule_id}/end-session`;
+        const body = { sender_id: userId, created_by_doctor_id: creator.doctorId || undefined, early };
+        let data = await put(url, body);
+        if (data.needs_confirm) {
+            const ok = await showConfirm(data.message, { danger: true, confirmLabel: 'End anyway', title: 'Not documented yet' });
+            if (!ok) return '';
+            data = await put(url, { ...body, force: true });
+        }
+        if (!data.success) {
+            if (early) { showAlert(data.message || 'Could not end the session.', 'error'); return ''; }
+            return data.message || 'Could not end the session.';
+        }
         showAlert(data.message, 'success');
         refresh();
         return '';
+    };
+    // the End time button of a running session
+    const askEndNow = async (s) => {
+        const ok = await showConfirm(`End the ${s.visit_type === 'Any' ? 'check-up' : s.visit_type} session of ${s.doctor_name} now? It moves to Past Check-up.`, { confirmLabel: 'End time', title: 'End time' });
+        if (ok) await confirmEnd(s, true);
     };
     const extendEnd = async (s, minutes) => {
         const data = await put(`/api/doctor-schedules/${s.schedule_id}/extend`, { extra_minutes: minutes, sender_id: userId, created_by_doctor_id: creator.doctorId || undefined });
@@ -370,7 +391,7 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
         if (documented) {
             buttons.push(act('sum', 'ghost', Printer, 'Summary', () => print(a, 'summary')));
             if (rxCount(a) > 0) buttons.push(act('rx', 'ghost', Pill, 'Prescription', () => print(a, 'prescription')));
-            buttons.push(act('rp', 'accent', Repeat, 'Follow-up', () => setRepeatTarget(a), 'Follow-up: direct appointment, or wait for a schedule'));
+            buttons.push(act('rp', 'ghost', Repeat, 'Follow-up', () => setRepeatTarget(a), 'Follow-up: direct appointment, or wait for a schedule'));
         }
         buttons.push(act('rec', 'ghost', FolderHeart, 'Student health records', () => setRecordTarget(withName(a)), 'Health records of the student'));
         return buttons;
@@ -434,16 +455,57 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
     };
 
     // All folders (nurse): one row per doctor, like a repository file list - icon + name, what is inside, when
+    // Past Check-up (nurse): the root is ONE folder, All doctors > a folder per doctor > a folder per session of that doctor > the participants
+    const renderAllDoctorsRoot = () => {
+        const last = doctorFolders.reduce((d, f) => (f.day > d ? f.day : d), doctorFolders[0].day);
+        return (
+            <div className="dp-card dp-repo-list" role="list" aria-label="All folders">
+                <button role="listitem" type="button" className="dp-repo-row" onClick={() => { setOpenAll(true); setPage(1); }} aria-label="Open All doctors">
+                    <span className="dp-repo-name"><Folder size={18} aria-hidden="true" /> <strong>All doctors</strong></span>
+                    <span className="dp-repo-desc">{doctorFolders.length} doctor{doctorFolders.length === 1 ? '' : 's'}</span>
+                    <span className="dp-repo-when">{relativeDay(last)}</span>
+                </button>
+            </div>
+        );
+    };
     const renderDoctorFolders = () => (
-        <div className="dp-card dp-repo-list" role="list" aria-label="All folders">
+        <div className="dp-card dp-repo-list" role="list" aria-label="Doctors">
             {doctorFolders.map((f) => (
                 <button key={f.doctor_id} role="listitem" type="button" className="dp-repo-row" onClick={() => { setOpenDoctor(f); setPage(1); }} aria-label={`Open ${f.name}`}>
                     <span className="dp-repo-name"><Folder size={18} aria-hidden="true" /> <strong>{f.name}</strong></span>
-                    <span className="dp-repo-desc">
-                        {f.sessions} session{f.sessions === 1 ? '' : 's'} - {f.total} participant{f.total === 1 ? '' : 's'}{tab === 'past' ? ` - ${f.documented} documented` : ''}
-                        {f.abnormal > 0 && <span className="dp-chip abnormal">{f.abnormal} abnormal</span>}
-                        {tab === 'past' && f.missed > 0 && <span className="dp-chip st-no-show">{f.missed} missed or cancelled</span>}
-                    </span>
+                    <span className="dp-repo-desc">{f.sessions} session{f.sessions === 1 ? '' : 's'}</span>
+                    <span className="dp-repo-when">{relativeDay(f.day)}</span>
+                </button>
+            ))}
+        </div>
+    );
+
+    // doctor, Past Check-up: the schedule dates, one folder each (every session of that day together)
+    const dateFolders = (() => {
+        const byDay = new Map();
+        groups.forEach((g) => {
+            const f = byDay.get(g.day) || { day: g.day, total: 0, sessions: 0 };
+            f.total += g.total; f.sessions += 1;
+            byDay.set(g.day, f);
+        });
+        return [...byDay.values()].sort((a, b) => b.day.localeCompare(a.day));
+    })();
+    const dateFolderPages = Math.max(Math.ceil(dateFolders.length / GROUP_PAGE_SIZE), 1);
+    const renderScheduleRoot = () => (
+        <div className="dp-card dp-repo-list" role="list" aria-label="All folders">
+            <button role="listitem" type="button" className="dp-repo-row" onClick={() => { setOpenAll(true); setPage(1); }} aria-label="Open All Schedules">
+                <span className="dp-repo-name"><Folder size={18} aria-hidden="true" /> <strong>All Schedules</strong></span>
+                <span className="dp-repo-desc">{dateFolders.length} date{dateFolders.length === 1 ? '' : 's'}</span>
+                <span className="dp-repo-when">{relativeDay(dateFolders[0].day)}</span>
+            </button>
+        </div>
+    );
+    const renderDateFolders = () => (
+        <div className="dp-card dp-repo-list" role="list" aria-label="Schedule dates">
+            {dateFolders.slice((page - 1) * GROUP_PAGE_SIZE, page * GROUP_PAGE_SIZE).map((f) => (
+                <button key={f.day} role="listitem" type="button" className="dp-repo-row" onClick={() => { setOpenGroup({ day: f.day, allSchedules: true, doctor_id: doctorId }); setPage(1); }} aria-label={`Open ${dayTitle(f.day)}`}>
+                    <span className="dp-repo-name"><Folder size={18} aria-hidden="true" /> <strong>{dayTitle(f.day)}</strong></span>
+                    <span className="dp-repo-desc"><Users size={13} aria-hidden="true" /> {f.total}</span>
                     <span className="dp-repo-when">{relativeDay(f.day)}</span>
                 </button>
             ))}
@@ -456,11 +518,7 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
             {groups.map((g) => (
                 <button key={`${g.schedule_id || 'none'}-${g.doctor_id}-${g.day}`} role="listitem" type="button" className="dp-repo-row" onClick={() => { setOpenGroup(g); setPage(1); }} aria-label={`Open ${groupName(g)}, ${dayTitle(g.day)}`}>
                     <span className="dp-repo-name"><Folder size={18} aria-hidden="true" /> <strong>{groupName(g)}</strong></span>
-                    <span className="dp-repo-desc">
-                        {dayTitle(g.day)} - {formatTime(g.first_start)} to {formatTime(g.last_end)}{g.location ? ` - ${g.location}` : ''} - <Users size={13} aria-hidden="true" /> {g.total}{tab === 'past' ? ` - ${g.documented} documented` : ''}
-                        {g.abnormal > 0 && <span className="dp-chip abnormal">{g.abnormal} abnormal</span>}
-                        {tab === 'past' && g.missed > 0 && <span className="dp-chip st-no-show">{g.missed} missed or cancelled</span>}
-                    </span>
+                    <span className="dp-repo-desc">{formatTime(g.first_start)} - {formatTime(g.last_end)} - <Users size={13} aria-hidden="true" /> {g.total}</span>
                     <span className="dp-repo-when">{relativeDay(g.day)}</span>
                 </button>
             ))}
@@ -522,7 +580,8 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
 
     const rows = atRoot ? doctorFolders : inFolders ? groups : items;
     const unit = inFolders ? 'sessions' : 'participants';
-    const backToRoot = () => { setOpenGroup(null); setOpenDoctor(null); setPage(1); };
+    const backToRoot = () => { setOpenGroup(null); setOpenDoctor(null); setOpenAll(false); setPage(1); };
+    const backToDoctors = () => { setOpenGroup(null); setOpenDoctor(null); setOpenAll(true); setPage(1); };
 
     return (
         <>
@@ -555,12 +614,47 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
                 {filtering && <button className="dp-btn dp-btn-ghost" onClick={clearFilters}>Clear</button>}
             </div>
 
-            {grouped && !atRoot && (openGroup || openDoctor) && (
+            {atRoot && treePast && openAll && (
+                <nav className="dp-crumbs" aria-label="Folder path">
+                    <button type="button" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={backToRoot}><ChevronLeft size={15} aria-hidden="true" /> All folders</button>
+                    <ChevronRight size={15} aria-hidden="true" />
+                    <FolderOpen size={17} aria-hidden="true" />
+                    <strong>All doctors</strong>
+                </nav>
+            )}
+
+            {treeDate && openAll && (
+                <nav className="dp-crumbs" aria-label="Folder path">
+                    <button type="button" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={backToRoot}><ChevronLeft size={15} aria-hidden="true" /> All folders</button>
+                    <ChevronRight size={15} aria-hidden="true" />
+                    {openGroup ? (
+                        <>
+                            <button type="button" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={backToDoctors}>All Schedules</button>
+                            <ChevronRight size={15} aria-hidden="true" />
+                            <FolderOpen size={17} aria-hidden="true" />
+                            <strong>{dayTitle(openGroup.day)}</strong>
+                        </>
+                    ) : (
+                        <>
+                            <FolderOpen size={17} aria-hidden="true" />
+                            <strong>All Schedules</strong>
+                        </>
+                    )}
+                </nav>
+            )}
+
+            {grouped && !atRoot && !treeDate && (openGroup || openDoctor) && (
                 <nav className="dp-crumbs" aria-label="Folder path">
                     {isNurse ? (
                         <>
                             <button type="button" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={backToRoot}><ChevronLeft size={15} aria-hidden="true" /> All folders</button>
                             <ChevronRight size={15} aria-hidden="true" />
+                            {treePast && openAll && (
+                                <>
+                                    <button type="button" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={backToDoctors}>All doctors</button>
+                                    <ChevronRight size={15} aria-hidden="true" />
+                                </>
+                            )}
                             {openGroup ? (
                                 <>
                                     <button type="button" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => { setOpenGroup(null); setOpenDoctor(openDoctor || { doctor_id: openGroup.doctor_id, name: `Dr. ${openGroup.doc_first_name} ${openGroup.doc_last_name}` }); setPage(1); }}>
@@ -592,6 +686,10 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
                     <h3 style={{ margin: '0 0 10px', fontSize: '1rem' }}>
                         {s.doctor_name} - {formatTime(`${s.date} ${s.start_time}`)} to {formatTime(`${s.date} ${s.end_time}`)}{s.location ? ` - ${s.location}` : ''}
                         <span className="dp-hint"> {s.visit_type === 'Any' ? 'Any check-up' : s.visit_type}</span>
+                        {' '}
+                        <button type="button" className="dp-btn dp-btn-danger dp-btn-icon" onClick={() => askEndNow(s)} aria-label="End time" title="End time: end this session now">
+                            <Square size={17} aria-hidden="true" />
+                        </button>
                     </h3>
                     {s.awaiting_end && (
                         <div className="dp-notice" role="status" style={{ marginBottom: 10 }}>
@@ -611,9 +709,11 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
                     <FileText size={36} />
                     <p>No {tabLabel} to show here.</p>
                 </div>
-            ) : atRoot ? renderDoctorFolders() : inFolders ? renderFolders() : tab === 'past' || tab === 'upcoming' ? renderDayTable() : renderCards()}
+            ) : atRoot ? (treePast && !openAll ? renderAllDoctorsRoot() : renderDoctorFolders()) : inFolders ? (treeDate ? (openAll ? renderDateFolders() : renderScheduleRoot()) : renderFolders()) : tab === 'past' || tab === 'upcoming' ? renderDayTable() : renderCards()}
 
-            {!loading && !atRoot && <Pager page={page} pageCount={pageCount} total={total} pageSize={pageSize} onPage={setPage} noun={unit} />}
+            {!loading && !atRoot && !(treeDate && inFolders && !openAll) && (treeDate && inFolders
+                ? <Pager page={page} pageCount={dateFolderPages} total={dateFolders.length} pageSize={GROUP_PAGE_SIZE} onPage={setPage} noun="dates" />
+                : <Pager page={page} pageCount={pageCount} total={total} pageSize={pageSize} onPage={setPage} noun={unit} />)}
 
             <ReasonModal
                 isOpen={!!cancelTarget}

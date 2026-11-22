@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
+import NavCount from '../components/common/NavCount';
+import { useSidebarDots } from '../hooks/useSidebarDots';
+import { studentRouteOf, MESSAGE_ROUTE } from '../utils/notificationRoutes';
 import { 
     LayoutDashboard, 
     FileText, 
@@ -28,6 +31,7 @@ import { formatCurrentDate, formatDateTime } from '../utils/datetime';
 
 const StudentLayout = () => {
     const navigate = useNavigate();
+    const location = useLocation();
     const sidebarQrRef = useRef(null);
     const { theme, toggleTheme } = useTheme();
     const { collapsed, toggleCollapsed } = useSidebar();
@@ -98,6 +102,8 @@ const StudentLayout = () => {
     }, [currentUserId]);
 
     const [notifications, setNotifications] = useState([]);
+    // red dot on the sidebar item of the page a notification belongs to; opening the page clears it
+    const dotFor = useSidebarDots({ notifications, setNotifications, routeOf: studentRouteOf, pathname: location.pathname });
     const [showNotifDropdown, setShowNotifDropdown] = useState(false);
 
     const unreadNotifCount = notifications.filter(
@@ -268,31 +274,11 @@ const StudentLayout = () => {
 
         setShowNotifDropdown(false);
 
-        const type = (notification.type || '').toLowerCase();
-        const title = (notification.title || '').toLowerCase();
-        const msg = (notification.message || '').toLowerCase();
-
-        if (type.includes('message') || msg.includes('message') || title.includes('message')) {
+        const route = studentRouteOf(notification);
+        if (route === MESSAGE_ROUTE) {
             setIsMessageOpen(true);
-        } else if (type.startsWith('queue_')) {
-            // "now calling", "your turn is near" and "number skipped": the queue card on the dashboard shows the live numbers
-            navigate('/StudentDashboard');
-        } else if (type.includes('booking') || type.includes('appointment') || type.startsWith('consultation_')) {
-            navigate('/BookCheckup');
-        } else if (type.includes('requirement') || msg.includes('requirement') || title.includes('requirement')) {
-            navigate('/MyRequirements'); 
-        } else if (['doctor', 'incident', 'visit', 'record'].some((k) => type.includes(k)) || ['clinic', 'incident', 'doctor', 'consultation', 'visit'].some((k) => msg.includes(k))) {
-            navigate('/ClinicLogsAndRecords');
-        } else if (type.includes('request') || msg.includes('request')) {
-            navigate('/RequestModule');
-        } else if (type.includes('tip') || msg.includes('health tip')) {
-            navigate('/HealthTips');
-        } else if (type.includes('qr') || msg.includes('qr')) {
-            navigate('/MyQr');
-        } else if (type.includes('profile') || msg.includes('profile')) {
-            navigate('/MyProfile');
         } else {
-            navigate('/StudentDashboard');
+            navigate(route);
         }
     };
 
@@ -441,33 +427,40 @@ const StudentLayout = () => {
                     <NavLink to="/StudentDashboard" className="nav-link" onClick={closeSidebar}>
                         <LayoutDashboard className="nav-icon" size={16} />
                         <span>Dashboard</span>
+                        <NavCount count={dotFor('/StudentDashboard')} />
                     </NavLink>
 
                     <NavLink to="/MyRequirements" className="nav-link" onClick={closeSidebar}>
                         <Clipboard className="nav-icon" size={16} />
                         <span>My Requirements</span>
+                        <NavCount count={dotFor('/MyRequirements')} />
                     </NavLink>
 
                     <NavLink to="/BookCheckup" className="nav-link" onClick={closeSidebar}>
                         <CalendarPlus className="nav-icon" size={16} />
                         <span>Check-up</span>
+                        <NavCount count={dotFor('/BookCheckup')} />
                     </NavLink>
 
                     <NavLink to="/ClinicLogsAndRecords" className="nav-link" onClick={closeSidebar}>
                         <FileText className="nav-icon" size={16} />
                         <span>Clinic Logs & Records</span>
+                        <NavCount count={dotFor('/ClinicLogsAndRecords')} />
                     </NavLink>
                     <NavLink to="/MyProfile" className="nav-link" onClick={closeSidebar}>
                         <User className="nav-icon" size={16} />
                         <span>My Profile</span>
+                        <NavCount count={dotFor('/MyProfile')} />
                     </NavLink>
                     <NavLink to="/RequestModule" className="nav-link" onClick={closeSidebar}>
                         <ClipboardPlus className="nav-icon" size={16} />
                         <span>Request Module</span>
+                        <NavCount count={dotFor('/RequestModule')} />
                     </NavLink>
                     <NavLink to="/HealthTips" className="nav-link" onClick={closeSidebar}>
                         <Lightbulb className="nav-icon" size={16} />
                         <span>Health Tips</span>
+                        <NavCount count={dotFor('/HealthTips')} />
                     </NavLink>
                     <NavLink to="/StudentNotificationSettings" className="nav-link" onClick={closeSidebar}>
                         <Bell className="nav-icon" size={16} />

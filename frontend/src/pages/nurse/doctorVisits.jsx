@@ -13,11 +13,17 @@ import ConsultationLists, { CONSULTATION_TABS } from '../../components/schedulin
 import TodayRail from '../../components/scheduling/TodayRail';
 import { useTodaySessions } from '../../hooks/useTodaySessions';
 import { useDpAutoLabels } from '../../utils/autoLabels';
+import TabDot from '../../components/common/TabDot';
+import { DOCTOR_VISIT_SECTION_TYPES } from '../../utils/tabNotificationTypes';
+import { useTabNotifications } from '../../hooks/useTabNotifications';
 
 const API = 'http://localhost:3001';
 
-const SECTIONS = ['visits', 'availability', 'requests', 'waiting', 'followups', 'chat'];
-const HUB_TAB_FOR_SECTION = { availability: 'calendar', requests: 'waiting', waiting: 'waiting', followups: 'followups', chat: 'chat' };
+// notification types behind the red dot of each section
+const SECTION_NOTIFICATION_TYPES = DOCTOR_VISIT_SECTION_TYPES;
+
+const SECTIONS = ['visits', 'availability', 'schedules', 'requests', 'waiting', 'followups', 'chat'];
+const HUB_TAB_FOR_SECTION = { availability: 'calendar', schedules: 'schedules', requests: 'waiting', waiting: 'waiting', followups: 'followups', chat: 'chat' };
 
 const DoctorVisit = () => {
     const { nurseId, userId } = useOutletContext() || {};
@@ -65,19 +71,13 @@ const DoctorVisit = () => {
         return () => clearInterval(timer);
     }, [loadUpdates]);
 
-    // opening Scheduling = the updates were seen
-    useEffect(() => {
-        if (section === 'visits' || newUpdates.length === 0) return;
-        const seen = newUpdates;
-        setNewUpdates([]);
-        Promise.all(seen.map((n) => fetch(`${API}/api/notifications/${n.notification_id}/read`, { method: 'PATCH' }).catch(() => null)));
-    }, [section, newUpdates]);
+    // red dots: Check-up clears while it is open; Scheduling keeps its dot until each of its own tabs is opened (the hub marks them)
+    const { dots } = useTabNotifications({ userId, typeMap: SECTION_NOTIFICATION_TYPES, activeTab: section === 'visits' ? 'visits' : null });
 
     const onChanged = () => { loadSummary(); reloadToday(); };
 
     const dutyDoctors = new Set(todaySessions.map((s) => s.doctor_id || s.doctor_name)).size;
     const todayLabel = new Date().toLocaleDateString('en-PH', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
-    const updatesText = `${newUpdates.length} new scheduling update${newUpdates.length === 1 ? '' : 's'}`;
 
     return (
         <div className="container-dv">
@@ -91,12 +91,11 @@ const DoctorVisit = () => {
             <nav className="section-nav-dv" aria-label="Doctor visit sections">
                 <button type="button" className={`section-tab-dv ${section === 'visits' ? 'active-dv' : ''}`} onClick={() => goSection('visits')}>
                     <ClipboardList size={16} /> Check-up
+                    <TabDot show={section !== 'visits' && dots.visits > 0} label="New in Check-up" />
                 </button>
                 <button type="button" className={`section-tab-dv ${section !== 'visits' ? 'active-dv' : ''}`} onClick={() => goSection('availability')}>
                     <CalendarClock size={16} /> Scheduling
-                    {newUpdates.length > 0 && (
-                        <span className="section-badge-dv warn-dv" role="status" aria-label={updatesText} title={updatesText}>{newUpdates.length}</span>
-                    )}
+                    <TabDot show={section === 'visits' && dots.scheduling > 0} label="New in Scheduling" />
                 </button>
             </nav>
 
@@ -123,7 +122,7 @@ const DoctorVisit = () => {
                         />
                     )}
                 </div>
-                <TodayRail sessions={todaySessions} updates={newUpdates} onOpenUpdates={() => goSection('availability')} />
+                <TodayRail sessions={todaySessions} updates={newUpdates} onOpenUpdates={() => goSection('schedules')} />
             </div>
         </div>
     );

@@ -10,7 +10,7 @@ import Modal from '../common/Modal';
 import { ReasonModal } from '../doctor/AppointmentModals';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatDateTime, formatTime } from '../../utils/datetime';
-import { visitLabel, fullName, localDateStr } from '../../utils/visitPurpose';
+import { visitLabel, fullName, localDateStr, localTimeStr, minTimeFor, isPastMoment } from '../../utils/visitPurpose';
 import { API, timeRange, classLabel } from '../../utils/scheduling';
 import { creatorBody } from './SessionModals';
 import { Pager, paginate } from '../common/RecordFolders';
@@ -73,7 +73,7 @@ const AppointFollowUpModal = ({ item, creator, userId, onClose, onDone }) => {
         const wanted = item.follow_up_date ? String(item.follow_up_date).slice(0, 10) : '';
         setMode('time');
         setDate(wanted && wanted >= today ? wanted : today);
-        setTime('09:00');
+        setTime(localTimeStr());
         setDuration(15);
         setNotes(item.follow_up_notes || '');
         setSessionId('');
@@ -129,6 +129,7 @@ const AppointFollowUpModal = ({ item, creator, userId, onClose, onDone }) => {
         } else {
             if (!date) { setError('Pick the date of the follow-up.'); return; }
             if (!time) { setError('Pick the time of the follow-up.'); return; }
+            if (isPastMoment(date, time)) { setError('The date and time cannot be in the past.'); return; }
             body = { start_time: `${date} ${time}:00`, duration_min: parseInt(duration, 10) };
         }
         setBusy(true);
@@ -169,7 +170,7 @@ const AppointFollowUpModal = ({ item, creator, userId, onClose, onDone }) => {
                         </div>
                         <div className="dp-field">
                             <label htmlFor="fu-time">Start time</label>
-                            <input id="fu-time" className="dp-input" type="time" required value={time} onChange={(e) => setTime(e.target.value)} />
+                            <input id="fu-time" className="dp-input" type="time" required min={minTimeFor(date)} value={time} onChange={(e) => setTime(e.target.value)} />
                         </div>
                         <div className="dp-field">
                             <label htmlFor="fu-min">Minutes</label>

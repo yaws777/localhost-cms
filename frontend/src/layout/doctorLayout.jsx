@@ -15,6 +15,10 @@ import { formatDateTime } from '../utils/datetime';
 import { initials } from '../utils/visitPurpose';
 import { useTodayCheckupStatus, TODAY_LABELS } from '../hooks/useTodayCheckupStatus';
 import { useDpAutoLabels } from '../utils/autoLabels';
+import NavCount from '../components/common/NavCount';
+import { useSidebarDots } from '../hooks/useSidebarDots';
+import { doctorRouteOf } from '../utils/notificationRoutes';
+import { CLAIMED_BY_ROUTE } from '../utils/tabNotificationTypes';
 
 const API = 'http://localhost:3001';
 
@@ -49,16 +53,7 @@ const getStoredUser = () => {
 
 const isUnread = (n) => !(n.is_read === 1 || n.is_read === '1' || n.is_read === true || n.read === true);
 
-const notificationRoute = (n) => {
-    const type = String(n.type || '').toUpperCase();
-    if (type === 'MESSAGE') return '/DoctorChat';
-    if (type === 'CONSULTATION_REQUEST' || type === 'CONSULTATION_RECONFIRMED') return '/DoctorMySchedule?tab=waiting';
-    if (type === 'SCHEDULE_UPDATE') return '/DoctorMySchedule';
-    if (type === 'SCHEDULE_REQUEST') return '/DoctorMySchedule?tab=schedules';
-    if (type.includes('ASSESSMENT')) return '/DoctorCheckup';
-    if (type.includes('BOOKING') || type.includes('APPOINTMENT') || type.includes('BATCH')) return '/DoctorCheckup';
-    return '/DoctorDashboard';
-};
+const notificationRoute = doctorRouteOf;
 
 export const DoctorLayout = () => {
     const navigate = useNavigate();
@@ -78,6 +73,8 @@ export const DoctorLayout = () => {
     const [globalSearch, setGlobalSearch] = useState('');
 
     const [notifications, setNotifications] = useState([]);
+    // red dot on the sidebar item of the page a notification belongs to; opening the page clears it
+    const dotFor = useSidebarDots({ notifications, setNotifications, routeOf: doctorRouteOf, pathname: location.pathname, claimed: CLAIMED_BY_ROUTE });
     const [showNotif, setShowNotif] = useState(false);
     const [pendingRequests, setPendingRequests] = useState(0);
     const [chatUnread, setChatUnread] = useState(0);
@@ -270,6 +267,7 @@ export const DoctorLayout = () => {
                         <NavLink key={to} to={to} title={collapsed ? label : undefined} aria-label={label} className={({ isActive }) => `dl-nav-link ${isActive ? 'active' : ''}`} onClick={() => setSidebarOpen(false)}>
                             <Icon size={19} />
                             <span>{label}</span>
+                            <NavCount className="dl-nav-count" count={(badge === 'requests' && pendingRequests > 0) || (badge === 'chat' && chatUnread > 0) ? 0 : dotFor(to)} />
                             {badge === 'requests' && pendingRequests > 0 && <span className="dl-nav-count">{pendingRequests}</span>}
                             {badge === 'chat' && chatUnread > 0 && <span className="dl-nav-count">{chatUnread}</span>}
                             {badge === 'consultations' && todayStatus !== 'none' && (

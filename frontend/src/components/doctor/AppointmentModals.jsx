@@ -7,7 +7,7 @@ import { History, CalendarPlus, Footprints, Search, X } from 'lucide-react';
 import Modal from '../common/Modal';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatDateTime, formatTime } from '../../utils/datetime';
-import { visitLabel, localDateStr, fullName } from '../../utils/visitPurpose';
+import { visitLabel, localDateStr, localTimeStr, minTimeFor, isPastMoment, fullName } from '../../utils/visitPurpose';
 import { eligibleDoctors, visitRefusal, coveredTypes, upcomingDates, dayLabel, to12h, classLabel } from '../../utils/scheduling';
 import { useSpecializations } from '../../hooks/useSpecializations';
 import { VITAL_FIELDS, EMPTY_VITALS, vitalState } from '../../utils/vitals';
@@ -137,6 +137,7 @@ export const RescheduleModal = ({ appt, onSubmit, onClose }) => {
             if (!picked) { setError('Pick one of the available time slots.'); return; }
         } else {
             if (!date || !from || !to) { setError('Pick the new date and the start and end time.'); return; }
+            if (isPastMoment(date, from)) { setError('The new date and time cannot be in the past.'); return; }
             if (to <= from) { setError('The end time must be after the start time.'); return; }
         }
         if (!reason.trim()) { setError('Please give a reason for rescheduling.'); return; }
@@ -197,7 +198,7 @@ export const RescheduleModal = ({ appt, onSubmit, onClose }) => {
                         </div>
                         <div className="dp-field">
                             <label>Start</label>
-                            <input className="dp-input" type="time" required value={from} onChange={(e) => { setFrom(e.target.value); if (e.target.value) setTo(addMinutes(e.target.value, duration > 0 ? duration : 15)); }} />
+                            <input className="dp-input" type="time" required min={minTimeFor(date)} value={from} onChange={(e) => { setFrom(e.target.value); if (e.target.value) setTo(addMinutes(e.target.value, duration > 0 ? duration : 15)); }} />
                         </div>
                         <div className="dp-field">
                             <label>End</label>
@@ -365,9 +366,10 @@ export const DirectAppointmentModal = ({ isOpen, doctors, fixedDoctorId, creator
         setDoctorId(fixedDoctorId || '');
         setStudent(presetStudent || null);
         setVisitType('General Check Up');
+        const nowTime = localTimeStr();
         setDate(localDateStr());
-        setFrom('09:00');
-        setTo('09:30');
+        setFrom(nowTime);
+        setTo(addMinutes(nowTime, 30));
         setReason('');
         setError('');
         setBusy(false);
@@ -387,6 +389,7 @@ export const DirectAppointmentModal = ({ isOpen, doctors, fixedDoctorId, creator
         if (!doctorId) { setError('Choose the doctor.'); return; }
         if (!student) { setError('Choose the student.'); return; }
         if (refusal) { setError(refusal); return; }
+        if (isPastMoment(date, from)) { setError('The date and time cannot be in the past.'); return; }
         if (to <= from) { setError('The end time must be after the start time.'); return; }
         setBusy(true);
         try {
@@ -436,7 +439,7 @@ export const DirectAppointmentModal = ({ isOpen, doctors, fixedDoctorId, creator
                     </div>
                     <div className="dp-field">
                         <label>Start</label>
-                        <input className="dp-input" type="time" required value={from} onChange={(e) => { setFrom(e.target.value); if (e.target.value) setTo(addMinutes(e.target.value, Math.max(minutesBetween(from, to), 5))); }} />
+                        <input className="dp-input" type="time" required min={minTimeFor(date)} value={from} onChange={(e) => { setFrom(e.target.value); if (e.target.value) setTo(addMinutes(e.target.value, Math.max(minutesBetween(from, to), 5))); }} />
                     </div>
                     <div className="dp-field">
                         <label>End</label>

@@ -44,6 +44,29 @@ export const vitalsLine = (values) => {
     }).filter(Boolean).join(' | ');
 };
 
+// Remarks written from the vital signs (time out): what is not normal, or that everything is normal. Same wording as the screening remarks.
+export const vitalsRemarks = (values) => {
+    if (!hasVitals(values)) return '';
+    const parts = [];
+    const bp = String(values.blood_pressure ?? '').trim();
+    const m = /^(\d{2,3})\/(\d{2,3})$/.exec(bp);
+    if (m && vitalState('blood_pressure', bp) === 'abnormal') {
+        const sys = Number(m[1]);
+        const dia = Number(m[2]);
+        const high = sys > BP_NORMAL.sys[1] || dia > BP_NORMAL.dia[1];
+        const low = sys < BP_NORMAL.sys[0] || dia < BP_NORMAL.dia[0];
+        parts.push(`${high && low ? 'Abnormal' : high ? 'High' : 'Low'} blood pressure (${bp} mmHg)`);
+    }
+    const wording = { temperature: ['Low temperature', 'Fever'], pulse_rate: ['Low pulse', 'High pulse'], respiratory_rate: ['Low respiratory rate', 'High respiratory rate'] };
+    VITAL_FIELDS.filter((f) => f.key !== 'blood_pressure').forEach((f) => {
+        const v = String(values[f.key] ?? '').trim();
+        if (!v || vitalState(f.key, v) !== 'abnormal') return;
+        parts.push(`${wording[f.key][Number(v) < f.min ? 0 : 1]} (${v} ${f.unit})`);
+    });
+    if (parts.length > 0) return `Not normal: ${parts.join('; ')}.`;
+    return VITAL_FIELDS.every((f) => vitalState(f.key, values[f.key]) === 'normal') ? 'All vital signs are normal. In good condition.' : 'Recorded vital signs are normal.';
+};
+
 // the vitals of an appointment row (in_* / out_* columns of the doctor visit select)
 export const inVitalsOf = (a) => ({
     blood_pressure: a?.in_blood_pressure || '', temperature: a?.in_temperature || '', pulse_rate: a?.in_pulse_rate || '', respiratory_rate: a?.in_respiratory_rate || ''

@@ -1,0 +1,45 @@
+/* Red notification dot on a tab; gone once the tab is opened */
+.tab-dot {
+    display: inline-block;
+    flex: none;
+    width: 0.625rem;
+    height: 0.625rem;
+    border-radius: 50%;
+    background: var(--danger-fill);
+    box-shadow: 0 0 0 0.125rem var(--bg-card);
+    vertical-align: middle;
+}
+
+/* sidebar item: how many red dots the page holds; on a collapsed sidebar it moves to the corner of the icon */
+.nav-count-new {
+    margin-left: auto;
+    min-width: 1.25rem;
+    height: 1.25rem;
+    padding: 0 0.375rem;
+    border-radius: 0.625rem;
+    background: var(--sti-yellow);
+    color: var(--text-on-yellow);
+    font-size: 0.875rem;
+    font-weight: 700;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+}
+
+.nav-count-new + .nav-status-dot { margin-left: 0.375rem; }
+
+.sidebar-nav .nav-link,
+.dl-nav-link { position: relative; }
+
+.student-sidebar.collapsed .nav-link .nav-count-new {
+    display: inline-flex !important;
+    position: absolute;
+    top: 0.125rem;
+    right: 0.25rem;
+    margin: 0;
+    min-width: 1.125rem;
+    height: 1.125rem;
+    padding: 0 0.25rem;
+}

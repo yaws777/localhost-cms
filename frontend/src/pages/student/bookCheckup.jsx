@@ -532,8 +532,6 @@ const BookCheckup = () => {
                                         </div>
                                     </article>
                                 </div>
-                            ) : inAdvance && mine?.status !== 'Cutoff' ? (
-                                <div className="empty-bc">In the advance listing.</div>
                             ) : visibleListings.length === 0 ? (
                                 <div className="empty-bc">No open listing.</div>
                             ) : (
@@ -557,7 +555,7 @@ const BookCheckup = () => {
                                                 <Meter accepted={l.accepted} limit={l.listing_limit} left={placesLeft(l)} />
                                                 {!l.mine && (
                                                     <div className="booking-actions-bc">
-                                                        <button type="button" className="btn-bc btn-primary-bc btn-icon-bc" disabled={!l.can_request || submitting} onClick={() => openRequestForm(l)} aria-label={l.listing_full ? 'Take a place, listing full' : 'Take a place'} title={l.listing_full ? 'Listing full' : 'Take a place'}><UserPlus size={20} aria-hidden="true" /></button>
+                                                        <button type="button" className="btn-bc btn-primary-bc btn-icon-bc" disabled={!l.can_request || submitting} onClick={() => openRequestForm(l)} aria-label={l.listing_full ? 'Take a place, listing full' : 'Take a place'} title={l.listing_full ? 'Listing full' : inAdvance ? 'In the advance listing' : 'Take a place'}><UserPlus size={20} aria-hidden="true" /></button>
                                                     </div>
                                                 )}
                                             </div>

@@ -5,7 +5,7 @@ import {
   Calendar, Clock, Users, Eye, Activity, Smile, HeartPulse, Ear, 
   X, CheckCircle, Edit3, Trash2, FileText, ArrowLeft, ArrowRight, Megaphone, Printer,
   Play, UserRoundPlus, Download, Search, ClipboardList, BellRing, History, LogIn, FolderPlus,
-  Plus, RotateCcw, CalendarDays, Folder, AlertTriangle, Lock, Scale, Upload, Layers, Archive, ArchiveRestore
+  Plus, RotateCcw, CalendarDays, Folder, AlertTriangle, Lock, Scale, Upload, Layers, Archive, ArchiveRestore, Flag
 } from 'lucide-react';
 
 import { openReportWindow, writeReport, escapeHtml } from '../../utils/printReport';
@@ -30,6 +30,9 @@ import SessionEndPrompt from '../../components/scheduling/SessionEndPrompt';
 import { HsDialog, HsDialogHeader } from '../../components/nurse/HsDialog';
 import ConfirmModal from '../../components/common/ConfirmModal';
 import AlertModal from '../../components/common/AlertModal';
+import TabDot from '../../components/common/TabDot';
+import { useUnseenDots } from '../../hooks/useUnseenDots';
+import { setPageDotCount } from '../../utils/pageDots';
 
 // The screening types come from GET /api/screening-types (screening_types table). A type's form_kind picks the result form.
 // Dental / Vision moved to Doctor Visits. Old schedules still show up (read-only) as legacy; the server answers form_kind DENTAL / VISION for them.
@@ -514,7 +517,8 @@ export default function HealthScreening() {
   }, [searchTerm]);
 
   const searching = debouncedSearch !== '';
-  const listMode = view.kind === 'section' || view.kind === 'custom' || view.kind === 'all' || searching;
+  // the All folder only holds the other folders (a list of folder cards); screenings list inside a section / custom folder or while searching
+  const listMode = view.kind === 'section' || view.kind === 'custom' || searching;
 
   const queryRef = useRef({});
   queryRef.current = { view, activeTab, search: debouncedSearch, filterType, filterStartDate, filterEndDate, page, schoolYear };
@@ -574,12 +578,36 @@ export default function HealthScreening() {
     return () => clearInterval(timer);
   }, [fetchCalendar, fetchFolders]);
 
+  // Red dots on the tabs: a tab shows one while it holds a screening / type / template / archive entry the nurse has not seen there; opening the tab clears it
+  const phaseOfSchedule = (sch) => {
+    if (sch.status === 'Cancelled' || screeningOver(sch)) return 'past';
+    const start = getScheduleDateTime(sch.scheduled_date, sch.start_time);
+    return start && start > new Date(clock) ? 'upcoming' : 'ongoing';
+  };
+  const idsOfPhase = (phase) => (calendarLoading ? null : calendarSchedules.filter((sch) => phaseOfSchedule(sch) === phase).map((sch) => sch.screening_schedule_id));
+  const tabDots = useUnseenDots(`healthScreening:${userId || ''}`, {
+    'phase:upcoming': idsOfPhase('upcoming'),
+    'phase:ongoing': idsOfPhase('ongoing'),
+    'phase:past': idsOfPhase('past'),
+    calendar: calendarLoading ? null : calendarSchedules.filter((sch) => sch.status !== 'Cancelled').map((sch) => sch.screening_schedule_id),
+    types: typesLoading ? null : screeningTypes.map((t) => t.screening_type_id),
+    templates: templatesLoading ? null : templates.map((t) => t.template_id),
+    archive: foldersLoading ? null : (folders.archived_folders || []).map((f) => f.folder_id)
+  }, [mainView, ...(mainView === 'screenings' ? [`phase:${activeTab}`] : [])]);
+  const screeningsDot = ['upcoming', 'ongoing', 'past'].some((p) => tabDots[`phase:${p}`]);
+  // the sidebar item shows how many dots the page holds
+  const dotCount = ['calendar', 'types', 'templates', 'archive'].filter((k) => tabDots[k] && k !== mainView).length
+    + (mainView === 'screenings'
+      ? ['upcoming', 'ongoing', 'past'].filter((p) => tabDots[`phase:${p}`] && p !== activeTab).length
+      : (screeningsDot ? 1 : 0));
+  useEffect(() => { setPageDotCount('/HealthScreening', dotCount); }, [dotCount]);
+
   // Loads the current page (and refreshes the folder counts and the calendar)
   const fetchSchedules = useCallback(async () => {
     fetchFolders();
     fetchCalendar();
     const q = queryRef.current;
-    const inList = q.view.kind === 'section' || q.view.kind === 'custom' || q.view.kind === 'all' || q.search !== '';
+    const inList = q.view.kind === 'section' || q.view.kind === 'custom' || q.search !== '';
     if (!inList) {
       setSchedules([]);
       return;
@@ -638,8 +666,12 @@ export default function HealthScreening() {
 
   const openCustomFolder = (f) => { setView({ kind: 'custom', folder_id: f.folder_id, folder_name: f.name }); setSearchTerm(''); };
 
+  const goAll = () => { setView({ kind: 'all' }); setSearchTerm(''); };
+
   const crumbTrail = (() => {
     const trail = [{ label: 'Screenings', onClick: goRoot }];
+    // Past Screening: every folder sits inside the All folder
+    if (activeTab === 'past' && ['custom', 'program', 'section'].includes(view.kind)) trail.push({ label: 'All screenings', onClick: goAll });
     if (view.kind === 'custom') trail.push({ label: view.folder_name });
     if (view.kind === 'program' || view.kind === 'section') {
       trail.push({
@@ -649,7 +681,7 @@ export default function HealthScreening() {
     }
     if (view.kind === 'section') trail.push({ label: sectionFolderName(view.program_id, view) });
     if (view.kind === 'all') trail.push({ label: 'All screenings' });
-    if (searching && view.kind !== 'section' && view.kind !== 'custom' && view.kind !== 'all') trail.push({ label: `Search: "${debouncedSearch}"` });
+    if (searching && view.kind !== 'section' && view.kind !== 'custom') trail.push({ label: `Search: "${debouncedSearch}"` });
     return trail;
   })();
 
@@ -681,16 +713,24 @@ export default function HealthScreening() {
       counts: f,
       onClick: () => openCustomFolder(f)
     }));
-    items.unshift({
-      key: 'all',
-      variant: 'all',
-      title: 'All screenings',
-      subtitle: 'Every screening, newest first',
-      counts: null,
-      onClick: () => { setView({ kind: 'all' }); setSearchTerm(''); }
-    });
+    // Past Screening: the nurse opens the All folder first, the program / custom folders are inside it
+    if (activeTab === 'past' && view.kind !== 'all') {
+      return [{
+        key: 'all',
+        variant: 'all',
+        title: 'All screenings',
+        subtitle: 'Every screening, newest first',
+        counts: null,
+        onClick: goAll
+      }];
+    }
     return items;
   })();
+
+  // the All folder exists only under Past Screening
+  useEffect(() => {
+    if (view.kind === 'all' && activeTab !== 'past') goRoot();
+  }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // an open folder with nothing left in the chosen status (another tab picked, or its last screening was cancelled) closes to the level above
   useEffect(() => {
@@ -1716,6 +1756,18 @@ export default function HealthScreening() {
     }
   };
 
+  // the nurse can end an on going screening at any time, even before the end time or with students not documented
+  const handleEndNow = (sch) => {
+    showConfirm(
+      `End "${sch.title}" now?`,
+      async () => {
+        const error = await sendEnd(sch, 'confirm-end', {});
+        if (error) showAlert(error, 'Error', 'error');
+      },
+      'End screening', 'Yes, End', 'Keep'
+    );
+  };
+
   const schoolYearSelect = (
     <select value={schoolYear} onChange={e => setSchoolYear(e.target.value)} aria-label="School year">
       <option value="">All school years</option>
@@ -1865,6 +1917,7 @@ export default function HealthScreening() {
             {key === 'archive' && (folders.archived_folders || []).length > 0 && (
               <span className="phase-n-hs">{(folders.archived_folders || []).length}</span>
             )}
+            <TabDot show={mainView !== key && (key === 'screenings' ? screeningsDot : !!tabDots[key])} label={`New in ${label}`} />
           </button>
         ))}
       </div>
@@ -1922,6 +1975,7 @@ export default function HealthScreening() {
               <span className="phase-ico-hs"><Icon size={18} aria-hidden="true" /></span>
               <span className="phase-label-hs">{label}</span>
               <span className="phase-n-hs">{Number(phaseCounts?.[key]) || 0}</span>
+              <TabDot show={activeTab !== key && !!tabDots[`phase:${key}`]} label={`New in ${label}`} />
             </button>
           ))}
         </div>
@@ -2123,9 +2177,11 @@ export default function HealthScreening() {
                       <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => handleStartBatch(sch)} title="Start" aria-label="Start">
                         <Play size={16} aria-hidden="true" />
                       </button>
-                      <button type="button" className="btn-hs btn-icon-hs btn-danger-hs" onClick={() => handleCancelSchedule(sch)} title="Cancel screening" aria-label="Cancel screening">
-                        <Trash2 size={16} aria-hidden="true" />
-                      </button>
+                      {!cancelled && (
+                        <button type="button" className="btn-hs btn-icon-hs btn-danger-hs" onClick={() => handleEndNow(sch)} title="End screening" aria-label="End screening">
+                          <Flag size={16} aria-hidden="true" />
+                        </button>
+                      )}
                     </>
                   )}
 

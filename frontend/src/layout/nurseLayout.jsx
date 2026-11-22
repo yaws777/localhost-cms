@@ -14,6 +14,10 @@ import { useTheme } from '../context/ThemeContext';
 import { useSidebar } from '../context/SidebarContext';
 import { useTodayCheckupStatus, useTodayScreeningStatus, TODAY_LABELS, SCREENING_TODAY_LABELS } from '../hooks/useTodayCheckupStatus';
 import ConfirmModal from '../components/common/ConfirmModal';
+import NavCount from '../components/common/NavCount';
+import { useSidebarDots } from '../hooks/useSidebarDots';
+import { nurseRouteOf, MESSAGE_ROUTE } from '../utils/notificationRoutes';
+import { CLAIMED_BY_ROUTE } from '../utils/tabNotificationTypes';
 import { formatCurrentDate, formatDateTime } from '../utils/datetime';
 
 const API_BASE_URL = 'http://localhost:3001';
@@ -169,38 +173,16 @@ export const NurseLayout = () => {
         return () => clearInterval(interval);
     }, [activeUserId, nurseData?.nurse_id, fetchUnreadCount, fetchNotifications]);
 
-    const getNotificationRoute = (notification) => {
-        const type = (notification.type || '').toLowerCase();
-        const title = (notification.title || '').toLowerCase();
-        const msg = (notification.message || '').toLowerCase();
+    // red dot on the sidebar item of the page a notification belongs to; opening the page clears it
+    const dotFor = useSidebarDots({ notifications, setNotifications, routeOf: nurseRouteOf, pathname: location.pathname, claimed: CLAIMED_BY_ROUTE });
 
-        // Doctor schedule / booking / appointment notifications must be matched before the generic 'request' and 'visit' rules
-        if (type.includes('restock')) return '/ReportsAnalytics?tab=inventory';
-        if (type === 'consultation_request' || type === 'consultation_reconfirmed') return '/DoctorVisit?section=waiting';
-        if (type === 'schedule_update') return '/DoctorVisit?section=availability';
-        if (type.startsWith('schedule_request')) return '/DoctorVisit?section=availability';
-        if (type.includes('appointment') || type.includes('batch') || type.includes('assessment') || type.includes('doctor_visit')) return '/DoctorVisit';
-        if (type.includes('requirement') || msg.includes('requirement') || title.includes('submission')) return '/RequirementManagement';
-        if (type.includes('visit') || type.includes('consultation') || msg.includes('clinic visit')) return '/VisitLogConsultation';
-        if (type.includes('health_record') || type.includes('record')) return '/HealthRecords';
-        if (type.includes('dispense') || msg.includes('dispensed')) return '/DispensedMedicine';
-        if (type.includes('inventory') || msg.includes('stock')) return '/MedicineInventory';
-        if (type.includes('request') || msg.includes('request')) return '/DocumentIssuance';
-        if (type.includes('screening')) return '/HealthScreening';
-        if (type.includes('doctor')) return '/DoctorVisit';
-        if (type.includes('incident')) return '/IncidentReport';
-        if (type.includes('insurance') || type.includes('vault')) return '/InsuranceVault';
-        if (type.includes('doctor_account')) return '/ManageDoctorAccounts';
-        if (type.includes('student_account')) return '/ManageStudentAccounts';
-        if (type.includes('parent_account')) return '/ManageParentAccounts';
-        if (type.includes('message') || type.includes('chat')) {
+    const getNotificationRoute = (notification) => {
+        const route = nurseRouteOf(notification);
+        if (route === MESSAGE_ROUTE) {
             setIsMessageOpen(true);
             return null;
         }
-        if (type.includes('report')) return '/ReportsAnalytics';
-        if (type.includes('setting')) return '/NurseNotificationSettings';
-
-        return '/NurseDashboard';
+        return route;
     };
 
     const handleNotificationClick = async (notification) => {
@@ -333,6 +315,7 @@ export const NurseLayout = () => {
                             <>
                                 <LayoutDashboard className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
                                 <span>Dashboard</span>
+                                <NavCount count={dotFor('/NurseDashboard')} />
                             </>
                         )}
                     </NavLink>
@@ -342,6 +325,7 @@ export const NurseLayout = () => {
                             <>
                                 <FileBarChart className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
                                 <span>Reports &amp; Analytics</span>
+                                <NavCount count={dotFor('/ReportsAnalytics')} />
                             </>
                         )}
                     </NavLink>
@@ -351,6 +335,7 @@ export const NurseLayout = () => {
                             <>
                                 <Stethoscope className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
                                 <span>Clinic Visit Log</span>
+                                <NavCount count={dotFor('/VisitLogConsultation')} />
                             </>
                         )}
                     </NavLink>
@@ -360,6 +345,7 @@ export const NurseLayout = () => {
                             <>
                                 <FolderHeart className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
                                 <span>Health Records</span>
+                                <NavCount count={dotFor('/HealthRecords')} />
                             </>
                         )}
                     </NavLink>
@@ -369,6 +355,7 @@ export const NurseLayout = () => {
                             <>
                                 <Pill className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
                                 <span>Dispensed Medicine</span>
+                                <NavCount count={dotFor('/DispensedMedicine')} />
                             </>
                         )}
                     </NavLink>
@@ -378,6 +365,7 @@ export const NurseLayout = () => {
                             <>
                                 <Boxes className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
                                 <span>Medicine Inventory</span>
+                                <NavCount count={dotFor('/MedicineInventory')} />
                             </>
                         )}
                     </NavLink>
@@ -387,6 +375,7 @@ export const NurseLayout = () => {
                             <>
                                 <FileCheck className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
                                 <span>Document Issuance</span>
+                                <NavCount count={dotFor('/DocumentIssuance')} />
                             </>
                         )}
                     </NavLink>
@@ -396,6 +385,7 @@ export const NurseLayout = () => {
                             <>
                                 <ClipboardCheck className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
                                 <span>Requirement Management</span>
+                                <NavCount count={dotFor('/RequirementManagement')} />
                             </>
                         )}
                     </NavLink>
@@ -405,6 +395,7 @@ export const NurseLayout = () => {
                             <>
                                 <HeartPulse className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
                                 <span>Health Screening</span>
+                                <NavCount count={dotFor('/HealthScreening')} />
                                 {screeningStatus !== 'none' && (
                                     <span className={`nav-status-dot ${screeningStatus}`} role="img" aria-label={SCREENING_TODAY_LABELS[screeningStatus]} title={SCREENING_TODAY_LABELS[screeningStatus]} />
                                 )}
@@ -417,6 +408,7 @@ export const NurseLayout = () => {
                             <>
                                 <BriefcaseMedical className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
                                 <span>Doctor Visit</span>
+                                <NavCount count={dotFor('/DoctorVisit')} />
                                 {todayStatus !== 'none' && (
                                     <span className={`nav-status-dot ${todayStatus}`} role="img" aria-label={TODAY_LABELS[todayStatus]} title={TODAY_LABELS[todayStatus]} />
                                 )}
@@ -429,6 +421,7 @@ export const NurseLayout = () => {
                             <>
                                 <AlertTriangle className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
                                 <span>Incident Report</span>
+                                <NavCount count={dotFor('/IncidentReport')} />
                             </>
                         )}
                     </NavLink>
@@ -438,6 +431,7 @@ export const NurseLayout = () => {
                             <>
                                 <Vault className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
                                 <span>Insurance Vault</span>
+                                <NavCount count={dotFor('/InsuranceVault')} />
                             </>
                         )}
                     </NavLink>
@@ -447,6 +441,7 @@ export const NurseLayout = () => {
                             <>
                                 <Users className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
                                 <span>Manage Student Account</span>
+                                <NavCount count={dotFor('/ManageStudentAccounts')} />
                             </>
                         )}
                     </NavLink>
@@ -456,6 +451,7 @@ export const NurseLayout = () => {
                             <>
                                 <UserCheck className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
                                 <span>Manage Parent Account</span>
+                                <NavCount count={dotFor('/ManageParentAccounts')} />
                             </>
                         )}
                     </NavLink>
@@ -465,6 +461,7 @@ export const NurseLayout = () => {
                             <>
                                 <UserCog className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
                                 <span>Manage Doctor Account</span>
+                                <NavCount count={dotFor('/ManageDoctorAccounts')} />
                             </>
                         )}
                     </NavLink>

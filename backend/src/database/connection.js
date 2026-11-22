@@ -1039,10 +1039,13 @@ app.get('/api/get-student/:userId', async (req, res) => {
             s.first_name AS first_name, 
             s.last_name AS last_name, 
             s.program_id AS program_id, 
-            s.year_level AS year_level, 
+            s.year_level AS year_level,
+            s.section AS section,
+            COALESCE(ap.program_name, s.program_id) AS program_name,
             u.username AS username
         FROM students s
         INNER JOIN users u ON s.user_id = u.user_id
+        LEFT JOIN academic_programs ap ON s.program_id = ap.program_id
         WHERE s.user_id = ?
     `;
 
@@ -1082,10 +1085,13 @@ app.get('/api/get-student-by-studentId/:studentId', async (req, res) => {
             s.first_name AS first_name, 
             s.last_name AS last_name, 
             s.program_id AS program_id, 
-            s.year_level AS year_level, 
+            s.year_level AS year_level,
+            s.section AS section,
+            COALESCE(ap.program_name, s.program_id) AS program_name,
             u.username AS username
         FROM students s
         INNER JOIN users u ON s.user_id = u.user_id
+        LEFT JOIN academic_programs ap ON s.program_id = ap.program_id
         WHERE s.student_id = ?
     `;
 
@@ -1248,23 +1254,79 @@ app.post('/api/submit-health-form', upload.any(), async (req, res) => {
         removeUploadedFiles();
         return res.status(400).json({ success: false, message: 'Upload a proof file for each condition you ticked.', missing: missingProof });
     }
+    // Validate what the columns can hold, so the student gets a clear message instead of a DB error
+    const rejectForm = (message) => {
+        removeUploadedFiles();
+        return res.status(400).json({ success: false, message });
+    };
+    if (!student_id) return rejectForm('Student ID is missing. Please log in again.');
+    if (!personalInfo || typeof personalInfo !== 'object' || !healthInfo || typeof healthInfo !== 'object') {
+        return rejectForm('Invalid form data.');
+    }
+    const pText = (v) => (v === undefined || v === null ? '' : String(v).trim());
+    for (const key of ['gender', 'birth_date', 'age', 'address', 'contact_number', 'height_cm', 'weight_kg', 'father_name', 'mother_name']) {
+        if (pText(personalInfo[key]) === '') return rejectForm('Please complete all Personal Information fields.');
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(pText(personalInfo.birth_date)) || Number.isNaN(Date.parse(personalInfo.birth_date))) {
+        return rejectForm('Date of birth is not a valid date.');
+    }
+    const ageNum = Number(personalInfo.age);
+    if (!Number.isInteger(ageNum) || ageNum < 0 || ageNum > 120) return rejectForm('Age must be a whole number from 0 to 120.');
+    const heightNum = Number(personalInfo.height_cm);
+    const weightNum = Number(personalInfo.weight_kg);
+    if (!(heightNum > 0 && heightNum <= 999.99)) return rejectForm('Height must be more than 0 and at most 999.99 cm.');
+    if (!(weightNum > 0 && weightNum <= 999.99)) return rejectForm('Weight must be more than 0 and at most 999.99 kg.');
+    if (pText(personalInfo.contact_number).length > 20) return rejectForm('Contact number is too long (20 characters max).');
+    if (pText(personalInfo.address).length > 255) return rejectForm('Address is too long (255 characters max).');
+    if (pText(personalInfo.father_name).length > 150 || pText(personalInfo.mother_name).length > 150) {
+        return rejectForm('Parent name is too long (150 characters max).');
+    }
+    for (const [key, value] of Object.entries(healthInfo)) {
+        if (typeof value === 'string' && value.length > 255 && !key.endsWith('_age') && !key.endsWith('_date')) {
+            return rejectForm('One of the health answers is too long (255 characters max).');
+        }
+    }
+    for (const key of ['chicken_pox_age', 'measles_age']) {
+        const v = healthInfo[key];
+        if (v !== '' && v !== null && v !== undefined && (!Number.isInteger(Number(v)) || Number(v) < 0 || Number(v) > 120)) {
+            return rejectForm('Age of illness must be a whole number from 0 to 120.');
+        }
+    }
+    for (const key of ['seizure_last_episode_date', 'surgery_date']) {
+        const v = healthInfo[key];
+        if (v && Number.isNaN(Date.parse(v))) return rejectForm('One of the health dates is not a valid date.');
+    }
+
+    // mysql2 `execute` throws on undefined binds: send NULL instead
+    const nullIfUndefined = (list) => list.map((v) => (v === undefined ? null : v));
+
     const connection = await pool.getConnection();
 
     try {
         await connection.beginTransaction();
 
-        // A. Insert Personal Information
+        // A. Personal Information: one row per student, a re-submit replaces it
         const personalQuery = `
-            INSERT INTO student_personal_information 
-            (student_id, gender, birth_date, age, address, contact_number, height_cm, weight_kg, father_name, mother_name) 
+            INSERT INTO student_personal_information
+            (student_id, gender, birth_date, age, address, contact_number, height_cm, weight_kg, father_name, mother_name)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+                gender = VALUES(gender), birth_date = VALUES(birth_date), age = VALUES(age),
+                address = VALUES(address), contact_number = VALUES(contact_number),
+                height_cm = VALUES(height_cm), weight_kg = VALUES(weight_kg),
+                father_name = VALUES(father_name), mother_name = VALUES(mother_name)
         `;
-        const personalValues = [
-            student_id, personalInfo.gender, personalInfo.birth_date, personalInfo.age, 
-            personalInfo.address, personalInfo.contact_number, personalInfo.height_cm, 
-            personalInfo.weight_kg, personalInfo.father_name, personalInfo.mother_name
-        ];
+        const personalValues = nullIfUndefined([
+            student_id, personalInfo.gender, personalInfo.birth_date, ageNum,
+            pText(personalInfo.address), pText(personalInfo.contact_number), heightNum,
+            weightNum, pText(personalInfo.father_name), pText(personalInfo.mother_name)
+        ]);
         await connection.execute(personalQuery, personalValues);
+
+        // Re-submit replaces the earlier health record and its proofs (student_id is UNIQUE)
+        await ensureHealthProofsTable();
+        await connection.execute('DELETE FROM student_health_information WHERE student_id = ?', [student_id]);
+        await connection.execute('DELETE FROM student_health_proofs WHERE student_id = ?', [student_id]);
 
         // Helper function for empty strings/dates
         const parseEmpty = (val) => val === '' ? null : val;
@@ -1332,10 +1394,9 @@ app.post('/api/submit-health-form', upload.any(), async (req, res) => {
             healthInfo.has_hearing_problem ? 1 : 0, healthInfo.hearing_specify,
             healthInfo.has_other_condition ? 1 : 0, healthInfo.other_condition_specify
         ];
-        await connection.execute(healthQuery, healthValues);
+        await connection.execute(healthQuery, nullIfUndefined(healthValues));
 
-        // C. Save optional per-condition proofs
-        if (proofFiles.length > 0) await ensureHealthProofsTable();
+        // C. Save per-condition proofs
         for (const f of proofFiles) {
             await connection.execute(
                 `INSERT INTO student_health_proofs (proof_id, student_id, condition_key, file_url, original_name)
@@ -1350,10 +1411,20 @@ app.post('/api/submit-health-form', upload.any(), async (req, res) => {
         res.json({ success: true, message: 'Form submitted successfully' });
 
     } catch (error) {
-        await connection.rollback();
+        await connection.rollback().catch(() => {});
         removeUploadedFiles();
         console.error("Transaction error:", error);
-        res.status(500).json({ success: false, message: 'Transaction error', error: error.message });
+        const known = {
+            ER_NO_REFERENCED_ROW_2: [404, 'Student record not found. Please log in again.'],
+            ER_DATA_TOO_LONG: [400, 'One of the answers is too long.'],
+            ER_WARN_DATA_OUT_OF_RANGE: [400, 'One of the numbers is out of range.'],
+            ER_TRUNCATED_WRONG_VALUE: [400, 'One of the values is not valid.'],
+            ER_TRUNCATED_WRONG_VALUE_FOR_FIELD: [400, 'One of the values is not valid.'],
+            ER_BAD_NULL_ERROR: [400, 'A required field is empty.'],
+            ER_LOCK_DEADLOCK: [409, 'Server busy. Please submit again.']
+        }[error.code];
+        if (known) return res.status(known[0]).json({ success: false, message: known[1] });
+        res.status(500).json({ success: false, message: 'Could not save the form. Please try again.', error: error.message });
     } finally {
         connection.release();
     }
@@ -1734,6 +1805,12 @@ app.put('/api/update-profile', upload.any(), async (req, res) => {
                 WHERE student_id=?
             `;
             const h = healthInfo;
+            // A student who never filled the form has no health row: the UPDATE would match nothing and
+            // report success without saving. Create the empty row first (no-op when it exists).
+            await connection.execute(
+                'INSERT IGNORE INTO student_health_information (health_info_id, student_id) VALUES (?, ?)',
+                [uuidv4(), student_id]
+            );
             await connection.execute(healthQuery, [
                 h.has_allergies ? 1 : 0, h.allergy_food, h.allergy_medicine, h.allergy_insect_sting, h.allergy_environmental, h.allergy_others,
                 h.reaction_diarrhea ? 1 : 0, h.reaction_hives ? 1 : 0, h.reaction_local ? 1 : 0, h.reaction_rash ? 1 : 0, h.reaction_swelling ? 1 : 0, h.reaction_trouble_breathing ? 1 : 0, h.reaction_others, h.allergy_medication_taken,
@@ -1753,7 +1830,7 @@ app.put('/api/update-profile', upload.any(), async (req, res) => {
                 h.has_hearing_problem ? 1 : 0, h.hearing_specify,
                 h.has_other_condition ? 1 : 0, h.other_condition_specify,
                 student_id
-            ]);
+            ].map((v) => (v === undefined ? null : v)));
 
             // Proofs: new files replace the old one, a condition that is no longer ticked loses its proof
             for (const f of proofFiles) {
@@ -1783,7 +1860,7 @@ app.put('/api/update-profile', upload.any(), async (req, res) => {
         (req.files || []).filter(f => !proofFiles.includes(f)).forEach(f => fs.unlink(f.path, () => {}));
         res.json({ success: true, message: "Profile updated successfully!" });
     } catch (error) {
-        await connection.rollback();
+        await connection.rollback().catch(() => {});
         dropAllFiles();
         console.error("Update error:", error);
         res.status(500).json({ success: false, message: "Failed to update profile." });
@@ -10452,7 +10529,8 @@ app.put('/api/screenings/:id/confirm-end', async (req, res) => {
     const state = screeningPhaseOf(schedule);
     if (state.phase === 'cancelled') return res.status(409).json({ error: 'This screening was cancelled.' });
     if (state.phase === 'ended') return res.status(409).json({ error: 'This screening has already ended.' });
-    if (!state.awaiting_end) return res.status(409).json({ error: 'The end time has not passed yet.' });
+    if (state.phase === 'upcoming') return res.status(409).json({ error: 'This screening has not started yet.' });
+    // the nurse may end an on going screening at any time, even before the end time or with the list incomplete
     await pool.query('UPDATE screening_schedules SET end_confirmed_at = NOW() WHERE screening_schedule_id = ? AND end_confirmed_at IS NULL', [schedule.screening_schedule_id]);
     res.json({ message: 'Screening ended. It is now in Past Screening.' });
   } catch (err) {
@@ -11463,7 +11541,8 @@ const scheduleLiveState = (s, endConfirmed = false) => {
     const nowTime = nowStr.slice(11, 19);
     const started = scheduleOccursOn(s, today) && s.start_time <= nowTime;
     const awaitingEnd = started && nowTime >= s.end_time && !endConfirmed;
-    const inSessionNow = started && (nowTime < s.end_time || awaitingEnd);
+    // a session the staff ended before its end time (confirmed) is over, even though the clock is still inside its hours
+    const inSessionNow = started && !endConfirmed && (nowTime < s.end_time || awaitingEnd);
     const seriesRunning = s.recurrence === 'Weekly' && s.valid_from <= today && today <= s.valid_until;
     return { in_session_now: inSessionNow, is_ongoing: inSessionNow || seriesRunning, awaiting_end: awaitingEnd };
 };
@@ -13022,6 +13101,8 @@ app.post('/api/student/consultation-requests', async (req, res) => {
         await connection.beginTransaction();
         const [[student]] = await connection.query(`SELECT student_id, user_id, first_name, last_name FROM students WHERE student_id = ? FOR UPDATE`, [student_id]);
         if (!student) throw new BookingError('Student not found.', 404);
+        const inAdvance = await advanceEntryOf(connection, student_id);
+        if (inAdvance && inAdvance.status !== 'Cutoff') throw new BookingError('You are in the advance listing. Cancel it first to ask for a place in a session.', 409);
 
         // the schedule the doctor set and the nurse opened: its listing, limit and next session day decide everything
         const [[schedule]] = await connection.query(`SELECT * FROM doctor_schedules WHERE schedule_id = ? FOR UPDATE`, [scheduleId]);
@@ -13902,8 +13983,34 @@ app.put('/api/doctor-schedules/:id/end-session', async (req, res) => {
         const date = nowStr.slice(0, 10);
         if (!scheduleOccursOn(schedule, date)) throw new BookingError('This schedule has no session today.');
         if (await sessionEndConfirmed(connection, schedule.schedule_id, date)) throw new BookingError('This session was already ended.');
-        if (nowStr.slice(11, 19) < schedule.end_time) throw new BookingError(`The session ends at ${fmtClock(schedule.end_time)}. Ending it is possible after that time.`);
+        const nowTime = nowStr.slice(11, 19);
+        // early = the End time button of an on going session: it can end before the end time, once the session started
+        const early = nowTime < schedule.end_time;
+        if (early && !toFlag(req.body.early)) throw new BookingError(`The session ends at ${fmtClock(schedule.end_time)}. Ending it is possible after that time.`);
+        if (early && nowTime < schedule.start_time) throw new BookingError('This session has not started yet.');
+        // numbers still to be seen (waiting, or in session without a documented check-up): the staff must confirm to end anyway
+        const [[left]] = await connection.query(
+            `SELECT COUNT(*) AS n FROM doctor_appointments da
+             WHERE da.schedule_id = ? AND DATE(da.start_time) = ? AND da.status = 'Scheduled' AND da.queue_state IN ('Waiting', 'Serving')
+               AND NOT EXISTS (SELECT 1 FROM doctor_assessments a WHERE a.appointment_id = da.appointment_id)`,
+            [schedule.schedule_id, date]
+        );
+        if (Number(left.n) > 0 && !toFlag(req.body.force)) {
+            await connection.rollback();
+            connection.release();
+            return res.status(409).json({
+                success: false, needs_confirm: true, pending: Number(left.n),
+                message: `${left.n} student${Number(left.n) === 1 ? ' is' : 's are'} not documented yet. Waiting numbers go back to the waiting list; a student in session stays open until the doctor documents.`
+            });
+        }
         await connection.query(`INSERT INTO session_end_confirmations (schedule_id, session_date, confirmed_by) VALUES (?, ?, ?)`, [schedule.schedule_id, date, senderId]);
+        // the numbers of this session day end now, so Past Check-up, the queue clean-up and the student screens see it as over
+        if (early) {
+            await connection.query(
+                `UPDATE doctor_appointments SET end_time = NOW() - INTERVAL 1 SECOND WHERE schedule_id = ? AND DATE(start_time) = ? AND queue_state IS NOT NULL AND end_time > NOW()`,
+                [schedule.schedule_id, date]
+            );
+        }
         await connection.commit();
     } catch (error) {
         await connection.rollback();
@@ -14332,6 +14439,8 @@ const advanceStateOf = async (conn = pool) => {
         listing: listing ? { listing_id: listing.listing_id, title: listing.title, opened_at: listing.opened_at, closed_at: listing.closed_at, close_reason: listing.close_reason, completed_at: listing.completed_at || null } : null,
         // the batch: running until every check-up service of it is done; then the nurse opens a new advance listing
         batch_running: batchRunning, batch_complete: !!listing && !!listing.completed_at,
+        // the current advance listing stays current (even when it is done) until the nurse drops it; only then a new one can be created
+        batch_current: !!listing && listing.close_reason !== 'dropped',
         batch_done_services: offered.filter((r) => r.finished).length, batch_services: offered.length,
         cutoff_total: rows.reduce((n, r) => n + r.cutoff, 0),
         services: rows
@@ -14376,6 +14485,13 @@ app.put('/api/advance-listing', async (req, res) => {
             ? await connection.query(`SELECT listing_id FROM advance_listings WHERE listing_id = ? AND completed_at IS NULL`, [current.current_listing_id])
             : [[null]];
         const batchRunning = !!runningBatch;
+        // one advance listing at a time: a listing that is done stays here until the nurse drops it, and nothing opens or changes on it
+        const [[currentListing]] = current.current_listing_id
+            ? await connection.query(`SELECT listing_id, close_reason FROM advance_listings WHERE listing_id = ?`, [current.current_listing_id])
+            : [[null]];
+        const batchCurrent = !!currentListing && currentListing.close_reason !== 'dropped';
+        const wantsChange = (req.body.is_open !== undefined && toFlag(req.body.is_open) === 1) || Array.isArray(req.body.services);
+        if (batchCurrent && !batchRunning && wantsChange) throw new BookingError('The current advance listing is done. Drop it to create a new advance listing.', 409);
         const newBatch = req.body.is_open !== undefined && toFlag(req.body.is_open) === 1 && !wasOpen && !batchRunning;
 
         if (Array.isArray(req.body.services)) {
@@ -14481,12 +14597,13 @@ app.put('/api/advance-listing/drop', async (req, res) => {
         if (actor.role !== 'Nurse') throw new BookingError('Only the nurse drops the advance listing.', 403);
         await connection.query(`SELECT setting_id FROM advance_listing_settings WHERE setting_id = 1 FOR UPDATE`);
         const state = await advanceStateOf(connection);
-        if (!state.listing || !state.batch_running) throw new BookingError('There is no current advance listing to drop.', 409);
+        if (!state.listing || !state.batch_current) throw new BookingError('There is no current advance listing to drop.', 409);
+        // only a listing that is done or closed can be dropped
         const stillOpen = state.services.filter((s) => s.offered && s.status === 'Open').map((s) => s.visit_type);
-        if (stillOpen.length > 0) throw new BookingError(`Close every check-up service first. Still open: ${stillOpen.join(', ')}.`, 409);
+        if (state.is_open || stillOpen.length > 0) throw new BookingError(`Close the advance listing first. It can be dropped only when it is closed or done.${stillOpen.length > 0 ? ` Still open: ${stillOpen.join(', ')}.` : ''}`, 409);
         const listingId = state.listing.listing_id;
         await connection.query(
-            `UPDATE advance_listings SET closed_at = COALESCE(closed_at, NOW()), close_reason = 'dropped', completed_at = NOW() WHERE listing_id = ? AND completed_at IS NULL`, [listingId]
+            `UPDATE advance_listings SET closed_at = COALESCE(closed_at, NOW()), close_reason = 'dropped', completed_at = COALESCE(completed_at, NOW()) WHERE listing_id = ?`, [listingId]
         );
         await connection.query(`UPDATE advance_listing_settings SET is_open = 0, closes_at = NULL, updated_by_user_id = ? WHERE setting_id = 1`, [senderId]);
         await connection.query(
@@ -14575,7 +14692,11 @@ app.get('/api/advance-listing/history', async (req, res) => {
         await ensureAdvanceListing();
         await advanceStateOf(pool);
         // a past advance listing = a batch that is complete (every check-up service done)
-        const [listings] = await pool.query(`SELECT * FROM advance_listings WHERE completed_at IS NOT NULL ORDER BY completed_at DESC, opened_at DESC`);
+        // a past advance listing = one the nurse dropped (a done listing stays current until it is dropped)
+        const [[cur]] = await pool.query(`SELECT current_listing_id FROM advance_listing_settings WHERE setting_id = 1`);
+        const [listings] = await pool.query(
+            `SELECT * FROM advance_listings WHERE completed_at IS NOT NULL AND (close_reason = 'dropped' OR listing_id <> ?) ORDER BY completed_at DESC, opened_at DESC`, [cur.current_listing_id || '']
+        );
         const [counts] = await pool.query(
             `SELECT listing_id, visit_type, COUNT(*) AS requests, SUM(status IN ('Waiting', 'Scheduled', 'Removed', 'Cutoff', 'Moved')) AS registered, SUM(status = 'Scheduled') AS scheduled,
                     SUM(status = 'Waiting') AS waiting, SUM(status = 'Denied') AS declined, SUM(status IN ('Withdrawn', 'Removed')) AS left_listing,
@@ -15188,8 +15309,9 @@ app.get('/api/student/:studentId/open-listings', async (req, res) => {
         await ensureScheduleListingColumns();
         // a student in the advance listing already has a number (or waits for a schedule), so the open places are for the other students
         // a cut off student is outside the batch (the session was full), so the open session listings stay available to them
+        // such a student still SEES every open session (a schedule shows as soon as the doctor sets it, even with nobody in it) but cannot ask for a place
         const inAdvance = await advanceEntryOf(pool, req.params.studentId);
-        if (inAdvance && inAdvance.status !== 'Cutoff') return res.json({ success: true, listings: [], in_advance: true, advance: inAdvance });
+        const viewOnly = !!inAdvance && inAdvance.status !== 'Cutoff';
         const [schedules] = await pool.query(
             `SELECT ds.*, d.first_name AS doc_first_name, d.last_name AS doc_last_name, d.specialization, d.services_offered
              FROM doctor_schedules ds JOIN doctors d ON d.doctor_id = ds.doctor_id
@@ -15225,12 +15347,12 @@ app.get('/api/student/:studentId/open-listings', async (req, res) => {
                 visit_type: s.visit_type, purposes: s.visit_type === 'Any' ? covered : [s.visit_type],
                 start_time: s.start_time, end_time: s.end_time, location: s.location, notes: s.notes,
                 listing_limit: state.listing_limit, accepted: state.accepted, advance: state.advance, regular: state.regular, places_left: state.places_left,
-                listing_full: state.listing_full, can_request: state.can_request && !mine, allow_walk_in: !!Number(s.allow_walk_in),
+                listing_full: state.listing_full, can_request: state.can_request && !mine && !viewOnly, allow_walk_in: !!Number(s.allow_walk_in),
                 mine: mine ? { request_id: mine.request_id, status: mine.status, queue_no: mine.queue_no, label: mine.label || (mine.queue_no ? `#${mine.queue_no}` : null) } : null
             });
         }
         listings.sort((a, b) => `${a.date} ${a.start_time}`.localeCompare(`${b.date} ${b.start_time}`));
-        res.json({ success: true, listings });
+        res.json({ success: true, listings, ...(viewOnly ? { in_advance: true, advance: inAdvance } : {}) });
     } catch (error) {
         console.error('Error fetching open listings:', error);
         res.status(500).json({ success: false, message: 'Failed to load the open listings' });
@@ -16539,6 +16661,9 @@ const timeOutCheckupVisit = async (visitId, body) => {
     const v = vitals.values;
     // medicine given at time out (optional): { complaint_id, specify_complaint_text, batch_id, dosage_consumption_unit_value }
     const dispense = body.dispense && body.dispense.batch_id ? body.dispense : null;
+    // These run an ALTER TABLE the first time after a server start. Inside the transaction below that ALTER waits for the transaction's own table lock
+    // while the transaction waits for the ALTER: the request never answers ("Saving..." forever). So they must finish before the transaction starts.
+    if (dispense) { await ensureMedicineIntervalColumn(); await ensureIncidentDispenseColumns(); }
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
@@ -18752,6 +18877,25 @@ app.patch('/api/notifications/user/:userId/read-all', async (req, res) => {
     }
 });
 
+// Marks the unread notifications of the given types as read (a tab was opened: its red dot goes away)
+app.patch('/api/notifications/user/:userId/read-types', async (req, res) => {
+    try {
+        const types = (Array.isArray(req.body?.types) ? req.body.types : [])
+            .filter((t) => typeof t === 'string' && t.trim())
+            .map((t) => t.trim().toUpperCase())
+            .slice(0, 50);
+        if (!types.length) return res.json({ success: true, updated: 0 });
+        const [result] = await pool.query(
+            `UPDATE notifications SET is_read = 1, read_at = NOW() WHERE recipient_id = ? AND is_read = 0 AND UPPER(type) IN (?)`,
+            [req.params.userId, types]
+        );
+        res.json({ success: true, updated: result.affectedRows });
+    } catch (error) {
+        console.error('Error marking notifications read by type:', error);
+        res.status(500).json({ success: false, message: 'Server error' });
+    }
+});
+
 // ---- Doctor: dashboard ----
 
 app.get('/api/doctor/:doctorId/dashboard', async (req, res) => {
@@ -18955,6 +19099,55 @@ app.get('/api/doctor/:doctorId/appointment-groups', async (req, res) => {
         if (!filter) return res.status(400).json({ success: false, message: 'Unknown scope.' });
         const { scope, where, params } = filter;
         const groupBy = `da.schedule_id, da.doctor_id, DATE_FORMAT(da.start_time, '%Y-%m-%d')`;
+
+        // Upcoming also lists the sessions the doctor set that nobody joined yet: a schedule is an upcoming check-up as soon as the doctor sets it
+        if (scope === 'upcoming' && !textOrNull(req.query.q) && !textOrNull(req.query.schedule_id)) {
+            const [allGroups] = await pool.query(
+                `SELECT da.schedule_id, da.doctor_id, DATE_FORMAT(da.start_time, '%Y-%m-%d') AS day,
+                        MIN(da.start_time) AS first_start, MAX(da.end_time) AS last_end, COUNT(*) AS total,
+                        SUM(da_assessment.assessment_id IS NOT NULL) AS documented, SUM(COALESCE(da_assessment.is_abnormal, 0)) AS abnormal,
+                        SUM(da.status IN ('Cancelled', 'Declined', 'No-Show') OR das.attendance_status = 'Absent') AS missed,
+                        GROUP_CONCAT(DISTINCT da.visit_type ORDER BY da.visit_type SEPARATOR ', ') AS visit_types,
+                        MIN(sch.location) AS location, MIN(sch.visit_type) AS schedule_visit_type,
+                        MIN(d.first_name) AS doc_first_name, MIN(d.last_name) AS doc_last_name
+                 ${APPOINTMENT_JOINS}
+                 JOIN doctors d ON d.doctor_id = da.doctor_id
+                 LEFT JOIN doctor_schedules sch ON sch.schedule_id = da.schedule_id
+                 WHERE ${where}
+                 GROUP BY da.schedule_id, da.doctor_id, day`,
+                params
+            );
+            const merged = allGroups.map((g) => ({
+                schedule_id: g.schedule_id || null, doctor_id: g.doctor_id, day: g.day, first_start: g.first_start, last_end: g.last_end,
+                total: Number(g.total), documented: Number(g.documented), abnormal: Number(g.abnormal), missed: Number(g.missed),
+                visit_types: g.visit_types || '', schedule_visit_type: g.schedule_visit_type || null, location: g.location || null,
+                doc_first_name: g.doc_first_name, doc_last_name: g.doc_last_name
+            }));
+            const doctorFilter = req.params.doctorId === 'all' ? textOrNull(req.query.doctor_id) : req.params.doctorId;
+            const purposeFilter = textOrNull(req.query.purpose);
+            const { from, to } = req.query;
+            const [openSchedules] = await pool.query(
+                `SELECT ds.*, d.first_name AS doc_first_name, d.last_name AS doc_last_name FROM doctor_schedules ds JOIN doctors d ON d.doctor_id = ds.doctor_id
+                 WHERE ds.status = 'Open' ${doctorFilter ? 'AND ds.doctor_id = ?' : ''}`,
+                doctorFilter ? [doctorFilter] : []
+            );
+            const nowStr = nowManilaStr();
+            for (const s of openSchedules) {
+                const day = nextOccurrenceOf(s, nowStr.slice(0, 10));
+                if (!day || `${day} ${s.start_time}` <= nowStr) continue; // not started yet only: a running session is On going
+                if (purposeFilter && s.visit_type !== 'Any' && s.visit_type !== purposeFilter) continue;
+                if (isDateStr(from) && day < from) continue;
+                if (isDateStr(to) && day > to) continue;
+                if (merged.some((g) => g.schedule_id === s.schedule_id && g.day === day)) continue;
+                merged.push({
+                    schedule_id: s.schedule_id, doctor_id: s.doctor_id, day, first_start: `${day} ${s.start_time}`, last_end: `${day} ${s.end_time}`,
+                    total: 0, documented: 0, abnormal: 0, missed: 0, visit_types: '', schedule_visit_type: s.visit_type, location: s.location || null,
+                    doc_first_name: s.doc_first_name, doc_last_name: s.doc_last_name
+                });
+            }
+            merged.sort((a, b) => `${a.day} ${String(a.first_start).slice(11, 19)}`.localeCompare(`${b.day} ${String(b.first_start).slice(11, 19)}`));
+            return res.json({ success: true, groups: merged.slice(offset, offset + pageSize), total: merged.length, page, pageSize, pageCount: Math.max(Math.ceil(merged.length / pageSize), 1) });
+        }
 
         const [[countRow]] = await pool.query(`SELECT COUNT(*) AS n FROM (SELECT 1 ${APPOINTMENT_JOINS} WHERE ${where} GROUP BY ${groupBy}) g`, params);
         const total = Number(countRow.n);
@@ -24471,5 +24664,11 @@ app.use((err, req, res, next) => {
     console.error('Unhandled error:', err);
     res.status(500).json({ success: false, message: 'Server error.', error: 'Server error.' });
 });
+
+// The dispense checks run an ALTER TABLE the first time; do it now, not inside a request's transaction (it would wait for that transaction forever)
+Promise.resolve()
+    .then(() => ensureMedicineIntervalColumn())
+    .then(() => ensureIncidentDispenseColumns())
+    .catch((err) => console.error('Dispense columns check failed:', err.message));
 
 app.listen(3001, () => console.log('Server running on port 3001'));

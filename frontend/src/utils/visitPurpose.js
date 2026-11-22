@@ -38,6 +38,15 @@ export const localDateStr = (d = new Date()) =>
 
 export const hhmm = (t) => (t ? String(t).slice(0, 5) : '');
 
+// current local time as HH:MM, for prefilling a time input
+export const localTimeStr = (d = new Date()) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+
+// earliest time an input may take on `date`: now when that is today, else no limit (for the `min` of a time input)
+export const minTimeFor = (date) => (date && date === localDateStr() ? localTimeStr() : undefined);
+
+// the date and time are in the past (a missing time counts as the start of the day)
+export const isPastMoment = (date, time) => !!date && `${date} ${time || '00:00'}` < `${localDateStr()} ${localTimeStr()}`;
+
 // 9:05 -> "9:05 am"
 export const time12 = (value) => {
     if (!value) return '';

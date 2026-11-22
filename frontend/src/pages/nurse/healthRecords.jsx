@@ -146,6 +146,17 @@ export default function HealthRecord() {
         fetchStudents();
     }, [fetchStudents]);
 
+    // Pick up health history edited elsewhere (another tab, the student's profile) when the page is shown again
+    useEffect(() => {
+        const refresh = () => { if (document.visibilityState === 'visible') fetchStudents(); };
+        document.addEventListener('visibilitychange', refresh);
+        window.addEventListener('focus', refresh);
+        return () => {
+            document.removeEventListener('visibilitychange', refresh);
+            window.removeEventListener('focus', refresh);
+        };
+    }, [fetchStudents]);
+
     // Client-side filtering fallback
     const filteredStudents = useMemo(() => {
         return students.filter((student) => {

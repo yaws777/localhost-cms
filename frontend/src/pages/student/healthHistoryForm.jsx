@@ -23,6 +23,15 @@ const PERSONAL_FIELDS = [
     { name: 'mother_name', label: "Mother's Name:", type: 'text', span: 'hh-s3' }
 ];
 
+// Shown from the student record, never editable and not sent with the form
+const STUDENT_FIELDS = [
+    { name: 'first_name', label: 'First Name:', span: 'hh-s3' },
+    { name: 'last_name', label: 'Last Name:', span: 'hh-s3' },
+    { name: 'program_name', label: 'Program:', span: '' },
+    { name: 'year_level', label: 'Year Level:', span: 'hh-s3' },
+    { name: 'section', label: 'Section:', span: 'hh-s3' }
+];
+
 const MODAL_ICONS = { confirm: CircleHelp, success: CircleCheck, error: CircleAlert };
 
 // ---------------------------------------------------------------------------
@@ -104,6 +113,7 @@ export default function HealthHistoryForm() {
     const navigate = useNavigate();
     const [step, setStep] = useState(1);
     const [studentId, setStudentId] = useState(null);
+    const [studentInfo, setStudentInfo] = useState({});
     const headingRef = useRef(null);
     const firstRender = useRef(true);
 
@@ -196,6 +206,7 @@ export default function HealthHistoryForm() {
                 .then(data => {
                     if (data.success && data.student && data.student.student_id) {
                         setStudentId(data.student.student_id);
+                        setStudentInfo(data.student);
                     } else {
                         showError(data.message || 'Could not find student record.');
                     }
@@ -203,6 +214,18 @@ export default function HealthHistoryForm() {
                 .catch(() => showError('Network error while fetching student ID.'));
         }
     }, [navigate]);
+
+    // Student record for the read-only identity fields (session already gave the id)
+    useEffect(() => {
+        if (!studentId || studentInfo.student_id === studentId) return;
+        fetch(`http://localhost:3001/api/get-student-by-studentId/${studentId}`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.success && data.student) setStudentInfo(data.student);
+            })
+            .catch(() => showError('Network error while loading student details.'));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [studentId]);
 
     // Move to the top and focus the step heading when the step changes
     useEffect(() => {
@@ -314,6 +337,20 @@ export default function HealthHistoryForm() {
 
     const selectedCount = CONDITIONS.filter(c => health.info[c.key]).length;
 
+    const renderStudentField = (f) => (
+        <label key={f.name} className={`hh-field ${f.span}`} htmlFor={`hh-stu-${f.name}`}>
+            <span className="hh-lbl">{f.label}</span>
+            <input
+                id={`hh-stu-${f.name}`}
+                className="hh-locked"
+                type="text"
+                value={studentInfo[f.name] ?? ''}
+                readOnly
+                aria-readonly="true"
+            />
+        </label>
+    );
+
     const renderPersonalField = (f) => {
         const control = f.type === 'select' ? (
             <select id={f.name} name={f.name} value={personalInfo.gender} onChange={handlePersonalChange} required>
@@ -402,6 +439,7 @@ export default function HealthHistoryForm() {
                             <section className="hh-card" aria-labelledby="hh-h-step1">
                                 <h2 id="hh-h-step1" ref={headingRef} tabIndex={-1}>A. Personal Information</h2>
                                 <div className="hh-grid">
+                                    {STUDENT_FIELDS.map(renderStudentField)}
                                     {PERSONAL_FIELDS.map(renderPersonalField)}
                                 </div>
                             </section>

@@ -9,6 +9,7 @@ import { Pager, paginate } from '../common/RecordFolders';
 import { useAlert } from '../../context/AlertContext';
 import { useSpecializations } from '../../hooks/useSpecializations';
 import { formatDate } from '../../utils/datetime';
+import { localTimeStr, minTimeFor, isPastMoment } from '../../utils/visitPurpose';
 import { API, eligibleDoctors, doctorOffers, to12h, todayKey, hhmm } from '../../utils/scheduling';
 import '../../styles/nurse/DoctorVisits.css';
 import '../../styles/nurse/DoctorSchedule.css';
@@ -61,7 +62,11 @@ export const ScheduleRequestModal = ({ isOpen, preset, doctors, nurseId, userId,
 
     useEffect(() => {
         if (!isOpen) return;
-        setForm({ ...EMPTY, ...preset });
+        // date and time start at now; a preset can still bring its own
+        const nowTime = localTimeStr();
+        const endMin = Math.min(Number(nowTime.slice(0, 2)) * 60 + Number(nowTime.slice(3)) + 60, 23 * 60 + 59);
+        const nowEnd = `${String(Math.floor(endMin / 60)).padStart(2, '0')}:${String(endMin % 60).padStart(2, '0')}`;
+        setForm({ ...EMPTY, preferred_date: todayKey(), preferred_start: nowTime, preferred_end: nowEnd, ...preset });
         setBusy(false);
         let live = true;
         fetch(`${API}/api/advance-listing`)
@@ -132,6 +137,8 @@ export const ScheduleRequestModal = ({ isOpen, preset, doctors, nurseId, userId,
     const submit = async (e) => {
         e.preventDefault();
         if (!form.doctor_id) { fail('Select a doctor.'); return; }
+        if (form.preferred_date && isPastMoment(form.preferred_date, form.preferred_start)) { fail('The preferred date and time cannot be in the past.'); return; }
+        if (form.preferred_start && form.preferred_end && form.preferred_end <= form.preferred_start) { fail('The end time must be after the start time.'); return; }
         if (form.advance_listing && requested.advanceServices.has(form.visit_type)) { fail(`The ${form.visit_type} advance listing already has a pending schedule request.`); return; }
         setBusy(true);
         try {
@@ -216,11 +223,11 @@ export const ScheduleRequestModal = ({ isOpen, preset, doctors, nurseId, userId,
                     </div>
                     <div className="dp-field">
                         <label htmlFor="sr-start">From (optional)</label>
-                        <input id="sr-start" className="dp-input" type="time" value={form.preferred_start || ''} onChange={(e) => set({ preferred_start: e.target.value })} />
+                        <input id="sr-start" className="dp-input" type="time" min={minTimeFor(form.preferred_date)} value={form.preferred_start || ''} onChange={(e) => set({ preferred_start: e.target.value })} />
                     </div>
                     <div className="dp-field">
                         <label htmlFor="sr-end">To (optional)</label>
-                        <input id="sr-end" className="dp-input" type="time" value={form.preferred_end || ''} onChange={(e) => set({ preferred_end: e.target.value })} />
+                        <input id="sr-end" className="dp-input" type="time" min={form.preferred_start || minTimeFor(form.preferred_date)} value={form.preferred_end || ''} onChange={(e) => set({ preferred_end: e.target.value })} />
                     </div>
                 </div>
                 <div className="dp-field">

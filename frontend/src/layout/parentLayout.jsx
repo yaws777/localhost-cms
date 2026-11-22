@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
+import NavCount from '../components/common/NavCount';
+import { useSidebarDots } from '../hooks/useSidebarDots';
+import { parentRouteOf, MESSAGE_ROUTE } from '../utils/notificationRoutes';
 import { 
     LayoutDashboard, 
     FileHeart, 
@@ -25,6 +28,7 @@ import { formatDateTime } from '../utils/datetime';
 
 const ParentLayout = () => {
     const navigate = useNavigate();
+    const location = useLocation();
     const { theme, toggleTheme } = useTheme();
     const { collapsed, toggleCollapsed } = useSidebar();
     const [isOpen, setIsOpen] = useState(false);
@@ -95,6 +99,8 @@ const ParentLayout = () => {
     }, [parentUserId]);
 
     const [notifications, setNotifications] = useState([]);
+    // red dot on the sidebar item of the page a notification belongs to; opening the page clears it
+    const dotFor = useSidebarDots({ notifications, setNotifications, routeOf: parentRouteOf, pathname: location.pathname });
     const [showNotifDropdown, setShowNotifDropdown] = useState(false);
     const [activeNotifModal, setActiveNotifModal] = useState(null);
 
@@ -315,17 +321,11 @@ const ParentLayout = () => {
             console.error('Error marking parent notification as read:', err);
         }
 
-        const notifType = notif.type ? notif.type.toLowerCase() : '';
-        const notifMsg = notif.message ? notif.message.toLowerCase() : '';
-
-        if (notifType.includes('message') || notifMsg.includes('message')) {
+        const route = parentRouteOf(notif);
+        if (route === MESSAGE_ROUTE) {
             setIsMessageOpen(true);
-        } else if (notifType.includes('booking') || notifType.includes('appointment') || notifType.includes('assessment') || notifType.includes('doctor_visit') || notifType.startsWith('consultation_')) {
-            navigate('/ChildClinicRecords');
-        } else if (notifType.includes('clinic') || notifMsg.includes('clinic') || notifMsg.includes('medical')) {
-            navigate('/ChildClinicRecords');
-        } else if (notifType.includes('profile') || notifMsg.includes('profile')) {
-            navigate('/ChildProfile');
+        } else if (route) {
+            navigate(route);
         } else {
             setActiveNotifModal(notif);
         }
@@ -424,6 +424,7 @@ const ParentLayout = () => {
                             <>
                                 <LayoutDashboard className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
                                 <span>Dashboard</span>
+                                <NavCount count={dotFor('/ParentDashboard')} />
                             </>
                         )}
                     </NavLink>
@@ -433,6 +434,7 @@ const ParentLayout = () => {
                             <>
                                 <FileHeart className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
                                 <span>Child's Clinic Records</span>
+                                <NavCount count={dotFor('/ChildClinicRecords')} />
                             </>
                         )}
                     </NavLink>
@@ -442,6 +444,7 @@ const ParentLayout = () => {
                             <>
                                 <User className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
                                 <span>Child's Profile</span>
+                                <NavCount count={dotFor('/ChildProfile')} />
                             </>
                         )}
                     </NavLink>
@@ -451,6 +454,7 @@ const ParentLayout = () => {
                             <>
                                 <Settings className={`nav-icon ${isActive ? 'icon-active' : ''}`} size={16} />
                                 <span>My Profile</span>
+                                <NavCount count={dotFor('/MyProfileParent')} />
                             </>
                         )}
                     </NavLink>

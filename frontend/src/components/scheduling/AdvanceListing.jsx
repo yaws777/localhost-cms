@@ -383,7 +383,7 @@ const AdvanceListing = ({ isNurse, doctors, nurseId, userId, refreshKey, onChang
 
     // drop the current advance listing: it moves to the past advance listings (every check-up service must be closed first)
     const askDrop = () => {
-        if (openServices.length > 0) { showAlert(`Close these services first: ${openServices.join(', ')}.`, 'warning'); return; }
+        if (state.is_open || openServices.length > 0) { showAlert('Close the advance listing first. Only a closed or done listing can be dropped.', 'warning'); return; }
         setDropOpen(true);
     };
 
@@ -450,8 +450,9 @@ const AdvanceListing = ({ isNurse, doctors, nurseId, userId, refreshKey, onChang
     if (loading) return <div className="loading-dv">Loading the advance listing...</div>;
     if (!state) return <div className="group-empty-ds">The advance listing could not be loaded.</div>;
 
-    // no current advance listing = none was created yet, or the last one is complete / dropped (it is in the past advance listings)
-    const hasCurrent = state.batch_running;
+    // one advance listing at a time: it stays the current one, even when done, until the nurse drops it (then it is in the past advance listings)
+    const hasCurrent = !!state.batch_current;
+    const listingDone = hasCurrent && state.batch_complete;
     const openServices = state.services.filter((s) => s.offered && s.status === 'Open').map((s) => s.visit_type);
     const shownServices = state.services.filter((s) => visible(s.visit_type));
     const listServices = shownServices.filter((s) => s.offered || s.waiting > 0 || s.pending > 0 || s.cutoff > 0);
@@ -702,7 +703,8 @@ const AdvanceListing = ({ isNurse, doctors, nurseId, userId, refreshKey, onChang
                 <div>
                     <strong className="advance-title-sc">{hasCurrent ? state.listing.title : 'No current advance listing'}</strong>
                     <div className="advance-note-sc">
-                        {hasCurrent && isNurse && (
+                        {listingDone && <span className="badge-ds badge-closed-ds">Done</span>}
+                        {hasCurrent && !listingDone && isNurse && (
                             <button
                                 type="button" role="switch" aria-checked={!!state.is_open} className="switch-sc" disabled={busy} onClick={switchListing}
                                 aria-label={`Advance listing: ${state.is_open ? 'open' : 'closed'}`} title={state.is_open ? 'Close' : 'Open'}
@@ -711,7 +713,7 @@ const AdvanceListing = ({ isNurse, doctors, nurseId, userId, refreshKey, onChang
                                 <span>{state.is_open ? 'Open' : 'Closed'}</span>
                             </button>
                         )}
-                        {hasCurrent && !isNurse && <span className={`badge-ds ${state.is_open ? 'badge-open-ds' : 'badge-closed-ds'}`}>{state.is_open ? 'Open' : 'Closed'}</span>}
+                        {hasCurrent && !listingDone && !isNurse && <span className={`badge-ds ${state.is_open ? 'badge-open-ds' : 'badge-closed-ds'}`}>{state.is_open ? 'Open' : 'Closed'}</span>}
                         {hasCurrent && state.is_open && state.closes_at && <span className="muted-ds">Until {formatDateTime(state.closes_at)}</span>}
                         {hasCurrent && <span className="muted-ds">{state.batch_done_services}/{state.batch_services} done</span>}
                     </div>
@@ -723,7 +725,7 @@ const AdvanceListing = ({ isNurse, doctors, nurseId, userId, refreshKey, onChang
                                 <button type="button" className="icon-btn-ds" onClick={() => setSettingsOpen(true)} title="Settings" aria-label="Advance listing settings"><Settings2 size={16} /></button>
                             )}
                             {hasCurrent && (
-                                <button type="button" className="icon-btn-ds" aria-disabled={openServices.length > 0} disabled={busy} onClick={askDrop} title="Drop" aria-label="Drop the current advance listing"><Archive size={16} /></button>
+                                <button type="button" className="icon-btn-ds" aria-disabled={state.is_open || openServices.length > 0} disabled={busy} onClick={askDrop} title="Drop" aria-label="Drop the current advance listing"><Archive size={16} /></button>
                             )}
                             {!hasCurrent && (
                                 <button type="button" className="icon-btn-ds" onClick={() => setSettingsOpen(true)} title="New advance listing" aria-label="Create a new advance listing"><Plus size={16} /></button>
