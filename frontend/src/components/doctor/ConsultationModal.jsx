@@ -5,7 +5,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { ClipboardPlus, Plus, Trash2, Sparkles, CalendarDays, Clock, Thermometer, HeartPulse, Activity, Wind } from 'lucide-react';
 import Modal from '../common/Modal';
 import { notifyRecordChanged } from '../../hooks/useRecordSync';
-import { VITAL_FIELDS, vitalState } from '../../utils/vitals';
+import { VITAL_FIELDS, vitalState, bpKind } from '../../utils/vitals';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatTime } from '../../utils/datetime';
 import { visitLabel, fullName, localDateStr } from '../../utils/visitPurpose';
@@ -359,7 +359,7 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
                                         <span className="dp-vital-label">{v.label}</span>
                                         <span className="dp-vital-value">{v.value}<small>{v.unit}</small></span>
                                         <small className="dp-vital-range">Range {v.normal} {v.unit}</small>
-                                        <span className={`dp-vital-flag${bad ? '' : ' ok'}`}>{bad ? 'Not normal' : 'Normal'}</span>
+                                        <span className={`dp-vital-flag${bad ? '' : ' ok'}`}>{bad ? (v.key === 'blood_pressure' ? bpKind(v.value) : 'Not normal') : 'Normal'}</span>
                                     </li>
                                 );
                             })}

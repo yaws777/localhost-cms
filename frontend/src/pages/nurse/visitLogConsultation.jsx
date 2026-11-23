@@ -11,7 +11,7 @@ import jsQR from 'jsqr';
 import stiLogo from '../../assets/sti-logof.png';
 import { formatTime, formatDate } from '../../utils/datetime';
 import SearchableSelect from '../../components/common/SearchableSelect';
-import { VITAL_FIELDS, vitalState } from '../../utils/vitals';
+import { VITAL_FIELDS, vitalState, bpKind } from '../../utils/vitals';
 import VitalHint from '../../components/common/VitalHint';
 import { AssessmentDetails } from '../../components/doctor/AssessmentModals';
 import { FormPdfButton } from '../../components/common/FormDocument';
@@ -116,7 +116,7 @@ const VitalsBlock = ({ title, time, values, note, emptyText }) => {
                                 <dt>{f.label} <small>Range {f.normal} {f.unit}</small></dt>
                                 <dd>
                                     {values[f.key]} <small>{f.unit}</small>
-                                    {abnormal && <span className="abnormal-tag-vlc"><AlertTriangle size={12} aria-hidden="true" /> Not normal</span>}
+                                    {abnormal && <span className="abnormal-tag-vlc"><AlertTriangle size={12} aria-hidden="true" /> {f.key === 'blood_pressure' ? bpKind(values[f.key]) : 'Not normal'}</span>}
                                     {st === 'normal' && <span className="normal-tag-vlc"><Check size={12} aria-hidden="true" /> Normal</span>}
                                 </dd>
                             </div>

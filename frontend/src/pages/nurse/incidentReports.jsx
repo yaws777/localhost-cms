@@ -32,7 +32,7 @@ import FormDocument from '../../components/common/FormDocument';
 import { buildIncidentModel } from '../../utils/formModels';
 import { printFormDocument } from '../../utils/formDocument';
 import { useRecordSync, notifyRecordChanged } from '../../hooks/useRecordSync';
-import { VITAL_FIELDS, EMPTY_VITALS, vitalState, vitalsLine } from '../../utils/vitals';
+import { VITAL_FIELDS, EMPTY_VITALS, vitalState, vitalsLine, bpKind } from '../../utils/vitals';
 
 // Conditions that need a short description
 const CONDITIONAL_COMPLAINT_NAMES = ['injury', 'others', 'gastrointestinal issues', 'body pain'];
@@ -1014,7 +1014,7 @@ const IncidentReport = () => {
                                                             required
                                                         />
                                                         <div id={`inc-vital-${f.key}-note`} className={state === 'abnormal' || state === 'invalid' ? 'inc-hint inc-vital-flag' : 'inc-hint'} role="status">
-                                                            {state === 'abnormal' && <><AlertTriangle size={14} aria-hidden="true" /> Not normal ({f.normal})</>}
+                                                            {state === 'abnormal' && <><AlertTriangle size={14} aria-hidden="true" /> {f.key === 'blood_pressure' ? bpKind(vitals[f.key]) : 'Not normal'} ({f.normal})</>}
                                                             {state === 'invalid' && <><AlertTriangle size={14} aria-hidden="true" /> Invalid value</>}
                                                             {state === 'normal' && <><Check size={14} aria-hidden="true" /> Normal</>}
                                                             {state === 'empty' && <>Normal {f.normal}</>}

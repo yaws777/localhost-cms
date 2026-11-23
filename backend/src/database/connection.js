@@ -9165,7 +9165,7 @@ const buildAutoRemarks = (fields, answers, evaluated, asthma, ctx = {}) => {
       const low = (sv !== undefined && sys.min !== undefined && sv < sys.min) || (dv !== undefined && dia.min !== undefined && dv < dia.min);
       const high = (sv !== undefined && sys.max !== undefined && sv > sys.max) || (dv !== undefined && dia.max !== undefined && dv > dia.max);
       const reading = `${sv !== undefined ? sv : '?'}/${dv !== undefined ? dv : '?'}`;
-      if (high || low) lines.push(`Blood pressure is ${reading} mmHg. Not normal (${high ? 'high' : 'low'}).`);
+      if (high || low) lines.push(`Blood pressure is ${reading} mmHg. ${high ? 'High Blood' : 'Low Blood'}.`);
     }
   }
   for (const f of fields) {
@@ -9198,7 +9198,9 @@ const customSummary = (fields, answers) => {
 // (or abnormal choices) status 'Normal' | 'Not normal' and range 'Range 90-119 mmHg'. Read by the student / parent / nurse record forms.
 const templateResults = (fields, answers) => {
   const a = jsonOf(answers) || {};
-  return (jsonOf(fields) || []).filter((f) => a[f.key] !== undefined && a[f.key] !== '').map((f) => {
+  const all = jsonOf(fields) || [];
+  const bp = bpFieldsOf(all);
+  return all.filter((f) => a[f.key] !== undefined && a[f.key] !== '').map((f) => {
     const v = a[f.key];
     const unit = f.unit ? ` ${f.unit}` : '';
     let status = '';
@@ -9208,7 +9210,10 @@ const templateResults = (fields, answers) => {
       const hasMax = f.max !== undefined && f.max !== null;
       if (hasMin || hasMax) {
         const n = Number(v);
-        status = (hasMin && n < f.min) || (hasMax && n > f.max) ? 'Not normal' : 'Normal';
+        const isBp = (bp.sys && bp.sys.key === f.key) || (bp.dia && bp.dia.key === f.key);
+        const low = hasMin && n < f.min;
+        const high = hasMax && n > f.max;
+        status = !low && !high ? 'Normal' : isBp ? (high ? 'High blood' : 'Low blood') : 'Not normal';
         range = `Range ${hasMin && hasMax ? `${f.min}-${f.max}` : hasMin ? `${f.min} or more` : `up to ${f.max}`}${unit}`;
       }
     } else if ((f.abnormal_options || []).length > 0) {
@@ -16890,7 +16895,10 @@ const readVitals = (src, required) => {
         if (sys <= dia || sys > 260 || dia < 30) return { error: 'Check the blood pressure reading.' };
         const [slo, shi] = VITAL_NORMAL.systolic;
         const [dlo, dhi] = VITAL_NORMAL.diastolic;
-        if (sys < slo || sys > shi || dia < dlo || dia > dhi) abnormal.push(`Blood pressure ${values.blood_pressure} (normal ${slo} to ${shi} over ${dlo} to ${dhi})`);
+        if (sys < slo || sys > shi || dia < dlo || dia > dhi) {
+            const kind = sys > shi || dia > dhi ? 'High blood' : 'Low blood';
+            abnormal.push(`${kind}: blood pressure ${values.blood_pressure} (normal ${slo} to ${shi} over ${dlo} to ${dhi})`);
+        }
     }
     return { values, abnormal };
 };

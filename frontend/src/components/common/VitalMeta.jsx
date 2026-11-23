@@ -7,7 +7,7 @@ import '../../styles/common/VitalMeta.css';
 
 export const VitalMeta = ({ status, range }) => {
     if (!status && !range) return null;
-    const bad = status === 'Not normal';
+    const bad = !!status && status !== 'Normal';
     return (
         <div className="vm-meta">
             {status && (

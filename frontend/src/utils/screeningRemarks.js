@@ -116,7 +116,7 @@ export const buildAutoRemark = (fields, answers, ctx = {}) => {
     if (!vit.keys.some((k) => k === (sys && sys.key) || k === (dia && dia.key))) {
       const label = bloodPressureLabel(list, answers);
       if (label === 'High Blood' || label === 'Low Blood') {
-        lines.push(`Blood pressure is ${sv !== undefined ? sv : '?'}/${dv !== undefined ? dv : '?'} mmHg. Not normal (${label === 'High Blood' ? 'high' : 'low'}).`);
+        lines.push(`Blood pressure is ${sv !== undefined ? sv : '?'}/${dv !== undefined ? dv : '?'} mmHg. ${label}.`);
       }
     }
   }

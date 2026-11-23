@@ -35,8 +35,23 @@ export const abnormalVitals = (values) => VITAL_FIELDS.filter((f) => vitalState(
 
 export const hasVitals = (values) => VITAL_FIELDS.some((f) => String(values?.[f.key] ?? '').trim() !== '');
 
-// 'Normal' | 'Not normal' | '' (empty or invalid) for one value
-export const vitalStatusLabel = (key, value) => ({ normal: 'Normal', abnormal: 'Not normal' }[vitalState(key, value)] || '');
+// 'High blood' | 'Low blood' | '' for a blood pressure reading (any part above its range = high, else below = low)
+export const bpKind = (value) => {
+    if (vitalState('blood_pressure', value) !== 'abnormal') return '';
+    const m = /^(\d{2,3})\/(\d{2,3})$/.exec(String(value).trim());
+    const high = Number(m[1]) > BP_NORMAL.sys[1] || Number(m[2]) > BP_NORMAL.dia[1];
+    return high ? 'High blood' : 'Low blood';
+};
+
+// 'Normal' | 'Not normal' | '' (empty or invalid) for one value; a blood pressure that is not normal says 'High blood' or 'Low blood'
+export const vitalStatusLabel = (key, value) => {
+    const st = vitalState(key, value);
+    if (st === 'abnormal' && key === 'blood_pressure') return bpKind(value);
+    return { normal: 'Normal', abnormal: 'Not normal' }[st] || '';
+};
+
+// any status that is not 'Normal' (Not normal, High blood, Low blood)
+export const isBadStatus = (status) => !!status && status !== 'Normal';
 
 // { value, status, range } of one reading for read-only forms and PDFs: the value stays alone in its box,
 // the status ('Normal' | 'Not normal') and the range ("Range 36.1-37.5 °C") are drawn under it. Empty value: all empty.

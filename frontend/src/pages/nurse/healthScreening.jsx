@@ -22,7 +22,7 @@ import AutoTimeFields from '../../components/nurse/AutoTimeFields';
 import SectionStudents from '../../components/nurse/SectionStudents';
 import StudentScreeningHistoryModal from '../../components/nurse/StudentScreeningHistoryModal';
 import { calculate } from '../../utils/formula';
-import { buildAutoRemark, playDecision, playRangeText, bloodPressureLabel, playClearance, PLAY_STATUS_LABELS, bpPair, bpText, bpParse, BP_PATTERN } from '../../utils/screeningRemarks';
+import { bpFieldsOf, buildAutoRemark, playDecision, playRangeText, bloodPressureLabel, playClearance, PLAY_STATUS_LABELS, bpPair, bpText, bpParse, BP_PATTERN } from '../../utils/screeningRemarks';
 import { classLabel } from '../../utils/scheduling';
 import { FormPdfButton } from '../../components/common/FormDocument';
 import { buildScreeningModel } from '../../utils/formModels';
@@ -108,12 +108,14 @@ const rangeFlagText = (f) => {
   return `${f.min} to ${f.max}${unit}`;
 };
 // Badge beside a field: color + icon + word, never color alone
-const StateChip = ({ state, id }) => {
+// bp: a blood pressure reading, so a value outside the range reads "Low blood" / "High blood"
+const StateChip = ({ state, id, bp = false }) => {
   if (!state) return null;
   const normal = state === 'Normal';
+  const text = normal ? 'Normal' : bp ? `${state} blood` : 'Not normal';
   return (
     <span id={id} className={`chip-hs ${normal ? 'chip-ok-hs' : 'chip-warn-hs'}`} role="status" title={normal ? undefined : state}>
-      {normal ? <Check size={14} aria-hidden="true" /> : <AlertTriangle size={14} aria-hidden="true" />} {normal ? 'Normal' : 'Not normal'}{normal ? '' : <span className="sr-only-hs"> ({state})</span>}
+      {normal ? <Check size={14} aria-hidden="true" /> : <AlertTriangle size={14} aria-hidden="true" />} {text}{normal || bp ? '' : <span className="sr-only-hs"> ({state})</span>}
     </span>
   );
 };
@@ -307,6 +309,7 @@ export default function HealthScreening() {
   const docClearance = isPhysicalDoc ? playClearance(docFields, docData.answers, docHealth) : null;
   const docPlayStatus = docClearance ? (docData.play_status || docClearance.status) : '';
   const bpDocPair = bpPair(docFields);
+  const docBp = bpFieldsOf(docFields);
   const [bpDraft, setBpDraft] = useState('');
   // picking a decision also rewrites the status line of a remark the nurse already has, so the two never disagree
   const choosePlayStatus = (code) => setDocData((prev) => {
@@ -1733,12 +1736,15 @@ export default function HealthScreening() {
     const sch = activeSchedule;
     const st = selectedStudent;
     const answers = docData.answers || {};
+    const bpf = bpFieldsOf(sch.template?.fields || []);
     const results = sch.form_kind === 'CUSTOM'
       ? (sch.template?.fields || []).map((f) => {
         const hasRange = (f.type === 'number' || f.type === 'calculated') && (f.min !== undefined || f.max !== undefined);
         const meta = (v) => {
           if (v === '' || v === undefined) return { status: '', range: '' };
-          if (hasRange) return { status: rangeState(f, v) === 'Normal' ? 'Normal' : 'Not normal', range: `Range ${f.min !== undefined && f.max !== undefined ? `${f.min}-${f.max}` : f.min !== undefined ? `${f.min} or more` : `up to ${f.max}`}${f.unit ? ` ${f.unit}` : ''}` };
+          const st = rangeState(f, v);
+          const isBp = (bpf.sys && bpf.sys.key === f.key) || (bpf.dia && bpf.dia.key === f.key);
+          if (hasRange) return { status: st === 'Normal' ? 'Normal' : isBp ? `${st} blood` : 'Not normal', range: `Range ${f.min !== undefined && f.max !== undefined ? `${f.min}-${f.max}` : f.min !== undefined ? `${f.min} or more` : `up to ${f.max}`}${f.unit ? ` ${f.unit}` : ''}` };
           if ((f.abnormal_options || []).length > 0) return { status: f.abnormal_options.includes(String(v)) ? 'Not normal' : 'Normal', range: '' };
           return { status: '', range: '' };
         };
@@ -3279,7 +3285,7 @@ export default function HealthScreening() {
                         <div className="form-group-hs" key={sys.key}>
                           <div className="doc-lblrow-hs">
                             <label htmlFor="cf-bp-hs">BP (mmHg){(sys.required || dia.required) ? <> <Req /></> : null}</label>
-                            <StateChip state={bpLabel === 'Normal' ? 'Normal' : bpLabel === 'Low Blood' ? 'Low' : bpLabel === 'High Blood' ? 'High' : ''} id="cf-bp-flag-hs" />
+                            <StateChip state={bpLabel === 'Normal' ? 'Normal' : bpLabel === 'Low Blood' ? 'Low' : bpLabel === 'High Blood' ? 'High' : ''} id="cf-bp-flag-hs" bp />
                           </div>
                           <input
                             id="cf-bp-hs"
@@ -3329,7 +3335,7 @@ export default function HealthScreening() {
                     const hasRange = f.type === 'number' && (f.min !== undefined || f.max !== undefined || (isPhysicalDoc && playRangeText(f)));
                     return (
                       <div className="form-group-hs" key={f.key}>
-                        <div className="doc-lblrow-hs">{label}<StateChip state={numState} id={`${id}-flag`} /></div>
+                        <div className="doc-lblrow-hs">{label}<StateChip state={numState} id={`${id}-flag`} bp={f.key === docBp.sys?.key || f.key === docBp.dia?.key} /></div>
                         <input
                           id={id}
                           type={f.type === 'number' ? 'number' : 'text'}

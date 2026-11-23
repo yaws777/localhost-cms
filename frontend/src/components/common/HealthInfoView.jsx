@@ -113,9 +113,9 @@ function detailValue(detail, info) {
     return detail.type === 'date' ? formatDate(raw) : String(raw);
 }
 
-function ResultBadge({ abnormal }) {
+function ResultBadge({ abnormal, text = 'Not normal' }) {
     return abnormal ? (
-        <span className="hiv-badge hiv-badge-critical"><AlertTriangle size={14} aria-hidden="true" /> Not normal</span>
+        <span className="hiv-badge hiv-badge-critical"><AlertTriangle size={14} aria-hidden="true" /> {text}</span>
     ) : (
         <span className="hiv-badge hiv-badge-ok"><CheckCircle2 size={14} aria-hidden="true" /> Normal</span>
     );
@@ -206,7 +206,7 @@ function VitalsCard({ vitals }) {
                                     <span className="hiv-big-k">{label}</span>
                                     <span className="hiv-big-v">{cell(vitals[key], f.unit)}</span>
                                     <small className="hiv-big-k">Range {f.normal} {f.unit}</small>
-                                    {status && <ResultBadge abnormal={status === 'Not normal'} />}
+                                    {status && <ResultBadge abnormal={status !== 'Normal'} text={status} />}
                                 </div>
                             );
                         })}

@@ -3,7 +3,7 @@
 // Same ranges as utils/vitals.js and the server (readVitals).
 import React from 'react';
 import { Check, AlertTriangle, CircleAlert } from 'lucide-react';
-import { VITAL_FIELDS, vitalState } from '../../utils/vitals';
+import { VITAL_FIELDS, vitalState, bpKind } from '../../utils/vitals';
 import '../../styles/scheduling/Vitals.css';
 
 const STATE_TEXT = { normal: 'Normal', abnormal: 'Not normal', invalid: 'Check value' };
@@ -14,10 +14,11 @@ const VitalHint = ({ fieldKey, value, id }) => {
     if (!f) return null;
     const st = vitalState(fieldKey, value);
     const Icon = STATE_ICON[st];
+    const text = st === 'abnormal' && fieldKey === 'blood_pressure' ? bpKind(value) : STATE_TEXT[st];
     return (
         <small id={id} className={`vt-hint-vt ${st}`} aria-live="polite">
             <span className="vt-range-vt">Range {f.normal} {f.unit}</span>
-            {Icon && <span className={`vt-state-vt ${st}`}><Icon size={14} aria-hidden="true" /> {STATE_TEXT[st]}</span>}
+            {Icon && <span className={`vt-state-vt ${st}`}><Icon size={14} aria-hidden="true" /> {text}</span>}
         </small>
     );
 };

@@ -33,7 +33,7 @@ export const FORM_CSS = `
 // meta (vital signs): { status: 'Normal' | 'Not normal', range: 'Range 36.1-37.5 °C' } drawn under the box
 export const metaHtml = (meta) => {
     if (!meta || (!meta.status && !meta.range)) return '';
-    const bad = meta.status === 'Not normal';
+    const bad = meta.status !== 'Normal';
     return `<div class="af-meta">${meta.status ? `<span class="af-status ${bad ? 'af-bad' : 'af-ok'}">${bad ? '&#9888;' : '&#10003;'} ${escapeHtml(meta.status)}</span>` : ''}${meta.range ? `<span class="af-range">${escapeHtml(meta.range)}</span>` : ''}</div>`;
 };
 
