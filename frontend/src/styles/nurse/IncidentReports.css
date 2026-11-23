@@ -709,3 +709,7 @@ textarea.form-control { resize: vertical; line-height: 1.5; }
     .inc-hotline-row { grid-template-columns: 1fr 1fr; }
     .inc-hotline-row.inc-head { display: none; }
 }
+
+/* Time-in vital signs of an incident */
+.inc-vital-flag { color: var(--status-critical-text); font-weight: 600; }
+.inc-hint svg { vertical-align: -0.1875rem; }

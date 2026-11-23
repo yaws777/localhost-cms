@@ -1,20 +1,45 @@
 // ConsultationModal.jsx
 // Clinical check-up documentation for one doctor visit: findings, diagnosis, treatment plan,
 // prescriptions and follow-up notes, plus the doctor's own template fields. Exam questions (Dental / Vision examination) are templates, not fixed forms.
-import React, { useState, useEffect, useMemo } from 'react';
-import { ClipboardPlus, Plus, Trash2 } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { ClipboardPlus, Plus, Trash2, Sparkles, CalendarDays, Clock, Thermometer, HeartPulse, Activity, Wind } from 'lucide-react';
 import Modal from '../common/Modal';
-import { VITAL_FIELDS } from '../../utils/vitals';
+import { notifyRecordChanged } from '../../hooks/useRecordSync';
+import { VITAL_FIELDS, vitalState } from '../../utils/vitals';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatTime } from '../../utils/datetime';
 import { visitLabel, fullName, localDateStr } from '../../utils/visitPurpose';
 import { TemplateFields, missingRequired, toResponses } from './TemplateFields';
 import { STANDARD_FORM_DEFAULT, isCoreKey, asText } from '../../utils/standardForm';
+import { OTHER, RX_OPTIONS, PLACEHOLDERS, complaintOptions, diagnosisOptions, buildTreatmentPlan, inVitalValues } from '../../utils/assessmentSuggestions';
 import '../../styles/doctor/DoctorLayout.css';
 
 const API = 'http://localhost:3001';
 
+const VITAL_ICONS = { blood_pressure: HeartPulse, temperature: Thermometer, pulse_rate: Activity, respiratory_rate: Wind };
+const initialsOf = (first, last) => `${(first || '').trim().charAt(0)}${(last || '').trim().charAt(0)}`.toUpperCase() || '?';
+
 const EMPTY_RX = { medicine: '', dosage: '', frequency: '', duration: '', instructions: '' };
+
+// A prescription part with a fixed list (dosage, frequency, duration, instructions) plus "Other" to write your own
+const PickOrType = ({ label, value, options, onChange, maxLength, hint }) => {
+    const custom = value !== '' && !options.includes(value);
+    const [other, setOther] = useState(custom);
+    const writing = other || custom;
+    return (
+        <div className="dp-field">
+            <label>{label}</label>
+            <select className="dp-select" aria-label={label} value={writing ? OTHER : value} onChange={(e) => {
+                if (e.target.value === OTHER) { setOther(true); onChange(''); } else { setOther(false); onChange(e.target.value); }
+            }}>
+                <option value="">{hint}</option>
+                {options.map((o) => <option key={o} value={o}>{o}</option>)}
+                <option value={OTHER}>{OTHER}</option>
+            </select>
+            {writing && <input className="dp-input" style={{ marginTop: 6 }} maxLength={maxLength} aria-label={`${label}: write the answer`} placeholder="Write the answer" value={value} onChange={(e) => onChange(e.target.value)} />}
+        </div>
+    );
+};
 
 // doctorId: whose templates are offered; nurseId is set when the nurse documents the visit instead of the doctor
 const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }) => {
@@ -116,6 +141,75 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
 
     const template = useMemo(() => templates.find((t) => t.template_id === templateId) || null, [templates, templateId]);
 
+    // medicines of the clinic as suggestions for the prescription (the doctor can still type another name)
+    const [medicineNames, setMedicineNames] = useState([]);
+    useEffect(() => {
+        let live = true;
+        fetch(`${API}/api/medicines`).then((r) => r.json()).then((d) => {
+            const rows = Array.isArray(d) ? d : d.medicines || d.data || [];
+            if (!live) return;
+            const names = rows.map((m) => [m.generic_name, m.display_strength_value && m.display_strength_unit ? `${m.display_strength_value} ${m.display_strength_unit}` : ''].filter(Boolean).join(' ')).filter(Boolean);
+            setMedicineNames([...new Set(names)]);
+        }).catch(() => {});
+        return () => { live = false; };
+    }, []);
+
+    // the standard form: the complaint and the diagnosis are dropdowns (with Other) unless the doctor made them something else; every box has a placeholder
+    const stdFields = useMemo(() => (Array.isArray(std.fields) ? std.fields : []).map((f) => {
+        const next = { ...f, placeholder: f.placeholder || PLACEHOLDERS[f.key] };
+        if (f.key === 'chief_complaint' && ['text', 'textarea'].includes(f.type)) {
+            return { ...next, type: 'select', options: complaintOptions(visitType), hint: f.hint && !/^e\.g\. Headache/.test(f.hint) ? f.hint : '' };
+        }
+        if (f.key === 'diagnosis' && ['text', 'textarea'].includes(f.type)) {
+            return { ...next, type: 'select', options: diagnosisOptions(visitType), hint: f.hint || '' };
+        }
+        return next;
+    }), [std, visitType]);
+
+    // the treatment plan writes itself from the diagnosis, the complaint, the vital signs, the prescription and the follow-up, until the doctor edits it
+    const planKeys = useMemo(() => {
+        if (!template) return { plan: 'treatment_recommendations', diagnosis: 'diagnosis', complaint: 'chief_complaint' };
+        const find = (re, types = ['text', 'textarea', 'select']) => (template.fields.find((f) => types.includes(f.type) && re.test(f.label)) || {}).key;
+        return { plan: find(/treatment|recommendation|plan/i, ['text', 'textarea']), diagnosis: find(/diagnos/i), complaint: find(/complaint|reason/i) };
+    }, [template]);
+    const planFieldsNow = template ? template.fields : stdFields;
+    const planKey = planKeys.plan && planFieldsNow.some((f) => f.key === planKeys.plan) ? planKeys.plan : null;
+    const cur = template ? answers : vals;
+    const clean = (v) => { const t = asText(v).trim(); return t === OTHER ? '' : t; };
+    const generatedPlan = useMemo(() => buildTreatmentPlan({
+        visitType,
+        complaint: clean(cur[planKeys.complaint]),
+        diagnosis: clean(cur[planKeys.diagnosis]),
+        prescriptions: form ? form.prescriptions : [],
+        vitals: inVitalValues(appt),
+        followUp: form ? { needed: form.follow_up_needed, date: form.follow_up_date, notes: form.follow_up_notes } : null
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }), [visitType, cur[planKeys.complaint], cur[planKeys.diagnosis], form, appt]);
+    const lastPlan = useRef('');
+    useEffect(() => {
+        if (!planKey || !form) return;
+        const setCur = template ? setAnswers : setVals;
+        setCur((v) => {
+            const now = String(v[planKey] ?? '');
+            if (now === generatedPlan) return v;
+            if (now !== '' && now !== lastPlan.current) return v; // the doctor wrote or edited it: leave it
+            lastPlan.current = generatedPlan;
+            return { ...v, [planKey]: generatedPlan };
+        });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [generatedPlan, planKey, template]);
+    const writePlanAgain = () => {
+        lastPlan.current = generatedPlan;
+        (template ? setAnswers : setVals)((v) => ({ ...v, [planKey]: generatedPlan }));
+    };
+    const planAction = planKey ? {
+        [planKey]: (
+            <button type="button" className="dp-btn dp-btn-ghost dp-btn-icon" onClick={writePlanAgain} disabled={!generatedPlan} aria-label="Write the plan again" title="Write the plan again">
+                <Sparkles size={16} aria-hidden="true" />
+            </button>
+        )
+    } : undefined;
+
     if (!appt || !form) return null;
 
     // a new check-up starts by choosing the form; with no template to choose from, the standard form is the only one
@@ -160,8 +254,6 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
     const setRx = (i, patch) => set({ prescriptions: form.prescriptions.map((r, idx) => (idx === i ? { ...r, ...patch } : r)) });
 
     // a new check-up cannot be closed until the required fields are filled (Esc, the X and Cancel are off); editing one can be closed any time
-    // the fields of the doctor's standard form
-    const stdFields = Array.isArray(std.fields) ? std.fields : [];
     // one assessment form only: the picked template, or the standard check-up form when none is picked
     const requiredFilled = template
         ? missingRequired(template.fields, answers).length === 0
@@ -226,6 +318,7 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
                 followUpMessage = fd.success ? ' The follow-up appointment was booked.' : ` The follow-up could not be booked: ${fd.message}`;
             }
             showAlert(`Check-up saved.${followUpMessage}`, followUpMessage.includes('could not') ? 'warning' : 'success');
+            notifyRecordChanged(['checkup', 'visit']);
             onSaved?.();
             onClose();
         } catch (err) {
@@ -242,17 +335,43 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
     return (
         <Modal isOpen onClose={locked ? undefined : onClose} title={editing ? 'Edit check-up' : 'Document check-up'} icon={<ClipboardPlus size={20} />} size="xl" closeOnBackdrop={false}>
             <form className="dp-form" onSubmit={submit}>
-                <div className="dp-notice">
-                    <strong>{fullName(appt.student_first_name, appt.student_last_name)}</strong> ({appt.student_id}) - {visitLabel(visitType, appt.purpose_other)}<br />
-                    {appt.queue_state ? formatDate(appt.start_time) : <>{formatDate(appt.start_time)}, {formatTime(appt.start_time)} - {formatTime(appt.end_time)}</>}
-                    {appt.check_in_time || inVitals.length > 0 ? (
-                        <><br />
-                            {appt.check_in_time ? <>Time in: {formatTime(appt.check_in_time)}</> : null}
-                            {inVitals.length > 0 ? <>{appt.check_in_time ? ' · ' : ''}{inVitals.map((v) => `${v.label} ${v.value} ${v.unit}`).join(' · ')}</> : null}
-                        </>
+                <section className="dp-patient" aria-label="Student">
+                    <div className="dp-patient-top">
+                        <span className="dp-patient-avatar" aria-hidden="true">{initialsOf(appt.student_first_name, appt.student_last_name)}</span>
+                        <div className="dp-patient-id">
+                            <strong className="dp-patient-name">{fullName(appt.student_first_name, appt.student_last_name)}</strong>
+                            <span className="dp-patient-sub">{appt.student_id}</span>
+                        </div>
+                        <span className="dp-chip dp-patient-purpose">{visitLabel(visitType, appt.purpose_other)}</span>
+                    </div>
+                    <div className="dp-patient-meta">
+                        <span><CalendarDays size={16} aria-hidden="true" />{appt.queue_state ? formatDate(appt.start_time) : <>{formatDate(appt.start_time)}, {formatTime(appt.start_time)} - {formatTime(appt.end_time)}</>}</span>
+                        {appt.check_in_time ? <span><Clock size={16} aria-hidden="true" />Time in {formatTime(appt.check_in_time)}</span> : null}
+                    </div>
+                    {inVitals.length > 0 && (
+                        <ul className="dp-vitals" aria-label="Vital signs at time in">
+                            {inVitals.map((v) => {
+                                const Icon = VITAL_ICONS[v.key] || Activity;
+                                const bad = vitalState(v.key, v.value) === 'abnormal';
+                                return (
+                                    <li key={v.key} className={`dp-vital${bad ? ' is-abnormal' : ''}`}>
+                                        <Icon size={18} aria-hidden="true" />
+                                        <span className="dp-vital-label">{v.label}</span>
+                                        <span className="dp-vital-value">{v.value}<small>{v.unit}</small></span>
+                                        <small className="dp-vital-range">Range {v.normal} {v.unit}</small>
+                                        <span className={`dp-vital-flag${bad ? '' : ' ok'}`}>{bad ? 'Not normal' : 'Normal'}</span>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    )}
+                    {appt.booking_reason || appt.nurse_remarks || appt.out_nurse_note ? (
+                        <dl className="dp-patient-notes">
+                            {appt.booking_reason ? <div><dt>Reason given</dt><dd>{appt.booking_reason}</dd></div> : null}
+                            {appt.nurse_remarks || appt.out_nurse_note ? <div><dt>Nurse remarks</dt><dd>{appt.nurse_remarks || appt.out_nurse_note}</dd></div> : null}
+                        </dl>
                     ) : null}
-                    {appt.booking_reason ? <><br />Reason given: {appt.booking_reason}</> : null}
-                </div>
+                </section>
                 {error && <div className="dp-error" role="alert">{error}</div>}
 
                 {templates.length > 0 && (
@@ -268,14 +387,14 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
                 {template && (
                     <>
                         <div className="dp-section-label">{template.template_name}</div>
-                        <TemplateFields fields={template.fields} values={answers} onChange={setAnswers} idPrefix="consult" />
+                        <TemplateFields fields={template.fields} values={answers} onChange={setAnswers} idPrefix="consult" actions={planAction} />
                     </>
                 )}
 
                 {!template && stdFields.length > 0 && (
                     <>
                         <div className="dp-section-label">Check-up form</div>
-                        <TemplateFields fields={stdFields} values={vals} onChange={setVals} idPrefix="consult-std" />
+                        <TemplateFields fields={stdFields} values={vals} onChange={setVals} idPrefix="consult-std" actions={planAction} />
                     </>
                 )}
 
@@ -286,21 +405,21 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
                         <div className="dp-row">
                             <div className="dp-field" style={{ gridColumn: 'span 2' }}>
                                 <label>Medicine</label>
-                                <input className="dp-input" maxLength={150} value={r.medicine} onChange={(e) => setRx(i, { medicine: e.target.value })} placeholder="e.g. Paracetamol 500 mg" />
+                                <input className="dp-input" list="consult-medicines" maxLength={150} value={r.medicine} onChange={(e) => setRx(i, { medicine: e.target.value })} placeholder="Pick or type, e.g. Paracetamol 500 mg" />
                             </div>
-                            <div className="dp-field"><label>Dosage</label><input className="dp-input" maxLength={80} value={r.dosage} onChange={(e) => setRx(i, { dosage: e.target.value })} placeholder="1 tablet" /></div>
-                            <div className="dp-field"><label>Frequency</label><input className="dp-input" maxLength={80} value={r.frequency} onChange={(e) => setRx(i, { frequency: e.target.value })} placeholder="every 6 hours" /></div>
-                            <div className="dp-field"><label>Duration</label><input className="dp-input" maxLength={80} value={r.duration} onChange={(e) => setRx(i, { duration: e.target.value })} placeholder="3 days" /></div>
+                            <PickOrType label="Dosage" value={r.dosage} options={RX_OPTIONS.dosage} maxLength={80} hint="Select the dose" onChange={(v) => setRx(i, { dosage: v })} />
+                            <PickOrType label="Frequency" value={r.frequency} options={RX_OPTIONS.frequency} maxLength={80} hint="How often" onChange={(v) => setRx(i, { frequency: v })} />
+                            <PickOrType label="Duration" value={r.duration} options={RX_OPTIONS.duration} maxLength={80} hint="For how long" onChange={(v) => setRx(i, { duration: v })} />
                         </div>
                         <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', marginTop: 10 }}>
-                            <div className="dp-field" style={{ flex: 1 }}>
-                                <label>Instructions</label>
-                                <input className="dp-input" maxLength={255} value={r.instructions} onChange={(e) => setRx(i, { instructions: e.target.value })} placeholder="e.g. After meals" />
+                            <div style={{ flex: 1 }}>
+                                <PickOrType label="Instructions" value={r.instructions} options={RX_OPTIONS.instructions} maxLength={255} hint="How to take it (optional)" onChange={(v) => setRx(i, { instructions: v })} />
                             </div>
                             <button type="button" className="dp-btn dp-btn-danger dp-btn-icon" onClick={() => set({ prescriptions: form.prescriptions.filter((_, idx) => idx !== i) })} aria-label="Remove medicine"><Trash2 size={16} /></button>
                         </div>
                     </div>
                 ))}
+                {std.prescription_enabled && <datalist id="consult-medicines">{medicineNames.map((n) => <option key={n} value={n} />)}</datalist>}
                 {std.prescription_enabled && <div><button type="button" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => set({ prescriptions: [...form.prescriptions, { ...EMPTY_RX }] })}><Plus size={15} /> Add medicine</button></div>}
 
                 <div className="dp-section-label">Follow-up</div>

@@ -19,7 +19,8 @@ import {
     RefreshCw,
     Camera,
     Printer,
-    Pill
+    Pill,
+    HeartPulse
 } from 'lucide-react';
 import jsQR from 'jsqr';
 
@@ -30,6 +31,11 @@ import { formatDate, formatDateTime, formatTime } from '../../utils/datetime';
 import FormDocument from '../../components/common/FormDocument';
 import { buildIncidentModel } from '../../utils/formModels';
 import { printFormDocument } from '../../utils/formDocument';
+import { useRecordSync, notifyRecordChanged } from '../../hooks/useRecordSync';
+import { VITAL_FIELDS, EMPTY_VITALS, vitalState, vitalsLine } from '../../utils/vitals';
+
+// Conditions that need a short description
+const CONDITIONAL_COMPLAINT_NAMES = ['injury', 'others', 'gastrointestinal issues', 'body pain'];
 
 // "BSIT - 4B"
 const classLabel = (r) => `${r.program_id || r.program_name || 'N/A'} - ${r.year_level || ''}${r.section || ''}`.trim();
@@ -73,6 +79,11 @@ const IncidentReport = () => {
 
     // Medicine dispensed for the incident (optional, logged in consultation_dispensation)
     const [batches, setBatches] = useState([]);
+    const [complaints, setComplaints] = useState([]);
+    // Medical condition of the incident (counted in health trends) + time-in vital signs
+    const [dispenseComplaintId, setDispenseComplaintId] = useState('');
+    const [specifyComplaint, setSpecifyComplaint] = useState('');
+    const [vitals, setVitals] = useState(EMPTY_VITALS);
     const [dispenseMedicineId, setDispenseMedicineId] = useState('');
     const [dispenseData, setDispenseData] = useState({ batch_id: '', quantity: '', unit: '' });
 
@@ -176,18 +187,57 @@ const IncidentReport = () => {
         fetchHotlines();
     }, [fetchIncidentReports, fetchHotlines]);
 
-    useEffect(() => {
-        if (showAddIncidentModal) fetchBatches();
-    }, [showAddIncidentModal, fetchBatches]);
+    // a report or the medicine given with it changed (here, another tab or another device): the list, the open report and its print follow
+    useRecordSync(['incident'], useCallback(async () => {
+        try {
+            const params = new URLSearchParams();
+            if (searchQuery) params.append('search', searchQuery);
+            if (dateFilter) params.append('date', dateFilter);
+            const data = await (await fetch(`http://localhost:3001/api/incident-reports?${params.toString()}`)).json();
+            if (!data.success) return;
+            setReports(data.reports);
+            setSelectedReport((current) => (current ? (data.reports.find((r) => r.incident_id === current.incident_id) || null) : current));
+        } catch (error) {
+            console.error('Error refreshing reports:', error);
+        }
+    }, [searchQuery, dateFilter]));
 
+    const fetchComplaints = useCallback(async () => {
+        try {
+            const res = await fetch('http://localhost:3001/api/chief-complaints');
+            const data = await res.json();
+            setComplaints(Array.isArray(data) ? data : []);
+        } catch (error) {
+            console.error('Error fetching medical conditions:', error);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (showAddIncidentModal) { fetchBatches(); fetchComplaints(); }
+    }, [showAddIncidentModal, fetchBatches, fetchComplaints]);
+
+    // A medicine is offered only for a medical condition it is indicated for.
+    const linkedBatches = batches.filter(b =>
+        dispenseComplaintId && String(b.complaint_ids || '').split(',').includes(String(dispenseComplaintId))
+    );
     const medicineOptions = Array.from(
-        new Map(batches.map(b => [b.medicine_id, { id: b.medicine_id, name: b.medicine_name }])).values()
+        new Map(linkedBatches.map(b => [b.medicine_id, { id: b.medicine_id, name: b.medicine_name }])).values()
     ).sort((a, b) => String(a.name).localeCompare(String(b.name)));
-    const medicineBatches = batches
+    const medicineBatches = linkedBatches
         .filter(b => b.medicine_id === dispenseMedicineId)
         .sort((a, b) => new Date(a.expiration_date) - new Date(b.expiration_date));
     const activeBatch = batches.find(b => b.batch_id === dispenseData.batch_id);
     const dispenseLimit = parseFloat(activeBatch?.dispense_limit) || 0;
+
+    const selectedComplaint = complaints.find(c => String(c.complaint_id) === String(dispenseComplaintId));
+    const specifyRequired = Boolean(selectedComplaint) && CONDITIONAL_COMPLAINT_NAMES.includes(String(selectedComplaint.complaint_name).trim().toLowerCase());
+
+    const handleComplaintChange = (complaintId) => {
+        setDispenseComplaintId(complaintId);
+        setSpecifyComplaint('');
+        setDispenseMedicineId('');
+        setDispenseData({ batch_id: '', quantity: '', unit: '' });
+    };
 
     const handleMedicineChange = (medicineId) => {
         setDispenseMedicineId(medicineId);
@@ -232,6 +282,8 @@ const IncidentReport = () => {
                     <td>${progYrSec}</td>
                     <td>${incidentDate}</td>
                     <td>${r.incident_location || 'N/A'}</td>
+                    <td>${r.complaint_name ? (r.specify_complaint_text ? `${r.complaint_name} (${r.specify_complaint_text})` : r.complaint_name) : 'N/A'}</td>
+                    <td>${vitalsLine({ blood_pressure: r.blood_pressure, temperature: r.temperature, pulse_rate: r.pulse_rate, respiratory_rate: r.respiratory_rate }) || 'N/A'}</td>
                     <td>${r.incident_description || 'N/A'}</td>
                     <td>${r.first_aid_administered || 'N/A'}</td>
                     <td>${r.medicine_name ? `${r.medicine_name} - ${Math.round(r.dosage_consumption_unit_value)} ${r.dosage_consumption_unit_of_measure}` : 'None'}</td>
@@ -344,13 +396,15 @@ const IncidentReport = () => {
                             <th>Program/Yr/Sec</th>
                             <th>Date & Time</th>
                             <th>Location</th>
+                            <th>Medical Condition</th>
+                            <th>Vital Signs (Time In)</th>
                             <th>Description</th>
                             <th>First Aid Administered</th>
                             <th>Medicine Dispensed</th>
                         </tr>
                     </thead>
                     <tbody>
-                        ${tableRowsHtml || '<tr><td colspan="8">No incident reports found.</td></tr>'}
+                        ${tableRowsHtml || '<tr><td colspan="10">No incident reports found.</td></tr>'}
                     </tbody>
                 </table>
 
@@ -515,6 +569,19 @@ const IncidentReport = () => {
             return;
         }
 
+        if (!dispenseComplaintId) {
+            showAlert('Select the medical condition.', 'warning');
+            return;
+        }
+        if (specifyRequired && !specifyComplaint.trim()) {
+            showAlert('Please specify the medical condition.', 'warning');
+            return;
+        }
+        if (VITAL_FIELDS.some(f => ['empty', 'invalid'].includes(vitalState(f.key, vitals[f.key])))) {
+            showAlert('Record all four vital signs with valid values.', 'warning');
+            return;
+        }
+
         if (dispenseData.batch_id) {
             const qty = Number(dispenseData.quantity);
             if (!Number.isInteger(qty) || qty <= 0) {
@@ -532,6 +599,9 @@ const IncidentReport = () => {
                 student_id: sId,
                 nurse_id: nurseId,
                 ...incidentData,
+                complaint_id: dispenseComplaintId,
+                specify_complaint_text: specifyRequired ? specifyComplaint.trim() : null,
+                ...vitals,
                 ...(dispenseData.batch_id && {
                     batch_id: dispenseData.batch_id,
                     dosage_consumption_unit_value: dispenseData.quantity
@@ -546,12 +616,14 @@ const IncidentReport = () => {
 
             const data = await res.json();
             if (data.success) {
-                showAlert('Incident report documented successfully!', 'success');
+                const flagged = Array.isArray(data.abnormal) ? data.abnormal : [];
+                showAlert(flagged.length ? `Saved. Not normal: ${flagged.join('; ')}` : 'Incident report documented successfully!', flagged.length ? 'warning' : 'success');
                 setShowAddIncidentModal(false);
                 resetIncidentForm();
                 fetchIncidentReports();
+                notifyRecordChanged(['incident', 'visit']);
             } else {
-                showAlert(data.message || 'Error saving report.', 'error');
+                showAlert(data.message || 'Error saving report.', res.status === 409 ? 'warning' : 'error');
             }
         } catch (error) {
             console.error('Save incident error:', error);
@@ -564,6 +636,9 @@ const IncidentReport = () => {
         setSelectedStudent(null);
         setStudentSearch('');
         setStudentResults([]);
+        setDispenseComplaintId('');
+        setSpecifyComplaint('');
+        setVitals(EMPTY_VITALS);
         setDispenseMedicineId('');
         setDispenseData({ batch_id: '', quantity: '', unit: '' });
         setIncidentData({
@@ -919,22 +994,86 @@ const IncidentReport = () => {
                                     </div>
 
                                     <fieldset className="inc-medicine">
+                                        <legend className="inc-legend"><HeartPulse size={16} aria-hidden="true" /> Vital signs (time in) *</legend>
+                                        <div className="form-grid-2">
+                                            {VITAL_FIELDS.map(f => {
+                                                const state = vitalState(f.key, vitals[f.key]);
+                                                return (
+                                                    <div className="form-group" key={f.key}>
+                                                        <label htmlFor={`inc-vital-${f.key}`}>{f.label} ({f.unit}) *</label>
+                                                        <input
+                                                            id={`inc-vital-${f.key}`}
+                                                            type="text"
+                                                            inputMode={f.key === 'blood_pressure' ? 'text' : 'decimal'}
+                                                            placeholder={f.placeholder}
+                                                            value={vitals[f.key]}
+                                                            onChange={(e) => setVitals({ ...vitals, [f.key]: e.target.value })}
+                                                            className="form-control"
+                                                            aria-describedby={`inc-vital-${f.key}-note`}
+                                                            aria-invalid={state === 'invalid'}
+                                                            required
+                                                        />
+                                                        <div id={`inc-vital-${f.key}-note`} className={state === 'abnormal' || state === 'invalid' ? 'inc-hint inc-vital-flag' : 'inc-hint'} role="status">
+                                                            {state === 'abnormal' && <><AlertTriangle size={14} aria-hidden="true" /> Not normal ({f.normal})</>}
+                                                            {state === 'invalid' && <><AlertTriangle size={14} aria-hidden="true" /> Invalid value</>}
+                                                            {state === 'normal' && <><Check size={14} aria-hidden="true" /> Normal</>}
+                                                            {state === 'empty' && <>Normal {f.normal}</>}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </fieldset>
+
+                                    <div className="form-group">
+                                        <label htmlFor="incident-complaint"><Activity size={16} aria-hidden="true" /> Medical condition *</label>
+                                        <select
+                                            id="incident-complaint"
+                                            className="form-control"
+                                            required
+                                            value={dispenseComplaintId}
+                                            onChange={(e) => handleComplaintChange(e.target.value)}
+                                        >
+                                            <option value="">Select</option>
+                                            {complaints.map(c => (
+                                                <option key={c.complaint_id} value={c.complaint_id}>{c.complaint_name}</option>
+                                            ))}
+                                        </select>
+                                        {specifyRequired && (
+                                            <input
+                                                type="text"
+                                                aria-label="Specify medical condition"
+                                                placeholder="Specify *"
+                                                maxLength={255}
+                                                value={specifyComplaint}
+                                                onChange={(e) => setSpecifyComplaint(e.target.value)}
+                                                className="form-control"
+                                                style={{ marginTop: '0.5rem' }}
+                                                required
+                                            />
+                                        )}
+                                    </div>
+
+                                    {dispenseComplaintId && (
+                                    <fieldset className="inc-medicine">
                                         <legend className="inc-legend"><Pill size={16} aria-hidden="true" /> Medicine</legend>
                                         <div className="inc-medicine-grid">
-                                            <div className="form-group span-3">
-                                                <label htmlFor="incident-medicine">Medicine</label>
-                                                <select
-                                                    id="incident-medicine"
-                                                    className="form-control"
-                                                    value={dispenseMedicineId}
-                                                    onChange={(e) => handleMedicineChange(e.target.value)}
-                                                >
-                                                    <option value="">None</option>
-                                                    {medicineOptions.map(m => (
-                                                        <option key={m.id} value={m.id}>{m.name}</option>
-                                                    ))}
-                                                </select>
-                                            </div>
+                                            {dispenseComplaintId && (
+                                                <div className="form-group span-3">
+                                                    <label htmlFor="incident-medicine">Medicine</label>
+                                                    <select
+                                                        id="incident-medicine"
+                                                        className="form-control"
+                                                        value={dispenseMedicineId}
+                                                        onChange={(e) => handleMedicineChange(e.target.value)}
+                                                    >
+                                                        <option value="">{medicineOptions.length ? 'No medicine' : 'None in stock'}</option>
+                                                        {medicineOptions.map(m => (
+                                                            <option key={m.id} value={m.id}>{m.name}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                            )}
 
                                             {dispenseMedicineId && (
                                                 <>
@@ -976,6 +1115,7 @@ const IncidentReport = () => {
                                             )}
                                         </div>
                                     </fieldset>
+                                    )}
                                 </div>
 
                                 {/* Right: narrative */}

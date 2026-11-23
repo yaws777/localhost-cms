@@ -121,6 +121,51 @@ app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
+// Screening record revision: every successful write to a screening (results, attendance, schedules, types, templates) bumps it.
+// Student, parent, doctor and nurse screens poll GET /api/screening-records/revision and reload what they show when it changes.
+// The boot stamp makes a server restart count as a change too.
+const SCREENING_BOOT_STAMP = Date.now().toString(36);
+let screeningRevision = 0;
+app.use((req, res, next) => {
+  if (req.method !== 'GET' && /^\/api\/(screenings|screening-types|screening-form-templates|screening-folders|school-years)(\/|$)/.test(req.path)) {
+    res.on('finish', () => {
+      if (res.statusCode < 400) screeningRevision += 1;
+    });
+  }
+  next();
+});
+app.get('/api/screening-records/revision', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ success: true, revision: `${SCREENING_BOOT_STAMP}-${screeningRevision}` });
+});
+
+// Same idea for the other documents: a check-up assessment, a clinic visit (+ the medicine given) and an incident report.
+// Every successful write bumps the revision of the kinds it touches; screens poll GET /api/records/revision and reload what
+// they show (lists, open modals, the data a PDF is built from) when their kind changed. 'screening' mirrors the counter above.
+const RECORD_KIND_ROUTES = {
+  checkup: /^\/api\/(doctor-assessments|doctor-visits|doctor-appointments|doctor-schedules|follow-ups|consultation-requests|student\/consultation-requests|doctor\/[^/]+\/(standard-form|templates))(\/|$)/,
+  visit: /^\/api\/(clinic-visits|doctor-visits|dispensation|batches|medicines|health-records|incident-reports)(\/|$)/,
+  incident: /^\/api\/(incident-reports|dispensation|batches|medicines)(\/|$)/
+};
+const recordRevisions = { checkup: 0, visit: 0, incident: 0 };
+app.use((req, res, next) => {
+  if (req.method !== 'GET') {
+    const kinds = Object.keys(RECORD_KIND_ROUTES).filter((k) => RECORD_KIND_ROUTES[k].test(req.path));
+    if (kinds.length > 0) {
+      res.on('finish', () => {
+        if (res.statusCode < 400) kinds.forEach((k) => { recordRevisions[k] += 1; });
+      });
+    }
+  }
+  next();
+});
+app.get('/api/records/revision', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const revisions = { screening: `${SCREENING_BOOT_STAMP}-${screeningRevision}` };
+  Object.keys(recordRevisions).forEach((k) => { revisions[k] = `${SCREENING_BOOT_STAMP}-${recordRevisions[k]}`; });
+  res.json({ success: true, revisions });
+});
+
 // Anything that changes medicine stock or the stock levels re-checks the stock status shortly afterwards
 // (restock alerts + report). scheduleStockCheck() is defined with the restock report code further down.
 app.use((req, res, next) => {
@@ -3380,6 +3425,32 @@ const healthConditionsOf = (student) => {
     return conditions;
 };
 
+// Allow-to-Play: what a student's health history means for a physical activity.
+// blockers = needs a doctor's clearance first (Not Allowed to Play); restrictions = may play with these conditions.
+const playHealthOf = (h) => {
+    if (!h) return { blockers: [], restrictions: [], conditions: [] };
+    const on = (v) => (v === null || v === undefined ? false : Buffer.isBuffer(v) ? v[0] === 1 : (v === true || Number(v) === 1 || String(v).toLowerCase() === 'true'));
+    const blockers = [];
+    const restrictions = [];
+    // every entry is one or two plain sentences ending with a period
+    const has = (what, specify) => `The student has ${specify ? `${what} (${specify})` : what}.`;
+    if (on(h.has_heart_problems)) blockers.push(`${has('a heart problem', h.heart_problems_specify)} A doctor must clear the student before playing.`);
+    if (on(h.has_seizure_episode)) blockers.push('The student has a history of seizures. A doctor must clear the student before playing.');
+    if (on(h.has_asthma)) restrictions.push(`${has('asthma', h.asthma_triggers ? `triggers: ${h.asthma_triggers}` : '')} Keep the inhaler at hand, avoid triggers, and rest when short of breath.`);
+    if (on(h.has_other_respiratory)) restrictions.push(`${has('a breathing problem', h.other_respiratory_specify)} Avoid strenuous activity and rest when short of breath.`);
+    if (on(h.has_allergies)) restrictions.push('The student has allergies. Keep allergy medicine at hand and avoid known triggers.');
+    if (on(h.has_blood_disorders)) restrictions.push('The student has a blood disorder. Avoid contact and high-impact activity, and rest when tired.');
+    if (on(h.has_metabolic_diseases)) restrictions.push('The student has a metabolic disease. Eat before playing, drink water, and stop if dizzy.');
+    if (on(h.has_muscle_bone_disorder)) restrictions.push(`${has('a muscle or bone disorder', h.muscle_bone_specify)} Avoid high-impact activity.`);
+    if (on(h.has_surgery)) restrictions.push(`${has('had surgery', h.surgery_specify)} Avoid strain on the operated area.`);
+    if (on(h.has_kidney_bladder_problems)) restrictions.push(`${has('a kidney or bladder problem', h.kidney_bladder_specify)} Drink water and allow rest breaks.`);
+    if (on(h.has_digestive_disorders)) restrictions.push('The student has a digestive disorder. Avoid strenuous activity after meals.');
+    if (on(h.has_vision_problem)) restrictions.push(`${has('a vision problem', h.vision_specify)} Wear glasses or lenses and avoid ball sports without them.`);
+    if (on(h.has_hearing_problem)) restrictions.push(`${has('a hearing problem', h.hearing_specify)} Use visual signals.`);
+    if (on(h.has_other_condition)) restrictions.push(`${has(h.other_condition_specify || 'another health condition')} Follow the nurse's advice.`);
+    return { blockers, restrictions, conditions: healthConditionsOf(h) };
+};
+
 // GET /api/health-records/students
 app.get('/students', async (req, res) => {
     try {
@@ -3549,6 +3620,10 @@ const validateMedicinePayload = (payload) => {
   if (!payload.dispense_unit_of_measure) return 'Dispense unit of measure is required.';
   if (!(payload.dispense_limit > 0)) return 'Dispense limit must be greater than 0.';
   if (!(payload.strength_unit_value > 0)) return 'Strength unit value must be greater than 0.';
+  // tablets and capsules (taken by mouth) always need a time limit before the next release
+  if (['Tablet/s', 'Capsule/s'].includes(payload.dispense_unit_of_measure) && !readIntervalHours(payload.min_hours_between_doses)) {
+    return 'Hours between releases is required for tablets and capsules.';
+  }
   return null;
 };
 
@@ -3602,11 +3677,11 @@ const checkDoseGap = async (connection, studentId, medicineId) => {
   await ensureMedicineIntervalColumn();
   await ensureIncidentDispenseColumns();
   const [meds] = await connection.query(
-    'SELECT brand_name, generic_name, min_hours_between_doses FROM medicines WHERE medicine_id = ?',
+    'SELECT brand_name, generic_name, min_hours_between_doses, dispense_unit_of_measure FROM medicines WHERE medicine_id = ?',
     [medicineId]
   );
   const gapHours = readIntervalHours(meds[0]?.min_hours_between_doses);
-  if (!gapHours) return null;
+  if (!gapHours) return await checkOtherOralGap(connection, studentId, medicineId, meds[0]);
   const gapMinutes = Math.round(gapHours * 60);
   const [rows] = await connection.query(
     `SELECT DATE_FORMAT(MAX(t.dispensed_at), '%Y-%m-%d %H:%i:%s') AS last_at,
@@ -3628,7 +3703,9 @@ const checkDoseGap = async (connection, studentId, medicineId) => {
     [gapMinutes, studentId, medicineId, medicineId, studentId]
   );
   const last = rows[0];
-  if (!last?.last_at || last.minutes_ago === null || Number(last.minutes_ago) >= gapMinutes) return null;
+  if (!last?.last_at || last.minutes_ago === null || Number(last.minutes_ago) >= gapMinutes) {
+    return await checkOtherOralGap(connection, studentId, medicineId, meds[0]);
+  }
   const name = meds[0].brand_name ? `${meds[0].brand_name} (${meds[0].generic_name})` : meds[0].generic_name;
   const next = formatManilaTime(last.next_at);
   const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
@@ -3636,6 +3713,52 @@ const checkDoseGap = async (connection, studentId, medicineId) => {
   return {
     message: `${name} was already given to this student ${Number(last.minutes_ago)} min ago. It can be released once every ${gapHours} hour${gapHours === 1 ? '' : 's'}. Next release: ${when}.`,
     next_allowed_at: last.next_at
+  };
+};
+
+// A tablet / capsule is also held back while ANOTHER tablet / capsule released to the same student is still inside its own time limit
+// (Bioflu given, then Bonamine asked: wait until the Bioflu gap is over). External forms (liquids, patches, sprays) are not affected.
+const ORAL_UNITS = ['Tablet/s', 'Capsule/s'];
+const checkOtherOralGap = async (connection, studentId, medicineId, med) => {
+  if (!med || !ORAL_UNITS.includes(med.dispense_unit_of_measure)) return null;
+  const [rows] = await connection.query(
+    `SELECT m.brand_name, m.generic_name, m.min_hours_between_doses,
+            DATE_FORMAT(t.dispensed_at, '%Y-%m-%d %H:%i:%s') AS last_at,
+            DATE_FORMAT(DATE_ADD(t.dispensed_at, INTERVAL ROUND(m.min_hours_between_doses * 60) MINUTE), '%Y-%m-%d %H:%i:%s') AS next_at,
+            TIMESTAMPDIFF(MINUTE, t.dispensed_at, NOW()) AS minutes_ago
+     FROM (
+       SELECT dd.dispensed_at, b.medicine_id
+       FROM direct_dispensation dd
+       JOIN medicine_inventory_batches b ON b.batch_id = dd.batch_id
+       WHERE dd.student_id = ?
+       UNION ALL
+       SELECT cd.dispensed_at, b.medicine_id
+       FROM consultation_dispensation cd
+       JOIN medicine_inventory_batches b ON b.batch_id = cd.batch_id
+       LEFT JOIN clinic_visits cv ON cv.visit_id = cd.visit_id
+       LEFT JOIN incident_reports ir ON ir.incident_id = cd.incident_id
+       WHERE COALESCE(cv.student_id, ir.student_id) = ?
+     ) t
+     JOIN medicines m ON m.medicine_id = t.medicine_id
+     WHERE t.medicine_id <> ?
+       AND m.dispense_unit_of_measure IN ('Tablet/s', 'Capsule/s')
+       AND m.min_hours_between_doses > 0
+       AND t.dispensed_at > DATE_SUB(NOW(), INTERVAL ROUND(m.min_hours_between_doses * 60) MINUTE)
+     ORDER BY DATE_ADD(t.dispensed_at, INTERVAL ROUND(m.min_hours_between_doses * 60) MINUTE) DESC
+     LIMIT 1`,
+    [studentId, studentId, medicineId]
+  );
+  const prev = rows[0];
+  if (!prev) return null;
+  const prevName = prev.brand_name ? `${prev.brand_name} (${prev.generic_name})` : prev.generic_name;
+  const name = med.brand_name ? `${med.brand_name} (${med.generic_name})` : med.generic_name;
+  const hours = readIntervalHours(prev.min_hours_between_doses);
+  const next = formatManilaTime(prev.next_at);
+  const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+  const when = next.date === today ? next.text : `${next.date} ${next.text}`;
+  return {
+    message: `${prevName} was given to this student ${Number(prev.minutes_ago)} min ago. Wait ${hours} hour${hours === 1 ? '' : 's'} before releasing ${name}. Next release: ${when}.`,
+    next_allowed_at: prev.next_at
   };
 };
 
@@ -4258,10 +4381,11 @@ app.get('/api/dispensation/history', async (req, res) => {
           c.dosage_consumption_unit_of_measure,
           c.dispensed_at,
           'Consultation Dispensation' AS dispensation_type,
-          'Incident Report' AS complaint_name,
-          ir.incident_location AS specify_complaint_text
+          COALESCE(icc.complaint_name, 'Incident Report') AS complaint_name,
+          IF(ir.complaint_id IS NULL, ir.incident_location, ir.specify_complaint_text) AS specify_complaint_text
         FROM consultation_dispensation c
         JOIN incident_reports ir ON c.incident_id = ir.incident_id
+        LEFT JOIN chief_complaints icc ON ir.complaint_id = icc.complaint_id
         JOIN students s ON ir.student_id = s.student_id
         JOIN medicine_inventory_batches b ON c.batch_id = b.batch_id
         JOIN medicines m ON b.medicine_id = m.medicine_id
@@ -4823,6 +4947,10 @@ app.post('/api/clinic-visits', async (req, res) => {
                 throw new Error("Cannot dispense medicine from an expired batch.");
             }
 
+            if (!complaint_id || !(await isMedicineLinkedToComplaint(connection, batchRows[0].medicine_id, complaint_id))) {
+                throw new Error("Selected medicine is not indicated for the selected medical condition.");
+            }
+
             const doseGap = await checkDoseGap(connection, student_id, batchRows[0].medicine_id);
             if (doseGap) {
                 await connection.rollback();
@@ -5151,6 +5279,20 @@ app.put('/api/clinic-visits/:id', async (req, res) => {
             [id]
         );
         const wasDocumented = Boolean(priorDoc && priorDoc.complaint_id && priorDoc.nursing_intervention && priorDoc.assessment);
+
+        // The medicine already given stays on the record, so the condition cannot be changed to one it is not indicated for.
+        if (complaint_id && priorDoc && String(priorDoc.complaint_id || '') !== String(complaint_id)) {
+            const [[given]] = await connection.execute(
+                `SELECT mib.medicine_id
+                 FROM consultation_dispensation cd
+                 JOIN medicine_inventory_batches mib ON mib.batch_id = cd.batch_id
+                 WHERE cd.visit_id = ? LIMIT 1`,
+                [id]
+            );
+            if (given && !(await isMedicineLinkedToComplaint(connection, given.medicine_id, complaint_id))) {
+                throw new Error('The medicine already given is not indicated for the selected medical condition.');
+            }
+        }
 
         const visitQuery = `
             UPDATE clinic_visits
@@ -5568,7 +5710,7 @@ function getAverageDateWindow(referenceDate = nowManila()) {
 // ==========================================
 // HEALTH TRENDS, ILLNESS SUMMARY
 // ==========================================
-// A condition counts once per student per calendar month, however many times the student came for it (the count starts again each month),
+// A condition counts once per student per week (Monday to Sunday), however many times the student came for it (the count starts again each week),
 // and the number of DISTINCT students is shown next to it. Sources: clinic visits AND medicine given on request (direct dispensation, which
 // has no visit row), then doctor-visit diagnoses as a second source of health issues.
 // There is no lab results table yet, so lab-based conditions cannot be included.
@@ -5577,6 +5719,8 @@ const CONDITION_EVENTS_SQL = `(
   SELECT cv.student_id, cv.complaint_id, cv.visit_date AS event_date FROM clinic_visits cv WHERE cv.complaint_id IS NOT NULL
   UNION ALL
   SELECT dd.student_id, dd.complaint_id, DATE(dd.dispensed_at) AS event_date FROM direct_dispensation dd WHERE dd.complaint_id IS NOT NULL
+  UNION ALL
+  SELECT ir.student_id, ir.complaint_id, DATE(ir.incident_datetime) AS event_date FROM incident_reports ir WHERE ir.complaint_id IS NOT NULL
 ) ce`;
 
 const TREND_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -5657,7 +5801,7 @@ function buildRangeBuckets(fromStr, toStr) {
 // Doctor diagnoses of a period grouped by (normalized) name: [{ name, count, students }]
 async function getDoctorDiagnosisCounts(startStr, endStr) {
   const [rows] = await pool.query(
-    `SELECT TRIM(a.diagnosis) AS diagnosis, COUNT(DISTINCT a.student_id, DATE_FORMAT(a.assessment_date, '%Y-%m')) AS cnt, COUNT(DISTINCT a.student_id) AS students
+    `SELECT TRIM(a.diagnosis) AS diagnosis, COUNT(DISTINCT a.student_id, YEARWEEK(a.assessment_date, 1)) AS cnt, COUNT(DISTINCT a.student_id) AS students
      FROM doctor_assessments a
      WHERE DATE(a.assessment_date) BETWEEN ? AND ? AND DAYOFWEEK(a.assessment_date) <> 1 AND a.diagnosis IS NOT NULL AND TRIM(a.diagnosis) <> ''
      GROUP BY LOWER(TRIM(a.diagnosis)), TRIM(a.diagnosis)`,
@@ -5678,10 +5822,10 @@ async function getDoctorDiagnosisCounts(startStr, endStr) {
 }
 
 // Clinic-visit conditions of a period: [{ name, count, students }]
-// A condition counts once per student per calendar month, however many visits it took (the count starts again each month).
+// A condition counts once per student per week, however many visits it took (the count starts again each week).
 async function getClinicConditionCounts(startStr, endStr) {
   const [rows] = await pool.query(
-    `SELECT cc.complaint_name AS name, COUNT(DISTINCT ce.student_id, DATE_FORMAT(ce.event_date, '%Y-%m')) AS cnt, COUNT(DISTINCT ce.student_id) AS students
+    `SELECT cc.complaint_name AS name, COUNT(DISTINCT ce.student_id, YEARWEEK(ce.event_date, 1)) AS cnt, COUNT(DISTINCT ce.student_id) AS students
      FROM ${CONDITION_EVENTS_SQL} JOIN chief_complaints cc ON ce.complaint_id = cc.complaint_id
      WHERE ce.event_date BETWEEN ? AND ? AND DAYOFWEEK(ce.event_date) <> 1
      GROUP BY cc.complaint_id, cc.complaint_name`,
@@ -5750,13 +5894,13 @@ app.get('/api/health-trends', async (req, res) => {
       return row;
     });
 
-    // a condition counts once per student per calendar month (on the student's first visit for it that month),
-    // so repeat visits for the same condition do not add up; the count starts again every month
+    // a condition counts once per student per week (on the student first visit for it that week),
+    // so repeat visits for the same condition do not add up; the count starts again every week
     const [visits] = await pool.query(
       `SELECT cc.complaint_name, DATE_FORMAT(MIN(ce.event_date), '%Y-%m-%d') AS d
        FROM ${CONDITION_EVENTS_SQL} JOIN chief_complaints cc ON ce.complaint_id = cc.complaint_id
        WHERE ce.event_date BETWEEN ? AND ? AND DAYOFWEEK(ce.event_date) <> 1
-       GROUP BY cc.complaint_id, cc.complaint_name, ce.student_id, DATE_FORMAT(ce.event_date, '%Y-%m')`,
+       GROUP BY cc.complaint_id, cc.complaint_name, ce.student_id, YEARWEEK(ce.event_date, 1)`,
       [startStr, endStr]
     );
     visits.forEach((v) => {
@@ -6874,13 +7018,37 @@ app.get('/api/frequent-complaints/details', async (req, res) => {
       FROM clinic_visits cv
       INNER JOIN students s ON cv.student_id = s.student_id
       INNER JOIN chief_complaints cc ON cv.complaint_id = cc.complaint_id
-      WHERE cv.student_id = ? 
+      WHERE cv.student_id = ?
         AND cc.complaint_name = ?
         AND DATE_FORMAT(cv.visit_date, '%Y-%m') = ?
-      ORDER BY cv.visit_date DESC, cv.time_in DESC;
+      UNION ALL
+      SELECT
+        dd.direct_dispense_id AS visitId,
+        dd.student_id AS studentId,
+        CONCAT(s.first_name, ' ', s.last_name) AS studentName,
+        CONCAT(s.program_id, ' - Year ', s.year_level) AS gradeSection,
+        cc.complaint_name AS complaint,
+        DATE_FORMAT(dd.dispensed_at, '%Y-%m-%d') AS visitDate,
+        TIME(dd.dispensed_at) AS timeIn,
+        NULL AS timeOut,
+        NULL AS temperature,
+        NULL AS respiratoryRate,
+        NULL AS pulseRate,
+        NULL AS bloodPressure,
+        CONCAT('Medicine dispensed: ', COALESCE(m.brand_name, m.generic_name, '')) AS nursingIntervention,
+        NULL AS assessment
+      FROM direct_dispensation dd
+      INNER JOIN students s ON dd.student_id = s.student_id
+      INNER JOIN chief_complaints cc ON dd.complaint_id = cc.complaint_id
+      LEFT JOIN medicine_inventory_batches b ON b.batch_id = dd.batch_id
+      LEFT JOIN medicines m ON m.medicine_id = b.medicine_id
+      WHERE dd.student_id = ?
+        AND cc.complaint_name = ?
+        AND DATE_FORMAT(dd.dispensed_at, '%Y-%m') = ?
+      ORDER BY visitDate DESC, timeIn DESC;
     `;
 
-    const [rows] = await pool.query(query, [studentId, complaint, targetMonth]);
+    const [rows] = await pool.query(query, [studentId, complaint, targetMonth, studentId, complaint, targetMonth]);
 
     return res.status(200).json({
       success: true,
@@ -6931,27 +7099,27 @@ app.get('/api/parent/frequent-complaints/:parentId', async (req, res) => {
 
     const query = `
       SELECT 
-        cv.student_id AS studentId,
+        ce.student_id AS studentId,
         CONCAT(s.first_name, ' ', s.last_name) AS studentName,
         CONCAT(s.program_id, ' - Year ', s.year_level) AS gradeSection,
         cc.complaint_name AS complaint,
-        COUNT(cv.visit_id) AS visitCount,
-        MAX(DATE_FORMAT(cv.visit_date, '%Y-%m-%d')) AS lastVisitDate
-      FROM clinic_visits cv
-      INNER JOIN students s ON cv.student_id = s.student_id
-      INNER JOIN chief_complaints cc ON cv.complaint_id = cc.complaint_id
+        COUNT(*) AS visitCount,
+        MAX(DATE_FORMAT(ce.event_date, '%Y-%m-%d')) AS lastVisitDate
+      FROM ${CONDITION_EVENTS_SQL}
+      INNER JOIN students s ON ce.student_id = s.student_id
+      INNER JOIN chief_complaints cc ON ce.complaint_id = cc.complaint_id
       INNER JOIN parent_student_mapping psm ON s.student_id = psm.student_id
       WHERE psm.parent_id = ?
-        AND DATE_FORMAT(cv.visit_date, '%Y-%m') = ?
-      GROUP BY 
-        cv.student_id, 
-        cv.complaint_id, 
-        s.first_name, 
-        s.last_name, 
-        s.program_id, 
-        s.year_level, 
+        AND DATE_FORMAT(ce.event_date, '%Y-%m') = ?
+      GROUP BY
+        ce.student_id,
+        ce.complaint_id,
+        s.first_name,
+        s.last_name,
+        s.program_id,
+        s.year_level,
         cc.complaint_name
-      HAVING COUNT(cv.visit_id) >= 3
+      HAVING COUNT(*) >= 3
       ORDER BY visitCount DESC, lastVisitDate DESC;
     `;
 
@@ -7034,7 +7202,7 @@ app.get('/api/reports-analytics', async (req, res) => {
     };
     const complaintRows = async (d1, d2) => {
       const [rows] = await pool.query(
-        `SELECT cc.complaint_name AS name, COUNT(DISTINCT ce.student_id, DATE_FORMAT(ce.event_date, '%Y-%m')) AS total_count, COUNT(DISTINCT ce.student_id) AS students
+        `SELECT cc.complaint_name AS name, COUNT(DISTINCT ce.student_id, YEARWEEK(ce.event_date, 1)) AS total_count, COUNT(DISTINCT ce.student_id) AS students
          FROM ${CONDITION_EVENTS_SQL} JOIN chief_complaints cc ON ce.complaint_id = cc.complaint_id
          WHERE ce.event_date >= ? AND ce.event_date <= ? AND DAYOFWEEK(ce.event_date) <> 1
          GROUP BY cc.complaint_id, cc.complaint_name
@@ -7055,7 +7223,7 @@ app.get('/api/reports-analytics', async (req, res) => {
     const totalDispensed = await countDispensed(from, to);
     const previousDispensed = await countDispensed(prevFrom, prevTo);
 
-    // ---- Health: medical conditions (once per student per calendar month) with the change since the previous period
+    // ---- Health: medical conditions (once per student per week) with the change since the previous period
     const complaintsNow = await complaintRows(startDate, endDate);
     const previousByName = new Map((await complaintRows(prevStart, prevEnd)).map((r) => [r.name.trim(), Number(r.total_count)]));
     const complaints = complaintsNow.map((row) => {
@@ -7165,8 +7333,11 @@ app.get('/api/reports-analytics', async (req, res) => {
     const [recentIncidentRows] = await pool.query(
       `SELECT ir.incident_id, DATE_FORMAT(ir.incident_datetime, '%Y-%m-%d %H:%i') AS happened_at, ir.incident_location,
               ir.incident_description, ir.first_aid_administered, ir.current_physical_situation,
+              ir.temperature, ir.respiratory_rate, ir.pulse_rate, ir.blood_pressure,
+              icc.complaint_name,
               CONCAT(s.first_name, ' ', s.last_name) AS student_name
        FROM incident_reports ir LEFT JOIN students s ON ir.student_id = s.student_id
+       LEFT JOIN chief_complaints icc ON ir.complaint_id = icc.complaint_id
        WHERE ir.incident_datetime >= ? AND ir.incident_datetime <= ?
        ORDER BY ir.incident_datetime DESC LIMIT 10`,
       [from, to]
@@ -7176,6 +7347,8 @@ app.get('/api/reports-analytics', async (req, res) => {
       happenedAt: r.happened_at,
       location: r.incident_location,
       student: r.student_name || 'Unknown student',
+      condition: r.complaint_name || '',
+      vitals: { blood_pressure: r.blood_pressure, temperature: r.temperature, pulse_rate: r.pulse_rate, respiratory_rate: r.respiratory_rate },
       description: r.incident_description,
       firstAid: r.first_aid_administered,
       situation: r.current_physical_situation
@@ -8583,8 +8756,8 @@ const BUILT_IN_FORMS = [
   {
     kind: 'VITAL_SIGNS', name: 'Vital Signs', description: 'Blood pressure, pulse, respiratory rate, temperature.', table: 'vital_signs_records', idCol: 'vital_record_id', timeCol: 'recorded_at',
     fields: [
-      { key: 'f1', label: 'Systolic blood pressure', type: 'number', unit: 'mmHg', required: false, min: 90, max: 119 },
-      { key: 'f2', label: 'Diastolic blood pressure', type: 'number', unit: 'mmHg', required: false, min: 60, max: 79 },
+      { key: 'f1', label: 'Systolic blood pressure', type: 'number', unit: 'mmHg', required: false, min: 90, max: 120 },
+      { key: 'f2', label: 'Diastolic blood pressure', type: 'number', unit: 'mmHg', required: false, min: 60, max: 80 },
       { key: 'f3', label: 'Pulse rate', type: 'number', unit: 'bpm', required: false, min: 60, max: 100 },
       { key: 'f4', label: 'Temperature', type: 'number', unit: 'C', required: false, min: 36.1, max: 37.5 },
       { key: 'f5', label: 'Respiratory rate', type: 'number', unit: '/min', required: false, min: 12, max: 20 }
@@ -8642,8 +8815,8 @@ const COMBINED_BMI_VITALS = {
       key: 'f3', label: 'BMI', type: 'calculated', required: false, formula: '{f2} / (({f1} / 100) * ({f1} / 100))', decimals: 1, min: 18.5, max: 24.9,
       bands: [{ upto: 18.5, label: 'Underweight' }, { upto: 25, label: 'Normal' }, { upto: 30, label: 'Overweight' }, { upto: null, label: 'Obese' }]
     },
-    { key: 'f4', label: 'Systolic blood pressure', type: 'number', unit: 'mmHg', required: false, min: 90, max: 119 },
-    { key: 'f5', label: 'Diastolic blood pressure', type: 'number', unit: 'mmHg', required: false, min: 60, max: 79 },
+    { key: 'f4', label: 'Systolic blood pressure', type: 'number', unit: 'mmHg', required: false, min: 90, max: 120 },
+    { key: 'f5', label: 'Diastolic blood pressure', type: 'number', unit: 'mmHg', required: false, min: 60, max: 80 },
     { key: 'f6', label: 'Pulse rate', type: 'number', unit: 'bpm', required: false, min: 60, max: 100 },
     { key: 'f7', label: 'Temperature', type: 'number', unit: 'C', required: false, min: 36.1, max: 37.5 },
     { key: 'f8', label: 'Respiratory rate', type: 'number', unit: '/min', required: false, min: 12, max: 20 }
@@ -8922,11 +9095,12 @@ const evaluateTemplateAnswers = (fields, given) => {
     const v = answers[f.key];
     if (v === undefined) continue;
     if (f.type === 'number' || f.type === 'calculated') {
-      if (f.play_min !== undefined && v < f.play_min) playReasons.push(`${f.label} ${v}${f.unit ? ` ${f.unit}` : ''} is below ${f.play_min}`);
-      else if (f.play_max !== undefined && v > f.play_max) playReasons.push(`${f.label} ${v}${f.unit ? ` ${f.unit}` : ''} is above ${f.play_max}`);
+      const unit = f.unit ? ` ${f.unit}` : '';
+      if (f.play_min !== undefined && v < f.play_min) playReasons.push(`${f.label} is ${v}${unit}. This is too low to play.`);
+      else if (f.play_max !== undefined && v > f.play_max) playReasons.push(`${f.label} is ${v}${unit}. This is too high to play.`);
       else continue;
     } else if ((f.play_block_options || []).includes(v)) {
-      playReasons.push(`${f.label}: ${v}`);
+      playReasons.push(`${f.label} is ${v}. This is not safe for play.`);
     } else continue;
     answers[`${f.key}__play`] = 'blocked';
   }
@@ -8942,8 +9116,44 @@ const bpFieldsOf = (fields) => {
 
 // Automatic remark of one result: blood pressure Normal / High Blood / Low Blood, other numbers Low / High against their normal range,
 // the play decision and the student's asthma history. Same wording as frontend/src/utils/screeningRemarks.js.
-const buildAutoRemarks = (fields, answers, evaluated, asthma) => {
+const PLAY_STATUS_LABELS = { ALLOWED: 'Allowed to Play', RESTRICTED: 'Allowed with Restrictions', NOT_ALLOWED: 'Not Allowed to Play' };
+
+// Clearance decision of a Physical Activities screening: the vitals (play range, readings outside normal) and the health history.
+// Same rules as playClearance in frontend/src/utils/screeningRemarks.js.
+const playClearanceOf = (fields, answers, evaluated, healthPlay) => {
+  const blockers = [...((evaluated && evaluated.play_reasons) || []), ...((healthPlay && healthPlay.blockers) || [])];
+  const restrictions = [...((healthPlay && healthPlay.restrictions) || [])];
+  const { sys, dia } = bpFieldsOf(fields);
+  const skip = new Set([sys && sys.key, dia && dia.key].filter(Boolean));
+  const sv = sys ? answers[sys.key] : undefined;
+  const dv = dia ? answers[dia.key] : undefined;
+  const bpBlocked = (sys && answers[`${sys.key}__play`] === 'blocked') || (dia && answers[`${dia.key}__play`] === 'blocked');
+  if ((sv !== undefined || dv !== undefined) && !bpBlocked) {
+    const low = (sv !== undefined && sys.min !== undefined && sv < sys.min) || (dv !== undefined && dia.min !== undefined && dv < dia.min);
+    const high = (sv !== undefined && sys.max !== undefined && sv > sys.max) || (dv !== undefined && dia.max !== undefined && dv > dia.max);
+    if (high || low) restrictions.push("Monitor the student's blood pressure during the activity.");
+  }
+  for (const f of fields) {
+    if (skip.has(f.key) || (f.type !== 'number' && f.type !== 'calculated') || answers[`${f.key}__play`] === 'blocked') continue;
+    const v = answers[f.key];
+    if (v === undefined) continue;
+    if ((f.min !== undefined && v < f.min) || (f.max !== undefined && v > f.max)) {
+      restrictions.push(`Monitor the student's ${String(f.label).toLowerCase()} during the activity.`);
+    }
+  }
+  const status = blockers.length > 0 ? 'NOT_ALLOWED' : restrictions.length > 0 ? 'RESTRICTED' : 'ALLOWED';
+  return { status, label: PLAY_STATUS_LABELS[status], blockers, restrictions };
+};
+
+// ctx = { category: 'GENERAL' | 'PHYSICAL', clearance, conditions }: plain sentences only. Physical Activities opens the remark with the
+// Allow-to-Play status, then the readings, then the health history that affects physical activity (the clearance sentences).
+// Other screenings end with the student's health history. General Screening has no play remark.
+const buildAutoRemarks = (fields, answers, evaluated, asthma, ctx = {}) => {
   const lines = [];
+  const physical = ctx.category === 'PHYSICAL' && ctx.clearance;
+  if (physical) lines.push(`Allow-to-Play Status: ${ctx.clearance.label}.`);
+  // a reading that already blocks play is told in the clearance sentences below
+  const blockedKey = (k) => physical && answers[`${k}__play`] === 'blocked';
   const { sys, dia } = bpFieldsOf(fields);
   const used = new Set();
   const sv = sys ? answers[sys.key] : undefined;
@@ -8951,32 +9161,30 @@ const buildAutoRemarks = (fields, answers, evaluated, asthma) => {
   if (sv !== undefined || dv !== undefined) {
     if (sys) used.add(sys.key);
     if (dia) used.add(dia.key);
-    const low = (sv !== undefined && sys.min !== undefined && sv < sys.min) || (dv !== undefined && dia.min !== undefined && dv < dia.min);
-    const high = (sv !== undefined && sys.max !== undefined && sv > sys.max) || (dv !== undefined && dia.max !== undefined && dv > dia.max);
-    const reading = `${sv !== undefined ? sv : '?'}/${dv !== undefined ? dv : '?'}`;
-    lines.push(`Blood pressure ${reading} mmHg: ${high ? 'High Blood' : low ? 'Low Blood' : 'Normal'}.`);
+    if (!(sys && blockedKey(sys.key)) && !(dia && blockedKey(dia.key))) {
+      const low = (sv !== undefined && sys.min !== undefined && sv < sys.min) || (dv !== undefined && dia.min !== undefined && dv < dia.min);
+      const high = (sv !== undefined && sys.max !== undefined && sv > sys.max) || (dv !== undefined && dia.max !== undefined && dv > dia.max);
+      const reading = `${sv !== undefined ? sv : '?'}/${dv !== undefined ? dv : '?'}`;
+      if (high || low) lines.push(`Blood pressure is ${reading} mmHg. Not normal (${high ? 'high' : 'low'}).`);
+    }
   }
   for (const f of fields) {
-    if (used.has(f.key) || (f.type !== 'number' && f.type !== 'calculated')) continue;
+    if (used.has(f.key) || (f.type !== 'number' && f.type !== 'calculated') || blockedKey(f.key)) continue;
     const v = answers[f.key];
     if (v === undefined) continue;
     const unit = f.unit ? ` ${f.unit}` : '';
     const band = answers[`${f.key}__label`];
-    if (f.min !== undefined && v < f.min) lines.push(`${f.label} ${v}${unit}: Low${band ? ` (${band})` : ''}.`);
-    else if (f.max !== undefined && v > f.max) lines.push(`${f.label} ${v}${unit}: High${band ? ` (${band})` : ''}.`);
-    else if (f.min !== undefined || f.max !== undefined) lines.push(`${f.label} ${v}${unit}: Normal${band ? ` (${band})` : ''}.`);
+    const state = f.min !== undefined && v < f.min ? 'low' : f.max !== undefined && v > f.max ? 'high' : '';
+    if (state) lines.push(`${f.label} is ${v}${unit}. Not normal (${state}${band ? `, ${band}` : ''}).`);
   }
   for (const f of fields) {
     if (f.type !== 'select' && f.type !== 'yesno') continue;
     const v = answers[f.key];
-    if (v !== undefined && (f.abnormal_options || []).includes(v)) lines.push(`${f.label}: ${v} (needs attention).`);
+    if (v !== undefined && (f.abnormal_options || []).includes(v)) lines.push(`${f.label} is ${v}. Not normal.`);
   }
-  if (evaluated && evaluated.has_play_rule) {
-    lines.push(evaluated.play_blocked
-      ? `Not allowed to play: ${evaluated.play_reasons.join('; ')}.`
-      : 'Allowed to play.');
-  }
-  if (asthma && asthma.has) lines.push(`History of asthma${asthma.triggers ? ` (${asthma.triggers})` : ''}.`);
+  if (physical) lines.push(...ctx.clearance.blockers, ...ctx.clearance.restrictions);
+  else if (ctx.conditions && ctx.conditions.length > 0) lines.push(`Health history: ${ctx.conditions.join(', ')}.`);
+  else if (asthma && asthma.has) lines.push(`The student has a history of asthma${asthma.triggers ? ` (${asthma.triggers})` : ''}.`);
   return lines.join(' ');
 };
 
@@ -8984,6 +9192,30 @@ const customSummary = (fields, answers) => {
   const a = jsonOf(answers) || {};
   return (jsonOf(fields) || []).filter((f) => a[f.key] !== undefined)
     .map((f) => `${f.label} ${a[f.key]}${f.unit ? ` ${f.unit}` : ''}${a[`${f.key}__label`] ? ` (${a[`${f.key}__label`]})` : ''}`).join(', ');
+};
+
+// Every recorded field of a form template as a read-only result: value + unit, band label, and for a field with a normal range
+// (or abnormal choices) status 'Normal' | 'Not normal' and range 'Range 90-119 mmHg'. Read by the student / parent / nurse record forms.
+const templateResults = (fields, answers) => {
+  const a = jsonOf(answers) || {};
+  return (jsonOf(fields) || []).filter((f) => a[f.key] !== undefined && a[f.key] !== '').map((f) => {
+    const v = a[f.key];
+    const unit = f.unit ? ` ${f.unit}` : '';
+    let status = '';
+    let range = '';
+    if (f.type === 'number' || f.type === 'calculated') {
+      const hasMin = f.min !== undefined && f.min !== null;
+      const hasMax = f.max !== undefined && f.max !== null;
+      if (hasMin || hasMax) {
+        const n = Number(v);
+        status = (hasMin && n < f.min) || (hasMax && n > f.max) ? 'Not normal' : 'Normal';
+        range = `Range ${hasMin && hasMax ? `${f.min}-${f.max}` : hasMin ? `${f.min} or more` : `up to ${f.max}`}${unit}`;
+      }
+    } else if ((f.abnormal_options || []).length > 0) {
+      status = f.abnormal_options.includes(String(v)) ? 'Not normal' : 'Normal';
+    }
+    return { label: f.label, value: `${v}${unit}`, note: a[`${f.key}__label`] || null, status, range };
+  });
 };
 
 const loadTemplate = async (conn, id) => {
@@ -9031,7 +9263,10 @@ const scheduleEndStr = (s) => `${String(s.scheduled_date).slice(0, 10)} ${s.end_
 const SCREENING_END_COLUMNS = [
   ['end_confirmed_at', 'datetime NULL'],
   ['extended_minutes', 'int NOT NULL DEFAULT 0'],
-  ['original_end_time', 'time NULL']
+  ['original_end_time', 'time NULL'],
+  // a past screening the nurse archived (Archived, restorable) or deleted for good (Deleted: in no list, the results stay in the student records)
+  ['archive_state', 'varchar(10) NULL'],
+  ['archived_at', 'datetime NULL']
 ];
 let screeningEndReady = null;
 const ensureScreeningEndColumns = () => {
@@ -9054,6 +9289,12 @@ const ensureScreeningEndColumns = () => {
       if (!have.some((c) => c.COLUMN_NAME === 'folder_id')) {
         await pool.query('ALTER TABLE screening_schedules ADD COLUMN folder_id INT NULL, ADD INDEX idx_screening_folder (folder_id)');
       }
+      // GENERAL = by class (existing or new class folder); PHYSICAL = Physical Activities (random participants, allow-to-play list).
+      // Screenings that were already filed in a mixed-group folder become Physical Activities.
+      if (!have.some((c) => c.COLUMN_NAME === 'screening_category')) {
+        await pool.query("ALTER TABLE screening_schedules ADD COLUMN screening_category VARCHAR(10) NOT NULL DEFAULT 'GENERAL'");
+        await pool.query("UPDATE screening_schedules SET screening_category = 'PHYSICAL' WHERE folder_id IS NOT NULL");
+      }
       // an archived folder leaves the lists but can be restored (or deleted for good)
       const [folderCols] = await pool.query(`SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'screening_folders'`);
       if (!folderCols.some((c) => c.COLUMN_NAME === 'archived_at')) {
@@ -9062,6 +9303,20 @@ const ensureScreeningEndColumns = () => {
     })().catch((err) => { screeningEndReady = null; throw err; });
   }
   return screeningEndReady;
+};
+// Allow-to-Play decision of a Physical Activities result (screening_custom_results): ALLOWED | RESTRICTED | NOT_ALLOWED + the restrictions text
+let screeningPlayReady = null;
+const ensureScreeningPlayColumns = () => {
+  if (!screeningPlayReady) {
+    screeningPlayReady = (async () => {
+      await screeningTemplatesReady;
+      const [have] = await pool.query(`SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'screening_custom_results'`);
+      if (have.length === 0) { screeningPlayReady = null; return; }
+      if (!have.some((c) => c.COLUMN_NAME === 'play_status')) await pool.query('ALTER TABLE screening_custom_results ADD COLUMN play_status VARCHAR(20) NULL');
+      if (!have.some((c) => c.COLUMN_NAME === 'play_notes')) await pool.query('ALTER TABLE screening_custom_results ADD COLUMN play_notes TEXT NULL');
+    })().catch((err) => { screeningPlayReady = null; throw err; });
+  }
+  return screeningPlayReady;
 };
 // where a screening stands: upcoming | ongoing (awaiting_end after the end time) | past (cancelled, confirmed, or the date passed)
 const screeningPhaseOf = (s, nowStr = nowManilaStr()) => {
@@ -9638,7 +9893,7 @@ const screeningListSql = (whereSql = '', orderSql = 'ORDER BY s.scheduled_date D
 app.get('/api/screenings', async (req, res) => {
   try {
     await ensureScreeningEndColumns();
-    const [rows] = await pool.query(screeningListSql());
+    const [rows] = await pool.query(screeningListSql('WHERE s.archive_state IS NULL'));
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -9665,7 +9920,7 @@ const screeningCte = (type, schoolYear = null) => {
                   ELSE 'upcoming' END AS tab
       FROM screening_schedules s
       LEFT JOIN screening_folders sfa ON sfa.folder_id = s.folder_id
-      WHERE sfa.archived_at IS NULL ${filters.length ? `AND ${filters.join(' AND ')}` : ''}
+      WHERE sfa.archived_at IS NULL AND s.archive_state IS NULL ${filters.length ? `AND ${filters.join(' AND ')}` : ''}
     ),
     pp AS (
       SELECT p.screening_schedule_id, p.student_id,
@@ -9753,7 +10008,10 @@ app.get('/api/screenings/folders', async (req, res) => {
        WHERE f.archived_at IS NOT NULL GROUP BY f.folder_id, f.name, f.archived_at ORDER BY f.archived_at DESC`
     );
     const [[archived]] = await pool.query('SELECT COUNT(*) AS n FROM students WHERE graduated_at IS NOT NULL');
+    // full rows, so the Archive tab can open the records of one
+    const [archivedScreenings] = await pool.query(screeningListSql("WHERE s.archive_state = 'Archived'", 'ORDER BY s.archived_at DESC'));
     res.json({
+      archived_screenings: archivedScreenings,
       programs,
       custom_folders: customFolders,
       archived_folders: archivedFolders.map((r) => ({ ...r, schedule_count: Number(r.schedule_count) })),
@@ -9856,6 +10114,50 @@ app.get('/api/screenings/page', async (req, res) => {
   }
 });
 
+// Archive a past screening (out of Past Screening and the calendar), restore it, or delete it for good (nurse only).
+// Delete for good only removes it from every list: the results stay in the student records.
+const archivedScreeningOf = async (req, res) => {
+  if (!(await requireNurse(req, res))) return null;
+  await ensureScreeningEndColumns();
+  const [[s]] = await pool.query('SELECT * FROM screening_schedules WHERE screening_schedule_id = ?', [req.params.id]);
+  if (!s) { res.status(404).json({ error: 'Screening not found.' }); return null; }
+  return s;
+};
+app.put('/api/screenings/:id/archive', async (req, res) => {
+  try {
+    const s = await archivedScreeningOf(req, res);
+    if (!s) return;
+    if (s.archive_state) return res.status(409).json({ error: 'This screening is already archived.' });
+    if (!['ended', 'cancelled'].includes(screeningPhaseOf(s).phase)) return res.status(409).json({ error: 'Only a past screening can be archived.' });
+    await pool.query("UPDATE screening_schedules SET archive_state = 'Archived', archived_at = NOW() WHERE screening_schedule_id = ?", [s.screening_schedule_id]);
+    res.json({ message: 'Screening archived.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+app.put('/api/screenings/:id/restore', async (req, res) => {
+  try {
+    const s = await archivedScreeningOf(req, res);
+    if (!s) return;
+    if (s.archive_state !== 'Archived') return res.status(409).json({ error: 'This screening is not in the archive.' });
+    await pool.query('UPDATE screening_schedules SET archive_state = NULL, archived_at = NULL WHERE screening_schedule_id = ?', [s.screening_schedule_id]);
+    res.json({ message: 'Screening restored.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+app.delete('/api/screenings/:id/archived', async (req, res) => {
+  try {
+    const s = await archivedScreeningOf(req, res);
+    if (!s) return;
+    if (s.archive_state !== 'Archived') return res.status(409).json({ error: 'Archive the screening first.' });
+    await pool.query("UPDATE screening_schedules SET archive_state = 'Deleted' WHERE screening_schedule_id = ?", [s.screening_schedule_id]);
+    res.json({ message: 'Screening deleted.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---------- Custom folders: a screening for a group that is not one class (sports fest players, club members ...) ----------
 const SCREENING_FOLDER_NAME_MAX = 80;
 const cleanFolderName = (v) => (textOrNull(v) || '').replace(/\s+/g, ' ');
@@ -9943,6 +10245,17 @@ app.get('/api/screening-folders/:id/members', async (req, res) => {
   }
 });
 
+// The screenings of a folder (the Archive tab opens an archived folder to see them)
+app.get('/api/screening-folders/:id/schedules', async (req, res) => {
+  try {
+    await ensureScreeningEndColumns();
+    const [rows] = await pool.query(screeningListSql('WHERE s.folder_id = ? AND s.archive_state IS NULL'), [req.params.id]);
+    res.json({ schedules: rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Archive: the folder and its screenings leave the lists but nothing is lost. Not while a screening is upcoming or on going.
 app.put('/api/screening-folders/:id/archive', async (req, res) => {
   try {
@@ -9973,8 +10286,9 @@ app.put('/api/screening-folders/:id/restore', async (req, res) => {
   }
 });
 
-// Delete: an empty folder any time; a folder with screenings only after it is archived, and then everything in it
-// (screenings, participants, results) is removed for good.
+// Delete: an empty folder any time; a folder with screenings only after it is archived. The folder and its screenings leave
+// every nurse list ('Deleted' like "delete for good" of one screening), but the participants and results are NOT removed:
+// they stay in the student, parent and doctor records.
 app.delete('/api/screening-folders/:id', async (req, res) => {
   let conn;
   try {
@@ -9989,20 +10303,12 @@ app.delete('/api/screening-folders/:id', async (req, res) => {
     conn = await pool.getConnection();
     await conn.beginTransaction();
     if (schedules.length > 0) {
-      const ids = schedules.map((s) => s.screening_schedule_id);
-      const [tables] = await conn.query(
-        `SELECT DISTINCT TABLE_NAME FROM information_schema.COLUMNS
-         WHERE TABLE_SCHEMA = DATABASE() AND COLUMN_NAME = 'screening_schedule_id' AND TABLE_NAME <> 'screening_schedules'
-           AND TABLE_NAME IN (SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE')`
+      // soft delete: out of the nurse lists, records kept (folder_id is cleared so the folder row can go)
+      await conn.query(
+        `UPDATE screening_schedules SET archive_state = 'Deleted', archived_at = COALESCE(archived_at, NOW()), folder_id = NULL
+         WHERE folder_id = ?`,
+        [req.params.id]
       );
-      await conn.query('SET FOREIGN_KEY_CHECKS = 0');
-      try {
-        for (const t of tables) await conn.query(`DELETE FROM \`${t.TABLE_NAME}\` WHERE screening_schedule_id IN (?)`, [ids]);
-        await conn.query('UPDATE screening_schedules SET makeup_of = NULL WHERE makeup_of IN (?) AND folder_id <> ?', [ids, req.params.id]);
-        await conn.query('DELETE FROM screening_schedules WHERE folder_id = ?', [req.params.id]);
-      } finally {
-        await conn.query('SET FOREIGN_KEY_CHECKS = 1');
-      }
     }
     await conn.query('DELETE FROM screening_folders WHERE folder_id = ?', [req.params.id]);
     await conn.commit();
@@ -10035,13 +10341,14 @@ const validateScreeningFields = (input) => {
 };
 
 // Conflicts of a screening slot: another active screening at the same time (one nurse runs them one after another). Back to back is allowed.
+// A screening that is done (end confirmed) or deleted (row gone) or cancelled never blocks the slot.
 // A screening may share date and time with a doctor session / appointment (the two never block each other). Returns a list of texts.
 // studentIds is kept for the callers but no longer used.
 const findScreeningConflicts = async (conn, { date, start, end, studentIds = [], excludeId = null }) => {
   const out = [];
   const [clash] = await conn.query(
     `SELECT title, screening_type, start_time, end_time FROM screening_schedules
-     WHERE scheduled_date = ? AND status <> 'Cancelled' AND start_time < ? AND end_time > ? ${excludeId ? 'AND screening_schedule_id <> ?' : ''}
+     WHERE scheduled_date = ? AND status <> 'Cancelled' AND end_confirmed_at IS NULL AND start_time < ? AND end_time > ? ${excludeId ? 'AND screening_schedule_id <> ?' : ''}
      ORDER BY start_time`,
     excludeId ? [date, end, start, excludeId] : [date, end, start]
   );
@@ -10059,20 +10366,41 @@ app.get('/api/screenings/free-slot', async (req, res) => {
     const duration = Math.min(Math.max(parseInt(req.query.duration, 10) || 30, 5), 240);
     const exclude = req.query.exclude_id ? String(req.query.exclude_id) : null;
     const nowStr = nowManilaStr();
+    const todayStr = nowStr.slice(0, 10);
     const OPEN = 7 * 60, CLOSE = 20 * 60;
-    let cursor = OPEN;
-    if (date === nowStr.slice(0, 10)) cursor = Math.max(cursor, Math.ceil((hmsToMin(nowStr.slice(11, 19)) + 1) / 5) * 5);
-    const [rows] = await pool.query(
-      `SELECT start_time, end_time FROM screening_schedules WHERE scheduled_date = ? AND status <> 'Cancelled' ${exclude ? 'AND screening_schedule_id <> ?' : ''} ORDER BY start_time`,
-      exclude ? [date, exclude] : [date]
-    );
-    for (const r of rows) {
-      const s = hmsToMin(r.start_time), e = hmsToMin(r.end_time);
-      if (cursor + duration <= s) break;
-      if (e > cursor) cursor = Math.ceil(e / 5) * 5;
+    // first free time of one day, or null when the day is full / over
+    const freeOn = async (day) => {
+      let cursor = OPEN;
+      if (day === todayStr) cursor = Math.max(cursor, Math.ceil((hmsToMin(nowStr.slice(11, 19)) + 1) / 5) * 5);
+      const [rows] = await pool.query(
+        `SELECT start_time, end_time FROM screening_schedules WHERE scheduled_date = ? AND status <> 'Cancelled' AND end_confirmed_at IS NULL ${exclude ? 'AND screening_schedule_id <> ?' : ''} ORDER BY start_time`,
+        exclude ? [day, exclude] : [day]
+      );
+      for (const r of rows) {
+        const s = hmsToMin(r.start_time), e = hmsToMin(r.end_time);
+        if (cursor + duration <= s) break;
+        if (e > cursor) cursor = Math.ceil(e / 5) * 5;
+      }
+      return cursor + duration > CLOSE ? null : cursor;
+    };
+    if (date < todayStr) return res.json({ available: false, message: 'This date is in the past.' });
+    const first = await freeOn(date);
+    if (first !== null) {
+      return res.json({ available: true, date, start_time: minToHms(first).slice(0, 5), end_time: minToHms(first + duration).slice(0, 5), now: nowStr });
     }
-    if (cursor + duration > CLOSE) return res.json({ available: false, message: 'No free time is left on this day.' });
-    res.json({ available: true, start_time: minToHms(cursor).slice(0, 5), end_time: minToHms(cursor + duration).slice(0, 5), now: nowStr });
+    // the day is full (or already closed today): offer the next day that has room
+    for (let i = 1; i <= 30; i += 1) {
+      const day = addDaysStr(date, i);
+      const cursor = await freeOn(day);
+      if (cursor !== null) {
+        return res.json({
+          available: true, date: day, moved_from: date,
+          start_time: minToHms(cursor).slice(0, 5), end_time: minToHms(cursor + duration).slice(0, 5), now: nowStr,
+          message: `No free time is left on ${date}. Moved to ${day}.`
+        });
+      }
+    }
+    res.json({ available: false, message: 'No free time in the next 30 days.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -10096,10 +10424,14 @@ app.get('/api/screenings/conflicts', async (req, res) => {
 // 4. Create New Screening Schedule (schedule + participants in one transaction)
 app.post('/api/screenings', async (req, res) => {
   const { sender_id, target_program_id, target_year_level, target_section, student_ids } = req.body;
-  // by section (one class) or a custom folder (any mix of programs, year levels and sections)
-  const isCustom = req.body.grouping === 'CUSTOM';
-  const folderName = cleanFolderName(req.body.folder_name);
-  const folderIdInput = parseInt(req.body.folder_id, 10);
+  // General Screening: one class, existing or new class folder. Physical Activities: random participants in a new list (never an existing one).
+  const category = req.body.screening_category === 'PHYSICAL' ? 'PHYSICAL' : 'GENERAL';
+  const isCustom = category === 'PHYSICAL';
+  if (category === 'GENERAL' && req.body.grouping === 'CUSTOM') {
+    return res.status(400).json({ error: 'General Screening is for one class. Use Physical Activities for a mixed group.' });
+  }
+  const folderName = category === 'PHYSICAL' ? cleanFolderName(req.body.folder_name || req.body.title).slice(0, 80) : cleanFolderName(req.body.folder_name);
+  const folderIdInput = category === 'PHYSICAL' ? NaN : parseInt(req.body.folder_id, 10);
 
   if (!student_ids || !Array.isArray(student_ids) || student_ids.length === 0) {
     return res.status(400).json({ error: 'At least one participant must be selected.' });
@@ -10137,6 +10469,11 @@ app.post('/api/screenings', async (req, res) => {
       return res.status(400).json({ error: typeError });
     }
     f.screening_type = screeningType.name;
+    if (category === 'PHYSICAL' && screeningType.form_kind !== 'CUSTOM') {
+      await connection.rollback();
+      connection.release();
+      return res.status(400).json({ error: 'Physical Activities needs a screening type with a form template.' });
+    }
 
     await ensureSchoolYears();
     const [users] = await connection.query('SELECT student_id, user_id, program_id, year_level, section, graduated_at FROM students WHERE student_id IN (?)', [uniqueIds]);
@@ -10180,9 +10517,9 @@ app.post('/api/screenings', async (req, res) => {
 
     await connection.query(
       `INSERT INTO screening_schedules
-      (screening_schedule_id, title, screening_type, target_program_id, target_year_level, target_section, scheduled_date, start_time, end_time, announcement, school_year, folder_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [scheduleId, f.title, f.screening_type, isCustom ? null : (group.program_id || null), isCustom ? null : (group.year_level || null), isCustom ? null : (group.section || null), f.scheduled_date, f.start_time, f.end_time, f.announcement, schoolYear, folderId]
+      (screening_schedule_id, title, screening_type, target_program_id, target_year_level, target_section, scheduled_date, start_time, end_time, announcement, school_year, folder_id, screening_category)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [scheduleId, f.title, f.screening_type, isCustom ? null : (group.program_id || null), isCustom ? null : (group.year_level || null), isCustom ? null : (group.section || null), f.scheduled_date, f.start_time, f.end_time, f.announcement, schoolYear, folderId, category]
     );
 
     const participantValues = uniqueIds.map((sId) => [uuidv4(), scheduleId, sId, 'PENDING']);
@@ -10639,6 +10976,7 @@ app.post('/api/screenings/send-reminders', async (req, res) => {
 app.get('/api/screenings/:id/students', async (req, res) => {
   const { id } = req.params;
   try {
+    await ensureScreeningPlayColumns().catch(() => {});
     const schedule = await loadScreening(pool, id);
     if (!schedule) return res.status(404).json({ error: 'Schedule not found' });
 
@@ -10664,7 +11002,11 @@ app.get('/api/screenings/:id/students', async (req, res) => {
 
     // a CUSTOM type carries its form template, so the page can draw the form and read the stored answers
     const template = screeningType && screeningType.form_kind === 'CUSTOM' ? await loadTemplate(pool, screeningType.template_id) : null;
-    const students = template ? rows.map((r) => ({ ...r, answers: jsonOf(r.answers) })) : rows;
+    // the health history of every participant, read for the allow-to-play decision and shown in the form
+    const [healthRows] = rows.length > 0 ? await pool.query('SELECT * FROM student_health_information WHERE student_id IN (?)', [rows.map((r) => r.student_id)]) : [[]];
+    const healthOf = new Map(healthRows.map((h) => [h.student_id, h]));
+    const withHealth = rows.map((r) => ({ ...r, health_play: playHealthOf(healthOf.get(r.student_id)) }));
+    const students = template ? withHealth.map((r) => ({ ...r, answers: jsonOf(r.answers) })) : withHealth;
     res.json({ schedule: { ...schedule, form_kind: screeningType ? screeningType.form_kind : null, type_active: screeningType ? screeningType.is_active : 0, template }, students });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -10848,22 +11190,40 @@ app.post('/api/screenings/:id/document', async (req, res) => {
       if (checked.error) return res.status(400).json({ error: checked.error });
       abnormal = checked.is_abnormal;
       const recordId = await generateCustomId('CUSTOM', 'screening_custom_results', 'custom_record_id');
-      // automatic remark (blood pressure label, ranges, play decision, asthma history); the nurse's own text is kept
-      const [[health]] = await pool.query('SELECT has_asthma, asthma_triggers FROM student_health_information WHERE student_id = ? LIMIT 1', [student_id]);
-      const hasAsthma = health && Number(Buffer.isBuffer(health.has_asthma) ? health.has_asthma[0] : health.has_asthma) === 1;
-      const autoRemark = buildAutoRemarks(template.fields, checked.answers, checked, { has: hasAsthma, triggers: textOrNull(health && health.asthma_triggers) });
+      // automatic remark: Allow-to-Play status (Physical Activities), blood pressure label, ranges and the student's health history; the nurse's own text is kept
+      await ensureScreeningPlayColumns();
+      const [[health]] = await pool.query('SELECT * FROM student_health_information WHERE student_id = ? LIMIT 1', [student_id]);
+      const healthPlay = playHealthOf(health);
+      const physical = sched.screening_category === 'PHYSICAL';
+      let clearance = null;
+      if (physical) {
+        clearance = playClearanceOf(template.fields, checked.answers, checked, healthPlay);
+        // the nurse may set the decision by hand; otherwise it is the generated one
+        const given = textOrNull(formData.play_status);
+        if (given && PLAY_STATUS_LABELS[given]) clearance = { ...clearance, status: given, label: PLAY_STATUS_LABELS[given] };
+        if (clearance.status === 'NOT_ALLOWED') abnormal = 1;
+      }
+      const autoRemark = buildAutoRemarks(template.fields, checked.answers, checked, null, { category: sched.screening_category, clearance, conditions: healthPlay.conditions });
       let finalRemarks = textOrNull(formData.remarks);
       if (!finalRemarks) finalRemarks = autoRemark || null;
-      else if (hasAsthma && !/asthma/i.test(finalRemarks)) finalRemarks = `${finalRemarks} History of asthma${health.asthma_triggers ? ` (${health.asthma_triggers})` : ''}.`;
+      else {
+        if (physical && !/allow-to-play status/i.test(finalRemarks)) finalRemarks = `Allow-to-Play Status: ${clearance.label}. ${finalRemarks}`;
+        if (physical) {
+          // the health history that affects physical activity, as sentences (once)
+          const extra = [...healthPlay.blockers, ...healthPlay.restrictions].filter((s) => !finalRemarks.includes(s));
+          if (extra.length > 0) finalRemarks = `${finalRemarks} ${extra.join(' ')}`;
+        } else if (healthPlay.conditions.length > 0 && !/health history/i.test(finalRemarks)) finalRemarks = `${finalRemarks} Health history: ${healthPlay.conditions.join(', ')}.`;
+      }
       formData.remarks = finalRemarks;
+      const playNotes = clearance ? [...clearance.blockers, ...clearance.restrictions].join(' ') || null : null;
 
       await pool.query(`
         INSERT INTO screening_custom_results
-          (custom_record_id, student_id, screening_schedule_id, template_id, answers, is_abnormal, remarks)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+          (custom_record_id, student_id, screening_schedule_id, template_id, answers, is_abnormal, remarks, play_status, play_notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE template_id = VALUES(template_id), answers = VALUES(answers),
-          is_abnormal = VALUES(is_abnormal), remarks = VALUES(remarks), recorded_at = NOW()
-      `, [recordId, student_id, id, template.template_id, JSON.stringify(checked.answers), abnormal, finalRemarks]);
+          is_abnormal = VALUES(is_abnormal), remarks = VALUES(remarks), play_status = VALUES(play_status), play_notes = VALUES(play_notes), recorded_at = NOW()
+      `, [recordId, student_id, id, template.template_id, JSON.stringify(checked.answers), abnormal, finalRemarks, clearance ? clearance.status : null, playNotes]);
       // a BMI result moves the student's height and weight (only when it is the newest reading)
       try { await syncBodyFromScreening(pool, student_id); } catch (e) { console.error('Body sync failed:', e.message); }
     }
@@ -10877,7 +11237,7 @@ app.post('/api/screenings/:id/document', async (req, res) => {
           sender_id: null,
           recipient_ids: [...new Set([stu?.user_id, ...parents].filter(Boolean))],
           title: `${type} Screening Result`,
-          message: `A ${type} result needs attention. Please follow up with the school clinic.`,
+          message: `A ${type} result is not normal. Please follow up with the school clinic.`,
           type: 'SCREENING_RESULT',
           payloadData: { screening_schedule_id: id }
         });
@@ -11033,9 +11393,9 @@ app.post('/api/screenings/:id/makeup', async (req, res) => {
     const makeupYear = await schoolYearForDate(connection, f.scheduled_date);
     await connection.query(
       `INSERT INTO screening_schedules
-         (screening_schedule_id, title, screening_type, target_program_id, target_year_level, target_section, scheduled_date, start_time, end_time, announcement, makeup_of, school_year, folder_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [newId, f.title, f.screening_type, source.target_program_id, source.target_year_level, source.target_section, f.scheduled_date, f.start_time, f.end_time, f.announcement, id, makeupYear, source.folder_id || null]
+         (screening_schedule_id, title, screening_type, target_program_id, target_year_level, target_section, scheduled_date, start_time, end_time, announcement, makeup_of, school_year, folder_id, screening_category)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [newId, f.title, f.screening_type, source.target_program_id, source.target_year_level, source.target_section, f.scheduled_date, f.start_time, f.end_time, f.announcement, id, makeupYear, source.folder_id || null, source.screening_category || 'GENERAL']
     );
     await connection.query(
       'INSERT INTO screening_schedule_participants (participant_id, screening_schedule_id, student_id, attendance_status) VALUES ?',
@@ -11071,6 +11431,7 @@ app.post('/api/screenings/:id/makeup', async (req, res) => {
 app.get('/api/screenings/:id/results', async (req, res) => {
   const { id } = req.params;
   try {
+    await ensureScreeningPlayColumns().catch(() => {});
     const schedule = await loadScreening(pool, id);
     if (!schedule) return res.status(404).json({ error: 'Schedule not found.' });
     const screeningType = await findScreeningType(pool, schedule.screening_type);
@@ -11090,7 +11451,9 @@ app.get('/api/screenings/:id/results', async (req, res) => {
     `, [id]);
 
     const ended = !['upcoming', 'ongoing'].includes(screeningPhaseOf(schedule).phase);
-    const summary = { total: rows.length, present: 0, absent: 0, pending: 0, documented: 0, abnormal: 0, distribution: {} };
+    const summary = { total: rows.length, present: 0, absent: 0, pending: 0, documented: 0, abnormal: 0, distribution: {}, play: { allowed: 0, restricted: 0, not_allowed: 0 } };
+    const [healthRows] = rows.length > 0 ? await pool.query('SELECT * FROM student_health_information WHERE student_id IN (?)', [rows.map((r) => r.student_id)]) : [[]];
+    const healthOf = new Map(healthRows.map((h) => [h.student_id, h]));
     const bump = (label) => { summary.distribution[label] = (summary.distribution[label] || 0) + 1; };
 
     const out = rows.map((r) => {
@@ -11105,12 +11468,15 @@ app.get('/api/screenings/:id/results', async (req, res) => {
       if (documented) {
         summary.documented++;
         if (r.is_abnormal) summary.abnormal++;
+        if (r.play_status === 'ALLOWED') summary.play.allowed++;
+        else if (r.play_status === 'RESTRICTED') summary.play.restricted++;
+        else if (r.play_status === 'NOT_ALLOWED') summary.play.not_allowed++;
         if (formKind === 'HEARING') bump(r.is_abnormal ? 'Refer' : 'Pass');
         else if (formKind === 'CUSTOM') {
-          // the label of the first calculated field with result labels (BMI: Underweight / Normal ...), else normal / needs attention
+          // the label of the first calculated field with result labels (BMI: Underweight / Normal ...), else normal / not normal
           const banded = template && template.fields.find((f) => f.type === 'calculated' && f.bands);
           const answers = jsonOf(r.answers) || {};
-          bump(banded && answers[`${banded.key}__label`] ? answers[`${banded.key}__label`] : (r.is_abnormal ? 'Needs attention' : 'Normal'));
+          bump(banded && answers[`${banded.key}__label`] ? answers[`${banded.key}__label`] : (r.is_abnormal ? 'Not normal' : 'Normal'));
         }
       }
       return {
@@ -11118,6 +11484,7 @@ app.get('/api/screenings/:id/results', async (req, res) => {
         ...(formKind === 'CUSTOM' ? { answers: jsonOf(r.answers) } : {}),
         attendance_status: attendance,
         documented,
+        health_conditions: playHealthOf(healthOf.get(r.student_id)).conditions,
         result_summary: documented ? screeningResultSummary(formKind, r, template && template.fields) : ''
       };
     });
@@ -11137,7 +11504,7 @@ app.get('/api/students/:studentId/screening-history', async (req, res) => {
     for (const [formKind, t] of Object.entries(SCREENING_RESULT_TABLES)) {
       const custom = formKind === 'CUSTOM';
       const [rows] = await pool.query(
-        `SELECT r.*, ${custom ? 'tp.fields AS template_fields, ' : ''}s.title, s.scheduled_date, s.school_year, s.screening_type AS schedule_type FROM ${t.table} r JOIN screening_schedules s ON s.screening_schedule_id = r.screening_schedule_id ${custom ? 'LEFT JOIN screening_form_templates tp ON tp.template_id = r.template_id' : ''} WHERE r.student_id = ?`,
+        `SELECT r.*, ${custom ? 'tp.fields AS template_fields, ' : ''}s.title, s.scheduled_date, s.school_year, s.screening_category, s.screening_type AS schedule_type FROM ${t.table} r JOIN screening_schedules s ON s.screening_schedule_id = r.screening_schedule_id ${custom ? 'LEFT JOIN screening_form_templates tp ON tp.template_id = r.template_id' : ''} WHERE r.student_id = ?`,
         [studentId]
       );
       rows.forEach((r) => history.push({
@@ -11149,7 +11516,10 @@ app.get('/api/students/:studentId/screening-history', async (req, res) => {
         attendance_status: 'PRESENT',
         summary: screeningResultSummary(formKind, r),
         is_abnormal: r.is_abnormal ? 1 : 0,
-        remarks: r.remarks || null
+        remarks: r.remarks || null,
+        screening_category: r.screening_category || 'GENERAL',
+        play_status: custom ? (r.play_status || null) : null,
+        results: custom ? templateResults(r.template_fields, r.answers) : []
       }));
     }
     // screenings the student was in that ended or were cancelled without a recorded result (absent, or not documented)
@@ -11568,6 +11938,13 @@ const sessionEndConfirmed = async (conn, scheduleId, dateStr) => {
     return !!row;
 };
 const liveStateOf = async (conn, s) => scheduleLiveState(s, await sessionEndConfirmed(conn, s.schedule_id, nowManilaStr().slice(0, 10)));
+// Has this session day already ended (date passed, or the end confirmed)? An ended session no longer blocks new hours.
+const sessionDayEnded = async (conn, s, dateStr) => {
+    const nowStr = nowManilaStr();
+    if (dateStr < nowStr.slice(0, 10)) return true;
+    if (dateStr > nowStr.slice(0, 10)) return false;
+    return sessionPhaseOf(s, dateStr, nowStr, await sessionEndConfirmed(conn, s.schedule_id, dateStr)).state === 'past';
+};
 // SQL: a queue entry of today's session whose end time passed but whose end nobody confirmed yet (still on going, not past)
 const AWAITING_END_SQL = `(da.queue_state IS NOT NULL AND da.schedule_id IS NOT NULL AND DATE(da.start_time) = CURDATE() AND da.end_time <= NOW()
     AND NOT EXISTS (SELECT 1 FROM session_end_confirmations sec WHERE sec.schedule_id = da.schedule_id AND sec.session_date = DATE(da.start_time)))`;
@@ -11889,7 +12266,7 @@ const validateScheduleInput = async (conn, input, { excludeScheduleId = null } =
     );
     for (const d of dates) {
         for (const o of others) {
-            if (scheduleOccursOn(o, d) && hmsToMin(o.start_time) < endMin && startMin < hmsToMin(o.end_time)) {
+            if (scheduleOccursOn(o, d) && hmsToMin(o.start_time) < endMin && startMin < hmsToMin(o.end_time) && !(await sessionDayEnded(conn, o, d))) {
                 return { error: `Overlaps another open schedule of this doctor on ${d} (${o.start_time.slice(0, 5)}-${o.end_time.slice(0, 5)}).` };
             }
         }
@@ -12349,8 +12726,9 @@ app.put('/api/doctor-schedules/:id/reopen', async (req, res) => {
 });
 
 // Cancelling a schedule deletes it. Everyone who held a place is told: students of the advance listing go back to waiting for a schedule (and the
-// advance listing opens again), students who asked through the session listing have their request ended. A session that is running, or one that
-// already has check-up records, stays (close it instead).
+// advance listing opens again), students who asked through the session listing have their request ended. A session that is running stays (close it
+// instead). A schedule with check-up records is cancelled too, but its row and the documented check-ups are kept (the schedule ends up Closed), so
+// the history is not lost.
 app.delete('/api/doctor-schedules/:id', async (req, res) => {
     const { id } = req.params;
     const senderId = (req.body && req.body.sender_id) || req.query.sender_id || null;
@@ -12379,26 +12757,28 @@ app.delete('/api/doctor-schedules/:id', async (req, res) => {
              FROM doctor_appointments da LEFT JOIN doctor_appointment_students das ON das.appointment_id = da.appointment_id
              WHERE da.schedule_id = ?`, [id]
         );
-        const appointmentIds = [...new Set(appointments.map((a) => a.appointment_id))];
-        if (appointmentIds.length > 0) {
-            const [[records]] = await connection.query(
-                `SELECT (SELECT COUNT(*) FROM doctor_assessments WHERE appointment_id IN (?))
-                      + (SELECT COUNT(*) FROM dental_assessment_records WHERE appointment_id IN (?))
-                      + (SELECT COUNT(*) FROM vision_screening_records WHERE appointment_id IN (?)) AS n`,
-                [appointmentIds, appointmentIds, appointmentIds]
+        const allAppointmentIds = [...new Set(appointments.map((a) => a.appointment_id))];
+        // appointments that already have a check-up record stay (history); the rest are removed
+        const documentedIds = new Set();
+        if (allAppointmentIds.length > 0) {
+            const [documented] = await connection.query(
+                `SELECT appointment_id FROM doctor_assessments WHERE appointment_id IN (?)
+                 UNION SELECT appointment_id FROM dental_assessment_records WHERE appointment_id IN (?)
+                 UNION SELECT appointment_id FROM vision_screening_records WHERE appointment_id IN (?)`,
+                [allAppointmentIds, allAppointmentIds, allAppointmentIds]
             );
-            if (Number(records.n) > 0) {
-                await connection.rollback();
-                return res.status(409).json({ success: false, message: 'This schedule already has check-up records, so it cannot be cancelled. Close it instead to keep the history.' });
-            }
+            documented.forEach((d) => documentedIds.add(d.appointment_id));
         }
+        const keepHistory = documentedIds.size > 0;
+        const appointmentIds = allAppointmentIds.filter((a) => !documentedIds.has(a));
 
         const reason = textOrNull(req.body && req.body.reason) || 'The doctor cancelled the schedule.';
         const date = nextUpcomingOccurrence(schedule) || String(schedule.schedule_date || '').slice(0, 10);
         const when = date ? fmtSessionWhen(date, schedule.start_time, schedule.end_time) : 'the schedule';
 
         // advance listing students that held a place go back to waiting for a schedule
-        const [advance] = await connection.query(`SELECT * FROM advance_listing_entries WHERE schedule_id = ? AND status = 'Scheduled' FOR UPDATE`, [id]);
+        const [advanceAll] = await connection.query(`SELECT * FROM advance_listing_entries WHERE schedule_id = ? AND status = 'Scheduled' FOR UPDATE`, [id]);
+        const advance = advanceAll.filter((e) => !documentedIds.has(e.appointment_id));
         if (advance.length > 0) {
             await connection.query(
                 `UPDATE advance_listing_entries SET status = 'Waiting', schedule_id = NULL, session_date = NULL, appointment_id = NULL WHERE entry_id IN (?)`,
@@ -12453,7 +12833,11 @@ app.delete('/api/doctor-schedules/:id', async (req, res) => {
         if (answered.length > 0) {
             await connection.query(`UPDATE schedule_requests SET status = 'Cancelled', schedule_id = NULL, responded_at = NOW() WHERE schedule_id = ?`, [id]);
         }
-        await connection.query(`DELETE FROM doctor_schedules WHERE schedule_id = ?`, [id]);
+        if (keepHistory) {
+            await connection.query(`UPDATE doctor_schedules SET status = 'Closed', closed_reason = ? WHERE schedule_id = ?`, [reason.slice(0, 255), id]);
+        } else {
+            await connection.query(`DELETE FROM doctor_schedules WHERE schedule_id = ?`, [id]);
+        }
 
         if (returned > 0 || answered.some((r) => r.for_advance)) {
             // the services of the students that came back, and the service of the schedule (when it is one service), take part again
@@ -12578,7 +12962,10 @@ app.post('/api/schedule-requests', async (req, res) => {
             // the asked hours cannot overlap a session the doctor already holds that day
             if (start && end) {
                 const [sessions] = await connection.query(`SELECT * FROM doctor_schedules WHERE doctor_id = ? AND status = 'Open'`, [doctor_id]);
-                const clash = sessions.find((o) => scheduleOccursOn(o, date) && hmsToMin(o.start_time) < hmsToMin(end) && hmsToMin(start) < hmsToMin(o.end_time));
+                let clash = null;
+                for (const o of sessions) {
+                    if (scheduleOccursOn(o, date) && hmsToMin(o.start_time) < hmsToMin(end) && hmsToMin(start) < hmsToMin(o.end_time) && !(await sessionDayEnded(connection, o, date))) { clash = o; break; }
+                }
                 if (clash) throw new BookingError(`${doctorDisplayName(doctor)} already has a session on that date (${String(clash.start_time).slice(0, 5)}-${String(clash.end_time).slice(0, 5)}). Pick other hours.`, 409);
             }
         }
@@ -14435,6 +14822,8 @@ const advanceStateOf = async (conn = pool) => {
     const batchRunning = !!listing && !listing.completed_at;
     return {
         is_open: !!setting.is_open, closes_at: setting.is_open ? setting.closes_at || null : null, opened_at: listing ? listing.opened_at : null, expired,
+        // students can register only while the listing is open AND at least one service still takes registrations (not closed, scheduled or full)
+        accepting: !!setting.is_open && offered.some((r) => r.status === 'Open' && !r.listing_full),
         closed_reason: !setting.is_open && listing ? listing.close_reason : null,
         listing: listing ? { listing_id: listing.listing_id, title: listing.title, opened_at: listing.opened_at, closed_at: listing.closed_at, close_reason: listing.close_reason, completed_at: listing.completed_at || null } : null,
         // the batch: running until every check-up service of it is done; then the nurse opens a new advance listing
@@ -14457,7 +14846,7 @@ app.get('/api/advance-listing', async (req, res) => {
     try {
         const state = await advanceStateOf(pool);
         const mine = req.query.student_id ? await advanceEntryOf(pool, req.query.student_id) : null;
-        res.json({ success: true, ...state, eligible: await eligibleCategories(pool), mine, can_register: state.is_open && !mine });
+        res.json({ success: true, ...state, eligible: await eligibleCategories(pool), mine, can_register: state.accepting && !mine });
     } catch (error) {
         console.error('Error loading the advance listing:', error);
         res.status(500).json({ success: false, message: 'Failed to load the advance listing' });
@@ -16203,7 +16592,7 @@ const DOCTOR_VISIT_SELECT = `
                 ckv.visit_id AS checkup_visit_id, ckv.time_in AS visit_time_in, ckv.time_out AS visit_time_out,
                 ckv.temperature AS in_temperature, ckv.respiratory_rate AS in_respiratory_rate, ckv.pulse_rate AS in_pulse_rate, ckv.blood_pressure AS in_blood_pressure,
                 ckv.out_temperature, ckv.out_respiratory_rate, ckv.out_pulse_rate, ckv.out_blood_pressure,
-                ckv.out_nurse_note,
+                ckv.out_nurse_note, ckv.out_nurse_note AS nurse_remarks,
                 (SELECT CONCAT(dm.brand_name, ' (', dm.generic_name, ')') FROM consultation_dispensation dcd
                    JOIN medicine_inventory_batches dmb ON dmb.batch_id = dcd.batch_id JOIN medicines dm ON dm.medicine_id = dmb.medicine_id
                   WHERE dcd.visit_id = ckv.visit_id ORDER BY dcd.dispensed_at LIMIT 1) AS dispensed_medicine,
@@ -16668,6 +17057,17 @@ const timeOutCheckupVisit = async (visitId, body) => {
     try {
         await connection.beginTransaction();
         if (dispense) await dispenseForCheckupVisit(connection, visitId, dispense);
+        else if (body.condition && body.condition.complaint_id) {
+            // condition recorded without medicine: it still counts in Health Trends
+            const conditionId = textOrNull(body.condition.complaint_id);
+            const [[found]] = await connection.query(`SELECT complaint_name FROM chief_complaints WHERE complaint_id = ?`, [conditionId]);
+            if (!found) throw new BookingError('Medical condition not found.', 400);
+            const specify = textOrNull(body.condition.specify_complaint_text);
+            if (CONDITIONS_TO_SPECIFY.includes(String(found.complaint_name).trim().toLowerCase()) && !specify) {
+                throw new BookingError(`Specify the ${found.complaint_name} condition.`, 400);
+            }
+            await connection.query(`UPDATE clinic_visits SET complaint_id = ?, specify_complaint_text = ? WHERE visit_id = ?`, [conditionId, specify, visitId]);
+        }
         await connection.query(
             `UPDATE clinic_visits SET time_out = ?, out_blood_pressure = ?, out_temperature = ?, out_pulse_rate = ?, out_respiratory_rate = ?, out_nurse_note = ? WHERE visit_id = ?`,
             [timeOut, v.blood_pressure || null, v.temperature || null, v.pulse_rate || null, v.respiratory_rate || null, note, visitId]
@@ -17372,8 +17772,8 @@ app.post('/api/doctor-assessments', async (req, res) => {
             await notifyUsers({
                 sender_id: sender_id || null,
                 recipient_ids: resultRecipients,
-                title: `${visitType} Result Filed`,
-                message: `Your ${visitType} check-up result was filed.${isAbnormal || followUp ? ' Please follow up with the clinic.' : ' See your clinic records for details.'}`,
+                title: `${visitType} Result ${existing.length > 0 ? 'Updated' : 'Filed'}`,
+                message: `Your ${visitType} check-up result was ${existing.length > 0 ? 'updated' : 'filed'}.${isAbnormal || followUp ? ' Please follow up with the clinic.' : ' See your clinic records for details.'}`,
                 type: 'ASSESSMENT_COMPLETED',
                 payloadData: { appointment_id }
             });
@@ -18090,7 +18490,7 @@ app.get('/api/student/:studentId/checkup-history', async (req, res) => {
                     a.follow_up_needed, a.follow_up_date, a.follow_up_notes, a.follow_up_closed, a.referral_facility, a.referral_reason, a.assessment_date,
                     a.template_name, a.template_responses, a.documented_by_name, a.documented_by_role,
                     ckv.temperature AS in_temperature, ckv.respiratory_rate AS in_respiratory_rate, ckv.pulse_rate AS in_pulse_rate, ckv.blood_pressure AS in_blood_pressure,
-                    ckv.out_temperature, ckv.out_respiratory_rate, ckv.out_pulse_rate, ckv.out_blood_pressure,
+                    ckv.out_temperature, ckv.out_respiratory_rate, ckv.out_pulse_rate, ckv.out_blood_pressure, ckv.out_nurse_note AS nurse_remarks,
                     ${checkupDispensedSql('ckv.visit_id')}
              FROM doctor_appointments da
              JOIN doctor_appointment_students das ON das.appointment_id = da.appointment_id
@@ -18997,6 +19397,33 @@ app.get('/api/doctor/:doctorId/dashboard', async (req, res) => {
 // ---- Doctor: appointments / check-ups lists ----
 // scope: requests (waiting for approval) | today | upcoming | past | queue (checked in, not documented yet) | documented | all
 
+// Past session days can be archived (out of Past Check-up, restorable) and then deleted for good (gone from every list; the
+// assessments, vitals and medicine records stay in the student's health records). One row per session day:
+// schedule_id ('none' = the direct appointments of the doctor), doctor_id, session_date, state Archived | Deleted.
+let sessionArchiveReady = null;
+const ensureSessionArchives = () => {
+    if (!sessionArchiveReady) {
+        sessionArchiveReady = pool.query(
+            `CREATE TABLE IF NOT EXISTS session_archives (
+                schedule_id VARCHAR(45) NOT NULL,
+                doctor_id VARCHAR(45) NOT NULL,
+                session_date DATE NOT NULL,
+                state VARCHAR(10) NOT NULL DEFAULT 'Archived',
+                archived_by VARCHAR(45) NULL,
+                archived_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (schedule_id, doctor_id, session_date)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
+        ).catch((err) => { sessionArchiveReady = null; throw err; });
+    }
+    return sessionArchiveReady;
+};
+const sessionArchiveSql = (state = null) =>
+    `EXISTS (SELECT 1 FROM session_archives sa WHERE sa.schedule_id = COALESCE(da.schedule_id, 'none') AND sa.doctor_id = da.doctor_id AND sa.session_date = DATE(da.start_time)${state ? ` AND sa.state = '${state}'` : ''})`;
+const PAST_APPOINTMENT_SQL = [
+    `(da.end_time <= NOW() OR da.status IN ('Completed', 'Cancelled', 'Declined', 'No-Show'))`,
+    `NOT (da.status IN ('Scheduled', 'Completed') AND da.start_time <= NOW() AND (da.end_time > NOW() OR ${AWAITING_END_SQL}))`
+];
+
 // doctorId "all" lists every doctor (the nurse), narrowed by ?doctor_id=; the filters are shared with the day folders below
 const appointmentFilter = (req) => {
     const { scope = 'upcoming', q, purpose, from, to } = req.query;
@@ -19012,7 +19439,9 @@ const appointmentFilter = (req) => {
         case 'upcoming': where.push(`da.status IN ('Scheduled', 'Waiting for Approval')`, `da.start_time > NOW()`); break;
         // a session past its end time stays on going until its end is confirmed (AWAITING_END_SQL); the date passing moves it to past by itself
         case 'ongoing': where.push(`da.status IN ('Scheduled', 'Completed')`, `da.start_time <= NOW()`, `(da.end_time > NOW() OR ${AWAITING_END_SQL})`); break;
-        case 'past': where.push(`(da.end_time <= NOW() OR da.status IN ('Completed', 'Cancelled', 'Declined', 'No-Show'))`, `NOT (da.status IN ('Scheduled', 'Completed') AND da.start_time <= NOW() AND (da.end_time > NOW() OR ${AWAITING_END_SQL}))`); break;
+        case 'past': where.push(...PAST_APPOINTMENT_SQL, `NOT ${sessionArchiveSql()}`); break;
+        // past session days the nurse or doctor archived (restorable); deleted ones are in no list
+        case 'archive': where.push(...PAST_APPOINTMENT_SQL, sessionArchiveSql('Archived')); break;
         case 'queue': where.push(`da.status = 'Scheduled'`, `das.attendance_status = 'Present'`, `da_assessment.assessment_id IS NULL`); break;
         case 'documented': where.push(`da_assessment.assessment_id IS NOT NULL`); break;
         case 'all': break;
@@ -19042,6 +19471,7 @@ const APPOINTMENT_JOINS = `
 
 app.get('/api/doctor/:doctorId/appointments', async (req, res) => {
     try {
+        await ensureSessionArchives();
         const { page, pageSize, offset } = pageParams(req.query);
         const filter = appointmentFilter(req);
         if (!filter) return res.status(400).json({ success: false, message: 'Unknown scope.' });
@@ -19049,7 +19479,7 @@ app.get('/api/doctor/:doctorId/appointments', async (req, res) => {
 
         const [[countRow]] = await pool.query(`SELECT COUNT(*) AS n ${APPOINTMENT_JOINS} WHERE ${where}`, params);
         const total = Number(countRow.n);
-        const desc = ['past', 'documented'].includes(scope);
+        const desc = ['past', 'documented', 'archive'].includes(scope);
 
         const [rows] = await pool.query(
             `${DOCTOR_VISIT_SELECT} WHERE ${where} ORDER BY da.start_time ${desc ? 'DESC' : 'ASC'}, da.queue_lane IS NULL, FIELD(da.queue_lane, 'Listed', 'Walk-in'), da.queue_no ASC LIMIT ? OFFSET ?`,
@@ -19094,6 +19524,7 @@ app.get('/api/doctor/:doctorId/appointment-days', async (req, res) => {
 // Upcoming and Past Check-up show the containers first, opening one lists its participants (?schedule_id=<id|none>&doctor_id=&from=&to= on /appointments)
 app.get('/api/doctor/:doctorId/appointment-groups', async (req, res) => {
     try {
+        await ensureSessionArchives();
         const { page, pageSize, offset } = pageParams(req.query);
         const filter = appointmentFilter(req);
         if (!filter) return res.status(400).json({ success: false, message: 'Unknown scope.' });
@@ -19151,7 +19582,7 @@ app.get('/api/doctor/:doctorId/appointment-groups', async (req, res) => {
 
         const [[countRow]] = await pool.query(`SELECT COUNT(*) AS n FROM (SELECT 1 ${APPOINTMENT_JOINS} WHERE ${where} GROUP BY ${groupBy}) g`, params);
         const total = Number(countRow.n);
-        const desc = scope === 'past';
+        const desc = scope === 'past' || scope === 'archive';
         const [groups] = await pool.query(
             `SELECT da.schedule_id, da.doctor_id, DATE_FORMAT(da.start_time, '%Y-%m-%d') AS day,
                     MIN(da.start_time) AS first_start, MAX(da.end_time) AS last_end, COUNT(*) AS total,
@@ -19181,6 +19612,68 @@ app.get('/api/doctor/:doctorId/appointment-groups', async (req, res) => {
     } catch (error) {
         console.error('Error fetching appointment groups:', error);
         res.status(500).json({ success: false, message: 'Failed to load the check-up sessions' });
+    }
+});
+
+// Archive a past session day, restore it, or delete it for good (the nurse, or the session's own doctor).
+// body / query: schedule_id (empty = direct appointments), doctor_id, day, created_by_doctor_id (doctor side), sender_id
+const sessionArchiveTarget = (src) => ({
+    scheduleId: textOrNull(src.schedule_id) && src.schedule_id !== 'null' ? String(src.schedule_id) : 'none',
+    doctorId: textOrNull(src.doctor_id),
+    day: String(src.day || '').slice(0, 10),
+    byDoctor: textOrNull(src.created_by_doctor_id)
+});
+const sessionArchiveGuard = (t) => {
+    if (!t.doctorId || !isDateStr(t.day)) return 'The session is not clear.';
+    return null;
+};
+app.put('/api/doctor-sessions/archive', async (req, res) => {
+    try {
+        await ensureSessionArchives();
+        const t = sessionArchiveTarget(req.body);
+        const bad = sessionArchiveGuard(t);
+        if (bad) return res.status(400).json({ success: false, message: bad });
+        if (t.byDoctor && t.byDoctor !== t.doctorId) return res.status(403).json({ success: false, message: 'Doctors can only archive their own sessions.' });
+        const archive = req.body.archived !== false;
+        if (archive) {
+            const [[rows]] = await pool.query(
+                `SELECT COUNT(*) AS n,
+                        SUM(${PAST_APPOINTMENT_SQL.join(' AND ')}) AS past
+                 FROM doctor_appointments da
+                 WHERE da.doctor_id = ? AND COALESCE(da.schedule_id, 'none') = ? AND DATE(da.start_time) = ?`,
+                [t.doctorId, t.scheduleId, t.day]
+            );
+            if (Number(rows.n) === 0) return res.status(404).json({ success: false, message: 'Session not found.' });
+            if (Number(rows.past) !== Number(rows.n)) return res.status(409).json({ success: false, message: 'Only a past session can be archived.' });
+            await pool.query(
+                `INSERT INTO session_archives (schedule_id, doctor_id, session_date, state, archived_by) VALUES (?, ?, ?, 'Archived', ?)
+                 ON DUPLICATE KEY UPDATE state = IF(state = 'Deleted', state, 'Archived'), archived_by = VALUES(archived_by)`,
+                [t.scheduleId, t.doctorId, t.day, req.body.sender_id || null]
+            );
+            return res.json({ success: true, message: 'Session archived.' });
+        }
+        const [r] = await pool.query(`DELETE FROM session_archives WHERE schedule_id = ? AND doctor_id = ? AND session_date = ? AND state = 'Archived'`, [t.scheduleId, t.doctorId, t.day]);
+        if (r.affectedRows === 0) return res.status(404).json({ success: false, message: 'This session is not in the archive.' });
+        res.json({ success: true, message: 'Session restored.' });
+    } catch (error) {
+        console.error('Error archiving a session:', error);
+        res.status(500).json({ success: false, message: 'Could not change the session.' });
+    }
+});
+
+app.delete('/api/doctor-sessions/archive', async (req, res) => {
+    try {
+        await ensureSessionArchives();
+        const t = sessionArchiveTarget(req.query);
+        const bad = sessionArchiveGuard(t);
+        if (bad) return res.status(400).json({ success: false, message: bad });
+        if (t.byDoctor && t.byDoctor !== t.doctorId) return res.status(403).json({ success: false, message: 'Doctors can only delete their own sessions.' });
+        const [r] = await pool.query(`UPDATE session_archives SET state = 'Deleted' WHERE schedule_id = ? AND doctor_id = ? AND session_date = ? AND state = 'Archived'`, [t.scheduleId, t.doctorId, t.day]);
+        if (r.affectedRows === 0) return res.status(404).json({ success: false, message: 'Archive the session first.' });
+        res.json({ success: true, message: 'Session deleted.' });
+    } catch (error) {
+        console.error('Error deleting a session:', error);
+        res.status(500).json({ success: false, message: 'Could not delete the session.' });
     }
 });
 
@@ -19935,10 +20428,26 @@ const ensureIncidentDispenseColumns = () => {
                 );
             }
             await pool.query('ALTER TABLE consultation_dispensation MODIFY visit_id varchar(45) NULL');
+
+            // Medical condition (feeds health trends / reports) and the time-in vital signs of the incident
+            const [haveIr] = await pool.query(
+                `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'incident_reports'`
+            );
+            for (const [column, def] of [
+                ['complaint_id', 'varchar(45) NULL'], ['specify_complaint_text', 'varchar(255) NULL'],
+                ['temperature', 'varchar(45) NULL'], ['respiratory_rate', 'varchar(45) NULL'],
+                ['pulse_rate', 'varchar(45) NULL'], ['blood_pressure', 'varchar(45) NULL']
+            ]) {
+                if (!haveIr.some((c) => c.COLUMN_NAME === column)) {
+                    await pool.query(`ALTER TABLE incident_reports ADD COLUMN \`${column}\` ${def}`);
+                }
+            }
         })().catch((err) => { incidentDispenseReady = null; throw err; });
     }
     return incidentDispenseReady;
 };
+// run on start: health trends and reports read incident_reports.complaint_id
+ensureIncidentDispenseColumns().catch((err) => console.error('Could not prepare the incident columns:', err.message));
 
 // GET: Fetch Incident Reports with student, program, and nurse details
 app.get('/api/incident-reports', async (req, res) => {
@@ -19957,6 +20466,7 @@ app.get('/api/incident-reports', async (req, res) => {
                 ap.program_name,
                 n.first_name AS nurse_first_name,
                 n.last_name AS nurse_last_name,
+                cc.complaint_name,
                 cd.batch_id AS dispensed_batch_id,
                 CONCAT(m.brand_name, ' (', m.generic_name, ')') AS medicine_name,
                 cd.dosage_consumption_unit_value,
@@ -19965,6 +20475,7 @@ app.get('/api/incident-reports', async (req, res) => {
             LEFT JOIN students s ON ir.student_id = s.student_id
             LEFT JOIN academic_programs ap ON s.program_id = ap.program_id
             LEFT JOIN nurses n ON ir.nurse_id = n.nurse_id
+            LEFT JOIN chief_complaints cc ON ir.complaint_id = cc.complaint_id
             LEFT JOIN consultation_dispensation cd ON cd.incident_id = ir.incident_id
             LEFT JOIN medicine_inventory_batches b ON cd.batch_id = b.batch_id
             LEFT JOIN medicines m ON b.medicine_id = m.medicine_id
@@ -20012,6 +20523,7 @@ app.post('/api/incident-reports', async (req, res) => {
             incident_description,
             first_aid_administered,
             current_physical_situation,
+            complaint_id,
             batch_id,
             dosage_consumption_unit_value
         } = req.body;
@@ -20021,6 +20533,18 @@ app.post('/api/incident-reports', async (req, res) => {
         }
 
         await ensureIncidentDispenseColumns();
+
+        // Medical condition (counted in health trends and reports) + time-in vital signs; not normal values are saved and reported
+        if (!complaint_id) return res.status(400).json({ success: false, message: 'Medical condition is required.' });
+        const [complaintRows] = await pool.query('SELECT complaint_name FROM chief_complaints WHERE complaint_id = ?', [complaint_id]);
+        if (complaintRows.length === 0) return res.status(400).json({ success: false, message: 'Unknown medical condition.' });
+        let specifyText = null;
+        if (CONDITIONS_TO_SPECIFY.includes(String(complaintRows[0].complaint_name).trim().toLowerCase())) {
+            specifyText = String(req.body.specify_complaint_text || '').trim().slice(0, 255);
+            if (!specifyText) return res.status(400).json({ success: false, message: 'Please specify the medical condition.' });
+        }
+        const vitals = readVitals(req.body, true);
+        if (vitals.error) return res.status(400).json({ success: false, message: vitals.error });
 
         let dispenseQty = null;
         if (batch_id) {
@@ -20034,8 +20558,9 @@ app.post('/api/incident-reports', async (req, res) => {
 
         const insertQuery = `
             INSERT INTO incident_reports
-            (incident_id, student_id, nurse_id, incident_datetime, incident_location, incident_description, first_aid_administered, current_physical_situation, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
+            (incident_id, student_id, nurse_id, incident_datetime, incident_location, incident_description, first_aid_administered, current_physical_situation,
+             complaint_id, specify_complaint_text, temperature, respiratory_rate, pulse_rate, blood_pressure, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
         `;
 
         const connection = await pool.getConnection();
@@ -20050,7 +20575,13 @@ app.post('/api/incident-reports', async (req, res) => {
                 incident_location,
                 incident_description,
                 first_aid_administered,
-                current_physical_situation
+                current_physical_situation,
+                complaint_id,
+                specifyText,
+                vitals.values.temperature,
+                vitals.values.respiratory_rate,
+                vitals.values.pulse_rate,
+                vitals.values.blood_pressure
             ]);
 
             // Medicine given (optional): reduces batch stock and is logged in consultation_dispensation
@@ -20064,6 +20595,10 @@ app.post('/api/incident-reports', async (req, res) => {
                     [batch_id]
                 );
                 if (batchRows.length === 0) throw Object.assign(new Error('Medicine batch not found.'), { userFacing: true });
+
+                if (!complaint_id || !(await isMedicineLinkedToComplaint(connection, batchRows[0].medicine_id, complaint_id))) {
+                    throw Object.assign(new Error('This medicine is not indicated for the selected medical condition.'), { userFacing: true });
+                }
 
                 const doseGap = await checkDoseGap(connection, student_id, batchRows[0].medicine_id);
                 if (doseGap) throw Object.assign(new Error(doseGap.message), { userFacing: true, status: 409 });
@@ -20210,6 +20745,7 @@ app.post('/api/incident-reports', async (req, res) => {
             success: true, 
             message: 'Incident report created and notifications sent successfully', 
             incident_id,
+            abnormal: vitals.abnormal,
             smsNotifications: parentSmsResults
         });
     } catch (error) {
@@ -20716,12 +21252,14 @@ app.get('/incident-reports/clinicLogs&Records', async (req, res) => {
         s.program_id,
         n.first_name AS nurse_first_name,
         n.last_name AS nurse_last_name,
+        icc.complaint_name,
         CONCAT(m.brand_name, ' (', m.generic_name, ')') AS medicine_name,
         cd.dosage_consumption_unit_value,
         cd.dosage_consumption_unit_of_measure
       FROM incident_reports ir
       LEFT JOIN students s ON ir.student_id = s.student_id
       LEFT JOIN nurses n ON ir.nurse_id = n.nurse_id
+      LEFT JOIN chief_complaints icc ON ir.complaint_id = icc.complaint_id
       LEFT JOIN consultation_dispensation cd ON cd.incident_id = ir.incident_id
       LEFT JOIN medicine_inventory_batches mib ON cd.batch_id = mib.batch_id
       LEFT JOIN medicines m ON mib.medicine_id = m.medicine_id
@@ -20886,7 +21424,7 @@ app.get('/health-screenings/clinicLogs&Records', async (req, res) => {
 
     // results taken with a form template (BMI, Vital Signs and the nurse's own forms) replace the plain row of their screening
     const [custom] = await pool.query(
-      `SELECT cr.screening_schedule_id, cr.answers, cr.is_abnormal, cr.remarks, tp.fields FROM screening_custom_results cr
+      `SELECT cr.screening_schedule_id, cr.answers, cr.is_abnormal, cr.remarks, cr.play_status, tp.fields FROM screening_custom_results cr
        JOIN screening_form_templates tp ON tp.template_id = cr.template_id WHERE cr.student_id = ?`,
       [studentId]
     );
@@ -20897,7 +21435,7 @@ app.get('/health-screenings/clinicLogs&Records', async (req, res) => {
     const info = new Map();
     if (scheduleIds.length > 0) {
       const [meta] = await pool.query(
-        `SELECT s.screening_schedule_id, s.status AS schedule_status, s.cancelled_reason, s.end_confirmed_at, p.attendance_status
+        `SELECT s.screening_schedule_id, s.status AS schedule_status, s.cancelled_reason, s.end_confirmed_at, s.screening_category, p.attendance_status
          FROM screening_schedules s
          LEFT JOIN screening_schedule_participants p ON p.screening_schedule_id = s.screening_schedule_id AND p.student_id = ?
          WHERE s.screening_schedule_id IN (?)`,
@@ -20912,14 +21450,15 @@ app.get('/health-screenings/clinicLogs&Records', async (req, res) => {
       if (c) {
         row.details = customSummary(c.fields, c.answers).split(', ').join(' | ');
         const a = jsonOf(c.answers) || {};
-        row.results = (jsonOf(c.fields) || []).filter((f) => a[f.key] !== undefined && a[f.key] !== '')
-          .map((f) => ({ label: f.label, value: `${a[f.key]}${f.unit ? ` ${f.unit}` : ''}`, note: a[`${f.key}__label`] || null }));
+        row.results = templateResults(c.fields, c.answers);
         row.is_abnormal = c.is_abnormal ? 1 : 0;
         row.remarks = c.remarks || null;
+        row.play_status = c.play_status || null;
         row.status = 'Completed';
       }
       const m = own ? info.get(row.screening_schedule_id) : null;
       if (m) {
+        row.screening_category = m.screening_category || 'GENERAL';
         row.attendance = m.attendance_status || null;
         if (row.status !== 'Completed') {
           if (m.schedule_status === 'Cancelled') { row.status = 'Cancelled'; row.cancelled_reason = m.cancelled_reason || null; }
@@ -20981,7 +21520,7 @@ app.get('/doctor-visits/clinicLogs&Records', async (req, res) => {
         vr.recommended_action, vr.remarks AS vision_remarks,
         ckv.time_in AS visit_time_in, ckv.time_out AS visit_time_out,
         ckv.temperature AS in_temperature, ckv.respiratory_rate AS in_respiratory_rate, ckv.pulse_rate AS in_pulse_rate, ckv.blood_pressure AS in_blood_pressure,
-        ckv.out_temperature, ckv.out_respiratory_rate, ckv.out_pulse_rate, ckv.out_blood_pressure,
+        ckv.out_temperature, ckv.out_respiratory_rate, ckv.out_pulse_rate, ckv.out_blood_pressure, ckv.out_nurse_note AS nurse_remarks,
         ${checkupDispensedSql('ckv.visit_id')}
       FROM doctor_appointments da
       JOIN doctor_appointment_students das ON da.appointment_id = das.appointment_id
@@ -23364,8 +23903,9 @@ app.get('/api/student/:studentId/dispensations', async (req, res) => {
             SELECT 'Consultation' AS type, cd.dosage_consumption_unit_value, 
                    cd.dosage_consumption_unit_of_measure, cd.dispensed_at 
             FROM consultation_dispensation cd
-            JOIN clinic_visits cv ON cd.visit_id = cv.visit_id
-            WHERE cv.student_id = ? 
+            LEFT JOIN clinic_visits cv ON cd.visit_id = cv.visit_id
+            LEFT JOIN incident_reports ir ON cd.incident_id = ir.incident_id
+            WHERE COALESCE(cv.student_id, ir.student_id) = ?
             ORDER BY cd.dispensed_at DESC LIMIT 5
         `;
 
@@ -24647,6 +25187,7 @@ ensureQueueSkippedColumn().catch((err) => console.error('Could not prepare the q
 ensureDirectDispenseSpecifyColumn().catch((err) => console.error('Could not prepare the direct dispensation condition column:', err.message));
 ensureMedicineIntervalColumn().catch((err) => console.error('Could not prepare the medicine dose gap column:', err.message));
 ensureSessionEndTable().catch((err) => console.error('Could not prepare the session end table:', err.message));
+ensureSessionArchives().catch((err) => console.error('Could not prepare the session archive table:', err.message));
 ensureScreeningEndColumns().catch((err) => console.error('Could not prepare the screening end columns:', err.message));
 ensureSchoolYears().catch((err) => console.error('Could not prepare the school years:', err.message));
 

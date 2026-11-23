@@ -2,8 +2,9 @@
 // Read-only looks at documented check-ups, shared by the doctor portal and the nurse's Doctor Visit page:
 //   - AssessmentViewModal: the assessment (shown as the assessment form, exportable as PDF) or, when nothing was documented, the details of one check-up
 //   - AssessmentHistoryModal: every assessment the clinic documented for one student
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { ClipboardList, Eye, History } from 'lucide-react';
+import { useRecordSync } from '../../hooks/useRecordSync';
 import Modal from '../common/Modal';
 import AssessmentForm from './AssessmentForm';
 import { formatDate, formatTime } from '../../utils/datetime';
@@ -95,6 +96,19 @@ export const AssessmentHistoryModal = ({ appt, onClose }) => {
         return () => { live = false; };
     }, [appt]);
 
+    // an assessment was edited, repeated or removed (here, another tab or another device): the table, the open form and its PDF follow
+    useRecordSync(['checkup', 'visit'], useCallback(() => {
+        if (!appt) return;
+        fetch(`${API}/api/doctor/patients/${encodeURIComponent(appt.student_id)}/record`)
+            .then((r) => r.json())
+            .then((d) => {
+                if (!d.success) return;
+                setRows(d.consultations);
+                setSelected((cur) => (cur ? (d.consultations.find((c) => c.appointment_id === cur.appointment_id && c.student_id === cur.student_id) || null) : cur));
+            })
+            .catch(() => {});
+    }, [appt]), { enabled: !!appt });
+
     const isCurrent = (r) => !!appt && r.appointment_id === appt.appointment_id;
 
     return (
@@ -139,7 +153,7 @@ export const AssessmentHistoryModal = ({ appt, onClose }) => {
                                             <td>
                                                 <div className="dp-cell-clip">{r.diagnosis || '-'}</div>
                                                 <div className="dp-appt-chips">
-                                                    {!!r.is_abnormal && <span className="dp-chip abnormal">Abnormal</span>}
+                                                    {!!r.is_abnormal && <span className="dp-chip abnormal">Not normal</span>}
                                                     {!!r.follow_up_needed && <span className="dp-chip st-pending-approval">Follow-up</span>}
                                                 </div>
                                             </td>

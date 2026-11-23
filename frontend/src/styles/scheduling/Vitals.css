@@ -6,6 +6,9 @@
 .vt-state-vt.abnormal { color: var(--status-critical-text); font-weight: 600; }
 .vt-state-vt.invalid { color: var(--status-low-text); font-weight: 600; }
 
+.vt-hint-vt { display: flex; flex-wrap: wrap; align-items: center; gap: 0.125rem 0.5rem; font-size: 0.875rem; }
+.vt-range-vt { color: var(--text-secondary); }
+
 .vt-dispense-vt { border: 1px solid var(--card-border); border-radius: 0.625rem; padding: 0.75rem; margin: 0; min-width: 0; }
 .vt-dispense-vt > legend { display: inline-flex; align-items: center; gap: 0.375rem; font-weight: 700; font-size: 0.9375rem; color: var(--text-primary); padding: 0 0.375rem; }
 
@@ -20,6 +23,7 @@
 .hs-tile.abnormal { border-color: var(--status-critical-bar, var(--status-critical-text)); background: var(--status-critical-bg); }
 .hs-tile.abnormal strong, .hs-tile.abnormal small { color: var(--status-critical-text); }
 .hs-flag { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.875rem; font-weight: 600; }
+.hs-flag-ok { color: var(--status-adequate-text); }
 .hs-conditions { display: flex; flex-wrap: wrap; gap: 0.375rem; margin: 0; padding: 0; list-style: none; }
 .hs-table-wrap { overflow-x: auto; }
 .hs-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }

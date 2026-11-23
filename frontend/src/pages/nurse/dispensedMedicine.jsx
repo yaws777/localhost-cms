@@ -32,6 +32,7 @@ import stiLogo from '../../assets/sti-logof.png';
 import { formatDate, formatDateTime } from '../../utils/datetime';
 import FormDocument from '../../components/common/FormDocument';
 import { buildDispensedModel } from '../../utils/formModels';
+import { useRecordSync, notifyRecordChanged } from '../../hooks/useRecordSync';
 import '../../styles/nurse/DispensedMedicine.css';
 
 // Measured units allow continuous decimal values (liquids, weights, volumes)
@@ -522,6 +523,12 @@ const DispensedMedicine = () => {
     fetchComplaints();
   }, [fetchComplaints]);
 
+  // a release was saved or changed elsewhere (check-up time out, visit documentation, incident report): list and stock follow
+  useRecordSync(['visit', 'incident'], useCallback(() => {
+    fetchInventory();
+    fetchHistory();
+  }, [fetchInventory, fetchHistory]));
+
   useEffect(() => {
     if (searchStudent.trim().length > 1 && !selectedStudent) {
       fetch(`http://localhost:3001/api/students/direct?search=${encodeURIComponent(searchStudent)}`)
@@ -635,8 +642,10 @@ const DispensedMedicine = () => {
 
         fetchInventory();
         fetchHistory();
+        notifyRecordChanged(['visit', 'incident']);
       } else {
-        showAlertModal('Dispensation Error', result.error || 'Transaction rejected by server.', 'error');
+        if (result.code === 'DOSE_GAP') showAlertModal('Too Soon to Dispense', result.error, 'warning');
+        else showAlertModal('Dispensation Error', result.error || 'Transaction rejected by server.', 'error');
       }
     } catch (error) {
       showAlertModal('System Error', 'A communications error occurred with the backend system.', 'error');

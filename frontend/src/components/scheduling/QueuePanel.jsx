@@ -8,7 +8,7 @@
 //   nurse  : the only one who adds a student as a walk-in (button beside Call next); a skipped or voided student gets a new walk-in number that way.
 // Refreshes by itself every few seconds so both sides see the same numbers.
 import React, { useState, useEffect, useCallback } from 'react';
-import { Megaphone, Ban, Clock, Footprints, RefreshCw, Check, CheckCircle, Stethoscope, Eye, TimerReset, PhoneCall, ChevronsRight, FolderHeart, LogOut } from 'lucide-react';
+import { Megaphone, Ban, Clock, Footprints, RefreshCw, Check, CheckCircle, Stethoscope, Eye, TimerReset, PhoneCall, ChevronsRight, FolderHeart, LogOut, Square } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
 import { ReasonModal } from '../doctor/AppointmentModals';
 import VitalsModal from './VitalsModal';
@@ -81,7 +81,7 @@ const StatusCell = ({ entry, isDoctor }) => {
 // onView(entry): the assessment of this check-up (a Done number).
 // onRecords(entry): the student's health records (doctor and nurse).
 // The nurse's Time in / Time out (vital signs forms) belong to the panel itself.
-const QueuePanel = ({ scheduleId, date, creator, userId, onChanged, onDocument, onView, onRecords, onWalkIn, onExtend, refreshKey = 0, intervalMs = 5000 }) => {
+const QueuePanel = ({ scheduleId, date, creator, userId, onChanged, onDocument, onView, onRecords, onWalkIn, onExtend, onEnd, refreshKey = 0, intervalMs = 5000 }) => {
     const { showAlert, showConfirm } = useAlert();
     const [queue, setQueue] = useState(null);
     const [busy, setBusy] = useState(false);
@@ -221,6 +221,7 @@ const QueuePanel = ({ scheduleId, date, creator, userId, onChanged, onDocument, 
                     {!isDoctor && onWalkIn && queue.allow_walk_in !== false && iconBtn('walkin', 'secondary', Footprints, 'Add walk-in', onWalkIn, 'Add walk-in: give a student a walk-in number (W1, W2, ...). A skipped or voided student comes back this way')}
                     {onExtend && iconBtn('extend', 'light', TimerReset, 'Extend end time', onExtend, 'Extend the end time of this session')}
                     {iconBtn('refresh', 'light', RefreshCw, 'Refresh', load)}
+                    {onEnd && iconBtn('end', 'danger', Square, 'End time', onEnd, 'End time: end this session now')}
                 </div>
             </div>
 

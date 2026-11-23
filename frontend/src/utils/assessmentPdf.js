@@ -6,16 +6,17 @@ import { openReportWindow, writeHtmlReport, escapeHtml } from './printReport';
 import { buildAssessmentModel } from './assessmentModel';
 import { FORM_CSS, fieldHtml } from './formDocument';
 
-const field = (label, value) => fieldHtml(label, value);
+const field = (label, value, meta) => fieldHtml(label, value, false, meta);
 
 export const assessmentBodyHtml = (m) => {
     const parts = [];
     parts.push(`<div class="af-card">${m.header.map(([k, v]) => `<div><strong>${escapeHtml(k)}:</strong> ${escapeHtml(v)}</div>`).join('')}</div>`);
-    if (m.abnormal) parts.push('<p class="af-flag">The doctor marked this result as needing attention.</p>');
+    if (m.abnormal) parts.push('<p class="af-flag">The doctor marked this result as not normal.</p>');
 
     m.vitals.forEach((g) => {
-        parts.push(`<div class="af-section"><h3>${escapeHtml(g.title)}</h3><div class="af-row">${g.items.map((i) => field(`${i.label}${i.unit ? ` (${i.unit})` : ''}`, i.value)).join('')}</div></div>`);
+        parts.push(`<div class="af-section"><h3>${escapeHtml(g.title)}</h3><div class="af-row">${g.items.map((i) => field(`${i.label}${i.unit ? ` (${i.unit})` : ''}`, i.value, i)).join('')}</div></div>`);
     });
+    if (m.nurseRemarks) parts.push(`<div class="af-section">${field('Nurse remarks', m.nurseRemarks)}</div>`);
     m.sections.forEach((s) => {
         parts.push(`<div class="af-section"><h3>${escapeHtml(s.title)}</h3>${s.fields.map((f) => field(f.label, f.value)).join('')}</div>`);
     });

@@ -4,15 +4,14 @@
 //   mode "out" - Time out after the check-up: the vital signs and the remarks are optional (remarks are written from the vital signs).
 // appt: { appointment_id, student_id, name, label }. onDone() runs after the server saved it.
 import React, { useEffect, useMemo, useState } from 'react';
-import { HeartPulse, Check, AlertTriangle, CircleAlert, Pill } from 'lucide-react';
+import { HeartPulse, Pill } from 'lucide-react';
 import Modal from '../common/Modal';
+import { notifyRecordChanged } from '../../hooks/useRecordSync';
+import VitalHint from '../common/VitalHint';
 import { useAlert } from '../../context/AlertContext';
 import { API } from '../../utils/scheduling';
 import { VITAL_FIELDS, EMPTY_VITALS, vitalState, hasVitals, vitalsRemarks } from '../../utils/vitals';
 import '../../styles/scheduling/Vitals.css';
-
-const STATE_TEXT = { normal: 'Normal', abnormal: 'Not normal', invalid: 'Check value' };
-const STATE_ICON = { normal: Check, abnormal: AlertTriangle, invalid: CircleAlert };
 
 const SPECIFY_CONDITIONS = ['injury', 'others', 'gastrointestinal issues', 'body pain'];
 const EMPTY_DISPENSE = { complaintId: '', specify: '', medicineId: '', batchId: '', quantity: '' };
@@ -80,6 +79,8 @@ const VitalsModal = ({ appt, mode, userId, onClose, onDone }) => {
         if (isIn && filled.length < VITAL_FIELDS.length) { showAlert('Record all four vital signs.', 'warning'); return; }
         if (filled.some((f) => states[f.key] === 'invalid')) { showAlert('Check the vital signs. A value is not valid.', 'warning'); return; }
         const giving = !isIn && !!dispense.medicineId;
+        const conditionOnly = !isIn && !giving && !!dispense.complaintId;
+        if (conditionOnly && needsSpecify && !dispense.specify.trim()) { showAlert(`Specify the ${complaint.complaint_name} condition.`, 'warning'); return; }
         if (giving) {
             const qty = Number(dispense.quantity);
             if (!dispense.batchId) { showAlert('Choose the batch of the medicine.', 'warning'); return; }
@@ -96,6 +97,7 @@ const VitalsModal = ({ appt, mode, userId, onClose, onDone }) => {
                 : {
                     sender_id: userId, student_id: appt.student_id, out_nurse_note: note.trim(),
                     out_blood_pressure: values.blood_pressure, out_temperature: values.temperature, out_pulse_rate: values.pulse_rate, out_respiratory_rate: values.respiratory_rate,
+                    ...(conditionOnly ? { condition: { complaint_id: dispense.complaintId, specify_complaint_text: needsSpecify ? dispense.specify.trim() : null } } : {}),
                     ...(giving ? { dispense: { complaint_id: dispense.complaintId, specify_complaint_text: needsSpecify ? dispense.specify.trim() : null, batch_id: dispense.batchId, dosage_consumption_unit_value: dispense.quantity } } : {})
                 };
             const res = await fetch(`${API}${path}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -104,6 +106,7 @@ const VitalsModal = ({ appt, mode, userId, onClose, onDone }) => {
             if (!data.success) { showAlert(data.message || 'Could not save.', 'warning'); return; }
             showAlert(isIn ? `${appt.name} timed in.` : `${appt.name} timed out.`, 'success');
             if (data.abnormal?.length > 0) showAlert(`Not normal${isIn ? '' : ' at time out'}: ${data.abnormal.join('; ')}.`, 'warning');
+            notifyRecordChanged(['checkup', 'visit', 'incident']);
             onDone?.();
             onClose();
         } catch (err) {
@@ -120,7 +123,6 @@ const VitalsModal = ({ appt, mode, userId, onClose, onDone }) => {
                 <div className="dp-row vitals-grid-vt">
                     {VITAL_FIELDS.map((f) => {
                         const st = states[f.key];
-                        const Icon = STATE_ICON[st];
                         return (
                             <div className="dp-field" key={f.key}>
                                 <label htmlFor={`vt-${f.key}`}>{f.label} ({f.unit}){isIn ? ' *' : ''}</label>
@@ -129,16 +131,14 @@ const VitalsModal = ({ appt, mode, userId, onClose, onDone }) => {
                                     placeholder={f.placeholder} value={values[f.key]} onChange={(e) => set(f.key, e.target.value)}
                                     aria-describedby={`vt-${f.key}-hint`} aria-invalid={st === 'invalid'}
                                 />
-                                <small id={`vt-${f.key}-hint`} className={`vt-state-vt ${st}`}>
-                                    {Icon ? <><Icon size={14} aria-hidden="true" /> {STATE_TEXT[st]}</> : `Normal ${f.normal}`}
-                                </small>
+                                <VitalHint id={`vt-${f.key}-hint`} fieldKey={f.key} value={values[f.key]} />
                             </div>
                         );
                     })}
                 </div>
                 {!isIn && (
                     <div className="dp-field">
-                        <label htmlFor="vt-note">Remarks</label>
+                        <label htmlFor="vt-note">Nurse remarks</label>
                         <textarea id="vt-note" className="dp-textarea" rows={2} maxLength={500} value={note} onChange={(e) => { setNote(e.target.value); setNoteEdited(e.target.value.trim() !== ''); }} />
                     </div>
                 )}
@@ -166,7 +166,7 @@ const VitalsModal = ({ appt, mode, userId, onClose, onDone }) => {
                                 </div>
                             )}
                         </div>
-                        {needsSpecify && dispense.medicineId && (
+                        {needsSpecify && (
                             <div className="dp-field">
                                 <label htmlFor="vt-specify">Specify condition *</label>
                                 <input id="vt-specify" className="dp-input" maxLength={255} value={dispense.specify} onChange={(e) => setD({ specify: e.target.value })} />

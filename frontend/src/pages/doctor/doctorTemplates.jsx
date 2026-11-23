@@ -35,7 +35,8 @@ const PRESETS = {
         description: 'Teeth, gums, DMFT count.',
         fields: [
             { type: 'heading', label: 'History' },
-            { type: 'text', label: 'Tooth pain location' },
+            { type: 'checkbox', label: 'Tooth pain area', required: true, optionsText: opts('No tooth pain', 'Upper right', 'Upper left', 'Lower right', 'Lower left', 'Front upper teeth', 'Front lower teeth', 'Gums', 'Jaw') },
+            { type: 'text', label: 'Tooth number or name', hint: 'e.g. 36, lower right first molar' },
             { type: 'radio', label: 'Brushing frequency', optionsText: opts('Once a day', 'Twice a day', 'Less than once a day') },
             { type: 'yesno', label: 'Wears braces or retainers?' },
             { type: 'heading', label: 'Dental examination' },
@@ -87,8 +88,8 @@ const PRESETS = {
             { type: 'text', label: 'Visual acuity (left)', hint: '20/20' },
             { type: 'number', label: 'Eye pressure (right)', unit: 'mmHg' },
             { type: 'number', label: 'Eye pressure (left)', unit: 'mmHg' },
-            { type: 'select', label: 'Front of the eye', optionsText: opts('Normal', 'Abnormal') },
-            { type: 'select', label: 'Back of the eye', optionsText: opts('Normal', 'Abnormal', 'Not done') },
+            { type: 'select', label: 'Front of the eye', optionsText: opts('Normal', 'Not normal') },
+            { type: 'select', label: 'Back of the eye', optionsText: opts('Normal', 'Not normal', 'Not done') },
             { type: 'textarea', label: 'Findings' },
             { type: 'select', label: 'Plan', optionsText: opts('Observe', 'Medication', 'Refer for surgery') }
         ]
@@ -278,7 +279,7 @@ const libraryFor = (types, specialization) => {
 // Placeholders follow the purpose being edited, which comes from the doctor's specialization
 const PLACEHOLDERS = {
     'General Check Up': { name: 'e.g. Headache work-up', heading: 'e.g. Physical exam', label: 'e.g. Onset of symptoms', option: 'Fever\nCough\nHeadache' },
-    Dental: { name: 'e.g. Oral health screening', heading: 'e.g. Gum and teeth exam', label: 'e.g. Tooth pain location', option: 'Cavities\nPlaque\nBleeding gums' },
+    Dental: { name: 'e.g. Oral health screening', heading: 'e.g. Gum and teeth exam', label: 'e.g. Tooth pain area', option: 'Cavities\nPlaque\nBleeding gums' },
     Vision: { name: 'e.g. Eye exam', heading: 'e.g. Visual acuity', label: 'e.g. Wears eyeglasses?', option: 'Blurred vision\nEye strain\nRedness' }
 };
 const placeholdersFor = (visitType, specialization) => {
@@ -292,7 +293,7 @@ const placeholdersFor = (visitType, specialization) => {
 const toStarter = (s) => ({
     template_name: s.name, visit_type: s.visit_type || null, description: s.description, is_default: false,
     fields: s.fields.map((f, i) => ({
-        key: `f${i + 1}`, label: f.label, type: f.type, required: false, hint: f.hint || '', unit: f.unit || '',
+        key: `f${i + 1}`, label: f.label, type: f.type, required: !!f.required, hint: f.hint || '', unit: f.unit || '',
         options: f.optionsText ? f.optionsText.split('\n').map((o) => o.trim()).filter(Boolean) : undefined
     }))
 });

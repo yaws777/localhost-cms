@@ -4,11 +4,11 @@ import { useOutletContext } from 'react-router-dom';
 import { 
   Calendar, Clock, Users, Eye, Activity, Smile, HeartPulse, Ear, 
   X, CheckCircle, Edit3, Trash2, FileText, ArrowLeft, ArrowRight, Megaphone, Printer,
-  Play, UserRoundPlus, Download, Search, ClipboardList, BellRing, History, LogIn, FolderPlus,
-  Plus, RotateCcw, CalendarDays, Folder, AlertTriangle, Lock, Scale, Upload, Layers, Archive, ArchiveRestore, Flag
+  Play, UserRoundPlus, Search, ClipboardList, BellRing, History, LogIn, FolderPlus,
+  Plus, RotateCcw, CalendarDays, Folder, AlertTriangle, Lock, Scale, Upload, Layers, Archive, ArchiveRestore, Flag, Dumbbell, ShieldCheck, ShieldAlert, Check, Ban
 } from 'lucide-react';
 
-import { openReportWindow, writeReport, escapeHtml } from '../../utils/printReport';
+import { openReportWindow, writeReport, writeSectionedReport, escapeHtml } from '../../utils/printReport';
 import stiLogo from '../../assets/sti-logof.png';
 import { formatDate, formatTime } from '../../utils/datetime';
 import '../../styles/nurse/HealthScreening.css';
@@ -22,7 +22,7 @@ import AutoTimeFields from '../../components/nurse/AutoTimeFields';
 import SectionStudents from '../../components/nurse/SectionStudents';
 import StudentScreeningHistoryModal from '../../components/nurse/StudentScreeningHistoryModal';
 import { calculate } from '../../utils/formula';
-import { buildAutoRemark, playDecision, playRangeText, bloodPressureLabel } from '../../utils/screeningRemarks';
+import { buildAutoRemark, playDecision, playRangeText, bloodPressureLabel, playClearance, PLAY_STATUS_LABELS, bpPair, bpText, bpParse, BP_PATTERN } from '../../utils/screeningRemarks';
 import { classLabel } from '../../utils/scheduling';
 import { FormPdfButton } from '../../components/common/FormDocument';
 import { buildScreeningModel } from '../../utils/formModels';
@@ -32,6 +32,7 @@ import ConfirmModal from '../../components/common/ConfirmModal';
 import AlertModal from '../../components/common/AlertModal';
 import TabDot from '../../components/common/TabDot';
 import { useUnseenDots } from '../../hooks/useUnseenDots';
+import { useScreeningSync, notifyScreeningChanged } from '../../hooks/useScreeningSync';
 import { setPageDotCount } from '../../utils/pageDots';
 
 // The screening types come from GET /api/screening-types (screening_types table). A type's form_kind picks the result form.
@@ -100,7 +101,29 @@ const ScreeningFolders = ({ items, phase }) => {
 const Req = () => <span className="req-hs" aria-hidden="true">*</span>;
 
 // Short range text for a number outside its normal range
-const rangeFlagText = (f) => `${f.min !== undefined ? f.min : '...'} to ${f.max !== undefined ? f.max : '...'}${f.unit ? ` ${f.unit}` : ''}`;
+const rangeFlagText = (f) => {
+  const unit = f.unit ? ` ${f.unit}` : '';
+  if (f.min === undefined) return `up to ${f.max}${unit}`;
+  if (f.max === undefined) return `from ${f.min}${unit}`;
+  return `${f.min} to ${f.max}${unit}`;
+};
+// Badge beside a field: color + icon + word, never color alone
+const StateChip = ({ state, id }) => {
+  if (!state) return null;
+  const normal = state === 'Normal';
+  return (
+    <span id={id} className={`chip-hs ${normal ? 'chip-ok-hs' : 'chip-warn-hs'}`} role="status" title={normal ? undefined : state}>
+      {normal ? <Check size={14} aria-hidden="true" /> : <AlertTriangle size={14} aria-hidden="true" />} {normal ? 'Normal' : 'Not normal'}{normal ? '' : <span className="sr-only-hs"> ({state})</span>}
+    </span>
+  );
+};
+// Normal / Low / High of a value against the field's normal range ('' = no range or no value)
+const rangeState = (f, v) => {
+  if (v === '' || v === undefined || v === null || (f.min === undefined && f.max === undefined)) return '';
+  const n = Number(v);
+  if (!Number.isFinite(n)) return '';
+  return f.min !== undefined && n < f.min ? 'Low' : f.max !== undefined && n > f.max ? 'High' : 'Normal';
+};
 
 const time12 = (t) => {
   if (!t) return '';
@@ -116,15 +139,32 @@ const RESULT_COLUMNS = {
   ]
 };
 
-// A form template (CUSTOM) gives one column per field, in the order of the form
-const templateColumns = (template) => (template?.fields || []).map((f) => [
+const isPhysicalSchedule = (sch) => sch?.screening_category === 'PHYSICAL';
+const CATEGORY_LABELS = { GENERAL: 'General Screening', PHYSICAL: 'Physical Activities' };
+const PLAY_TONES = { ALLOWED: 'chip-ok-hs', RESTRICTED: 'chip-warn-hs', NOT_ALLOWED: 'chip-bad-hs' };
+
+// A form template (CUSTOM) gives one column per field, in the order of the form; systolic + diastolic become one BP column
+const templateColumns = (template) => {
+  const pair = bpPair(template?.fields);
+  const cols = [];
+  (template?.fields || []).forEach((f) => {
+    if (pair && f.key === pair.dia.key) return;
+    if (pair && f.key === pair.sys.key) {
+      cols.push(['BP (mmHg)', (r) => (r.answers && (r.answers[pair.sys.key] !== undefined || r.answers[pair.dia.key] !== undefined) ? `${r.answers[pair.sys.key] ?? ''}/${r.answers[pair.dia.key] ?? ''}` : '')]);
+      return;
+    }
+    cols.push(templateColumn(f));
+  });
+  return cols;
+};
+const templateColumn = (f) => [
   f.unit ? `${f.label} (${f.unit})` : f.label,
   (r) => {
     if (!r.answers || r.answers[f.key] === undefined) return '';
     const label = r.answers[`${f.key}__label`];
     return label ? `${r.answers[f.key]} (${label})` : r.answers[f.key];
   }
-]);
+];
 
 const resultColumnsFor = (formKind, template) => (formKind === 'CUSTOM' ? templateColumns(template) : RESULT_COLUMNS[formKind]) || [['Result', (r) => r.result_summary]];
 
@@ -225,7 +265,8 @@ export default function HealthScreening() {
   const [scheduleForm, setScheduleForm] = useState({
     title: '',
     screening_type: 'BMI',
-    scheduled_date: '',
+    screening_category: 'GENERAL', // 'GENERAL' = one class, class folder | 'PHYSICAL' = Physical Activities, random participants, allow-to-play list
+    scheduled_date: getTodayString(), // today; the time fills itself with the next free time from now
     start_time: '',
     end_time: '',
     announcement: '',
@@ -260,12 +301,39 @@ export default function HealthScreening() {
   const [remarksTouched, setRemarksTouched] = useState(false);
   const docFields = activeSchedule?.form_kind === 'CUSTOM' ? (activeSchedule?.template?.fields || []) : [];
   const docAsthma = selectedStudent ? { has: Number(selectedStudent.has_asthma_history) === 1, triggers: selectedStudent.asthma_triggers || '' } : null;
+  // Physical Activities: the clearance decision (generated from the vitals and the health history, the nurse can change it)
+  const isPhysicalDoc = isPhysicalSchedule(activeSchedule) && docFields.length > 0;
+  const docHealth = selectedStudent?.health_play || null;
+  const docClearance = isPhysicalDoc ? playClearance(docFields, docData.answers, docHealth) : null;
+  const docPlayStatus = docClearance ? (docData.play_status || docClearance.status) : '';
+  const bpDocPair = bpPair(docFields);
+  const [bpDraft, setBpDraft] = useState('');
+  // picking a decision also rewrites the status line of a remark the nurse already has, so the two never disagree
+  const choosePlayStatus = (code) => setDocData((prev) => {
+    const shown = code || docClearance?.status;
+    const next = { ...prev, play_status: code && code === docClearance?.status ? '' : code };
+    if (shown && PLAY_STATUS_LABELS[shown] && /^Allow-to-Play Status: [^.]*\./.test(prev.remarks || '')) {
+      next.remarks = prev.remarks.replace(/^Allow-to-Play Status: [^.]*\./, `Allow-to-Play Status: ${PLAY_STATUS_LABELS[shown]}.`);
+    }
+    return next;
+  });
   useEffect(() => {
     if (!showDocModal || remarksTouched || docFields.length === 0) return;
-    const auto = buildAutoRemark(docFields, docData.answers, docAsthma);
+    const auto = buildAutoRemark(docFields, docData.answers, { category: activeSchedule?.screening_category, health: docHealth, status: docData.play_status });
     setDocData((prev) => (prev.remarks === auto ? prev : { ...prev, remarks: auto }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showDocModal, remarksTouched, docData.answers, selectedStudent, activeSchedule]);
+  }, [showDocModal, remarksTouched, docData.answers, docData.play_status, selectedStudent, activeSchedule]);
+  // a remark the nurse already has keeps her words, but its status line follows the decision shown above
+  useEffect(() => {
+    if (!showDocModal || !remarksTouched || !docPlayStatus) return;
+    const line = `Allow-to-Play Status: ${PLAY_STATUS_LABELS[docPlayStatus]}.`;
+    setDocData((prev) => {
+      const text = prev.remarks || '';
+      if (!/^Allow-to-Play Status: [^.]*\./.test(text)) return prev;
+      const next = text.replace(/^Allow-to-Play Status: [^.]*\./, line);
+      return next === text ? prev : { ...prev, remarks: next };
+    });
+  }, [showDocModal, remarksTouched, docPlayStatus]);
 
   // Extra screening transactions: reasons, make-up, doctor referral, history, results report
   const { nurseId, userId } = useOutletContext() || {};
@@ -293,6 +361,9 @@ export default function HealthScreening() {
   const [typesLoading, setTypesLoading] = useState(true);
   const [typesError, setTypesError] = useState('');
   const activeTypes = screeningTypes.filter(t => t.is_active);
+  const isPhysical = scheduleForm.screening_category === 'PHYSICAL';
+  // Physical Activities needs a form with the vitals (a form template), so Hearing is for General Screening only
+  const typeChoices = isPhysical ? activeTypes.filter(t => t.form_kind === 'CUSTOM') : activeTypes;
 
   const fetchScreeningTypes = useCallback(async () => {
     if (!userId) return;
@@ -340,7 +411,9 @@ export default function HealthScreening() {
   }, [fetchTemplates]);
 
   // a template saved or deleted changes the "used by" counts of the types too
-  const templatesChanged = async () => { await Promise.all([fetchTemplates(), fetchScreeningTypes()]); };
+  const templatesChanged = async () => { notifyScreeningChanged(); await Promise.all([fetchTemplates(), fetchScreeningTypes()]); };
+  // a type was added, renamed, moved or removed: student / parent records and the PDFs built from them follow
+  const typesChanged = async () => { notifyScreeningChanged(); await fetchScreeningTypes(); };
 
   // the type picked in the new-schedule form must be an active one
   useEffect(() => {
@@ -592,7 +665,10 @@ export default function HealthScreening() {
     calendar: calendarLoading ? null : calendarSchedules.filter((sch) => sch.status !== 'Cancelled').map((sch) => sch.screening_schedule_id),
     types: typesLoading ? null : screeningTypes.map((t) => t.screening_type_id),
     templates: templatesLoading ? null : templates.map((t) => t.template_id),
-    archive: foldersLoading ? null : (folders.archived_folders || []).map((f) => f.folder_id)
+    archive: foldersLoading ? null : [
+      ...(folders.archived_folders || []).map((f) => f.folder_id),
+      ...(folders.archived_screenings || []).map((s) => `s${s.screening_schedule_id}`)
+    ]
   }, [mainView, ...(mainView === 'screenings' ? [`phase:${activeTab}`] : [])]);
   const screeningsDot = ['upcoming', 'ongoing', 'past'].some((p) => tabDots[`phase:${p}`]);
   // the sidebar item shows how many dots the page holds
@@ -761,11 +837,13 @@ export default function HealthScreening() {
   const [participantSearch, setParticipantSearch] = useState('');
   const [participantPage, setParticipantPage] = useState(1);
   const [attFilter, setAttFilter] = useState('ALL'); // ALL | PRESENT | ABSENT | PENDING
+  const [playFilter, setPlayFilter] = useState('ALL'); // Physical Activities: ALL | ALLOWED | RESTRICTED | NOT_ALLOWED | NONE
   const activeScheduleId = activeSchedule?.screening_schedule_id;
   useEffect(() => {
     setParticipantSearch('');
     setParticipantPage(1);
     setAttFilter('ALL');
+    setPlayFilter('ALL');
   }, [activeScheduleId]);
 
   // a pending student of a finished screening counts as absent
@@ -778,6 +856,7 @@ export default function HealthScreening() {
     const q = participantSearch.trim().toLowerCase();
     const list = scheduleStudents.filter(st =>
       (attFilter === 'ALL' || attendanceOf(st) === attFilter) &&
+      (playFilter === 'ALL' || (st.play_status || 'NONE') === playFilter) &&
       (!q || `${st.first_name || ''} ${st.last_name || ''} ${st.student_id || ''} ${st.program_name || ''} ${st.program_id || ''} ${st.section || ''}`.toLowerCase().includes(q))
     );
     return paginate(list, participantPage, PARTICIPANTS_PER_PAGE);
@@ -794,7 +873,7 @@ export default function HealthScreening() {
     }
   };
 
-  const isCustomGrouping = scheduleForm.grouping === 'CUSTOM';
+  const isCustomGrouping = isPhysical || scheduleForm.grouping === 'CUSTOM';
   // an existing by-section folder fixes the class: program, year level and section cannot change on the student step
   const lockedClass = !isCustomGrouping && scheduleForm.folder_mode === 'existing' && !!scheduleForm.section_key;
 
@@ -904,7 +983,12 @@ export default function HealthScreening() {
       return;
     }
 
-    if (isCustomGrouping) {
+    if (isPhysical) {
+      if (!scheduleForm.screening_type) {
+        showAlert('Physical Activities needs a screening type with a form template.', 'Type Required', 'warning');
+        return;
+      }
+    } else if (isCustomGrouping) {
       if (!scheduleForm.folder_id) {
         showAlert('Choose a folder, or create a new one.', 'Folder Required', 'warning');
         return;
@@ -962,8 +1046,9 @@ export default function HealthScreening() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...scheduleForm,
-          folder_id: scheduleForm.folder_id === 'new' ? '' : scheduleForm.folder_id,
-          folder_name: scheduleForm.folder_id === 'new' ? scheduleForm.folder_name.trim() : '',
+          grouping: isPhysical ? 'CUSTOM' : 'SECTION',
+          folder_id: isPhysical || scheduleForm.folder_id === 'new' ? '' : scheduleForm.folder_id,
+          folder_name: isPhysical ? scheduleForm.title.trim().slice(0, 80) : (scheduleForm.folder_id === 'new' ? scheduleForm.folder_name.trim() : ''),
           student_ids: selectedStudentIds,
           sender_id: userId
         })
@@ -971,6 +1056,7 @@ export default function HealthScreening() {
 
       const data = await res.json();
       if (res.ok) {
+        notifyScreeningChanged();
         const sent = scheduleForm;
         setShowStudentSelectModal(false);
         resetScheduleForm();
@@ -1025,6 +1111,7 @@ export default function HealthScreening() {
         body: JSON.stringify({ ...editingSchedule, sender_id: userId })
       });
       if (res.ok) {
+        notifyScreeningChanged();
         setShowEditModal(false);
         fetchSchedules();
         showAlert('Screening saved.', 'Success', 'success');
@@ -1072,6 +1159,7 @@ export default function HealthScreening() {
         });
         const data = await res.json();
         if (res.ok) {
+          notifyScreeningChanged();
           fetchSchedules();
           showAlert('Cancelled. Students notified.', 'Cancelled', 'success');
         } else {
@@ -1092,6 +1180,7 @@ export default function HealthScreening() {
           const res = await fetch(`${API_BASE}/screenings/${sch.screening_schedule_id}`, { method: 'DELETE' });
           const data = await res.json();
           if (res.ok) {
+            notifyScreeningChanged();
             fetchSchedules();
             showAlert('Screening deleted.', 'Deleted', 'success');
           } else {
@@ -1104,6 +1193,55 @@ export default function HealthScreening() {
       'Delete Screening',
       'Yes, Delete',
       'Keep'
+    );
+  };
+
+  // Past screenings: archive (out of Past Screening), restore, delete for good (the results stay in the student records)
+  const archivedScreenings = folders.archived_screenings || [];
+  const screeningArchiveRequest = async (id, action, okMessage, okTitle) => {
+    try {
+      const del = action === 'delete';
+      const url = del
+        ? `${API_BASE}/screenings/${id}/archived?sender_id=${encodeURIComponent(userId || '')}`
+        : `${API_BASE}/screenings/${id}/${action}`;
+      const res = await fetch(url, del
+        ? { method: 'DELETE' }
+        : { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sender_id: userId }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { showAlert(data.error || 'The screening could not be changed.', 'Error', 'error'); return; }
+      notifyScreeningChanged();
+      fetchSchedules();
+      showAlert(okMessage, okTitle, 'success');
+    } catch (err) {
+      showAlert('The screening could not be changed.', 'Error', 'error');
+    }
+  };
+  // Archive tab: open an archived folder to see its screenings (each one opens its records)
+  const [folderView, setFolderView] = useState(null); // { folder, schedules, loading }
+  const openArchivedFolder = async (folder) => {
+    setFolderView({ folder, schedules: [], loading: true });
+    try {
+      const res = await fetch(`${API_BASE}/screening-folders/${folder.folder_id}/schedules`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not load the folder.');
+      setFolderView({ folder, schedules: data.schedules || [], loading: false });
+    } catch (err) {
+      setFolderView(null);
+      showAlert(err.message || 'Could not load the folder.', 'Error', 'error');
+    }
+  };
+  const handleArchiveSchedule = (sch) => {
+    showConfirm(
+      `Archive "${sch.title}"? You can restore it from Archive.`,
+      () => screeningArchiveRequest(sch.screening_schedule_id, 'archive', 'Screening archived.', 'Archived'),
+      'Archive screening', 'Archive'
+    );
+  };
+  const handleDeleteArchivedSchedule = (sch) => {
+    showConfirm(
+      `Delete "${sch.title}" for good? It leaves every list and cannot be restored. The results stay in the student records.`,
+      () => screeningArchiveRequest(sch.screening_schedule_id, 'delete', 'Screening deleted.', 'Deleted'),
+      'Delete screening', 'Delete'
     );
   };
 
@@ -1165,6 +1303,7 @@ export default function HealthScreening() {
         if (res.ok) {
           openViewModal(activeSchedule);
           fetchSchedules();
+          notifyScreeningChanged();
         } else {
           showAlert(data.error || 'Failed to change attendance.', 'Error', 'error');
         }
@@ -1201,6 +1340,7 @@ export default function HealthScreening() {
       if (res.ok) {
         openViewModal(activeSchedule);
         fetchSchedules();
+        notifyScreeningChanged();
         // a missing form template would trap the nurse in a form that cannot be filled, so only a usable form is locked
         const usable = activeSchedule.form_kind === 'HEARING' || (activeSchedule.form_kind === 'CUSTOM' && activeSchedule.template);
         openDocumentModal({ ...st, attendance_status: 'PRESENT' }, Boolean(usable));
@@ -1224,6 +1364,7 @@ export default function HealthScreening() {
           if (res.ok) {
             openViewModal(activeSchedule);
             fetchSchedules();
+            notifyScreeningChanged();
           } else {
             showAlert(data.error || 'Failed to delete the result.', 'Error', 'error');
           }
@@ -1267,6 +1408,7 @@ export default function HealthScreening() {
       });
       const data = await res.json();
       if (res.ok) {
+        notifyScreeningChanged();
         setMakeupModal(null);
         setShowViewModal(false);
         // the make-up stays in the same folder, so the folder now also has an upcoming screening
@@ -1337,6 +1479,7 @@ export default function HealthScreening() {
       });
       const data = await res.json();
       if (res.ok) {
+        notifyScreeningChanged();
         setReferModal(null);
         openViewModal(activeSchedule);
         showAlert('Referral scheduled.', 'Referred', 'success');
@@ -1361,6 +1504,23 @@ export default function HealthScreening() {
     }
   };
 
+  // another nurse, tab or device changed a screening record: keep the open history and participant list current
+  useScreeningSync(() => {
+    fetchSchedules();
+    if (historyModal && !historyModal.loading) {
+      fetch(`${API_BASE}/students/${encodeURIComponent(historyModal.student.student_id)}/screening-history`)
+        .then((r) => r.json())
+        .then((data) => { if (Array.isArray(data)) setHistoryModal((cur) => (cur && cur.student.student_id === historyModal.student.student_id ? { ...cur, rows: data } : cur)); })
+        .catch(() => {});
+    }
+    if (showViewModal && activeSchedule) {
+      fetch(`${API_BASE}/screenings/${activeSchedule.screening_schedule_id}/students`)
+        .then((r) => r.json())
+        .then((data) => { if (Array.isArray(data.students)) setScheduleStudents(data.students); })
+        .catch(() => {});
+    }
+  });
+
   // ---------- results report (print) and CSV ----------
   const fetchResults = async (schedule) => {
     try {
@@ -1378,14 +1538,82 @@ export default function HealthScreening() {
     const data = await fetchResults(schedule);
     if (!data) return;
     const cols = resultColumnsFor(data.schedule?.form_kind || schedule.form_kind, data.schedule?.template);
-    const header = ['Student ID', 'Last name', 'First name', 'Program', 'Year', 'Section', 'Attendance', ...cols.map(c => c[0]), 'Abnormal', 'Remarks'];
+    const physical = isPhysicalSchedule(data.schedule || schedule);
+    const header = ['Student ID', 'Last name', 'First name', 'Program', 'Year', 'Section', 'Attendance', ...cols.map(c => c[0]), 'Not normal', ...(physical ? ['Allow-to-Play'] : []), 'Health history', 'Remarks'];
     const body = data.rows.map(r => [
       r.student_id, r.last_name, r.first_name, r.program_name, r.year_level, r.section, r.attendance_status,
       ...cols.map(c => (r.documented ? c[1](r) : '')),
-      r.documented ? (r.is_abnormal ? 'Yes' : 'No') : '', r.remarks || r.attendance_note || ''
+      r.documented ? (r.is_abnormal ? 'Yes' : 'No') : '',
+      ...(physical ? [r.documented ? (PLAY_STATUS_LABELS[r.play_status] || '') : ''] : []),
+      (r.health_conditions || []).join('; '), r.remarks || r.attendance_note || ''
     ]);
     const safeTitle = (schedule.title || 'screening').replace(/[^a-z0-9]+/gi, '_').slice(0, 40);
     downloadCsv(`${safeTitle}_results.csv`, [header, ...body]);
+  };
+
+  // Physical Activities: who may play and who may not (Allowed, Allowed with Restrictions, Not Allowed), printed or as CSV
+  const playGroupsOf = (rows) => {
+    const decided = (r) => r.documented && PLAY_STATUS_LABELS[r.play_status];
+    return [
+      ['ALLOWED', rows.filter(r => decided(r) && r.play_status === 'ALLOWED')],
+      ['RESTRICTED', rows.filter(r => decided(r) && r.play_status === 'RESTRICTED')],
+      ['NOT_ALLOWED', rows.filter(r => decided(r) && r.play_status === 'NOT_ALLOWED')],
+      ['NONE', rows.filter(r => !decided(r))]
+    ];
+  };
+
+  // two separate PDFs: kind 'allowed' (Allowed + Allowed with Restrictions) and 'not_allowed' (Not Allowed)
+  // filter.att = attendance tab of the open screening (ALL = no filter)
+  const PLAY_LIST_KINDS = {
+    allowed: { title: 'Allowed to Play List', keys: ['ALLOWED', 'RESTRICTED'] },
+    not_allowed: { title: 'Not Allowed to Play List', keys: ['NOT_ALLOWED'] }
+  };
+  const printPlayList = async (schedule, kind, filter = {}) => {
+    const list = PLAY_LIST_KINDS[kind];
+    if (!list) return;
+    const win = openReportWindow(() => showAlert('Allow popups to print.', 'Popup Blocked', 'warning'));
+    if (!win) return;
+    const data = await fetchResults(schedule);
+    if (!data) { win.close(); return; }
+    const attKey = filter.att && filter.att !== 'ALL' ? filter.att : null;
+    const over = screeningOver(schedule);
+    const rows = attKey
+      ? data.rows.filter(r => {
+        const status = r.attendance_status || 'PENDING';
+        return (status === 'PENDING' && over ? 'ABSENT' : status) === attKey;
+      })
+      : data.rows;
+    const groups = playGroupsOf(rows).filter(([key]) => list.keys.includes(key));
+    const columns = ['Student ID', 'Name', 'Class', 'Restrictions / Reason', 'Health history'];
+    const cells = (r) => [r.student_id, `${r.last_name}, ${r.first_name}`, classLabel(r.program_id, r.year_level, r.section), r.play_notes || '', (r.health_conditions || []).join(', ')];
+    writeSectionedReport(win, {
+      title: list.title,
+      details: [
+        ['Activity', schedule.title || 'N/A'],
+        ['Date', schedule.scheduled_date ? formatDate(String(schedule.scheduled_date).split('T')[0]) : 'N/A'],
+        ['Time', `${formatTime(schedule.start_time)} - ${formatTime(schedule.end_time)}`],
+        ['Participants', String(groups.reduce((n, [, list]) => n + list.length, 0))],
+        ...(attKey ? [['Attendance', attKey.charAt(0) + attKey.slice(1).toLowerCase()]] : [])
+      ],
+      sections: groups.map(([key, list]) => ({
+        heading: `${key === 'NONE' ? 'No decision yet' : PLAY_STATUS_LABELS[key]} (${list.length})`,
+        columns,
+        rows: list.map(cells),
+        emptyText: 'None'
+      }))
+    });
+  };
+
+  const exportPlayCsv = async (schedule) => {
+    const data = await fetchResults(schedule);
+    if (!data) return;
+    const header = ['Student ID', 'Last name', 'First name', 'Program', 'Year', 'Section', 'Allow-to-Play', 'Restrictions / Reason', 'Health history', 'Remarks'];
+    const body = playGroupsOf(data.rows).flatMap(([key, list]) => list.map(r => [
+      r.student_id, r.last_name, r.first_name, r.program_name, r.year_level, r.section,
+      key === 'NONE' ? 'No decision yet' : PLAY_STATUS_LABELS[key], r.play_notes || '', (r.health_conditions || []).join('; '), r.remarks || ''
+    ]));
+    const safeTitle = (schedule.title || 'screening').replace(/[^a-z0-9]+/gi, '_').slice(0, 40);
+    downloadCsv(`${safeTitle}_allow_to_play.csv`, [header, ...body]);
   };
 
   const printResultsReport = async (schedule) => {
@@ -1399,6 +1627,7 @@ export default function HealthScreening() {
     }
 
     const cols = resultColumnsFor(data.schedule?.form_kind || schedule.form_kind, data.schedule?.template);
+    const physicalReport = isPhysicalSchedule(data.schedule || schedule);
     const s = data.summary;
     const dist = Object.entries(s.distribution).map(([k, v]) => `<tr><td>${escapeHtml(k)}</td><td>${v}</td></tr>`).join('');
     const rowsHtml = data.rows.map(r => `
@@ -1408,7 +1637,9 @@ export default function HealthScreening() {
         <td>${escapeHtml(classLabel(r.program_id, r.year_level, r.section))}</td>
         <td>${escapeHtml(r.attendance_status)}</td>
         ${cols.map(c => `<td>${escapeHtml(r.documented ? c[1](r) : '')}</td>`).join('')}
-        <td>${r.documented ? (r.is_abnormal ? 'Abnormal' : 'Normal') : 'Not documented'}</td>
+        <td>${r.documented ? (r.is_abnormal ? 'Not normal' : 'Normal') : 'Not documented'}</td>
+        ${physicalReport ? `<td>${escapeHtml(r.documented ? (PLAY_STATUS_LABELS[r.play_status] || '') : '')}</td>` : ''}
+        <td>${escapeHtml((r.health_conditions || []).join(', '))}</td>
       </tr>`).join('');
 
     printWindow.document.open();
@@ -1434,7 +1665,7 @@ export default function HealthScreening() {
         <div class="report-title"><h2>STI COLLEGE BALIUAG</h2><p>Health Screening Results Report</p></div></div>
       <div class="details-card">
         <div><strong>Screening:</strong> ${escapeHtml(schedule.title)}</div>
-        <div><strong>Type:</strong> ${escapeHtml(typeLabel(schedule.screening_type))}</div>
+        <div><strong>Type:</strong> ${escapeHtml(typeLabel(schedule.screening_type))}${physicalReport ? ' (Physical Activities)' : ''}</div>
         <div><strong>Date:</strong> ${escapeHtml(formatDate(String(schedule.scheduled_date).split('T')[0]))}</div>
         <div><strong>Time:</strong> ${escapeHtml(formatTime(schedule.start_time))} - ${escapeHtml(formatTime(schedule.end_time))}</div>
       </div>
@@ -1443,11 +1674,12 @@ export default function HealthScreening() {
         <div class="card"><b>${s.present}</b>Present</div>
         <div class="card"><b>${s.absent}</b>Absent</div>
         <div class="card"><b>${s.documented}</b>Documented</div>
-        <div class="card"><b>${s.abnormal}</b>Abnormal</div>
+        <div class="card"><b>${s.abnormal}</b>Not normal</div>
+        ${physicalReport ? `<div class="card"><b>${s.play.allowed}</b>Allowed</div><div class="card"><b>${s.play.restricted}</b>Restrictions</div><div class="card"><b>${s.play.not_allowed}</b>Not allowed</div>` : ''}
       </div>
       ${dist ? `<table class="small"><thead><tr><th>Result</th><th>Students</th></tr></thead><tbody>${dist}</tbody></table>` : ''}
-      <table><thead><tr><th>Student ID</th><th>Name</th><th>Program / Section</th><th>Attendance</th>${cols.map(c => `<th>${escapeHtml(c[0])}</th>`).join('')}<th>Result</th></tr></thead>
-      <tbody>${rowsHtml || '<tr><td colspan="12">No participants.</td></tr>'}</tbody></table>
+      <table><thead><tr><th>Student ID</th><th>Name</th><th>Program / Section</th><th>Attendance</th>${cols.map(c => `<th>${escapeHtml(c[0])}</th>`).join('')}<th>Result</th>${physicalReport ? '<th>Allow-to-Play</th>' : ''}<th>Health history</th></tr></thead>
+      <tbody>${rowsHtml || '<tr><td colspan="14">No participants.</td></tr>'}</tbody></table>
       <div class="signature">Prepared by:<b>Marilou H. Balarao</b><i>School Nurse</i></div>
       <script>window.onload = function () { window.print(); };</script>
     </body></html>`);
@@ -1487,9 +1719,12 @@ export default function HealthScreening() {
       left_ear_result: student.left_ear_result || '',
       right_ear_result: student.right_ear_result || '',
       remarks: student.remarks || '',
+      play_status: '', // '' = the generated decision
       answers: Object.fromEntries(Object.entries(student.answers || {}).map(([k, v]) => [k, String(v)]))
     });
     setDocLocked(locked);
+    const pair = bpPair(activeSchedule?.template?.fields);
+    setBpDraft(pair ? bpText(student.answers || {}, pair) : '');
     setShowDocModal(true);
   };
 
@@ -1500,11 +1735,18 @@ export default function HealthScreening() {
     const answers = docData.answers || {};
     const results = sch.form_kind === 'CUSTOM'
       ? (sch.template?.fields || []).map((f) => {
+        const hasRange = (f.type === 'number' || f.type === 'calculated') && (f.min !== undefined || f.max !== undefined);
+        const meta = (v) => {
+          if (v === '' || v === undefined) return { status: '', range: '' };
+          if (hasRange) return { status: rangeState(f, v) === 'Normal' ? 'Normal' : 'Not normal', range: `Range ${f.min !== undefined && f.max !== undefined ? `${f.min}-${f.max}` : f.min !== undefined ? `${f.min} or more` : `up to ${f.max}`}${f.unit ? ` ${f.unit}` : ''}` };
+          if ((f.abnormal_options || []).length > 0) return { status: f.abnormal_options.includes(String(v)) ? 'Not normal' : 'Normal', range: '' };
+          return { status: '', range: '' };
+        };
         if (f.type === 'calculated') {
           const c = calculate(f, answers);
-          return { label: f.label, value: c ? c.value : '', unit: f.unit, note: c ? c.label : '' };
+          return { label: f.label, value: c ? c.value : '', unit: f.unit, note: c ? c.label : '', ...meta(c ? c.value : '') };
         }
-        return { label: f.label, value: answers[f.key] ?? '', unit: f.unit };
+        return { label: f.label, value: answers[f.key] ?? '', unit: f.unit, ...meta(answers[f.key]) };
       })
       : [{ label: 'Left ear', value: docData.left_ear_result }, { label: 'Right ear', value: docData.right_ear_result }];
     return buildScreeningModel({
@@ -1519,7 +1761,8 @@ export default function HealthScreening() {
       attendance: 'Present',
       results,
       remarks: docData.remarks,
-      abnormal: !!st.is_abnormal
+      abnormal: !!st.is_abnormal,
+      playStatus: isPhysicalDoc ? docPlayStatus : ''
     });
   };
 
@@ -1532,7 +1775,7 @@ export default function HealthScreening() {
         body: JSON.stringify({
           student_id: selectedStudent.student_id,
           screening_type: activeSchedule.screening_type,
-          formData: activeSchedule.form_kind === 'CUSTOM' ? { answers: docData.answers, remarks: docData.remarks } : docData
+          formData: activeSchedule.form_kind === 'CUSTOM' ? { answers: docData.answers, remarks: docData.remarks, play_status: docData.play_status || undefined } : docData
         })
       });
       const data = await res.json();
@@ -1541,7 +1784,8 @@ export default function HealthScreening() {
         setDocLocked(false);
         openViewModal(activeSchedule);
         fetchSchedules();
-        showAlert(data.is_abnormal ? 'Saved. Flagged abnormal.' : 'Result saved.', 'Success', 'success');
+        notifyScreeningChanged();
+        showAlert(data.is_abnormal ? 'Saved. Result is not normal.' : 'Result saved.', 'Success', 'success');
       } else {
         showAlert(data.error || 'Failed to save document.', 'Error', 'error');
       }
@@ -1563,7 +1807,7 @@ export default function HealthScreening() {
 
   const resetScheduleForm = () => {
     setScheduleForm({
-      title: '', screening_type: activeTypes[0]?.name || '', scheduled_date: '', start_time: '', end_time: '',
+      title: '', screening_type: activeTypes[0]?.name || '', screening_category: 'GENERAL', scheduled_date: getTodayString(), start_time: '', end_time: '',
       announcement: '', target_program_id: '', target_year_level: '', target_section: '',
       grouping: 'SECTION', folder_mode: sectionFolders.length ? 'existing' : 'new', section_key: '', folder_id: '', folder_name: ''
     });
@@ -1593,7 +1837,9 @@ export default function HealthScreening() {
     setScheduleForm(prev => {
       // an existing folder needs a group that has folders: fall back to the other group when this one is empty
       let grouping = prev.grouping;
-      if (mode === 'existing') {
+      if (mode === 'existing' && prev.screening_category !== 'PHYSICAL') {
+        grouping = 'SECTION';
+      } else if (mode === 'existing') {
         if (grouping === 'CUSTOM' && customFolderList.length === 0) grouping = 'SECTION';
         else if (grouping === 'SECTION' && sectionFolders.length === 0) grouping = 'CUSTOM';
       }
@@ -1635,23 +1881,24 @@ export default function HealthScreening() {
   // "Schedule screening" on a day of the calendar: the form opens with that date
   const scheduleOnDay = (day) => {
     resetScheduleForm();
-    setScheduleForm(prev => ({ ...prev, scheduled_date: day }));
+    setScheduleForm(prev => ({ ...prev, scheduled_date: day || getTodayString() }));
     setShowScheduleModal(true);
   };
 
-  // switching between by-section and custom starts the student picks again (the class rule differs)
-  const changeGrouping = (grouping) => {
-    if (grouping === scheduleForm.grouping) return;
-    // the folder choice (existing / new) is made first and kept; it only falls back to new when this group has no folder
-    const hasFolders = (grouping === 'CUSTOM' ? customFolderList.length : sectionFolders.length) > 0;
-    const mode = scheduleForm.folder_mode === 'existing' && hasFolders ? 'existing' : 'new';
+  // General Screening = one class (class folder, existing or new); Physical Activities = random participants in a new list
+  const changeCategory = (category) => {
+    if (category === scheduleForm.screening_category) return;
     prefilledFolderRef.current = '';
     setSelectedStudentIds([]);
     setPickerSearch('');
-    setScheduleForm(prev => ({
-      ...prev, grouping, folder_mode: mode, section_key: '', target_program_id: '', target_year_level: '', target_section: '',
-      folder_id: grouping === 'CUSTOM' && mode === 'new' ? 'new' : '', folder_name: ''
-    }));
+    setScheduleForm(prev => {
+      const clean = { target_program_id: '', target_year_level: '', target_section: '', section_key: '', folder_name: '' };
+      if (category === 'PHYSICAL') {
+        const choices = activeTypes.filter(t => t.form_kind === 'CUSTOM');
+        return { ...prev, ...clean, screening_category: 'PHYSICAL', grouping: 'CUSTOM', folder_mode: 'new', folder_id: 'new', screening_type: choices.some(t => t.name === prev.screening_type) ? prev.screening_type : (choices[0]?.name || '') };
+      }
+      return { ...prev, ...clean, screening_category: 'GENERAL', grouping: 'SECTION', folder_mode: sectionFolders.length ? 'existing' : 'new', folder_id: '' };
+    });
   };
 
   // archive / restore / delete for good (custom folders)
@@ -1663,6 +1910,7 @@ export default function HealthScreening() {
         showAlert(data.error || 'The folder could not be changed.', 'Error', 'error');
         return false;
       }
+      notifyScreeningChanged();
       await fetchFolders();
       showAlert(okMessage, okTitle, 'success');
       return true;
@@ -1698,7 +1946,7 @@ export default function HealthScreening() {
   const handleDeleteArchivedFolder = (f) => {
     showConfirm(
       f.schedule_count > 0
-        ? `Delete "${f.name}" for good? Its ${f.schedule_count} screening${f.schedule_count === 1 ? '' : 's'}, participants and results are removed. This cannot be undone.`
+        ? `Delete "${f.name}" for good? Its ${f.schedule_count} screening${f.schedule_count === 1 ? '' : 's'} leave every list. The results stay in the student records. This cannot be undone.`
         : `Delete "${f.name}" for good? This cannot be undone.`,
       () => folderRequest(
         `${API_BASE}/screening-folders/${f.folder_id}?sender_id=${encodeURIComponent(userId || '')}`,
@@ -1717,6 +1965,7 @@ export default function HealthScreening() {
           const res = await fetch(`${API_BASE}/screening-folders/${view.folder_id}?sender_id=${encodeURIComponent(userId || '')}`, { method: 'DELETE' });
           const data = await res.json();
           if (res.ok) {
+            notifyScreeningChanged();
             goRoot();
             fetchFolders();
             showAlert('Folder deleted.', 'Deleted', 'success');
@@ -1746,10 +1995,13 @@ export default function HealthScreening() {
       const res = await fetch(`${API_BASE}/screenings/${sch.screening_schedule_id}/${path}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, sender_id: userId })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) return data.error || 'Could not save the change.';
-      showAlert(data.message, 'Done', 'success');
+      notifyScreeningChanged();
+      // reload the calendar first: the prompt reads it, so it must show the new end time (or vanish) before the nurse can click again
+      await fetchCalendar();
       fetchSchedules();
+      showAlert(data.message || 'Saved.', 'Done', 'success');
       return '';
     } catch (err) {
       return 'Could not reach the server.';
@@ -1758,11 +2010,15 @@ export default function HealthScreening() {
 
   // the nurse can end an on going screening at any time, even before the end time or with students not documented
   const handleEndNow = (sch) => {
+    const total = Number(sch.total_students || scheduleStudents.length || 0);
+    const documented = Number(sch.result_count || 0);
+    const left = Math.max(0, total - documented);
     showConfirm(
-      `End "${sch.title}" now?`,
+      `End "${sch.title}" now?${left > 0 ? `\n${left} of ${total} students are not documented. They stay pending.` : ''}`,
       async () => {
         const error = await sendEnd(sch, 'confirm-end', {});
         if (error) showAlert(error, 'Error', 'error');
+        else setShowViewModal(false);
       },
       'End screening', 'Yes, End', 'Keep'
     );
@@ -1914,8 +2170,8 @@ export default function HealthScreening() {
             onClick={() => setMainView(key)}
           >
             <Icon size={16} aria-hidden="true" /> {label}
-            {key === 'archive' && (folders.archived_folders || []).length > 0 && (
-              <span className="phase-n-hs">{(folders.archived_folders || []).length}</span>
+            {key === 'archive' && (folders.archived_folders || []).length + (folders.archived_screenings || []).length > 0 && (
+              <span className="phase-n-hs">{(folders.archived_folders || []).length + (folders.archived_screenings || []).length}</span>
             )}
             <TabDot show={mainView !== key && (key === 'screenings' ? screeningsDot : !!tabDots[key])} label={`New in ${label}`} />
           </button>
@@ -1941,7 +2197,7 @@ export default function HealthScreening() {
           loading={typesLoading}
           loadError={typesError}
           senderId={userId}
-          onChanged={fetchScreeningTypes}
+          onChanged={typesChanged}
         />
       )}
 
@@ -2013,8 +2269,31 @@ export default function HealthScreening() {
         <SectionStudents apiBase={API_BASE} view={view} onOpenRecords={openStudentRecords} />
       )}
 
-      {mainView === 'archive' && (folders.archived_folders || []).length === 0 && (
+      {mainView === 'archive' && (folders.archived_folders || []).length === 0 && archivedScreenings.length === 0 && (
         <div className="no-records-hs"><Archive size={28} aria-hidden="true" /><p>None</p></div>
+      )}
+
+      {mainView === 'archive' && archivedScreenings.length > 0 && (
+        <div className="pk-arch-list-hs">
+          {archivedScreenings.map(sch => (
+            <div key={sch.screening_schedule_id} className="pk-arch-row-hs">
+              <span className="fld-ico-hs"><FileText size={20} aria-hidden="true" /></span>
+              <span className="pk-name-hs">
+                <span className="pk-name-main-hs">{sch.title}</span>
+                <span className="pk-id-hs">{typeLabel(sch.screening_type)} &middot; {formatDate(String(sch.scheduled_date).split('T')[0])} &middot; {sch.total_students} student{Number(sch.total_students) === 1 ? '' : 's'}</span>
+              </span>
+              <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => openViewModal(sch)} aria-label={`View ${sch.title}`} title="View">
+                <Eye size={18} aria-hidden="true" />
+              </button>
+              <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => screeningArchiveRequest(sch.screening_schedule_id, 'restore', 'Screening restored.', 'Restored')} aria-label={`Restore ${sch.title}`} title="Restore">
+                <ArchiveRestore size={18} aria-hidden="true" />
+              </button>
+              <button type="button" className="btn-hs btn-icon-hs btn-danger-hs" onClick={() => handleDeleteArchivedSchedule(sch)} aria-label={`Delete ${sch.title} permanently`} title="Delete permanently">
+                <Trash2 size={18} aria-hidden="true" />
+              </button>
+            </div>
+          ))}
+        </div>
       )}
 
       {mainView === 'archive' && (folders.archived_folders || []).length > 0 && (
@@ -2026,6 +2305,9 @@ export default function HealthScreening() {
                 <span className="pk-name-main-hs">{f.name}</span>
                 <span className="pk-id-hs">{f.schedule_count} screening{f.schedule_count === 1 ? '' : 's'} &middot; {formatDate(f.archived_at)}</span>
               </span>
+              <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => openArchivedFolder(f)} aria-label={`View ${f.name}`} title="View">
+                <Eye size={18} aria-hidden="true" />
+              </button>
               <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => handleRestoreFolder(f)} aria-label={`Restore ${f.name}`} title="Restore">
                 <ArchiveRestore size={18} aria-hidden="true" />
               </button>
@@ -2109,6 +2391,7 @@ export default function HealthScreening() {
                       {typeLabel(sch.screening_type)}
                       {!isLegacySchedule(sch) && !Number(sch.type_active) && ' (inactive)'}
                     </span>
+                    {isPhysicalSchedule(sch) && <span className="chip-hs"><Dumbbell size={14} aria-hidden="true" /> Physical Activities</span>}
                     <h3 className="sc-title-hs">{sch.title}</h3>
                     {ended && <span className="chip-hs chip-warn-hs"><AlertTriangle size={14} aria-hidden="true" /> Ended</span>}
                     {cancelled && <span className="chip-hs chip-bad-hs"><X size={14} aria-hidden="true" /> Cancelled{sch.cancelled_reason ? `: ${sch.cancelled_reason}` : ''}</span>}
@@ -2170,7 +2453,7 @@ export default function HealthScreening() {
                         <FileText size={16} aria-hidden="true" />
                       </button>
                       {!cancelled && !isLegacySchedule(sch) && sch.form_kind && (
-                        <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => openImport(sch)} title="Import CSV / OCR" aria-label="Import CSV or OCR">
+                        <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => openImport(sch)} title="Import CSV" aria-label="Import CSV">
                           <Upload size={16} aria-hidden="true" />
                         </button>
                       )}
@@ -2192,12 +2475,16 @@ export default function HealthScreening() {
                       </button>
                       {!cancelled && (
                         <>
-                          <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => printResultsReport(sch)} title="Print report" aria-label="Print report">
-                            <Printer size={16} aria-hidden="true" />
-                          </button>
-                          <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => exportResultsCsv(sch)} title="Download CSV" aria-label="Download CSV">
-                            <Download size={16} aria-hidden="true" />
-                          </button>
+                          {isPhysicalSchedule(sch) && (
+                            <>
+                              <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => printPlayList(sch, 'allowed')} title="Allowed to play (PDF)" aria-label="Allowed to play, PDF">
+                                <ShieldCheck size={16} aria-hidden="true" />
+                              </button>
+                              <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => printPlayList(sch, 'not_allowed')} title="Not allowed to play (PDF)" aria-label="Not allowed to play, PDF">
+                                <ShieldAlert size={16} aria-hidden="true" />
+                              </button>
+                            </>
+                          )}
                           {(absentCount + Number(sch.pending_count || 0)) > 0 && sch.form_kind && !isLegacySchedule(sch) && (
                             <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => openMakeup(sch)} title="Make-up" aria-label="Make-up">
                               <UserRoundPlus size={16} aria-hidden="true" />
@@ -2205,6 +2492,9 @@ export default function HealthScreening() {
                           )}
                         </>
                       )}
+                      <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => handleArchiveSchedule(sch)} title="Archive" aria-label="Archive">
+                        <Archive size={16} aria-hidden="true" />
+                      </button>
                       {resultCount === 0 && (
                         <button type="button" className="btn-hs btn-icon-hs btn-danger-hs" onClick={() => handleDeleteSchedule(sch)} title="Delete" aria-label="Delete">
                           <X size={16} aria-hidden="true" />
@@ -2251,8 +2541,8 @@ export default function HealthScreening() {
                     aria-describedby={typesError ? 'screening-type-help-hs' : undefined}
                     onChange={e => setScheduleForm({...scheduleForm, screening_type: e.target.value})}
                   >
-                    {activeTypes.length === 0 && <option value="">No active screening type</option>}
-                    {activeTypes.map(t => <option key={t.screening_type_id} value={t.name}>{t.name}</option>)}
+                    {typeChoices.length === 0 && <option value="">No active screening type</option>}
+                    {typeChoices.map(t => <option key={t.screening_type_id} value={t.name}>{t.name}</option>)}
                   </select>
                   {typesError && (
                     <small id="screening-type-help-hs" className="hint-hs">
@@ -2262,40 +2552,29 @@ export default function HealthScreening() {
                 </div>
               </div>
 
-              {/* Who: one class (by section) or a mixed group (custom folder) */}
+              {/* Category: General Screening (one class, class folder) or Physical Activities (random participants, allow-to-play list) */}
               <fieldset className="pk-block-hs">
-                <legend>Who is it for?</legend>
+                <legend>Category</legend>
                 <div className="pk-cards-hs">
                   <label className="pk-card-hs">
-                    <input
-                      type="radio"
-                      name="hs-grouping"
-                      checked={!isCustomGrouping}
-                      disabled={scheduleForm.folder_mode === 'existing' && sectionFolders.length === 0}
-                      onChange={() => changeGrouping('SECTION')}
-                    />
+                    <input type="radio" name="hs-category" checked={!isPhysical} onChange={() => changeCategory('GENERAL')} />
                     <span className="pk-card-text-hs">
-                      <span className="pk-card-title-hs"><Users size={18} aria-hidden="true" /> One class</span>
-                      <span className="pk-card-sub-hs">Program, year, section</span>
+                      <span className="pk-card-title-hs"><ClipboardList size={18} aria-hidden="true" /> General Screening</span>
+                      <span className="pk-card-sub-hs">One class, class folder</span>
                     </span>
                   </label>
                   <label className="pk-card-hs">
-                    <input
-                      type="radio"
-                      name="hs-grouping"
-                      checked={isCustomGrouping}
-                      disabled={scheduleForm.folder_mode === 'existing' && customFolderList.length === 0}
-                      onChange={() => changeGrouping('CUSTOM')}
-                    />
+                    <input type="radio" name="hs-category" checked={isPhysical} onChange={() => changeCategory('PHYSICAL')} />
                     <span className="pk-card-text-hs">
-                      <span className="pk-card-title-hs"><Layers size={18} aria-hidden="true" /> Mixed group</span>
-                      <span className="pk-card-sub-hs">Any students</span>
+                      <span className="pk-card-title-hs"><Dumbbell size={18} aria-hidden="true" /> Physical Activities</span>
+                      <span className="pk-card-sub-hs">Random students, allow to play</span>
                     </span>
                   </label>
                 </div>
               </fieldset>
 
-              {/* Folder: existing or new, one field */}
+              {/* Folder: existing or new class folder (General Screening only; Physical Activities always starts a new list) */}
+              {!isPhysical && (
               <div className="pk-block-hs">
                 <div className="pk-folder-head-hs">
                   <span className="pk-block-title-hs">Folder</span>
@@ -2303,7 +2582,7 @@ export default function HealthScreening() {
                     <button
                       type="button"
                       aria-pressed={scheduleForm.folder_mode === 'existing'}
-                      disabled={sectionFolders.length + customFolderList.length === 0}
+                      disabled={sectionFolders.length === 0}
                       onClick={() => changeFolderMode('existing')}
                     >
                       <Folder size={16} aria-hidden="true" /> Existing
@@ -2314,20 +2593,6 @@ export default function HealthScreening() {
                   </div>
                 </div>
 
-                {scheduleForm.folder_mode === 'existing' && isCustomGrouping && (
-                  <div className="form-group-hs">
-                    <select
-                      id="hs-folder-pick"
-                      aria-label="Custom folder"
-                      required
-                      value={scheduleForm.folder_id}
-                      onChange={e => { prefilledFolderRef.current = ''; setSelectedStudentIds([]); setScheduleForm({ ...scheduleForm, folder_id: e.target.value }); }}
-                    >
-                      <option value="">-- Select --</option>
-                      {customFolderList.map(f => <option key={f.folder_id} value={String(f.folder_id)}>{f.name}</option>)}
-                    </select>
-                  </div>
-                )}
                 {scheduleForm.folder_mode === 'existing' && !isCustomGrouping && (
                   <div className="form-group-hs">
                     <select
@@ -2342,24 +2607,11 @@ export default function HealthScreening() {
                     </select>
                   </div>
                 )}
-                {scheduleForm.folder_mode === 'new' && isCustomGrouping && (
-                  <div className="form-group-hs">
-                    <input
-                      id="hs-folder-name"
-                      type="text"
-                      aria-label="Folder name"
-                      required
-                      maxLength={80}
-                      value={scheduleForm.folder_name}
-                      onChange={e => setScheduleForm({ ...scheduleForm, folder_id: 'new', folder_name: e.target.value })}
-                      placeholder="Folder name"
-                    />
-                  </div>
-                )}
-                {scheduleForm.folder_mode === 'new' && !isCustomGrouping && (
+                {scheduleForm.folder_mode === 'new' && (
                   <p className="hint-hs pk-hint-hs"><Lock size={14} aria-hidden="true" /> Class is set on the next step</p>
                 )}
               </div>
+              )}
 
               {/* When: date and time on one row */}
               <div className="pk-when-hs">
@@ -2372,6 +2624,10 @@ export default function HealthScreening() {
                     value={scheduleForm.scheduled_date}
                     onChange={e => {
                       const newDate = e.target.value;
+                      if (newDate && newDate < getTodayString()) {
+                        showAlert('Scheduled date cannot be in the past.', 'Invalid Date', 'warning');
+                        return;
+                      }
                       setScheduleForm(prev => ({ ...prev, scheduled_date: newDate, start_time: '', end_time: '' }));
                     }}
                   />
@@ -2380,6 +2636,7 @@ export default function HealthScreening() {
                   date={scheduleForm.scheduled_date}
                   value={{ start_time: scheduleForm.start_time, end_time: scheduleForm.end_time }}
                   onChange={(t) => setScheduleForm(prev => ({ ...prev, ...t }))}
+                  onDateChange={(d) => setScheduleForm(prev => ({ ...prev, scheduled_date: d }))}
                   onNotice={(msg) => showAlert(msg, 'No Free Time', 'warning')}
                 />
               </div>
@@ -2421,8 +2678,8 @@ export default function HealthScreening() {
               <div className="pk-ctx-hs">
                 <span className="chip-hs chip-info-hs">
                   {lockedClass ? <Lock size={14} aria-hidden="true" /> : <Folder size={14} aria-hidden="true" />}
-                  {isCustomGrouping
-                    ? (scheduleForm.folder_id === 'new' ? scheduleForm.folder_name.trim() : (customFolderList.find(f => String(f.folder_id) === String(scheduleForm.folder_id))?.name || 'Mixed group'))
+                  {isPhysical
+                    ? 'Physical Activities'
                     : (sectionFolders.find(f => f.key === scheduleForm.section_key)?.label || 'New class folder')}
                 </span>
                 {folderSource && (
@@ -2671,6 +2928,7 @@ export default function HealthScreening() {
           onClose={() => setParticipantsSchedule(null)}
           onSaved={() => {
             setParticipantsSchedule(null);
+            notifyScreeningChanged();
             fetchSchedules();
             showAlert('Participants saved.', 'Success', 'success');
           }}
@@ -2686,6 +2944,9 @@ export default function HealthScreening() {
               <div className="form-group-hs">
                 <label htmlFor="hs-fld-7">Title</label>
                 <input id="hs-fld-7" type="text" required maxLength={150} value={editingSchedule.title || ''} onChange={e => setEditingSchedule({ ...editingSchedule, title: e.target.value })} />
+              </div>
+              <div className="form-group-hs">
+                <span className="chip-hs chip-info-hs">{isPhysicalSchedule(editingSchedule) ? <Dumbbell size={14} aria-hidden="true" /> : <ClipboardList size={14} aria-hidden="true" />} {CATEGORY_LABELS[editingSchedule.screening_category] || CATEGORY_LABELS.GENERAL}</span>
               </div>
               <div className="form-group-hs">
                 <label htmlFor="hs-fld-8">Screening Type</label>
@@ -2722,6 +2983,7 @@ export default function HealthScreening() {
                   value={{ start_time: (editingSchedule.start_time || '').slice(0, 5), end_time: (editingSchedule.end_time || '').slice(0, 5) }}
                   onChange={(t) => setEditingSchedule(prev => ({ ...prev, ...t }))}
                   excludeId={editingSchedule.screening_schedule_id}
+                  onDateChange={(d) => setEditingSchedule(prev => ({ ...prev, scheduled_date: d }))}
                   onNotice={(msg) => showAlert(msg, 'No Free Time', 'warning')}
                 />
               </div>
@@ -2738,6 +3000,35 @@ export default function HealthScreening() {
         </HsDialog>
       )}
 
+      {/* Archived folder: its screenings */}
+      {folderView && (
+        <HsDialog onClose={() => setFolderView(null)} size="lg">
+          <HsDialogHeader onClose={() => setFolderView(null)} icon={Layers}>{folderView.folder.name}</HsDialogHeader>
+          <div className="modal-body-hs">
+            {folderView.loading ? (
+              <p className="hint-hs" role="status">Loading</p>
+            ) : folderView.schedules.length === 0 ? (
+              <div className="no-records-hs"><Archive size={28} aria-hidden="true" /><p>None</p></div>
+            ) : (
+              <div className="pk-arch-list-hs">
+                {folderView.schedules.map(sch => (
+                  <div key={sch.screening_schedule_id} className="pk-arch-row-hs">
+                    <span className="fld-ico-hs"><FileText size={20} aria-hidden="true" /></span>
+                    <span className="pk-name-hs">
+                      <span className="pk-name-main-hs">{sch.title}</span>
+                      <span className="pk-id-hs">{typeLabel(sch.screening_type)} &middot; {formatDate(String(sch.scheduled_date).split('T')[0])} &middot; {sch.total_students} student{Number(sch.total_students) === 1 ? '' : 's'}</span>
+                    </span>
+                    <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => openViewModal(sch)} aria-label={`View ${sch.title}`} title="View">
+                      <Eye size={18} aria-hidden="true" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </HsDialog>
+      )}
+
       {/* MODAL 4: View & Document Ongoing/Past Screening */}
       {showViewModal && activeSchedule && (
         <HsDialog onClose={() => setShowViewModal(false)} size="lg">
@@ -2751,15 +3042,19 @@ export default function HealthScreening() {
             )}
             actions={(
               <>
-                <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={handleExportSingleReport} title="Export participant list" aria-label="Export participant list">
-                  <Printer size={16} aria-hidden="true" />
-                </button>
                 <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => printResultsReport(activeSchedule)} title="Results report with summary" aria-label="Results report with summary">
                   <FileText size={16} aria-hidden="true" />
                 </button>
-                <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => exportResultsCsv(activeSchedule)} title="Download results as CSV" aria-label="Download results as CSV">
-                  <Download size={16} aria-hidden="true" />
-                </button>
+                {isPhysicalSchedule(activeSchedule) && (
+                  <>
+                    <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => printPlayList(activeSchedule, 'allowed', { att: attFilter })} title="Allowed to play (PDF)" aria-label="Allowed to play, PDF">
+                      <ShieldCheck size={16} aria-hidden="true" />
+                    </button>
+                    <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => printPlayList(activeSchedule, 'not_allowed', { att: attFilter })} title="Not allowed to play (PDF)" aria-label="Not allowed to play, PDF">
+                      <ShieldAlert size={16} aria-hidden="true" />
+                    </button>
+                  </>
+                )}
                 {activeSchedule.status !== 'Cancelled' && (Number(activeSchedule.absent_count) + Number(activeSchedule.pending_count)) > 0 && screeningOver(activeSchedule) && activeSchedule.form_kind && !isLegacySchedule(activeSchedule) && (
                   <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => openMakeup(activeSchedule)} title="Schedule a make-up session" aria-label="Schedule a make-up session">
                     <UserRoundPlus size={16} aria-hidden="true" />
@@ -2803,6 +3098,15 @@ export default function HealthScreening() {
                       </button>
                     ))}
                   </div>
+                  {isPhysicalSchedule(activeSchedule) && (
+                    <div className="chips-hs" role="group" aria-label="Allow to play">
+                      {[['ALL', 'All'], ['ALLOWED', 'Allowed'], ['RESTRICTED', 'Restrictions'], ['NOT_ALLOWED', 'Not allowed'], ['NONE', 'No decision']].map(([key, label]) => (
+                        <button key={key} type="button" className="chip-btn-hs" aria-pressed={playFilter === key} onClick={() => { setPlayFilter(key); setParticipantPage(1); }}>
+                          {label} <span className="chip-n-hs">{key === 'ALL' ? totalN : scheduleStudents.filter(st => (st.play_status || 'NONE') === key).length}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </>
               );
             })()}
@@ -2844,6 +3148,11 @@ export default function HealthScreening() {
                           <span className="pk-name-hs">
                             <span className="pk-name-main-hs">{st.first_name} {st.last_name}</span>
                             <span className="pk-id-hs">{st.student_id}</span>
+                            {(st.health_play?.conditions || []).length > 0 && (
+                              <span className="pk-id-hs" title={st.health_play.conditions.join(', ')}>
+                                Health: {st.health_play.conditions.slice(0, 2).join(', ')}{st.health_play.conditions.length > 2 ? ` +${st.health_play.conditions.length - 2}` : ''}
+                              </span>
+                            )}
                           </span>
                         </td>
                         <td>{classLabel(st.program_id, st.year_level, st.section)}</td>
@@ -2858,6 +3167,9 @@ export default function HealthScreening() {
                           <span className={`badge-hs ${isDocumented ? 'badge-success-hs' : 'badge-warning-hs'}`}>
                             {isDocumented ? 'Documented' : 'Pending'}
                           </span>
+                          {isPhysicalSchedule(activeSchedule) && isDocumented && st.play_status && (
+                            <div className="sub-note-hs"><span className={`chip-hs ${PLAY_TONES[st.play_status] || ''}`}>{PLAY_STATUS_LABELS[st.play_status]}</span></div>
+                          )}
                           {st.referral_appointment_id && ['Scheduled', 'Waiting for Approval', 'Completed'].includes(st.referral_status) && (
                             <div className="sub-note-hs">Referred to doctor ({st.referral_status}{st.referral_start_time ? ', ' + formatDate(String(st.referral_start_time).slice(0, 10)) : ''})</div>
                           )}
@@ -2900,6 +3212,11 @@ export default function HealthScreening() {
             <Pager page={participantPageData.page} pageCount={participantPageData.pageCount} total={participantPageData.total} pageSize={PARTICIPANTS_PER_PAGE} onPage={setParticipantPage} noun="students" />
           </div>
           <div className="modal-footer-hs">
+            {activeTab === 'ongoing' && activeSchedule.status !== 'Cancelled' && !screeningOver(activeSchedule) && (
+              <button type="button" className="btn-hs btn-icon-hs btn-danger-hs" onClick={() => handleEndNow(activeSchedule)} title="End screening" aria-label="End screening">
+                <Flag size={16} aria-hidden="true" />
+              </button>
+            )}
             <button type="button" className="btn-hs btn-secondary-hs" onClick={() => setShowViewModal(false)}>
               Close
             </button>
@@ -2914,30 +3231,35 @@ export default function HealthScreening() {
             onClose={docLocked ? undefined : () => setShowDocModal(false)}
             icon={typeIcon(activeSchedule.screening_type, activeSchedule.form_kind)}
             sub={<div className="modal-sub-hs">{selectedStudent.student_id} &middot; {classLabel(selectedStudent.program_id, selectedStudent.year_level, selectedStudent.section)}</div>}
+            actions={hasResult(selectedStudent) ? <FormPdfButton model={screeningFormModel()} /> : null}
           >
             {selectedStudent.first_name} {selectedStudent.last_name}
           </HsDialogHeader>
           <form onSubmit={handleDocSubmit} className="modal-form-hs">
-            <div className="modal-body-hs">
-              {/* the student stays in view while the form is filled in */}
-              <div className="doc-student-hs" role="group" aria-label="Student">
-                <strong className="doc-student-name-hs">{selectedStudent.first_name} {selectedStudent.last_name}</strong>
-                <span className="doc-student-meta-hs">{selectedStudent.student_id} &middot; {classLabel(selectedStudent.program_id, selectedStudent.year_level, selectedStudent.section)}</span>
-                {docAsthma?.has && (
+            {/* context + health history stay pinned above the scrolling form, so they never cover a field */}
+            <div className="doc-strip-hs">
+              <span className="chip-hs chip-info-hs">{typeLabel(activeSchedule.screening_type)}</span>
+              {activeSchedule.scheduled_date && <span className="chip-hs">{formatDate(String(activeSchedule.scheduled_date).split('T')[0])}</span>}
+              {selectedStudent.attended_at && <span className="chip-hs"><Clock size={14} aria-hidden="true" /> Time in {formatTime(selectedStudent.attended_at)}</span>}
+              <span className="doc-strip-sep-hs" aria-hidden="true" />
+              <div className="doc-health-hs" role="group" aria-label="Health history">
+                <strong className="doc-health-title-hs"><HeartPulse size={14} aria-hidden="true" /> Health history</strong>
+                {docAsthma?.has && !(docHealth?.conditions || []).some((c) => /asthma/i.test(c)) && (
                   <span className="chip-hs chip-warn-hs" title={docAsthma.triggers || 'History of asthma'}>
                     <AlertTriangle size={14} aria-hidden="true" /> Asthma{docAsthma.triggers ? `: ${docAsthma.triggers}` : ''}
                   </span>
                 )}
+                {(docHealth?.conditions || []).length > 0
+                  ? docHealth.conditions.map((c) => <span key={c} className="chip-hs chip-warn-hs"><AlertTriangle size={14} aria-hidden="true" /> {c}</span>)
+                  : !docAsthma?.has && <span className="chip-hs chip-ok-hs"><Check size={14} aria-hidden="true" /> None reported</span>}
               </div>
-              <div className="doc-ctx-hs">
-                <span className="chip-hs chip-info-hs">{typeLabel(activeSchedule.screening_type)}</span>
-                {activeSchedule.scheduled_date && <span className="chip-hs">{formatDate(String(activeSchedule.scheduled_date).split('T')[0])}</span>}
-                {selectedStudent.attended_at && <span className="chip-hs"><Clock size={14} aria-hidden="true" /> Time in {formatTime(selectedStudent.attended_at)}</span>}
-              </div>
+            </div>
+            <div className="modal-body-hs">
               {/* FORM TEMPLATE (CUSTOM) */}
               {activeSchedule.form_kind === 'CUSTOM' && (
                 <>
                   {!activeSchedule.template && <p className="hint-hs" role="alert">Template missing</p>}
+                  <div className="doc-grid-hs">
                   {(activeSchedule.template?.fields || []).map((f) => {
                     const id = `cf-${f.key}`;
                     const value = docData.answers?.[f.key] ?? '';
@@ -2947,18 +3269,47 @@ export default function HealthScreening() {
                         {f.label}{f.required ? <> <Req /></> : null}{f.unit ? <span className="cf-unit-hs">({f.unit})</span> : null}
                       </label>
                     );
+                    if (bpDocPair && f.key === bpDocPair.dia.key) return null;
+                    if (bpDocPair && f.key === bpDocPair.sys.key) {
+                      const { sys, dia } = bpDocPair;
+                      const bpLabel = bloodPressureLabel(docFields, docData.answers);
+                      const range = (x) => rangeFlagText({ min: x.min, max: x.max });
+                      const playRange = isPhysicalDoc && (playRangeText(sys) || playRangeText(dia)) ? ` · Play ${playRangeText(sys) || '-'} / ${playRangeText(dia) || '-'}` : '';
+                      return (
+                        <div className="form-group-hs" key={sys.key}>
+                          <div className="doc-lblrow-hs">
+                            <label htmlFor="cf-bp-hs">BP (mmHg){(sys.required || dia.required) ? <> <Req /></> : null}</label>
+                            <StateChip state={bpLabel === 'Normal' ? 'Normal' : bpLabel === 'Low Blood' ? 'Low' : bpLabel === 'High Blood' ? 'High' : ''} id="cf-bp-flag-hs" />
+                          </div>
+                          <input
+                            id="cf-bp-hs"
+                            type="text"
+                            inputMode="numeric"
+                            autoComplete="off"
+                            placeholder="120/80"
+                            pattern={BP_PATTERN}
+                            title="Systolic/Diastolic, for example 120/80"
+                            required={!!(sys.required || dia.required)}
+                            value={bpDraft}
+                            onChange={e => {
+                              const text = e.target.value.replace(/[^\d/]/g, '').slice(0, 7);
+                              setBpDraft(text);
+                              setDocData(prev => ({ ...prev, answers: { ...(prev.answers || {}), ...bpParse(text, bpDocPair) } }));
+                            }}
+                            aria-describedby="cf-bp-range-hs cf-bp-flag-hs"
+                          />
+                          <small id="cf-bp-range-hs" className="range-hint-hs">Normal {range(sys)} / {range(dia)}{playRange}</small>
+                        </div>
+                      );
+                    }
                     if (f.type === 'calculated') {
                       const calc = calculate(f, docData.answers);
-                      const abnormal = calc && ((f.min !== undefined && calc.value < f.min) || (f.max !== undefined && calc.value > f.max));
+                      const calcState = calc ? rangeState(f, calc.value) : '';
                       return (
                         <div className="form-group-hs" key={f.key}>
-                          {label}
-                          <input id={id} type="text" readOnly value={calc ? `${calc.value}${calc.label ? ` (${calc.label})` : ''}` : ''} placeholder="Auto" aria-describedby={abnormal ? `${id}-flag` : undefined} />
-                          {abnormal && (
-                            <small id={`${id}-flag`} className="flag-hs">
-                              <AlertTriangle size={14} aria-hidden="true" /> Outside {rangeFlagText(f)}
-                            </small>
-                          )}
+                          <div className="doc-lblrow-hs">{label}<StateChip state={calcState} id={`${id}-flag`} /></div>
+                          <input id={id} type="text" readOnly value={calc ? `${calc.value}${calc.label ? ` (${calc.label})` : ''}` : ''} placeholder="Auto" aria-describedby={calcState ? `${id}-flag` : undefined} />
+                          {(f.min !== undefined || f.max !== undefined) && <small className="range-hint-hs">Normal {rangeFlagText(f)}</small>}
                         </div>
                       );
                     }
@@ -2973,12 +3324,12 @@ export default function HealthScreening() {
                         </div>
                       );
                     }
-                    const outside = f.type === 'number' && value !== '' && ((f.min !== undefined && Number(value) < f.min) || (f.max !== undefined && Number(value) > f.max));
-                    const noPlay = playDecision([f], docData.answers).blocked;
-                    const hasRange = f.type === 'number' && (f.min !== undefined || f.max !== undefined || playRangeText(f));
+                    const numState = f.type === 'number' ? rangeState(f, value) : '';
+                    const noPlay = isPhysicalDoc && playDecision([f], docData.answers).blocked;
+                    const hasRange = f.type === 'number' && (f.min !== undefined || f.max !== undefined || (isPhysicalDoc && playRangeText(f)));
                     return (
                       <div className="form-group-hs" key={f.key}>
-                        {label}
+                        <div className="doc-lblrow-hs">{label}<StateChip state={numState} id={`${id}-flag`} /></div>
                         <input
                           id={id}
                           type={f.type === 'number' ? 'number' : 'text'}
@@ -2987,43 +3338,68 @@ export default function HealthScreening() {
                           required={f.required}
                           value={value}
                           onChange={e => setAnswer(e.target.value)}
-                          aria-describedby={`${id}-range ${outside ? `${id}-flag` : ''}`.trim()}
+                          aria-describedby={`${id}-range ${numState ? `${id}-flag` : ''}`.trim()}
                         />
                         {hasRange && (
                           <small id={`${id}-range`} className="range-hint-hs">
                             {(f.min !== undefined || f.max !== undefined) && <>Normal {rangeFlagText(f)}</>}
-                            {playRangeText(f) && <>{(f.min !== undefined || f.max !== undefined) ? ' · ' : ''}Play {playRangeText(f)}</>}
-                          </small>
-                        )}
-                        {outside && (
-                          <small id={`${id}-flag`} className="flag-hs">
-                            <AlertTriangle size={14} aria-hidden="true" /> {Number(value) < (f.min ?? -Infinity) ? 'Low' : 'High'}: outside {rangeFlagText(f)}
+                            {isPhysicalDoc && playRangeText(f) && <>{(f.min !== undefined || f.max !== undefined) ? ' · ' : ''}Play {playRangeText(f)}</>}
                           </small>
                         )}
                         {noPlay && (
                           <small className="flag-hs" role="status">
-                            <AlertTriangle size={14} aria-hidden="true" /> Not allowed to play
+                            <Ban size={14} aria-hidden="true" /> Not allowed to play
                           </small>
                         )}
                       </div>
                     );
                   })}
-                  {(() => {
+                  </div>
+                  {!bpDocPair && (() => {
                     const bp = bloodPressureLabel(docFields, docData.answers);
-                    const play = playDecision(docFields, docData.answers);
-                    if (!bp && !play.hasRule) return null;
+                    if (!bp) return null;
                     return (
                       <div className="doc-verdict-hs" role="status">
-                        {bp && <span className={`chip-hs ${bp === 'Normal' ? 'chip-ok-hs' : 'chip-warn-hs'}`}>{bp !== 'Normal' && <AlertTriangle size={14} aria-hidden="true" />} Blood pressure: {bp}</span>}
-                        {play.hasRule && (
-                          <span className={`chip-hs ${play.blocked ? 'chip-warn-hs' : 'chip-ok-hs'}`}>
-                            {play.blocked ? <AlertTriangle size={14} aria-hidden="true" /> : <CheckCircle size={14} aria-hidden="true" />}
-                            {play.blocked ? ' Not allowed to play' : ' Allowed to play'}
-                          </span>
-                        )}
+                        <span className={`chip-hs ${bp === 'Normal' ? 'chip-ok-hs' : 'chip-warn-hs'}`}>{bp !== 'Normal' && <AlertTriangle size={14} aria-hidden="true" />} Blood pressure: {bp}</span>
                       </div>
                     );
                   })()}
+                  {isPhysicalDoc && docClearance && (
+                    <fieldset className={`play-box-hs play-${docPlayStatus.toLowerCase()}-hs`} aria-describedby="cf-play-why-hs">
+                      <legend className="play-legend-hs">
+                        <ShieldCheck size={18} aria-hidden="true" /> Allow-to-Play <Req />
+                      </legend>
+                      <div className="play-sugg-hs">
+                        <span className="chip-hs">Suggested: {PLAY_STATUS_LABELS[docClearance.status]}</span>
+                        {docData.play_status && docData.play_status !== docClearance.status && (
+                          <button type="button" className="btn-hs btn-secondary-hs btn-icon-hs" aria-label="Use the suggested decision" title="Use the suggested decision" onClick={() => choosePlayStatus('')}>
+                            <RotateCcw size={16} aria-hidden="true" />
+                          </button>
+                        )}
+                      </div>
+                      <div className="play-opts-hs">
+                        {[
+                          ['ALLOWED', 'Allowed', 'No limits', <Check size={18} aria-hidden="true" />],
+                          ['RESTRICTED', 'Restrictions', 'With conditions', <AlertTriangle size={18} aria-hidden="true" />],
+                          ['NOT_ALLOWED', 'Not allowed', 'Cannot play', <Ban size={18} aria-hidden="true" />]
+                        ].map(([k, title, sub, icon]) => (
+                          <label key={k} className={`play-opt-hs play-opt-${k.toLowerCase()}-hs`}>
+                            <input type="radio" name="cf-play-hs" value={k} required checked={docPlayStatus === k} onChange={() => choosePlayStatus(k)} />
+                            <span className="play-opt-t-hs">{icon} {title}</span>
+                            <span className="play-opt-d-hs">{sub}</span>
+                          </label>
+                        ))}
+                      </div>
+                      <div id="cf-play-why-hs">
+                        {docClearance.blockers.length > 0 && (
+                          <ul className="play-list-hs">{docClearance.blockers.map((t) => <li key={t}>{t}</li>)}</ul>
+                        )}
+                        {docClearance.restrictions.length > 0 && (
+                          <ul className="play-list-hs">{docClearance.restrictions.map((t) => <li key={t}>{t}</li>)}</ul>
+                        )}
+                      </div>
+                    </fieldset>
+                  )}
                   <div className="form-group-hs">
                     <label htmlFor="cf-remarks-hs">Remarks</label>
                     <textarea
@@ -3079,7 +3455,6 @@ export default function HealthScreening() {
                   <span className="foot-note-hs" role="status"><AlertTriangle size={14} aria-hidden="true" /> {outN} out of range</span>
                 ) : null;
               })()}
-              {hasResult(selectedStudent) && <FormPdfButton model={screeningFormModel()} />}
               {!docLocked && <button type="button" className="btn-hs btn-secondary-hs" onClick={() => setShowDocModal(false)}>Cancel</button>}
               <button type="submit" className="btn-hs btn-primary-hs">Save</button>
             </div>
@@ -3107,7 +3482,7 @@ export default function HealthScreening() {
         </HsDialog>
       )}
 
-      {/* MODAL: Import results (CSV / OCR) into the screening of a folder */}
+      {/* MODAL: Import results (CSV) into the screening of a folder */}
       {importData && (() => {
         const sch = importData.schedule;
         const first = importData.students[0];
@@ -3131,6 +3506,7 @@ export default function HealthScreening() {
             onDone={({ saved, rejected, failed }) => {
               setImportData(null);
               fetchSchedules();
+              if (saved > 0) notifyScreeningChanged();
               const lines = [`${saved} saved`, rejected ? `${rejected} rejected` : '', ...failed.slice(0, 5)].filter(Boolean);
               showAlert(lines.join('\n'), 'Import Finished', failed.length || rejected ? 'warning' : 'success');
             }}
@@ -3165,6 +3541,7 @@ export default function HealthScreening() {
                   value={{ start_time: makeupModal.start_time, end_time: makeupModal.end_time }}
                   onChange={(t) => setMakeupModal(prev => (prev ? { ...prev, ...t } : prev))}
                   autoOnMount
+                  onDateChange={(d) => setMakeupModal(prev => (prev ? { ...prev, scheduled_date: d } : prev))}
                   onNotice={(msg) => showAlert(msg, 'No Free Time', 'warning')}
                 />
               </div>

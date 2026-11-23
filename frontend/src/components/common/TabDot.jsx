@@ -8,4 +8,10 @@ const TabDot = ({ show, label = 'New', className = '' }) => {
     return <span className={`tab-dot ${className}`.trim()} role="status" aria-label={label} title={label} />;
 };
 
+// Green pulsing dot: something is on going now. Carries a text name, never color alone.
+export const LiveDot = ({ show, label = 'On going now' }) => {
+    if (!show) return null;
+    return <span className="live-dot" role="status" aria-label={label} title={label} />;
+};
+
 export default TabDot;

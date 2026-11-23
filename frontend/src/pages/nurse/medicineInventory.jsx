@@ -491,6 +491,10 @@ export default function MedicineInventory() {
       showAlert('Dispense limit must be greater than 0.', 'error');
       return;
     }
+    if (['Tablet/s', 'Capsule/s'].includes(medForm.dispense_unit_of_measure) && !(parseFloat(medForm.min_hours_between_doses) > 0)) {
+      showAlert('Hours between releases is required for tablets and capsules.', 'warning');
+      return;
+    }
 
     const payload = {
       ...medForm,
@@ -1359,14 +1363,15 @@ export default function MedicineInventory() {
 
                 <div className="modal-form-row">
                   <div className="modal-form-group">
-                    <label htmlFor="med-gap-hours">Hours Between Releases</label>
+                    <label htmlFor="med-gap-hours">Hours Between Releases{['Tablet/s', 'Capsule/s'].includes(medForm.dispense_unit_of_measure) ? ' *' : ''}</label>
                     <input
                       id="med-gap-hours"
                       type="number"
                       min="0"
                       step="0.5"
                       className="modal-input-field"
-                      placeholder="No gap"
+                      placeholder={['Tablet/s', 'Capsule/s'].includes(medForm.dispense_unit_of_measure) ? 'Hours' : 'No gap'}
+                      required={['Tablet/s', 'Capsule/s'].includes(medForm.dispense_unit_of_measure)}
                       value={medForm.min_hours_between_doses}
                       onChange={e => setMedForm({ ...medForm, min_hours_between_doses: e.target.value })}
                     />

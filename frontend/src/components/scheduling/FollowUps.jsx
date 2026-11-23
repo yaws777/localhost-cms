@@ -7,6 +7,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { CalendarClock, Search, RefreshCw, Undo2, EyeOff, CalendarPlus, Hourglass, FolderOpen, ChevronLeft, Users } from 'lucide-react';
 import Modal from '../common/Modal';
+import { notifyRecordChanged } from '../../hooks/useRecordSync';
 import { ReasonModal } from '../doctor/AppointmentModals';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatDateTime, formatTime } from '../../utils/datetime';
@@ -240,6 +241,7 @@ export const RepeatModal = ({ appt, onClose, onDone }) => {
     const flag = async () => {
         const data = await send(`/api/follow-ups/${appt.appointment_id}/flag`, 'PUT', { student_id: appt.student_id, follow_up_date: wantedDate || undefined, notes: notes.trim() || undefined });
         if (!data.success) setError(data.message || 'Could not set the follow-up.');
+        else notifyRecordChanged('checkup');
         return !!data.success;
     };
 

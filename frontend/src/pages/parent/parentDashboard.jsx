@@ -22,6 +22,7 @@ import {
   Check
 } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
+import { useRecordSync, ALL_RECORD_KINDS } from '../../hooks/useRecordSync';
 import {
   formatDate as formatDateBase,
   formatDateTime as formatDateTimeBase,
@@ -135,15 +136,16 @@ const ParentDashboard = () => {
   }, [parentId]);
 
   // 2. Fetch and aggregate dashboard metrics for ALL linked students
-  useEffect(() => {
-    if (!linkedStudents || linkedStudents.length === 0) {
-      setIsLoading(false);
-      return;
-    }
-
-    const fetchAllStudentsData = async () => {
-      setIsLoading(true);
-      setError(null);
+  // silent = reload in the background after a record changed (no spinner, no error modal)
+  const fetchAllStudentsData = useCallback(async (silent = false) => {
+      if (!linkedStudents || linkedStudents.length === 0) {
+        setIsLoading(false);
+        return;
+      }
+      if (!silent) {
+        setIsLoading(true);
+        setError(null);
+      }
 
       try {
         const studentPromises = linkedStudents.map(async (student) => {
@@ -256,14 +258,18 @@ const ParentDashboard = () => {
 
       } catch (err) {
         console.error('Error fetching combined dashboard data:', err);
-        setError('Cannot load dashboard.');
+        if (!silent) setError('Cannot load dashboard.');
       } finally {
         setIsLoading(false);
       }
-    };
-
-    fetchAllStudentsData();
   }, [linkedStudents, parentId]);
+
+  useEffect(() => {
+    fetchAllStudentsData();
+  }, [fetchAllStudentsData]);
+
+  // a screening, check-up, visit or incident changed: reload the dashboard quietly
+  useRecordSync(ALL_RECORD_KINDS, useCallback(() => { fetchAllStudentsData(true); }, [fetchAllStudentsData]), { enabled: linkedStudents.length > 0 });
 
   // Frequent Illness Detail Modal Trigger
   const handleOpenAlertDetails = async (alert, event) => {

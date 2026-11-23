@@ -7,6 +7,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { CalendarPlus } from 'lucide-react';
 import Modal from '../common/Modal';
+import TimeRangeFields from '../common/TimeRangeFields';
+import { minTimeFor } from '../../utils/visitPurpose';
 import { useAlert } from '../../context/AlertContext';
 import { useSpecializations } from '../../hooks/useSpecializations';
 import { API, WEEKDAYS, eligibleDoctors, visitRefusal, coveredTypes, hasWalkIn, hhmm, todayKey } from '../../utils/scheduling';
@@ -155,14 +157,11 @@ const ScheduleFormModal = ({ isOpen, schedule, preset, doctors, creator, userId,
                 )}
 
                 <div className="dp-row">
-                    <div className="dp-field">
-                        <label htmlFor="sf-start">Start time</label>
-                        <input id="sf-start" className="dp-input" type="time" required disabled={lockTiming} value={form.start_time} onChange={(e) => set({ start_time: e.target.value })} />
-                    </div>
-                    <div className="dp-field">
-                        <label htmlFor="sf-end">End time</label>
-                        <input id="sf-end" className="dp-input" type="time" required disabled={lockTiming} value={form.end_time} onChange={(e) => set({ end_time: e.target.value })} />
-                    </div>
+                    <TimeRangeFields
+                        idPrefix="sf" disabled={lockTiming} start={form.start_time} end={form.end_time}
+                        minStart={form.recurrence === 'Once' && !lockTiming ? minTimeFor(form.schedule_date) : undefined}
+                        onChange={(start_time, end_time) => set({ start_time, end_time })}
+                    />
                 </div>
 
                 {moved && (

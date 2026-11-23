@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useScreeningSync } from '../../hooks/useScreeningSync';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
     ArrowLeft, Download, FileText, AlertTriangle, Clock, Pencil,
@@ -190,6 +191,15 @@ export default function HealthRecordsProfile() {
         // showAlert is stable (useCallback in AlertContext)
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [studentId]);
+
+    // a screening result (BMI moves height / weight) changed: refresh the header quietly
+    useScreeningSync(useCallback(() => {
+        if (!studentId) return;
+        fetch(`${API}/api/health-records/student-header/${encodeURIComponent(studentId)}`)
+            .then((r) => r.json())
+            .then((d) => { if (d.success && d.student) setStudentHeader(d.student); })
+            .catch(() => {});
+    }, [studentId]), { enabled: !!studentId });
 
     const reloadRequirements = async () => {
         try {

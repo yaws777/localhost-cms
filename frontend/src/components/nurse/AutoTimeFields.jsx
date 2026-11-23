@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshCw, AlertTriangle } from 'lucide-react';
+import TimeRangeFields from '../common/TimeRangeFields';
 
 const API = 'http://localhost:3001/api';
 const DURATIONS = [15, 30, 45, 60, 90, 120];
@@ -8,16 +9,10 @@ const minutesOf = (t) => {
   const [h, m] = String(t || '').split(':').map(Number);
   return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : NaN;
 };
-const hhmm = (mins) => `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
-const fmt12 = (t) => {
-  const [h, m] = String(t || '').split(':').map(Number);
-  if (!Number.isFinite(h)) return '';
-  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
-};
 
-// Screening time that fills itself: the next free time of the chosen day (after now when it is today) for the chosen length,
-// so two screenings never overlap. Nothing is typed. `value` = { start_time, end_time }, `onChange({ start_time, end_time })`.
-export default function AutoTimeFields({ date, value, onChange, excludeId = '', studentIds = [], autoOnMount = false, onNotice }) {
+// Screening time: it fills itself with the next free time of the chosen day (after now when it is today) for the chosen length,
+// and the nurse can still change Start, End or Length (an overlap shows a warning). `value` = { start_time, end_time }, `onChange({ start_time, end_time })`.
+export default function AutoTimeFields({ date, value, onChange, excludeId = '', studentIds = [], autoOnMount = false, onNotice, onDateChange }) {
   const [duration, setDuration] = useState(() => {
     const len = minutesOf(value?.end_time) - minutesOf(value?.start_time);
     return DURATIONS.includes(len) ? len : (len > 0 ? len : 30);
@@ -40,6 +35,12 @@ export default function AutoTimeFields({ date, value, onChange, excludeId = '', 
         if (onNotice) onNotice(data.message || 'No free time is left on this day.');
         return;
       }
+      // the day is full: the server found the next day with room, move the date there
+      if (data.date && data.date !== date && onDateChange) {
+        lastDate.current = data.date;
+        onDateChange(data.date);
+        if (onNotice) onNotice(data.message || `No free time is left on ${date}. Moved to ${data.date}.`);
+      }
       onChange({ start_time: data.start_time, end_time: data.end_time });
     } catch (err) {
       if (onNotice) onNotice(err.message || 'Could not find a free time.');
@@ -47,7 +48,7 @@ export default function AutoTimeFields({ date, value, onChange, excludeId = '', 
       setBusy(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date, excludeId]);
+  }, [date, excludeId, onDateChange]);
 
   // a new date -> the next free time of that day
   useEffect(() => {
@@ -74,29 +75,19 @@ export default function AutoTimeFields({ date, value, onChange, excludeId = '', 
     return () => { cancelled = true; };
   }, [date, value?.start_time, value?.end_time, excludeId, studentKey]);
 
-  const changeDuration = (len) => {
-    setDuration(len);
-    const start = minutesOf(value?.start_time);
-    if (Number.isFinite(start) && start + len < 24 * 60) onChange({ start_time: value.start_time, end_time: hhmm(start + len) });
-    else pickSlot(len);
+  // the nurse can type any start / end or pick a length; the conflict check below warns about overlaps
+  const handleRange = (start_time, end_time) => {
+    const len = minutesOf(end_time) - minutesOf(start_time);
+    if (len > 0) setDuration(len);
+    onChange({ start_time, end_time });
   };
 
   return (
     <>
-      <div className="form-group-hs">
-        <label htmlFor="auto-start-hs">Start</label>
-        <input id="auto-start-hs" type="text" readOnly value={fmt12(value?.start_time)} placeholder={date ? 'Finding a free time' : 'Pick a date'} />
-      </div>
-      <div className="form-group-hs">
-        <label htmlFor="auto-end-hs">End</label>
-        <input id="auto-end-hs" type="text" readOnly value={fmt12(value?.end_time)} placeholder="Auto" />
-      </div>
-      <div className="form-group-hs">
-        <label htmlFor="auto-len-hs">Length</label>
-        <div className="auto-len-row-hs">
-          <select id="auto-len-hs" value={duration} onChange={(e) => changeDuration(Number(e.target.value))} disabled={!date || busy}>
-            {[...new Set([...DURATIONS, duration])].sort((a, b) => a - b).map((d) => <option key={d} value={d}>{d} min</option>)}
-          </select>
+      <TimeRangeFields
+        variant="hs" idPrefix="auto" disabled={!date || busy} defaultLength={duration}
+        start={value?.start_time} end={value?.end_time} onChange={handleRange}
+        extra={(
           <button
             type="button"
             className="btn-hs btn-secondary-hs btn-icon-hs"
@@ -107,8 +98,8 @@ export default function AutoTimeFields({ date, value, onChange, excludeId = '', 
           >
             <RefreshCw size={16} aria-hidden="true" />
           </button>
-        </div>
-      </div>
+        )}
+      />
       {conflicts.length > 0 && (
         <div className="auto-conflict-hs" role="alert">
           <AlertTriangle size={16} aria-hidden="true" />

@@ -138,6 +138,8 @@ const StudentDashboard = () => {
   const [doctorAppointments, setDoctorAppointments] = useState([]);
   const [openListings, setOpenListings] = useState([]);
   const [advance, setAdvance] = useState(null);
+  // open for registration = the listing is open and a service still takes students (same rule as the server's `accepting`)
+  const advanceAccepting = !!advance && (advance.accepting ?? advance.is_open);
   const [announcements, setAnnouncements] = useState([]);
   const [account, setAccount] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
@@ -337,18 +339,18 @@ const StudentDashboard = () => {
         events.push({
           id: 'adv-open', date: openedOn, kind: 'advance', sort: String(advance.opened_at).slice(11, 19),
           title: 'Advance listing opens', time: advance.opened_at ? formatTimeBase(advance.opened_at) : '', detail: services,
-          badges: [advance.is_open ? { text: 'Open now', tone: 'ok' } : { text: 'Closed', tone: 'default' }], to: '/BookCheckup'
+          badges: [advanceAccepting ? { text: 'Open now', tone: 'ok' } : { text: 'Closed', tone: 'default' }], to: '/BookCheckup'
         });
       }
-      const closedAt = advance.is_open ? advance.closes_at : advance.listing?.closed_at;
+      const closedAt = advanceAccepting ? advance.closes_at : (advance.listing?.closed_at || (advance.is_open ? advance.closes_at : null));
       const closesOn = dayOf(closedAt);
       if (closesOn) {
         events.push({
           id: 'adv-close', date: closesOn, kind: 'advance', sort: String(closedAt).slice(11, 19),
-          title: advance.is_open ? 'Advance listing closes' : 'Advance listing closed', time: formatTimeBase(closedAt), detail: services,
-          badges: [advance.is_open ? { text: 'Register before this', tone: 'warn' } : { text: 'Closed', tone: 'default' }], to: '/BookCheckup'
+          title: advanceAccepting ? 'Advance listing closes' : 'Advance listing closed', time: formatTimeBase(closedAt), detail: services,
+          badges: [advanceAccepting ? { text: 'Register before this', tone: 'warn' } : { text: 'Closed', tone: 'default' }], to: '/BookCheckup'
         });
-      } else if (advance.is_open && !advance.opened_at) {
+      } else if (advanceAccepting && !advance.opened_at) {
         events.push({
           id: 'adv-open-now', date: today, kind: 'advance', sort: '', title: 'Advance listing is open', time: '', detail: services,
           badges: [{ text: 'Open now', tone: 'ok' }], to: '/BookCheckup'
@@ -384,7 +386,7 @@ const StudentDashboard = () => {
     });
 
     return events;
-  }, [healthScreenings, liveAppointments, openListings, advance, doctorAppointments, requirementsData, today]);
+  }, [healthScreenings, liveAppointments, openListings, advance, advanceAccepting, doctorAppointments, requirementsData, today]);
 
   if (loading || !studentId) {
     return (
@@ -441,7 +443,7 @@ const StudentDashboard = () => {
       lead: 'Advance listing request sent.', rest: `${advance.mine.visit_type}. Waiting for the nurse.`
     });
   }
-  if (advance && advance.is_open && !advance.mine) {
+  if (advanceAccepting && !advance.mine) {
     attention.push({
       id: 'adv-open', tone: 'info', Icon: ClipboardList, to: '/BookCheckup',
       lead: 'Advance listing is open.', rest: advance.closes_at ? `Register before ${formatDate(advance.closes_at)}.` : 'Register for a check-up service.'
@@ -627,7 +629,7 @@ const StudentDashboard = () => {
               <p className="hero-live-sd" role="status" aria-live="polite">{queueNote}</p>
 
               {liveAppointments.map((a) => {
-                const waiting = a.state === 'Waiting' && a.in_session;
+                const waiting = a.state === 'Waiting' && !!a.in_session;
                 return (
                   <div key={a.appointment_id} className="hero-item-sd">
                     <div className="hero-main-sd">
@@ -640,7 +642,7 @@ const StudentDashboard = () => {
                       </div>
 
                       <dl className="hero-stats-sd">
-                        <div><dt>Now serving</dt><dd>{a.state === 'Serving' ? 'You' : a.now_serving || '-'}</dd></div>
+                        <div><dt>In session</dt><dd>{a.state === 'Serving' ? 'You' : a.now_serving || '-'}</dd></div>
                         {waiting && <div><dt>Ahead of you</dt><dd>{a.ahead}</dd></div>}
                       </dl>
 

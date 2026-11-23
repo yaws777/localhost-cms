@@ -1,16 +1,18 @@
 // VisitLogConsultation.jsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation, useOutletContext } from 'react-router-dom';
+import { useRecordSync, notifyRecordChanged } from '../../hooks/useRecordSync';
 import { 
     Search, QrCode, User, Activity, ShieldAlert, Clock, 
     XCircle, CheckCircle, FileText, LogOut, RefreshCw, Camera, 
-    AlertTriangle, History, Filter, RotateCcw, Info, Printer, LogIn, ClipboardList
+    AlertTriangle, Check, History, Filter, RotateCcw, Info, Printer, LogIn, ClipboardList
 } from 'lucide-react';
 import jsQR from 'jsqr';
 import stiLogo from '../../assets/sti-logof.png';
 import { formatTime, formatDate } from '../../utils/datetime';
 import SearchableSelect from '../../components/common/SearchableSelect';
 import { VITAL_FIELDS, vitalState } from '../../utils/vitals';
+import VitalHint from '../../components/common/VitalHint';
 import { AssessmentDetails } from '../../components/doctor/AssessmentModals';
 import { FormPdfButton } from '../../components/common/FormDocument';
 import { buildClinicVisitModel } from '../../utils/formModels';
@@ -96,7 +98,7 @@ const isVisitDocumented = (visit) => (isCheckup(visit)
     : Boolean(visit?.complaint_id || visit?.complaint_name || visit?.nursing_intervention));
 const checkupLabel = (visit) => `Check-up${visit.checkup_purpose ? `: ${visit.checkup_purpose}` : ''}`;
 
-// One set of vital signs (time in or time out) in the results modal. A value outside the normal range gets an Abnormal label (text, not color alone).
+// One set of vital signs (time in or time out) in the results modal. Every value shows the normal range and a Normal / Not normal label (text, not color alone).
 const VitalsBlock = ({ title, time, values, note, emptyText }) => {
     const filledFields = VITAL_FIELDS.filter((f) => String(values[f.key] ?? '').trim() !== '');
     return (
@@ -107,11 +109,16 @@ const VitalsBlock = ({ title, time, values, note, emptyText }) => {
             ) : (
                 <dl className="result-vitals-vlc">
                     {filledFields.map((f) => {
-                        const abnormal = vitalState(f.key, values[f.key]) === 'abnormal';
+                        const st = vitalState(f.key, values[f.key]);
+                        const abnormal = st === 'abnormal';
                         return (
                             <div key={f.key} className={abnormal ? 'abnormal-vlc' : ''}>
-                                <dt>{f.label}</dt>
-                                <dd>{values[f.key]} <small>{f.unit}</small>{abnormal && <span className="abnormal-tag-vlc"><AlertTriangle size={12} aria-hidden="true" /> Abnormal</span>}</dd>
+                                <dt>{f.label} <small>Range {f.normal} {f.unit}</small></dt>
+                                <dd>
+                                    {values[f.key]} <small>{f.unit}</small>
+                                    {abnormal && <span className="abnormal-tag-vlc"><AlertTriangle size={12} aria-hidden="true" /> Not normal</span>}
+                                    {st === 'normal' && <span className="normal-tag-vlc"><Check size={12} aria-hidden="true" /> Normal</span>}
+                                </dd>
                             </div>
                         );
                     })}
@@ -428,6 +435,19 @@ const VisitLogConsultation = () => {
 
     const handleCloseResult = () => { setResultVisit(null); setResultAssessment(null); };
 
+    // a visit, check-up or medicine record changed (here, another tab or another device): the lists, the open result and the stock follow
+    useRecordSync(['visit', 'checkup'], useCallback(() => {
+        fetchTodayVisits();
+        fetchBatches();
+        if (showAllLogsModal) fetchAllVisits();
+        if (resultVisit) {
+            fetch(`http://localhost:3001/api/clinic-visits/${encodeURIComponent(resultVisit.visit_id)}/result`)
+                .then((r) => r.json())
+                .then((d) => { if (d.success) setResultAssessment(d.assessment); })
+                .catch(() => {});
+        }
+    }, [fetchTodayVisits, fetchBatches, fetchAllVisits, showAllLogsModal, resultVisit]));
+
     useEffect(() => {
         if (!resultVisit) return undefined;
         const onKey = (e) => { if (e.key === 'Escape') { setResultVisit(null); setResultAssessment(null); } };
@@ -645,6 +665,7 @@ const VisitLogConsultation = () => {
                 showAlertModal('Time Out Success', `Student successfully timed out at ${formatTimeDisplay(currentTime)}.`, 'success');
                 fetchTodayVisits();
                 if (showAllLogsModal) fetchAllVisits();
+                notifyRecordChanged('visit');
                 if (documentingVisit && documentingVisit.visit_id === visit.visit_id) {
                     setFormData(prev => ({ ...prev, time_out: currentTime }));
                     setDocumentingVisit(prev => ({
@@ -775,6 +796,7 @@ const VisitLogConsultation = () => {
                 setStudents([]);
                 fetchTodayVisits();
                 if (showAllLogsModal) fetchAllVisits();
+                notifyRecordChanged('visit');
                 handleOpenDocumentModal(newVisit);
             } else {
                 showAlertModal('Check-In Error', data.error || 'Failed to log check-in entry.', 'error');
@@ -978,8 +1000,10 @@ const VisitLogConsultation = () => {
                         fetchTodayVisits();
                         if (showAllLogsModal) fetchAllVisits();
                         fetchBatches();
+                        notifyRecordChanged(['visit', 'incident']);
                     } else {
-                        showAlertModal('Save Failed', `Error: ${data.error || 'Failed to save documentation'}`, 'error');
+                        if (data.code === 'DOSE_GAP') showAlertModal('Too Soon to Dispense', data.error, 'warning');
+                        else showAlertModal('Save Failed', `Error: ${data.error || 'Failed to save documentation'}`, 'error');
                     }
                 } catch (err) {
                     console.error(err);
@@ -1577,6 +1601,7 @@ const VisitLogConsultation = () => {
                                         value={outVitals.blood_pressure}
                                         onChange={e => setOutVitals({ ...outVitals, blood_pressure: e.target.value })}
                                     />
+                                    <VitalHint fieldKey="blood_pressure" value={outVitals.blood_pressure} />
                                 </div>
                                 <div className="form-input-element-vlc">
                                     <label htmlFor="out-temp">Temp (°C) {!isCheckup(timeoutVitalsVisit) && <span className="required-star-vlc">*</span>}</label>
@@ -1590,6 +1615,7 @@ const VisitLogConsultation = () => {
                                         value={outVitals.temperature}
                                         onChange={e => setOutVitals({ ...outVitals, temperature: e.target.value })}
                                     />
+                                    <VitalHint fieldKey="temperature" value={outVitals.temperature} />
                                 </div>
                                 <div className="form-input-element-vlc">
                                     <label htmlFor="out-pulse">Pulse (bpm) {!isCheckup(timeoutVitalsVisit) && <span className="required-star-vlc">*</span>}</label>
@@ -1602,6 +1628,7 @@ const VisitLogConsultation = () => {
                                         value={outVitals.pulse_rate}
                                         onChange={e => setOutVitals({ ...outVitals, pulse_rate: e.target.value })}
                                     />
+                                    <VitalHint fieldKey="pulse_rate" value={outVitals.pulse_rate} />
                                 </div>
                                 <div className="form-input-element-vlc">
                                     <label htmlFor="out-resp">Resp Rate {!isCheckup(timeoutVitalsVisit) && <span className="required-star-vlc">*</span>}</label>
@@ -1614,10 +1641,11 @@ const VisitLogConsultation = () => {
                                         value={outVitals.respiratory_rate}
                                         onChange={e => setOutVitals({ ...outVitals, respiratory_rate: e.target.value })}
                                     />
+                                    <VitalHint fieldKey="respiratory_rate" value={outVitals.respiratory_rate} />
                                 </div>
                             </div>
                             <div className="form-input-element-vlc full-width-field-vlc">
-                                <label htmlFor="out-note">Student Condition After Time-out {isCheckup(timeoutVitalsVisit) ? '(optional)' : <span className="required-star-vlc">*</span>}</label>
+                                <label htmlFor="out-note">Nurse remarks {isCheckup(timeoutVitalsVisit) ? '(optional)' : <span className="required-star-vlc">*</span>}</label>
                                 <textarea
                                     id="out-note"
                                     rows={3}
@@ -2028,8 +2056,9 @@ const VisitLogConsultation = () => {
                                             placeholder="120/80" 
                                             pattern="^\d{2,3}\/\d{2,3}$" 
                                             value={formData.blood_pressure} 
-                                            onChange={e => setFormData({...formData, blood_pressure: e.target.value})} 
+                                            onChange={e => setFormData({...formData, blood_pressure: e.target.value})}
                                         />
+                                        <VitalHint fieldKey="blood_pressure" value={formData.blood_pressure} />
                                     </div>
                                     <div className="form-input-element-vlc">
                                         <label>Temp (°C) <span className="required-star-vlc">*</span></label>
@@ -2041,8 +2070,9 @@ const VisitLogConsultation = () => {
                                             max="45" 
                                             placeholder="36.5" 
                                             value={formData.temperature} 
-                                            onChange={e => setFormData({...formData, temperature: e.target.value})} 
+                                            onChange={e => setFormData({...formData, temperature: e.target.value})}
                                         />
+                                        <VitalHint fieldKey="temperature" value={formData.temperature} />
                                     </div>
                                     <div className="form-input-element-vlc">
                                         <label>Pulse (bpm) <span className="required-star-vlc">*</span></label>
@@ -2053,8 +2083,9 @@ const VisitLogConsultation = () => {
                                             max="250" 
                                             placeholder="72" 
                                             value={formData.pulse_rate} 
-                                            onChange={e => setFormData({...formData, pulse_rate: e.target.value})} 
+                                            onChange={e => setFormData({...formData, pulse_rate: e.target.value})}
                                         />
+                                        <VitalHint fieldKey="pulse_rate" value={formData.pulse_rate} />
                                     </div>
                                     <div className="form-input-element-vlc">
                                         <label>Resp Rate <span className="required-star-vlc">*</span></label>
@@ -2065,8 +2096,9 @@ const VisitLogConsultation = () => {
                                             max="60" 
                                             placeholder="18" 
                                             value={formData.respiratory_rate} 
-                                            onChange={e => setFormData({...formData, respiratory_rate: e.target.value})} 
+                                            onChange={e => setFormData({...formData, respiratory_rate: e.target.value})}
                                         />
+                                        <VitalHint fieldKey="respiratory_rate" value={formData.respiratory_rate} />
                                     </div>
                                 </div>
                             </div>
@@ -2092,7 +2124,7 @@ const VisitLogConsultation = () => {
                                             <input id="doc-out-resp" type="text" readOnly value={documentingVisit.out_respiratory_rate || '--'} />
                                         </div>
                                         <div className="form-input-element-vlc full-width-field-vlc">
-                                            <label htmlFor="doc-out-note">Student Condition After Time-out</label>
+                                            <label htmlFor="doc-out-note">Nurse remarks</label>
                                             <textarea id="doc-out-note" rows={2} readOnly value={documentingVisit.out_nurse_note || '--'} />
                                         </div>
                                     </div>

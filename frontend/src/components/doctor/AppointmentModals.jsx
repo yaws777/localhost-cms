@@ -5,6 +5,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { History, CalendarPlus, Footprints, Search, X } from 'lucide-react';
 import Modal from '../common/Modal';
+import VitalHint from '../common/VitalHint';
+import TimeRangeFields from '../common/TimeRangeFields';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatDateTime, formatTime } from '../../utils/datetime';
 import { visitLabel, localDateStr, localTimeStr, minTimeFor, isPastMoment, fullName } from '../../utils/visitPurpose';
@@ -196,14 +198,14 @@ export const RescheduleModal = ({ appt, onSubmit, onClose }) => {
                             <label>New date</label>
                             <input className="dp-input" type="date" required min={localDateStr()} value={date} onChange={(e) => setDate(e.target.value)} />
                         </div>
-                        <div className="dp-field">
-                            <label>Start</label>
-                            <input className="dp-input" type="time" required min={minTimeFor(date)} value={from} onChange={(e) => { setFrom(e.target.value); if (e.target.value) setTo(addMinutes(e.target.value, duration > 0 ? duration : 15)); }} />
-                        </div>
-                        <div className="dp-field">
-                            <label>End</label>
-                            <input className="dp-input" type="time" required value={to} onChange={(e) => setTo(e.target.value)} />
-                        </div>
+                    </div>
+                )}
+                {!slotMode && (
+                    <div className="dp-row">
+                        <TimeRangeFields
+                            idPrefix="rs" start={from} end={to} minStart={minTimeFor(date)} defaultLength={duration > 0 ? duration : 15}
+                            onChange={(s, e) => { setFrom(s); setTo(e); }}
+                        />
                     </div>
                 )}
                 <div className="dp-field">
@@ -437,14 +439,12 @@ export const DirectAppointmentModal = ({ isOpen, doctors, fixedDoctorId, creator
                         <label>Date</label>
                         <input className="dp-input" type="date" required min={localDateStr()} value={date} onChange={(e) => setDate(e.target.value)} />
                     </div>
-                    <div className="dp-field">
-                        <label>Start</label>
-                        <input className="dp-input" type="time" required min={minTimeFor(date)} value={from} onChange={(e) => { setFrom(e.target.value); if (e.target.value) setTo(addMinutes(e.target.value, Math.max(minutesBetween(from, to), 5))); }} />
-                    </div>
-                    <div className="dp-field">
-                        <label>End</label>
-                        <input className="dp-input" type="time" required value={to} onChange={(e) => setTo(e.target.value)} />
-                    </div>
+                </div>
+                <div className="dp-row">
+                    <TimeRangeFields
+                        idPrefix="da" start={from} end={to} minStart={minTimeFor(date)} defaultLength={30}
+                        onChange={(s, e) => { setFrom(s); setTo(e); }}
+                    />
                 </div>
 
                 <div className="dp-field">
@@ -564,9 +564,7 @@ export const WalkInModal = ({ isOpen, doctors, fixedDoctorId, schedule, creator,
                                     placeholder={f.placeholder} value={vitals[f.key]} onChange={(e) => setVitals((v) => ({ ...v, [f.key]: e.target.value }))}
                                     aria-describedby={`walkin-vt-${f.key}-hint`} aria-invalid={st === 'invalid'}
                                 />
-                                <small id={`walkin-vt-${f.key}-hint`} className={`vt-state-vt ${st}`}>
-                                    {st === 'abnormal' ? 'Not normal' : st === 'invalid' ? 'Check value' : st === 'normal' ? 'Normal' : `Normal ${f.normal}`}
-                                </small>
+                                <VitalHint id={`walkin-vt-${f.key}-hint`} fieldKey={f.key} value={vitals[f.key]} />
                             </div>
                         );
                     })}

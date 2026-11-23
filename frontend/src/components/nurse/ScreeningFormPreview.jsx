@@ -15,11 +15,11 @@ export const fieldTypeLabel = (type) => fieldMeta(type).label;
 const has = (v) => v !== '' && v !== null && v !== undefined;
 const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
 
-// "Normal 18.5-24.9" / "Abnormal: Poor"; works on server fields and on editor drafts shaped like them
+// "Normal 18.5-24.9" / "Not normal: Poor"; works on server fields and on editor drafts shaped like them
 export const rangeText = (f) => {
   if (f.type === 'select' || f.type === 'yesno') {
     const abn = f.abnormal_options || [];
-    return abn.length ? `Abnormal: ${abn.join(', ')}` : '';
+    return abn.length ? `Not normal: ${abn.join(', ')}` : '';
   }
   if (has(f.min) && has(f.max)) return `Normal ${f.min} to ${f.max}`;
   if (has(f.min)) return `Normal from ${f.min}`;
@@ -162,7 +162,7 @@ export function FormPreview({ fields }) {
             {(range || playText(f)) && <span className="sx-hint-line-hs">{[range, playText(f)].filter(Boolean).join(' · ')}</span>}
             <span className="sx-flag-hs" aria-live="polite">
               {r.noPlay && <span className="sx-chip-hs sx-crit-hs"><TriangleAlert size={14} aria-hidden="true" /> Not allowed to play</span>}
-              {r.abnormal && <span className="sx-chip-hs sx-crit-hs"><TriangleAlert size={14} aria-hidden="true" /> Abnormal</span>}
+              {r.abnormal && <span className="sx-chip-hs sx-crit-hs"><TriangleAlert size={14} aria-hidden="true" /> Not normal</span>}
               {!r.abnormal && answered && f.type !== 'text' && <span className="sx-chip-hs sx-ok-hs"><CircleCheck size={14} aria-hidden="true" /> Normal</span>}
             </span>
           </div>

@@ -304,28 +304,28 @@ const ScheduleCalendar = ({ doctors, fixedDoctorId, creator, userId, refreshKey,
                             )}
                             <div className="session-actions-sc">
                                 {s.state !== 'past' && isNurse && (
-                                    <button type="button" className="icon-btn-ds btn-icon-sc" aria-label="Appoint" title="Appoint" onClick={() => setAppointFor(s)}><UserPlus size={18} aria-hidden="true" /></button>
+                                    <button type="button" className="btn-text-sc btn-plain-sc" aria-label="Appoint" title="Appoint" onClick={() => setAppointFor(s)}><UserPlus size={18} aria-hidden="true" /><span>Appoint</span></button>
                                 )}
                                 {s.state !== 'past' && (
-                                    <button type="button" className="icon-btn-ds btn-icon-sc" aria-label="Listing requests" title="Listing requests" onClick={() => onAppointFromWaiting && onAppointFromWaiting(s.schedule_id, s.date)}><ListPlus size={18} aria-hidden="true" /></button>
+                                    <button type="button" className="btn-text-sc btn-plain-sc" aria-label="Listing requests" title="Listing requests" onClick={() => onAppointFromWaiting && onAppointFromWaiting(s.schedule_id, s.date)}><ListPlus size={18} aria-hidden="true" /><span>Requests</span></button>
                                 )}
                                 {s.state !== 'upcoming' && (
-                                    <button type="button" className="icon-btn-ds btn-icon-sc" aria-label={s.state === 'ongoing' ? 'Open queue' : 'View queue'} title={s.state === 'ongoing' ? 'Open queue' : 'View queue'} onClick={() => setQueueFor(s)}><Megaphone size={18} aria-hidden="true" /></button>
+                                    <button type="button" className="btn-text-sc btn-plain-sc" aria-label={s.state === 'ongoing' ? 'Open queue' : 'View queue'} title={s.state === 'ongoing' ? 'Open queue' : 'View queue'} onClick={() => setQueueFor(s)}><Megaphone size={18} aria-hidden="true" /><span>Queue</span></button>
                                 )}
                                 {s.state === 'ongoing' && (
                                     <>
                                         {s.awaiting_end && (
-                                            <button type="button" className="icon-btn-ds btn-icon-sc" aria-label="Confirm end time" title="Confirm end time" onClick={() => setEndFor(s)}><BellRing size={18} aria-hidden="true" /></button>
+                                            <button type="button" className="btn-text-sc btn-plain-sc" aria-label="Confirm end time" title="Confirm end time" onClick={() => setEndFor(s)}><BellRing size={18} aria-hidden="true" /><span>Confirm end</span></button>
                                         )}
-                                        {!isNurse && <button type="button" className="icon-btn-ds btn-icon-sc" aria-label="Extend" title="Extend" onClick={() => setExtendSession(s)}><TimerReset size={18} aria-hidden="true" /></button>}
+                                        {!isNurse && <button type="button" className="btn-text-sc btn-plain-sc" aria-label="Extend" title="Extend" onClick={() => setExtendSession(s)}><TimerReset size={18} aria-hidden="true" /><span>Extend</span></button>}
                                     </>
                                 )}
-                                <button type="button" className="icon-btn-ds btn-icon-sc" aria-label="Participants" title="Participants" onClick={() => setParticipantsFor(s)}><Users size={18} aria-hidden="true" /></button>
+                                <button type="button" className="btn-text-sc btn-plain-sc" aria-label="Participants" title="Participants" onClick={() => setParticipantsFor(s)}><Users size={18} aria-hidden="true" /><span>Participants</span></button>
                                 {s.state !== 'past' && !isNurse && (
-                                    <button type="button" className="icon-btn-ds btn-icon-sc" aria-label={s.recurrence === 'Weekly' ? 'Edit series' : 'Edit'} title={s.recurrence === 'Weekly' ? 'Edit series' : 'Edit'} onClick={() => editSchedule(s)}><Edit size={18} aria-hidden="true" /></button>
+                                    <button type="button" className="btn-text-sc btn-plain-sc" aria-label={s.recurrence === 'Weekly' ? 'Edit series' : 'Edit'} title={s.recurrence === 'Weekly' ? 'Edit series' : 'Edit'} onClick={() => editSchedule(s)}><Edit size={18} aria-hidden="true" /><span>Edit</span></button>
                                 )}
                                 {s.state === 'upcoming' && !isNurse && (
-                                    <button type="button" className="icon-btn-ds btn-icon-sc" aria-label="Cancel schedule" title="Cancel schedule" onClick={() => cancelSchedule(s)}><Trash2 size={18} aria-hidden="true" /></button>
+                                    <button type="button" className="btn-text-sc btn-plain-sc" aria-label="Cancel schedule" title="Cancel schedule" onClick={() => cancelSchedule(s)}><Trash2 size={18} aria-hidden="true" /><span>Cancel</span></button>
                                 )}
                             </div>
                         </div>

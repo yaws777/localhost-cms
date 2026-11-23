@@ -2,11 +2,13 @@
 // Every screening of one student (results, absences), grouped by school year. Trends on top, school year / status chips,
 // one card per record with a tile per reading (the result string is split into readings by parseSummary).
 import React, { useMemo, useState } from 'react';
-import { AlertTriangle, Check, Eye, FileText, UserX } from 'lucide-react';
+import { AlertTriangle, Check, Eye, FileDown, FileText, UserX } from 'lucide-react';
 import { HsDialog, HsDialogHeader } from './HsDialog';
 import { classLabel as classLabelOf } from '../../utils/scheduling';
 import { FormDocumentModal } from '../common/FormDocument';
 import { buildScreeningModel } from '../../utils/formModels';
+import { printScreeningHistory } from '../../utils/screeningHistoryPdf';
+import { useAlert } from '../../context/AlertContext';
 
 const ATTENDANCE_LABEL = { ABSENT: 'Absent', CANCELLED: 'Cancelled', PENDING: 'Not documented', PRESENT: 'Present' };
 const MISS_LINE = { ABSENT: 'Did not attend', CANCELLED: 'Screening cancelled' };
@@ -113,6 +115,7 @@ export default function StudentScreeningHistoryModal({ student, rows, loading, o
   const [year, setYear] = useState('ALL');
   const [status, setStatus] = useState('ALL');
   const [formModel, setFormModel] = useState(null); // the screening opened as its filled-in form
+  const { showAlert } = useAlert();
 
   const records = useMemo(() => rows.map((r) => ({
     ...r,
@@ -149,10 +152,36 @@ export default function StudentScreeningHistoryModal({ student, rows, loading, o
     status: h.status === 'miss' ? 'Missed' : 'Completed',
     attendance: ATTENDANCE_LABEL[h.attendance_status] || '',
     schoolYear: h.school_year,
-    results: h.metrics.map((m) => ({ label: m.label, value: m.value, unit: m.unit, note: m.tag })),
+    results: h.results && h.results.length > 0 ? h.results : h.metrics.map((m) => ({ label: m.label, value: m.value, unit: m.unit, note: m.tag })),
     remarks: h.remarks,
-    abnormal: !!h.is_abnormal
+    abnormal: !!h.is_abnormal,
+    playStatus: h.screening_category === 'PHYSICAL' ? h.play_status : ''
   }));
+
+  // every record on screen (school year + status filters applied) as one PDF
+  const exportPdf = () => {
+    const filters = [year !== 'ALL' ? year : '', status === 'ok' ? 'Normal' : status === 'miss' ? 'No result' : ''].filter(Boolean).join(', ');
+    printScreeningHistory({
+      student: name,
+      studentId: student.student_id,
+      classText: classLabel,
+      filterText: filters,
+      groups: groups.map((g) => ({
+        year: g.year,
+        items: g.items.map((h) => ({
+          title: h.title,
+          type: h.screening_type,
+          date: h.date,
+          attendance: ATTENDANCE_LABEL[h.attendance_status] || '',
+          missed: h.status === 'miss',
+          missedLine: MISS_LINE[h.attendance_status] || 'Not documented',
+          abnormal: !!h.is_abnormal,
+          metrics: h.metrics,
+          remarks: h.remarks
+        }))
+      }))
+    }, () => showAlert('Allow popups to preview the PDF.', 'warning'));
+  };
 
   const yearChip = (value, label, n) => (
     <button key={value} type="button" className="hist-chip-hs" aria-pressed={year === value} onClick={() => setYear(value)}>
@@ -249,6 +278,16 @@ export default function StudentScreeningHistoryModal({ student, rows, loading, o
         )}
       </div>
       <div className="modal-footer-hs">
+        <button
+          type="button"
+          className="btn-hs btn-icon-hs btn-secondary-hs hist-pdf-hs"
+          onClick={exportPdf}
+          disabled={loading || groups.length === 0}
+          aria-label="Export PDF"
+          title="Export PDF"
+        >
+          <FileDown size={18} aria-hidden="true" />
+        </button>
         <button type="button" className="btn-hs btn-secondary-hs" onClick={onClose}>Close</button>
       </div>
     </HsDialog>

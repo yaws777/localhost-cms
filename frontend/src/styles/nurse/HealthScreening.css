@@ -1290,6 +1290,7 @@
 /* Screening records dialog (StudentScreeningHistoryModal) */
 .hist-body-hs { padding-top: 0; }
 .hist-id-hs { font-family: var(--font-mono); }
+.hist-pdf-hs { margin-right: auto; }
 
 .hist-trends-hs {
   display: grid;
@@ -2021,7 +2022,7 @@
 .chip-btn-hs:disabled { opacity: 0.55; cursor: not-allowed; }
 .chip-btn-hs:focus-visible { outline: 0.1875rem solid var(--sti-blue-primary); outline-offset: 0.125rem; }
 
-/* ---------- import (CSV / OCR) ---------- */
+/* ---------- import (CSV) ---------- */
 .imp-bar-hs { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
 .imp-rej-hs td { background: var(--status-critical-bg); }
 .imp-bar-hs .btn-hs:focus-visible { outline: 0.1875rem solid var(--sti-blue-primary); outline-offset: 0.125rem; }
@@ -2891,32 +2892,74 @@
 .modal-hs .who-cell-hs .pk-name-hs { flex-direction: column; }
 
 /* document dialog */
-.doc-ctx-hs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
-}
-
-/* the student stays pinned at the top of the form while it scrolls */
-.doc-student-hs {
-  position: sticky;
-  top: 0;
-  z-index: 2;
+/* context + health history: a fixed strip above the scrolling form (never covers a field) */
+.doc-strip-hs {
+  flex: none;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.25rem 0.75rem;
-  margin: 0 0 0.75rem;
-  padding: 0.625rem 0.75rem;
-  background: var(--bg-card);
-  color: var(--text-primary);
-  border: 0.0625rem solid var(--card-border);
-  border-radius: 0.5rem;
+  gap: 0.5rem;
+  padding: 0.75rem 1.75rem;
+  background: var(--bg-page);
+  border-bottom: 0.0625rem solid var(--card-border);
 }
-.doc-student-name-hs { font-size: 1rem; font-weight: 700; overflow-wrap: anywhere; }
-.doc-student-meta-hs { font-size: 0.875rem; color: var(--text-secondary); }
+.doc-strip-sep-hs { width: 0.0625rem; align-self: stretch; background: var(--card-border); margin: 0 0.25rem; }
 .doc-verdict-hs { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; }
+
+/* health history of the student, read before the result is filled in */
+.doc-health-hs { display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem 0.5rem; }
+.doc-health-title-hs { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.875rem; color: var(--text-secondary); }
+
+/* fields flow in a grid; each shows its Normal / Low / High badge beside the label */
+.doc-grid-hs { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 0 1.25rem; align-items: start; }
+.doc-lblrow-hs { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; min-height: 1.75rem; }
+.doc-lblrow-hs .chip-hs { flex: none; }
+
+/* Physical Activities: the allow-to-play decision (suggested from the vitals + health history, the nurse can change it) */
+.play-box-hs {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0 0 1rem;
+  min-width: 0;
+  padding: 1rem 1.25rem;
+  border: 0.0625rem solid var(--card-border);
+  border-radius: 0.875rem;
+  background: var(--bg-page);
+  color: var(--text-primary);
+}
+.play-allowed-hs { border-color: var(--status-adequate-text); }
+.play-restricted-hs { border-color: var(--status-low-text); }
+.play-not_allowed-hs { border-color: var(--status-critical-text); }
+.play-legend-hs { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0 0.5rem; font-size: 0.875rem; font-weight: 700; }
+.play-sugg-hs { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.play-opts-hs { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.75rem; }
+.play-opt-hs {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-height: 2.75rem;
+  padding: 0.625rem 1rem;
+  border: 0.0625rem solid var(--card-border);
+  border-radius: 0.75rem;
+  background: var(--bg-card);
+  cursor: pointer;
+}
+.play-opt-hs input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.play-opt-t-hs { display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 700; }
+.play-opt-d-hs { font-size: 0.875rem; color: var(--text-secondary); }
+.play-opt-allowed-hs .play-opt-t-hs { color: var(--status-adequate-text); }
+.play-opt-restricted-hs .play-opt-t-hs { color: var(--status-low-text); }
+.play-opt-not_allowed-hs .play-opt-t-hs { color: var(--status-critical-text); }
+.play-opt-allowed-hs:has(input:checked) { background: var(--status-adequate-bg); border-color: var(--status-adequate-text); }
+.play-opt-restricted-hs:has(input:checked) { background: var(--status-low-bg); border-color: var(--status-low-text); }
+.play-opt-not_allowed-hs:has(input:checked) { background: var(--status-critical-bg); border-color: var(--status-critical-text); }
+.play-opt-hs:has(input:focus-visible) { outline: 0.1875rem solid var(--sti-blue-primary); outline-offset: 0.125rem; }
+.play-list-hs { margin: 0; padding-left: 1.25rem; font-size: 0.9375rem; line-height: 1.5; }
+.play-list-hs + .play-list-hs { margin-top: 0.25rem; }
+@media (prefers-reduced-motion: no-preference) {
+  .play-opt-hs { transition: background 0.15s, border-color 0.15s; }
+}
 .range-hint-hs { display: block; margin-top: 0.25rem; font-size: 0.875rem; color: var(--text-secondary); }
 
 @media (max-width: 40rem) {

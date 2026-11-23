@@ -4,7 +4,7 @@
 // (components/doctor/AssessmentForm.jsx) and the PDF (utils/assessmentPdf.js) both read this, so they always match.
 import { formatDate, formatDateTime, formatTime } from './datetime';
 import { visitLabel, fullName } from './visitPurpose';
-import { VITAL_FIELDS, inVitalsOf, outVitalsOf, hasVitals } from './vitals';
+import { VITAL_FIELDS, inVitalsOf, outVitalsOf, hasVitals, vitalMeta } from './vitals';
 import { dispensedLine } from './dispensed';
 import { STANDARD_FORM_DEFAULT } from './standardForm';
 
@@ -62,7 +62,7 @@ export const buildAssessmentModel = (a, ctx = {}) => {
     // vital signs the nurse took (time in always, time out when recorded)
     const vitalGroup = (title, values) => ({
         title,
-        items: VITAL_FIELDS.map((f) => ({ label: f.label, unit: f.unit, value: String(values[f.key] ?? '').trim() })).filter((i) => i.value)
+        items: VITAL_FIELDS.map((f) => ({ label: f.label, unit: f.unit, ...vitalMeta(f.key, values[f.key]) })).filter((i) => i.value)
     });
     const vitals = [];
     if (hasVitals(inVitalsOf(record))) vitals.push(vitalGroup('Vital signs - time in', inVitalsOf(record)));
@@ -107,6 +107,7 @@ export const buildAssessmentModel = (a, ctx = {}) => {
     return {
         documented, header, vitals, sections, prescriptions, dispensed, followUp, referral,
         abnormal: !!record.is_abnormal, documentedBy,
+        nurseRemarks: String(record.nurse_remarks || record.out_nurse_note || '').trim(),
         fileName: `Assessment ${ctx.studentId || record.student_id || ''}`.trim()
     };
 };

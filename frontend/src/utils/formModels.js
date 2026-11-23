@@ -7,6 +7,7 @@
 import { formatDate, formatDateTime, formatTime } from './datetime';
 import { fullName } from './visitPurpose';
 import { classLabel } from './scheduling';
+import { vitalMeta } from './vitals';
 
 const has = (v) => v !== null && v !== undefined && v !== '';
 const dash = (v) => (has(v) ? String(v) : '--');
@@ -36,6 +37,11 @@ const nurseOf = (r, ctx = {}) => ctx.nurse || r.nurse_name
     || r.nurse_id || '';
 
 const field = (label, value, opts = {}) => ({ label, value: dash(value), ...opts });
+// a vital sign: the value alone in the box, status (Normal / Not normal) and normal range under it
+const vital = (label, key, value) => {
+    const { value: v, status, range } = vitalMeta(key, value);
+    return field(label, v, { status, range });
+};
 
 // ---------- clinic visit ----------
 // v: a clinic_visits row (student, nurse, vital signs, intervention, dispensed medicine) | ctx: { nurse, student }
@@ -58,17 +64,17 @@ export const buildClinicVisitModel = (v, ctx = {}) => {
         },
         {
             title: 'Vital Signs - Time In', cols: 4, fields: [
-                field('BP (mmHg)', v.blood_pressure), field('Temp (°C)', v.temperature),
-                field('Pulse (bpm)', v.pulse_rate), field('Resp Rate', v.respiratory_rate)
+                vital('BP (mmHg)', 'blood_pressure', v.blood_pressure), vital('Temp (°C)', 'temperature', v.temperature),
+                vital('Pulse (bpm)', 'pulse_rate', v.pulse_rate), vital('Resp Rate (/min)', 'respiratory_rate', v.respiratory_rate)
             ]
         }
     ];
     if (v.time_out) {
         sections.push({
             title: 'Vital Signs - Time Out', cols: 4, fields: [
-                field('BP (mmHg)', v.out_blood_pressure), field('Temp (°C)', v.out_temperature),
-                field('Pulse (bpm)', v.out_pulse_rate), field('Resp Rate', v.out_respiratory_rate),
-                field('Student Condition After Time-out', v.out_nurse_note, { wide: true, area: true })
+                vital('BP (mmHg)', 'blood_pressure', v.out_blood_pressure), vital('Temp (°C)', 'temperature', v.out_temperature),
+                vital('Pulse (bpm)', 'pulse_rate', v.out_pulse_rate), vital('Resp Rate (/min)', 'respiratory_rate', v.out_respiratory_rate),
+                field('Nurse remarks', v.out_nurse_note, { wide: true, area: true })
             ]
         });
     }
@@ -143,8 +149,15 @@ export const buildIncidentModel = (r, ctx = {}) => {
         ].filter(([, x]) => has(x)),
         sections: [
             {
+                title: 'Vital Signs - Time In', cols: 4, fields: [
+                    vital('BP (mmHg)', 'blood_pressure', r.blood_pressure), vital('Temp (°C)', 'temperature', r.temperature),
+                    vital('Pulse (bpm)', 'pulse_rate', r.pulse_rate), vital('Resp Rate (/min)', 'respiratory_rate', r.respiratory_rate)
+                ]
+            },
+            {
                 title: 'Incident', cols: 2, fields: [
                     field('Location', r.incident_location, { wide: true }),
+                    field('Medical Condition', r.complaint_name ? (r.specify_complaint_text ? `${r.complaint_name} (${r.specify_complaint_text})` : r.complaint_name) : '', { wide: true }),
                     field('Description', r.incident_description, { wide: true, area: true }),
                     field('First Aid', r.first_aid_administered, { wide: true, area: true }),
                     field('Disposition', r.current_physical_situation, { wide: true, area: true })
@@ -162,6 +175,13 @@ export const detailPairs = (details) => String(details || '').split(' | ').map((
     return i > 0 && i < 30 ? { label: part.slice(0, i).trim(), value: part.slice(i + 1).trim() } : { label: '', value: part.trim() };
 }).filter((p) => p.value);
 
+// Allow-to-Play decision (screening_custom_results.play_status) -> banner text + tone (ok | warn | bad)
+const PLAY_BANNER = {
+    ALLOWED: { text: 'Allow to Play', tone: 'ok' },
+    RESTRICTED: { text: 'Allow to Play with Restriction', tone: 'warn' },
+    NOT_ALLOWED: { text: 'Not Allow to Play', tone: 'bad' }
+};
+
 // The student / parent record of a screening -> what buildScreeningModel reads
 export const screeningFromRecord = (s) => ({
     student: fullName(s.first_name, s.last_name),
@@ -175,18 +195,21 @@ export const screeningFromRecord = (s) => ({
     results: Array.isArray(s.results) && s.results.length > 0 ? s.results : detailPairs(s.details),
     remarks: s.remarks,
     abnormal: !!s.is_abnormal,
+    playStatus: s.screening_category === 'PHYSICAL' ? s.play_status : '',
     notes: s.announcement,
     cancelledReason: s.cancelled_reason
 });
 
 // n: { student, studentId, classText, type, title, date, time, status, attendance, results: [{label, value, unit, note}],
-//      remarks, abnormal, notes, cancelledReason, schoolYear, nurse }
+//      (results rows may carry status 'Normal' | 'Not normal' + range 'Range 60-100 bpm', drawn under the box),
+//      remarks, abnormal, playStatus (ALLOWED | RESTRICTED | NOT_ALLOWED, Physical Activities only), notes, cancelledReason, schoolYear, nurse }
 export const buildScreeningModel = (n) => {
     const completed = n.status === 'Completed' || (!n.status && (n.results || []).length > 0);
     const results = (n.results || []).filter((r) => r && has(r.value));
     const resultFields = results.map((r) => field(
         r.label || 'Result',
-        `${r.value}${r.unit ? ` ${r.unit}` : ''}${r.note ? ` (${r.note})` : ''}`
+        `${r.value}${r.unit ? ` ${r.unit}` : ''}${r.note ? ` (${r.note})` : ''}`,
+        { status: r.status || '', range: r.range || '' }
     ));
 
     const sections = [
@@ -224,7 +247,11 @@ export const buildScreeningModel = (n) => {
             ['Student', n.student], ['Student ID', n.studentId], ['Program / Year / Section', n.classText],
             ['Screening', n.type], ['Date', dayText(n.date)], ['Documented by', n.nurse]
         ].filter(([, x]) => has(x)),
-        flag: n.abnormal ? 'Some values are outside the normal range. See the clinic.' : '',
+        // Physical Activities screening: the banner is the Allow-to-Play decision; other screenings keep the not-normal notice
+        flag: PLAY_BANNER[n.playStatus]
+            ? PLAY_BANNER[n.playStatus].text
+            : (n.abnormal ? 'Some values are not normal. See the clinic.' : ''),
+        flagTone: PLAY_BANNER[n.playStatus] ? PLAY_BANNER[n.playStatus].tone : 'warn',
         sections
     };
 };

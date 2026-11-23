@@ -3,12 +3,13 @@
 // a status pill for the table rows and a structured detail view for the modal, so the doctor's assessment and the screening result
 // show as sections instead of a raw list of fields.
 import React from 'react';
-import { Stethoscope, Activity, Pill, CheckCircle2, Clock, XCircle } from 'lucide-react';
+import { Stethoscope, Activity, Pill, CheckCircle2, Clock, XCircle, AlertTriangle } from 'lucide-react';
 import AssessmentForm from '../doctor/AssessmentForm';
 import FormDocument from './FormDocument';
 import { buildClinicVisitModel, buildDispensedModel, buildIncidentModel, buildScreeningRecordModel, detailPairs } from '../../utils/formModels';
 import { formatDate as formatDateBase, formatTime, formatDateTime } from '../../utils/datetime';
-import { hasVitals, vitalsLine, inVitalsOf, outVitalsOf } from '../../utils/vitals';
+import { hasVitals, vitalMeta, VITAL_FIELDS, inVitalsOf, outVitalsOf } from '../../utils/vitals';
+import VitalMeta from './VitalMeta';
 import { dispensedLine } from '../../utils/dispensed';
 import '../../styles/common/ClinicRecordViews.css';
 
@@ -18,7 +19,7 @@ const dateOf = (v) => {
     return d && !Number.isNaN(d.getTime()) ? formatDateBase(d) : 'N/A';
 };
 
-const TONE_ICON = { ok: CheckCircle2, warn: Clock, bad: XCircle, info: Clock };
+const TONE_ICON = { ok: CheckCircle2, warn: AlertTriangle, bad: XCircle, info: Clock };
 
 export const StatusPill = ({ tone = 'info', children }) => {
     const Icon = TONE_ICON[tone] || Clock;
@@ -45,8 +46,15 @@ export const VisitStatus = ({ item }) => {
 };
 
 export const ScreeningStatus = ({ item }) => {
-    const tone = item.status === 'Completed' ? (item.is_abnormal ? 'warn' : 'ok') : item.status === 'Missed' || item.status === 'Cancelled' ? 'bad' : 'info';
-    return <StatusPill tone={tone}>{item.status}</StatusPill>;
+    // the status keeps one color per label; an abnormal result is its own pill
+    const tone = item.status === 'Completed' ? 'ok' : item.status === 'Missed' || item.status === 'Cancelled' ? 'bad' : 'info';
+    const flagged = item.status === 'Completed' && !!item.is_abnormal;
+    return (
+        <span className="pills-crv">
+            <StatusPill tone={tone}>{item.status}</StatusPill>
+            {flagged && <StatusPill tone="warn">Not normal</StatusPill>}
+        </span>
+    );
 };
 
 const Row = ({ label, children }) => (children === null || children === undefined || children === '' ? null : (
@@ -75,6 +83,23 @@ const FormValues = ({ record, keys, title }) => {
 
 const DENTAL_KEYS = ['oral_hygiene', 'caries_count', 'missing_count', 'filled_count', 'gum_condition', 'malocclusion', 'tooth_notes', 'treatment_done', 'treatment_needed', 'referral_needed', 'referral_to', 'next_visit_recommendation', 'dental_remarks'];
 const VISION_KEYS = ['visual_acuity_left', 'visual_acuity_right', 'va_left_corrected', 'va_right_corrected', 'wears_eyeglasses', 'wears_contacts', 'color_vision', 'eye_findings', 'recommended_action', 'vision_remarks'];
+
+// one set of vital signs: value, Normal / Not normal and the normal range under each
+const VitalGroup = ({ title, values }) => (
+    <Section icon={Activity} title={title}>
+        <dl>
+            {VITAL_FIELDS.map((f) => {
+                const m = vitalMeta(f.key, values[f.key]);
+                return m.value ? (
+                    <div className="row-crv" key={f.key}>
+                        <dt>{f.label} ({f.unit})</dt>
+                        <dd>{m.value}<VitalMeta status={m.status} range={m.range} /></dd>
+                    </div>
+                ) : null;
+            })}
+        </dl>
+    </Section>
+);
 
 export function DoctorVisitDetail({ record: v }) {
     const outcome = visitOutcome(v);
@@ -107,12 +132,10 @@ export function DoctorVisitDetail({ record: v }) {
             ) : (
                 <>
                     {(hasVitals(inVitalsOf(v)) || hasVitals(outVitalsOf(v))) && (
-                        <Section icon={Activity} title="Vital signs">
-                            <dl>
-                                <Row label="At time in">{vitalsLine(inVitalsOf(v))}</Row>
-                                <Row label="At time out">{vitalsLine(outVitalsOf(v))}</Row>
-                            </dl>
-                        </Section>
+                        <>
+                            {hasVitals(inVitalsOf(v)) && <VitalGroup title="Vital signs - time in" values={inVitalsOf(v)} />}
+                            {hasVitals(outVitalsOf(v)) && <VitalGroup title="Vital signs - time out" values={outVitalsOf(v)} />}
+                        </>
                     )}
                     <p className="empty-crv">{outcome.tone === 'info' ? 'The assessment shows here after the check-up.' : 'No assessment was recorded for this check-up.'}</p>
                     {dispensedLine(v) && (

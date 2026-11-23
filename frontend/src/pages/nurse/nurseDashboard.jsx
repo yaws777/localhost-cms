@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useLayoutEffect } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
+import { useRecordSync } from '../../hooks/useRecordSync';
 import {
   BarChart,
   Bar,
@@ -995,8 +996,8 @@ const NurseDashboard = () => {
   };
 
   // Fetch Unified Nurse Operational Dashboard Overview
-  const fetchNurseDashboard = useCallback(async () => {
-    setIsNurseDashboardLoading(true);
+  const fetchNurseDashboard = useCallback(async (silent = false) => {
+    if (silent !== true) setIsNurseDashboardLoading(true);
     try {
       const studentsResponse = await fetch('http://localhost:3001/api/students');
       const studentsData = await studentsResponse.json();
@@ -1418,6 +1419,9 @@ const NurseDashboard = () => {
     fetchFrequentAlerts();
     fetchAnnouncements();
   }, [fetchNurseDashboard, fetchHealthTrends, fetchMedicineDispensed, fetchFrequentAlerts, fetchAnnouncements]);
+
+  // a screening or check-up changed (schedule, end, cancel, result): the upcoming cards follow without a reload
+  useRecordSync(['screening', 'checkup'], useCallback(() => { fetchNurseDashboard(true); }, [fetchNurseDashboard]));
 
   // The forecast has its own effect so picking a snapshot day does not reload the rest of the dashboard
   useEffect(() => {

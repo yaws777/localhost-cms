@@ -18,6 +18,7 @@ import {
   RotateCcw
 } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
+import { useRecordSync, ALL_RECORD_KINDS, sameRecord } from '../../hooks/useRecordSync';
 import { exportClinicRecords, exportClinicRecord } from '../../utils/clinicRecordExport';
 import { formatTime, formatDate as formatDateBase, formatDateTime } from '../../utils/datetime';
 import { ClinicVisitForm, DispensedForm, IncidentForm, DoctorVisitDetail, ScreeningDetail, VisitStatus, ScreeningStatus, visitDoctor, visitTitle } from '../../components/common/ClinicRecordViews';
@@ -171,6 +172,27 @@ export default function ChildClinicRecords() {
       fetchLogs();
     }
   }, [activeTab, selectedStudentId, linkedStudents, fetchLogs]);
+
+  // a visit, check-up, incident or screening record was saved or changed: reload the list quietly
+  // (keeps filter; the open record and the PDF built from it follow the new data)
+  useRecordSync(ALL_RECORD_KINDS, useCallback(async () => {
+    if (activeTab === 'document-requests' || activeTab === 'student-requirements') return;
+    const ids = selectedStudentId === 'ALL' ? linkedStudents.map((st) => st.student_id) : (selectedStudentId ? [selectedStudentId] : []);
+    if (ids.length === 0) return;
+    try {
+      const lists = await Promise.all(ids.map(async (sId) => {
+        let url = `${API_BASE}/${activeTab}/clinicLogs&Records?studentId=${encodeURIComponent(sId)}`;
+        if (startDate && endDate) url += `&startDate=${startDate}&endDate=${endDate}`;
+        const data = await (await fetch(url)).json();
+        return Array.isArray(data) ? data : [];
+      }));
+      const combined = lists.flat();
+      setRecords(combined);
+      setSelectedRecord((current) => (current ? (combined.find((r) => sameRecord(r, current)) || null) : current));
+    } catch (error) {
+      console.error('Error refreshing records:', error);
+    }
+  }, [activeTab, selectedStudentId, linkedStudents, startDate, endDate]));
 
   const handleFilter = (e) => {
     e.preventDefault();

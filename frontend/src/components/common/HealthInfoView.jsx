@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { useRecordSync } from '../../hooks/useRecordSync';
 import { Activity, AlertTriangle, CheckCircle2, ClipboardList, HeartPulse, Pencil, Scale, Stethoscope } from 'lucide-react';
 import { formatDate } from '../../utils/datetime';
-import { hasVitals, vitalsLine, inVitalsOf } from '../../utils/vitals';
+import { hasVitals, vitalsLine, inVitalsOf, VITAL_FIELDS, vitalStatusLabel } from '../../utils/vitals';
 import { dispensedLine } from '../../utils/dispensed';
 import HealthProofList from './HealthProofList';
 import '../../styles/common/HealthInfoView.css';
@@ -114,7 +115,7 @@ function detailValue(detail, info) {
 
 function ResultBadge({ abnormal }) {
     return abnormal ? (
-        <span className="hiv-badge hiv-badge-critical"><AlertTriangle size={14} aria-hidden="true" /> Abnormal</span>
+        <span className="hiv-badge hiv-badge-critical"><AlertTriangle size={14} aria-hidden="true" /> Not normal</span>
     ) : (
         <span className="hiv-badge hiv-badge-ok"><CheckCircle2 size={14} aria-hidden="true" /> Normal</span>
     );
@@ -192,22 +193,23 @@ function VitalsCard({ vitals }) {
                         {vitals.is_abnormal !== null && vitals.is_abnormal !== undefined && <ResultBadge abnormal={!!vitals.is_abnormal} />}
                     </header>
                     <div className="hiv-meas">
-                        <div className="hiv-big">
-                            <span className="hiv-big-k">Blood pressure</span>
-                            <span className="hiv-big-v">{cell(vitals.blood_pressure, 'mmHg')}</span>
-                        </div>
-                        <div className="hiv-big">
-                            <span className="hiv-big-k">Pulse rate</span>
-                            <span className="hiv-big-v">{cell(vitals.pulse_rate, 'bpm')}</span>
-                        </div>
-                        <div className="hiv-big">
-                            <span className="hiv-big-k">Temperature</span>
-                            <span className="hiv-big-v">{cell(vitals.temperature, '°C')}</span>
-                        </div>
-                        <div className="hiv-big">
-                            <span className="hiv-big-k">Respiratory rate</span>
-                            <span className="hiv-big-v">{cell(vitals.respiratory_rate, '/min')}</span>
-                        </div>
+                        {[
+                            ['blood_pressure', 'Blood pressure'],
+                            ['pulse_rate', 'Pulse rate'],
+                            ['temperature', 'Temperature'],
+                            ['respiratory_rate', 'Respiratory rate']
+                        ].map(([key, label]) => {
+                            const f = VITAL_FIELDS.find((x) => x.key === key);
+                            const status = vitalStatusLabel(key, vitals[key]);
+                            return (
+                                <div className="hiv-big" key={key}>
+                                    <span className="hiv-big-k">{label}</span>
+                                    <span className="hiv-big-v">{cell(vitals[key], f.unit)}</span>
+                                    <small className="hiv-big-k">Range {f.normal} {f.unit}</small>
+                                    {status && <ResultBadge abnormal={status === 'Not normal'} />}
+                                </div>
+                            );
+                        })}
                     </div>
                 </div>
             )}
@@ -218,18 +220,22 @@ function VitalsCard({ vitals }) {
 // Health Information tab, read only: body measurements and health history side by side, then (nurse only)
 // the latest doctor assessment of each check-up service, the latest result of each screening type and the uploaded proofs.
 // onEditHistory (nurse profile only) adds an edit button beside the Health History heading.
-export default function HealthInfoView({ studentId, healthInfo, healthProofs, showCheckups = false, onEditHistory }) {
+export default function HealthInfoView({ studentId, healthInfo, healthProofs, showCheckups = false, showScreenings = true, onEditHistory }) {
     const info = healthInfo || {};
     const [screenings, setScreenings] = useState([]);
     const [body, setBody] = useState(null);
     const [vitals, setVitals] = useState(null);
     const [checkups, setCheckups] = useState([]);
     const [loading, setLoading] = useState(false);
+    // bumped when a screening record changed: the data is fetched again without the loading state
+    const [reloadTick, setReloadTick] = useState(0);
+    // last vitals come from screening results and check-up / clinic visit vitals, so any of them reloads this view
+    useRecordSync(['screening', 'visit', 'checkup'], useCallback(() => setReloadTick((n) => n + 1), []), { enabled: !!studentId });
 
     useEffect(() => {
         if (!studentId) return undefined;
         let cancelled = false;
-        setLoading(true);
+        if (reloadTick === 0) setLoading(true);
         const id = encodeURIComponent(studentId);
         const summary = fetch(`${API}/api/students/${id}/health-summary`)
             .then((res) => res.json())
@@ -248,7 +254,7 @@ export default function HealthInfoView({ studentId, healthInfo, healthProofs, sh
             : Promise.resolve();
         Promise.all([summary, visits]).finally(() => { if (!cancelled) setLoading(false); });
         return () => { cancelled = true; };
-    }, [studentId, showCheckups]);
+    }, [studentId, showCheckups, reloadTick]);
 
     const conditions = CONDITIONS.filter((c) => info[c.flag]).map((c) => ({
         ...c,
@@ -332,7 +338,7 @@ export default function HealthInfoView({ studentId, healthInfo, healthProofs, sh
                 </section>
             )}
 
-            <section className="hiv-section" aria-labelledby="hiv-screenings">
+            {showScreenings && <section className="hiv-section" aria-labelledby="hiv-screenings">
                 <h4 id="hiv-screenings" className="hiv-heading"><Activity size={18} aria-hidden="true" /> Recent Screening</h4>
                 {loading ? (
                     <p className="hiv-muted" role="status">Loading...</p>
@@ -360,7 +366,7 @@ export default function HealthInfoView({ studentId, healthInfo, healthProofs, sh
                         ))}
                     </div>
                 )}
-            </section>
+            </section>}
 
             <HealthProofList proofs={healthProofs} />
         </div>

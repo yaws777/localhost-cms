@@ -40,7 +40,7 @@ const StudentHealthRecordModal = ({ appt, onClose }) => {
             {state.loading && <p className="dp-hint" role="status">Loading health records...</p>}
             {state.failed && <p className="dp-hint" role="alert">Health records could not be loaded.</p>}
             {!state.loading && !state.failed && (
-                <HealthInfoView studentId={studentId} healthInfo={state.info} healthProofs={state.proofs} showCheckups />
+                <HealthInfoView studentId={studentId} healthInfo={state.info} healthProofs={state.proofs} showCheckups showScreenings={false} />
             )}
         </Modal>
     );

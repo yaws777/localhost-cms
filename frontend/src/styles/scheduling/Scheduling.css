@@ -327,6 +327,8 @@
 /* icon-only action button (the label is in aria-label / title) */
 .btn-icon-sc { justify-content: center; padding: 0; min-width: 2.75rem; min-height: 2.75rem; }
 .btn-icon-sc:focus-visible { outline: 0.1875rem solid var(--sti-blue-primary); outline-offset: 0.125rem; }
+.btn-icon-sc.sti-btn-danger-dv { background: var(--status-critical-bg); border-color: var(--status-critical-text); color: var(--status-critical-text); }
+.btn-icon-sc.sti-btn-danger-dv:hover:not(:disabled) { background: var(--status-critical-bg); filter: brightness(0.95); }
 
 .timeline-sc { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .timeline-sc li { border-left: 3px solid var(--sti-border); padding-left: 10px; font-size: 0.875rem; }
@@ -593,3 +595,19 @@
 
 /* icon-only buttons in modal footers: 2.75rem target */
 .dp-modal-foot .dp-btn-icon { width: 2.75rem; height: 2.75rem; flex: none; }
+.dp-modal-foot .dp-btn:not(.dp-btn-icon) { min-height: 2.75rem; }
+
+/* End-time prompt (SessionEndPrompt). Inside Health Screening, `.container-hs *` zeroes padding and margin, so the spacing is set here. */
+.shared-modal-panel:has(.sep) { max-width: 28rem; }
+.shared-modal-panel:has(.sep) .shared-modal-header { padding: 1rem 1.25rem; gap: 0.75rem; }
+.shared-modal-panel:has(.sep) .shared-modal-title { gap: 0.625rem; }
+.shared-modal-panel:has(.sep) .shared-modal-close { padding: 0.5rem; min-width: 2.75rem; min-height: 2.75rem; align-items: center; justify-content: center; }
+.shared-modal-panel:has(.sep) .shared-modal-body { padding: 1.25rem; }
+.sep { gap: 1.25rem; }
+.sep .dp-notice { padding: 0.75rem 1rem; }
+.sep .dp-error { padding: 0.625rem 0.875rem; }
+.sep .dp-field { gap: 0.5rem; }
+.sep .dp-select { padding: 0.5rem 0.875rem; min-height: 2.75rem; }
+.sep .dp-hint { padding: 0 0.125rem; }
+.sep .dp-modal-foot { gap: 0.75rem; padding-top: 0.25rem; }
+.sep .dp-modal-foot .dp-btn { padding: 0.5rem 1rem; }

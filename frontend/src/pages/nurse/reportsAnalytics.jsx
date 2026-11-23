@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useRecordSync } from '../../hooks/useRecordSync';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -33,6 +34,7 @@ import '../../styles/nurse/ReportsAnalytics.css';
 import { useAlert } from '../../context/AlertContext';
 import { openReportWindow, writeSectionedReport } from '../../utils/printReport';
 import { formatMonthDay, formatDate, formatCurrentDate } from '../../utils/datetime';
+import { vitalsLine } from '../../utils/vitals';
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
@@ -236,10 +238,11 @@ const ReportsAnalytics = () => {
     setOffset(0);
   };
 
-  const fetchData = useCallback(async () => {
+  // { silent: true } = a background refresh when a record changed (no spinner, keeps the numbers on screen if it fails)
+  const fetchData = useCallback(async (opts) => {
+    const silent = opts?.silent === true;
     const requestId = ++latestRequest.current;
-    setLoading(true);
-    setErrorMessage('');
+    if (!silent) { setLoading(true); setErrorMessage(''); }
     try {
       const query = new URLSearchParams({ startDate: period.startDate, endDate: period.endDate }).toString();
       const response = await fetch(`http://localhost:3001/api/reports-analytics?${query}`);
@@ -261,15 +264,18 @@ const ReportsAnalytics = () => {
     } catch (error) {
       if (requestId !== latestRequest.current) return;
       console.error('Failed to fetch reports and analytics:', error);
-      setErrorMessage(error.message || 'Failed to fetch data from backend server.');
+      if (!silent) setErrorMessage(error.message || 'Failed to fetch data from backend server.');
     } finally {
-      if (requestId === latestRequest.current) setLoading(false);
+      if (requestId === latestRequest.current && !silent) setLoading(false);
     }
   }, [period.startDate, period.endDate]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // any visit, check-up, incident, release or screening record changed: the numbers (and the report printed from them) follow
+  useRecordSync(['visit', 'checkup', 'incident', 'screening'], useCallback(() => { fetchData({ silent: true }); }, [fetchData]));
 
   const { overview, trend, health, medicine, incidents, services, inventory } = data;
   const stockAlerts = inventory.summary.out + inventory.summary.critical + inventory.summary.low;
@@ -371,8 +377,8 @@ const ReportsAnalytics = () => {
           },
           {
             heading: 'Incident reports (latest 10)',
-            columns: ['Date and time', 'Student', 'Location', 'What happened', 'First aid', 'Present condition'],
-            rows: incidents.recent.map((r) => [r.happenedAt, r.student, r.location, r.description, r.firstAid, r.situation]),
+            columns: ['Date and time', 'Student', 'Location', 'Medical condition', 'Vital signs (time in)', 'What happened', 'First aid', 'Present condition'],
+            rows: incidents.recent.map((r) => [r.happenedAt, r.student, r.location, r.condition || '-', vitalsLine(r.vitals) || '-', r.description, r.firstAid, r.situation]),
             emptyText: 'No incidents in this period.'
           }
         ]
@@ -497,7 +503,7 @@ const ReportsAnalytics = () => {
 
   const healthTab = (
     <>
-      <Panel title="Medical conditions" note={`Each student counts once per condition per month · this ${unit} vs the previous ${unit}`}>
+      <Panel title="Medical conditions" note={`Each student counts once per condition per week · this ${unit} vs the previous ${unit}`}>
         <Table
           columns={['#', 'Medical condition', 'Previous cases', 'Current cases', 'Trends']}
           isEmpty={health.conditions.length === 0}
@@ -593,12 +599,14 @@ const ReportsAnalytics = () => {
       </div>
 
       <Panel title="Incident reports" note="Latest 10 in this period">
-        <Table columns={['Date and time', 'Student', 'Location', 'What happened', 'First aid', 'Present condition']} isEmpty={incidents.recent.length === 0} empty={`No incidents in this ${unit}`}>
+        <Table columns={['Date and time', 'Student', 'Location', 'Medical condition', 'Vital signs (time in)', 'What happened', 'First aid', 'Present condition']} isEmpty={incidents.recent.length === 0} empty={`No incidents in this ${unit}`}>
           {incidents.recent.map((r) => (
             <tr key={r.id}>
               <td className="nowrap">{r.happenedAt}</td>
               <td>{r.student}</td>
               <td>{r.location}</td>
+              <td>{r.condition || '-'}</td>
+              <td className="wrap">{vitalsLine(r.vitals) || '-'}</td>
               <td className="wrap">{r.description}</td>
               <td className="wrap">{r.firstAid}</td>
               <td className="wrap">{r.situation}</td>

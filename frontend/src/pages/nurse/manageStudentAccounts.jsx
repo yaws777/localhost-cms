@@ -32,6 +32,7 @@ import {
 import StudentSchoolYearModal, { schoolYearText } from '../../components/nurse/StudentSchoolYearModal';
 import stiLogo from '../../assets/sti-logof.png';
 import { formatDate } from '../../utils/datetime';
+import { notifyScreeningChanged } from '../../hooks/useScreeningSync';
 import '../../styles/nurse/ManageStudentAccounts.css';
 
 const API_BASE = 'http://localhost:3001/api';
@@ -2443,6 +2444,7 @@ export default function ManageStudentAccounts() {
           onClose={() => setIsSchoolYearOpen(false)}
           onSaved={(data) => {
             setIsSchoolYearOpen(false);
+            notifyScreeningChanged();
             fetchSchoolYears();
             fetchStudents(searchQuery);
             setStudentForm(prev => ({ ...prev, school_year: data.school_year }));

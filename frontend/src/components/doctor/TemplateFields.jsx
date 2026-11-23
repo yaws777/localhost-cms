@@ -17,12 +17,27 @@ export const FIELD_TYPES = [
 
 export const emptyValue = (field) => (field.type === 'checkbox' ? [] : '');
 
+// A dropdown with an "Other" option lets the doctor type the answer: the typed text is what is saved
+const OTHER = 'Other';
+const hasOther = (f) => f.type === 'select' && (f.options || []).includes(OTHER);
+
+// every box says what to type (own placeholder, else the hint, else a short default by type)
+export const placeholderOf = (f) => {
+    if (f.placeholder) return f.placeholder;
+    if (f.hint) return f.hint;
+    if (f.type === 'textarea') return 'Type here';
+    if (f.type === 'number') return f.unit ? `Number in ${f.unit}` : 'Enter a number';
+    if (f.type === 'select') return '-- Select --';
+    return 'Type the answer';
+};
+
 // Missing required answers, as a list of labels
 export const missingRequired = (fields, values) =>
     fields
         .filter((f) => f.required && f.type !== 'heading')
         .filter((f) => {
             const v = values[f.key];
+            if (hasOther(f) && v === OTHER) return true; // "Other" picked but not written
             return Array.isArray(v) ? v.length === 0 : String(v ?? '').trim() === '';
         })
         .map((f) => f.label);
@@ -34,8 +49,15 @@ export const toResponses = (fields, values) =>
         .map((f) => ({ key: f.key, label: f.label, type: f.type, value: values[f.key] ?? emptyValue(f) }))
         .filter((r) => (Array.isArray(r.value) ? r.value.length > 0 : String(r.value).trim() !== ''));
 
-export const TemplateFields = ({ fields, values, onChange, idPrefix = 'tf' }) => {
+// actions: { [field.key]: node } shows a small control at the end of that field's label (e.g. write the plan again)
+export const TemplateFields = ({ fields, values, onChange, idPrefix = 'tf', actions }) => {
     const set = (key, value) => onChange({ ...values, [key]: value });
+    const labelRow = (f, id, required) => (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <label htmlFor={id}>{f.label}{required}{f.type === 'number' && f.unit ? ` (${f.unit})` : ''}</label>
+            {actions && actions[f.key]}
+        </div>
+    );
 
     return (
         <>
@@ -83,18 +105,35 @@ export const TemplateFields = ({ fields, values, onChange, idPrefix = 'tf' }) =>
 
                 return (
                     <div key={f.key} className="dp-field">
-                        <label htmlFor={id}>{f.label}{required}{f.type === 'number' && f.unit ? ` (${f.unit})` : ''}</label>
+                        {labelRow(f, id, required)}
                         {f.type === 'textarea' ? (
-                            <textarea id={id} className="dp-textarea" rows={3} value={value} onChange={(e) => set(f.key, e.target.value)} />
+                            <textarea id={id} className="dp-textarea" rows={f.key === 'treatment_recommendations' ? 5 : 3} placeholder={placeholderOf(f)} value={value} onChange={(e) => set(f.key, e.target.value)} />
                         ) : f.type === 'select' ? (
-                            <select id={id} className="dp-select" value={value} onChange={(e) => set(f.key, e.target.value)}>
-                                <option value="">-- Select --</option>
-                                {(f.options || []).map((o) => <option key={o} value={o}>{o}</option>)}
-                            </select>
+                            (() => {
+                                const options = f.options || [];
+                                const other = hasOther(f);
+                                // a saved answer that is not in the list (an older free-text answer) shows as "Other" with its text
+                                const custom = other && value !== '' && !options.filter((o) => o !== OTHER).includes(value);
+                                return (
+                                    <>
+                                        <select id={id} className="dp-select" value={custom ? OTHER : value} onChange={(e) => set(f.key, e.target.value)}>
+                                            <option value="">{placeholderOf(f)}</option>
+                                            {options.map((o) => <option key={o} value={o}>{o}</option>)}
+                                        </select>
+                                        {custom && (
+                                            <input
+                                                className="dp-input" style={{ marginTop: 6 }} type="text" maxLength={200} autoFocus={value === OTHER}
+                                                aria-label={`${f.label}: write the answer`} placeholder="Write the answer"
+                                                value={value === OTHER ? '' : value} onChange={(e) => set(f.key, e.target.value.trim() === '' && e.target.value === '' ? OTHER : e.target.value)}
+                                            />
+                                        )}
+                                    </>
+                                );
+                            })()
                         ) : (
-                            <input id={id} className="dp-input" type={f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text'} step={f.type === 'number' ? 'any' : undefined} value={value} onChange={(e) => set(f.key, e.target.value)} />
+                            <input id={id} className="dp-input" type={f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text'} step={f.type === 'number' ? 'any' : undefined} placeholder={f.type === 'date' ? undefined : placeholderOf(f)} value={value} onChange={(e) => set(f.key, e.target.value)} />
                         )}
-                        {f.hint && <small>{f.hint}</small>}
+                        {f.hint && f.placeholder && <small>{f.hint}</small>}
                     </div>
                 );
             })}

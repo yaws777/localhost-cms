@@ -4,7 +4,7 @@ import stiLogo from '../assets/sti-logof.png';
 import { formatTime, formatDate } from './datetime';
 import { escapeHtml } from './printReport';
 import { visitLabel } from './visitPurpose';
-import { vitalsLine, inVitalsOf, outVitalsOf } from './vitals';
+import { vitalsLine, vitalsRangeLine, inVitalsOf, outVitalsOf } from './vitals';
 import { dispensedLine } from './dispensed';
 import { NURSE_NAME } from './assessmentModel';
 
@@ -57,6 +57,7 @@ const visitDetailRows = (a) => {
     if (a.chief_complaint || a.booking_reason) rows.push(['Chief complaint', a.chief_complaint || a.booking_reason]);
     if (vitalsLine(inVitalsOf(a))) rows.push(['Vital signs (time in)', vitalsLine(inVitalsOf(a))]);
     if (vitalsLine(outVitalsOf(a))) rows.push(['Vital signs (time out)', vitalsLine(outVitalsOf(a))]);
+    if (vitalsLine(inVitalsOf(a)) || vitalsLine(outVitalsOf(a))) rows.push(['Vital signs (normal range)', vitalsRangeLine()]);
     if (a.visit_type === 'Dental' && a.oral_hygiene) {
         const dmft = (Number(a.caries_count) || 0) + (Number(a.missing_count) || 0) + (Number(a.filled_count) || 0);
         rows.push(['Oral hygiene', a.oral_hygiene]);
@@ -87,7 +88,7 @@ const visitDetailRows = (a) => {
     answers.forEach((r) => rows.push([r.label, Array.isArray(r.value) ? r.value.join(', ') : r.value]));
     if (a.follow_up_date) rows.push(['Follow-up date', formatDate(a.follow_up_date)]);
     if (a.follow_up_notes) rows.push(['Follow-up notes', a.follow_up_notes]);
-    if (a.is_abnormal) rows.push(['Result', '<span class="flag">Abnormal finding</span>']);
+    if (a.is_abnormal) rows.push(['Result', '<span class="flag">Not normal finding</span>']);
     if (a.follow_up_needed) rows.push(['Follow-up', '<span class="flag">Follow-up needed</span>']);
     if (a.referral_facility) rows.push(['Referral', `${a.referral_facility} - ${a.referral_reason || ''}`]);
     if (a.documented_by_name) rows.push(['Documented by', `${a.documented_by_name}${a.documented_by_role ? ` (${a.documented_by_role})` : ''}`]);

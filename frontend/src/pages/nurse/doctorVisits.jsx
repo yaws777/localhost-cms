@@ -13,7 +13,8 @@ import ConsultationLists, { CONSULTATION_TABS } from '../../components/schedulin
 import TodayRail from '../../components/scheduling/TodayRail';
 import { useTodaySessions } from '../../hooks/useTodaySessions';
 import { useDpAutoLabels } from '../../utils/autoLabels';
-import TabDot from '../../components/common/TabDot';
+import TabDot, { LiveDot } from '../../components/common/TabDot';
+import { useTodayCheckupStatus } from '../../hooks/useTodayCheckupStatus';
 import { DOCTOR_VISIT_SECTION_TYPES } from '../../utils/tabNotificationTypes';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 
@@ -74,6 +75,8 @@ const DoctorVisit = () => {
     // red dots: Check-up clears while it is open; Scheduling keeps its dot until each of its own tabs is opened (the hub marks them)
     const { dots } = useTabNotifications({ userId, typeMap: SECTION_NOTIFICATION_TYPES, activeTab: section === 'visits' ? 'visits' : null });
 
+    const todayStatus = useTodayCheckupStatus('all', { enabled: !!nurseId, refreshKey: section });
+
     const onChanged = () => { loadSummary(); reloadToday(); };
 
     const dutyDoctors = new Set(todaySessions.map((s) => s.doctor_id || s.doctor_name)).size;
@@ -91,6 +94,7 @@ const DoctorVisit = () => {
             <nav className="section-nav-dv" aria-label="Doctor visit sections">
                 <button type="button" className={`section-tab-dv ${section === 'visits' ? 'active-dv' : ''}`} onClick={() => goSection('visits')}>
                     <ClipboardList size={16} /> Check-up
+                    <LiveDot show={todayStatus === 'ongoing'} label="A check-up is on going now" />
                     <TabDot show={section !== 'visits' && dots.visits > 0} label="New in Check-up" />
                 </button>
                 <button type="button" className={`section-tab-dv ${section !== 'visits' ? 'active-dv' : ''}`} onClick={() => goSection('availability')}>

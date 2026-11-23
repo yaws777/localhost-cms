@@ -4,7 +4,7 @@
 //   <StudentHealthCard studentId appointmentId />   the card itself (also inside ConsultationModal)
 //   <StudentHealthModal appt onClose />             the same card in a modal (HeartPulse button on queue and check-up rows)
 import React, { useState, useEffect } from 'react';
-import { HeartPulse, AlertTriangle, ShieldAlert } from 'lucide-react';
+import { HeartPulse, AlertTriangle, ShieldAlert, Check } from 'lucide-react';
 import Modal from '../common/Modal';
 import { API } from '../../utils/scheduling';
 import { formatTime } from '../../utils/datetime';
@@ -23,7 +23,9 @@ const VitalTiles = ({ values, prefix }) => (
             <div key={t.key} className={`hs-tile ${t.state === 'abnormal' ? 'abnormal' : ''}`}>
                 <small>{t.label}</small>
                 <strong>{t.value ? `${t.value} ${t.unit}` : '-'}</strong>
+                <small>Range {t.normal} {t.unit}</small>
                 {t.state === 'abnormal' && <span className="hs-flag"><AlertTriangle size={14} aria-hidden="true" /> Not normal</span>}
+                {t.state === 'normal' && <span className="hs-flag hs-flag-ok"><Check size={14} aria-hidden="true" /> Normal</span>}
             </div>
         ))}
     </div>
@@ -50,7 +52,7 @@ export const StudentHealthCard = ({ studentId, appointmentId }) => {
 
     // only the vital signs of this check-up, recorded by the nurse; earlier visits are not shown
     const { current, conditions } = data;
-    const hasOut = current && (current.out_blood_pressure || current.out_temperature || current.out_pulse_rate || current.out_respiratory_rate);
+    const hasOut = current && (current.out_blood_pressure || current.out_temperature || current.out_pulse_rate || current.out_respiratory_rate || current.out_nurse_note);
 
     return (
         <div className="hs-card">
@@ -65,7 +67,7 @@ export const StudentHealthCard = ({ studentId, appointmentId }) => {
                 <section aria-label="Vital signs at time out">
                     <h4 className="hs-sub">At time out{current.time_out ? ` (${formatTime(current.time_out)})` : ''}</h4>
                     <VitalTiles values={current} prefix="out_" />
-                    {current.out_nurse_note && <p className="dp-hint">Remarks: {current.out_nurse_note}</p>}
+                    {current.out_nurse_note && <p className="dp-hint">Nurse remarks: {current.out_nurse_note}</p>}
                 </section>
             )}
 

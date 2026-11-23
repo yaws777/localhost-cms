@@ -15,6 +15,7 @@ import {
   User
 } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
+import { useRecordSync, ALL_RECORD_KINDS, sameRecord } from '../../hooks/useRecordSync';
 import { exportClinicRecords, exportClinicRecord } from '../../utils/clinicRecordExport';
 import { Pager, paginate } from '../../components/common/RecordFolders';
 import { ClinicVisitForm, DispensedForm, IncidentForm, DoctorVisitDetail, ScreeningDetail, VisitStatus, ScreeningStatus, visitDoctor, visitTitle } from '../../components/common/ClinicRecordViews';
@@ -121,6 +122,23 @@ export default function ClinicLogsAndRecords({ studentId: studentIdProp, afterHe
       fetchLogs();
     }
   }, [studentId, activeTab, fetchLogs]);
+
+  // a visit, check-up, incident or screening record was saved or changed: reload the list quietly
+  // (keeps page and filter; the open record and the PDF built from it follow the new data)
+  useRecordSync(ALL_RECORD_KINDS, useCallback(async () => {
+    if (!studentId || activeTab === 'document-requests' || activeTab === 'student-requirements') return;
+    try {
+      let url = `${API_BASE}/${activeTab}/clinicLogs&Records?studentId=${encodeURIComponent(studentId)}`;
+      if (startDate && endDate) url += `&startDate=${startDate}&endDate=${endDate}`;
+      const response = await fetch(url);
+      const data = await response.json();
+      if (!Array.isArray(data)) return;
+      setRecords(data);
+      setSelectedRecord((current) => (current ? (data.find((r) => sameRecord(r, current)) || null) : current));
+    } catch (error) {
+      console.error('Error refreshing records:', error);
+    }
+  }, [studentId, activeTab, startDate, endDate]), { enabled: !!studentId });
 
   const paged = paginate(records, page, PER_PAGE);
 

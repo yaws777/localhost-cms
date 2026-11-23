@@ -7,6 +7,7 @@ import { Search, FolderHeart, CalendarClock, CalendarX, Users, ChevronDown, X, C
 import Modal from '../../components/common/Modal';
 import { useAlert } from '../../context/AlertContext';
 import { useSpecializations } from '../../hooks/useSpecializations';
+import { useRecordSync } from '../../hooks/useRecordSync';
 import { formatDate, formatTime, formatTimeRange } from '../../utils/datetime';
 import { classLabel } from '../../utils/scheduling';
 import { visitLabel, initials, fullName, statusClass, statusLabel } from '../../utils/visitPurpose';
@@ -183,6 +184,22 @@ const DoctorPatients = () => {
     }, [doctorId, query, scope, showAlert]);
 
     useEffect(() => { load(); }, [load]);
+
+    // a check-up was documented, edited or repeated (here, another tab or another device): the list, the open record and its PDF follow
+    useRecordSync(['checkup', 'visit', 'screening'], useCallback(async () => {
+        try {
+            const qs = query ? `?q=${encodeURIComponent(query)}` : (scope === 'all' ? '?all=1' : '');
+            const data = await (await fetch(`${API}/api/doctor/${doctorId}/patients${qs}`)).json();
+            if (data.success) {
+                setPatients(data.patients);
+                setRecordPatient((cur) => (cur ? (data.patients.find((p) => p.student_id === cur.student_id) || cur) : cur));
+            }
+            if (recordPatient) {
+                const rec = await (await fetch(`${API}/api/doctor/patients/${recordPatient.student_id}/record`)).json();
+                if (rec.success) setRecord(rec);
+            }
+        } catch (e) { /* the next change or poll tries again */ }
+    }, [doctorId, query, scope, recordPatient]));
 
     // the doctor's own open schedules that still have a session to come
     const loadSchedules = useCallback(async () => {

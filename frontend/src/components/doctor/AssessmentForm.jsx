@@ -9,17 +9,19 @@ import { FileDown } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
 import { buildAssessmentModel } from '../../utils/assessmentModel';
 import { printAssessment } from '../../utils/assessmentPdf';
+import VitalMeta from '../common/VitalMeta';
 import '../../styles/doctor/DoctorLayout.css';
 import '../../styles/doctor/AssessmentForm.css';
 
 const rowsFor = (text) => Math.min(8, Math.max(2, String(text).split('\n').reduce((n, line) => n + Math.max(1, Math.ceil(line.length / 70)), 0)));
 
-const Box = ({ id, label, value, area }) => (
+const Box = ({ id, label, value, area, status, range }) => (
     <div className="dp-field">
         <label htmlFor={id}>{label}</label>
         {area
             ? <textarea id={id} className="dp-textarea" readOnly rows={rowsFor(value)} value={value} />
             : <input id={id} className="dp-input" type="text" readOnly value={value} />}
+        <VitalMeta status={status} range={range} />
     </div>
 );
 
@@ -50,16 +52,18 @@ export const AssessmentForm = ({ a, ctx, showPdf = true, showHeader = true, show
                 )}
             </div>
 
-            {m.abnormal && <div className="dp-error" role="status">The doctor marked this result as needing attention.</div>}
+            {m.abnormal && <div className="dp-error" role="status">The doctor marked this result as not normal.</div>}
 
             {showVitals && m.vitals.map((g, gi) => (
                 <React.Fragment key={g.title}>
                     <div className="dp-section-label">{g.title}</div>
                     <div className="dp-row">
-                        {g.items.map((i) => <Box key={i.label} id={id(`v${gi}-${i.label}`)} label={`${i.label}${i.unit ? ` (${i.unit})` : ''}`} value={i.value} />)}
+                        {g.items.map((i) => <Box key={i.label} id={id(`v${gi}-${i.label}`)} label={`${i.label}${i.unit ? ` (${i.unit})` : ''}`} value={i.value} status={i.status} range={i.range} />)}
                     </div>
                 </React.Fragment>
             ))}
+
+            {m.nurseRemarks && <Box id={id('nurse-remarks')} label="Nurse remarks" value={m.nurseRemarks} area />}
 
             {m.sections.map((s, si) => (
                 <React.Fragment key={s.title}>

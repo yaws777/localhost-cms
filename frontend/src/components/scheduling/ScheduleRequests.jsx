@@ -4,6 +4,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { CalendarClock, Send, Check, XCircle, RefreshCw } from 'lucide-react';
 import Modal from '../common/Modal';
+import TimeRangeFields from '../common/TimeRangeFields';
 import { ReasonModal } from '../doctor/AppointmentModals';
 import { Pager, paginate } from '../common/RecordFolders';
 import { useAlert } from '../../context/AlertContext';
@@ -221,14 +222,13 @@ export const ScheduleRequestModal = ({ isOpen, preset, doctors, nurseId, userId,
                         <label htmlFor="sr-date">Preferred date (optional)</label>
                         <input id="sr-date" className="dp-input" type="date" min={todayKey()} value={form.preferred_date || ''} onChange={(e) => set({ preferred_date: e.target.value })} />
                     </div>
-                    <div className="dp-field">
-                        <label htmlFor="sr-start">From (optional)</label>
-                        <input id="sr-start" className="dp-input" type="time" min={minTimeFor(form.preferred_date)} value={form.preferred_start || ''} onChange={(e) => set({ preferred_start: e.target.value })} />
-                    </div>
-                    <div className="dp-field">
-                        <label htmlFor="sr-end">To (optional)</label>
-                        <input id="sr-end" className="dp-input" type="time" min={form.preferred_start || minTimeFor(form.preferred_date)} value={form.preferred_end || ''} onChange={(e) => set({ preferred_end: e.target.value })} />
-                    </div>
+                </div>
+                <div className="dp-row">
+                    <TimeRangeFields
+                        idPrefix="sr" required={false} startLabel="From" endLabel="To"
+                        start={form.preferred_start} end={form.preferred_end} minStart={minTimeFor(form.preferred_date)}
+                        onChange={(preferred_start, preferred_end) => set({ preferred_start, preferred_end })}
+                    />
                 </div>
                 <div className="dp-field">
                     <label htmlFor="sr-note">Note for the doctor (optional)</label>

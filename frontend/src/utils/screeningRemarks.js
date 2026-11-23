@@ -33,12 +33,12 @@ export const playDecision = (fields, answers) => {
       const v = values[f.key];
       if (v === undefined) return;
       const unit = f.unit ? ` ${f.unit}` : '';
-      if (f.play_min !== undefined && v < f.play_min) { reasons.push(`${f.label} ${v}${unit} is below ${f.play_min}`); keys.push(f.key); }
-      else if (f.play_max !== undefined && v > f.play_max) { reasons.push(`${f.label} ${v}${unit} is above ${f.play_max}`); keys.push(f.key); }
+      if (f.play_min !== undefined && v < f.play_min) { reasons.push(`${f.label} is ${v}${unit}. This is too low to play.`); keys.push(f.key); }
+      else if (f.play_max !== undefined && v > f.play_max) { reasons.push(`${f.label} is ${v}${unit}. This is too high to play.`); keys.push(f.key); }
     } else if ((f.play_block_options || []).length > 0) {
       hasRule = true;
       const v = answers?.[f.key];
-      if ((f.play_block_options || []).includes(v)) { reasons.push(`${f.label}: ${v}`); keys.push(f.key); }
+      if ((f.play_block_options || []).includes(v)) { reasons.push(`${f.label} is ${v}. This is not safe for play.`); keys.push(f.key); }
     }
   });
   return { hasRule, blocked: reasons.length > 0, reasons, keys };
@@ -61,45 +61,108 @@ export const bloodPressureLabel = (fields, answers) => {
   return high ? 'High Blood' : low ? 'Low Blood' : 'Normal';
 };
 
-// asthma: { has: boolean, triggers: string }
-export const buildAutoRemark = (fields, answers, asthma) => {
+export const PLAY_STATUS_LABELS = { ALLOWED: 'Allowed to Play', RESTRICTED: 'Allowed with Restrictions', NOT_ALLOWED: 'Not Allowed to Play' };
+
+// Clearance decision of a Physical Activities screening from the vitals (play range, readings outside normal) and the health history
+// (health = { blockers, restrictions, conditions } the server sends for each participant). Same rules as playClearanceOf on the server.
+export const playClearance = (fields, answers, health) => {
+  const list = fields || [];
+  const { values } = readValues(list, answers);
+  const vit = playDecision(list, answers);
+  const blockers = [...vit.reasons, ...((health && health.blockers) || [])];
+  const restrictions = [...((health && health.restrictions) || [])];
+  const { sys, dia } = bpFieldsOf(list);
+  const skip = new Set([sys && sys.key, dia && dia.key].filter(Boolean));
+  const sv = sys ? values[sys.key] : undefined;
+  const dv = dia ? values[dia.key] : undefined;
+  const bpBlocked = vit.keys.some((k) => skip.has(k));
+  if ((sv !== undefined || dv !== undefined) && !bpBlocked) {
+    const label = bloodPressureLabel(list, answers);
+    if (label && label !== 'Normal') restrictions.push("Monitor the student's blood pressure during the activity.");
+  }
+  list.forEach((f) => {
+    if (skip.has(f.key) || (f.type !== 'number' && f.type !== 'calculated') || vit.keys.includes(f.key)) return;
+    const v = values[f.key];
+    if (v === undefined) return;
+    if ((f.min !== undefined && v < f.min) || (f.max !== undefined && v > f.max)) {
+      restrictions.push(`Monitor the student's ${String(f.label).toLowerCase()} during the activity.`);
+    }
+  });
+  const status = blockers.length > 0 ? 'NOT_ALLOWED' : restrictions.length > 0 ? 'RESTRICTED' : 'ALLOWED';
+  return { status, label: PLAY_STATUS_LABELS[status], blockers, restrictions };
+};
+
+// ctx = { category: 'GENERAL' | 'PHYSICAL', health: { blockers, restrictions, conditions }, status: chosen decision code or '' (auto) }
+// Physical Activities opens the remark with the Allow-to-Play status; every screening ends it with the health history.
+export const buildAutoRemark = (fields, answers, ctx = {}) => {
   const list = fields || [];
   const { values, labels } = readValues(list, answers);
   const lines = [];
   const used = new Set();
+  const physical = ctx.category === 'PHYSICAL';
+  // plain sentences only; a reading that already blocks play is told in the clearance sentences at the end
+  const c = physical ? playClearance(list, answers, ctx.health) : null;
+  const vit = physical ? playDecision(list, answers) : { keys: [] };
+  if (physical) {
+    const status = ctx.status && PLAY_STATUS_LABELS[ctx.status] ? ctx.status : c.status;
+    lines.push(`Allow-to-Play Status: ${PLAY_STATUS_LABELS[status]}.`);
+  }
   const { sys, dia } = bpFieldsOf(list);
   const sv = sys ? values[sys.key] : undefined;
   const dv = dia ? values[dia.key] : undefined;
   if (sv !== undefined || dv !== undefined) {
     if (sys) used.add(sys.key);
     if (dia) used.add(dia.key);
-    lines.push(`Blood pressure ${sv !== undefined ? sv : '?'}/${dv !== undefined ? dv : '?'} mmHg: ${bloodPressureLabel(list, answers)}.`);
+    if (!vit.keys.some((k) => k === (sys && sys.key) || k === (dia && dia.key))) {
+      const label = bloodPressureLabel(list, answers);
+      if (label === 'High Blood' || label === 'Low Blood') {
+        lines.push(`Blood pressure is ${sv !== undefined ? sv : '?'}/${dv !== undefined ? dv : '?'} mmHg. Not normal (${label === 'High Blood' ? 'high' : 'low'}).`);
+      }
+    }
   }
   list.forEach((f) => {
-    if (used.has(f.key) || (f.type !== 'number' && f.type !== 'calculated')) return;
+    if (used.has(f.key) || (f.type !== 'number' && f.type !== 'calculated') || vit.keys.includes(f.key)) return;
     const v = values[f.key];
     if (v === undefined) return;
     const unit = f.unit ? ` ${f.unit}` : '';
-    const band = labels[f.key] ? ` (${labels[f.key]})` : '';
-    if (f.min !== undefined && v < f.min) lines.push(`${f.label} ${v}${unit}: Low${band}.`);
-    else if (f.max !== undefined && v > f.max) lines.push(`${f.label} ${v}${unit}: High${band}.`);
-    else if (f.min !== undefined || f.max !== undefined) lines.push(`${f.label} ${v}${unit}: Normal${band}.`);
+    const state = f.min !== undefined && v < f.min ? 'low' : f.max !== undefined && v > f.max ? 'high' : '';
+    if (state) lines.push(`${f.label} is ${v}${unit}. Not normal (${state}${labels[f.key] ? `, ${labels[f.key]}` : ''}).`);
   });
   list.forEach((f) => {
     if (f.type !== 'select' && f.type !== 'yesno') return;
     const v = answers?.[f.key];
-    if (hasValue(v) && (f.abnormal_options || []).includes(v)) lines.push(`${f.label}: ${v} (needs attention).`);
+    if (hasValue(v) && (f.abnormal_options || []).includes(v)) lines.push(`${f.label} is ${v}. Not normal.`);
   });
-  const play = playDecision(list, answers);
-  if (play.hasRule && Object.keys(values).length + list.filter((f) => hasValue(answers?.[f.key])).length > 0) {
-    lines.push(play.blocked ? `Not allowed to play: ${play.reasons.join('; ')}.` : 'Allowed to play.');
-  }
-  if (asthma && asthma.has) lines.push(`History of asthma${asthma.triggers ? ` (${asthma.triggers})` : ''}.`);
+  const conditions = (ctx.health && ctx.health.conditions) || [];
+  // Physical Activities: only the health history that affects physical activity (already sentences); other screenings list the history
+  if (physical) lines.push(...c.blockers, ...c.restrictions);
+  else if (conditions.length > 0) lines.push(`Health history: ${conditions.join(', ')}.`);
   return lines.join(' ');
 };
+
+// Combined blood pressure input ("120/80") for a form that has a systolic and a diastolic field
+export const bpPair = (fields) => {
+  const { sys, dia } = bpFieldsOf(fields);
+  return sys && dia ? { sys, dia } : null;
+};
+export const bpText = (answers, pair) => {
+  const s = answers?.[pair.sys.key];
+  const d = answers?.[pair.dia.key];
+  if (!hasValue(s) && !hasValue(d)) return '';
+  return `${hasValue(s) ? s : ''}/${hasValue(d) ? d : ''}`;
+};
+// text typed in the BP box -> { [sysKey]: '120', [diaKey]: '80' }
+export const bpParse = (text, pair) => {
+  const [s = '', d = ''] = String(text).replace(/[^\d/]/g, '').split('/');
+  return { [pair.sys.key]: s.slice(0, 3), [pair.dia.key]: d.slice(0, 3) };
+};
+export const BP_PATTERN = '\\d{2,3}/\\d{2,3}';
 
 // normal-range text of a field with the allowed-to-play range after it
 export const playRangeText = (f) => {
   if (f.play_min === undefined && f.play_max === undefined) return '';
-  return `${f.play_min !== undefined ? f.play_min : '...'} to ${f.play_max !== undefined ? f.play_max : '...'}${f.unit ? ` ${f.unit}` : ''}`;
+  const unit = f.unit ? ` ${f.unit}` : '';
+  if (f.play_min === undefined) return `up to ${f.play_max}${unit}`;
+  if (f.play_max === undefined) return `from ${f.play_min}${unit}`;
+  return `${f.play_min} to ${f.play_max}${unit}`;
 };

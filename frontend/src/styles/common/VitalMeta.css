@@ -1,0 +1,6 @@
+/* VitalMeta: status chip + normal range under a read-only vital sign box. Colors come from the STI status tokens. */
+.vm-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.5rem; font-family: var(--font-sans); font-size: 0.875rem; line-height: 1.4; }
+.vm-status { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.0625rem 0.5rem; border-radius: 999px; font-weight: 600; white-space: nowrap; }
+.vm-ok { background: var(--status-adequate-bg); color: var(--status-adequate-text); }
+.vm-bad { background: var(--status-critical-bg); color: var(--status-critical-text); }
+.vm-range { color: var(--text-secondary); }

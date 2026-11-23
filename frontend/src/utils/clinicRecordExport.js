@@ -8,7 +8,7 @@ import { printAssessment, assessmentBodyHtml } from './assessmentPdf';
 import { buildAssessmentModel } from './assessmentModel';
 import { FORM_CSS, formBodyHtml, printFormDocument } from './formDocument';
 import { buildClinicVisitModel, buildDispensedModel, buildIncidentModel, buildScreeningRecordModel } from './formModels';
-import { vitalsLine, inVitalsOf, outVitalsOf } from './vitals';
+import { vitalsLine, vitalsRangeLine, inVitalsOf, outVitalsOf } from './vitals';
 import { dispensedLine } from './dispensed';
 import { visitOutcome, visitDoctor, visitTitle } from '../components/common/ClinicRecordViews';
 
@@ -117,14 +117,16 @@ const doctorVisitRows = (v) => {
         ['Reason declined', v.decline_reason],
         ['Notes', v.student_notes],
         ['Vital signs - At time in', vitalsLine(inVitalsOf(v))],
-        ['Vital signs - At time out', vitalsLine(outVitalsOf(v))]
+        ['Vital signs - At time out', vitalsLine(outVitalsOf(v))],
+        ['Vital signs - Normal range', vitalsLine(inVitalsOf(v)) || vitalsLine(outVitalsOf(v)) ? vitalsRangeLine() : null],
+        ['Nurse remarks', v.nurse_remarks || v.out_nurse_note]
     ];
     if (v.documented) {
         rows.push(['Assessment - Findings', v.clinical_findings]);
         rows.push(['Assessment - Diagnosis', v.diagnosis]);
         rows.push(['Assessment - Advice', v.treatment_recommendations]);
         rows.push(['Assessed on', v.assessment_date ? dateOnly(v.assessment_date) : null]);
-        if (v.is_abnormal) rows.push(['Attention', 'The doctor marked this result as needing attention.']);
+        if (v.is_abnormal) rows.push(['Attention', 'The doctor marked this result as not normal.']);
         if (prescriptions.length > 0) {
             rows.push(['Prescription', prescriptions.map((m) => {
                 const dose = [m.dosage, m.frequency, m.duration].filter(Boolean).join(', ');

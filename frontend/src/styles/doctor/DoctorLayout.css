@@ -420,6 +420,33 @@
 :root[data-theme="dark"] .dp-section-label { color: #8fbbe6; }
 .dp-error { padding: 10px 12px; border-radius: 10px; background: var(--status-critical-bg); color: var(--status-critical-text); border: 1px solid #fecdca; font-size: 0.875rem; }
 .dp-notice { padding: 10px 12px; border-radius: 10px; background: var(--dp-brand-soft); color: var(--text-primary); border: 1px solid var(--dp-border); font-size: 0.875rem; line-height: 1.5; }
+/* Student card at the top of the check-up form */
+.dp-patient { display: flex; flex-direction: column; gap: 0.75rem; padding: 0.875rem 1rem; border-radius: 0.875rem; background: var(--dp-brand-soft); border: 1px solid var(--dp-border); border-inline-start: 0.25rem solid var(--sti-yellow); color: var(--text-primary); }
+.dp-patient-top { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.dp-patient-avatar { width: 2.75rem; height: 2.75rem; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--sti-blue-dark); color: var(--text-on-brand); font-size: 1rem; font-weight: 700; letter-spacing: 0.02em; }
+.dp-patient-id { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.dp-patient-name { font-size: 1.0625rem; font-weight: 700; line-height: 1.3; overflow-wrap: anywhere; }
+.dp-patient-sub { font-family: var(--font-mono); font-size: 0.875rem; color: var(--text-secondary); }
+.dp-patient-purpose { background: var(--bg-card); border: 1px solid var(--dp-border); color: var(--text-primary); }
+.dp-patient-meta { display: flex; flex-wrap: wrap; gap: 0.375rem 1.25rem; font-size: 0.9375rem; color: var(--text-primary); }
+.dp-patient-meta span { display: inline-flex; align-items: center; gap: 0.375rem; }
+.dp-patient-meta svg { color: var(--dp-brand); flex-shrink: 0; }
+.dp-vitals { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); gap: 0.5rem; }
+.dp-vital { display: grid; grid-template-columns: auto 1fr; align-items: center; column-gap: 0.5rem; row-gap: 0.125rem; padding: 0.5rem 0.75rem; border-radius: 0.625rem; background: var(--bg-card); border: 1px solid var(--dp-border); }
+.dp-vital svg { grid-row: 1 / span 2; color: var(--dp-brand); }
+.dp-vital-label { font-size: 0.875rem; color: var(--text-secondary); line-height: 1.3; }
+.dp-vital-value { font-size: 1.0625rem; font-weight: 700; line-height: 1.3; }
+.dp-vital-value small { margin-inline-start: 0.25rem; font-size: 0.875rem; font-weight: 400; color: var(--text-secondary); }
+.dp-vital-flag { grid-column: 1 / -1; font-size: 0.875rem; font-weight: 600; }
+.dp-vital-range { grid-column: 1 / -1; font-size: 0.875rem; color: var(--text-secondary); }
+.dp-vital.is-abnormal .dp-vital-range { color: var(--status-critical-text); }
+.dp-vital-flag.ok { color: var(--status-adequate-text); }
+.dp-vital.is-abnormal { background: var(--status-critical-bg); border-color: var(--status-critical-bar); }
+.dp-vital.is-abnormal svg, .dp-vital.is-abnormal .dp-vital-label, .dp-vital.is-abnormal .dp-vital-value, .dp-vital.is-abnormal .dp-vital-value small, .dp-vital-flag { color: var(--status-critical-text); }
+.dp-patient-notes { margin: 0; display: flex; flex-direction: column; gap: 0.375rem; font-size: 0.9375rem; }
+.dp-patient-notes div { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.dp-patient-notes dt { font-weight: 600; color: var(--text-secondary); }
+.dp-patient-notes dd { margin: 0; overflow-wrap: anywhere; }
 :root[data-theme="dark"] .dp-error { background: #3a1414; color: #fda29b; border-color: #5b2121; }
 
 .dp-chip {
@@ -856,3 +883,10 @@ th[aria-sort="ascending"] .mda-sort svg, th[aria-sort="descending"] .mda-sort sv
 }
 @media (max-width: 44rem) { .dpt-rec { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 900px) { .dpt { padding: 1rem 0.875rem 2rem; } }
+
+/* refresh icon turns while the lists reload */
+@media (prefers-reduced-motion: no-preference) {
+  .dp-spin { animation: dp-spin 0.8s linear infinite; }
+  @keyframes dp-spin { to { transform: rotate(360deg); } }
+}
+.dp-filters .dp-btn-icon { width: 2.75rem; height: 2.75rem; flex: none; }

@@ -327,8 +327,8 @@ const BookCheckup = () => {
         if (listing.mine || submitting) return; // the student already has a number in this session
         if (listing.purposes.length === 1) {
             const ok = await showConfirm(
-                `Take a place in the session of ${listing.doctor_name}, ${formatDate(listing.date)}, ${to12h(listing.start_time)} - ${to12h(listing.end_time)}?`,
-                { confirmLabel: 'Take place', cancelLabel: 'Cancel', title: 'Take a place' }
+                `Take a number in the session of ${listing.doctor_name}, ${formatDate(listing.date)}, ${to12h(listing.start_time)} - ${to12h(listing.end_time)}?`,
+                { confirmLabel: 'Take number', cancelLabel: 'Cancel', title: 'Take a number' }
             );
             if (ok) takePlace(listing, listing.purposes[0]);
             return;
@@ -470,10 +470,10 @@ const BookCheckup = () => {
                         <section className="section-bc" aria-label="Advance Listing (No Schedule Yet)">
                             <div className="sec-head-bc">
                                 <h3>Advance Listing <span className="paren-bc">(No Schedule Yet)</span></h3>
-                                {advance && advance.is_open && !mine && (
+                                {advance && (advance.accepting ?? advance.is_open) && !mine && (
                                     <button type="button" className="btn-bc btn-primary-bc btn-icon-bc" onClick={() => setAdvanceOpen(true)} aria-label="Request advance listing" title="Request advance listing"><ListPlus size={20} aria-hidden="true" /></button>
                                 )}
-                                {advance && !advance.is_open && !mine && <Tag tone="soft" Icon={Clock}>Closed</Tag>}
+                                {advance && !(advance.accepting ?? advance.is_open) && !mine && <Tag tone="soft" Icon={Clock}>Closed</Tag>}
                             </div>
                             {!advance ? (
                                 <div className="empty-bc">Loading...</div>
@@ -504,7 +504,7 @@ const BookCheckup = () => {
                                         </>
                                     )}
                                 </div>
-                            ) : advance.is_open && advance.closes_at ? (
+                            ) : (advance.accepting ?? advance.is_open) && advance.closes_at ? (
                                 <div className="booking-card-bc"><div className="booking-line-bc"><Clock size={14} aria-hidden="true" /> Open until {formatDateTime(advance.closes_at)}.</div></div>
                             ) : null}
                         </section>
@@ -555,7 +555,7 @@ const BookCheckup = () => {
                                                 <Meter accepted={l.accepted} limit={l.listing_limit} left={placesLeft(l)} />
                                                 {!l.mine && (
                                                     <div className="booking-actions-bc">
-                                                        <button type="button" className="btn-bc btn-primary-bc btn-icon-bc" disabled={!l.can_request || submitting} onClick={() => openRequestForm(l)} aria-label={l.listing_full ? 'Take a place, listing full' : 'Take a place'} title={l.listing_full ? 'Listing full' : inAdvance ? 'In the advance listing' : 'Take a place'}><UserPlus size={20} aria-hidden="true" /></button>
+                                                        <button type="button" className="btn-bc btn-primary-bc btn-icon-bc" disabled={!l.can_request || submitting} onClick={() => openRequestForm(l)} aria-label={l.listing_full ? 'Take a number, listing full' : 'Take a number'} title={l.listing_full ? 'Listing full' : inAdvance ? 'In the advance listing' : 'Take a number'}><UserPlus size={20} aria-hidden="true" /></button>
                                                     </div>
                                                 )}
                                             </div>
@@ -720,7 +720,7 @@ const BookCheckup = () => {
                 <div className="modal-overlay-bc" role="dialog" aria-modal="true" aria-labelledby="bc-request-title">
                     <form className="modal-bc" onSubmit={sendRequest}>
                         <div className="modal-header-bc">
-                            <h3 id="bc-request-title">Take a place</h3>
+                            <h3 id="bc-request-title">Take a number</h3>
                             <button type="button" className="close-bc" onClick={() => setRequestFor(null)} aria-label="Close" title="Close"><X size={20} aria-hidden="true" /></button>
                         </div>
                         <p className="request-help-bc form-summary-bc">

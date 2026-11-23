@@ -54,8 +54,8 @@ const SessionEndPrompt = ({ item, onConfirm, onExtend, onLater }) => {
     };
 
     return (
-        <Modal isOpen onClose={onLater} title="The end time has passed" icon={<BellRing size={20} />} size="sm">
-            <div className="dp-form">
+        <Modal isOpen onClose={busy ? () => {} : onLater} title="The end time has passed" icon={<BellRing size={20} />} size="sm">
+            <div className="dp-form sep">
                 <div className="dp-notice">
                     <strong>{item.title}</strong> ended at {to12h(item.endTime)}.
                 </div>
@@ -71,16 +71,19 @@ const SessionEndPrompt = ({ item, onConfirm, onExtend, onLater }) => {
                     <div className="dp-hint">No time left today to extend.</div>
                 ) : null}
                 <div className="dp-modal-foot">
-                    <button type="button" className="dp-btn dp-btn-ghost dp-btn-icon" onClick={onLater} disabled={busy} aria-label="Ask me later" title="Ask me later">
+                    <button type="button" className="dp-btn dp-btn-ghost" onClick={onLater} disabled={busy} title="Ask me later">
                         <Clock size={18} aria-hidden="true" />
+                        <span>Ask me later</span>
                     </button>
                     {options.length > 0 && (
-                        <button type="button" className="dp-btn dp-btn-ghost dp-btn-icon" disabled={busy} onClick={() => run(() => onExtend(chosen))} aria-label="Extend end time" title="Extend end time">
+                        <button type="button" className="dp-btn dp-btn-ghost" disabled={busy} onClick={() => run(() => onExtend(chosen))} title={`Extend end time by ${chosen} minutes`}>
                             <TimerReset size={18} aria-hidden="true" />
+                            <span>Extend</span>
                         </button>
                     )}
-                    <button type="button" className="dp-btn dp-btn-primary dp-btn-icon" disabled={busy} onClick={() => run(onConfirm)} aria-label={`Confirm end time, move to ${past}`} title="Confirm end time">
+                    <button type="button" className="dp-btn dp-btn-primary" disabled={busy} onClick={() => run(onConfirm)} title={`Confirm end time, move to ${past}`}>
                         <CheckCircle2 size={18} aria-hidden="true" />
+                        <span>Confirm end</span>
                     </button>
                 </div>
             </div>

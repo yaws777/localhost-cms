@@ -5,8 +5,9 @@
 //   model: see utils/formModels.js | showPdf: icon button on the form | showHeader: header card with the key facts
 //   compact: one column, for a narrow side panel
 import React, { useId } from 'react';
-import { FileDown, AlertTriangle } from 'lucide-react';
+import { FileDown, AlertTriangle, CheckCircle2, Ban } from 'lucide-react';
 import Modal from './Modal';
+import VitalMeta from './VitalMeta';
 import { useAlert } from '../../context/AlertContext';
 import { printFormDocument } from '../../utils/formDocument';
 import '../../styles/common/FormDocument.css';
@@ -45,7 +46,11 @@ export const FormDocument = ({ model, showPdf = true, showHeader = true, compact
                 </div>
             )}
 
-            {model.flag && <div className="fd-flag" role="status"><AlertTriangle size={16} aria-hidden="true" /> {model.flag}</div>}
+            {model.flag && (
+                <div className={`fd-flag fd-flag-${model.flagTone || 'warn'}`} role="status">
+                    {model.flagTone === 'ok' ? <CheckCircle2 size={16} aria-hidden="true" /> : model.flagTone === 'bad' ? <Ban size={16} aria-hidden="true" /> : <AlertTriangle size={16} aria-hidden="true" />} {model.flag}
+                </div>
+            )}
 
             {model.sections.filter((s) => s.fields.length > 0).map((s, si) => (
                 <section key={s.title} className="fd-section" aria-labelledby={`${uid}-h${si}`}>
@@ -59,6 +64,7 @@ export const FormDocument = ({ model, showPdf = true, showHeader = true, compact
                                     {f.area
                                         ? <textarea id={id} readOnly rows={rowsFor(f.value)} value={f.value} />
                                         : <input id={id} type="text" readOnly value={f.value} />}
+                                    <VitalMeta status={f.status} range={f.range} />
                                 </div>
                             );
                         })}

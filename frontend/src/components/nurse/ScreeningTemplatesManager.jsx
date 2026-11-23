@@ -17,7 +17,7 @@ const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
 const keyNumber = (key) => Number(String(key || '').replace(/\D/g, '')) || 0;
 const blankField = (key, type = 'number') => ({
   key, label: '', type, required: false, unit: '', min: '', max: '', playMin: '', playMax: '', role: '', playBlock: [],
-  options: type === 'select' ? ['Normal', 'Abnormal'] : [], abnormal: [], formulaText: '', decimals: '1', bands: [], fresh: true
+  options: type === 'select' ? ['Normal', 'Not normal'] : [], abnormal: [], formulaText: '', decimals: '1', bands: [], fresh: true
 });
 
 // a formula is stored with field keys ({f1}); the editor shows and takes field labels ({Height})
@@ -234,8 +234,8 @@ function FieldBody({ f, locked, numberLabels, patch, onType }) {
       )}
 
       {(f.type === 'select' || f.type === 'yesno') && answerOptions.length > 0 && (
-        <div className="sx-abn-hs" role="group" aria-label="Abnormal answers">
-          <span className="sx-muted-hs">Abnormal answers</span>
+        <div className="sx-abn-hs" role="group" aria-label="Not normal answers">
+          <span className="sx-muted-hs">Not normal answers</span>
           <div className="sx-chips-hs">
             {answerOptions.map((o) => (
               <button type="button" key={o} className="sx-pill-hs" aria-pressed={f.abnormal.includes(o)} onClick={() => toggleAbnormal(o)}>
@@ -337,7 +337,7 @@ export default function ScreeningTemplatesManager({ templates, types = [], loadi
   const changeType = (key, type) => patchField(key, {
     type,
     abnormal: [],
-    options: type === 'select' ? ['Normal', 'Abnormal'] : [],
+    options: type === 'select' ? ['Normal', 'Not normal'] : [],
     bands: [],
     formulaText: ''
   });

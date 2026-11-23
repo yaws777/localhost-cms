@@ -1,17 +1,17 @@
 // ScreeningImportModal.jsx
-// Import the results of one screening from a CSV file or from a photo of the result sheet (OCR).
+// Import the results of one screening from a CSV file.
 // Columns: Student ID, Program, Year, Section, then one column per field of the screening form, then Remarks.
 // A by-section folder only takes rows whose program, year level and section match the folder; a custom folder
 // takes any participant of the screening. Valid rows are saved one by one through POST /api/screenings/:id/document.
 import React, { useMemo, useRef, useState } from 'react';
-import { FileSpreadsheet, ScanText, Upload, Download, CheckCircle, X, Lock, AlertTriangle, Loader } from 'lucide-react';
+import { Upload, Download, CheckCircle, X, Lock, AlertTriangle } from 'lucide-react';
 import { HsDialog, HsDialogHeader } from './HsDialog';
 
 const API_BASE = 'http://localhost:3001/api';
 const norm = (v) => String(v ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 const digits = (v) => { const m = String(v ?? '').match(/\d+/); return m ? Number(m[0]) : null; };
 
-// one line of text into cells: quoted CSV, or tabs / pipes / semicolons, or plain spaces (OCR text)
+// one line of text into cells: quoted CSV, or tabs / pipes / semicolons, or plain spaces
 const splitLine = (line) => {
   const delim = [',', '\t', '|', ';'].find((d) => line.includes(d));
   if (!delim) return line.trim().split(/\s+/);
@@ -65,10 +65,8 @@ const parseSheet = (text, cols) => {
   });
 };
 
-export default function ScreeningImportModal({ schedule, students, folderLabel, folderClass, programs, senderId, onClose, onDone, onMessage }) {
-  const [mode, setMode] = useState('csv');
+export default function ScreeningImportModal({ schedule, students, folderLabel, folderClass, programs, senderId, onClose, onDone }) {
   const [text, setText] = useState('');
-  const [busy, setBusy] = useState('');
   const [progress, setProgress] = useState(null);
   const fileRef = useRef(null);
   const cols = useMemo(() => formColumns(schedule), [schedule]);
@@ -119,25 +117,7 @@ export default function ScreeningImportModal({ schedule, students, folderLabel, 
   const okRows = rows.filter((r) => r.c.ok);
 
   const readFile = async (file) => {
-    if (!file) return;
-    if (mode === 'csv') {
-      setText(await file.text());
-      return;
-    }
-    setBusy('ocr');
-    try {
-      const { createWorker } = await import('tesseract.js');
-      const worker = await createWorker('eng');
-      const { data } = await worker.recognize(file);
-      await worker.terminate();
-      setText((data.text || '').trim());
-      if (!(data.text || '').trim()) onMessage('No text found in the image.', 'Nothing Read', 'warning');
-    } catch (err) {
-      console.error('OCR failed:', err);
-      onMessage('Could not read the image. Check the internet connection, or use a CSV file.', 'OCR Failed', 'error');
-    } finally {
-      setBusy('');
-    }
+    if (file) setText(await file.text());
   };
 
   const downloadTemplate = () => {
@@ -177,39 +157,27 @@ export default function ScreeningImportModal({ schedule, students, folderLabel, 
   };
 
   return (
-    <HsDialog onClose={busy || progress ? undefined : onClose} size="lg">
-      <HsDialogHeader onClose={busy || progress ? undefined : onClose}>
+    <HsDialog onClose={progress ? undefined : onClose} size="lg">
+      <HsDialogHeader onClose={progress ? undefined : onClose}>
         Import results <span className="chip-hs chip-info-hs"><Lock size={14} aria-hidden="true" /> {folderLabel}</span>
       </HsDialogHeader>
       <div className="modal-body-hs">
         <div className="imp-bar-hs">
-          <div className="chips-hs" role="group" aria-label="Source">
-            <button type="button" className="chip-btn-hs" aria-pressed={mode === 'csv'} onClick={() => { setMode('csv'); setText(''); }}><FileSpreadsheet size={15} aria-hidden="true" /> CSV</button>
-            <button type="button" className="chip-btn-hs" aria-pressed={mode === 'ocr'} onClick={() => { setMode('ocr'); setText(''); }}><ScanText size={15} aria-hidden="true" /> OCR</button>
-          </div>
           <input
             ref={fileRef}
             id="hs-import-file"
             className="sr-only-hs"
             type="file"
-            accept={mode === 'csv' ? '.csv,text/csv' : 'image/*'}
+            accept=".csv,text/csv"
             onChange={(e) => { readFile(e.target.files?.[0]); e.target.value = ''; }}
           />
-          <button type="button" className="btn-hs btn-icon-hs btn-primary-hs" onClick={() => fileRef.current?.click()} disabled={!!busy} aria-label={mode === 'csv' ? 'Choose CSV file' : 'Choose image'} title={mode === 'csv' ? 'Choose CSV file' : 'Choose image'}>
-            {busy ? <Loader size={18} aria-hidden="true" /> : <Upload size={18} aria-hidden="true" />}
+          <button type="button" className="btn-hs btn-icon-hs btn-primary-hs" onClick={() => fileRef.current?.click()} aria-label="Choose CSV file" title="Choose CSV file">
+            <Upload size={18} aria-hidden="true" />
           </button>
           <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={downloadTemplate} aria-label="Download CSV template" title="Download CSV template">
             <Download size={18} aria-hidden="true" />
           </button>
-          {busy && <span className="hint-hs" role="status">Reading</span>}
         </div>
-
-        {mode === 'ocr' && (
-          <div className="form-group-hs">
-            <label htmlFor="hs-import-text">Text read</label>
-            <textarea id="hs-import-text" rows={4} value={text} onChange={(e) => setText(e.target.value)} />
-          </div>
-        )}
 
         {rows.length > 0 && (
           <>
@@ -246,8 +214,8 @@ export default function ScreeningImportModal({ schedule, students, folderLabel, 
         )}
       </div>
       <div className="modal-footer-hs">
-        <button type="button" className="btn-hs btn-secondary-hs" onClick={onClose} disabled={!!busy || !!progress}>Cancel</button>
-        <button type="button" className="btn-hs btn-primary-hs" onClick={runImport} disabled={!okRows.length || !!busy || !!progress} aria-label="Import matching rows" title="Import matching rows">
+        <button type="button" className="btn-hs btn-secondary-hs" onClick={onClose} disabled={!!progress}>Cancel</button>
+        <button type="button" className="btn-hs btn-primary-hs" onClick={runImport} disabled={!okRows.length || !!progress} aria-label="Import matching rows" title="Import matching rows">
           <Upload size={16} aria-hidden="true" /> {progress || okRows.length || ''}
         </button>
       </div>

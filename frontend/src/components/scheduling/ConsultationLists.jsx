@@ -10,7 +10,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
     Search, CalendarClock, History, ClipboardPlus, UserX, Ban, FileText, Printer, Pill, Stethoscope, TimerReset,
-    Folder, FolderOpen, FolderHeart, ChevronLeft, ChevronRight, Eye, Repeat, Clock, Users, BellRing, LogOut, Square
+    Folder, FolderOpen, FolderHeart, ChevronLeft, ChevronRight, Eye, Repeat, Clock, Users, BellRing, LogOut, RefreshCw, Archive, ArchiveRestore, Trash2
 } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatTime } from '../../utils/datetime';
@@ -29,8 +29,10 @@ import {
     ReasonModal, RescheduleModal, LogModal, WalkInModal
 } from '../doctor/AppointmentModals';
 import { Pager } from '../common/RecordFolders';
+import { LiveDot } from '../common/TabDot';
 import { classLabel } from '../../utils/scheduling';
 import { AssessmentViewModal, AssessmentHistoryModal } from '../doctor/AssessmentModals';
+import { useRecordSync } from '../../hooks/useRecordSync';
 import ConsultationModal from '../doctor/ConsultationModal';
 import '../../styles/doctor/DoctorLayout.css';
 
@@ -44,7 +46,8 @@ const END_CHECK_MS = 30000;
 export const CONSULTATION_TABS = [
     ['upcoming', 'Upcoming Check-up'],
     ['ongoing', 'On going Check-up'],
-    ['past', 'Past Check-up']
+    ['past', 'Past Check-up'],
+    ['archive', 'Archive']
 ];
 
 const toMs = (value) => new Date(String(value).replace(' ', 'T')).getTime();
@@ -89,7 +92,7 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
     const [total, setTotal] = useState(0);
     const [page, setPage] = useState(1);
     const [loading, setLoading] = useState(true);
-    const [counts, setCounts] = useState({ upcoming: 0, ongoing: 0, past: 0 });
+    const [counts, setCounts] = useState({ upcoming: 0, ongoing: 0, past: 0, archive: 0 });
     const [search, setSearch] = useState('');
     const [query, setQuery] = useState('');
     const [purpose, setPurpose] = useState('');
@@ -126,8 +129,11 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
     // Past Check-up (doctor): All Schedules > a folder per schedule date > the participants of that date
     const treeDate = !isNurse && tab === 'past';
     const atRoot = grouped && isNurse && !openGroup && !doctorScope;
-    const inFolders = grouped && !openGroup && !atRoot;
-    const pageSize = inFolders ? GROUP_PAGE_SIZE : tab === 'past' || tab === 'upcoming' ? TABLE_SIZE : PAGE_SIZE;
+    // Archive: archived past session days, one row each with Restore / Delete permanently
+    const isArchive = tab === 'archive';
+    const inFolders = (isArchive && !openGroup) || (grouped && !openGroup && !atRoot);
+    const pastLike = tab === 'past' || isArchive;
+    const pageSize = inFolders ? GROUP_PAGE_SIZE : pastLike || tab === 'upcoming' ? TABLE_SIZE : PAGE_SIZE;
 
     const setTab = (key) => { onTab(key); setOpenGroup(null); setOpenDoctor(null); setOpenAll(false); setPage(1); };
 
@@ -156,9 +162,10 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
         } catch (e) { /* counts are cosmetic */ }
     }, [doctorPath, isNurse, doctorFilter]);
 
-    const fetchList = useCallback(async () => {
+    // silent = a background refresh (no spinner, no error popup)
+    const fetchList = useCallback(async (silent = false) => {
         const seq = ++reqSeq.current;
-        setLoading(true);
+        if (!silent) setLoading(true);
         try {
             const qs = filterParams(tab);
             qs.set('page', page);
@@ -185,17 +192,25 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
                         byDoctor.set(g.doctor_id, f);
                     });
                     setDoctorFolders([...byDoctor.values()].sort((a, b) => a.name.localeCompare(b.name)));
-                } else if (inFolders) setGroups(data.groups); else setItems(data.appointments);
+                } else if (inFolders) setGroups(data.groups); else {
+                    setItems(data.appointments);
+                    // the assessment open in the modal is the row as it is now (edited, repeated or removed elsewhere)
+                    const sameRow = (r, c) => r.appointment_id === c.appointment_id && r.student_id === c.student_id;
+                    setViewTarget((cur) => (cur && silent ? (data.appointments.find((r) => sameRow(r, cur)) || cur) : cur));
+                }
                 setTotal(data.total);
-            } else showAlert(data.message || 'Could not load the check-ups.', 'error');
+            } else if (!silent) showAlert(data.message || 'Could not load the check-ups.', 'error');
         } catch (e) {
-            if (seq === reqSeq.current) showAlert('Could not reach the server.', 'error');
+            if (seq === reqSeq.current && !silent) showAlert('Could not reach the server.', 'error');
         } finally {
-            if (seq === reqSeq.current) setLoading(false);
+            if (seq === reqSeq.current && !silent) setLoading(false);
         }
     }, [doctorPath, tab, page, pageSize, inFolders, atRoot, treeDate, openGroup, openDoctor, day, filterParams, showAlert]);
 
     useEffect(() => { fetchList(); }, [fetchList]);
+
+    // an assessment, visit or medicine was saved or changed (here, another tab or another device): lists, counts and the open assessment follow
+    useRecordSync(['checkup', 'visit'], useCallback(() => { fetchList(true); fetchCounts(); }, [fetchList, fetchCounts]));
     useEffect(() => { fetchCounts(); }, [fetchCounts]);
 
     // the sessions running right now: each one has a queue the doctor works through
@@ -253,6 +268,12 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
     };
 
     const refresh = () => { fetchList(); fetchCounts(); fetchRunning(); setQueueKey((k) => k + 1); onChanged?.(); };
+    // the refresh button: reload the lists, counts, queues and the side rail, spinning until the lists are back
+    const [refreshing, setRefreshing] = useState(false);
+    const manualRefresh = async () => {
+        setRefreshing(true);
+        try { await Promise.allSettled([fetchList(), fetchCounts(), fetchRunning()]); } finally { setQueueKey((k) => k + 1); onChanged?.(); setRefreshing(false); }
+    };
 
     // the full check-up row of a queue number (its assessment included)
     const rowOfEntry = async (entry) => {
@@ -436,7 +457,7 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
                                 {documented && <span className="dp-chip st-completed">Documented</span>}
                                 {documented && rxCount(a) > 0 && <span className="dp-chip"><Pill size={12} /> {rxCount(a)} medicine{rxCount(a) === 1 ? '' : 's'}</span>}
                                 {!!a.follow_up_needed && <span className="dp-chip st-pending-approval">Follow-up{a.follow_up_date ? `: ${formatDate(a.follow_up_date)}` : ''}</span>}
-                                {!!a.is_abnormal && <span className="dp-chip abnormal">Abnormal</span>}
+                                {!!a.is_abnormal && <span className="dp-chip abnormal">Not normal</span>}
                                 {a.template_name && <span className="dp-chip source">{a.template_name}</span>}
                             </div>
                         </div>
@@ -525,13 +546,72 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
         </div>
     );
 
+    // Past Check-up: archive the opened session day (the doctor's date folder holds every session of that date); Archive tab: restore / delete for good
+    const sessionBody = (g) => ({ schedule_id: g.schedule_id || null, doctor_id: g.doctor_id, day: g.day, sender_id: userId, created_by_doctor_id: creator.doctorId || undefined });
+    const openedSessions = () => (openGroup.allSchedules ? groups.filter((g) => g.day === openGroup.day) : [openGroup]);
+    const archiveOpened = async () => {
+        const list = openedSessions();
+        const ok = await showConfirm('Archive this session? You can restore it from Archive.', { confirmLabel: 'Archive', title: 'Archive session' });
+        if (!ok) return;
+        for (const g of list) {
+            const data = await put('/api/doctor-sessions/archive', { ...sessionBody(g), archived: true });
+            if (!data.success) { showAlert(data.message || 'Could not archive the session.', 'error'); return; }
+        }
+        showAlert('Session archived.', 'success');
+        setOpenGroup(null);
+        refresh();
+    };
+    const restoreSession = async (g) => {
+        const data = await put('/api/doctor-sessions/archive', { ...sessionBody(g), archived: false });
+        if (!data.success) { showAlert(data.message || 'Could not restore the session.', 'error'); return; }
+        showAlert('Session restored.', 'success');
+        refresh();
+    };
+    const deleteSession = async (g) => {
+        const ok = await showConfirm('Delete this session for good? It leaves every list and cannot be restored. Health records stay.', { danger: true, confirmLabel: 'Delete', title: 'Delete session' });
+        if (!ok) return;
+        try {
+            const qs = new URLSearchParams({ doctor_id: g.doctor_id, day: g.day });
+            if (g.schedule_id) qs.set('schedule_id', g.schedule_id);
+            if (creator.doctorId) qs.set('created_by_doctor_id', creator.doctorId);
+            const res = await fetch(`${API}/api/doctor-sessions/archive?${qs.toString()}`, { method: 'DELETE' });
+            const data = await res.json().catch(() => ({}));
+            if (!data.success) { showAlert(data.message || 'Could not delete the session.', 'error'); return; }
+            showAlert('Session deleted.', 'success');
+            refresh();
+        } catch (e) {
+            showAlert('Could not reach the server.', 'error');
+        }
+    };
+    const renderArchive = () => (
+        <div className="dp-card dp-repo-list" role="list" aria-label="Archived sessions">
+            {groups.map((g) => (
+                <div key={`${g.schedule_id || 'none'}-${g.doctor_id}-${g.day}`} role="listitem" className="dp-repo-row" style={{ cursor: 'default', gridTemplateColumns: 'minmax(10rem, 1fr) minmax(0, 2fr) auto auto' }}>
+                    <span className="dp-repo-name"><Archive size={18} aria-hidden="true" /> <strong>{groupName(g)}</strong></span>
+                    <span className="dp-repo-desc">{dayTitle(g.day)} - {formatTime(g.first_start)} - {formatTime(g.last_end)} - <Users size={13} aria-hidden="true" /> {g.total}</span>
+                    <span className="dp-row-actions">
+                        <button type="button" className="dp-btn dp-btn-ghost dp-btn-icon" onClick={() => { setOpenGroup(g); setPage(1); }} aria-label="View" title="View">
+                            <Eye size={18} aria-hidden="true" />
+                        </button>
+                        <button type="button" className="dp-btn dp-btn-ghost dp-btn-icon" onClick={() => restoreSession(g)} aria-label="Restore" title="Restore">
+                            <ArchiveRestore size={18} aria-hidden="true" />
+                        </button>
+                        <button type="button" className="dp-btn dp-btn-danger dp-btn-icon" onClick={() => deleteSession(g)} aria-label="Delete permanently" title="Delete permanently">
+                            <Trash2 size={18} aria-hidden="true" />
+                        </button>
+                    </span>
+                </div>
+            ))}
+        </div>
+    );
+
     // the participants of an opened Upcoming / Past container, one row each
     const renderDayTable = () => (
         <div className="dp-card dp-table-wrap">
             <table className="dp-table">
                 <thead>
                     <tr>
-                        {tab === 'upcoming' && <th>No.</th>}<th>Time</th><th>Student</th><th>Purpose</th>{isNurse && <th>Doctor</th>}<th>Status</th>{tab === 'past' ? <th>Assessment</th> : <th>Reason</th>}<th>Actions</th>
+                        {tab === 'upcoming' && <th>No.</th>}<th>Time</th><th>Student</th><th>Purpose</th>{isNurse && <th>Doctor</th>}<th>Status</th>{pastLike ? <th>Assessment</th> : <th>Reason</th>}<th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -564,7 +644,7 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
                                             <div className="dp-appt-chips">
                                                 {rxCount(a) > 0 && <span className="dp-chip"><Pill size={12} /> {rxCount(a)}</span>}
                                                 {!!a.follow_up_needed && <span className="dp-chip st-pending-approval">Follow-up</span>}
-                                                {!!a.is_abnormal && <span className="dp-chip abnormal">Abnormal</span>}
+                                                {!!a.is_abnormal && <span className="dp-chip abnormal">Not normal</span>}
                                             </div>
                                         </>
                                     ) : <span className="dp-hint">Not documented</span>}
@@ -578,6 +658,12 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
         </div>
     );
 
+    // the archive icon sits at the end of the folder path of an opened Past Check-up session
+    const archiveBtn = tab === 'past' && openGroup ? (
+        <button type="button" className="dp-btn dp-btn-ghost dp-btn-icon" style={{ marginLeft: 'auto' }} onClick={archiveOpened} aria-label="Archive session" title="Archive session">
+            <Archive size={18} aria-hidden="true" />
+        </button>
+    ) : null;
     const rows = atRoot ? doctorFolders : inFolders ? groups : items;
     const unit = inFolders ? 'sessions' : 'participants';
     const backToRoot = () => { setOpenGroup(null); setOpenDoctor(null); setOpenAll(false); setPage(1); };
@@ -590,6 +676,7 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
                     <button key={key} role="tab" aria-selected={tab === key} className={`dp-tab ${tab === key ? 'active' : ''}`} onClick={() => setTab(key)}>
                         {label}
                         {counts[key] > 0 && <span className="n">{counts[key]}</span>}
+                        {key === 'ongoing' && <LiveDot show={counts.ongoing > 0 || runningSessions.length > 0} label="A check-up is on going now" />}
                     </button>
                 ))}
             </div>
@@ -612,6 +699,9 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
                 </select>
                 {!openGroup && <input className="dp-input" style={{ width: 'auto' }} type="date" value={day} onChange={(e) => { setDay(e.target.value); setPage(1); }} aria-label="Date" />}
                 {filtering && <button className="dp-btn dp-btn-ghost" onClick={clearFilters}>Clear</button>}
+                <button type="button" className="dp-btn dp-btn-ghost dp-btn-icon" onClick={manualRefresh} disabled={refreshing} aria-label="Refresh" title="Refresh">
+                    <RefreshCw size={18} className={refreshing ? 'dp-spin' : ''} aria-hidden="true" />
+                </button>
             </div>
 
             {atRoot && treePast && openAll && (
@@ -640,6 +730,7 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
                             <strong>All Schedules</strong>
                         </>
                     )}
+                    {archiveBtn}
                 </nav>
             )}
 
@@ -678,6 +769,16 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
                             <strong>{groupName(openGroup)} - {dayTitle(openGroup.day)}</strong>
                         </>
                     )}
+                    {archiveBtn}
+                </nav>
+            )}
+
+            {isArchive && openGroup && (
+                <nav className="dp-crumbs" aria-label="Folder path">
+                    <button type="button" className="dp-btn dp-btn-ghost dp-btn-sm" onClick={() => { setOpenGroup(null); setPage(1); }}><ChevronLeft size={15} aria-hidden="true" /> Archive</button>
+                    <ChevronRight size={15} aria-hidden="true" />
+                    <FolderOpen size={17} aria-hidden="true" />
+                    <strong>{groupName(openGroup)} - {dayTitle(openGroup.day)}</strong>
                 </nav>
             )}
 
@@ -686,10 +787,6 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
                     <h3 style={{ margin: '0 0 10px', fontSize: '1rem' }}>
                         {s.doctor_name} - {formatTime(`${s.date} ${s.start_time}`)} to {formatTime(`${s.date} ${s.end_time}`)}{s.location ? ` - ${s.location}` : ''}
                         <span className="dp-hint"> {s.visit_type === 'Any' ? 'Any check-up' : s.visit_type}</span>
-                        {' '}
-                        <button type="button" className="dp-btn dp-btn-danger dp-btn-icon" onClick={() => askEndNow(s)} aria-label="End time" title="End time: end this session now">
-                            <Square size={17} aria-hidden="true" />
-                        </button>
                     </h3>
                     {s.awaiting_end && (
                         <div className="dp-notice" role="status" style={{ marginBottom: 10 }}>
@@ -698,7 +795,7 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
                             <button type="button" className="dp-btn dp-btn-primary dp-btn-sm" onClick={() => setDismissedEnds((list) => list.filter((k) => k !== endKey(s)))}>Confirm or extend</button>
                         </div>
                     )}
-                    <QueuePanel scheduleId={s.schedule_id} date={s.date} creator={creator} userId={userId} refreshKey={queueKey} onChanged={refresh} onDocument={documentEntry} onView={viewEntry} onRecords={recordEntry} onWalkIn={isNurse ? () => setWalkInFor(s) : undefined} onExtend={isNurse ? undefined : () => setExtendSession(s)} />
+                    <QueuePanel scheduleId={s.schedule_id} date={s.date} creator={creator} userId={userId} refreshKey={queueKey} onChanged={refresh} onDocument={documentEntry} onView={viewEntry} onRecords={recordEntry} onWalkIn={isNurse ? () => setWalkInFor(s) : undefined} onExtend={isNurse ? undefined : () => setExtendSession(s)} onEnd={() => askEndNow(s)} />
                 </section>
             ))}
 
@@ -709,7 +806,7 @@ const ConsultationLists = ({ role, doctorId, doctors, nurseId, userId, tab, onTa
                     <FileText size={36} />
                     <p>No {tabLabel} to show here.</p>
                 </div>
-            ) : atRoot ? (treePast && !openAll ? renderAllDoctorsRoot() : renderDoctorFolders()) : inFolders ? (treeDate ? (openAll ? renderDateFolders() : renderScheduleRoot()) : renderFolders()) : tab === 'past' || tab === 'upcoming' ? renderDayTable() : renderCards()}
+            ) : atRoot ? (treePast && !openAll ? renderAllDoctorsRoot() : renderDoctorFolders()) : inFolders ? (isArchive ? renderArchive() : treeDate ? (openAll ? renderDateFolders() : renderScheduleRoot()) : renderFolders()) : pastLike || tab === 'upcoming' ? renderDayTable() : renderCards()}
 
             {!loading && !atRoot && !(treeDate && inFolders && !openAll) && (treeDate && inFolders
                 ? <Pager page={page} pageCount={dateFolderPages} total={dateFolders.length} pageSize={GROUP_PAGE_SIZE} onPage={setPage} noun="dates" />
