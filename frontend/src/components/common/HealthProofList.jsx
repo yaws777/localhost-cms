@@ -19,7 +19,7 @@ export const CONDITION_LABELS = {
     has_other_condition: 'Other Condition'
 };
 
-const getFileUrl = (url) => {
+export const getFileUrl = (url) => {
     if (!url) return '#';
     if (url.startsWith('http://') || url.startsWith('https://')) return url;
     return `http://localhost:3001${url.startsWith('/') ? '' : '/'}${url}`;

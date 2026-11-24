@@ -1618,7 +1618,20 @@ app.get('/api/students/:studentId/health-summary', async (req, res) => {
             }
             const items = fieldList
                 .filter((f) => a[f.key] !== undefined && a[f.key] !== '')
-                .map((f) => ({ label: f.label, value: `${a[f.key]}${f.unit ? ` ${f.unit}` : ''}`, note: a[`${f.key}__label`] || null }));
+                .map((f) => {
+                    const raw = a[f.key];
+                    const num = Number(raw);
+                    const outOfRange = (f.type === 'number' || f.type === 'calculated') && Number.isFinite(num)
+                        && ((f.min !== undefined && num < f.min) || (f.max !== undefined && num > f.max));
+                    const badChoice = Array.isArray(f.abnormal_options) && f.abnormal_options.includes(String(raw));
+                    return {
+                        label: f.label,
+                        value: `${raw}${f.unit ? ` ${f.unit}` : ''}`,
+                        note: a[`${f.key}__label`] || null,
+                        abnormal: outOfRange || badChoice,
+                        blocked: a[`${f.key}__play`] === 'blocked'
+                    };
+                });
             if (items.length === 0) return;
             const name = r.screening_type || r.template_name || 'Screening';
             keep({
@@ -3432,22 +3445,24 @@ const playHealthOf = (h) => {
     const on = (v) => (v === null || v === undefined ? false : Buffer.isBuffer(v) ? v[0] === 1 : (v === true || Number(v) === 1 || String(v).toLowerCase() === 'true'));
     const blockers = [];
     const restrictions = [];
-    // every entry is one or two plain sentences ending with a period
-    const has = (what, specify) => `The student has ${specify ? `${what} (${specify})` : what}.`;
-    if (on(h.has_heart_problems)) blockers.push(`${has('a heart problem', h.heart_problems_specify)} A doctor must clear the student before playing.`);
-    if (on(h.has_seizure_episode)) blockers.push('The student has a history of seizures. A doctor must clear the student before playing.');
-    if (on(h.has_asthma)) restrictions.push(`${has('asthma', h.asthma_triggers ? `triggers: ${h.asthma_triggers}` : '')} Keep the inhaler at hand, avoid triggers, and rest when short of breath.`);
-    if (on(h.has_other_respiratory)) restrictions.push(`${has('a breathing problem', h.other_respiratory_specify)} Avoid strenuous activity and rest when short of breath.`);
-    if (on(h.has_allergies)) restrictions.push('The student has allergies. Keep allergy medicine at hand and avoid known triggers.');
-    if (on(h.has_blood_disorders)) restrictions.push('The student has a blood disorder. Avoid contact and high-impact activity, and rest when tired.');
-    if (on(h.has_metabolic_diseases)) restrictions.push('The student has a metabolic disease. Eat before playing, drink water, and stop if dizzy.');
-    if (on(h.has_muscle_bone_disorder)) restrictions.push(`${has('a muscle or bone disorder', h.muscle_bone_specify)} Avoid high-impact activity.`);
-    if (on(h.has_surgery)) restrictions.push(`${has('had surgery', h.surgery_specify)} Avoid strain on the operated area.`);
-    if (on(h.has_kidney_bladder_problems)) restrictions.push(`${has('a kidney or bladder problem', h.kidney_bladder_specify)} Drink water and allow rest breaks.`);
-    if (on(h.has_digestive_disorders)) restrictions.push('The student has a digestive disorder. Avoid strenuous activity after meals.');
-    if (on(h.has_vision_problem)) restrictions.push(`${has('a vision problem', h.vision_specify)} Wear glasses or lenses and avoid ball sports without them.`);
-    if (on(h.has_hearing_problem)) restrictions.push(`${has('a hearing problem', h.hearing_specify)} Use visual signals.`);
-    if (on(h.has_other_condition)) restrictions.push(`${has(h.other_condition_specify || 'another health condition')} Follow the nurse's advice.`);
+    // blockers: "Due to health history: ..." (the reason the student cannot play); restrictions: "Monitor the student's ..." (may play, with care)
+    const thing = (what, specify) => (specify ? `${what} (${specify})` : what);
+    const due = (what, specify) => `Due to health history: ${thing(what, specify)}. A doctor must clear the student before playing.`;
+    const mon = (what, specify, advice) => `Monitor the student's ${thing(what, specify)}. ${advice}`;
+    if (on(h.has_heart_problems)) blockers.push(due('heart problem', h.heart_problems_specify));
+    if (on(h.has_seizure_episode)) blockers.push(due('history of seizures'));
+    if (on(h.has_asthma)) restrictions.push(mon('asthma', h.asthma_triggers ? `triggers: ${h.asthma_triggers}` : '', 'Keep the inhaler at hand, avoid triggers, and rest when short of breath.'));
+    if (on(h.has_other_respiratory)) restrictions.push(mon('breathing problem', h.other_respiratory_specify, 'Avoid strenuous activity and rest when short of breath.'));
+    if (on(h.has_allergies)) restrictions.push(mon('allergies', '', 'Keep allergy medicine at hand and avoid known triggers.'));
+    if (on(h.has_blood_disorders)) restrictions.push(mon('blood disorder', '', 'Avoid contact and high-impact activity, and rest when tired.'));
+    if (on(h.has_metabolic_diseases)) restrictions.push(mon('metabolic disease', '', 'Eat before playing, drink water, and stop if dizzy.'));
+    if (on(h.has_muscle_bone_disorder)) restrictions.push(mon('muscle or bone disorder', h.muscle_bone_specify, 'Avoid high-impact activity.'));
+    if (on(h.has_surgery)) restrictions.push(mon('recovery from surgery', h.surgery_specify, 'Avoid strain on the operated area.'));
+    if (on(h.has_kidney_bladder_problems)) restrictions.push(mon('kidney or bladder problem', h.kidney_bladder_specify, 'Drink water and allow rest breaks.'));
+    if (on(h.has_digestive_disorders)) restrictions.push(mon('digestive disorder', '', 'Avoid strenuous activity after meals.'));
+    if (on(h.has_vision_problem)) restrictions.push(mon('vision problem', h.vision_specify, 'Wear glasses or lenses and avoid ball sports without them.'));
+    if (on(h.has_hearing_problem)) restrictions.push(mon('hearing problem', h.hearing_specify, 'Use visual signals.'));
+    if (on(h.has_other_condition)) restrictions.push(mon(h.other_condition_specify || 'health condition', '', "Follow the nurse's advice."));
     return { blockers, restrictions, conditions: healthConditionsOf(h) };
 };
 
@@ -7379,10 +7394,14 @@ app.get('/api/reports-analytics', async (req, res) => {
         stock: m.usable_stock,
         lowLevel: m.low_stock_level,
         criticalLevel: m.critical_stock_level,
+        adequateLevel: m.adequate_stock_level,
         expiringStock: m.expiring_stock,
         expiredStock: m.expired_stock,
         nearestExpiry: m.nearest_expiry,
         forecast30d: m.forecast_30d,
+        // three separate quantities to request: lost to expiry, up to the adequate threshold, and by the 30-day forecast
+        expiryRestock: m.expiring_stock + m.expired_stock,
+        thresholdRestock: m.status !== 'Adequate' ? Math.max(0, Math.ceil(parseFloat((m.adequate_stock_level - m.usable_stock).toFixed(6)))) : 0,
         suggestedRestock: m.suggested_qty
       }));
 
@@ -9117,74 +9136,98 @@ const bpFieldsOf = (fields) => {
 // Automatic remark of one result: blood pressure Normal / High Blood / Low Blood, other numbers Low / High against their normal range,
 // the play decision and the student's asthma history. Same wording as frontend/src/utils/screeningRemarks.js.
 const PLAY_STATUS_LABELS = { ALLOWED: 'Allowed to Play', RESTRICTED: 'Allowed with Restrictions', NOT_ALLOWED: 'Not Allowed to Play' };
+// the decision as the first sentence of the remark
+const PLAY_STATUS_SENTENCES = {
+  ALLOWED: 'The student is allowed to play.',
+  RESTRICTED: 'The student is allowed to play with restrictions.',
+  NOT_ALLOWED: 'The student is not allowed to play.',
+};
+const PLAY_SENTENCE_RE = /^(?:The student is (?:not )?allowed to play(?: with restrictions)?\.|Allow-to-Play Status: [^.]*\.)/i;
+
+// Vital signs that are not normal, as status words only (never the readings): [{ name: 'blood pressure', state: 'high' }].
+// blocked = outside the play range (or a blocking choice) -> the student cannot play; otherwise outside the normal range -> monitor.
+const vitalStatesOf = (fields, answers, blocked) => {
+  const { sys, dia } = bpFieldsOf(fields);
+  const isBp = (k) => (sys && sys.key === k) || (dia && dia.key === k);
+  const out = [];
+  const add = (key, label, state) => {
+    const name = isBp(key) ? 'blood pressure' : String(label).toLowerCase();
+    if (!out.some((o) => o.name === name)) out.push({ name, state });
+  };
+  for (const f of fields) {
+    const v = answers[f.key];
+    if (v === undefined) continue;
+    const isBlocked = answers[`${f.key}__play`] === 'blocked';
+    if (f.type === 'number' || f.type === 'calculated') {
+      if (blocked) {
+        if (isBlocked) add(f.key, f.label, f.play_min !== undefined && v < f.play_min ? 'low' : 'high');
+      } else if (!isBlocked) {
+        if (f.min !== undefined && v < f.min) add(f.key, f.label, 'low');
+        else if (f.max !== undefined && v > f.max) add(f.key, f.label, 'high');
+      }
+    } else if (blocked && isBlocked) add(f.key, f.label, 'not safe');
+  }
+  return out;
+};
+const vitalList = (states) => states.map((o) => `${o.name} ${o.state}`).join(', ');
 
 // Clearance decision of a Physical Activities screening: the vitals (play range, readings outside normal) and the health history.
 // Same rules as playClearance in frontend/src/utils/screeningRemarks.js.
 const playClearanceOf = (fields, answers, evaluated, healthPlay) => {
-  const blockers = [...((evaluated && evaluated.play_reasons) || []), ...((healthPlay && healthPlay.blockers) || [])];
+  const blockers = [];
   const restrictions = [...((healthPlay && healthPlay.restrictions) || [])];
-  const { sys, dia } = bpFieldsOf(fields);
-  const skip = new Set([sys && sys.key, dia && dia.key].filter(Boolean));
-  const sv = sys ? answers[sys.key] : undefined;
-  const dv = dia ? answers[dia.key] : undefined;
-  const bpBlocked = (sys && answers[`${sys.key}__play`] === 'blocked') || (dia && answers[`${dia.key}__play`] === 'blocked');
-  if ((sv !== undefined || dv !== undefined) && !bpBlocked) {
-    const low = (sv !== undefined && sys.min !== undefined && sv < sys.min) || (dv !== undefined && dia.min !== undefined && dv < dia.min);
-    const high = (sv !== undefined && sys.max !== undefined && sv > sys.max) || (dv !== undefined && dia.max !== undefined && dv > dia.max);
-    if (high || low) restrictions.push("Monitor the student's blood pressure during the activity.");
-  }
-  for (const f of fields) {
-    if (skip.has(f.key) || (f.type !== 'number' && f.type !== 'calculated') || answers[`${f.key}__play`] === 'blocked') continue;
-    const v = answers[f.key];
-    if (v === undefined) continue;
-    if ((f.min !== undefined && v < f.min) || (f.max !== undefined && v > f.max)) {
-      restrictions.push(`Monitor the student's ${String(f.label).toLowerCase()} during the activity.`);
-    }
-  }
+  const blockedStates = vitalStatesOf(fields, answers, true);
+  if (blockedStates.length > 0) blockers.push(`Due to not normal vital signs: ${vitalList(blockedStates)}.`);
+  blockers.push(...((healthPlay && healthPlay.blockers) || []));
+  const blockedNames = new Set(blockedStates.map((o) => o.name));
+  const monitorStates = vitalStatesOf(fields, answers, false).filter((o) => !blockedNames.has(o.name));
+  if (monitorStates.length > 0) restrictions.unshift(`Monitor these vital signs during the activity: ${vitalList(monitorStates)}.`);
   const status = blockers.length > 0 ? 'NOT_ALLOWED' : restrictions.length > 0 ? 'RESTRICTED' : 'ALLOWED';
   return { status, label: PLAY_STATUS_LABELS[status], blockers, restrictions };
 };
 
-// ctx = { category: 'GENERAL' | 'PHYSICAL', clearance, conditions }: plain sentences only. Physical Activities opens the remark with the
-// Allow-to-Play status, then the readings, then the health history that affects physical activity (the clearance sentences).
+// ctx = { category: 'GENERAL' | 'PHYSICAL', clearance, conditions }: plain sentences only. Physical Activities: the Allow-to-Play status, then
+// why (Not Allowed: not normal vital signs by status + health history) or what to monitor (Restrictions); readings are never written as values.
 // Other screenings end with the student's health history. General Screening has no play remark.
 const buildAutoRemarks = (fields, answers, evaluated, asthma, ctx = {}) => {
   const lines = [];
   const physical = ctx.category === 'PHYSICAL' && ctx.clearance;
-  if (physical) lines.push(`Allow-to-Play Status: ${ctx.clearance.label}.`);
-  // a reading that already blocks play is told in the clearance sentences below
-  const blockedKey = (k) => physical && answers[`${k}__play`] === 'blocked';
+  if (physical) {
+    const c = ctx.clearance;
+    lines.push(PLAY_STATUS_SENTENCES[c.status]);
+    if (c.status === 'NOT_ALLOWED') lines.push(...(c.blockers.length > 0 ? c.blockers : c.restrictions));
+    else if (c.status === 'RESTRICTED') lines.push(...(c.restrictions.length > 0 ? c.restrictions : c.blockers));
+  }
   const { sys, dia } = bpFieldsOf(fields);
   const used = new Set();
   const sv = sys ? answers[sys.key] : undefined;
   const dv = dia ? answers[dia.key] : undefined;
-  if (sv !== undefined || dv !== undefined) {
+  if (!physical && (sv !== undefined || dv !== undefined)) {
     if (sys) used.add(sys.key);
     if (dia) used.add(dia.key);
-    if (!(sys && blockedKey(sys.key)) && !(dia && blockedKey(dia.key))) {
-      const low = (sv !== undefined && sys.min !== undefined && sv < sys.min) || (dv !== undefined && dia.min !== undefined && dv < dia.min);
-      const high = (sv !== undefined && sys.max !== undefined && sv > sys.max) || (dv !== undefined && dia.max !== undefined && dv > dia.max);
-      const reading = `${sv !== undefined ? sv : '?'}/${dv !== undefined ? dv : '?'}`;
-      if (high || low) lines.push(`Blood pressure is ${reading} mmHg. ${high ? 'High Blood' : 'Low Blood'}.`);
-    }
+    const low = (sv !== undefined && sys.min !== undefined && sv < sys.min) || (dv !== undefined && dia.min !== undefined && dv < dia.min);
+    const high = (sv !== undefined && sys.max !== undefined && sv > sys.max) || (dv !== undefined && dia.max !== undefined && dv > dia.max);
+    const reading = `${sv !== undefined ? sv : '?'}/${dv !== undefined ? dv : '?'}`;
+    if (high || low) lines.push(`Blood pressure is ${reading} mmHg. ${high ? 'High Blood' : 'Low Blood'}.`);
   }
-  for (const f of fields) {
-    if (used.has(f.key) || (f.type !== 'number' && f.type !== 'calculated') || blockedKey(f.key)) continue;
-    const v = answers[f.key];
-    if (v === undefined) continue;
-    const unit = f.unit ? ` ${f.unit}` : '';
-    const band = answers[`${f.key}__label`];
-    const state = f.min !== undefined && v < f.min ? 'low' : f.max !== undefined && v > f.max ? 'high' : '';
-    if (state) lines.push(`${f.label} is ${v}${unit}. Not normal (${state}${band ? `, ${band}` : ''}).`);
+  if (!physical) {
+    for (const f of fields) {
+      if (used.has(f.key) || (f.type !== 'number' && f.type !== 'calculated')) continue;
+      const v = answers[f.key];
+      if (v === undefined) continue;
+      const unit = f.unit ? ` ${f.unit}` : '';
+      const band = answers[`${f.key}__label`];
+      const state = f.min !== undefined && v < f.min ? 'low' : f.max !== undefined && v > f.max ? 'high' : '';
+      if (state) lines.push(`${f.label} is ${v}${unit}. Not normal (${state}${band ? `, ${band}` : ''}).`);
+    }
   }
   for (const f of fields) {
     if (f.type !== 'select' && f.type !== 'yesno') continue;
     const v = answers[f.key];
-    if (v !== undefined && (f.abnormal_options || []).includes(v)) lines.push(`${f.label} is ${v}. Not normal.`);
+    if (v !== undefined && (f.abnormal_options || []).includes(v) && !(physical && answers[`${f.key}__play`] === 'blocked')) lines.push(`${f.label} is ${v}. Not normal.`);
   }
-  if (physical) lines.push(...ctx.clearance.blockers, ...ctx.clearance.restrictions);
-  else if (ctx.conditions && ctx.conditions.length > 0) lines.push(`Health history: ${ctx.conditions.join(', ')}.`);
-  else if (asthma && asthma.has) lines.push(`The student has a history of asthma${asthma.triggers ? ` (${asthma.triggers})` : ''}.`);
+  if (!physical && ctx.conditions && ctx.conditions.length > 0) lines.push(`Health history: ${ctx.conditions.join(', ')}.`);
+  else if (!physical && asthma && asthma.has) lines.push(`The student has a history of asthma${asthma.triggers ? ` (${asthma.triggers})` : ''}.`);
   return lines.join(' ');
 };
 
@@ -11212,7 +11255,7 @@ app.post('/api/screenings/:id/document', async (req, res) => {
       let finalRemarks = textOrNull(formData.remarks);
       if (!finalRemarks) finalRemarks = autoRemark || null;
       else {
-        if (physical && !/allow-to-play status/i.test(finalRemarks)) finalRemarks = `Allow-to-Play Status: ${clearance.label}. ${finalRemarks}`;
+        if (physical && !/allowed to play|allow-to-play status/i.test(finalRemarks)) finalRemarks = `${PLAY_STATUS_SENTENCES[clearance.status]} ${finalRemarks}`;
         if (physical) {
           // the health history that affects physical activity, as sentences (once)
           const extra = [...healthPlay.blockers, ...healthPlay.restrictions].filter((s) => !finalRemarks.includes(s));
@@ -12422,6 +12465,8 @@ app.post('/api/doctor-schedules', async (req, res) => {
             return res.status(400).json({ success: false, message: result.error });
         }
         const d = result.data;
+        // the nurse chose the place in the request: the doctor cannot change it
+        if (fulfilled && fulfilled.location) d.location = fulfilled.location;
         const scheduleId = await generateCustomId('DSCH', 'doctor_schedules', 'schedule_id', connection);
         // a normal request (not the advance listing) opens the session listing at once, so students see it; the advance one opens it after placing its students
         const opensListing = !!fulfilled && !fulfilled.for_advance;
@@ -12496,6 +12541,14 @@ app.put('/api/doctor-schedules/:id', async (req, res) => {
         const result = await validateScheduleInput(connection, merged, { excludeScheduleId: id });
         if (result.error) { await connection.rollback(); return res.status(400).json({ success: false, message: result.error }); }
         const d = result.data;
+        // the place is set by the nurse (in the schedule request, and editable by the nurse afterwards); the doctor cannot change it
+        d.location = existing.location || null;
+        const nurseActor = req.body.nurse_id && !req.body.created_by_doctor_id ? await resolveActor(connection, req.body.sender_id || null) : null;
+        if (nurseActor && nurseActor.role === 'Nurse' && Object.prototype.hasOwnProperty.call(req.body, 'location')) {
+            const wanted = textOrNull(req.body.location);
+            if (!wanted || wanted.length > SCHEDULE_LOCATION_MAX) { await connection.rollback(); return res.status(400).json({ success: false, message: `Enter where the session is held (at most ${SCHEDULE_LOCATION_MAX} characters).` }); }
+            d.location = wanted;
+        }
 
         // dates, hours and recurrence of a session that is happening right now are frozen (extend it instead)
         const timingChange =
@@ -12847,12 +12900,23 @@ app.delete('/api/doctor-schedules/:id', async (req, res) => {
         if (returned > 0 || answered.some((r) => r.for_advance)) {
             // the services of the students that came back, and the service of the schedule (when it is one service), take part again
             const services = [...new Set([...restored.map((e) => e.visit_type), ...(schedule.visit_type && schedule.visit_type !== 'Any' ? [schedule.visit_type] : [])])];
-            // the service is back in the advance listing: it is not moved to the Session Listing any more
-            if (services.length > 0) await connection.query(`UPDATE advance_listing_services SET is_open = 1, moved_at = NULL WHERE visit_type IN (?)`, [services]);
-            const [[setting]] = await connection.query(`SELECT * FROM advance_listing_settings WHERE setting_id = 1 FOR UPDATE`);
-            await connection.query(`UPDATE advance_listing_settings SET is_open = 1, closes_at = NULL WHERE setting_id = 1`);
-            if (setting.current_listing_id) {
-                await connection.query(`UPDATE advance_listings SET closed_at = NULL, close_reason = NULL, closes_at = NULL, completed_at = NULL WHERE listing_id = ?`, [setting.current_listing_id]);
+            // the service is back in its advance listing: it is not moved to the Session Listing any more, and that listing opens again
+            if (services.length > 0) {
+                const [current] = await connection.query(`SELECT visit_type, listing_id FROM advance_listing_services WHERE visit_type IN (?)`, [services]);
+                await connection.query(`UPDATE advance_listing_services SET is_open = 1, moved_at = NULL, closes_at = NULL WHERE visit_type IN (?)`, [services]);
+                const listingIds = [...new Set(current.map((c) => c.listing_id).filter(Boolean))];
+                if (listingIds.length > 0) {
+                    await connection.query(`UPDATE advance_listings SET closed_at = NULL, close_reason = NULL, closes_at = NULL, completed_at = NULL WHERE listing_id IN (?)`, [listingIds]);
+                }
+                // a service whose listing was dropped has no current listing to come back to: its students wait in the Cut off list for the next one
+                const withListing = new Set(current.map((c) => c.visit_type));
+                const orphans = restored.filter((e) => !withListing.has(e.visit_type));
+                if (orphans.length > 0) {
+                    await connection.query(
+                        `UPDATE advance_listing_entries SET status = 'Cutoff', cutoff_schedule_id = NULL, cutoff_date = ?, cutoff_kind = 'DROP', cutoff_at = NOW() WHERE entry_id IN (?)`,
+                        [nowManilaStr().slice(0, 10), orphans.map((e) => e.entry_id)]
+                    );
+                }
             }
         }
         await connection.commit();
@@ -12895,6 +12959,9 @@ app.delete('/api/doctor-schedules/:id', async (req, res) => {
 
 // ---- Schedule requests: the nurse asks a doctor for a schedule, the doctor sets it (or declines) ----
 
+// where a session is held: the nurse types it in the schedule request (the two STI College Baliuag buildings are only the placeholder)
+const SCHEDULE_LOCATION_MAX = 100;
+
 const SCHEDULE_REQUEST_SELECT = `
     SELECT sr.*, d.first_name AS doc_first_name, d.last_name AS doc_last_name, d.specialization,
            n.first_name AS nurse_first_name, n.last_name AS nurse_last_name
@@ -12927,12 +12994,16 @@ app.post('/api/schedule-requests', async (req, res) => {
     const { doctor_id } = req.body;
     const visitType = textOrNull(req.body.visit_type) || 'Any';
     const note = textOrNull(req.body.note);
+    const location = textOrNull(req.body.location);
     const date = req.body.preferred_date || null;
+    if (visitType === 'Any') return res.status(400).json({ success: false, message: 'Pick the check-up service.' });
     const start = req.body.preferred_start ? String(req.body.preferred_start).slice(0, 5) : null;
     const end = req.body.preferred_end ? String(req.body.preferred_end).slice(0, 5) : null;
     if (!nurseId) return res.status(403).json({ success: false, message: 'Only the nurse sends schedule requests.' });
     if (!doctor_id) return res.status(400).json({ success: false, message: 'Pick the doctor you are asking.' });
     if (!SCHEDULE_VISIT_TYPES.includes(visitType)) return res.status(400).json({ success: false, message: 'Pick a valid waiting list category.' });
+    if (!location) return res.status(400).json({ success: false, message: 'Enter where the session is held.' });
+    if (location.length > SCHEDULE_LOCATION_MAX) return res.status(400).json({ success: false, message: `The location can be at most ${SCHEDULE_LOCATION_MAX} characters.` });
     if (date && (!isDateStr(date) || date < nowManilaStr().slice(0, 10))) return res.status(400).json({ success: false, message: 'The preferred date must be today or later.' });
     if ((start && !isTimeStr(start)) || (end && !isTimeStr(end))) return res.status(400).json({ success: false, message: 'The preferred times are not valid.' });
     if (start && end && end <= start) return res.status(400).json({ success: false, message: 'The preferred end time must be after the start time.' });
@@ -13016,9 +13087,9 @@ app.post('/api/schedule-requests', async (req, res) => {
 
         const id = await generateCustomIdWithRetry(connection, 'SCHREQ', 'schedule_requests', 'schedule_request_id', async (newId) => {
             await connection.query(
-                `INSERT INTO schedule_requests (schedule_request_id, doctor_id, visit_type, requested_by_nurse_id, preferred_date, preferred_start, preferred_end, note, for_advance, advance_count, repeat_ids, repeat_count)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [newId, doctor_id, visitType, nurseId, date, start, end, note, forAdvance ? 1 : 0, advanceCount,
+                `INSERT INTO schedule_requests (schedule_request_id, doctor_id, visit_type, requested_by_nurse_id, preferred_date, preferred_start, preferred_end, note, location, for_advance, advance_count, repeat_ids, repeat_count)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [newId, doctor_id, visitType, nurseId, date, start, end, note, location, forAdvance ? 1 : 0, advanceCount,
                     repeatPicks.length > 0 ? JSON.stringify(repeatPicks) : null, repeatPicks.length > 0 ? repeatPicks.length : null]
             );
         });
@@ -13037,7 +13108,7 @@ app.post('/api/schedule-requests', async (req, res) => {
         const [[waiting]] = await pool.query(`SELECT COUNT(*) AS n FROM consultation_requests WHERE status IN (${ACTIVE_STATUS_SQL}) ${visitType === 'Any' ? '' : 'AND visit_type = ?'}`, visitType === 'Any' ? [] : [visitType]);
         await notifyUsers({
             sender_id: senderId, recipient_ids: await getDoctorUserIds(doctor_id), title: 'Schedule Request',
-            message: `The clinic asks for a ${visitType === 'Any' ? '' : visitType + ' '}session${date ? ` on ${date}` : ''}${start ? ` around ${start}${end ? `-${end}` : ''}` : ''}. `
+            message: `The clinic asks for a ${visitType === 'Any' ? '' : visitType + ' '}session at ${location}${date ? ` on ${date}` : ''}${start ? ` around ${start}${end ? `-${end}` : ''}` : ''}. `
                 + `${created.repeatCount > 0 ? `${created.repeatCount} repeat student(s) take the very first queue numbers. ` : ''}${created.advanceCount !== null
                 ? `${created.advanceCount} student(s) are registered in the advance listing and take the next queue numbers of the schedule you set; the places left stay open for other students, so set the listing limit above ${created.advanceCount + (created.repeatCount || 0)}.`
                 : `${waiting.n} student(s) are on the waiting list.`}${note ? ` Note: ${note}` : ''} Open My Schedule to set it.`,
@@ -13315,7 +13386,9 @@ const scheduleListingCounts = async (conn, scheduleId, date) => {
 
 // The listing of one schedule for its next session day
 const scheduleListingOf = async (conn, schedule) => {
-    const date = schedule.status === 'Open' ? nextUpcomingOccurrence(schedule) : null;
+    let date = schedule.status === 'Open' ? nextUpcomingOccurrence(schedule) : null;
+    // a session whose end was confirmed (even before the planned end time) is over: its listing is closed
+    for (let i = 0; date && i < 400 && await sessionEndConfirmed(conn, schedule.schedule_id, date); i += 1) date = nextOccurrenceOf(schedule, addDaysStr(date, 1));
     const limit = listingLimitOf(schedule);
     const counts = date ? await scheduleListingCounts(conn, schedule.schedule_id, date) : { accepted: 0, pending: 0, advance: 0 };
     const open = !!schedule.listing_open && !!date;
@@ -14508,6 +14581,8 @@ const ADVANCE_COLUMNS = [
     // repeats (assessments flagged "repeat needed") the nurse moves into the requested schedule: JSON array of assessment appointment ids
     ['schedule_requests', 'repeat_ids', 'TEXT NULL'],
     ['schedule_requests', 'repeat_count', 'int NULL'],
+    // where the session is held: the nurse picks it in the request, the doctor cannot change it
+    ['schedule_requests', 'location', 'VARCHAR(100) NULL'],
     ['advance_listing_settings', 'current_listing_id', 'VARCHAR(45) NULL'],
     ['advance_listing_services', 'is_open', 'tinyint(1) NOT NULL DEFAULT 1'],
     // when the service moved to the Session Listing (it got a schedule); cleared when that schedule is cancelled or a new batch starts
@@ -14524,7 +14599,13 @@ const ADVANCE_COLUMNS = [
     ['advance_listing_entries', 'cutoff_at', 'DATETIME NULL'],
     ['advance_listing_entries', 'listed_at', 'DATETIME NULL'],
     // a batch is complete when every one of its services is done (its session is over); only then can the nurse open the next advance listing
-    ['advance_listings', 'completed_at', 'DATETIME NULL']
+    ['advance_listings', 'completed_at', 'DATETIME NULL'],
+    // one advance listing per check-up service: each service has its own listing (title, limit, closing time), open or closed on its own.
+    // advance_listing_services holds the CURRENT listing of every service (one row per service); advance_listings keeps them all (history).
+    ['advance_listings', 'visit_type', 'VARCHAR(60) NULL'],
+    ['advance_listings', 'listing_limit', 'INT NULL'],
+    ['advance_listing_services', 'listing_id', 'VARCHAR(45) NULL'],
+    ['advance_listing_services', 'closes_at', 'DATETIME NULL']
 ];
 let advanceListingReady = null;
 const ensureAdvanceListing = () => {
@@ -14605,6 +14686,23 @@ const ensureAdvanceListing = () => {
                 });
                 await pool.query(`UPDATE advance_listing_entries SET listing_id = ? WHERE listing_id IS NULL`, [listingId]);
                 await pool.query(`UPDATE advance_listing_settings SET current_listing_id = ? WHERE setting_id = 1`, [listingId]);
+            }
+            // from the one global listing to one listing per service: the services of the old current listing keep it as their own listing
+            // (a dropped listing leaves no current service; the registration flag of the old global switch is folded into each service)
+            const [[settingNow]] = await pool.query(`SELECT * FROM advance_listing_settings WHERE setting_id = 1`);
+            const [legacy] = await pool.query(`SELECT visit_type FROM advance_listing_services WHERE listing_id IS NULL`);
+            if (legacy.length > 0) {
+                const [[cur]] = settingNow.current_listing_id
+                    ? await pool.query(`SELECT listing_id, close_reason FROM advance_listings WHERE listing_id = ?`, [settingNow.current_listing_id])
+                    : [[null]];
+                if (cur && cur.close_reason !== 'dropped') {
+                    await pool.query(
+                        `UPDATE advance_listing_services SET listing_id = ?, is_open = IF(?, is_open, 0), closes_at = ? WHERE listing_id IS NULL`,
+                        [cur.listing_id, settingNow.is_open ? 1 : 0, settingNow.is_open ? settingNow.closes_at : null]
+                    );
+                } else {
+                    await pool.query(`DELETE FROM advance_listing_services WHERE listing_id IS NULL`);
+                }
             }
         })().catch((err) => { advanceListingReady = null; throw err; });
     }
@@ -14692,18 +14790,19 @@ const notifyLeftAdvance = async (studentId, rows, why, senderId = null) => {
     }
 };
 
-// The advance listing (batch) in view now. A new batch never shows or counts the students of a previous one ('' matches nothing).
-const currentAdvanceListingId = async (conn) => {
-    const [[setting]] = await conn.query(`SELECT current_listing_id FROM advance_listing_settings WHERE setting_id = 1`);
-    return (setting && setting.current_listing_id) || '';
+// The advance listings in view now: every check-up service has ONE current listing of its own (advance_listing_services.listing_id).
+// A new listing never shows or counts the students of a previous one of the same service (the list is never empty: '' matches nothing).
+const currentAdvanceListingIds = async (conn) => {
+    const [rows] = await conn.query(`SELECT DISTINCT listing_id FROM advance_listing_services WHERE listing_id IS NOT NULL`);
+    return rows.length > 0 ? rows.map((r) => r.listing_id) : [''];
 };
 
-// Per check-up service: who waits for a schedule, who holds a number in a session that is not over (current batch only), who was cut off (any batch)
+// Per check-up service: who waits for a schedule, who holds a number in a session that is not over (current listing only), who was cut off (any listing)
 const advanceServiceStats = async (conn) => {
-    const cur = await currentAdvanceListingId(conn);
+    const cur = await currentAdvanceListingIds(conn);
     const [rows] = await conn.query(
-        `SELECT e.visit_type, SUM(e.listing_id = ? AND e.status = 'Waiting') AS waiting, SUM(e.listing_id = ? AND e.status = 'Pending') AS pending,
-                SUM(e.status = 'Cutoff') AS cutoff, SUM(e.listing_id = ? AND ${ADVANCE_SESSION_SQL}) AS in_session
+        `SELECT e.visit_type, SUM(e.listing_id IN (?) AND e.status = 'Waiting') AS waiting, SUM(e.listing_id IN (?) AND e.status = 'Pending') AS pending,
+                SUM(e.status = 'Cutoff') AS cutoff, SUM(e.listing_id IN (?) AND ${ADVANCE_SESSION_SQL}) AS in_session
          FROM advance_listing_entries e GROUP BY e.visit_type`, [cur, cur, cur]
     );
     const map = new Map();
@@ -14715,89 +14814,99 @@ const NO_STATS = { waiting: 0, pending: 0, cutoff: 0, in_session: 0 };
 const advanceServiceDone = (svc, stat, hasSchedule, registrationOpen) =>
     !hasSchedule && stat.waiting === 0 && stat.in_session === 0 && (!registrationOpen || !svc.is_open);
 
-// Open? (a closing time that passed counts as closed), the services with their limit and how many are registered
-// Check-up services that already have an upcoming schedule: the advance listing is for services without one (an `Any` schedule covers every service)
-// Only schedules of the CURRENT advance listing count: set after it opened, or holding / cutting off its students. A schedule of a previous advance
-// listing (or one that existed before) does not make a service of the new listing "Scheduled".
+// Check-up services that already have an upcoming schedule: the advance listing is for services without one (an `Any` schedule covers every service).
+// Only schedules of the CURRENT advance listing of that service count: set after it opened, or holding / cutting off its students. A schedule of a
+// previous advance listing (or one that existed before) does not make a service of the new listing "Scheduled". Returns { has(visitType) }.
 const scheduledServicesOf = async (conn) => {
     const [open] = await conn.query(`SELECT * FROM doctor_schedules WHERE status = 'Open'`);
-    const [[setting]] = await conn.query(`SELECT current_listing_id FROM advance_listing_settings WHERE setting_id = 1`);
-    let since = null;
-    const linked = new Set();
-    if (setting && setting.current_listing_id) {
-        const [[batch]] = await conn.query(`SELECT opened_at FROM advance_listings WHERE listing_id = ?`, [setting.current_listing_id]);
-        since = batch && batch.opened_at ? new Date(batch.opened_at).getTime() : null;
-        const [rows] = await conn.query(
-            `SELECT schedule_id, cutoff_schedule_id FROM advance_listing_entries WHERE listing_id = ? AND (schedule_id IS NOT NULL OR cutoff_schedule_id IS NOT NULL)`, [setting.current_listing_id]
-        );
-        rows.forEach((r) => { if (r.schedule_id) linked.add(r.schedule_id); if (r.cutoff_schedule_id) linked.add(r.cutoff_schedule_id); });
-    }
-    const inBatch = (s) => since === null || linked.has(s.schedule_id) || (s.created_at && new Date(s.created_at).getTime() >= since);
-    const upcoming = open.filter((s) => inBatch(s) && nextUpcomingOccurrence(s));
-    return { all: upcoming.some((s) => s.visit_type === 'Any'), types: new Set(upcoming.map((s) => s.visit_type)) };
+    // a session whose end the nurse / doctor confirmed is over, even before its planned end time: it no longer makes the service "Scheduled"
+    const [ended] = await conn.query(`SELECT schedule_id, DATE_FORMAT(session_date, '%Y-%m-%d') AS d FROM session_end_confirmations`).catch(() => [[]]);
+    const endedSet = new Set(ended.map((r) => `${r.schedule_id}|${r.d}`));
+    const upcoming = open.filter((s) => {
+        let occ = nextUpcomingOccurrence(s);
+        for (let i = 0; occ && endedSet.has(`${s.schedule_id}|${occ}`) && i < 400; i += 1) occ = nextOccurrenceOf(s, addDaysStr(occ, 1));
+        return !!occ;
+    });
+    const [svcs] = await conn.query(
+        `SELECT s.visit_type, s.listing_id, al.opened_at FROM advance_listing_services s LEFT JOIN advance_listings al ON al.listing_id = s.listing_id`
+    );
+    const ids = svcs.map((s) => s.listing_id).filter(Boolean);
+    const [links] = ids.length > 0
+        ? await conn.query(
+            `SELECT listing_id, schedule_id, cutoff_schedule_id FROM advance_listing_entries WHERE listing_id IN (?) AND (schedule_id IS NOT NULL OR cutoff_schedule_id IS NOT NULL)`, [ids]
+        )
+        : [[]];
+    const memo = new Map();
+    const has = (visitType) => {
+        if (memo.has(visitType)) return memo.get(visitType);
+        const svc = svcs.find((s) => s.visit_type === visitType);
+        const since = svc && svc.opened_at ? new Date(svc.opened_at).getTime() : null;
+        const linked = new Set();
+        if (svc && svc.listing_id) {
+            links.filter((l) => l.listing_id === svc.listing_id).forEach((l) => { if (l.schedule_id) linked.add(l.schedule_id); if (l.cutoff_schedule_id) linked.add(l.cutoff_schedule_id); });
+        }
+        const inListing = (s) => since === null || linked.has(s.schedule_id) || (s.created_at && new Date(s.created_at).getTime() >= since);
+        const found = upcoming.some((s) => (s.visit_type === visitType || s.visit_type === 'Any') && inListing(s));
+        memo.set(visitType, found);
+        return found;
+    };
+    return { has };
 };
 
-// Closes what has to close by itself, and writes it down (history): the closing time passed, or every offered service already has a schedule
-// (a service with a schedule leaves the advance listing for the Session Listing). Called whenever the state is read.
-// The advance listing works in BATCHES. Each check-up service of the batch moves to the Session Listing when it gets a schedule (moved_at), and is done
-// when that session is over and nobody waits for a schedule any more. When every service is done the batch is complete (advance_listings.completed_at):
-// only then the nurse opens the next advance listing. Students over the doctor's listing limit are cut off and wait outside the batch.
+// Closes what has to close by itself, and writes it down (history): a closing time that passed, or the service got a schedule (it leaves the
+// advance listing for the Session Listing). Called whenever the state is read.
+// Every check-up service has its OWN advance listing: it moves to the Session Listing when it gets a schedule (moved_at) and is complete when that
+// session is over and nobody waits for a schedule any more (advance_listings.completed_at). It stays the current listing of its service until the
+// nurse drops it; only then a new listing of that service can be created. Students over the doctor's listing limit are cut off and wait outside it.
 const syncAdvanceListing = async (conn, scheduledServices) => {
-    const hasSchedule = (t) => scheduledServices.all || scheduledServices.types.has(t);
-    const [[setting]] = await conn.query(`SELECT * FROM advance_listing_settings WHERE setting_id = 1`);
-    // the settings point at a listing that no longer exists (rows removed by hand): there is no current listing, so reset them. Otherwise the
-    // state says "open" with no batch, and creating a new listing never inserts its row.
-    const orphan = setting.current_listing_id
-        ? !(await conn.query(`SELECT 1 FROM advance_listings WHERE listing_id = ?`, [setting.current_listing_id]))[0].length
-        : !!setting.is_open;
-    if (orphan) {
-        await conn.query(`UPDATE advance_listing_settings SET is_open = 0, closes_at = NULL, current_listing_id = NULL WHERE setting_id = 1`);
-        setting.is_open = 0; setting.closes_at = null; setting.current_listing_id = null;
-    }
-    const [services] = await conn.query(`SELECT visit_type, is_open, moved_at FROM advance_listing_services`);
-    const moved =services.filter((s) => hasSchedule(s.visit_type) && (s.is_open || !s.moved_at));
-    if (moved.length > 0) {
-        await conn.query(`UPDATE advance_listing_services SET is_open = 0, moved_at = COALESCE(moved_at, NOW()) WHERE visit_type IN (?)`, [moved.map((s) => s.visit_type)]);
-        moved.forEach((s) => { s.is_open = 0; s.moved_at = s.moved_at || new Date(); });
-    }
-    if (setting.is_open) {
-        let reason = null;
-        if (setting.closes_at && String(setting.closes_at) <= nowManilaStr()) reason = 'time';
-        else if (services.length > 0 && services.every((s) => s.moved_at || hasSchedule(s.visit_type))) reason = 'scheduled';
-        if (reason) {
-            await conn.query(`UPDATE advance_listing_settings SET is_open = 0, closes_at = NULL WHERE setting_id = 1 AND is_open = 1`);
-            if (setting.current_listing_id) {
-                await conn.query(`UPDATE advance_listings SET closed_at = ?, close_reason = ? WHERE listing_id = ? AND closed_at IS NULL`, [reason === 'time' ? setting.closes_at : nowManilaStr(), reason, setting.current_listing_id]);
-            }
-            setting.is_open = 0;
+    const [services] = await conn.query(`SELECT * FROM advance_listing_services`);
+    // the service got a schedule: it moved to the Session Listing and its registration closes
+    for (const svc of services) {
+        if (!scheduledServices.has(svc.visit_type) || (!svc.is_open && svc.moved_at)) continue;
+        await conn.query(`UPDATE advance_listing_services SET is_open = 0, moved_at = COALESCE(moved_at, NOW()) WHERE visit_type = ?`, [svc.visit_type]);
+        if (svc.listing_id) {
+            await conn.query(`UPDATE advance_listings SET closed_at = COALESCE(closed_at, NOW()), close_reason = COALESCE(close_reason, 'scheduled') WHERE listing_id = ?`, [svc.listing_id]);
         }
+        svc.is_open = 0; svc.moved_at = svc.moved_at || new Date();
     }
-    // registration is over: is the batch complete?
-    if (setting.is_open || !setting.current_listing_id || services.length === 0) return;
-    const [[listing]] = await conn.query(`SELECT listing_id, completed_at FROM advance_listings WHERE listing_id = ?`, [setting.current_listing_id]);
-    if (!listing || listing.completed_at) return;
+    // the closing time of a listing passed
+    for (const svc of services) {
+        if (!svc.is_open || !svc.closes_at || String(svc.closes_at) > nowManilaStr()) continue;
+        await conn.query(`UPDATE advance_listing_services SET is_open = 0 WHERE visit_type = ?`, [svc.visit_type]);
+        if (svc.listing_id) {
+            await conn.query(`UPDATE advance_listings SET closed_at = ?, close_reason = 'time' WHERE listing_id = ? AND closed_at IS NULL`, [svc.closes_at, svc.listing_id]);
+        }
+        svc.is_open = 0;
+    }
+    // registration is over: is the listing complete?
+    const closed = services.filter((s) => !s.is_open && s.listing_id);
+    if (closed.length === 0) return;
     const stats = await advanceServiceStats(conn);
-    if (!services.every((s) => advanceServiceDone(s, stats.get(s.visit_type) || NO_STATS, hasSchedule(s.visit_type), false))) return;
-    await conn.query(`UPDATE advance_listings SET completed_at = NOW() WHERE listing_id = ? AND completed_at IS NULL`, [listing.listing_id]);
-    // a request nobody answered before the batch ended cannot be accepted any more
-    await conn.query(
-        `UPDATE advance_listing_entries SET status = 'Denied', remove_reason = 'The advance listing ended before this request was answered.' WHERE status = 'Pending'`
-    );
+    const [listings] = await conn.query(`SELECT listing_id, completed_at FROM advance_listings WHERE listing_id IN (?)`, [closed.map((s) => s.listing_id)]);
+    for (const svc of closed) {
+        const listing = listings.find((l) => l.listing_id === svc.listing_id);
+        if (!listing || listing.completed_at) continue;
+        if (!advanceServiceDone(svc, stats.get(svc.visit_type) || NO_STATS, scheduledServices.has(svc.visit_type), true)) continue;
+        await conn.query(`UPDATE advance_listings SET completed_at = NOW() WHERE listing_id = ? AND completed_at IS NULL`, [svc.listing_id]);
+        // a request nobody answered before the listing ended cannot be accepted any more
+        await conn.query(
+            `UPDATE advance_listing_entries SET status = 'Denied', remove_reason = 'The advance listing ended before this request was answered.' WHERE status = 'Pending' AND listing_id = ?`, [svc.listing_id]
+        );
+    }
 };
 
 const advanceStateOf = async (conn = pool) => {
     await ensureAdvanceListing();
     const scheduledServices = await scheduledServicesOf(conn);
     await syncAdvanceListing(conn, scheduledServices);
-    const [[setting]] = await conn.query(`SELECT * FROM advance_listing_settings WHERE setting_id = 1`);
-    const [[listing]] = setting.current_listing_id
-        ? await conn.query(`SELECT * FROM advance_listings WHERE listing_id = ?`, [setting.current_listing_id])
-        : [[null]];
-    const expired = !setting.is_open && !!listing && listing.close_reason === 'time';
-    const [services] = await conn.query(`SELECT visit_type, listing_limit, is_open, moved_at FROM advance_listing_services ORDER BY visit_type`);
+    const [services] = await conn.query(
+        `SELECT s.visit_type, s.listing_limit, s.is_open, s.moved_at, s.listing_id, s.closes_at,
+                al.title, al.opened_at, al.closed_at, al.close_reason, al.completed_at
+         FROM advance_listing_services s LEFT JOIN advance_listings al ON al.listing_id = s.listing_id ORDER BY s.visit_type`
+    );
     const [counts] = await conn.query(
-        `SELECT e.visit_type, COUNT(*) AS registered, SUM(e.status = 'Waiting') AS waiting FROM advance_listing_entries e WHERE e.listing_id = ? AND ${ADVANCE_ACTIVE_SQL} GROUP BY e.visit_type`,
-        [await currentAdvanceListingId(conn)]
+        `SELECT e.visit_type, COUNT(*) AS registered, SUM(e.status = 'Waiting') AS waiting FROM advance_listing_entries e WHERE e.listing_id IN (?) AND ${ADVANCE_ACTIVE_SQL} GROUP BY e.visit_type`,
+        [await currentAdvanceListingIds(conn)]
     );
     const stats = await advanceServiceStats(conn);
     const countOf = (t) => ({ ...(counts.find((c) => c.visit_type === t) || { registered: 0, waiting: 0 }), ...(stats.get(t) || NO_STATS) });
@@ -14806,35 +14915,44 @@ const advanceStateOf = async (conn = pool) => {
         const svc = services.find((s) => s.visit_type === t);
         const c = countOf(t);
         const limit = svc ? Number(svc.listing_limit) : null;
-        const scheduled = scheduledServices.all || scheduledServices.types.has(t);
+        const scheduled = scheduledServices.has(t);
         const inSession = scheduled || c.in_session > 0;
         const serviceOpen = !!svc && !!svc.is_open && !scheduled;
-        // finished = nothing left to wait for (used to complete the batch); done = it really ran in THIS batch: it got a schedule (moved_at is cleared
-        // when a new batch opens or the schedule is cancelled) and that session is over. A service nobody registered for, or that never got a schedule, is not Done.
-        const finished = !!svc && advanceServiceDone(svc, c, scheduled, !!setting.is_open);
+        // finished = nothing left to wait for (registration closed, nobody waits, no session left): the listing can be dropped; done = it really ran: it got
+        // a schedule (moved_at is cleared when that schedule is cancelled) and that session is over. A listing nobody registered for, or that never got a
+        // schedule, is finished but not Done.
+        const finished = !!svc && advanceServiceDone(svc, c, scheduled, true);
         const done = finished && !!svc.moved_at && !inSession;
         return {
             visit_type: t, offered: !!svc, listing_limit: limit, registered: Number(c.registered), waiting: Number(c.waiting || 0), pending: c.pending,
             cutoff: c.cutoff, in_session: c.in_session,
+            // this service's own advance listing
+            listing_id: svc ? svc.listing_id || null : null, title: svc ? svc.title || null : null, opened_at: svc ? svc.opened_at || null : null,
+            closes_at: svc && serviceOpen ? svc.closes_at || null : null, closed_at: svc ? svc.closed_at || null : null,
+            closed_reason: svc && !serviceOpen ? svc.close_reason || null : null, completed_at: svc ? svc.completed_at || null : null,
             scheduled: inSession, service_open: serviceOpen && !inSession, done, finished,
-            // Open | Closed (the nurse closed it, or the whole listing is closed, or it waits for another schedule) | Scheduled (moved to the Session Listing, its session is not over)
+            // it can be dropped (and a new listing of this service created) as soon as it is closed
+            can_drop: !!svc && !(serviceOpen && !inSession),
+            // Open | Closed (the nurse closed it, or its time was up, or it waits for another schedule) | Scheduled (moved to the Session Listing, its session is not over)
             // | Done (its session is over: the advance listing of this service is finished)
-            status: inSession ? 'Scheduled' : done ? 'Done' : serviceOpen && setting.is_open ? 'Open' : 'Closed',
+            status: inSession ? 'Scheduled' : done ? 'Done' : serviceOpen ? 'Open' : 'Closed',
             listing_full: limit !== null && Number(c.registered) >= limit, places_left: limit !== null ? Math.max(limit - Number(c.registered), 0) : 0
         };
     });
     const offered = rows.filter((r) => r.offered);
-    const batchRunning = !!listing && !listing.completed_at;
+    const openRows = offered.filter((r) => r.status === 'Open');
+    const earliest = (list, key) => list.map((r) => r[key]).filter(Boolean).sort((a, b) => new Date(a) - new Date(b))[0] || null;
+    // the newest current listing, for screens that show only one title
+    const newest = offered.filter((r) => r.listing_id).sort((a, b) => new Date(b.opened_at || 0) - new Date(a.opened_at || 0))[0] || null;
     return {
-        is_open: !!setting.is_open, closes_at: setting.is_open ? setting.closes_at || null : null, opened_at: listing ? listing.opened_at : null, expired,
-        // students can register only while the listing is open AND at least one service still takes registrations (not closed, scheduled or full)
-        accepting: !!setting.is_open && offered.some((r) => r.status === 'Open' && !r.listing_full),
-        closed_reason: !setting.is_open && listing ? listing.close_reason : null,
-        listing: listing ? { listing_id: listing.listing_id, title: listing.title, opened_at: listing.opened_at, closed_at: listing.closed_at, close_reason: listing.close_reason, completed_at: listing.completed_at || null } : null,
-        // the batch: running until every check-up service of it is done; then the nurse opens a new advance listing
-        batch_running: batchRunning, batch_complete: !!listing && !!listing.completed_at,
-        // the current advance listing stays current (even when it is done) until the nurse drops it; only then a new one can be created
-        batch_current: !!listing && listing.close_reason !== 'dropped',
+        // the aggregates of every service's own listing: open when at least one is open (the student screens read these)
+        is_open: openRows.length > 0, closes_at: earliest(openRows, 'closes_at'), opened_at: earliest(openRows.length > 0 ? openRows : offered, 'opened_at'),
+        // students can register only while a service listing is open and takes registrations (not closed, scheduled or full)
+        accepting: openRows.some((r) => !r.listing_full),
+        closed_reason: openRows.length === 0 && newest ? newest.closed_reason : null,
+        listing: newest ? { listing_id: newest.listing_id, title: newest.title, opened_at: newest.opened_at, closed_at: newest.closed_at, close_reason: newest.closed_reason, completed_at: newest.completed_at } : null,
+        batch_running: offered.some((r) => !r.completed_at), batch_complete: offered.length > 0 && offered.every((r) => !!r.completed_at),
+        batch_current: offered.length > 0,
         batch_done_services: offered.filter((r) => r.finished).length, batch_services: offered.length,
         cutoff_total: rows.reduce((n, r) => n + r.cutoff, 0),
         services: rows
@@ -14858,10 +14976,12 @@ app.get('/api/advance-listing', async (req, res) => {
     }
 });
 
-// The nurse opens / closes the advance listing and sets the services, their limits and when it closes by itself.
-// Body: { sender_id, is_open?, closes_at? ('' = stays open until closed), services? [{ visit_type, listing_limit }] }. Closing never removes a registered student.
+// The nurse creates the advance listing of ONE check-up service, or changes it. Every service has its own listing (title, limit, closing time), so the
+// listings of different services are open at the same time. A service can have a new listing only when it has none (its last one was dropped).
+// Body: { sender_id, visit_type, title?, listing_limit?, closes_at? ('' = stays open until closed), is_open? }.
 app.put('/api/advance-listing', async (req, res) => {
     const senderId = req.body.sender_id || null;
+    const visitType = String(req.body.visit_type || '').trim();
     const connection = await pool.getConnection();
     let done = null;
     try {
@@ -14869,57 +14989,14 @@ app.put('/api/advance-listing', async (req, res) => {
         await connection.beginTransaction();
         const actor = await resolveActor(connection, senderId);
         if (actor.role !== 'Nurse') throw new BookingError('Only the nurse opens or closes the advance listing.', 403);
-        await advanceStateOf(connection); // closes by itself what has to close (time is up, every service has a schedule) before the nurse's change is read
-        const [[current]] = await connection.query(`SELECT * FROM advance_listing_settings WHERE setting_id = 1 FOR UPDATE`);
-        const wasOpen = !!current.is_open;
+        if (!visitType) throw new BookingError('Pick the check-up service of the advance listing.', 400);
+        await connection.query(`SELECT setting_id FROM advance_listing_settings WHERE setting_id = 1 FOR UPDATE`);
+        const state = await advanceStateOf(connection); // closes by itself what has to close (time is up, the service has a schedule) before the nurse's change is read
+        const row = state.services.find((s) => s.visit_type === visitType && s.offered) || null;
         const title = textOrNull(req.body.title);
         if (title && title.length > 120) throw new BookingError('The title can be at most 120 characters.', 400);
-        // a batch that is not complete yet (some check-up service still waits for its session) is opened again as it is; a new batch only after it is complete
-        const [[runningBatch]] = current.current_listing_id
-            ? await connection.query(`SELECT listing_id FROM advance_listings WHERE listing_id = ? AND completed_at IS NULL`, [current.current_listing_id])
-            : [[null]];
-        const batchRunning = !!runningBatch;
-        // one advance listing at a time: a listing that is done stays here until the nurse drops it, and nothing opens or changes on it
-        const [[currentListing]] = current.current_listing_id
-            ? await connection.query(`SELECT listing_id, close_reason FROM advance_listings WHERE listing_id = ?`, [current.current_listing_id])
-            : [[null]];
-        const batchCurrent = !!currentListing && currentListing.close_reason !== 'dropped';
-        const wantsChange = (req.body.is_open !== undefined && toFlag(req.body.is_open) === 1) || Array.isArray(req.body.services);
-        if (batchCurrent && !batchRunning && wantsChange) throw new BookingError('The current advance listing is done. Drop it to create a new advance listing.', 409);
-        const newBatch = req.body.is_open !== undefined && toFlag(req.body.is_open) === 1 && !wasOpen && !batchRunning;
 
-        if (Array.isArray(req.body.services)) {
-            const eligible = await eligibleCategories(connection);
-            const seen = new Set();
-            const wanted = [];
-            for (const raw of req.body.services) {
-                const visitType = String(raw.visit_type || '').trim();
-                const limit = Number(raw.listing_limit);
-                if (!eligible.includes(visitType)) throw new BookingError(`${visitType || 'That service'} is not a check-up service a doctor covers.`, 400);
-                if (seen.has(visitType)) continue;
-                if (!Number.isInteger(limit) || limit < 1 || limit > 500) throw new BookingError(`Set a listing limit from 1 to 500 for ${visitType}.`, 400);
-                seen.add(visitType);
-                wanted.push({ visitType, limit });
-            }
-            const state = await advanceStateOf(connection);
-            for (const w of wanted) {
-                const registered = (state.services.find((s) => s.visit_type === w.visitType) || {}).registered || 0;
-                if (w.limit < registered) throw new BookingError(`${registered} student(s) are already registered for ${w.visitType}, so its limit cannot be lower than ${registered}.`, 409);
-            }
-            const [before] = await connection.query(`SELECT visit_type, is_open, moved_at FROM advance_listing_services`);
-            await connection.query(`DELETE FROM advance_listing_services`);
-            for (const w of wanted) {
-                // a service the nurse closed stays closed while the listing keeps running; a service that moved to the Session Listing stays moved
-                // while its batch runs; a new batch opens every service from scratch
-                const kept = wasOpen || batchRunning ? before.find((b) => b.visit_type === w.visitType) : null;
-                const isOpen = kept ? (!wasOpen && kept.moved_at ? 0 : wasOpen ? kept.is_open : 1) : 1;
-                await connection.query(`INSERT INTO advance_listing_services (visit_type, listing_limit, is_open, moved_at) VALUES (?, ?, ?, ?)`, [w.visitType, w.limit, isOpen, kept ? kept.moved_at : null]);
-            }
-        } else if (newBatch) {
-            await connection.query(`UPDATE advance_listing_services SET is_open = 1, moved_at = NULL`);
-        }
-
-        let closesAt = current.closes_at || null;
+        let closesAt;
         if (Object.prototype.hasOwnProperty.call(req.body, 'closes_at')) {
             if (!req.body.closes_at) closesAt = null;
             else {
@@ -14928,40 +15005,57 @@ app.put('/api/advance-listing', async (req, res) => {
                 if (closesAt <= nowManilaStr()) throw new BookingError('The closing time must be in the future.', 400);
             }
         }
+        const hasLimit = req.body.listing_limit !== undefined && req.body.listing_limit !== '';
+        const limit = Number(req.body.listing_limit);
+        if (hasLimit && (!Number.isInteger(limit) || limit < 1 || limit > 500)) throw new BookingError(`Set a listing limit from 1 to 500 for ${visitType}.`, 400);
 
-        const wantOpen = req.body.is_open === undefined ? wasOpen : toFlag(req.body.is_open) === 1;
-        const [[svcCount]] = await connection.query(`SELECT COUNT(*) AS n FROM advance_listing_services`);
-        if (wantOpen && Number(svcCount.n) === 0) throw new BookingError('Pick at least one check-up service, with its listing limit, before opening the advance listing.', 400);
-        if (wantOpen && closesAt && closesAt <= nowManilaStr()) throw new BookingError('The closing time must be in the future.', 400);
-
-        if (wantOpen && !wasOpen && !batchRunning && !title) throw new BookingError('Give the advance listing a title, e.g. "Advance listing for next month".', 400);
-        const [svcNow] = await connection.query(`SELECT visit_type, listing_limit FROM advance_listing_services ORDER BY visit_type`);
-        let listingId = current.current_listing_id;
-        if (wantOpen && !wasOpen && batchRunning) {
-            // registration of a batch that is still running opens again: same batch, same history row
-            await connection.query(
-                `UPDATE advance_listings SET title = COALESCE(?, title), closes_at = ?, closed_at = NULL, close_reason = NULL, services_json = ? WHERE listing_id = ?`,
-                [title, closesAt, JSON.stringify(svcNow), listingId]
-            );
-        } else if (wantOpen && !wasOpen) {
-            // a new batch: the one that was complete before stays in the history
-            listingId = await generateCustomIdWithRetry(connection, 'ADVLS', 'advance_listings', 'listing_id', async (id) => {
+        if (!row) {
+            // a new advance listing for this service
+            if (!(await eligibleCategories(connection)).includes(visitType)) throw new BookingError(`${visitType} is not a check-up service a doctor covers.`, 400);
+            if (!title) throw new BookingError('Give the advance listing a title, e.g. "Dental advance listing for next month".', 400);
+            if (!hasLimit) throw new BookingError(`Set a listing limit from 1 to 500 for ${visitType}.`, 400);
+            const listingId = await generateCustomIdWithRetry(connection, 'ADVLS', 'advance_listings', 'listing_id', async (id) => {
                 await connection.query(
-                    `INSERT INTO advance_listings (listing_id, title, opened_at, closes_at, services_json, created_by_user_id) VALUES (?, ?, NOW(), ?, ?, ?)`,
-                    [id, title, closesAt, JSON.stringify(svcNow), senderId]
+                    `INSERT INTO advance_listings (listing_id, title, opened_at, closes_at, services_json, created_by_user_id, visit_type, listing_limit) VALUES (?, ?, NOW(), ?, ?, ?, ?, ?)`,
+                    [id, title, closesAt || null, JSON.stringify([{ visit_type: visitType, listing_limit: limit }]), senderId, visitType, limit]
                 );
             });
-        } else if (wantOpen && listingId) {
-            await connection.query(`UPDATE advance_listings SET title = COALESCE(?, title), closes_at = ?, services_json = ? WHERE listing_id = ?`, [title, closesAt, JSON.stringify(svcNow), listingId]);
-        } else if (!wantOpen && wasOpen && listingId) {
-            await connection.query(`UPDATE advance_listings SET closed_at = NOW(), close_reason = 'manual' WHERE listing_id = ? AND closed_at IS NULL`, [listingId]);
+            await connection.query(
+                `INSERT INTO advance_listing_services (visit_type, listing_limit, is_open, moved_at, listing_id, closes_at) VALUES (?, ?, 1, NULL, ?, ?)`,
+                [visitType, limit, listingId, closesAt || null]
+            );
+            done = { message: `The ${visitType} advance listing is open. Students can register for it now.` };
+        } else {
+            // the listing of this service is done (closed, its session over): it stays current until the nurse drops it, and nothing opens or changes on it
+            if (row.done) throw new BookingError(`The ${visitType} advance listing is done. Drop it to create a new one.`, 409);
+            const wantsOpen = req.body.is_open !== undefined ? toFlag(req.body.is_open) === 1 : null;
+            if (hasLimit && limit < row.registered) throw new BookingError(`${row.registered} student(s) are already registered for ${visitType}, so its limit cannot be lower than ${row.registered}.`, 409);
+            if (wantsOpen === true && !row.service_open) {
+                if (row.scheduled) throw new BookingError(`${visitType} already has a schedule, so it moved to the Session Listing.`, 409);
+            }
+            // a closed listing that never went to a session opens again as it is
+            const reopening = wantsOpen === true && row.status === 'Closed';
+            const closing = wantsOpen === false && row.status === 'Open';
+            const nextClosesAt = closesAt !== undefined ? closesAt : reopening ? null : (row.closes_at || null);
+            if (title) await connection.query(`UPDATE advance_listings SET title = ? WHERE listing_id = ?`, [title, row.listing_id]);
+            if (hasLimit) {
+                await connection.query(`UPDATE advance_listing_services SET listing_limit = ? WHERE visit_type = ?`, [limit, visitType]);
+                await connection.query(`UPDATE advance_listings SET listing_limit = ?, services_json = ? WHERE listing_id = ?`, [limit, JSON.stringify([{ visit_type: visitType, listing_limit: limit }]), row.listing_id]);
+            }
+            if (reopening) {
+                await connection.query(`UPDATE advance_listing_services SET is_open = 1, closes_at = ? WHERE visit_type = ?`, [nextClosesAt, visitType]);
+                await connection.query(`UPDATE advance_listings SET closed_at = NULL, close_reason = NULL, completed_at = NULL, closes_at = ? WHERE listing_id = ?`, [nextClosesAt, row.listing_id]);
+            } else if (closing) {
+                await connection.query(`UPDATE advance_listing_services SET is_open = 0 WHERE visit_type = ?`, [visitType]);
+                await connection.query(`UPDATE advance_listings SET closed_at = NOW(), close_reason = 'manual' WHERE listing_id = ? AND closed_at IS NULL`, [row.listing_id]);
+            } else if (closesAt !== undefined) {
+                if (row.status !== 'Open') throw new BookingError('Open the advance listing first to set a closing time.', 409);
+                await connection.query(`UPDATE advance_listing_services SET closes_at = ? WHERE visit_type = ?`, [closesAt, visitType]);
+                await connection.query(`UPDATE advance_listings SET closes_at = ? WHERE listing_id = ?`, [closesAt, row.listing_id]);
+            }
+            done = { message: reopening ? `The ${visitType} advance listing is open again.` : closing ? `The ${visitType} advance listing is closed. Registered students keep their numbers.` : `The ${visitType} advance listing settings are saved.` };
         }
-        await connection.query(
-            `UPDATE advance_listing_settings SET is_open = ?, closes_at = ?, opened_at = IF(? = 1 AND ? = 0, NOW(), opened_at), current_listing_id = ?, updated_by_user_id = ? WHERE setting_id = 1`,
-            [wantOpen ? 1 : 0, wantOpen ? closesAt : null, wantOpen ? 1 : 0, wasOpen ? 1 : 0, listingId || null, senderId]
-        );
         await connection.commit();
-        done = { wantOpen, wasOpen };
     } catch (error) {
         await connection.rollback();
         connection.release();
@@ -14970,18 +15064,15 @@ app.put('/api/advance-listing', async (req, res) => {
         return res.status(500).json({ success: false, message: 'Failed to save the advance listing' });
     }
     connection.release();
-    res.json({
-        success: true,
-        message: done.wantOpen ? (done.wasOpen ? 'Advance listing settings saved.' : 'Advance listing opened. Students can register for a check-up service now.') : 'Advance listing closed. Registered students keep their numbers.',
-        ...(await advanceStateOf(pool))
-    });
+    res.json({ success: true, message: done.message, ...(await advanceStateOf(pool)) });
 });
 
-// The nurse drops the current advance listing: it moves to the past advance listings and leaves the current listing, so a new one can be created.
-// Every check-up service of it must be closed first (no service with status Open). Students who still wait for a schedule are not lost: they become
-// cut off (no schedule) and the nurse moves them into the new advance listing; unanswered requests are declined. Students with a queue number keep it.
+// The nurse drops the advance listing of ONE check-up service: it moves to the past advance listings and the service has no current listing, so a new one
+// can be created. Any closed listing can be dropped. Body: { sender_id, visit_type }. Unanswered requests are declined, students still waiting for a
+// schedule go to the Cut off list (the nurse moves them into the next listing), students with a queue number keep it.
 app.put('/api/advance-listing/drop', async (req, res) => {
     const senderId = req.body.sender_id || null;
+    const visitType = String(req.body.visit_type || '').trim();
     const connection = await pool.getConnection();
     let waiting = [];
     try {
@@ -14989,27 +15080,33 @@ app.put('/api/advance-listing/drop', async (req, res) => {
         await connection.beginTransaction();
         const actor = await resolveActor(connection, senderId);
         if (actor.role !== 'Nurse') throw new BookingError('Only the nurse drops the advance listing.', 403);
+        if (!visitType) throw new BookingError('Pick the advance listing to drop.', 400);
         await connection.query(`SELECT setting_id FROM advance_listing_settings WHERE setting_id = 1 FOR UPDATE`);
         const state = await advanceStateOf(connection);
-        if (!state.listing || !state.batch_current) throw new BookingError('There is no current advance listing to drop.', 409);
-        // only a listing that is done or closed can be dropped
-        const stillOpen = state.services.filter((s) => s.offered && s.status === 'Open').map((s) => s.visit_type);
-        if (state.is_open || stillOpen.length > 0) throw new BookingError(`Close the advance listing first. It can be dropped only when it is closed or done.${stillOpen.length > 0 ? ` Still open: ${stillOpen.join(', ')}.` : ''}`, 409);
-        const listingId = state.listing.listing_id;
-        await connection.query(
-            `UPDATE advance_listings SET closed_at = COALESCE(closed_at, NOW()), close_reason = 'dropped', completed_at = COALESCE(completed_at, NOW()) WHERE listing_id = ?`, [listingId]
-        );
-        await connection.query(`UPDATE advance_listing_settings SET is_open = 0, closes_at = NULL, updated_by_user_id = ? WHERE setting_id = 1`, [senderId]);
-        await connection.query(
-            `UPDATE advance_listing_entries SET status = 'Denied', remove_reason = 'The advance listing was dropped before this request was answered.' WHERE status = 'Pending'`
-        );
-        const [rows] = await connection.query(`SELECT entry_id, student_id, visit_type, advance_no FROM advance_listing_entries WHERE status = 'Waiting' FOR UPDATE`);
-        waiting = rows;
-        if (rows.length > 0) {
+        const row = state.services.find((s) => s.visit_type === visitType && s.offered);
+        if (!row) throw new BookingError(`There is no ${visitType} advance listing to drop.`, 409);
+        if (row.status === 'Open') throw new BookingError(`Close the ${visitType} advance listing first. It can be dropped once it is closed.`, 409);
+        const listingId = row.listing_id;
+        await connection.query(`DELETE FROM advance_listing_services WHERE visit_type = ?`, [visitType]);
+        if (listingId) {
+            // a listing shared by several services (from before every service had its own) goes to the past ones when the last of them is dropped
+            const [shared] = await connection.query(`SELECT 1 FROM advance_listing_services WHERE listing_id = ? LIMIT 1`, [listingId]);
+            if (shared.length === 0) {
+                await connection.query(
+                    `UPDATE advance_listings SET closed_at = COALESCE(closed_at, NOW()), close_reason = 'dropped', completed_at = COALESCE(completed_at, NOW()) WHERE listing_id = ?`, [listingId]
+                );
+            }
             await connection.query(
-                `UPDATE advance_listing_entries SET status = 'Cutoff', cutoff_schedule_id = NULL, cutoff_date = ?, cutoff_kind = 'DROP', cutoff_at = NOW() WHERE entry_id IN (?)`,
-                [nowManilaStr().slice(0, 10), rows.map((r) => r.entry_id)]
+                `UPDATE advance_listing_entries SET status = 'Denied', remove_reason = 'The advance listing was dropped before this request was answered.' WHERE status = 'Pending' AND listing_id = ? AND visit_type = ?`, [listingId, visitType]
             );
+            const [rows] = await connection.query(`SELECT entry_id, student_id, visit_type, advance_no FROM advance_listing_entries WHERE status = 'Waiting' AND listing_id = ? AND visit_type = ? FOR UPDATE`, [listingId, visitType]);
+            waiting = rows;
+            if (rows.length > 0) {
+                await connection.query(
+                    `UPDATE advance_listing_entries SET status = 'Cutoff', cutoff_schedule_id = NULL, cutoff_date = ?, cutoff_kind = 'DROP', cutoff_at = NOW() WHERE entry_id IN (?)`,
+                    [nowManilaStr().slice(0, 10), rows.map((r) => r.entry_id)]
+                );
+            }
         }
         await connection.commit();
     } catch (error) {
@@ -15031,12 +15128,12 @@ app.put('/api/advance-listing/drop', async (req, res) => {
     }
     res.json({
         success: true,
-        message: `The advance listing was dropped and moved to the past advance listings.${waiting.length > 0 ? ` ${waiting.length} waiting student(s) are in the Cut off list: move them into the new advance listing.` : ''}`,
+        message: `The ${visitType} advance listing was dropped and moved to the past advance listings.${waiting.length > 0 ? ` ${waiting.length} waiting student(s) are in the Cut off list: move them into the new advance listing.` : ''}`,
         ...(await advanceStateOf(pool))
     });
 });
 
-// The nurse opens / closes ONE check-up service of the advance listing, or changes its limit. Body: { sender_id, is_open?, listing_limit? }
+// The nurse opens / closes the advance listing of ONE check-up service, or changes its limit. Body: { sender_id, is_open?, listing_limit? }
 // A service that has a schedule is closed by itself (it moved to the Session Listing) and cannot be opened again here.
 app.put('/api/advance-listing/services/:visitType', async (req, res) => {
     const visitType = String(req.params.visitType || '').trim();
@@ -15051,20 +15148,32 @@ app.put('/api/advance-listing/services/:visitType', async (req, res) => {
         const state = await advanceStateOf(connection);
         const service = state.services.find((s) => s.visit_type === visitType && s.offered);
         if (!service) throw new BookingError(`${visitType} is not offered in the advance listing.`, 404);
+        if (service.done) throw new BookingError(`The ${visitType} advance listing is done. Drop it to create a new one.`, 409);
         if (req.body.listing_limit !== undefined) {
             const limit = Number(req.body.listing_limit);
             if (!Number.isInteger(limit) || limit < 1 || limit > 500) throw new BookingError('Set a listing limit from 1 to 500.', 400);
             if (limit < service.registered) throw new BookingError(`${service.registered} student(s) are already registered for ${visitType}, so its limit cannot be lower than ${service.registered}.`, 409);
             await connection.query(`UPDATE advance_listing_services SET listing_limit = ? WHERE visit_type = ?`, [limit, visitType]);
+            if (service.listing_id) {
+                await connection.query(`UPDATE advance_listings SET listing_limit = ?, services_json = ? WHERE listing_id = ?`, [limit, JSON.stringify([{ visit_type: visitType, listing_limit: limit }]), service.listing_id]);
+            }
             message = `The ${visitType} listing limit is now ${limit}.`;
         }
         if (req.body.is_open !== undefined) {
             const wantOpen = toFlag(req.body.is_open) === 1;
             if (wantOpen) {
                 if (service.scheduled) throw new BookingError(`${visitType} already has a schedule, so it moved to the Session Listing.`, 409);
-                if (!state.is_open) throw new BookingError('The advance listing is closed. Open it first in the settings.', 409);
+                // a closed listing opens again as it is; a closing time that passed is cleared, or it would close at once
+                await connection.query(`UPDATE advance_listing_services SET is_open = 1, closes_at = NULL WHERE visit_type = ?`, [visitType]);
+                if (service.listing_id) {
+                    await connection.query(`UPDATE advance_listings SET closed_at = NULL, close_reason = NULL, completed_at = NULL, closes_at = NULL WHERE listing_id = ?`, [service.listing_id]);
+                }
+            } else {
+                await connection.query(`UPDATE advance_listing_services SET is_open = 0 WHERE visit_type = ?`, [visitType]);
+                if (service.listing_id) {
+                    await connection.query(`UPDATE advance_listings SET closed_at = COALESCE(closed_at, NOW()), close_reason = COALESCE(close_reason, 'manual') WHERE listing_id = ?`, [service.listing_id]);
+                }
             }
-            await connection.query(`UPDATE advance_listing_services SET is_open = ? WHERE visit_type = ?`, [wantOpen ? 1 : 0, visitType]);
             message = wantOpen ? `${visitType} is open for the advance listing.` : `${visitType} is closed for the advance listing. Registered students keep their numbers.`;
         }
         if (!message) throw new BookingError('Nothing to change.', 400);
@@ -15087,9 +15196,9 @@ app.get('/api/advance-listing/history', async (req, res) => {
         await advanceStateOf(pool);
         // a past advance listing = a batch that is complete (every check-up service done)
         // a past advance listing = one the nurse dropped (a done listing stays current until it is dropped)
-        const [[cur]] = await pool.query(`SELECT current_listing_id FROM advance_listing_settings WHERE setting_id = 1`);
         const [listings] = await pool.query(
-            `SELECT * FROM advance_listings WHERE completed_at IS NOT NULL AND (close_reason = 'dropped' OR listing_id <> ?) ORDER BY completed_at DESC, opened_at DESC`, [cur.current_listing_id || '']
+            `SELECT * FROM advance_listings WHERE completed_at IS NOT NULL
+             AND listing_id NOT IN (SELECT listing_id FROM advance_listing_services WHERE listing_id IS NOT NULL) ORDER BY completed_at DESC, opened_at DESC`
         );
         const [counts] = await pool.query(
             `SELECT listing_id, visit_type, COUNT(*) AS requests, SUM(status IN ('Waiting', 'Scheduled', 'Removed', 'Cutoff', 'Moved')) AS registered, SUM(status = 'Scheduled') AS scheduled,
@@ -15111,7 +15220,7 @@ app.get('/api/advance-listing/history', async (req, res) => {
                 });
                 const sum = (k) => services.reduce((n, s) => n + s[k], 0);
                 return {
-                    listing_id: l.listing_id, title: l.title, opened_at: l.opened_at, closed_at: l.closed_at, completed_at: l.completed_at, close_reason: l.close_reason, services,
+                    listing_id: l.listing_id, title: l.title, visit_type: l.visit_type || null, opened_at: l.opened_at, closed_at: l.closed_at, completed_at: l.completed_at, close_reason: l.close_reason, services,
                     requests: sum('requests'), registered: sum('registered'), scheduled: sum('scheduled'), waiting: sum('waiting'), declined: sum('declined'), cutoff: sum('cutoff')
                 };
             })
@@ -15124,11 +15233,11 @@ app.get('/api/advance-listing/history', async (req, res) => {
 
 // The student registers in the advance listing for ONE check-up service and gets the next advance number of that service.
 // The nurse can also add a student by hand (manual = true): same number and limit rules, but it works while the listing is closed.
-const nextAdvanceNo = async (conn, visitType) => {
-    // numbers restart with every new advance listing
+const nextAdvanceNo = async (conn, visitType, listingId) => {
+    // numbers restart with every new advance listing (each service has its own)
     const [[next]] = await conn.query(
         `SELECT COALESCE(MAX(e.advance_no), 0) + 1 AS n FROM advance_listing_entries e WHERE e.visit_type = ? AND e.listing_id = ? AND ${ADVANCE_ACTIVE_SQL}`,
-        [visitType, await currentAdvanceListingId(conn)]
+        [visitType, listingId || '']
     );
     return Number(next.n);
 };
@@ -15156,9 +15265,9 @@ const registerAdvance = async (req, res, manual) => {
         const [[student]] = await connection.query(`SELECT student_id, user_id, first_name, last_name FROM students WHERE student_id = ?`, [student_id]);
         if (!student) throw new BookingError('Student not found.', 404);
         const state = await advanceStateOf(connection);
-        if (!manual && !state.is_open) throw new BookingError('The advance listing is closed. Please check again when the nurse opens it.');
         const service = state.services.find((s) => s.visit_type === visitType && s.offered);
-        if (!service) throw new BookingError(`${visitType} is not offered in the advance listing.`);
+        if (!service) throw new BookingError(`${visitType} has no advance listing${manual ? '' : ' open. Please check again when the nurse opens it'}.`);
+        if (service.done) throw new BookingError(`The ${visitType} advance listing is done.${manual ? ' Drop it and create a new one first.' : ''}`, 409);
         if (!(await eligibleCategories(connection)).includes(visitType)) throw new BookingError(`${visitType} has no doctor right now, so it cannot be used yet.`, 409);
         const mine = await advanceEntryOf(connection, student_id);
         if (mine && mine.status === 'Cutoff') throw new BookingError(manual
@@ -15173,11 +15282,11 @@ const registerAdvance = async (req, res, manual) => {
         addedStudent = student;
 
         // no approval step: the student (or the student the nurse adds) is in the listing at once with the next advance number of the service
-        const advanceNo = await nextAdvanceNo(connection, visitType);
+        const advanceNo = await nextAdvanceNo(connection, visitType, service.listing_id);
         const entryId = await generateCustomIdWithRetry(connection, 'ADVL', 'advance_listing_entries', 'entry_id', async (id) => {
             await connection.query(
                 `INSERT INTO advance_listing_entries (entry_id, student_id, visit_type, reason, advance_no, status, listing_id) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                [id, student_id, visitType, reason, advanceNo, 'Waiting', state.listing ? state.listing.listing_id : null]
+                [id, student_id, visitType, reason, advanceNo, 'Waiting', service.listing_id || null]
             );
         });
         await connection.commit();
@@ -15244,8 +15353,8 @@ app.get('/api/advance-listing/entries', async (req, res) => {
         else if (req.query.scope === 'cutoff') where.push(`e.status = 'Cutoff'`);
         else {
             // the current advance listing only: a new one never lists the students of a previous one (those are in its history)
-            where.push('e.listing_id = ?');
-            params.push(await currentAdvanceListingId(pool));
+            where.push('e.listing_id IN (?)');
+            params.push(await currentAdvanceListingIds(pool));
             if (req.query.scope === 'all') where.push(`(${ADVANCE_ACTIVE_SQL} OR e.status = 'Pending' OR e.updated_at >= DATE_SUB(NOW(), INTERVAL 60 DAY))`);
             else where.push(`(${ADVANCE_ACTIVE_SQL} OR e.status IN ('Pending', 'Scheduled'))`); // students moved to a session stay in the list
         }
@@ -15280,8 +15389,8 @@ app.put('/api/advance-listing/entries/:id/accept', async (req, res) => {
         if (!service) throw new BookingError(`${entry.visit_type} is not offered in the advance listing now.`);
         if (service.scheduled) throw new BookingError(`${entry.visit_type} already has a schedule, so it is no longer open for the advance listing. Decline the request and tell the student to ask for a place in the session listing.`, 409);
         if (service.listing_full) throw new BookingError(`The ${entry.visit_type} advance listing is full (${service.registered} of ${service.listing_limit}). Raise its limit in the settings first.`);
-        const advanceNo = await nextAdvanceNo(connection, entry.visit_type);
-        await connection.query(`UPDATE advance_listing_entries SET status = 'Waiting', advance_no = ? WHERE entry_id = ?`, [advanceNo, entry.entry_id]);
+        const advanceNo = await nextAdvanceNo(connection, entry.visit_type, service.listing_id);
+        await connection.query(`UPDATE advance_listing_entries SET status = 'Waiting', advance_no = ?, listing_id = ? WHERE entry_id = ?`, [advanceNo, service.listing_id || entry.listing_id, entry.entry_id]);
         await connection.commit();
         accepted = { entry, advanceNo };
     } catch (error) {
@@ -15391,7 +15500,7 @@ app.put('/api/advance-listing/cutoff/move', async (req, res) => {
         await connection.beginTransaction();
         await connection.query(`SELECT setting_id FROM advance_listing_settings WHERE setting_id = 1 FOR UPDATE`);
         const state = await advanceStateOf(connection);
-        if (!state.is_open || !state.listing) throw new BookingError('No advance listing is open. Open a new advance listing first, then move the cut off students into it.', 409);
+        if (!state.is_open) throw new BookingError('No advance listing is open. Open the advance listing of their check-up service first, then move the cut off students into it.', 409);
         // priority = the date and time the student first listed (advance listing or session listing), oldest first
         const [entries] = await connection.query(
             `SELECT * FROM advance_listing_entries WHERE entry_id IN (?) AND status = 'Cutoff' ORDER BY COALESCE(listed_at, created_at) ASC, advance_no ASC FOR UPDATE`, [ids]
@@ -15415,11 +15524,11 @@ app.put('/api/advance-listing/cutoff/move', async (req, res) => {
                 if (other.length > 0) why = 'The student is already in the advance listing.';
             }
             if (why) { stayed.push({ entry, why }); continue; }
-            const advanceNo = await nextAdvanceNo(connection, entry.visit_type);
+            const advanceNo = await nextAdvanceNo(connection, entry.visit_type, service.listing_id);
             const newId = await generateCustomIdWithRetry(connection, 'ADVL', 'advance_listing_entries', 'entry_id', async (id) => {
                 await connection.query(
                     `INSERT INTO advance_listing_entries (entry_id, student_id, visit_type, reason, advance_no, status, listing_id, listed_at) VALUES (?, ?, ?, ?, ?, 'Waiting', ?, ?)`,
-                    [id, entry.student_id, entry.visit_type, entry.reason, advanceNo, state.listing.listing_id, entry.listed_at || entry.created_at]
+                    [id, entry.student_id, entry.visit_type, entry.reason, advanceNo, service.listing_id, entry.listed_at || entry.created_at]
                 );
             });
             await connection.query(`UPDATE advance_listing_entries SET status = 'Moved', moved_to_entry_id = ? WHERE entry_id = ?`, [newId, entry.entry_id]);
@@ -18493,6 +18602,7 @@ app.get('/api/student/:studentId/checkup-history', async (req, res) => {
         const today = nowManilaStr().slice(0, 10);
         const [visits] = await pool.query(
             `SELECT da.appointment_id, da.visit_type, da.purpose_other, da.start_time, da.end_time, da.status, da.queue_lane, da.queue_no, da.queue_state, da.parent_appointment_id,
+                    da.schedule_id, da.doctor_id, ds.start_time AS sched_start, ds.end_time AS sched_end,
                     das.attendance_status, ds.location, d.first_name AS doc_first_name, d.last_name AS doc_last_name, d.specialization,
                     a.assessment_id, a.chief_complaint, a.diagnosis, a.clinical_findings, a.treatment_recommendations, a.prescriptions, a.is_abnormal,
                     a.follow_up_needed, a.follow_up_date, a.follow_up_notes, a.follow_up_closed, a.referral_facility, a.referral_reason, a.assessment_date,
@@ -18524,7 +18634,8 @@ app.get('/api/student/:studentId/checkup-history', async (req, res) => {
             if (isPast) {
                 past.push({
                     appointment_id: v.appointment_id, visit_type: v.visit_type, purpose_other: v.purpose_other, date, start_time: v.start_time, end_time: v.end_time,
-                    doctor_name: doctorName(v), specialization: v.specialization, location: v.location, label: label(v),
+                    doctor_name: doctorName(v), doctor_id: v.doctor_id, schedule_id: v.schedule_id || null, sched_start: v.sched_start || null, sched_end: v.sched_end || null,
+                    specialization: v.specialization, location: v.location, label: label(v),
                     is_repeat: v.visit_type === 'Follow-up' ? 1 : 0, outcome: documented ? 'Completed' : missed ? 'Missed' : 'Not documented',
                     assessment: documented ? {
                         chief_complaint: v.chief_complaint, diagnosis: v.diagnosis, clinical_findings: v.clinical_findings, treatment_recommendations: v.treatment_recommendations,
@@ -23350,14 +23461,15 @@ app.get('/api/nurse/dashboard-calendar', async (req, res) => {
     });
 
     // the advance listing: the day it opens and the day it closes (by the nurse, by the closing time, or when every service has a schedule)
-    const [[advSetting]] = await pool.query(`SELECT is_open, closes_at, current_listing_id FROM advance_listing_settings WHERE setting_id = 1`).catch(() => [[null]]);
+    const [advLive] = await pool.query(`SELECT listing_id, closes_at FROM advance_listing_services WHERE is_open = 1 AND listing_id IS NOT NULL`).catch(() => [[]]);
     const CLOSE_TEXT = { time: 'closing time reached', scheduled: 'every service has a schedule' };
     const advanceEvents = [];
     advanceRows[0].forEach((l) => {
       let services = '';
       try { services = (JSON.parse(l.services_json || '[]') || []).map((x) => x.visit_type).filter(Boolean).join(', '); } catch (e) { /* no services */ }
-      const live = advSetting && advSetting.is_open && advSetting.current_listing_id === l.listing_id;
-      const closeAt = live ? (advSetting.closes_at || null) : (l.closed_at || l.closes_at || null);
+      const liveRow = advLive.find((x) => x.listing_id === l.listing_id);
+      const live = !!liveRow;
+      const closeAt = live ? (liveRow.closes_at || null) : (l.closed_at || l.closes_at || null);
       if (l.opened_date >= from && l.opened_date < to) {
         advanceEvents.push({ type: 'advance', id: `adv-open-${l.listing_id}`, date: l.opened_date, title: 'Advance listing opens', detail: services || l.title, start_time: l.opened_time });
       }

@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import '../../styles/nurse/NurseMessages.css';
 import '../../styles/student/StudentMessagesModal.css';
+import '../../styles/student/ChatMobile.css';
 import { useAlert } from '../../context/AlertContext';
 import { formatTime } from '../../utils/datetime';
 

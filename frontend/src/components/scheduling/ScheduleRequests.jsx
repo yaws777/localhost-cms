@@ -11,7 +11,7 @@ import { useAlert } from '../../context/AlertContext';
 import { useSpecializations } from '../../hooks/useSpecializations';
 import { formatDate } from '../../utils/datetime';
 import { localTimeStr, minTimeFor, isPastMoment } from '../../utils/visitPurpose';
-import { API, eligibleDoctors, doctorOffers, to12h, todayKey, hhmm } from '../../utils/scheduling';
+import { API, SCHEDULE_LOCATION_HINT, eligibleDoctors, doctorOffers, to12h, todayKey, hhmm } from '../../utils/scheduling';
 import '../../styles/nurse/DoctorVisits.css';
 import '../../styles/nurse/DoctorSchedule.css';
 import '../../styles/doctor/DoctorLayout.css';
@@ -24,7 +24,7 @@ const STATUS_BADGE = { Pending: 'badge-pending-ds', Scheduled: 'badge-open-ds', 
 // the list opens on what still needs an answer; the other states are one click away
 const REQUEST_FILTERS = [['Pending', 'Pending'], ['Scheduled', 'Scheduled'], ['Declined', 'Declined'], ['Cancelled', 'Cancelled'], ['All', 'All']];
 
-const EMPTY = { doctor_id: '', visit_type: 'Any', preferred_date: '', preferred_start: '', preferred_end: '', note: '' };
+const EMPTY = { doctor_id: '', visit_type: '', preferred_date: '', preferred_start: '', preferred_end: '', location: '', note: '' };
 
 const repeatKeyOf = (r) => `${r.appointment_id}|${r.student_id}`;
 const parseRepeats = (raw) => {
@@ -68,6 +68,7 @@ export const ScheduleRequestModal = ({ isOpen, preset, doctors, nurseId, userId,
         const endMin = Math.min(Number(nowTime.slice(0, 2)) * 60 + Number(nowTime.slice(3)) + 60, 23 * 60 + 59);
         const nowEnd = `${String(Math.floor(endMin / 60)).padStart(2, '0')}:${String(endMin % 60).padStart(2, '0')}`;
         setForm({ ...EMPTY, preferred_date: todayKey(), preferred_start: nowTime, preferred_end: nowEnd, ...preset });
+        setForm((f) => (f.visit_type === 'Any' ? { ...f, visit_type: '' } : f));
         setBusy(false);
         let live = true;
         fetch(`${API}/api/advance-listing`)
@@ -76,6 +77,28 @@ export const ScheduleRequestModal = ({ isOpen, preset, doctors, nurseId, userId,
             .catch(() => { /* the choice is a convenience */ });
         return () => { live = false; };
     }, [isOpen, preset]);
+
+    // the clock keeps running while the form is open: the minimum time and a start that fell behind follow the current time (same length)
+    const [, setTick] = useState(0);
+    useEffect(() => {
+        if (!isOpen) return undefined;
+        const timer = setInterval(() => {
+            setTick((n) => n + 1);
+            setForm((f) => {
+                const today = todayKey();
+                const now = localTimeStr();
+                const dateGone = !!f.preferred_date && f.preferred_date < today;
+                const date = dateGone ? today : f.preferred_date;
+                if (!date || date !== today || !f.preferred_start || f.preferred_start >= now) return dateGone ? { ...f, preferred_date: today } : f;
+                const toMin = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+                const len = f.preferred_end && toMin(f.preferred_end) > toMin(f.preferred_start) ? toMin(f.preferred_end) - toMin(f.preferred_start) : 60;
+                const endMin = Math.min(toMin(now) + len, 23 * 60 + 59);
+                const end = `${String(Math.floor(endMin / 60)).padStart(2, '0')}:${String(endMin % 60).padStart(2, '0')}`;
+                return { ...f, preferred_date: date, preferred_start: now, preferred_end: f.preferred_end ? end : f.preferred_end };
+            });
+        }, 15000);
+        return () => clearInterval(timer);
+    }, [isOpen]);
 
     // the repeats of the chosen doctor that wait for a schedule: the nurse can move them into the schedule she asks for (they come before the advance listing)
     const [waitingRepeats, setWaitingRepeats] = useState([]);
@@ -94,7 +117,7 @@ export const ScheduleRequestModal = ({ isOpen, preset, doctors, nurseId, userId,
     const repeatKey = repeatKeyOf;
     // only the repeats the check-up service of the request fits (Any = all of them); the ones inside a pending request cannot be asked for again
     const repeatChoices = useMemo(
-        () => waitingRepeats.filter((r) => form.visit_type === 'Any' || r.visit_type === form.visit_type || ['Follow-up', 'Referral'].includes(r.visit_type)),
+        () => waitingRepeats.filter((r) => !form.visit_type || r.visit_type === form.visit_type || ['Follow-up', 'Referral'].includes(r.visit_type)),
         [waitingRepeats, form.visit_type]
     );
     const isRequested = useCallback((r) => requested.repeatKeys.has(repeatKeyOf(r)), [requested]);
@@ -103,7 +126,7 @@ export const ScheduleRequestModal = ({ isOpen, preset, doctors, nurseId, userId,
     const toggleRepeat = (key) => setPickedRepeats((p) => (p.includes(key) ? p.filter((k) => k !== key) : [...p, key]));
 
     const set = (patch) => setForm((f) => ({ ...f, ...patch }));
-    const choices = form.visit_type === 'Any' ? doctors : eligibleDoctors(doctors, form.visit_type);
+    const choices = !form.visit_type ? doctors : eligibleDoctors(doctors, form.visit_type);
     // the advance listing choices are the services this doctor covers (none = only a normal request); with no doctor picked yet every service shows
     const chosenDoctor = doctors.find((d) => d.doctor_id === form.doctor_id);
     const advanceChoices = chosenDoctor ? advanceServices.filter((s) => doctorOffers(chosenDoctor, s.visit_type)) : advanceServices;
@@ -112,14 +135,14 @@ export const ScheduleRequestModal = ({ isOpen, preset, doctors, nurseId, userId,
         const next = doctors.find((d) => d.doctor_id === doctor_id);
         // an advance listing of a service the new doctor does not cover goes back to a normal request
         if (form.advance_listing && next && !doctorOffers(next, form.visit_type)) {
-            set({ doctor_id, advance_listing: false, visit_type: 'Any', note: /advance listing$/.test(form.note || '') ? '' : form.note });
+            set({ doctor_id, advance_listing: false, visit_type: '', note: /advance listing$/.test(form.note || '') ? '' : form.note });
         } else {
             set({ doctor_id });
         }
     };
 
     const changeCategory = (visit_type) => {
-        const stillOk = !form.doctor_id || visit_type === 'Any' || eligibleDoctors(doctors, visit_type).some((d) => d.doctor_id === form.doctor_id);
+        const stillOk = !form.doctor_id || !visit_type || eligibleDoctors(doctors, visit_type).some((d) => d.doctor_id === form.doctor_id);
         set({ visit_type, doctor_id: stillOk ? form.doctor_id : '' });
     };
 
@@ -137,7 +160,9 @@ export const ScheduleRequestModal = ({ isOpen, preset, doctors, nurseId, userId,
 
     const submit = async (e) => {
         e.preventDefault();
+        if (!form.visit_type) { fail('Select a check-up service.'); return; }
         if (!form.doctor_id) { fail('Select a doctor.'); return; }
+        if (!form.location) { fail('Enter where the session is held.'); return; }
         if (form.preferred_date && isPastMoment(form.preferred_date, form.preferred_start)) { fail('The preferred date and time cannot be in the past.'); return; }
         if (form.preferred_start && form.preferred_end && form.preferred_end <= form.preferred_start) { fail('The end time must be after the start time.'); return; }
         if (form.advance_listing && requested.advanceServices.has(form.visit_type)) { fail(`The ${form.visit_type} advance listing already has a pending schedule request.`); return; }
@@ -178,7 +203,7 @@ export const ScheduleRequestModal = ({ isOpen, preset, doctors, nurseId, userId,
                     <div className="dp-field">
                         <label htmlFor="sr-category">Check-up service</label>
                         <select id="sr-category" className="dp-select" value={form.visit_type} disabled={!!form.advance_listing} onChange={(e) => changeCategory(e.target.value)}>
-                            <option value="Any">Any check-up</option>
+                            <option value="" disabled>-- Select service --</option>
                             {visitTypes.map((t) => <option key={t} value={t}>{t}</option>)}
                         </select>
                     </div>
@@ -226,9 +251,13 @@ export const ScheduleRequestModal = ({ isOpen, preset, doctors, nurseId, userId,
                 <div className="dp-row">
                     <TimeRangeFields
                         idPrefix="sr" required={false} startLabel="From" endLabel="To"
-                        start={form.preferred_start} end={form.preferred_end} minStart={minTimeFor(form.preferred_date)}
+                        start={form.preferred_start} end={form.preferred_end} minStart={() => minTimeFor(form.preferred_date)}
                         onChange={(preferred_start, preferred_end) => set({ preferred_start, preferred_end })}
                     />
+                </div>
+                <div className="dp-field">
+                    <label htmlFor="sr-location">Location</label>
+                    <input id="sr-location" className="dp-input" type="text" required maxLength={100} placeholder={SCHEDULE_LOCATION_HINT} value={form.location || ''} onChange={(e) => set({ location: e.target.value })} />
                 </div>
                 <div className="dp-field">
                     <label htmlFor="sr-note">Note for the doctor (optional)</label>
@@ -320,6 +349,7 @@ const ScheduleRequests = ({ role, fixedDoctorId, nurseId, userId, refreshKey, on
                                 <td>
                                     {r.preferred_date ? formatDate(r.preferred_date) : 'Any day'}
                                     {r.preferred_start && <div className="muted-ds">{to12h(r.preferred_start)}{r.preferred_end ? ` - ${to12h(r.preferred_end)}` : ''}</div>}
+                                    {r.location && <div className="muted-ds">{r.location}</div>}
                                 </td>
                                 <td>{r.note || '-'}</td>
                                 <td>
@@ -355,7 +385,7 @@ const ScheduleRequests = ({ role, fixedDoctorId, nurseId, userId, refreshKey, on
 
 // values the schedule form takes from a request
 export const presetFromRequest = (r) => ({
-    doctor_id: r.doctor_id, visit_type: r.visit_type, schedule_request_id: r.schedule_request_id,
+    doctor_id: r.doctor_id, visit_type: r.visit_type, schedule_request_id: r.schedule_request_id, location: r.location || '',
     ...(r.for_advance ? { advance_count: Number(r.advance_count) || 0 } : {}),
     ...(Number(r.repeat_count) > 0 ? { repeat_count: Number(r.repeat_count) } : {}),
     ...(r.preferred_date ? { schedule_date: String(r.preferred_date).slice(0, 10) } : {}),

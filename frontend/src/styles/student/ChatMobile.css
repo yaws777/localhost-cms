@@ -1,0 +1,224 @@
+/* Mobile chat (student + nurse modal): full screen, 2.75rem targets, stacked input row */
+@media (max-width: 768px) {
+    .student-msg-overlay {
+        align-items: stretch;
+    }
+
+    .student-msg-modal {
+        width: 100%;
+        max-width: 100%;
+        height: 100vh;
+        height: 100dvh;
+        border-radius: 0;
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    .student-msg-modal .modal-header {
+        padding: 0.25rem 0.5rem 0.25rem 1rem;
+        min-height: 3.5rem;
+    }
+
+    .student-msg-modal .modal-header h3 {
+        font-size: 1.125rem;
+    }
+
+    .student-msg-modal .close-btn,
+    .student-msg-modal .mobile-back-btn,
+    .student-msg-modal .conv-more-btn,
+    .student-msg-modal .msg-more-btn {
+        min-width: 2.75rem;
+        min-height: 2.75rem;
+        justify-content: center;
+    }
+
+    .student-msg-modal .messenger-container {
+        height: auto;
+        min-height: 0;
+        flex: 1;
+        border-radius: 0;
+        box-shadow: none;
+    }
+
+    .student-msg-modal .messenger-sidebar,
+    .student-msg-modal .messenger-chat-area {
+        min-height: 0;
+        width: 100%;
+    }
+
+    .student-msg-modal .messenger-search-box {
+        padding: 0.5rem 1rem;
+    }
+
+    .student-msg-modal .messenger-search-box .search-icon {
+        flex-shrink: 0;
+    }
+
+    .student-msg-modal .messenger-search-box input {
+        flex: 1;
+        min-width: 0;
+        min-height: 2.75rem;
+        font-size: 1rem;
+        background: transparent;
+        color: var(--text-primary);
+    }
+
+    .student-msg-modal .conversation-item {
+        min-height: 3.75rem;
+        padding: 0.5rem 0.75rem 0.5rem 1rem;
+    }
+
+    .student-msg-modal .details {
+        min-width: 0;
+    }
+
+    .student-msg-modal .header-row {
+        gap: 0.5rem;
+    }
+
+    .student-msg-modal .header-row h4 {
+        font-size: 1rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .student-msg-modal .message-preview-row {
+        gap: 0.5rem;
+        min-width: 0;
+    }
+
+    .student-msg-modal .preview {
+        max-width: 100%;
+        min-width: 0;
+    }
+
+    .student-msg-modal .chat-header {
+        padding: 0.25rem 0.75rem 0.25rem 0.25rem;
+        gap: 0.5rem;
+        min-height: 3.5rem;
+    }
+
+    .student-msg-modal .chat-header > div:last-child {
+        min-width: 0;
+        flex: 1;
+    }
+
+    .student-msg-modal .chat-header h3 {
+        font-size: 1rem;
+    }
+
+    .student-msg-modal .status-text {
+        display: block;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .student-msg-modal .chat-body {
+        padding: 0.75rem;
+        gap: 0.5rem;
+        overscroll-behavior: contain;
+    }
+
+    .student-msg-modal .message-bubble-wrapper {
+        gap: 0.125rem;
+        min-width: 0;
+    }
+
+    .student-msg-modal .message-bubble {
+        max-width: 85%;
+        font-size: 1rem;
+        line-height: 1.5;
+    }
+
+    .student-msg-modal .chat-image-preview,
+    .student-msg-modal .chat-video-preview {
+        max-height: 50vh;
+        object-fit: contain;
+    }
+
+    .student-msg-modal .message-bubble audio {
+        width: 100%;
+        max-width: 100%;
+    }
+
+    .student-msg-modal .conv-action-container,
+    .student-msg-modal .msg-action-container {
+        opacity: 1;
+        visibility: visible;
+    }
+
+    .student-msg-modal .chat-footer {
+        padding: 0.5rem 0.75rem calc(0.5rem + env(safe-area-inset-bottom));
+    }
+
+    .student-msg-modal .controls-row {
+        flex-wrap: wrap;
+        gap: 0.25rem;
+    }
+
+    .student-msg-modal .message-input {
+        order: -1;
+        flex: 1 1 100%;
+        min-height: 2.75rem;
+        padding: 0.5rem 1rem;
+        font-size: 1rem;
+        background: var(--bg-card);
+        color: var(--text-primary);
+    }
+
+    .student-msg-modal .media-btn {
+        width: 2.75rem;
+        height: 2.75rem;
+        min-width: 2.75rem;
+    }
+
+    .student-msg-modal .send-btn {
+        width: 2.75rem;
+        height: 2.75rem;
+        min-width: 2.75rem;
+        margin-left: auto;
+    }
+
+    .student-msg-modal .attachment-preview-bar {
+        gap: 0.5rem;
+        word-break: break-word;
+    }
+
+    .student-msg-modal .attachment-preview-bar button {
+        min-width: 2.75rem;
+        min-height: 2.75rem;
+        background: transparent;
+        border: none;
+        color: var(--text-primary);
+        cursor: pointer;
+    }
+
+    .student-msg-modal .conv-dropdown-menu button,
+    .student-msg-modal .msg-dropdown-menu button {
+        min-height: 2.75rem;
+        padding: 0.5rem 1rem;
+    }
+
+    .student-msg-modal .conv-dropdown-menu {
+        right: 0;
+        max-width: calc(100vw - 2rem);
+    }
+}
+
+.student-msg-modal button:focus-visible,
+.student-msg-modal input:focus-visible,
+.student-msg-modal a:focus-visible {
+    outline: 0.1875rem solid var(--sti-blue-primary);
+    outline-offset: 0.125rem;
+}
+
+.student-msg-modal .modal-header .close-btn:focus-visible {
+    outline-color: var(--sti-yellow);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .student-msg-modal .media-btn.recording {
+        animation: none;
+    }
+}

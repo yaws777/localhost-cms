@@ -222,6 +222,7 @@
 /* ---------- Table as grid ---------- */
 .table-wrapper-mr {
     width: 100%;
+    container-type: inline-size;
 }
 
 .table-mr,
@@ -235,15 +236,15 @@
 .table-row-mr {
     display: grid;
     grid-template-columns:
-        minmax(13rem, 2.1fr)
-        6.5rem
-        10rem
-        12.5rem
-        minmax(9rem, 1.5fr)
-        minmax(18rem, 2.6fr);
-    gap: 1.25rem;
+        minmax(9rem, 2fr)
+        5.5rem
+        8.5rem
+        11rem
+        minmax(6.5rem, 1.2fr)
+        minmax(14rem, 2.2fr);
+    gap: 1rem;
     align-items: center;
-    padding: 1rem 1.5rem;
+    padding: 1rem 1.25rem;
 }
 
 .table-head-row-mr {
@@ -526,7 +527,10 @@
     .stats-mr {
         max-width: none;
     }
+}
 
+/* switch on the table's own width (sidebar-proof), so no column is cut */
+@container (max-width: 62rem) {
     .table-head-row-mr {
         display: none;
     }
@@ -564,7 +568,9 @@
     .stats-mr {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+}
 
+@container (max-width: 36rem) {
     .table-row-mr {
         grid-template-columns: minmax(0, 1fr);
     }

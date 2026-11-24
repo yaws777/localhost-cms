@@ -3,7 +3,7 @@
 // A doctor appoints a student only into a schedule the doctor already has (no schedule, no appointing).
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useOutletContext, useSearchParams, useNavigate } from 'react-router-dom';
-import { Search, FolderHeart, CalendarClock, CalendarX, Users, ChevronDown, X, Check, AlertTriangle, ExternalLink, Flag, FlagOff } from 'lucide-react';
+import { Search, FolderHeart, CalendarClock, CalendarX, Users, ChevronDown, X, Check, AlertTriangle, ExternalLink, Flag, FlagOff, Stethoscope, Clock, Activity } from 'lucide-react';
 import Modal from '../../components/common/Modal';
 import { useAlert } from '../../context/AlertContext';
 import { useSpecializations } from '../../hooks/useSpecializations';
@@ -28,6 +28,25 @@ const section = (s) => classLabel({ program_id: s.program_id || s.program_name, 
 // marked by hand (flagged) or an abnormal finding in a check-up
 const needsAttention = (p) => Number(p.abnormal) > 0 || Number(p.flagged) > 0;
 
+// check-ups grouped as a folder tree: year > month > check-ups (newest first)
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const groupByYearMonth = (list) => {
+    const years = [];
+    list.forEach((c) => {
+        const d = new Date(c.start_time);
+        const valid = !Number.isNaN(d.getTime());
+        const y = valid ? d.getFullYear() : 'Undated';
+        const m = valid ? d.getMonth() : 0;
+        let year = years.find((x) => x.year === y);
+        if (!year) { year = { year: y, count: 0, months: [] }; years.push(year); }
+        let month = year.months.find((x) => x.month === m);
+        if (!month) { month = { month: m, label: valid ? MONTHS[m] : 'Undated', items: [] }; year.months.push(month); }
+        month.items.push(c);
+        year.count += 1;
+    });
+    return years;
+};
+
 // icon button: marks the student, or clears the mark when it is already set
 const AttentionButton = ({ flagged, name, onClick }) => {
     const label = flagged ? `Clear Need Attention for ${name}` : `Mark ${name} as Need Attention`;
@@ -39,6 +58,22 @@ const AttentionButton = ({ flagged, name, onClick }) => {
 };
 
 const AttentionChip = () => <span className="dp-chip attention"><AlertTriangle size={14} aria-hidden="true" /> Need Attention</span>;
+const NotNormalChip = () => <span className="dp-chip attention"><AlertTriangle size={14} aria-hidden="true" /> Not Normal</span>;
+
+// day + short month of a check-up, for the date block
+const dateBlock = (value) => {
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return { day: '--', mon: 'N/A' };
+    return { day: String(d.getDate()).padStart(2, '0'), mon: MONTHS[d.getMonth()].slice(0, 3) };
+};
+
+// one number of the record summary strip
+const RecStat = ({ icon: Icon, label, value, warn }) => (
+    <div className="dpt-stat">
+        <span className={`dpt-stat-ico${warn ? ' warn' : ''}`} aria-hidden="true"><Icon size={20} /></span>
+        <div><span className="dpt-stat-label">{label}</span><strong className="dpt-stat-value">{value}</strong></div>
+    </div>
+);
 
 // one documented check-up: the assessment form, read only, with the PDF button
 const ConsultationDetails = ({ c, student }) => (
@@ -161,6 +196,7 @@ const DoctorPatients = () => {
     const [recordPatient, setRecordPatient] = useState(null);
     const [recordLoading, setRecordLoading] = useState(false);
     const [open, setOpen] = useState(() => new Set());
+    const [year, setYear] = useState(null);
     const [appointPatient, setAppointPatient] = useState(null);
     const [schedules, setSchedules] = useState(null);
 
@@ -225,6 +261,7 @@ const DoctorPatients = () => {
         setRecordPatient(p);
         setRecord(null);
         setOpen(new Set());
+        setYear(null);
         setRecordLoading(true);
         try {
             const res = await fetch(`${API}/api/doctor/patients/${p.student_id}/record`);
@@ -232,7 +269,9 @@ const DoctorPatients = () => {
             if (data.success) {
                 setRecord(data);
                 // the latest check-up opens first
-                if (data.consultations.length > 0) setOpen(new Set([data.consultations[0].appointment_id]));
+                if (data.consultations.length > 0) {
+                    setOpen(new Set([data.consultations[0].appointment_id]));
+                }
             } else {
                 showAlert(data.message || 'Could not load the record.', 'error');
             }
@@ -261,6 +300,11 @@ const DoctorPatients = () => {
             showAlert('Could not reach the server.', 'error');
         }
     };
+
+    const tree = useMemo(() => groupByYearMonth(record ? record.consultations : []), [record]);
+    // the year tab in view: the one picked, else the latest
+    const activeYear = tree.find((y) => y.year === year) || tree[0];
+    const notNormalCount = record ? record.consultations.filter((c) => !!c.is_abnormal).length : 0;
 
     const toggle = (id) => setOpen((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
 
@@ -360,41 +404,76 @@ const DoctorPatients = () => {
                     <div className="dpt-record">
                         <div className="dpt-recmeta">
                             <span className="dpt-sid">{record.student.student_id}</span>
+                            <span aria-hidden="true">·</span>
                             <span>{section(record.student) || 'No section'}</span>
                             {recordNeedsAttention && <AttentionChip />}
                             <span className="dpt-recacts">
                                 <AttentionButton flagged={!!record.flagged} name={fullName(record.student.first_name, record.student.last_name)} onClick={() => setAttention(record.student, !record.flagged)} />
+                                <button type="button" className="dp-btn dp-btn-primary dp-btn-icon dpt-full" onClick={() => navigate(`/health-records/view/${record.student.student_id}`)} aria-label="Open full health record" title="Full health record"><ExternalLink size={20} aria-hidden="true" /></button>
                             </span>
-                            <button type="button" className="dp-btn dp-btn-primary dp-btn-icon dpt-full" onClick={() => navigate(`/health-records/view/${record.student.student_id}`)} aria-label="Open full health record" title="Full health record"><ExternalLink size={20} aria-hidden="true" /></button>
+                        </div>
+
+                        <div className="dpt-stats">
+                            <RecStat icon={Stethoscope} label="Check-ups" value={record.consultations.length} />
+                            <RecStat icon={Clock} label="Last check-up" value={record.consultations.length ? formatDate(record.consultations[0].start_time) : 'None'} />
+                            <RecStat icon={Activity} label="Not Normal" value={notNormalCount} warn={notNormalCount > 0} />
+                            <RecStat icon={CalendarClock} label="Upcoming" value={record.upcoming.length} />
                         </div>
 
                         <div className="dpt-rec">
-                            <section className="dpt-block" aria-label="Check-ups">
-                                <h3>Check-ups <span className="dpt-count">{record.consultations.length}</span></h3>
-                                {record.consultations.length === 0 && <p className="dp-hint">No check-up documented</p>}
-                                {record.consultations.map((c) => {
-                                    const isOpen = open.has(c.appointment_id);
-                                    const panelId = `dpt-cu-${c.appointment_id}`;
-                                    return (
-                                        <div key={c.appointment_id} className={`dpt-cu${c.is_abnormal ? ' attention' : ''}`}>
-                                            <button type="button" className="dpt-cu-head" onClick={() => toggle(c.appointment_id)} aria-expanded={isOpen} aria-controls={panelId}>
-                                                <span className="dpt-cu-title">
-                                                    <strong>{formatDate(c.start_time)}</strong> · {visitLabel(c.visit_type, c.purpose_other)}
-                                                    <span className="dpt-cu-dx">{c.diagnosis}</span>
-                                                </span>
-                                                {!!c.is_abnormal && <AttentionChip />}
-                                                <ChevronDown size={20} className="dpt-chev" aria-hidden="true" />
-                                            </button>
-                                            {isOpen && <div id={panelId} className="dpt-cu-body"><ConsultationDetails c={c} student={record.student} /></div>}
+                            <section className="dpt-panel" aria-label="Check-ups">
+                                <div className="dpt-panel-head">
+                                    <h3>Check-ups <span className="dpt-count">{record.consultations.length}</span></h3>
+                                    {tree.length > 1 && (
+                                        <div className="dpt-years" role="group" aria-label="Year">
+                                            {tree.map((y) => {
+                                                const on = activeYear && activeYear.year === y.year;
+                                                return (
+                                                    <button key={y.year} type="button" aria-pressed={on} onClick={() => setYear(y.year)}>
+                                                        {y.year}<span className="dpt-years-n">{y.count}</span>
+                                                    </button>
+                                                );
+                                            })}
                                         </div>
-                                    );
-                                })}
+                                    )}
+                                </div>
+                                {record.consultations.length === 0 && <p className="dp-hint">No check-up documented</p>}
+                                {activeYear && activeYear.months.map((m) => (
+                                    <div key={`${activeYear.year}-${m.month}`} className="dpt-month">
+                                        <h4>{m.label} <span className="dpt-count">{m.items.length}</span></h4>
+                                        {m.items.map((c) => {
+                                            const isOpen = open.has(c.appointment_id);
+                                            const panelId = `dpt-cu-${c.appointment_id}`;
+                                            const db = dateBlock(c.start_time);
+                                            return (
+                                                <div key={c.appointment_id} className="dpt-cu">
+                                                    <button type="button" className="dpt-cu-head" onClick={() => toggle(c.appointment_id)} aria-expanded={isOpen} aria-controls={panelId}>
+                                                        <span className={`dpt-date${c.is_abnormal ? ' attention' : ''}`} aria-hidden="true"><strong>{db.day}</strong><span>{db.mon}</span></span>
+                                                        <span className="dpt-cu-title">
+                                                            <strong>{visitLabel(c.visit_type, c.purpose_other)}</strong>
+                                                            <span className="dpt-cu-dx"><span className="dpt-vh">{formatDate(c.start_time)}: </span>{c.diagnosis}</span>
+                                                        </span>
+                                                        {!!c.is_abnormal && <NotNormalChip />}
+                                                        <ChevronDown size={20} className="dpt-chev" aria-hidden="true" />
+                                                    </button>
+                                                    {isOpen && <div id={panelId} className="dpt-cu-body"><ConsultationDetails c={c} student={record.student} /></div>}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                ))}
                             </section>
 
                             <div className="dpt-side">
-                                <section className="dpt-block" aria-label="Upcoming">
-                                    <h3>Upcoming <span className="dpt-count">{record.upcoming.length}</span></h3>
-                                    {record.upcoming.length === 0 && <p className="dp-hint">None</p>}
+                                <section className="dpt-panel" aria-label="Upcoming">
+                                    <div className="dpt-panel-head">
+                                        <h3>Upcoming <span className="dpt-count">{record.upcoming.length}</span></h3>
+                                        <button type="button" className="dp-btn dp-btn-ghost dp-btn-icon" onClick={() => setAppointPatient(recordPatient)}
+                                            aria-label={`Appoint ${fullName(record.student.first_name, record.student.last_name)}`} title="Appoint"><CalendarClock size={20} aria-hidden="true" /></button>
+                                    </div>
+                                    {record.upcoming.length === 0 && (
+                                        <div className="dpt-empty-in" role="status"><CalendarX size={24} aria-hidden="true" /><span>None</span></div>
+                                    )}
                                     {record.upcoming.map((u) => (
                                         <div key={u.appointment_id} className="dpt-mini">
                                             <div className="dpt-mini-top">
@@ -406,15 +485,24 @@ const DoctorPatients = () => {
                                     ))}
                                 </section>
 
-                                <section className="dpt-block" aria-label="Recent Clinic Visits">
-                                    <h3>Recent Clinic Visits <span className="dpt-count">{record.clinic_visits.length}</span></h3>
-                                    {record.clinic_visits.length === 0 && <p className="dp-hint">None</p>}
-                                    {record.clinic_visits.map((v) => (
-                                        <div key={v.visit_id} className="dpt-mini">
-                                            <strong>{formatDate(v.visit_date)}</strong>
-                                            <span>{v.specify_complaint_text || 'Clinic visit'}{v.assessment ? ` - ${v.assessment}` : ''}</span>
-                                        </div>
-                                    ))}
+                                <section className="dpt-panel" aria-label="Recent Clinic Visits">
+                                    <div className="dpt-panel-head">
+                                        <h3>Recent Clinic Visits <span className="dpt-count">{record.clinic_visits.length}</span></h3>
+                                    </div>
+                                    {record.clinic_visits.length === 0 && (
+                                        <div className="dpt-empty-in" role="status"><CalendarX size={24} aria-hidden="true" /><span>None</span></div>
+                                    )}
+                                    {record.clinic_visits.length > 0 && (
+                                        <ol className="dpt-timeline">
+                                            {record.clinic_visits.map((v) => (
+                                                <li key={v.visit_id}>
+                                                    <strong>{formatDate(v.visit_date)}</strong>
+                                                    <span>{v.specify_complaint_text || 'Clinic visit'}</span>
+                                                    {v.assessment && <small>{v.assessment}</small>}
+                                                </li>
+                                            ))}
+                                        </ol>
+                                    )}
                                 </section>
                             </div>
                         </div>

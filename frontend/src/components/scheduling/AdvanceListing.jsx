@@ -1,8 +1,9 @@
 // AdvanceListing.jsx (first half of the "Listings" tab of the scheduling hub)
-// The advance listing needs no schedule: the nurse opens it with a title (e.g. "Advance listing for next month"), picks the check-up services and the limit
-// of each, and it stays open until a closing time or until she closes it. Students register for one service and get an advance number (A1, A2 ... per
-// service). The overview is a table with one row per check-up service (listed 1/10, requests to review, waiting for a schedule, status) and its actions:
-// open / close the service, view its list, review the requests, configure the limit, add a student, request a schedule. For a service the nurse sends a
+// The advance listing needs no schedule. EVERY check-up service has its own advance listing: the nurse creates one for ONE service with a title (e.g.
+// "Dental advance listing for next month"), a limit and a closing time (or until she closes it). The listings of different services are open at the same
+// time; a service can have a new listing only after its last one is closed and the nurse dropped it. Students register for one service and get an
+// advance number (A1, A2 ... per service). The overview is a table with one row per listing (listed 1/10, requests to review, waiting for a schedule,
+// status) and its actions: open / close it, view its list, review the requests, settings, add a student, request a schedule, drop it. For a service the nurse sends a
 // schedule request to a doctor (it carries the number of waiting students). When the doctor sets the schedule, those students take the first queue numbers
 // of the session and the places left of its listing limit are opened for the students who are not in the advance listing. A service that has a schedule
 // closes here by itself and moves to the Session Listing. The past advance listings stay viewable. The doctor sees the same lists, read only, limited to the check-up services that doctor covers (a dentist only sees Dental).
@@ -53,45 +54,58 @@ const localNow = () => {
 // "1/10" of a service: registered / listing limit
 const listedText = (s) => `${s.registered}/${s.listing_limit || '-'}`;
 
-// The nurse's settings: title, services with a limit each, and how long the listing stays open
-const SettingsModal = ({ isOpen, state, userId, onClose, onSaved }) => {
+// New advance listing (service = null) or the settings of one (service = its row): ONE check-up service per listing, with its own title, limit and
+// closing time. The listings of different services run at the same time; a service can have a new one only when it has none (its last one was dropped).
+const ListingModal = ({ isOpen, state, service, userId, onClose, onSaved }) => {
     const { showAlert } = useAlert();
+    const [visitType, setVisitType] = useState('');
     const [title, setTitle] = useState('');
-    const [picked, setPicked] = useState({});
+    const [limit, setLimit] = useState('30');
     const [until, setUntil] = useState(false);
     const [closesAt, setClosesAt] = useState('');
     const [busy, setBusy] = useState(false);
     const fail = (message) => showAlert(message, 'error');
+    const editing = !!service;
+    const isOpenNow = editing && service.status === 'Open';
+
+    // services a doctor covers that have no current advance listing yet
+    const available = state ? state.eligible.filter((t) => !state.services.some((s) => s.visit_type === t && s.offered)) : [];
 
     useEffect(() => {
         if (!isOpen || !state) return;
-        const next = {};
-        // only services a doctor still covers: an old one (no doctor covers it now) is not in the list, so it must not be sent
-        state.services.filter((s) => s.offered && state.eligible.includes(s.visit_type)).forEach((s) => { next[s.visit_type] = String(s.listing_limit); });
-        // a batch that still runs is opened again with its own title; a new batch (the last one is complete) starts with an empty title
-        setTitle((state.is_open || state.batch_running) && state.listing ? state.listing.title : '');
-        setPicked(next);
-        setUntil(!!state.is_open && !!state.closes_at);
-        setClosesAt(state.is_open && state.closes_at ? String(state.closes_at).replace(' ', 'T').slice(0, 16) : '');
+        if (service) {
+            setVisitType(service.visit_type);
+            setTitle(service.title || '');
+            setLimit(String(service.listing_limit || ''));
+            setUntil(!!service.closes_at);
+            setClosesAt(service.closes_at ? String(service.closes_at).replace(' ', 'T').slice(0, 16) : '');
+        } else {
+            setVisitType(available[0] || '');
+            setTitle('');
+            setLimit('30');
+            setUntil(false);
+            setClosesAt('');
+        }
         setBusy(false);
-    }, [isOpen, state]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen, service]);
 
     if (!state) return null;
-    const registeredOf = (t) => (state.services.find((s) => s.visit_type === t) || {}).registered || 0;
-    const cutoffOf = (t) => (state.services.find((s) => s.visit_type === t) || {}).cutoff || 0;
-    const toggle = (t, on) => setPicked((p) => { const next = { ...p }; if (on) next[t] = next[t] || '30'; else delete next[t]; return next; });
 
     const submit = async (e) => {
         e.preventDefault();
-        const services = Object.entries(picked).map(([visit_type, listing_limit]) => ({ visit_type, listing_limit: Number(listing_limit) }));
+        const value = Number(limit);
+        if (!visitType) { fail('Pick a check-up service.'); return; }
         if (!title.trim()) { fail('Enter a title.'); return; }
-        if (services.length === 0) { fail('Pick at least one check-up service.'); return; }
-        if (services.some((s) => !Number.isInteger(s.listing_limit) || s.listing_limit < 1 || s.listing_limit > 500)) { fail('Each limit must be 1 to 500.'); return; }
+        if (!Number.isInteger(value) || value < 1 || value > 500) { fail('The limit must be 1 to 500.'); return; }
+        if (editing && value < service.registered) { fail(`The limit cannot be below ${service.registered} registered.`); return; }
         if (until && !closesAt) { fail('Pick the closing date and time.'); return; }
         setBusy(true);
         let data;
         try {
-            data = await send('/api/advance-listing', 'PUT', { sender_id: userId, is_open: true, title: title.trim(), closes_at: until ? closesAt : '', services });
+            const body = { sender_id: userId, visit_type: visitType, title: title.trim(), listing_limit: value };
+            if (!editing || isOpenNow) body.closes_at = until ? closesAt : '';
+            data = await send('/api/advance-listing', 'PUT', body);
         } catch (err) {
             data = { message: 'Could not reach the server.' };
         }
@@ -102,102 +116,46 @@ const SettingsModal = ({ isOpen, state, userId, onClose, onSaved }) => {
     return (
         <Modal
             isOpen={isOpen} onClose={onClose} icon={<Settings2 size={20} />} size="md" closeOnBackdrop={false}
-            title={state.is_open ? 'Advance Listing settings' : state.batch_running ? 'Open Advance Listing' : 'New Advance Listing'}
+            title={editing ? `Settings: ${service.visit_type}` : 'New Advance Listing'}
         >
             <form className="dp-form" onSubmit={submit}>
                 <div className="dp-field">
+                    <label htmlFor="adv-service">Check-up service</label>
+                    <select id="adv-service" className="dp-select" value={visitType} disabled={editing} onChange={(e) => setVisitType(e.target.value)}>
+                        {!editing && available.length === 0 && <option value="">No service available</option>}
+                        {editing ? <option value={service.visit_type}>{service.visit_type}</option> : available.map((t) => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                </div>
+                <div className="dp-field">
                     <label htmlFor="adv-title">Title</label>
                     <input
-                        id="adv-title" className="dp-input" type="text" maxLength={120} value={title} placeholder="Advance listing for next month"
+                        id="adv-title" className="dp-input" type="text" maxLength={120} value={title} placeholder="Dental advance listing for next month"
                         onChange={(e) => setTitle(e.target.value)}
                     />
                 </div>
-
-                <fieldset className="dp-field" style={{ border: 0, padding: 0, margin: 0 }}>
-                    <legend style={{ fontWeight: 600, marginBottom: 6 }}>Check-up services and limit</legend>
-                    {state.eligible.length === 0 && <small className="dp-hint">No check-up service available.</small>}
-                    <div className="advance-services-sc">
-                        {state.eligible.map((t) => {
-                            const on = Object.prototype.hasOwnProperty.call(picked, t);
-                            return (
-                                <div key={t} className="advance-service-row-sc">
-                                    <label className="dp-check"><input type="checkbox" checked={on} onChange={(e) => toggle(t, e.target.checked)} /> {t}</label>
-                                    <label className="advance-limit-sc">
-                                        <span>Limit</span>
-                                        <input
-                                            className="dp-input" type="number" min={Math.max(1, registeredOf(t))} max={500} disabled={!on}
-                                            value={on ? picked[t] : ''} aria-label={`Listing limit for ${t}`}
-                                            onChange={(e) => setPicked((p) => ({ ...p, [t]: e.target.value }))}
-                                        />
-                                    </label>
-                                    {registeredOf(t) > 0 && <small className="dp-hint">{registeredOf(t)} registered</small>}
-                                    {!state.is_open && !state.batch_running && cutoffOf(t) > 0 && <small className="dp-hint">{cutoffOf(t)} cut off</small>}
-                                </div>
-                            );
-                        })}
-                    </div>
-                </fieldset>
-
-                <fieldset className="dp-field" style={{ border: 0, padding: 0, margin: 0 }}>
-                    <legend style={{ fontWeight: 600, marginBottom: 6 }}>Stays open</legend>
-                    <label className="dp-check"><input type="radio" name="adv-duration" checked={!until} onChange={() => setUntil(false)} /> Until I close it</label>
-                    <label className="dp-check"><input type="radio" name="adv-duration" checked={until} onChange={() => setUntil(true)} /> Until a date</label>
-                    <input
-                        className="dp-input" type="datetime-local" min={localNow()} disabled={!until} value={closesAt} aria-label="Closing date and time"
-                        onChange={(e) => setClosesAt(e.target.value)}
-                    />
-                </fieldset>
-
-                <div className="dp-modal-foot">
-                    <button type="button" className="dp-btn dp-btn-ghost" onClick={onClose}>Cancel</button>
-                    <button type="submit" className="dp-btn dp-btn-primary" disabled={busy}>{busy ? 'Saving...' : state.is_open ? 'Save' : state.batch_running ? 'Open' : 'Create'}</button>
-                </div>
-            </form>
-        </Modal>
-    );
-};
-
-// The limit of one service
-const LimitModal = ({ isOpen, service, userId, onClose, onSaved }) => {
-    const { showAlert } = useAlert();
-    const [limit, setLimit] = useState('');
-    const [busy, setBusy] = useState(false);
-    const fail = (message) => showAlert(message, 'error');
-
-    useEffect(() => {
-        if (!isOpen || !service) return;
-        setLimit(String(service.listing_limit || ''));
-        setBusy(false);
-    }, [isOpen, service]);
-
-    if (!service) return null;
-
-    const submit = async (e) => {
-        e.preventDefault();
-        const value = Number(limit);
-        if (!Number.isInteger(value) || value < 1 || value > 500) { fail('The limit must be 1 to 500.'); return; }
-        if (value < service.registered) { fail(`The limit cannot be below ${service.registered} registered.`); return; }
-        setBusy(true);
-        let data;
-        try {
-            data = await send(`/api/advance-listing/services/${encodeURIComponent(service.visit_type)}`, 'PUT', { sender_id: userId, listing_limit: value });
-        } catch (err) {
-            data = { message: 'Could not reach the server.' };
-        }
-        setBusy(false);
-        if (data.success) { showAlert(data.message, 'success'); onSaved(); onClose(); } else fail(data.message || 'Could not change the limit.');
-    };
-
-    return (
-        <Modal isOpen={isOpen} onClose={onClose} title={`Limit: ${service.visit_type}`} icon={<SlidersHorizontal size={20} />} size="sm" closeOnBackdrop={false}>
-            <form className="dp-form" onSubmit={submit}>
                 <div className="dp-field">
-                    <label htmlFor="adv-limit">Limit ({service.registered} registered)</label>
-                    <input id="adv-limit" className="dp-input" type="number" min={Math.max(1, service.registered)} max={500} value={limit} onChange={(e) => setLimit(e.target.value)} />
+                    <label htmlFor="adv-limit">Limit{editing && service.registered > 0 ? ` (${service.registered} registered)` : ''}</label>
+                    <input
+                        id="adv-limit" className="dp-input" type="number" min={Math.max(1, editing ? service.registered : 1)} max={500} value={limit}
+                        onChange={(e) => setLimit(e.target.value)}
+                    />
                 </div>
+
+                {(!editing || isOpenNow) && (
+                    <fieldset className="dp-field" style={{ border: 0, padding: 0, margin: 0 }}>
+                        <legend style={{ fontWeight: 600, marginBottom: 6 }}>Stays open</legend>
+                        <label className="dp-check"><input type="radio" name="adv-duration" checked={!until} onChange={() => setUntil(false)} /> Until I close it</label>
+                        <label className="dp-check"><input type="radio" name="adv-duration" checked={until} onChange={() => setUntil(true)} /> Until a date</label>
+                        <input
+                            className="dp-input" type="datetime-local" min={localNow()} disabled={!until} value={closesAt} aria-label="Closing date and time"
+                            onChange={(e) => setClosesAt(e.target.value)}
+                        />
+                    </fieldset>
+                )}
+
                 <div className="dp-modal-foot">
                     <button type="button" className="dp-btn dp-btn-ghost" onClick={onClose}>Cancel</button>
-                    <button type="submit" className="dp-btn dp-btn-primary" disabled={busy}>{busy ? 'Saving...' : 'Save'}</button>
+                    <button type="submit" className="dp-btn dp-btn-primary" disabled={busy || (!editing && available.length === 0)}>{busy ? 'Saving...' : editing ? 'Save' : 'Create'}</button>
                 </div>
             </form>
         </Modal>
@@ -273,10 +231,9 @@ const AdvanceListing = ({ isNurse, doctors, nurseId, userId, refreshKey, onChang
     const [servicePage, setServicePage] = useState(1);
     const [pastPage, setPastPage] = useState(1);
     const [search, setSearch] = useState('');
-    const [settingsOpen, setSettingsOpen] = useState(false);
-    const [dropOpen, setDropOpen] = useState(false);
+    const [listingFor, setListingFor] = useState(null); // undefined/null = closed, 'new' = create, a service row = its settings
+    const [dropFor, setDropFor] = useState(null); // the service row to drop
     const [addFor, setAddFor] = useState(null); // service name to preset ('' = none) while the add modal is open
-    const [limitFor, setLimitFor] = useState(null);
     const [requestPreset, setRequestPreset] = useState(null);
     // services that already have a pending schedule request: asking again is disabled (no double request)
     const pendingRequests = usePendingScheduleRequests(`${refreshKey}-${requestPreset ? 'open' : 'closed'}`);
@@ -349,7 +306,7 @@ const AdvanceListing = ({ isNurse, doctors, nurseId, userId, refreshKey, onChang
     const moveCutoff = async (list) => {
         if (list.length === 0) return;
         if (!state.is_open) { showAlert('Open an advance listing first.', 'warning'); return; }
-        if (!(await showConfirm(list.length === 1 ? 'Move this student to the open advance listing?' : `Move ${list.length} students to the open advance listing?`, { title: 'Move students', confirmLabel: 'Move' }))) return;
+        if (!(await showConfirm(list.length === 1 ? 'Move this student to the open advance listing of the service?' : `Move ${list.length} students to the open advance listings of their services?`, { title: 'Move students', confirmLabel: 'Move' }))) return;
         setBusy(true);
         try {
             const data = await send('/api/advance-listing/cutoff/move', 'PUT', { sender_id: userId, entry_ids: list.map((e) => e.entry_id) });
@@ -362,36 +319,19 @@ const AdvanceListing = ({ isNurse, doctors, nurseId, userId, refreshKey, onChang
         }
     };
 
-    // the slider of the whole listing: closing asks first, opening again goes through the settings (title, services, limits)
-    const switchListing = async () => {
-        if (!state.is_open) { setSettingsOpen(true); return; }
-        if (!(await showConfirm('Close registration? Registered students keep their number.', { title: 'Close advance listing', confirmLabel: 'Close', danger: true }))) return;
-        closeListing();
-    };
-
-    const closeListing = async () => {
-        setBusy(true);
-        try {
-            const data = await send('/api/advance-listing', 'PUT', { sender_id: userId, is_open: false });
-            if (data.success) { showAlert(data.message, 'success'); changed(); } else showAlert(data.message || 'Could not close the advance listing.', 'error');
-        } catch (e) {
-            showAlert('Could not reach the server.', 'error');
-        } finally {
-            setBusy(false);
-        }
-    };
-
-    // drop the current advance listing: it moves to the past advance listings (every check-up service must be closed first)
-    const askDrop = () => {
-        if (state.is_open || openServices.length > 0) { showAlert('Close the advance listing first. Only a closed or done listing can be dropped.', 'warning'); return; }
-        setDropOpen(true);
+    // drop the advance listing of one service: as soon as it is closed (it moves to the past advance listings)
+    const askDrop = (svc) => {
+        if (!svc.offered) { showAlert('This service has no advance listing.', 'warning'); return; }
+        if (!svc.can_drop) { showAlert('Close the listing first. A closed listing can be dropped.', 'warning'); return; }
+        setDropFor(svc);
     };
 
     const dropListing = async () => {
-        setDropOpen(false);
+        const svc = dropFor;
+        setDropFor(null);
         setBusy(true);
         try {
-            const data = await send('/api/advance-listing/drop', 'PUT', { sender_id: userId });
+            const data = await send('/api/advance-listing/drop', 'PUT', { sender_id: userId, visit_type: svc.visit_type });
             if (data.success) { showAlert(data.message, 'success'); setPanel('current'); changed(); } else showAlert(data.message || 'Could not drop the advance listing.', 'error');
         } catch (e) {
             showAlert('Could not reach the server.', 'error');
@@ -402,7 +342,7 @@ const AdvanceListing = ({ isNurse, doctors, nurseId, userId, refreshKey, onChang
 
     const toggleService = async (svc) => {
         const closing = svc.status === 'Open';
-        if (!(await showConfirm(`${closing ? 'Close' : 'Open'} the ${svc.visit_type} advance listing?`, { title: closing ? 'Close service' : 'Open service', confirmLabel: closing ? 'Close' : 'Open', danger: closing }))) return;
+        if (!(await showConfirm(`${closing ? 'Close' : 'Open'} the ${svc.visit_type} advance listing${closing ? '? Registered students keep their number.' : '?'}`, { title: closing ? 'Close service' : 'Open service', confirmLabel: closing ? 'Close' : 'Open', danger: closing }))) return;
         setBusy(true);
         try {
             const data = await send(`/api/advance-listing/services/${encodeURIComponent(svc.visit_type)}`, 'PUT', { sender_id: userId, is_open: svc.status !== 'Open' });
@@ -450,14 +390,12 @@ const AdvanceListing = ({ isNurse, doctors, nurseId, userId, refreshKey, onChang
     if (loading) return <div className="loading-dv">Loading the advance listing...</div>;
     if (!state) return <div className="group-empty-ds">The advance listing could not be loaded.</div>;
 
-    // one advance listing at a time: it stays the current one, even when done, until the nurse drops it (then it is in the past advance listings)
-    const hasCurrent = !!state.batch_current;
-    const listingDone = hasCurrent && state.batch_complete;
-    const openServices = state.services.filter((s) => s.offered && s.status === 'Open').map((s) => s.visit_type);
+    // one advance listing per service: it stays the current one of its service, even when done, until the nurse drops it (then it is in the past advance listings)
     const shownServices = state.services.filter((s) => visible(s.visit_type));
-    const listServices = shownServices.filter((s) => s.offered || s.waiting > 0 || s.pending > 0 || s.cutoff > 0);
+    // a dropped listing leaves the table (its cut off students stay under the Cut off students button)
+    const listServices = shownServices.filter((s) => s.offered);
     const cutoffCount = shownServices.reduce((n, s) => n + s.cutoff, 0);
-    const offeredAny = shownServices.some((s) => s.offered);
+    const canCreate = state.eligible.some((t) => !state.services.some((s) => s.visit_type === t && s.offered));
     // students are listed at once now (no reason, no review); the review tab only shows for requests that were sent before and are still unanswered
     const hasReview = isNurse && shownServices.some((s) => s.pending > 0);
     const currentService = service === 'all' ? null : shownServices.find((s) => s.visit_type === service) || null;
@@ -467,7 +405,7 @@ const AdvanceListing = ({ isNurse, doctors, nurseId, userId, refreshKey, onChang
         <>
             <div className="list-head-sc">
                 <button type="button" className="icon-btn-ds" onClick={backToOverview} title="Back" aria-label="Back to the advance listing"><ArrowLeft size={16} /></button>
-                <h3>{service !== 'all' ? `${service}: ` : ''}{pastListing ? `${pastListing.title} (past)` : state.listing ? state.listing.title : 'Advance listing'}</h3>
+                <h3>{pastListing ? `${pastListing.title} (past)` : currentService && currentService.title ? currentService.title : `${service !== 'all' ? `${service}: ` : ''}Advance listings`}</h3>
             </div>
             <div className="toolbar-sc">
                 <div className="search-box-dv" style={{ width: 260 }}>
@@ -579,31 +517,30 @@ const AdvanceListing = ({ isNurse, doctors, nurseId, userId, refreshKey, onChang
     );
 
     // ---- the overview (first view): the title, the status and one table row per check-up service ----
-    const currentPanel = !hasCurrent ? (
+    const currentPanel = listServices.length === 0 ? (
         <div className="group-empty-ds">
-            <p>No current advance listing.</p>
-            {isNurse && (
-                <button type="button" className="icon-btn-ds" onClick={() => setSettingsOpen(true)} title="New advance listing" aria-label="Create a new advance listing"><Plus size={16} /></button>
+            <p>No advance listing.</p>
+            {isNurse && canCreate && (
+                <button type="button" className="icon-btn-ds" onClick={() => setListingFor('new')} title="New advance listing" aria-label="Create a new advance listing"><Plus size={16} /></button>
             )}
-        </div>
-    ) : listServices.length === 0 ? (
-        <div className="group-empty-ds">
-            {!offeredAny && !shownServices.some((s) => s.registered > 0) ? 'No check-up service set.' : 'Nobody is waiting.'}
         </div>
     ) : (
         <div className="table-card-dv">
             <table className="sti-table-dv">
                 <caption className="sr-only">Check-up services of the advance listing</caption>
                 <thead>
-                    <tr><th>Check-up service</th><th>Listed</th>{hasReview && <th>To review</th>}<th>Cut off</th><th>Numbers left</th><th>Status</th><th>Actions</th></tr>
+                    <tr><th>Advance listing</th><th>Listed</th>{hasReview && <th>To review</th>}<th>Cut off</th><th>Numbers left</th><th>Status</th><th>Actions</th></tr>
                 </thead>
                 <tbody>
                     {pageOf(listServices, Math.min(servicePage, pageCountOf(listServices.length))).map((s) => {
                         const isDone = s.status === 'Done';
-                        const canSwitch = isNurse && s.offered && state.is_open && !s.scheduled && !isDone;
+                        const canSwitch = isNurse && s.offered && !s.scheduled && !isDone;
                         return (
                             <tr key={s.visit_type}>
-                                <td><strong>{s.visit_type}</strong>{!s.offered && <div className="muted-ds">Not offered</div>}</td>
+                                <td>
+                                    <strong>{s.title || s.visit_type}</strong>
+                                    <div className="muted-ds">{s.offered ? `${s.visit_type}${s.status === 'Open' && s.closes_at ? ` - until ${formatDateTime(s.closes_at)}` : ''}` : `${s.visit_type} - no listing`}</div>
+                                </td>
                                 <td>
                                     <span className="advance-count-sc">{listedText(s)}</span>
                                     {s.listing_full && <div className="muted-ds">Full</div>}
@@ -625,7 +562,7 @@ const AdvanceListing = ({ isNurse, doctors, nurseId, userId, refreshKey, onChang
                                         {isNurse && (
                                             <button
                                                 type="button" role="switch" aria-checked={s.status === 'Open'} className="switch-sc" disabled={busy || isDone} aria-disabled={!canSwitch}
-                                                onClick={warnIf(!canSwitch ? (s.scheduled ? 'This service has a schedule. Use the Session Listing.' : s.status === 'Done' ? 'This service is done.' : !s.offered ? 'This service is not offered.' : 'The advance listing is closed. Open it first.') : '', () => toggleService(s))}
+                                                onClick={warnIf(!canSwitch ? (s.scheduled ? 'This service has a schedule. Use the Session Listing.' : s.status === 'Done' ? 'This listing is done. Drop it to create a new one.' : 'This service has no advance listing.') : '', () => toggleService(s))}
                                                 aria-label={`${s.visit_type} advance listing: ${s.status === 'Open' ? 'open' : 'closed'}`}
                                                 title={s.status === 'Open' ? 'Close' : 'Open'}
                                             >
@@ -643,7 +580,7 @@ const AdvanceListing = ({ isNurse, doctors, nurseId, userId, refreshKey, onChang
                                                         <ClipboardCheck size={15} />
                                                     </button>
                                                 )}
-                                                <button type="button" className="icon-btn-ds" disabled={isDone} aria-disabled={!s.offered || s.scheduled} title="Limit" aria-label={`Configure the listing limit of ${s.visit_type}`} onClick={warnIf(s.scheduled ? 'This service has a schedule. Use the Session Listing.' : !s.offered ? 'This service is not offered.' : '', () => setLimitFor(s))}><SlidersHorizontal size={15} /></button>
+                                                <button type="button" className="icon-btn-ds" disabled={isDone} aria-disabled={!s.offered || s.scheduled} title="Settings" aria-label={`Settings of the ${s.visit_type} advance listing`} onClick={warnIf(s.scheduled ? 'This service has a schedule. Use the Session Listing.' : !s.offered ? 'This service has no advance listing.' : '', () => setListingFor(s))}><SlidersHorizontal size={15} /></button>
                                                 <button type="button" className="icon-btn-ds" disabled={isDone} aria-disabled={!s.offered || s.scheduled} title="Add a student" aria-label={`Add a student to ${s.visit_type}`} onClick={warnIf(s.scheduled ? 'This service has a schedule. Add the student in the Session Listing.' : !s.offered ? 'This service is not offered.' : '', () => setAddFor(s.visit_type))}><UserPlus size={15} /></button>
                                                 {(() => {
                                                     const asked = pendingRequests.advanceServices.has(s.visit_type);
@@ -653,6 +590,10 @@ const AdvanceListing = ({ isNurse, doctors, nurseId, userId, refreshKey, onChang
                                                             title={asked ? 'Schedule already requested' : 'Request a schedule'} onClick={warnIf(why, () => requestSchedule(s))}><Send size={15} /></button>
                                                     );
                                                 })()}
+                                                <button
+                                                    type="button" className="icon-btn-ds" disabled={busy} aria-disabled={!s.can_drop} title="Drop" aria-label={`Drop the ${s.visit_type} advance listing`}
+                                                    onClick={() => askDrop(s)}
+                                                ><Archive size={15} /></button>
                                             </>
                                         )}
                                     </div>
@@ -701,43 +642,24 @@ const AdvanceListing = ({ isNurse, doctors, nurseId, userId, refreshKey, onChang
         <>
             <div className="notify-bar-sc advance-head-sc" role="status">
                 <div>
-                    <strong className="advance-title-sc">{hasCurrent ? state.listing.title : 'No current advance listing'}</strong>
+                    <strong className="advance-title-sc">Advance listings</strong>
                     <div className="advance-note-sc">
-                        {listingDone && <span className="badge-ds badge-closed-ds">Done</span>}
-                        {hasCurrent && !listingDone && isNurse && (
-                            <button
-                                type="button" role="switch" aria-checked={!!state.is_open} className="switch-sc" disabled={busy} onClick={switchListing}
-                                aria-label={`Advance listing: ${state.is_open ? 'open' : 'closed'}`} title={state.is_open ? 'Close' : 'Open'}
-                            >
-                                <span className="switch-track-sc" aria-hidden="true" />
-                                <span>{state.is_open ? 'Open' : 'Closed'}</span>
-                            </button>
-                        )}
-                        {hasCurrent && !listingDone && !isNurse && <span className={`badge-ds ${state.is_open ? 'badge-open-ds' : 'badge-closed-ds'}`}>{state.is_open ? 'Open' : 'Closed'}</span>}
-                        {hasCurrent && state.is_open && state.closes_at && <span className="muted-ds">Until {formatDateTime(state.closes_at)}</span>}
-                        {hasCurrent && <span className="muted-ds">{state.batch_done_services}/{state.batch_services} done</span>}
+                        <span className="muted-ds">{state.services.filter((x) => x.offered && x.status === 'Open').length} open - {state.services.filter((x) => x.offered).length} total</span>
                     </div>
                 </div>
                 <div className="advance-actions-sc">
                     {isNurse && (
-                        <>
-                            {hasCurrent && state.is_open && (
-                                <button type="button" className="icon-btn-ds" onClick={() => setSettingsOpen(true)} title="Settings" aria-label="Advance listing settings"><Settings2 size={16} /></button>
-                            )}
-                            {hasCurrent && (
-                                <button type="button" className="icon-btn-ds" aria-disabled={state.is_open || openServices.length > 0} disabled={busy} onClick={askDrop} title="Drop" aria-label="Drop the current advance listing"><Archive size={16} /></button>
-                            )}
-                            {!hasCurrent && (
-                                <button type="button" className="icon-btn-ds" onClick={() => setSettingsOpen(true)} title="New advance listing" aria-label="Create a new advance listing"><Plus size={16} /></button>
-                            )}
-                        </>
+                        <button
+                            type="button" className="icon-btn-ds" aria-disabled={!canCreate} onClick={warnIf(!canCreate ? 'Every check-up service has an advance listing. Drop a done one to create a new one.' : '', () => setListingFor('new'))}
+                            title="New advance listing" aria-label="Create a new advance listing"
+                        ><Plus size={16} /></button>
                     )}
                     <button type="button" className="icon-btn-ds" title="Refresh" aria-label="Refresh" onClick={load}><RefreshCw size={15} /></button>
                 </div>
             </div>
 
             <div className="status-chips-sc" role="group" aria-label="Advance listings" style={{ marginBottom: 14 }}>
-                <button type="button" className={`status-chip-sc ${panel === 'current' ? 'active-sc' : ''}`} aria-pressed={panel === 'current'} onClick={() => setPanel('current')}>Current listing</button>
+                <button type="button" className={`status-chip-sc ${panel === 'current' ? 'active-sc' : ''}`} aria-pressed={panel === 'current'} onClick={() => setPanel('current')}>Current listings</button>
                 <button type="button" className={`status-chip-sc ${panel === 'past' ? 'active-sc' : ''}`} aria-pressed={panel === 'past'} onClick={() => setPanel('past')}>Past advance listings <em>{history.length}</em></button>
                 <button type="button" className="status-chip-sc" onClick={() => openList(null, 'all', 'cutoff')}>Cut off students <em>{cutoffCount}</em></button>
             </div>
@@ -751,11 +673,13 @@ const AdvanceListing = ({ isNurse, doctors, nurseId, userId, refreshKey, onChang
             {viewing ? listView : overview}
 
             <ConfirmModal
-                isOpen={dropOpen} danger title="Drop advance listing" confirmLabel="Drop" onCancel={() => setDropOpen(false)} onConfirm={dropListing}
-                message={`Drop "${state.listing ? state.listing.title : ''}"? Waiting students go to the Cut off list.`}
+                isOpen={!!dropFor} danger title="Drop advance listing" confirmLabel="Drop" onCancel={() => setDropFor(null)} onConfirm={dropListing}
+                message={dropFor ? `Drop "${dropFor.title || dropFor.visit_type}" (${dropFor.visit_type})?${dropFor.waiting > 0 ? ' Waiting students go to the Cut off list.' : ''}` : ''}
             />
-            <SettingsModal isOpen={settingsOpen} state={state} userId={userId} onClose={() => setSettingsOpen(false)} onSaved={changed} />
-            <LimitModal isOpen={!!limitFor} service={limitFor ? state.services.find((s) => s.visit_type === limitFor.visit_type) || limitFor : null} userId={userId} onClose={() => setLimitFor(null)} onSaved={changed} />
+            <ListingModal
+                isOpen={!!listingFor} state={state} userId={userId} onClose={() => setListingFor(null)} onSaved={changed}
+                service={listingFor && listingFor !== 'new' ? state.services.find((x) => x.visit_type === listingFor.visit_type) || listingFor : null}
+            />
             <AddStudentModal isOpen={addFor !== null} state={state} presetService={addFor || ''} userId={userId} onClose={() => setAddFor(null)} onSaved={changed} />
             <ScheduleRequestModal
                 isOpen={!!requestPreset} preset={requestPreset} doctors={doctors} nurseId={nurseId} userId={userId}

@@ -208,7 +208,41 @@ const ChangeBadge = ({ row, badWhenUp = true }) => {
   return <span className={`ra-badge ${up === badWhenUp ? 'bad' : 'good'}`}>{up ? '▲ +' : '▼ '}{row.delta}</span>;
 };
 
+// stock thresholds set per medicine in Medicine Inventory: "5 / 10 / 20"
+const thresholdText = (m) => [m.criticalLevel, m.lowLevel, m.adequateLevel].map((n) => n ?? '—').join(' / ');
 const StatusPill = ({ status }) => <span className={`ra-pill ${status.toLowerCase().replace(/\s+/g, '-')}`}>{status}</span>;
+
+// "Quantity to request" comes in three separate sections; the screen and the PDF share this list
+const qtyText = (qty, unit) => `${qty} ${unit}`;
+const REQUEST_SECTIONS = [
+  {
+    key: 'expiry',
+    title: 'Expiring soon / expired',
+    note: 'Replace stock that expires or already expired',
+    empty: 'No stock is expiring soon or expired.',
+    columns: ['Medicine', 'Expiring soon', 'Expired', 'Nearest expiry', 'Quantity to request'],
+    pick: (m) => m.expiryRestock > 0,
+    cells: (m) => [m.name, m.expiringStock ? qtyText(m.expiringStock, m.unit) : '—', m.expiredStock ? qtyText(m.expiredStock, m.unit) : '—', m.nearestExpiry ? formatDate(m.nearestExpiry) : '—', qtyText(m.expiryRestock, m.unit)]
+  },
+  {
+    key: 'threshold',
+    title: 'Stock threshold',
+    note: 'Restock up to the adequate level',
+    empty: 'Every medicine is at or above its adequate level.',
+    columns: ['Medicine', 'Status', 'Current stock', 'Threshold (Critical / Low / Adequate)', 'Quantity to request'],
+    pick: (m) => m.thresholdRestock > 0,
+    cells: (m) => [m.name, m.status, qtyText(m.stock, m.unit), thresholdText(m), qtyText(m.thresholdRestock, m.unit)]
+  },
+  {
+    key: 'forecast',
+    title: '30-day forecast',
+    note: 'Forecast demand minus current stock',
+    empty: 'Current stock covers the 30-day forecast.',
+    columns: ['Medicine', 'Current stock', 'Forecast (30 days)', 'Quantity to request'],
+    pick: (m) => m.suggestedRestock > 0,
+    cells: (m) => [m.name, qtyText(m.stock, m.unit), qtyText(m.forecast30d, m.unit), qtyText(m.suggestedRestock, m.unit)]
+  }
+];
 
 const ServiceGroup = ({ title, items, emptyText, color }) => (
   <Panel title={title} note={`${sum(items)} total`}>
@@ -394,14 +428,12 @@ const ReportsAnalytics = () => {
       },
       inventory: {
         details: [['Stock as of', formatCurrentDate(new Date())], ['Medicines', inventory.summary.total], ['Adequate', inventory.summary.adequate], ['Low', inventory.summary.low], ['Critical', inventory.summary.critical], ['Out of stock', inventory.summary.out], ['Expiring soon', inventory.summary.expiring], ['Expired', inventory.summary.expired]],
-        sections: [
-          {
-            heading: 'Medicines to request',
-            columns: ['Medicine', 'Status', 'Current stock', 'Forecast (30 days)', 'Quantity to request', 'Expiring soon', 'Expired', 'Nearest expiry'],
-            rows: inventory.attention.map((m) => [m.name, m.status, `${m.stock} ${m.unit}`, `${m.forecast30d} ${m.unit}`, m.suggestedRestock > 0 ? `${m.suggestedRestock} ${m.unit}` : 'None', m.expiringStock, m.expiredStock, m.nearestExpiry ? formatDate(m.nearestExpiry) : '—']),
-            emptyText: 'Every medicine is adequately stocked and in date.'
-          }
-        ]
+        sections: REQUEST_SECTIONS.map((s) => ({
+          heading: `Quantity to request: ${s.title}`,
+          columns: s.columns,
+          rows: inventory.attention.filter(s.pick).map(s.cells),
+          emptyText: s.empty
+        }))
       }
     };
 
@@ -641,29 +673,31 @@ const ReportsAnalytics = () => {
         <Kpi icon={Boxes} label="Expired" tone="red" value={v(inventory.summary.expired)} />
       </div>
 
-      <Panel title="Medicines to request" note="Forecast for 30 days minus the stock in inventory">
-        <Table
-          columns={['Medicine', 'Status', 'Current stock', 'Forecast (30 days)', 'Quantity to request', 'Expiring soon', 'Expired', 'Nearest expiry']}
-          isEmpty={inventory.attention.length === 0}
-          empty="Every medicine is adequately stocked and in date."
-        >
-          {inventory.attention.map((m) => (
-            <tr key={m.name}>
-              <td>{m.name}</td>
-              <td><StatusPill status={m.status} /></td>
-              <td className="nowrap">{m.stock} {m.unit}</td>
-              <td className="nowrap">{m.forecast30d} {m.unit}</td>
-              <td className="nowrap"><strong>{m.suggestedRestock > 0 ? `${m.suggestedRestock} ${m.unit}` : 'None'}</strong></td>
-              <td>{m.expiringStock || '—'}</td>
-              <td>{m.expiredStock || '—'}</td>
-              <td className="nowrap">{m.nearestExpiry ? formatDate(m.nearestExpiry) : '—'}</td>
-            </tr>
-          ))}
-        </Table>
-        <div className="ra-panel-foot">
-          <Link to="/MedicineInventory" className="ra-link">Open Medicine Inventory</Link>
-        </div>
-      </Panel>
+      {REQUEST_SECTIONS.map((s) => {
+        const rows = inventory.attention.filter(s.pick);
+        return (
+          <Panel key={s.key} title={`Quantity to request: ${s.title}`} note={s.note}>
+            <Table columns={s.columns} isEmpty={rows.length === 0} empty={s.empty}>
+              {rows.map((m) => {
+                const cells = s.cells(m);
+                return (
+                  <tr key={m.name}>
+                    {cells.map((c, i) => (
+                      <td key={s.columns[i]} className={i === 0 ? undefined : 'nowrap'}>
+                        {c === m.status && s.columns[i] === 'Status' ? <StatusPill status={m.status} />
+                          : i === cells.length - 1 ? <strong>{c}</strong> : c}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+            </Table>
+          </Panel>
+        );
+      })}
+      <div className="ra-panel-foot">
+        <Link to="/MedicineInventory" className="ra-link">Open Medicine Inventory</Link>
+      </div>
     </>
   );
 

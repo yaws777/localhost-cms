@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useRecordSync } from '../../hooks/useRecordSync';
 import { Activity, AlertTriangle, CheckCircle2, ClipboardList, HeartPulse, Pencil, Scale, Stethoscope } from 'lucide-react';
 import { formatDate } from '../../utils/datetime';
-import { hasVitals, vitalsLine, inVitalsOf, VITAL_FIELDS, vitalStatusLabel } from '../../utils/vitals';
+import { hasVitals, inVitalsOf, VITAL_FIELDS, vitalStatusLabel } from '../../utils/vitals';
 import { dispensedLine } from '../../utils/dispensed';
 import HealthProofList from './HealthProofList';
 import '../../styles/common/HealthInfoView.css';
@@ -122,6 +122,79 @@ function ResultBadge({ abnormal, text = 'Not normal' }) {
 }
 
 const API = 'http://localhost:3001';
+
+// "1. Brush. 2. Rinse." -> ['Brush.', 'Rinse.']; null when the text is not a numbered list
+const numberedSteps = (text) => {
+    const parts = String(text || '').split(/\s*(?:^|\s)\d{1,2}[.)]\s+/).map((p) => p.trim()).filter(Boolean);
+    return /^\s*\d{1,2}[.)]\s/.test(String(text || '')) && parts.length >= 2 ? parts : null;
+};
+
+// Remarks text -> { play, points }. Sentences that only qualify the one before ("Not normal ...", "This is ...") join it.
+const remarkPoints = (text) => {
+    const sentences = String(text || '').split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
+    const merged = [];
+    sentences.forEach((s) => {
+        if (merged.length && /^(Not normal|Normal|This is)\b/.test(s)) merged[merged.length - 1] += ` ${s}`;
+        else merged.push(s);
+    });
+    let play = null;
+    if (merged.length && /(allowed to play|allowed with|restrict)/i.test(merged[0])) play = merged.shift();
+    return { play, points: merged };
+};
+
+function PlayNote({ text }) {
+    const tone = /not allowed/i.test(text) ? 'critical' : /restrict|with/i.test(text) ? 'low' : 'ok';
+    const Icon = tone === 'ok' ? CheckCircle2 : AlertTriangle;
+    return <p className={`hiv-play hiv-play-${tone}`} role="note"><Icon size={18} aria-hidden="true" /> <span>{text}</span></p>;
+}
+
+function Remarks({ text }) {
+    if (!filled(text)) return null;
+    const { play, points } = remarkPoints(text);
+    return (
+        <div className="hiv-remarks">
+            {play && <PlayNote text={play} />}
+            {points.length > 0 && (
+                <ul className="hiv-points">
+                    {points.map((p, i) => <li key={i}>{p}</li>)}
+                </ul>
+            )}
+        </div>
+    );
+}
+
+// the four vital signs of a check-up as small tiles, status in words and colour
+function VitalTiles({ values }) {
+    const shown = VITAL_FIELDS.filter((f) => filled(values[f.key]));
+    return (
+        <div className="hiv-tiles">
+            {shown.map((f) => {
+                const status = vitalStatusLabel(f.key, values[f.key]);
+                const bad = !!status && status !== 'Normal';
+                return (
+                    <div key={f.key} className={`hiv-tile${bad ? ' hiv-tile-bad' : ''}`}>
+                        <span className="hiv-tile-k">{f.key === 'blood_pressure' ? 'BP' : f.label}</span>
+                        <span className="hiv-tile-v">{values[f.key]}<small> {f.unit}</small></span>
+                        {status && <span className="hiv-tile-s">{bad ? <AlertTriangle size={14} aria-hidden="true" /> : <CheckCircle2 size={14} aria-hidden="true" />} {status}</span>}
+                    </div>
+                );
+            })}
+        </div>
+    );
+}
+
+function TextBlock({ label, value, steps }) {
+    if (!filled(value)) return null;
+    const list = steps ? numberedSteps(value) : null;
+    return (
+        <div className="hiv-block">
+            <span className="hiv-block-k">{label}</span>
+            {list
+                ? <ol className="hiv-steps">{list.map((s, i) => <li key={i}>{s}</li>)}</ol>
+                : <p className="hiv-block-v">{value}</p>}
+        </div>
+    );
+}
 
 const changeText = (now, before, unit) => {
     if (now == null || before == null) return '';
@@ -318,19 +391,18 @@ export default function HealthInfoView({ studentId, healthInfo, healthProofs, sh
                     ) : (
                         <div className="hiv-card-grid">
                             {checkups.map((c) => (
-                                <article key={c.visit_type} className="hiv-card">
+                                <article key={c.visit_type} className="hiv-card hiv-card-wide">
                                     <header className="hiv-card-head">
                                         <strong>{c.visit_type}</strong>
+                                        {c.date && <span className="hiv-badge hiv-badge-neutral">{formatDate(c.date)}</span>}
                                     </header>
-                                    <p className="hiv-date">{[c.doctor_name, c.date ? formatDate(c.date) : ''].filter(Boolean).join(', ')}</p>
-                                    <dl className="hiv-list">
-                                        {hasVitals(inVitalsOf(c)) && <div className="hiv-row"><dt>Vital signs</dt><dd>{vitalsLine(inVitalsOf(c))}</dd></div>}
-                                        {filled(c.chief_complaint) && <div className="hiv-row"><dt>Complaint</dt><dd>{c.chief_complaint}</dd></div>}
-                                        {filled(c.clinical_findings) && <div className="hiv-row"><dt>Findings</dt><dd>{c.clinical_findings}</dd></div>}
-                                        {filled(c.diagnosis) && <div className="hiv-row"><dt>Diagnosis</dt><dd>{c.diagnosis}</dd></div>}
-                                        {filled(c.treatment_recommendations) && <div className="hiv-row"><dt>Plan</dt><dd>{c.treatment_recommendations}</dd></div>}
-                                        {dispensedLine(c) && <div className="hiv-row"><dt>Medicine</dt><dd>{dispensedLine(c)}</dd></div>}
-                                    </dl>
+                                    {filled(c.doctor_name) && <p className="hiv-date">{c.doctor_name}</p>}
+                                    {hasVitals(inVitalsOf(c)) && <VitalTiles values={inVitalsOf(c)} />}
+                                    <TextBlock label="Complaint" value={c.chief_complaint} />
+                                    <TextBlock label="Findings" value={c.clinical_findings} />
+                                    <TextBlock label="Diagnosis" value={c.diagnosis} />
+                                    <TextBlock label="Plan" value={c.treatment_recommendations} steps />
+                                    <TextBlock label="Medicine" value={dispensedLine(c)} />
                                 </article>
                             ))}
                         </div>
@@ -347,21 +419,22 @@ export default function HealthInfoView({ studentId, healthInfo, healthProofs, sh
                 ) : (
                     <div className="hiv-card-grid">
                         {screenings.map((s) => (
-                            <article key={s.screening_type} className={`hiv-card${s.is_bmi ? ' hiv-card-bmi' : ''}`}>
+                            <article key={s.screening_type} className={`hiv-card hiv-card-wide${s.is_bmi ? ' hiv-card-bmi' : ''}`}>
                                 <header className="hiv-card-head">
                                     <strong>{s.screening_type}</strong>
                                     <ResultBadge abnormal={s.is_abnormal} />
                                 </header>
-                                <p className="hiv-date">{s.date ? formatDate(s.date) : ''}</p>
-                                <dl className="hiv-list">
+                                {s.date && <p className="hiv-date">{formatDate(s.date)}</p>}
+                                <div className="hiv-tiles">
                                     {s.items.map((it) => (
-                                        <div key={it.label} className="hiv-row">
-                                            <dt>{it.label}</dt>
-                                            <dd>{it.value}{it.note ? ` (${it.note})` : ''}</dd>
+                                        <div key={it.label} className={`hiv-tile${it.abnormal ? ' hiv-tile-bad' : ''}`}>
+                                            <span className="hiv-tile-k">{it.label}</span>
+                                            <span className="hiv-tile-v">{it.value}</span>
+                                            {it.note && <span className="hiv-tile-s">{it.abnormal ? <AlertTriangle size={14} aria-hidden="true" /> : <CheckCircle2 size={14} aria-hidden="true" />} {it.note}</span>}
                                         </div>
                                     ))}
-                                </dl>
-                                {s.remarks && <p className="hiv-remarks">{s.remarks}</p>}
+                                </div>
+                                <Remarks text={s.remarks} />
                             </article>
                         ))}
                     </div>

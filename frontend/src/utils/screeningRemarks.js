@@ -63,80 +63,105 @@ export const bloodPressureLabel = (fields, answers) => {
 
 export const PLAY_STATUS_LABELS = { ALLOWED: 'Allowed to Play', RESTRICTED: 'Allowed with Restrictions', NOT_ALLOWED: 'Not Allowed to Play' };
 
+// the decision as the first sentence of the remark; PLAY_SENTENCE_RE finds it (or the old "Allow-to-Play Status: ..." line) at the start
+export const PLAY_STATUS_SENTENCES = {
+  ALLOWED: 'The student is allowed to play.',
+  RESTRICTED: 'The student is allowed to play with restrictions.',
+  NOT_ALLOWED: 'The student is not allowed to play.',
+};
+export const PLAY_SENTENCE_RE = /^(?:The student is (?:not )?allowed to play(?: with restrictions)?\.|Allow-to-Play Status: [^.]*\.)/;
+
+// Vital signs that are not normal, as status words only (never the readings): [{ name: 'blood pressure', state: 'high' }].
+// blocked = outside the play range (or a blocking choice) -> cannot play; otherwise outside the normal range -> monitor.
+const vitalStatesOf = (fields, answers, blocked) => {
+  const { values } = readValues(fields, answers);
+  const { sys, dia } = bpFieldsOf(fields);
+  const isBp = (k) => (sys && sys.key === k) || (dia && dia.key === k);
+  const play = playDecision(fields, answers);
+  const out = [];
+  const add = (key, label, state) => {
+    const name = isBp(key) ? 'blood pressure' : String(label).toLowerCase();
+    if (!out.some((o) => o.name === name)) out.push({ name, state });
+  };
+  (fields || []).forEach((f) => {
+    const isBlocked = play.keys.includes(f.key);
+    if (f.type === 'number' || f.type === 'calculated') {
+      const v = values[f.key];
+      if (v === undefined) return;
+      if (blocked) {
+        if (isBlocked) add(f.key, f.label, f.play_min !== undefined && v < f.play_min ? 'low' : 'high');
+      } else if (!isBlocked) {
+        if (f.min !== undefined && v < f.min) add(f.key, f.label, 'low');
+        else if (f.max !== undefined && v > f.max) add(f.key, f.label, 'high');
+      }
+    } else if (blocked && isBlocked) add(f.key, f.label, 'not safe');
+  });
+  return out;
+};
+const vitalList = (states) => states.map((o) => `${o.name} ${o.state}`).join(', ');
+
 // Clearance decision of a Physical Activities screening from the vitals (play range, readings outside normal) and the health history
 // (health = { blockers, restrictions, conditions } the server sends for each participant). Same rules as playClearanceOf on the server.
+// Vital signs are told by status only (blood pressure high), never by value.
 export const playClearance = (fields, answers, health) => {
   const list = fields || [];
-  const { values } = readValues(list, answers);
-  const vit = playDecision(list, answers);
-  const blockers = [...vit.reasons, ...((health && health.blockers) || [])];
+  const blockers = [];
   const restrictions = [...((health && health.restrictions) || [])];
-  const { sys, dia } = bpFieldsOf(list);
-  const skip = new Set([sys && sys.key, dia && dia.key].filter(Boolean));
-  const sv = sys ? values[sys.key] : undefined;
-  const dv = dia ? values[dia.key] : undefined;
-  const bpBlocked = vit.keys.some((k) => skip.has(k));
-  if ((sv !== undefined || dv !== undefined) && !bpBlocked) {
-    const label = bloodPressureLabel(list, answers);
-    if (label && label !== 'Normal') restrictions.push("Monitor the student's blood pressure during the activity.");
-  }
-  list.forEach((f) => {
-    if (skip.has(f.key) || (f.type !== 'number' && f.type !== 'calculated') || vit.keys.includes(f.key)) return;
-    const v = values[f.key];
-    if (v === undefined) return;
-    if ((f.min !== undefined && v < f.min) || (f.max !== undefined && v > f.max)) {
-      restrictions.push(`Monitor the student's ${String(f.label).toLowerCase()} during the activity.`);
-    }
-  });
+  const blockedStates = vitalStatesOf(list, answers, true);
+  if (blockedStates.length > 0) blockers.push(`Due to not normal vital signs: ${vitalList(blockedStates)}.`);
+  blockers.push(...((health && health.blockers) || []));
+  const blockedNames = new Set(blockedStates.map((o) => o.name));
+  const monitorStates = vitalStatesOf(list, answers, false).filter((o) => !blockedNames.has(o.name));
+  if (monitorStates.length > 0) restrictions.unshift(`Monitor these vital signs during the activity: ${vitalList(monitorStates)}.`);
   const status = blockers.length > 0 ? 'NOT_ALLOWED' : restrictions.length > 0 ? 'RESTRICTED' : 'ALLOWED';
   return { status, label: PLAY_STATUS_LABELS[status], blockers, restrictions };
 };
 
 // ctx = { category: 'GENERAL' | 'PHYSICAL', health: { blockers, restrictions, conditions }, status: chosen decision code or '' (auto) }
-// Physical Activities opens the remark with the Allow-to-Play status; every screening ends it with the health history.
+// Physical Activities: the Allow-to-Play status, then why (Not Allowed: not normal vital signs by status + health history) or what to monitor
+// (Restrictions); readings are never written as values. Other screenings list the readings outside normal and end with the health history.
 export const buildAutoRemark = (fields, answers, ctx = {}) => {
   const list = fields || [];
   const { values, labels } = readValues(list, answers);
   const lines = [];
   const used = new Set();
   const physical = ctx.category === 'PHYSICAL';
-  // plain sentences only; a reading that already blocks play is told in the clearance sentences at the end
-  const c = physical ? playClearance(list, answers, ctx.health) : null;
-  const vit = physical ? playDecision(list, answers) : { keys: [] };
+  const play = physical ? playDecision(list, answers) : { keys: [] };
   if (physical) {
+    const c = playClearance(list, answers, ctx.health);
     const status = ctx.status && PLAY_STATUS_LABELS[ctx.status] ? ctx.status : c.status;
-    lines.push(`Allow-to-Play Status: ${PLAY_STATUS_LABELS[status]}.`);
+    lines.push(PLAY_STATUS_SENTENCES[status]);
+    if (status === 'NOT_ALLOWED') lines.push(...(c.blockers.length > 0 ? c.blockers : c.restrictions));
+    else if (status === 'RESTRICTED') lines.push(...(c.restrictions.length > 0 ? c.restrictions : c.blockers));
   }
   const { sys, dia } = bpFieldsOf(list);
   const sv = sys ? values[sys.key] : undefined;
   const dv = dia ? values[dia.key] : undefined;
-  if (sv !== undefined || dv !== undefined) {
+  if (!physical && (sv !== undefined || dv !== undefined)) {
     if (sys) used.add(sys.key);
     if (dia) used.add(dia.key);
-    if (!vit.keys.some((k) => k === (sys && sys.key) || k === (dia && dia.key))) {
-      const label = bloodPressureLabel(list, answers);
-      if (label === 'High Blood' || label === 'Low Blood') {
-        lines.push(`Blood pressure is ${sv !== undefined ? sv : '?'}/${dv !== undefined ? dv : '?'} mmHg. ${label}.`);
-      }
+    const label = bloodPressureLabel(list, answers);
+    if (label === 'High Blood' || label === 'Low Blood') {
+      lines.push(`Blood pressure is ${sv !== undefined ? sv : '?'}/${dv !== undefined ? dv : '?'} mmHg. ${label}.`);
     }
   }
-  list.forEach((f) => {
-    if (used.has(f.key) || (f.type !== 'number' && f.type !== 'calculated') || vit.keys.includes(f.key)) return;
-    const v = values[f.key];
-    if (v === undefined) return;
-    const unit = f.unit ? ` ${f.unit}` : '';
-    const state = f.min !== undefined && v < f.min ? 'low' : f.max !== undefined && v > f.max ? 'high' : '';
-    if (state) lines.push(`${f.label} is ${v}${unit}. Not normal (${state}${labels[f.key] ? `, ${labels[f.key]}` : ''}).`);
-  });
+  if (!physical) {
+    list.forEach((f) => {
+      if (used.has(f.key) || (f.type !== 'number' && f.type !== 'calculated')) return;
+      const v = values[f.key];
+      if (v === undefined) return;
+      const unit = f.unit ? ` ${f.unit}` : '';
+      const state = f.min !== undefined && v < f.min ? 'low' : f.max !== undefined && v > f.max ? 'high' : '';
+      if (state) lines.push(`${f.label} is ${v}${unit}. Not normal (${state}${labels[f.key] ? `, ${labels[f.key]}` : ''}).`);
+    });
+  }
   list.forEach((f) => {
     if (f.type !== 'select' && f.type !== 'yesno') return;
     const v = answers?.[f.key];
-    if (hasValue(v) && (f.abnormal_options || []).includes(v)) lines.push(`${f.label} is ${v}. Not normal.`);
+    if (hasValue(v) && (f.abnormal_options || []).includes(v) && !play.keys.includes(f.key)) lines.push(`${f.label} is ${v}. Not normal.`);
   });
   const conditions = (ctx.health && ctx.health.conditions) || [];
-  // Physical Activities: only the health history that affects physical activity (already sentences); other screenings list the history
-  if (physical) lines.push(...c.blockers, ...c.restrictions);
-  else if (conditions.length > 0) lines.push(`Health history: ${conditions.join(', ')}.`);
+  if (!physical && conditions.length > 0) lines.push(`Health history: ${conditions.join(', ')}.`);
   return lines.join(' ');
 };
 

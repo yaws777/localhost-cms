@@ -316,10 +316,12 @@ export default function MyProfile() {
     return (
         <div className="profile-page-wrapper">
             <div className="profile-header-banner">
-                <div className="profile-avatar">👤</div>
+                <div className="profile-avatar" role="img" aria-label={`${studentHeader?.first_name || ''} ${studentHeader?.last_name || ''}`.trim()}>
+                    {`${(studentHeader?.first_name || '').trim().charAt(0)}${(studentHeader?.last_name || '').trim().charAt(0)}`.toUpperCase()}
+                </div>
                 <div className="profile-header-details">
                     <h2>{studentHeader?.first_name} {studentHeader?.last_name}</h2>
-                    <p>{studentHeader?.program_id} - {studentHeader?.year_level} Year</p>
+                    <p>{studentHeader?.program_id} - {studentHeader?.year_level}{studentHeader?.section}</p>
                     <span className="student-id-badge">{studentId}</span>
                 </div>
             </div>

@@ -914,3 +914,15 @@
     .container-bc { grid-template-columns: minmax(24rem, 30rem) minmax(0, 1fr); column-gap: 2rem; }
     .booking-grid-bc { grid-template-columns: repeat(auto-fill, minmax(min(100%, 24rem), 1fr)); }
 }
+
+/* Past check-up folders: All Check Up > service > doctor > schedule */
+.crumbs-bc { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.5rem; margin-bottom: 0.75rem; font-family: var(--font-sans); color: var(--text-secondary); }
+.crumb-bc { min-height: 2.75rem; padding: 0.25rem 0.5rem; border: 0; background: transparent; color: var(--sti-blue-primary); font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; border-radius: 0.5rem; }
+.crumb-bc:disabled { color: var(--text-primary); text-decoration: none; cursor: default; }
+.crumb-bc:focus-visible, .folder-bc:focus-visible { outline: 0.1875rem solid var(--sti-blue-primary); outline-offset: 0.125rem; }
+.folder-bc { display: flex; align-items: center; gap: 0.75rem; min-height: 2.75rem; padding: 0.875rem 1rem; text-align: left; font-family: var(--font-sans); color: var(--text-primary); background: var(--bg-card); border: 0.0625rem solid var(--card-border); border-radius: 0.75rem; cursor: pointer; }
+.folder-bc:hover { background: var(--sti-blue-light); }
+.folder-bc svg { flex: none; color: var(--sti-blue-primary); }
+.folder-text-bc { display: flex; flex-direction: column; min-width: 0; }
+.folder-text-bc strong { overflow-wrap: anywhere; }
+.folder-text-bc small { color: var(--text-secondary); font-size: 0.875rem; }

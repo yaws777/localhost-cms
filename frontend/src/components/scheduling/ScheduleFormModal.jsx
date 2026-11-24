@@ -11,7 +11,7 @@ import TimeRangeFields from '../common/TimeRangeFields';
 import { minTimeFor } from '../../utils/visitPurpose';
 import { useAlert } from '../../context/AlertContext';
 import { useSpecializations } from '../../hooks/useSpecializations';
-import { API, WEEKDAYS, eligibleDoctors, visitRefusal, coveredTypes, hasWalkIn, hhmm, todayKey } from '../../utils/scheduling';
+import { API, SCHEDULE_LOCATION_HINT, WEEKDAYS, eligibleDoctors, visitRefusal, coveredTypes, hasWalkIn, hhmm, todayKey } from '../../utils/scheduling';
 import { creatorBody } from './SessionModals';
 import '../../styles/doctor/DoctorLayout.css';
 import '../../styles/scheduling/Scheduling.css';
@@ -159,7 +159,7 @@ const ScheduleFormModal = ({ isOpen, schedule, preset, doctors, creator, userId,
                 <div className="dp-row">
                     <TimeRangeFields
                         idPrefix="sf" disabled={lockTiming} start={form.start_time} end={form.end_time}
-                        minStart={form.recurrence === 'Once' && !lockTiming ? minTimeFor(form.schedule_date) : undefined}
+                        minStart={() => (form.recurrence === 'Once' && !lockTiming ? minTimeFor(form.schedule_date) : undefined)}
                         onChange={(start_time, end_time) => set({ start_time, end_time })}
                     />
                 </div>
@@ -173,8 +173,12 @@ const ScheduleFormModal = ({ isOpen, schedule, preset, doctors, creator, userId,
                 )}
 
                 <div className="dp-field">
-                    <label htmlFor="sf-location">Location (optional)</label>
-                    <input id="sf-location" className="dp-input" type="text" maxLength={100} placeholder="e.g. Clinic Room 1" value={form.location} onChange={(e) => set({ location: e.target.value })} />
+                    <label htmlFor="sf-location">Location (set by the nurse)</label>
+                    {creator.nurseId ? (
+                        <input id="sf-location" className="dp-input" type="text" required maxLength={100} placeholder={SCHEDULE_LOCATION_HINT} value={form.location || ''} onChange={(e) => set({ location: e.target.value })} />
+                    ) : (
+                        <input id="sf-location" className="dp-input" type="text" readOnly aria-readonly="true" placeholder="Set in the schedule request" value={form.location || ''} />
+                    )}
                 </div>
 
                 <div className="dp-field">

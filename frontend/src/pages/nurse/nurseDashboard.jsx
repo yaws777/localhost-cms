@@ -902,6 +902,7 @@ const NurseDashboard = () => {
       'Medicine Name',
       'Package Strength / Form',
       'Current Stock',
+      'Stock Threshold (Critical / Low / Adequate)',
       'Forecast: Next 30 Days',
       'Predicted Need',
       'Status'
@@ -918,6 +919,7 @@ const NurseDashboard = () => {
         med.name,
         `${med.packageStrength || 'N/A'} (${med.dosageForm || 'Unit'})`,
         `${currStock} ${pluralize(formLabel, currStock)}`,
+        [med.criticalStockLevel, med.lowStockLevel, med.adequateStockLevel].map((n) => n ?? '-').join(' / '),
         `${next30} ${pluralize(formLabel, next30)}`,
         `${restock} ${pluralize(formLabel, restock)}`,
         med.status || 'N/A'

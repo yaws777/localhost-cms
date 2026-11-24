@@ -8,7 +8,7 @@
 // session cards led by a date block with a capacity meter, and every status is one tag = color + icon + word.
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { ClipboardList, X, Clock, Info, Stethoscope, MapPin, Repeat, FileText, Bell, Footprints, UserPlus, ListPlus, XCircle, Undo2, Eye, Inbox, Ticket, CheckCircle2, AlertCircle, Check } from 'lucide-react';
+import { ClipboardList, X, Clock, Info, Stethoscope, MapPin, Repeat, FileText, Bell, Footprints, UserPlus, ListPlus, XCircle, Undo2, Eye, Inbox, Ticket, CheckCircle2, AlertCircle, Check, Folder } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatDateTime } from '../../utils/datetime';
 import { visitLabel } from '../../utils/visitPurpose';
@@ -41,6 +41,92 @@ const DateBlock = ({ value }) => {
             <b>{d.getDate()}</b>
             <span>{d.toLocaleDateString('en-US', { weekday: 'short' })}</span>
         </div>
+    );
+};
+
+// Folders: All Check Up > service (Dental, Vision ...) > doctor > schedule (session day) > records. Used by Past and Requests.
+const pastServiceOf = (c) => (c.is_repeat ? 'Follow-up' : visitLabel(c.visit_type, c.purpose_other));
+const pastScheduleKeyOf = (c) => `${c.schedule_id || 'direct'}|${c.date}`;
+const pastScheduleLabelOf = (c) => {
+    const hours = c.sched_start ? `${to12h(c.sched_start)} - ${to12h(c.sched_end)}` : to12h(c.start_time);
+    return `${formatDate(c.date)}${hours ? `, ${hours}` : ''}${c.schedule_id ? '' : ' (direct)'}`;
+};
+const PAST_LEVELS = [
+    { key: pastServiceOf, label: pastServiceOf },
+    { key: (c) => String(c.doctor_id || c.doctor_name), label: (c) => c.doctor_name },
+    { key: pastScheduleKeyOf, label: pastScheduleLabelOf, byDate: true },
+];
+
+// a request carries its session in listing_* (new flow) or notified_* (old rows); some old rows have neither
+const reqScheduleId = (r) => r.listing_schedule_id || r.notified_schedule_id || null;
+const reqDate = (r) => String(r.listing_date || r.listing_start_time || r.notified_start_time || r.created_at || '').slice(0, 10);
+const reqDoctorName = (r) => {
+    const n = [[r.listing_doc_first_name, r.listing_doc_last_name], [r.appt_doc_first_name, r.appt_doc_last_name], [r.notified_doc_first_name, r.notified_doc_last_name], [r.pref_first_name, r.pref_last_name]]
+        .find((x) => x[0] || x[1]);
+    return n ? `Dr. ${n[0] || ''} ${n[1] || ''}`.replace(/\s+/g, ' ').trim() : 'No doctor';
+};
+const REQUEST_LEVELS = [
+    { key: (r) => visitLabel(r.visit_type, r.purpose_other), label: (r) => visitLabel(r.visit_type, r.purpose_other) },
+    { key: reqDoctorName, label: reqDoctorName },
+    {
+        key: (r) => `${reqScheduleId(r) || 'none'}|${reqDate(r)}`,
+        label: (r) => {
+            if (!reqScheduleId(r)) return 'No schedule';
+            const start = r.listing_start_time || r.notified_start_time;
+            const end = r.listing_end_time || r.notified_end_time;
+            return `${formatDate(reqDate(r))}${start ? `, ${to12h(start)} - ${to12h(end)}` : ''}`;
+        },
+        byDate: true,
+    },
+];
+
+// folder drill-down: narrows rows by the folders opened so far, lists the next level as folders, and the records at the last level
+const FolderBrowser = ({ rows: all, levels, path, setPath, renderRow, aria }) => {
+    let rows = all;
+    const crumbs = [];
+    for (let i = 0; i < path.length; i += 1) {
+        rows = rows.filter((c) => levels[i].key(c) === path[i]);
+        if (rows.length === 0) break;
+        crumbs.push(levels[i].label(rows[0]));
+    }
+    const depth = crumbs.length;
+    const level = levels[depth];
+    const dateOf = (c) => String(c.date || c.listing_date || c.created_at || '').slice(0, 10);
+    const folders = [];
+    if (level) {
+        rows.forEach((c) => {
+            const k = level.key(c);
+            let f = folders.find((x) => x.key === k);
+            if (!f) { f = { key: k, label: level.label(c), count: 0, latest: dateOf(c) }; folders.push(f); }
+            f.count += 1;
+            if (dateOf(c) > f.latest) f.latest = dateOf(c);
+        });
+        folders.sort((a, b) => (level.byDate ? b.latest.localeCompare(a.latest) : a.label.localeCompare(b.label)));
+    }
+    return (
+        <>
+            <nav className="crumbs-bc" aria-label={aria}>
+                <button type="button" className="crumb-bc" onClick={() => setPath([])} disabled={depth === 0}>All Check Up</button>
+                {crumbs.map((label, i) => (
+                    <React.Fragment key={path[i]}>
+                        <span aria-hidden="true">/</span>
+                        <button type="button" className="crumb-bc" onClick={() => setPath(path.slice(0, i + 1))} disabled={i === depth - 1}>{label}</button>
+                    </React.Fragment>
+                ))}
+            </nav>
+            {level ? (
+                <div className="booking-grid-bc">
+                    {folders.map((f) => (
+                        <button type="button" key={f.key} className="folder-bc" onClick={() => setPath([...path.slice(0, depth), f.key])}>
+                            <Folder size={22} aria-hidden="true" />
+                            <span className="folder-text-bc"><strong>{f.label}</strong><small>{f.count} item{f.count === 1 ? '' : 's'}</small></span>
+                        </button>
+                    ))}
+                </div>
+            ) : (
+                <div className="booking-grid-bc">{rows.map(renderRow)}</div>
+            )}
+        </>
     );
 };
 
@@ -154,9 +240,7 @@ const BookCheckup = () => {
     const [listingsLoaded, setListingsLoaded] = useState(false);
     const [inAdvance, setInAdvance] = useState(false);
     const [advance, setAdvance] = useState(null); // the advance listing: open?, services with their limit, and my own entry
-    const [advanceForm, setAdvanceForm] = useState({ visit_type: '' });
     const [advanceBusy, setAdvanceBusy] = useState(false);
-    const [advanceOpen, setAdvanceOpen] = useState(false); // the request form opens only from the button
     const [history, setHistory] = useState([]);
     const [updates, setUpdates] = useState([]);
     const [updatesOpen, setUpdatesOpen] = useState(false); // the latest updates open only from the bell
@@ -164,6 +248,8 @@ const BookCheckup = () => {
     const [seenBefore, setSeenBefore] = useState(0); // what was already seen when the updates were opened: newer ones get a dot
     const [checkups, setCheckups] = useState({ past: [], scheduled: [], waiting: [] }); // repeats + past check-ups with their assessment
     const [assessmentOf, setAssessmentOf] = useState(null);
+    const [pastPath, setPastPath] = useState([]); // Past folders: All Check Up > service > doctor > schedule
+    const [requestPath, setRequestPath] = useState([]); // Requests folders, same levels
     const [requestFor, setRequestFor] = useState(null); // the listing the student is asking a place in
     const [requestForm, setRequestForm] = useState(EMPTY_REQUEST);
     const [submitting, setSubmitting] = useState(false);
@@ -236,7 +322,7 @@ const BookCheckup = () => {
     }, [studentId, fetchListings, fetchHistory, fetchAdvance, fetchCheckups, fetchUpdates]);
 
     // Esc closes whichever modal is open, and focus goes back to the button that opened it
-    const anyModal = updatesOpen || !!assessmentOf || advanceOpen || !!requestFor;
+    const anyModal = updatesOpen || !!assessmentOf || !!requestFor;
     const lastFocus = useRef(null);
     const wasModal = useRef(false);
     useEffect(() => {
@@ -253,7 +339,7 @@ const BookCheckup = () => {
         if (!anyModal) return undefined;
         const onKey = (e) => {
             if (e.key !== 'Escape') return;
-            setUpdatesOpen(false); setAssessmentOf(null); setAdvanceOpen(false); setRequestFor(null);
+            setUpdatesOpen(false); setAssessmentOf(null); setRequestFor(null);
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
@@ -270,16 +356,17 @@ const BookCheckup = () => {
         setUpdatesOpen(true);
     };
 
-    const registerAdvance = async (e) => {
-        e.preventDefault();
-        if (!advanceForm.visit_type) { showAlert('Please select the check-up service you need.', 'warning'); return; }
+    // the open advance listings are shown in the section itself: one icon per listing registers for it
+    const registerAdvance = async (listing) => {
+        const ok = await showConfirm(`Join the ${listing.visit_type} advance listing?`, { confirmLabel: 'Join', cancelLabel: 'Not now', title: 'Advance listing' });
+        if (!ok) return;
         setAdvanceBusy(true);
         try {
             const res = await fetch(`${API}/api/student/advance-listing`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ student_id: studentId, ...advanceForm })
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ student_id: studentId, visit_type: listing.visit_type })
             });
             const data = await res.json();
-            if (data.success) { showAlert(data.message, 'success'); setAdvanceForm({ visit_type: '' }); setAdvanceOpen(false); reloadAll(); }
+            if (data.success) { showAlert(data.message, 'success'); reloadAll(); }
             else { showAlert(data.message || 'Could not register in the advance listing.', 'error'); fetchAdvance(); }
         } catch (err) {
             showAlert('Server error. Please try again.', 'error');
@@ -413,6 +500,7 @@ const BookCheckup = () => {
     };
 
     // my advance entry that moved into a session: Done when the check-up is documented, gone when the session is over
+    const openAdvance = advance ? advance.services.filter((s) => s.offered && s.status === 'Open') : []; // listings students can join now
     const mineRaw = advance?.mine;
     const mineApp = mineRaw && mineRaw.schedule_id ? apptFor(mineRaw.schedule_id, mineRaw.session_date) : null;
     const mineOver = !!mineRaw && (['Done', 'No show', 'Ended'].includes(mineRaw.status)
@@ -470,10 +558,7 @@ const BookCheckup = () => {
                         <section className="section-bc" aria-label="Advance Listing (No Schedule Yet)">
                             <div className="sec-head-bc">
                                 <h3>Advance Listing <span className="paren-bc">(No Schedule Yet)</span></h3>
-                                {advance && (advance.accepting ?? advance.is_open) && !mine && (
-                                    <button type="button" className="btn-bc btn-primary-bc btn-icon-bc" onClick={() => setAdvanceOpen(true)} aria-label="Request advance listing" title="Request advance listing"><ListPlus size={20} aria-hidden="true" /></button>
-                                )}
-                                {advance && !(advance.accepting ?? advance.is_open) && !mine && <Tag tone="soft" Icon={Clock}>Closed</Tag>}
+                                {advance && !mine && openAdvance.length === 0 && <Tag tone="soft" Icon={Clock}>Closed</Tag>}
                             </div>
                             {!advance ? (
                                 <div className="empty-bc">Loading...</div>
@@ -504,8 +589,21 @@ const BookCheckup = () => {
                                         </>
                                     )}
                                 </div>
-                            ) : (advance.accepting ?? advance.is_open) && advance.closes_at ? (
-                                <div className="booking-card-bc"><div className="booking-line-bc"><Clock size={14} aria-hidden="true" /> Open until {formatDateTime(advance.closes_at)}.</div></div>
+                            ) : openAdvance.length > 0 ? (
+                                openAdvance.map((l) => (
+                                    <div key={l.visit_type} className="booking-card-bc">
+                                        <div className="booking-top-bc">
+                                            <strong>{l.title || l.visit_type}</strong>
+                                            <Tag tone={l.listing_full ? 'soft' : 'ok'} Icon={l.listing_full ? Clock : CheckCircle2}>{l.listing_full ? 'Full' : 'Open'}</Tag>
+                                        </div>
+                                        <div className="booking-line-bc"><Stethoscope size={14} aria-hidden="true" /> {l.visit_type}: {l.registered} of {l.listing_limit} registered</div>
+                                        {l.closes_at && <div className="booking-line-bc"><Clock size={14} aria-hidden="true" /> Open until {formatDateTime(l.closes_at)}</div>}
+                                        <div className="booking-actions-bc">
+                                            <button type="button" className="btn-bc btn-primary-bc btn-icon-bc" disabled={l.listing_full || advanceBusy} onClick={() => registerAdvance(l)}
+                                                aria-label={`Join the ${l.visit_type} advance listing`} title={l.listing_full ? 'Listing full' : 'Join the advance listing'}><ListPlus size={20} aria-hidden="true" /></button>
+                                        </div>
+                                    </div>
+                                ))
                             ) : null}
                         </section>
 
@@ -604,33 +702,33 @@ const BookCheckup = () => {
                         {checkups.past.length === 0 ? (
                             <div className="empty-bc">No past check-up yet.</div>
                         ) : (
-                            <div className="booking-grid-bc">
-                                {checkups.past.map((c) => (
-                                    <div key={c.appointment_id} className="booking-card-bc">
-                                        <div className="booking-top-bc">
-                                            <strong>{c.is_repeat ? 'Follow-up check-up' : visitLabel(c.visit_type, c.purpose_other)}</strong>
-                                            <Tag tone={c.outcome === 'Completed' ? 'ok' : c.outcome === 'Missed' ? 'bad' : 'low'} Icon={c.outcome === 'Completed' ? CheckCircle2 : c.outcome === 'Missed' ? XCircle : Clock}>{c.outcome}</Tag>
-                                        </div>
-                                        <div className="booking-line-bc"><Clock size={14} aria-hidden="true" /> {formatDate(c.date)}, {c.doctor_name}</div>
-                                        {c.assessment && (
-                                            <>
-                                                <div className="diag-bc">{c.assessment.diagnosis}</div>
-                                                <div className="booking-actions-bc">
-                                                    <button type="button" className="btn-bc btn-light-bc btn-icon-bc" onClick={() => setAssessmentOf(c)} aria-label="View assessment" title="View assessment"><Eye size={18} aria-hidden="true" /></button>
-                                                </div>
-                                            </>
-                                        )}
+                            <FolderBrowser rows={checkups.past} levels={PAST_LEVELS} path={pastPath} setPath={setPastPath} aria="Past check-up folders" renderRow={(c) => (
+                                <div key={c.appointment_id} className="booking-card-bc">
+                                    <div className="booking-top-bc">
+                                        <strong>{c.is_repeat ? 'Follow-up check-up' : visitLabel(c.visit_type, c.purpose_other)}</strong>
+                                        <Tag tone={c.outcome === 'Completed' ? 'ok' : c.outcome === 'Missed' ? 'bad' : 'low'} Icon={c.outcome === 'Completed' ? CheckCircle2 : c.outcome === 'Missed' ? XCircle : Clock}>{c.outcome}</Tag>
                                     </div>
-                                ))}
-                            </div>
+                                    <div className="booking-line-bc"><Clock size={14} aria-hidden="true" /> {formatDate(c.date)}, {c.doctor_name}</div>
+                                    {c.assessment && (
+                                        <>
+                                            <div className="diag-bc">{c.assessment.diagnosis}</div>
+                                            <div className="booking-actions-bc">
+                                                <button type="button" className="btn-bc btn-light-bc btn-icon-bc" onClick={() => setAssessmentOf(c)} aria-label="View assessment" title="View assessment"><Eye size={18} aria-hidden="true" /></button>
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                            )} />
                         )}
                     </section>
                 )}
 
                 {activeTab === 'requests' && (
                     <section className="section-bc" aria-label="Other requests">
-                        <div className="booking-grid-bc">
-                            {history.map((r) => (
+                        {history.length === 0 ? (
+                            <div className="empty-bc">No other request.</div>
+                        ) : (
+                            <FolderBrowser rows={history} levels={REQUEST_LEVELS} path={requestPath} setPath={setRequestPath} aria="Request folders" renderRow={(r) => (
                                 <div key={r.request_id} className="booking-card-bc">
                                     <div className="booking-top-bc">
                                         <strong>{visitLabel(r.visit_type, r.purpose_other)}</strong>
@@ -639,8 +737,8 @@ const BookCheckup = () => {
                                     <div className="booking-line-bc"><Clock size={14} aria-hidden="true" /> Sent {formatDate(r.created_at)}</div>
                                     <p className="request-help-bc">{historyHelp(r)}</p>
                                 </div>
-                            ))}
-                        </div>
+                            )} />
+                        )}
                     </section>
                 )}
             </div>
@@ -687,32 +785,6 @@ const BookCheckup = () => {
                             ctx={{ student: `${firstName || ''} ${lastName || ''}`.trim(), studentId, doctor: assessmentOf.doctor_name, when: formatDate(assessmentOf.date), purpose: assessmentOf.is_repeat ? 'Follow-up check-up' : visitLabel(assessmentOf.visit_type, assessmentOf.purpose_other) }}
                         />
                     </div>
-                </div>
-            )}
-
-            {advanceOpen && advance && (
-                <div className="modal-overlay-bc" role="dialog" aria-modal="true" aria-labelledby="bc-adv-title">
-                    <form className="modal-bc" onSubmit={registerAdvance}>
-                        <div className="modal-header-bc">
-                            <h3 id="bc-adv-title">Advance listing</h3>
-                            <button type="button" className="close-bc" onClick={() => setAdvanceOpen(false)} aria-label="Close" title="Close"><X size={20} aria-hidden="true" /></button>
-                        </div>
-                        <div className="field-bc">
-                            <label htmlFor="bc-adv-service">Check-up service</label>
-                            <select id="bc-adv-service" required autoFocus value={advanceForm.visit_type} onChange={(e) => setAdvanceForm({ ...advanceForm, visit_type: e.target.value })}>
-                                <option value="">-- Select --</option>
-                                {advance.services.filter((s) => s.offered).map((s) => (
-                                    <option key={s.visit_type} value={s.visit_type} disabled={s.listing_full || s.scheduled || !s.service_open}>
-                                        {s.visit_type} ({s.scheduled ? 'already scheduled' : !s.service_open ? 'closed' : `${s.registered} of ${s.listing_limit} registered${s.listing_full ? ', full' : ''}`})
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-                        <div className="modal-footer-bc">
-                            <button type="button" className="btn-bc btn-light-bc" onClick={() => setAdvanceOpen(false)}>Cancel</button>
-                            <button type="submit" className="btn-bc btn-primary-bc" disabled={advanceBusy || !advanceForm.visit_type}>{advanceBusy ? 'Saving...' : 'Save'}</button>
-                        </div>
-                    </form>
                 </div>
             )}
 

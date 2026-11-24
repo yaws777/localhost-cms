@@ -3,9 +3,11 @@
 //   - change Start: End moves with it, the length stays
 //   - pick a Length: End = Start + Length
 //   - change End: the length follows (shown as "Custom" when it is not in the list)
+//   - `minStart` can be a function (returns the earliest HH:MM or undefined, e.g. the current time for today): the control re-reads it every
+//     10 s and moves Start up to it (End follows, length kept), so a form left open never holds a time that is already past
 // Renders a fragment of three fields, so the parent puts it inside its own row. `variant` picks the field classes:
 // 'dp' (doctor / scheduling forms) or 'hs' (Health Screening).
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 const LENGTHS = [15, 30, 45, 60, 90, 120, 180, 240];
 const LAST_MIN = 23 * 60 + 59;
@@ -28,6 +30,14 @@ export default function TimeRangeFields({
 }) {
     const c = CLASSES[variant] || CLASSES.dp;
     const endRef = useRef(null);
+    const live = typeof minStart === 'function';
+    const [tick, setTick] = useState(0);
+    useEffect(() => {
+        if (!live) return undefined;
+        const id = setInterval(() => setTick((n) => n + 1), 10000);
+        return () => clearInterval(id);
+    }, [live]);
+    const minNow = live ? minStart() : minStart;
     const s = toMinutes(start);
     const e = toMinutes(end);
     const len = Number.isFinite(s) && Number.isFinite(e) ? e - s : NaN;
@@ -38,6 +48,15 @@ export default function TimeRangeFields({
     }, [reversed]);
 
     const endFrom = (startMin, length) => toHHMM(Math.min(startMin + length, LAST_MIN));
+
+    // the clock passed the start: move it to now (only the timer and a new minimum trigger this, so typing is never interrupted)
+    useEffect(() => {
+        if (!live || disabled || !minNow) return;
+        const floor = toMinutes(minNow);
+        if (!Number.isFinite(floor) || (Number.isFinite(s) && s >= floor)) return;
+        onChange(minNow, required || end ? endFrom(floor, len > 0 ? len : defaultLength) : '');
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [tick, minNow]);
 
     const changeStart = (value) => {
         const next = toMinutes(value);
@@ -59,7 +78,7 @@ export default function TimeRangeFields({
                 <label htmlFor={`${idPrefix}-start`}>{startLabel}</label>
                 <input
                     id={`${idPrefix}-start`} className={c.input} type="time" step={300} required={required}
-                    disabled={disabled} min={minStart || undefined} value={start || ''} onChange={(ev) => changeStart(ev.target.value)}
+                    disabled={disabled} min={minNow || undefined} value={start || ''} onChange={(ev) => changeStart(ev.target.value)}
                 />
             </div>
             <div className={c.group}>

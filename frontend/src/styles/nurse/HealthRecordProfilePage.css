@@ -656,7 +656,10 @@
 .hrp-report-block h4 { margin: 0 0 0.5rem; padding-bottom: 0.25rem; font-size: 0.875rem; border-bottom: 0.0625rem solid #555; }
 .hrp-report-block p { margin: 0.1875rem 0; font-size: 0.875rem; }
 .hrp-report-block ul { margin: 0.25rem 0; padding-left: 1.125rem; font-size: 0.875rem; }
-.hrp-report-sign { margin-top: 3rem; }
+.hrp-report-proof { margin: 0 0 0.75rem; break-inside: avoid; page-break-inside: avoid; }
+.hrp-report-proof figcaption { margin-bottom: 0.25rem; font-size: 0.875rem; font-weight: 600; }
+.hrp-report-proof img { display: block; max-width: 100%; max-height: 16rem; object-fit: contain; border: 0.0625rem solid #555; }
+.hrp-report-sign { margin-top: 3rem; break-inside: avoid; }
 .hrp-report-sign p { margin: 0; font-size: 0.875rem; }
 .hrp-report-sign .by { margin-bottom: 2.2rem; }
 .hrp-report-sign .nurse { font-weight: 700; text-decoration: underline; }

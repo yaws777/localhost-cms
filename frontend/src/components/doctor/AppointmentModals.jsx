@@ -203,7 +203,7 @@ export const RescheduleModal = ({ appt, onSubmit, onClose }) => {
                 {!slotMode && (
                     <div className="dp-row">
                         <TimeRangeFields
-                            idPrefix="rs" start={from} end={to} minStart={minTimeFor(date)} defaultLength={duration > 0 ? duration : 15}
+                            idPrefix="rs" start={from} end={to} minStart={() => minTimeFor(date)} defaultLength={duration > 0 ? duration : 15}
                             onChange={(s, e) => { setFrom(s); setTo(e); }}
                         />
                     </div>
@@ -442,7 +442,7 @@ export const DirectAppointmentModal = ({ isOpen, doctors, fixedDoctorId, creator
                 </div>
                 <div className="dp-row">
                     <TimeRangeFields
-                        idPrefix="da" start={from} end={to} minStart={minTimeFor(date)} defaultLength={30}
+                        idPrefix="da" start={from} end={to} minStart={() => minTimeFor(date)} defaultLength={30}
                         onChange={(s, e) => { setFrom(s); setTo(e); }}
                     />
                 </div>

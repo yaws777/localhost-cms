@@ -4,6 +4,7 @@ import {
     Square, User, FileText, Trash2, MoreVertical, MoreHorizontal, X, Loader2, ArrowLeft 
 } from 'lucide-react';
 import '../../styles/student/StudentMessagesModal.css';
+import '../../styles/student/ChatMobile.css';
 import { useAlert } from '../../context/AlertContext';
 import { formatTime } from '../../utils/datetime';
 

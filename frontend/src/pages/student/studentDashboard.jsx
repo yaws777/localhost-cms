@@ -319,6 +319,7 @@ const StudentDashboard = () => {
       else badges.push({ text: 'Open for listing', tone: 'ok' });
       events.push({
         id: `lst-${l.schedule_id}-${l.date}`, date: l.date, kind: 'listing', sort: String(l.start_time || ''),
+        openNow: !l.mine && !l.listing_full,
         title: `${l.doctor_name}, ${l.purposes.map((p) => visitLabel(p)).join(', ') || 'Check-up'}`,
         time: `${to12h(l.start_time)} - ${to12h(l.end_time)}`,
         // the advance listing students hold the first numbers; the open places come after them
@@ -331,31 +332,33 @@ const StudentDashboard = () => {
       });
     });
 
-    // the advance listing: the day it opened and the day it closes (or closed), so the student knows when to register
+    // the advance listings (one per check-up service): the day each opened and the day it closes (or closed), so the student knows when to register
     if (advance) {
-      const services = (advance.services || []).filter((x) => x.offered).map((x) => x.visit_type).join(', ');
-      const openedOn = dayOf(advance.opened_at);
-      if (openedOn) {
-        events.push({
-          id: 'adv-open', date: openedOn, kind: 'advance', sort: String(advance.opened_at).slice(11, 19),
-          title: 'Advance listing opens', time: advance.opened_at ? formatTimeBase(advance.opened_at) : '', detail: services,
-          badges: [advanceAccepting ? { text: 'Open now', tone: 'ok' } : { text: 'Closed', tone: 'default' }], to: '/BookCheckup'
-        });
-      }
-      const closedAt = advanceAccepting ? advance.closes_at : (advance.listing?.closed_at || (advance.is_open ? advance.closes_at : null));
-      const closesOn = dayOf(closedAt);
-      if (closesOn) {
-        events.push({
-          id: 'adv-close', date: closesOn, kind: 'advance', sort: String(closedAt).slice(11, 19),
-          title: advanceAccepting ? 'Advance listing closes' : 'Advance listing closed', time: formatTimeBase(closedAt), detail: services,
-          badges: [advanceAccepting ? { text: 'Register before this', tone: 'warn' } : { text: 'Closed', tone: 'default' }], to: '/BookCheckup'
-        });
-      } else if (advanceAccepting && !advance.opened_at) {
-        events.push({
-          id: 'adv-open-now', date: today, kind: 'advance', sort: '', title: 'Advance listing is open', time: '', detail: services,
-          badges: [{ text: 'Open now', tone: 'ok' }], to: '/BookCheckup'
-        });
-      }
+      (advance.services || []).filter((x) => x.offered && x.listing_id).forEach((x) => {
+        const accepting = x.status === 'Open';
+        const openedOn = dayOf(x.opened_at);
+        if (openedOn) {
+          events.push({
+            id: `adv-open-${x.visit_type}`, date: openedOn, kind: 'advance', sort: String(x.opened_at).slice(11, 19),
+            title: 'Advance listing opens', time: x.opened_at ? formatTimeBase(x.opened_at) : '', detail: x.visit_type,
+            badges: [accepting ? { text: 'Open now', tone: 'ok' } : { text: 'Closed', tone: 'default' }], to: '/BookCheckup'
+          });
+        }
+        const closedAt = accepting ? x.closes_at : x.closed_at;
+        const closesOn = dayOf(closedAt);
+        if (closesOn) {
+          events.push({
+            id: `adv-close-${x.visit_type}`, date: closesOn, kind: 'advance', sort: String(closedAt).slice(11, 19),
+            title: accepting ? 'Advance listing closes' : 'Advance listing closed', time: formatTimeBase(closedAt), detail: x.visit_type,
+            badges: [accepting ? { text: 'Register before this', tone: 'warn' } : { text: 'Closed', tone: 'default' }], to: '/BookCheckup'
+          });
+        } else if (accepting && !x.opened_at) {
+          events.push({
+            id: `adv-open-now-${x.visit_type}`, date: today, kind: 'advance', sort: '', title: 'Advance listing is open', time: '', detail: x.visit_type,
+            badges: [{ text: 'Open now', tone: 'ok' }], to: '/BookCheckup'
+          });
+        }
+      });
     }
 
     doctorAppointments.forEach((appt) => {
@@ -467,7 +470,8 @@ const StudentDashboard = () => {
   // the next few events from today on
   const agenda = calendarEvents
     .filter((e) => e.date >= today)
-    .sort((a, b) => (a.date + (a.sort || '')).localeCompare(b.date + (b.sort || '')))
+    .sort((a, b) => (Number(!!b.openNow) - Number(!!a.openNow))
+      || (a.date + (a.sort || '')).localeCompare(b.date + (b.sort || '')))
     .slice(0, AGENDA_LIMIT);
 
   const hasLive = liveAppointments.length > 0;

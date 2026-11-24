@@ -5,7 +5,7 @@ import {
   Calendar, Clock, Users, Eye, Activity, Smile, HeartPulse, Ear, 
   X, CheckCircle, Edit3, Trash2, FileText, ArrowLeft, ArrowRight, Megaphone, Printer,
   Play, UserRoundPlus, Search, ClipboardList, BellRing, History, LogIn, FolderPlus,
-  Plus, RotateCcw, CalendarDays, Folder, AlertTriangle, Lock, Scale, Upload, Layers, Archive, ArchiveRestore, Flag, Dumbbell, ShieldCheck, ShieldAlert, Check, Ban
+  Plus, RotateCcw, CalendarDays, Folder, AlertTriangle, Lock, Scale, Upload, Layers, Archive, ArchiveRestore, Flag, Dumbbell, ShieldCheck, ShieldAlert, Check, Ban, RefreshCw
 } from 'lucide-react';
 
 import { openReportWindow, writeReport, writeSectionedReport, escapeHtml } from '../../utils/printReport';
@@ -13,16 +13,14 @@ import stiLogo from '../../assets/sti-logof.png';
 import { formatDate, formatTime } from '../../utils/datetime';
 import '../../styles/nurse/HealthScreening.css';
 import { FolderCrumbs, Pager, sectionFolderName, paginate, scopeCounts, groupByDay, dayKey, dayHeading, DaySection } from '../../components/common/RecordFolders';
-import ScreeningTypesManager from '../../components/nurse/ScreeningTypesManager';
 import ScreeningCalendar from '../../components/nurse/ScreeningCalendar';
 import ScreeningParticipantsModal from '../../components/nurse/ScreeningParticipantsModal';
-import ScreeningTemplatesManager from '../../components/nurse/ScreeningTemplatesManager';
 import ScreeningImportModal from '../../components/nurse/ScreeningImportModal';
 import AutoTimeFields from '../../components/nurse/AutoTimeFields';
 import SectionStudents from '../../components/nurse/SectionStudents';
 import StudentScreeningHistoryModal from '../../components/nurse/StudentScreeningHistoryModal';
 import { calculate } from '../../utils/formula';
-import { bpFieldsOf, buildAutoRemark, playDecision, playRangeText, bloodPressureLabel, playClearance, PLAY_STATUS_LABELS, bpPair, bpText, bpParse, BP_PATTERN } from '../../utils/screeningRemarks';
+import { bpFieldsOf, buildAutoRemark, playDecision, playRangeText, bloodPressureLabel, playClearance, PLAY_STATUS_LABELS, PLAY_STATUS_SENTENCES, PLAY_SENTENCE_RE, bpPair, bpText, bpParse, BP_PATTERN } from '../../utils/screeningRemarks';
 import { classLabel } from '../../utils/scheduling';
 import { FormPdfButton } from '../../components/common/FormDocument';
 import { buildScreeningModel } from '../../utils/formModels';
@@ -40,7 +38,9 @@ import { setPageDotCount } from '../../utils/pageDots';
 const LEGACY_FORM_KINDS = ['DENTAL', 'VISION'];
 const isLegacySchedule = (sch) => LEGACY_FORM_KINDS.includes(sch?.form_kind);
 const typeLabel = (type) => (['Dental', 'Vision'].includes(type) ? `${type} (legacy)` : type);
-const KIND_ICONS = { BMI: Activity, VITAL_SIGNS: HeartPulse, HEARING: Ear, CUSTOM: ClipboardList, DENTAL: Smile, VISION: Eye };
+// The only screening type for new screenings (BMI + Vital Signs in one form)
+const SCREENING_TYPE = 'BMI & Vital Signs';
+const KIND_ICONS ={ BMI: Activity, VITAL_SIGNS: HeartPulse, HEARING: Ear, CUSTOM: ClipboardList, DENTAL: Smile, VISION: Eye };
 const hasResult = (st) => !!(st.bmi_log_id || st.custom_record_id || st.vital_record_id || st.hearing_record_id || st.dental_record_id || st.vision_record_id);
 
 // Two-dot step bar for the schedule form (replaces "Step 1 of 2" in the title)
@@ -266,7 +266,7 @@ export default function HealthScreening() {
   // Form States
   const [scheduleForm, setScheduleForm] = useState({
     title: '',
-    screening_type: 'BMI',
+    screening_type: SCREENING_TYPE,
     screening_category: 'GENERAL', // 'GENERAL' = one class, class folder | 'PHYSICAL' = Physical Activities, random participants, allow-to-play list
     scheduled_date: getTodayString(), // today; the time fills itself with the next free time from now
     start_time: '',
@@ -315,8 +315,8 @@ export default function HealthScreening() {
   const choosePlayStatus = (code) => setDocData((prev) => {
     const shown = code || docClearance?.status;
     const next = { ...prev, play_status: code && code === docClearance?.status ? '' : code };
-    if (shown && PLAY_STATUS_LABELS[shown] && /^Allow-to-Play Status: [^.]*\./.test(prev.remarks || '')) {
-      next.remarks = prev.remarks.replace(/^Allow-to-Play Status: [^.]*\./, `Allow-to-Play Status: ${PLAY_STATUS_LABELS[shown]}.`);
+    if (shown && PLAY_STATUS_SENTENCES[shown] && PLAY_SENTENCE_RE.test(prev.remarks || '')) {
+      next.remarks = prev.remarks.replace(PLAY_SENTENCE_RE, PLAY_STATUS_SENTENCES[shown]);
     }
     return next;
   });
@@ -329,11 +329,11 @@ export default function HealthScreening() {
   // a remark the nurse already has keeps her words, but its status line follows the decision shown above
   useEffect(() => {
     if (!showDocModal || !remarksTouched || !docPlayStatus) return;
-    const line = `Allow-to-Play Status: ${PLAY_STATUS_LABELS[docPlayStatus]}.`;
+    const line = PLAY_STATUS_SENTENCES[docPlayStatus];
     setDocData((prev) => {
       const text = prev.remarks || '';
-      if (!/^Allow-to-Play Status: [^.]*\./.test(text)) return prev;
-      const next = text.replace(/^Allow-to-Play Status: [^.]*\./, line);
+      if (!PLAY_SENTENCE_RE.test(text)) return prev;
+      const next = text.replace(PLAY_SENTENCE_RE, line);
       return next === text ? prev : { ...prev, remarks: next };
     });
   }, [showDocModal, remarksTouched, docPlayStatus]);
@@ -354,77 +354,12 @@ export default function HealthScreening() {
   const [schoolYear, setSchoolYear] = useState('');
   const [classTab, setClassTab] = useState('screenings'); // inside a section folder: 'screenings' | 'students'
 
-  // Screening types (nurse-managed): the list for the type filters, and the active ones for the schedule forms
-  const [mainView, setMainView] = useState('screenings'); // 'screenings' | 'calendar' | 'types' | 'templates'
+  const [mainView, setMainView] = useState('screenings'); // 'screenings' | 'calendar' | 'archive'
   const [calendarSchedules, setCalendarSchedules] = useState([]);
   const [calendarLoading, setCalendarLoading] = useState(true);
   const [pickerSearch, setPickerSearch] = useState('');
   const [pickerShow, setPickerShow] = useState('all'); // by-section roster filter: 'all' | 'added' | 'left'
-  const [screeningTypes, setScreeningTypes] = useState([]);
-  const [typesLoading, setTypesLoading] = useState(true);
-  const [typesError, setTypesError] = useState('');
-  const activeTypes = screeningTypes.filter(t => t.is_active);
   const isPhysical = scheduleForm.screening_category === 'PHYSICAL';
-  // Physical Activities needs a form with the vitals (a form template), so Hearing is for General Screening only
-  const typeChoices = isPhysical ? activeTypes.filter(t => t.form_kind === 'CUSTOM') : activeTypes;
-
-  const fetchScreeningTypes = useCallback(async () => {
-    if (!userId) return;
-    try {
-      const res = await fetch(`${API_BASE}/screening-types?sender_id=${encodeURIComponent(userId)}`);
-      const data = await res.json();
-      if (!res.ok || !Array.isArray(data)) throw new Error(data?.error || 'Failed to load the screening types');
-      setScreeningTypes(data);
-      setTypesError('');
-    } catch (err) {
-      console.error('Error fetching screening types:', err);
-      setTypesError(err.message || 'Could not load the screening types.');
-    } finally {
-      setTypesLoading(false);
-    }
-  }, [userId]);
-
-  useEffect(() => {
-    fetchScreeningTypes();
-  }, [fetchScreeningTypes]);
-
-  // form templates the nurse built (the result form of a CUSTOM type)
-  const [templates, setTemplates] = useState([]);
-  const [templatesLoading, setTemplatesLoading] = useState(true);
-  const [templatesError, setTemplatesError] = useState('');
-
-  const fetchTemplates = useCallback(async () => {
-    if (!userId) return;
-    try {
-      const res = await fetch(`${API_BASE}/screening-form-templates?sender_id=${encodeURIComponent(userId)}`);
-      const data = await res.json();
-      if (!res.ok || !Array.isArray(data)) throw new Error(data?.error || 'Failed to load the form templates');
-      setTemplates(data);
-      setTemplatesError('');
-    } catch (err) {
-      console.error('Error fetching form templates:', err);
-      setTemplatesError(err.message || 'Could not load the form templates.');
-    } finally {
-      setTemplatesLoading(false);
-    }
-  }, [userId]);
-
-  useEffect(() => {
-    fetchTemplates();
-  }, [fetchTemplates]);
-
-  // a template saved or deleted changes the "used by" counts of the types too
-  const templatesChanged = async () => { notifyScreeningChanged(); await Promise.all([fetchTemplates(), fetchScreeningTypes()]); };
-  // a type was added, renamed, moved or removed: student / parent records and the PDFs built from them follow
-  const typesChanged = async () => { notifyScreeningChanged(); await fetchScreeningTypes(); };
-
-  // the type picked in the new-schedule form must be an active one
-  useEffect(() => {
-    if (activeTypes.length > 0 && !activeTypes.some(t => t.name === scheduleForm.screening_type)) {
-      setScheduleForm(prev => ({ ...prev, screening_type: activeTypes[0].name }));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [screeningTypes]);
 
 
   // Helper to parse Date and Time into a single JavaScript Date object
@@ -666,8 +601,6 @@ export default function HealthScreening() {
     'phase:ongoing': idsOfPhase('ongoing'),
     'phase:past': idsOfPhase('past'),
     calendar: calendarLoading ? null : calendarSchedules.filter((sch) => sch.status !== 'Cancelled').map((sch) => sch.screening_schedule_id),
-    types: typesLoading ? null : screeningTypes.map((t) => t.screening_type_id),
-    templates: templatesLoading ? null : templates.map((t) => t.template_id),
     archive: foldersLoading ? null : [
       ...(folders.archived_folders || []).map((f) => f.folder_id),
       ...(folders.archived_screenings || []).map((s) => `s${s.screening_schedule_id}`)
@@ -675,7 +608,7 @@ export default function HealthScreening() {
   }, [mainView, ...(mainView === 'screenings' ? [`phase:${activeTab}`] : [])]);
   const screeningsDot = ['upcoming', 'ongoing', 'past'].some((p) => tabDots[`phase:${p}`]);
   // the sidebar item shows how many dots the page holds
-  const dotCount = ['calendar', 'types', 'templates', 'archive'].filter((k) => tabDots[k] && k !== mainView).length
+  const dotCount = ['calendar', 'archive'].filter((k) => tabDots[k] && k !== mainView).length
     + (mainView === 'screenings'
       ? ['upcoming', 'ongoing', 'past'].filter((p) => tabDots[`phase:${p}`] && p !== activeTab).length
       : (screeningsDot ? 1 : 0));
@@ -1813,7 +1746,7 @@ export default function HealthScreening() {
 
   const resetScheduleForm = () => {
     setScheduleForm({
-      title: '', screening_type: activeTypes[0]?.name || '', screening_category: 'GENERAL', scheduled_date: getTodayString(), start_time: '', end_time: '',
+      title: '', screening_type: SCREENING_TYPE, screening_category: 'GENERAL', scheduled_date: getTodayString(), start_time: '', end_time: '',
       announcement: '', target_program_id: '', target_year_level: '', target_section: '',
       grouping: 'SECTION', folder_mode: sectionFolders.length ? 'existing' : 'new', section_key: '', folder_id: '', folder_name: ''
     });
@@ -1900,8 +1833,7 @@ export default function HealthScreening() {
     setScheduleForm(prev => {
       const clean = { target_program_id: '', target_year_level: '', target_section: '', section_key: '', folder_name: '' };
       if (category === 'PHYSICAL') {
-        const choices = activeTypes.filter(t => t.form_kind === 'CUSTOM');
-        return { ...prev, ...clean, screening_category: 'PHYSICAL', grouping: 'CUSTOM', folder_mode: 'new', folder_id: 'new', screening_type: choices.some(t => t.name === prev.screening_type) ? prev.screening_type : (choices[0]?.name || '') };
+        return { ...prev, ...clean, screening_category: 'PHYSICAL', grouping: 'CUSTOM', folder_mode: 'new', folder_id: 'new', screening_type: SCREENING_TYPE };
       }
       return { ...prev, ...clean, screening_category: 'GENERAL', grouping: 'SECTION', folder_mode: sectionFolders.length ? 'existing' : 'new', folder_id: '' };
     });
@@ -2053,28 +1985,15 @@ export default function HealthScreening() {
         />
       </div>
       {schoolYearSelect}
-      {screeningTypes.length <= 5 ? (
-        <div className="chips-hs" role="group" aria-label="Screening type">
-          <button type="button" className="chip-btn-hs" aria-pressed={filterType === 'ALL'} onClick={() => setFilterType('ALL')}>All</button>
-          {screeningTypes.map(t => (
-            <button
-              key={t.screening_type_id}
-              type="button"
-              className="chip-btn-hs"
-              aria-pressed={filterType === t.name}
-              onClick={() => setFilterType(t.name)}
-            >
-              {React.createElement(typeIcon(t.name, t.form_kind), { size: 15, 'aria-hidden': true })}
-              {t.name}{t.is_active ? '' : ' (inactive)'}
-            </button>
-          ))}
-        </div>
-      ) : (
-        <select value={filterType} onChange={e => setFilterType(e.target.value)} aria-label="Screening type">
-          <option value="ALL">All types</option>
-          {screeningTypes.map(t => <option key={t.screening_type_id} value={t.name}>{t.name}{t.is_active ? '' : ' (inactive)'}</option>)}
-        </select>
-      )}
+      <button
+        type="button"
+        className="btn-hs btn-secondary-hs btn-icon-hs"
+        onClick={() => fetchSchedules()}
+        aria-label="Refresh"
+        title="Refresh"
+      >
+        <RefreshCw size={18} aria-hidden="true" />
+      </button>
     </div>
   );
 
@@ -2163,8 +2082,6 @@ export default function HealthScreening() {
         {[
           ['screenings', Folder, 'Screenings'],
           ['calendar', CalendarDays, 'Calendar'],
-          ['types', ClipboardList, 'Types'],
-          ['templates', FileText, 'Templates'],
           ['archive', Archive, 'Archive']
         ].map(([key, Icon, label]) => (
           <button
@@ -2193,28 +2110,6 @@ export default function HealthScreening() {
           onEdit={(sch) => { setEditingSchedule(sch); setShowEditModal(true); }}
           onCancel={handleCancelSchedule}
           typeLabel={typeLabel}
-        />
-      )}
-
-      {mainView === 'types' && (
-        <ScreeningTypesManager
-          types={screeningTypes}
-          templates={templates}
-          loading={typesLoading}
-          loadError={typesError}
-          senderId={userId}
-          onChanged={typesChanged}
-        />
-      )}
-
-      {mainView === 'templates' && (
-        <ScreeningTemplatesManager
-          templates={templates}
-          types={screeningTypes}
-          loading={templatesLoading}
-          loadError={templatesError}
-          senderId={userId}
-          onChanged={templatesChanged}
         />
       )}
 
@@ -2528,34 +2423,15 @@ export default function HealthScreening() {
           <HsDialogHeader onClose={() => setShowScheduleModal(false)} icon={Plus} center={<StepDots step={1} />}>New screening</HsDialogHeader>
           <form onSubmit={handleNextToStudents} className="modal-form-hs">
             <div className="modal-body-hs">
-              <div className="pk-title-row-hs">
-                <div className="form-group-hs">
-                  <label htmlFor="hs-fld-1">Title <Req /></label>
-                  <input id="hs-fld-1"
-                    type="text"
-                    required
-                    value={scheduleForm.title}
-                    onChange={e => setScheduleForm({...scheduleForm, title: e.target.value})}
-                    placeholder="Title"
-                  />
-                </div>
-                <div className="form-group-hs">
-                  <label htmlFor="hs-fld-2">Type <Req /></label>
-                  <select id="hs-fld-2"
-                    value={scheduleForm.screening_type}
-                    required
-                    aria-describedby={typesError ? 'screening-type-help-hs' : undefined}
-                    onChange={e => setScheduleForm({...scheduleForm, screening_type: e.target.value})}
-                  >
-                    {typeChoices.length === 0 && <option value="">No active screening type</option>}
-                    {typeChoices.map(t => <option key={t.screening_type_id} value={t.name}>{t.name}</option>)}
-                  </select>
-                  {typesError && (
-                    <small id="screening-type-help-hs" className="hint-hs">
-                      {typesError}
-                    </small>
-                  )}
-                </div>
+              <div className="form-group-hs">
+                <label htmlFor="hs-fld-1">Title <Req /></label>
+                <input id="hs-fld-1"
+                  type="text"
+                  required
+                  value={scheduleForm.title}
+                  onChange={e => setScheduleForm({...scheduleForm, title: e.target.value})}
+                  placeholder="Title"
+                />
               </div>
 
               {/* Category: General Screening (one class, class folder) or Physical Activities (random participants, allow-to-play list) */}
@@ -2639,6 +2515,7 @@ export default function HealthScreening() {
                   />
                 </div>
                 <AutoTimeFields
+                  followNow
                   date={scheduleForm.scheduled_date}
                   value={{ start_time: scheduleForm.start_time, end_time: scheduleForm.end_time }}
                   onChange={(t) => setScheduleForm(prev => ({ ...prev, ...t }))}
@@ -2953,22 +2830,6 @@ export default function HealthScreening() {
               </div>
               <div className="form-group-hs">
                 <span className="chip-hs chip-info-hs">{isPhysicalSchedule(editingSchedule) ? <Dumbbell size={14} aria-hidden="true" /> : <ClipboardList size={14} aria-hidden="true" />} {CATEGORY_LABELS[editingSchedule.screening_category] || CATEGORY_LABELS.GENERAL}</span>
-              </div>
-              <div className="form-group-hs">
-                <label htmlFor="hs-fld-8">Screening Type</label>
-                <select id="hs-fld-8"
-                  value={editingSchedule.screening_type}
-                  disabled={Number(editingSchedule.result_count) > 0 || isLegacySchedule(editingSchedule)}
-                  title={Number(editingSchedule.result_count) > 0 ? 'Locked: results recorded' : undefined}
-                  onChange={e => setEditingSchedule({ ...editingSchedule, screening_type: e.target.value })}
-                >
-                  {/* the schedule's own type stays in the list even when it is legacy or deactivated */}
-                  {!activeTypes.some(t => t.name === editingSchedule.screening_type) && (
-                    <option value={editingSchedule.screening_type}>{typeLabel(editingSchedule.screening_type)}{isLegacySchedule(editingSchedule) ? '' : ' (inactive)'}</option>
-                  )}
-                  {activeTypes.map(t => <option key={t.screening_type_id} value={t.name}>{t.name}</option>)}
-                </select>
-                {Number(editingSchedule.result_count) > 0 && <small className="hint-hs"><Lock size={14} aria-hidden="true" /> Locked</small>}
               </div>
               <div className="form-group-hs">
                 <label htmlFor="hs-fld-9">Scheduled Date</label>
@@ -3547,6 +3408,7 @@ export default function HealthScreening() {
                   value={{ start_time: makeupModal.start_time, end_time: makeupModal.end_time }}
                   onChange={(t) => setMakeupModal(prev => (prev ? { ...prev, ...t } : prev))}
                   autoOnMount
+                  followNow
                   onDateChange={(d) => setMakeupModal(prev => (prev ? { ...prev, scheduled_date: d } : prev))}
                   onNotice={(msg) => showAlert(msg, 'No Free Time', 'warning')}
                 />

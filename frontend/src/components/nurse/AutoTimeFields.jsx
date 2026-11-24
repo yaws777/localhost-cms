@@ -10,9 +10,16 @@ const minutesOf = (t) => {
   return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : NaN;
 };
 
+const manilaNow = () => {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+  }).formatToParts(new Date()).map((x) => [x.type, x.value]));
+  return { day: `${p.year}-${p.month}-${p.day}`, minutes: Number(p.hour) * 60 + Number(p.minute) };
+};
+
 // Screening time: it fills itself with the next free time of the chosen day (after now when it is today) for the chosen length,
 // and the nurse can still change Start, End or Length (an overlap shows a warning). `value` = { start_time, end_time }, `onChange({ start_time, end_time })`.
-export default function AutoTimeFields({ date, value, onChange, excludeId = '', studentIds = [], autoOnMount = false, onNotice, onDateChange }) {
+export default function AutoTimeFields({ date, value, onChange, excludeId = '', studentIds = [], autoOnMount = false, followNow = false, onNotice, onDateChange }) {
   const [duration, setDuration] = useState(() => {
     const len = minutesOf(value?.end_time) - minutesOf(value?.start_time);
     return DURATIONS.includes(len) ? len : (len > 0 ? len : 30);
@@ -20,9 +27,11 @@ export default function AutoTimeFields({ date, value, onChange, excludeId = '', 
   const [conflicts, setConflicts] = useState([]);
   const [busy, setBusy] = useState(false);
   const lastDate = useRef('');
+  const manual = useRef(false); // the nurse typed a start / end: stop following the clock
 
   const pickSlot = useCallback(async (len) => {
     if (!date) return;
+    manual.current = false;
     setBusy(true);
     try {
       const q = new URLSearchParams({ date, duration: String(len) });
@@ -75,8 +84,30 @@ export default function AutoTimeFields({ date, value, onChange, excludeId = '', 
     return () => { cancelled = true; };
   }, [date, value?.start_time, value?.end_time, excludeId, studentKey]);
 
+  // today: when the start time falls behind the clock, move to the next free time after now (unless the nurse typed a time)
+  const pickRef = useRef(pickSlot);
+  pickRef.current = pickSlot;
+  const startRef = useRef(value?.start_time);
+  startRef.current = value?.start_time;
+  const durationRef = useRef(duration);
+  durationRef.current = duration;
+  useEffect(() => {
+    if (!followNow || !date) return undefined;
+    const check = () => {
+      if (manual.current || document.hidden) return;
+      const { day, minutes } = manilaNow();
+      if (date !== day) return;
+      const start = minutesOf(startRef.current);
+      if (!Number.isNaN(start) && start <= minutes) pickRef.current(durationRef.current);
+    };
+    const timer = setInterval(check, 15000);
+    document.addEventListener('visibilitychange', check);
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', check); };
+  }, [followNow, date]);
+
   // the nurse can type any start / end or pick a length; the conflict check below warns about overlaps
   const handleRange = (start_time, end_time) => {
+    manual.current = true;
     const len = minutesOf(end_time) - minutesOf(start_time);
     if (len > 0) setDuration(len);
     onChange({ start_time, end_time });

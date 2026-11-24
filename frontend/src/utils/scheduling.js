@@ -3,6 +3,9 @@
 
 export const API = 'http://localhost:3001';
 
+// where a session is held: the nurse types it in the schedule request (the doctor cannot change it); the two STI College Baliuag buildings are the placeholder
+export const SCHEDULE_LOCATION_HINT = 'Main Campus (A&C Building) or SHS Annex Building (CJ Building)';
+
 // A schedule is a session with a queue: the nurse accepts the students who asked for a place in its listing (they get a queue number) and the only
 // switch is allow_walk_in. What is categorized is HOW A STUDENT GOT IN, from doctor_appointments.booking_source:
 //   advance listing, session listing, repeat, or walk-in (walk-in lane).

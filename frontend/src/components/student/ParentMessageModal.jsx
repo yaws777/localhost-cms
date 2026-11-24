@@ -5,6 +5,7 @@ import {
     Trash2, MoreVertical, Square, AlertCircle, Loader2, ArrowLeft
 } from 'lucide-react';
 import '../../styles/parent/ParentMessageModal.css';
+import '../../styles/parent/ParentChatMobile.css';
 import { useAlert } from '../../context/AlertContext';
 import { formatTime } from '../../utils/datetime';
 

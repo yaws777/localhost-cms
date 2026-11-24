@@ -9,6 +9,7 @@ import stiLogo from '../../assets/sti-logof.png';
 import { formatDate } from '../../utils/datetime';
 import { useAlert } from '../../context/AlertContext';
 import HealthInfoView from '../../components/common/HealthInfoView';
+import { CONDITION_LABELS, getFileUrl } from '../../components/common/HealthProofList';
 import HealthHistoryEditModal from '../../components/nurse/HealthHistoryEditModal';
 import '../../styles/nurse/HealthRecordProfile.css';
 import '../../styles/nurse/HealthRecordProfilePage.css';
@@ -382,6 +383,7 @@ export default function HealthRecordsProfile() {
     const initials = `${(studentHeader?.first_name || '?')[0]}${(studentHeader?.last_name || '')[0] || ''}`.toUpperCase();
 
     const flagChips = FLAG_CHIPS.filter(([key]) => healthInfo[key]);
+    const proofEntries = Object.entries(healthProofs || {}).filter(([key, proof]) => CONDITION_LABELS[key] && proof?.file_url);
 
     const counts = { all: requirementsList.length, warning: 0, danger: 0, complete: 0 };
     requirementsList.forEach((r) => { counts[requirementKind(r)] += 1; });
@@ -774,9 +776,8 @@ export default function HealthRecordsProfile() {
                     <p><strong>Student ID:</strong> {studentId} {isInactive ? '(Inactive Account)' : ''}</p>
                     <p><strong>Name:</strong> {fullName}</p>
                     <p><strong>Program & Year:</strong> {studentHeader?.program_id} - {studentHeader?.year_level} Year</p>
-                    <p><strong>Gender:</strong> {personalInfo.gender || 'N/A'} | <strong>Age:</strong> {personalInfo.age || 'N/A'} | <strong>Date of Birth:</strong> {personalInfo.birth_date ? formatDate(personalInfo.birth_date) : 'N/A'}</p>
+                    <p><strong>Gender:</strong> {personalInfo.gender || 'N/A'} | <strong>Age:</strong> {personalInfo.age || 'N/A'}</p>
                     <p><strong>Contact No.:</strong> {personalInfo.contact_number || 'N/A'}</p>
-                    <p><strong>Address:</strong> {personalInfo.address || 'N/A'}</p>
                     <p><strong>Height / Weight:</strong> {personalInfo.height_cm ? `${personalInfo.height_cm} cm` : 'N/A'} / {personalInfo.weight_kg ? `${personalInfo.weight_kg} kg` : 'N/A'}</p>
                 </div>
 
@@ -803,10 +804,23 @@ export default function HealthRecordsProfile() {
                     </ul>
                 </div>
 
-                <div className="hrp-report-block">
-                    <h4>Requirements</h4>
-                    <p>{counts.all === 0 ? 'None assigned.' : `${counts.complete} of ${counts.all} complete, ${counts.danger} overdue, ${counts.warning} pending.`}</p>
-                </div>
+                {proofEntries.length > 0 && (
+                    <div className="hrp-report-block hrp-report-proofs">
+                        <h4>Uploaded Proof</h4>
+                        {proofEntries.map(([key, proof]) => {
+                            const url = getFileUrl(proof.file_url);
+                            const isImage = /\.(png|jpe?g|gif|webp|bmp)$/i.test(proof.file_url || '');
+                            return (
+                                <figure key={key} className="hrp-report-proof">
+                                    <figcaption>{CONDITION_LABELS[key]}</figcaption>
+                                    {isImage
+                                        ? <img src={url} alt={`${CONDITION_LABELS[key]} proof`} />
+                                        : <p>File: {proof.original_name || 'Attached document'} (not an image, see the student record)</p>}
+                                </figure>
+                            );
+                        })}
+                    </div>
+                )}
 
                 <div className="hrp-report-sign">
                     <p className="by"><strong>Prepared by:</strong></p>
