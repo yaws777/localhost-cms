@@ -1616,6 +1616,7 @@ app.get('/api/students/:studentId/health-summary', async (req, res) => {
                     });
                 }
             }
+            const statusOf = new Map(templateResults(fieldList, a).map((x) => [x.label, x.status]));
             const items = fieldList
                 .filter((f) => a[f.key] !== undefined && a[f.key] !== '')
                 .map((f) => {
@@ -1629,6 +1630,7 @@ app.get('/api/students/:studentId/health-summary', async (req, res) => {
                         value: `${raw}${f.unit ? ` ${f.unit}` : ''}`,
                         note: a[`${f.key}__label`] || null,
                         abnormal: outOfRange || badChoice,
+                        status: statusOf.get(f.label) || '',
                         blocked: a[`${f.key}__play`] === 'blocked'
                     };
                 });
@@ -3438,32 +3440,29 @@ const healthConditionsOf = (student) => {
     return conditions;
 };
 
-// Allow-to-Play: what a student's health history means for a physical activity.
-// blockers = needs a doctor's clearance first (Not Allowed to Play); restrictions = may play with these conditions.
+// Allow-to-Play: what a student's health history means for a physical activity. A heart problem or seizure history blocks play
+// (`blockers`); every other item is a precaution when the student may play. The history is told as part of a Not Allowed reason.
 const playHealthOf = (h) => {
-    if (!h) return { blockers: [], restrictions: [], conditions: [] };
+    if (!h) return { blockers: [], precautions: [], conditions: [] };
     const on = (v) => (v === null || v === undefined ? false : Buffer.isBuffer(v) ? v[0] === 1 : (v === true || Number(v) === 1 || String(v).toLowerCase() === 'true'));
     const blockers = [];
-    const restrictions = [];
-    // blockers: "Due to health history: ..." (the reason the student cannot play); restrictions: "Monitor the student's ..." (may play, with care)
-    const thing = (what, specify) => (specify ? `${what} (${specify})` : what);
-    const due = (what, specify) => `Due to health history: ${thing(what, specify)}. A doctor must clear the student before playing.`;
-    const mon = (what, specify, advice) => `Monitor the student's ${thing(what, specify)}. ${advice}`;
-    if (on(h.has_heart_problems)) blockers.push(due('heart problem', h.heart_problems_specify));
-    if (on(h.has_seizure_episode)) blockers.push(due('history of seizures'));
-    if (on(h.has_asthma)) restrictions.push(mon('asthma', h.asthma_triggers ? `triggers: ${h.asthma_triggers}` : '', 'Keep the inhaler at hand, avoid triggers, and rest when short of breath.'));
-    if (on(h.has_other_respiratory)) restrictions.push(mon('breathing problem', h.other_respiratory_specify, 'Avoid strenuous activity and rest when short of breath.'));
-    if (on(h.has_allergies)) restrictions.push(mon('allergies', '', 'Keep allergy medicine at hand and avoid known triggers.'));
-    if (on(h.has_blood_disorders)) restrictions.push(mon('blood disorder', '', 'Avoid contact and high-impact activity, and rest when tired.'));
-    if (on(h.has_metabolic_diseases)) restrictions.push(mon('metabolic disease', '', 'Eat before playing, drink water, and stop if dizzy.'));
-    if (on(h.has_muscle_bone_disorder)) restrictions.push(mon('muscle or bone disorder', h.muscle_bone_specify, 'Avoid high-impact activity.'));
-    if (on(h.has_surgery)) restrictions.push(mon('recovery from surgery', h.surgery_specify, 'Avoid strain on the operated area.'));
-    if (on(h.has_kidney_bladder_problems)) restrictions.push(mon('kidney or bladder problem', h.kidney_bladder_specify, 'Drink water and allow rest breaks.'));
-    if (on(h.has_digestive_disorders)) restrictions.push(mon('digestive disorder', '', 'Avoid strenuous activity after meals.'));
-    if (on(h.has_vision_problem)) restrictions.push(mon('vision problem', h.vision_specify, 'Wear glasses or lenses and avoid ball sports without them.'));
-    if (on(h.has_hearing_problem)) restrictions.push(mon('hearing problem', h.hearing_specify, 'Use visual signals.'));
-    if (on(h.has_other_condition)) restrictions.push(mon(h.other_condition_specify || 'health condition', '', "Follow the nurse's advice."));
-    return { blockers, restrictions, conditions: healthConditionsOf(h) };
+    const precautions = [];
+    const mon = (what, specify, advice) => precautions.push(`Monitor the student's ${specify ? `${what} (${specify})` : what}. ${advice}`);
+    if (on(h.has_heart_problems)) blockers.push('heart problem');
+    if (on(h.has_seizure_episode)) blockers.push('history of seizures');
+    if (on(h.has_asthma)) mon('asthma', h.asthma_triggers ? `triggers: ${h.asthma_triggers}` : '', 'Keep the inhaler at hand, avoid triggers, and rest when short of breath.');
+    if (on(h.has_other_respiratory)) mon('breathing problem', h.other_respiratory_specify, 'Avoid strenuous activity and rest when short of breath.');
+    if (on(h.has_allergies)) mon('allergies', '', 'Keep allergy medicine at hand and avoid known triggers.');
+    if (on(h.has_blood_disorders)) mon('blood disorder', '', 'Avoid contact and high-impact activity, and rest when tired.');
+    if (on(h.has_metabolic_diseases)) mon('metabolic disease', '', 'Eat before playing, drink water, and stop if dizzy.');
+    if (on(h.has_muscle_bone_disorder)) mon('muscle or bone disorder', h.muscle_bone_specify, 'Avoid high-impact activity.');
+    if (on(h.has_surgery)) mon('recovery from surgery', h.surgery_specify, 'Avoid strain on the operated area.');
+    if (on(h.has_kidney_bladder_problems)) mon('kidney or bladder problem', h.kidney_bladder_specify, 'Drink water and allow rest breaks.');
+    if (on(h.has_digestive_disorders)) mon('digestive disorder', '', 'Avoid strenuous activity after meals.');
+    if (on(h.has_vision_problem)) mon('vision problem', h.vision_specify, 'Wear glasses or lenses and avoid ball sports without them.');
+    if (on(h.has_hearing_problem)) mon('hearing problem', h.hearing_specify, 'Use visual signals.');
+    if (on(h.has_other_condition)) mon(h.other_condition_specify || 'health condition', '', "Follow the nurse's advice.");
+    return { blockers, precautions, conditions: healthConditionsOf(h) };
 };
 
 // GET /api/health-records/students
@@ -8778,7 +8777,7 @@ const BUILT_IN_FORMS = [
       { key: 'f1', label: 'Systolic blood pressure', type: 'number', unit: 'mmHg', required: false, min: 90, max: 120 },
       { key: 'f2', label: 'Diastolic blood pressure', type: 'number', unit: 'mmHg', required: false, min: 60, max: 80 },
       { key: 'f3', label: 'Pulse rate', type: 'number', unit: 'bpm', required: false, min: 60, max: 100 },
-      { key: 'f4', label: 'Temperature', type: 'number', unit: 'C', required: false, min: 36.1, max: 37.5 },
+      { key: 'f4', label: 'Temperature', type: 'number', unit: 'C', required: false, min: 36.1, max: 37.8 },
       { key: 'f5', label: 'Respiratory rate', type: 'number', unit: '/min', required: false, min: 12, max: 20 }
     ],
     answers: (r) => {
@@ -8837,7 +8836,7 @@ const COMBINED_BMI_VITALS = {
     { key: 'f4', label: 'Systolic blood pressure', type: 'number', unit: 'mmHg', required: false, min: 90, max: 120 },
     { key: 'f5', label: 'Diastolic blood pressure', type: 'number', unit: 'mmHg', required: false, min: 60, max: 80 },
     { key: 'f6', label: 'Pulse rate', type: 'number', unit: 'bpm', required: false, min: 60, max: 100 },
-    { key: 'f7', label: 'Temperature', type: 'number', unit: 'C', required: false, min: 36.1, max: 37.5 },
+    { key: 'f7', label: 'Temperature', type: 'number', unit: 'C', required: false, min: 36.1, max: 37.8 },
     { key: 'f8', label: 'Respiratory rate', type: 'number', unit: '/min', required: false, min: 12, max: 20 }
   ]
 };
@@ -8875,7 +8874,7 @@ const PLAY_DEFAULTS = [
   { re: /systolic/i, role: 'systolic', play_min: 90, play_max: 139 },
   { re: /diastolic/i, role: 'diastolic', play_min: 60, play_max: 89 },
   { re: /pulse/i, play_min: 50, play_max: 120 },
-  { re: /temperature/i, play_max: 37.5 },
+  { re: /temperature/i, play_max: 37.8 },
   { re: /respiratory/i, play_min: 10, play_max: 24 }
 ];
 const seedPlayDefaults = async () => {
@@ -8902,7 +8901,23 @@ const seedPlayDefaults = async () => {
   await pool.query(`INSERT INTO screening_seed_flags (flag) VALUES ('play_defaults')`);
 };
 
-const screeningTemplatesReady = ensureScreeningTemplates().then(convertBuiltInForms).then(seedCombinedBmiVitals).then(seedPlayDefaults).catch((e) => console.error('Could not set up the screening form templates:', e.message));
+// Temperature is normal up to 37.8 now. Saved templates still on the old 37.5 limit are raised once (flag).
+const raiseTemperatureLimit = async () => {
+  const [[done]] = await pool.query(`SELECT COUNT(*) AS n FROM screening_seed_flags WHERE flag = 'temperature_37_8'`);
+  if (Number(done.n) > 0) return;
+  const [templates] = await pool.query('SELECT template_id, fields FROM screening_form_templates');
+  for (const t of templates) {
+    const fields = jsonOf(t.fields) || [];
+    let changed = false;
+    fields.filter((f) => /temp/i.test(f.label || '')).forEach((f) => {
+      ['max', 'play_max'].forEach((k) => { if (Number(f[k]) === 37.5) { f[k] = 37.8; changed = true; } });
+    });
+    if (changed) await pool.query('UPDATE screening_form_templates SET fields = ? WHERE template_id = ?', [JSON.stringify(fields), t.template_id]);
+  }
+  await pool.query(`INSERT INTO screening_seed_flags (flag) VALUES ('temperature_37_8')`);
+};
+
+const screeningTemplatesReady = ensureScreeningTemplates().then(convertBuiltInForms).then(seedCombinedBmiVitals).then(seedPlayDefaults).then(raiseTemperatureLimit).catch((e) => console.error('Could not set up the screening form templates:', e.message));
 
 const SCREENING_FIELD_TYPES = ['number', 'calculated', 'text', 'select', 'yesno'];
 const TEMPLATE_MAX_FIELDS = 30;
@@ -9135,14 +9150,12 @@ const bpFieldsOf = (fields) => {
 
 // Automatic remark of one result: blood pressure Normal / High Blood / Low Blood, other numbers Low / High against their normal range,
 // the play decision and the student's asthma history. Same wording as frontend/src/utils/screeningRemarks.js.
-const PLAY_STATUS_LABELS = { ALLOWED: 'Allowed to Play', RESTRICTED: 'Allowed with Restrictions', NOT_ALLOWED: 'Not Allowed to Play' };
-// the decision as the first sentence of the remark
-const PLAY_STATUS_SENTENCES = {
-  ALLOWED: 'The student is allowed to play.',
-  RESTRICTED: 'The student is allowed to play with restrictions.',
-  NOT_ALLOWED: 'The student is not allowed to play.',
-};
-const PLAY_SENTENCE_RE = /^(?:The student is (?:not )?allowed to play(?: with restrictions)?\.|Allow-to-Play Status: [^.]*\.)/i;
+const PLAY_STATUS_LABELS = { ALLOWED: 'Allowed to Play', NOT_ALLOWED: 'Not Allowed to Play' };
+// "Allowed with Restrictions" no longer exists: results saved with it read as Allowed (the precautions stay in the remarks)
+const playStatusOf = (status) => (status === 'RESTRICTED' ? 'ALLOWED' : status || null);
+const PLAY_ALLOWED_SENTENCE = 'The student is allowed to play.';
+// the decision sentence at the start of a remark (also the wordings used before)
+const PLAY_SENTENCE_RE = /^(?:The student is (?:not )?allowed to play(?: with restrictions| due to [^.]*)?\.|Allow-to-Play Status: [^.]*\.)/i;
 
 // Vital signs that are not normal, as status words only (never the readings): [{ name: 'blood pressure', state: 'high' }].
 // blocked = outside the play range (or a blocking choice) -> the student cannot play; otherwise outside the normal range -> monitor.
@@ -9171,33 +9184,35 @@ const vitalStatesOf = (fields, answers, blocked) => {
 };
 const vitalList = (states) => states.map((o) => `${o.name} ${o.state}`).join(', ');
 
-// Clearance decision of a Physical Activities screening: the vitals (play range, readings outside normal) and the health history.
+// Clearance decision of a Physical Activities screening, always automatic. Not Allowed = a vital sign outside the play range (or a
+// blocking choice), or a heart problem / seizure history. `sentence` starts the remark; `restrictions` are the precautions of an allowed student.
 // Same rules as playClearance in frontend/src/utils/screeningRemarks.js.
-const playClearanceOf = (fields, answers, evaluated, healthPlay) => {
-  const blockers = [];
-  const restrictions = [...((healthPlay && healthPlay.restrictions) || [])];
+const playClearanceOf = (fields, answers, healthPlay) => {
   const blockedStates = vitalStatesOf(fields, answers, true);
-  if (blockedStates.length > 0) blockers.push(`Due to not normal vital signs: ${vitalList(blockedStates)}.`);
-  blockers.push(...((healthPlay && healthPlay.blockers) || []));
-  const blockedNames = new Set(blockedStates.map((o) => o.name));
-  const monitorStates = vitalStatesOf(fields, answers, false).filter((o) => !blockedNames.has(o.name));
-  if (monitorStates.length > 0) restrictions.unshift(`Monitor these vital signs during the activity: ${vitalList(monitorStates)}.`);
-  const status = blockers.length > 0 ? 'NOT_ALLOWED' : restrictions.length > 0 ? 'RESTRICTED' : 'ALLOWED';
-  return { status, label: PLAY_STATUS_LABELS[status], blockers, restrictions };
+  const healthBlocked = ((healthPlay && healthPlay.blockers) || []).length > 0;
+  const status = blockedStates.length > 0 || healthBlocked ? 'NOT_ALLOWED' : 'ALLOWED';
+  const restrictions = [];
+  let sentence = PLAY_ALLOWED_SENTENCE;
+  if (status === 'NOT_ALLOWED') {
+    const conditions = (healthPlay && healthPlay.conditions) || [];
+    const history = conditions.length > 0 ? `health history: ${conditions.join(', ')}` : '';
+    // no periods inside, so the sentence can be found again at the start of a remark
+    sentence = `The student is not allowed to play due to ${[vitalList(blockedStates), history].filter(Boolean).join(', and ').replace(/\./g, '')}.`;
+  } else {
+    const monitorStates = vitalStatesOf(fields, answers, false);
+    if (monitorStates.length > 0) restrictions.push(`Monitor these vital signs during the activity: ${vitalList(monitorStates)}.`);
+    restrictions.push(...((healthPlay && healthPlay.precautions) || []));
+  }
+  return { status, label: PLAY_STATUS_LABELS[status], sentence, restrictions };
 };
 
-// ctx = { category: 'GENERAL' | 'PHYSICAL', clearance, conditions }: plain sentences only. Physical Activities: the Allow-to-Play status, then
-// why (Not Allowed: not normal vital signs by status + health history) or what to monitor (Restrictions); readings are never written as values.
+// ctx = { category: 'GENERAL' | 'PHYSICAL', clearance, conditions }: plain sentences only. Physical Activities: the decision (Not Allowed: high or
+// low vital signs by status + health history) then the precautions of an allowed student; readings are never written as values.
 // Other screenings end with the student's health history. General Screening has no play remark.
 const buildAutoRemarks = (fields, answers, evaluated, asthma, ctx = {}) => {
   const lines = [];
   const physical = ctx.category === 'PHYSICAL' && ctx.clearance;
-  if (physical) {
-    const c = ctx.clearance;
-    lines.push(PLAY_STATUS_SENTENCES[c.status]);
-    if (c.status === 'NOT_ALLOWED') lines.push(...(c.blockers.length > 0 ? c.blockers : c.restrictions));
-    else if (c.status === 'RESTRICTED') lines.push(...(c.restrictions.length > 0 ? c.restrictions : c.blockers));
-  }
+  if (physical) lines.push(ctx.clearance.sentence, ...ctx.clearance.restrictions);
   const { sys, dia } = bpFieldsOf(fields);
   const used = new Set();
   const sv = sys ? answers[sys.key] : undefined;
@@ -9218,7 +9233,7 @@ const buildAutoRemarks = (fields, answers, evaluated, asthma, ctx = {}) => {
       const unit = f.unit ? ` ${f.unit}` : '';
       const band = answers[`${f.key}__label`];
       const state = f.min !== undefined && v < f.min ? 'low' : f.max !== undefined && v > f.max ? 'high' : '';
-      if (state) lines.push(`${f.label} is ${v}${unit}. Not normal (${state}${band ? `, ${band}` : ''}).`);
+      if (state) lines.push(`${f.label} is ${v}${unit}. ${outWord(f.label, state === 'low')}${band ? ` (${band})` : ''}.`);
     }
   }
   for (const f of fields) {
@@ -9231,6 +9246,12 @@ const buildAutoRemarks = (fields, answers, evaluated, asthma, ctx = {}) => {
   return lines.join(' ');
 };
 
+// A reading outside its range is told as High or Low, never "Not normal"
+const outWord = (label, low) => `${low ? 'Low' : 'High'}${/temp/i.test(label || '') ? ' Temperature' : ''}`;
+// 'High Temperature, Low pulse rate' of the read-only results ('' when nothing is flagged)
+const flaggedText = (results) => [...new Set((results || []).filter((r) => r.status && r.status !== 'Normal')
+  .map((r) => (r.status === 'High' || r.status === 'Low' ? `${r.status} ${String(r.label).toLowerCase()}` : r.status)))].join(', ');
+
 const customSummary = (fields, answers) => {
   const a = jsonOf(answers) || {};
   return (jsonOf(fields) || []).filter((f) => a[f.key] !== undefined)
@@ -9238,7 +9259,7 @@ const customSummary = (fields, answers) => {
 };
 
 // Every recorded field of a form template as a read-only result: value + unit, band label, and for a field with a normal range
-// (or abnormal choices) status 'Normal' | 'Not normal' and range 'Range 90-119 mmHg'. Read by the student / parent / nurse record forms.
+// status 'Normal' | 'High' | 'Low' (abnormal choices: 'Not normal') and range 'Range 90-119 mmHg'. Read by the student / parent / nurse record forms.
 const templateResults = (fields, answers) => {
   const a = jsonOf(answers) || {};
   const all = jsonOf(fields) || [];
@@ -9256,7 +9277,7 @@ const templateResults = (fields, answers) => {
         const isBp = (bp.sys && bp.sys.key === f.key) || (bp.dia && bp.dia.key === f.key);
         const low = hasMin && n < f.min;
         const high = hasMax && n > f.max;
-        status = !low && !high ? 'Normal' : isBp ? (high ? 'High blood' : 'Low blood') : 'Not normal';
+        status = !low && !high ? 'Normal' : isBp ? (high ? 'High blood' : 'Low blood') : outWord(f.label, low);
         range = `Range ${hasMin && hasMax ? `${f.min}-${f.max}` : hasMin ? `${f.min} or more` : `up to ${f.max}`}${unit}`;
       }
     } else if ((f.abnormal_options || []).length > 0) {
@@ -9352,7 +9373,7 @@ const ensureScreeningEndColumns = () => {
   }
   return screeningEndReady;
 };
-// Allow-to-Play decision of a Physical Activities result (screening_custom_results): ALLOWED | RESTRICTED | NOT_ALLOWED + the restrictions text
+// Allow-to-Play decision of a Physical Activities result (screening_custom_results): ALLOWED | NOT_ALLOWED + the precautions or reason text
 let screeningPlayReady = null;
 const ensureScreeningPlayColumns = () => {
   if (!screeningPlayReady) {
@@ -10415,7 +10436,7 @@ app.get('/api/screenings/free-slot', async (req, res) => {
     const exclude = req.query.exclude_id ? String(req.query.exclude_id) : null;
     const nowStr = nowManilaStr();
     const todayStr = nowStr.slice(0, 10);
-    const OPEN = 7 * 60, CLOSE = 20 * 60;
+    const OPEN = 7 * 60, CLOSE = 24 * 60 - 1; // any time left in the day (up to 23:59) is allowed
     // first free time of one day, or null when the day is full / over
     const freeOn = async (day) => {
       let cursor = OPEN;
@@ -10700,9 +10721,11 @@ app.put('/api/screenings/:id/participants', async (req, res) => {
     schedule = await loadScreening(connection, id, true);
     if (!schedule) { await connection.rollback(); connection.release(); return res.status(404).json({ error: 'Schedule not found.' }); }
     if (schedule.status === 'Cancelled') { await connection.rollback(); connection.release(); return res.status(409).json({ error: 'A cancelled screening cannot be edited.' }); }
-    if (scheduleStartStr(schedule) <= nowManilaStr()) {
+    // an on going screening still takes new students; an ended one takes no change
+    const { phase } = screeningPhaseOf(schedule);
+    if (phase === 'ended') {
       await connection.rollback(); connection.release();
-      return res.status(409).json({ error: 'This screening has already started, so its participants can no longer be changed.' });
+      return res.status(409).json({ error: 'This screening has already ended, so its participants can no longer be changed.' });
     }
 
     const [current] = await connection.query(
@@ -10713,6 +10736,10 @@ app.put('/api/screenings/:id/participants', async (req, res) => {
     const wantedSet = new Set(wantedIds);
 
     const toRemove = current.filter((r) => !wantedSet.has(r.student_id));
+    if (phase === 'ongoing' && toRemove.length > 0) {
+      await connection.rollback(); connection.release();
+      return res.status(409).json({ error: 'This screening is on going. Students can be added, not removed.' });
+    }
     const busy = toRemove.find((r) => r.attendance_status && r.attendance_status !== 'PENDING');
     if (busy) {
       await connection.rollback(); connection.release();
@@ -11020,6 +11047,80 @@ app.post('/api/screenings/send-reminders', async (req, res) => {
   }
 });
 
+// Which body measure a template field records, so a reading can move between forms that use different keys
+const measureOfField = (f) => {
+  if (f.type !== 'number') return null;
+  if (f.role === 'systolic' || f.role === 'diastolic') return f.role;
+  const found = [['height', /height/i], ['weight', /weight/i], ['systolic', /systolic/i], ['diastolic', /diastolic/i],
+    ['pulse', /pulse|heart rate/i], ['temperature', /temp/i], ['respiratory', /respirat/i]].find(([, re]) => re.test(f.label || ''));
+  return found ? found[0] : null;
+};
+
+// Latest BMI and vital sign readings of each student, from screenings, check-ups / clinic visits and incident reports.
+// Map: student_id -> { values: { measure: value }, at: newest date used }
+const recentMeasuresOf = async (studentIds) => {
+  const out = new Map();
+  if (studentIds.length === 0) return out;
+  const readings = [];
+  const add = (studentId, at, values) => readings.push({ studentId, at: at ? new Date(at) : new Date(0), values });
+  const bpOf = (text) => {
+    const m = /^\s*(\d{2,3})\s*\/\s*(\d{2,3})/.exec(text || '');
+    return m ? { systolic: m[1], diastolic: m[2] } : {};
+  };
+
+  const [custom] = await pool.query(
+    `SELECT r.student_id, r.answers, r.recorded_at, tp.fields FROM screening_custom_results r
+     JOIN screening_form_templates tp ON tp.template_id = r.template_id WHERE r.student_id IN (?)`, [studentIds]);
+  custom.forEach((r) => {
+    const answers = jsonOf(r.answers) || {};
+    const values = {};
+    (jsonOf(r.fields) || []).forEach((f) => {
+      const measure = measureOfField(f);
+      if (measure) values[measure] = answers[f.key];
+    });
+    add(r.student_id, r.recorded_at, values);
+  });
+
+  const [bmi] = await pool.query('SELECT student_id, height_cm, weight_kg, logged_at FROM bmi_monitoring_logs WHERE student_id IN (?)', [studentIds]);
+  bmi.forEach((r) => add(r.student_id, r.logged_at, { height: r.height_cm && Number(r.height_cm), weight: r.weight_kg && Number(r.weight_kg) }));
+
+  const [vitals] = await pool.query(
+    'SELECT student_id, bp_systolic, bp_diastolic, pulse_rate, temperature_c, respiratory_rate, recorded_at FROM vital_signs_records WHERE student_id IN (?)', [studentIds]);
+  vitals.forEach((r) => add(r.student_id, r.recorded_at, {
+    systolic: r.bp_systolic, diastolic: r.bp_diastolic, pulse: r.pulse_rate,
+    temperature: r.temperature_c && Number(r.temperature_c), respiratory: r.respiratory_rate
+  }));
+
+  const [visits] = await pool.query(
+    `SELECT student_id, TIMESTAMP(visit_date, COALESCE(time_in, '00:00:00')) AS in_at,
+            TIMESTAMP(visit_date, COALESCE(time_out, time_in, '00:00:00')) AS out_at,
+            temperature, respiratory_rate, pulse_rate, blood_pressure,
+            out_temperature, out_respiratory_rate, out_pulse_rate, out_blood_pressure
+     FROM clinic_visits WHERE student_id IN (?)`, [studentIds]);
+  visits.forEach((r) => {
+    add(r.student_id, r.in_at, { ...bpOf(r.blood_pressure), temperature: r.temperature, pulse: r.pulse_rate, respiratory: r.respiratory_rate });
+    add(r.student_id, r.out_at, { ...bpOf(r.out_blood_pressure), temperature: r.out_temperature, pulse: r.out_pulse_rate, respiratory: r.out_respiratory_rate });
+  });
+
+  const [incidents] = await pool.query(
+    'SELECT student_id, incident_datetime, temperature, respiratory_rate, pulse_rate, blood_pressure FROM incident_reports WHERE student_id IN (?)', [studentIds]);
+  incidents.forEach((r) => add(r.student_id, r.incident_datetime, {
+    ...bpOf(r.blood_pressure), temperature: r.temperature, pulse: r.pulse_rate, respiratory: r.respiratory_rate
+  }));
+
+  // newest first: each measure keeps the first value found
+  readings.sort((a, b) => b.at - a.at).forEach(({ studentId, at, values }) => {
+    Object.entries(values).forEach(([measure, value]) => {
+      const text = value === null || value === undefined ? '' : String(value).trim();
+      if (text === '' || !Number.isFinite(Number(text))) return;
+      if (!out.has(studentId)) out.set(studentId, { values: {}, at });
+      const entry = out.get(studentId);
+      if (entry.values[measure] === undefined) entry.values[measure] = text;
+    });
+  });
+  return out;
+};
+
 // 9. Get Participants with attendance and results (read-only; absences are handled by the job above)
 app.get('/api/screenings/:id/students', async (req, res) => {
   const { id } = req.params;
@@ -11053,8 +11154,20 @@ app.get('/api/screenings/:id/students', async (req, res) => {
     // the health history of every participant, read for the allow-to-play decision and shown in the form
     const [healthRows] = rows.length > 0 ? await pool.query('SELECT * FROM student_health_information WHERE student_id IN (?)', [rows.map((r) => r.student_id)]) : [[]];
     const healthOf = new Map(healthRows.map((h) => [h.student_id, h]));
-    const withHealth = rows.map((r) => ({ ...r, health_play: playHealthOf(healthOf.get(r.student_id)) }));
-    const students = template ? withHealth.map((r) => ({ ...r, answers: jsonOf(r.answers) })) : withHealth;
+    const withHealth = rows.map((r) => ({ ...r, play_status: playStatusOf(r.play_status), health_play: playHealthOf(healthOf.get(r.student_id)) }));
+    // recent_answers = the student's latest readings under this form's own field keys, to prefill a new result
+    const measured = template ? template.fields.filter(measureOfField) : [];
+    const recent = measured.length > 0 ? await recentMeasuresOf(rows.map((r) => r.student_id)) : new Map();
+    const students = template ? withHealth.map((r) => {
+      const last = recent.get(r.student_id);
+      const recentAnswers = {};
+      if (last) measured.forEach((f) => {
+        const value = last.values[measureOfField(f)];
+        if (value !== undefined) recentAnswers[f.key] = value;
+      });
+      const found = Object.keys(recentAnswers).length > 0;
+      return { ...r, answers: jsonOf(r.answers), recent_answers: found ? recentAnswers : null, recent_at: found ? last.at : null };
+    }) : withHealth;
     res.json({ schedule: { ...schedule, form_kind: screeningType ? screeningType.form_kind : null, type_active: screeningType ? screeningType.is_active : 0, template }, students });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -11158,7 +11271,7 @@ function classifyVitalSigns({ bp_systolic, bp_diastolic, pulse_rate, temperature
     else bp = 'Normal';
   }
   const pulseFlag = pulse === null ? null : pulse < 60 ? 'Low' : pulse > 100 ? 'High' : 'Normal';
-  const tempFlag = temp === null ? null : temp < 36.1 ? 'Low' : temp >= 38 ? 'High' : temp > 37.5 ? 'Elevated' : 'Normal';
+  const tempFlag = temp === null ? null : temp < 36.1 ? 'Low' : temp > 37.8 ? 'High' : 'Normal';
   const respFlag = resp === null ? null : resp < 12 ? 'Low' : resp > 20 ? 'High' : 'Normal';
 
   const flags = [bp, pulseFlag, tempFlag, respFlag];
@@ -11213,6 +11326,7 @@ app.post('/api/screenings/:id/document', async (req, res) => {
     const previous = previousRows[0] || null;
 
     let abnormal = 0;
+    let flags = ''; // 'High Temperature, Low pulse rate' of a form template result
 
     if (formKind === 'HEARING') {
       const left = textOrNull(formData.left_ear_result);
@@ -11237,6 +11351,7 @@ app.post('/api/screenings/:id/document', async (req, res) => {
       const checked = evaluateTemplateAnswers(template.fields, formData.answers);
       if (checked.error) return res.status(400).json({ error: checked.error });
       abnormal = checked.is_abnormal;
+      flags = flaggedText(templateResults(template.fields, checked.answers));
       const recordId = await generateCustomId('CUSTOM', 'screening_custom_results', 'custom_record_id');
       // automatic remark: Allow-to-Play status (Physical Activities), blood pressure label, ranges and the student's health history; the nurse's own text is kept
       await ensureScreeningPlayColumns();
@@ -11245,25 +11360,23 @@ app.post('/api/screenings/:id/document', async (req, res) => {
       const physical = sched.screening_category === 'PHYSICAL';
       let clearance = null;
       if (physical) {
-        clearance = playClearanceOf(template.fields, checked.answers, checked, healthPlay);
-        // the nurse may set the decision by hand; otherwise it is the generated one
-        const given = textOrNull(formData.play_status);
-        if (given && PLAY_STATUS_LABELS[given]) clearance = { ...clearance, status: given, label: PLAY_STATUS_LABELS[given] };
+        // always automatic: a play_status sent by the browser is ignored
+        clearance = playClearanceOf(template.fields, checked.answers, healthPlay);
         if (clearance.status === 'NOT_ALLOWED') abnormal = 1;
       }
       const autoRemark = buildAutoRemarks(template.fields, checked.answers, checked, null, { category: sched.screening_category, clearance, conditions: healthPlay.conditions });
       let finalRemarks = textOrNull(formData.remarks);
       if (!finalRemarks) finalRemarks = autoRemark || null;
       else {
-        if (physical && !/allowed to play|allow-to-play status/i.test(finalRemarks)) finalRemarks = `${PLAY_STATUS_SENTENCES[clearance.status]} ${finalRemarks}`;
         if (physical) {
-          // the health history that affects physical activity, as sentences (once)
-          const extra = [...healthPlay.blockers, ...healthPlay.restrictions].filter((s) => !finalRemarks.includes(s));
-          if (extra.length > 0) finalRemarks = `${finalRemarks} ${extra.join(' ')}`;
+          // the nurse's own words stay; the decision sentence is always the generated one, and the precautions are added once
+          const own = finalRemarks.replace(PLAY_SENTENCE_RE, '').trim();
+          const extra = clearance.restrictions.filter((s) => !own.includes(s));
+          finalRemarks = [clearance.sentence, own, ...extra].filter(Boolean).join(' ');
         } else if (healthPlay.conditions.length > 0 && !/health history/i.test(finalRemarks)) finalRemarks = `${finalRemarks} Health history: ${healthPlay.conditions.join(', ')}.`;
       }
       formData.remarks = finalRemarks;
-      const playNotes = clearance ? [...clearance.blockers, ...clearance.restrictions].join(' ') || null : null;
+      const playNotes = clearance ? (clearance.status === 'NOT_ALLOWED' ? clearance.sentence : clearance.restrictions.join(' ')) || null : null;
 
       await pool.query(`
         INSERT INTO screening_custom_results
@@ -11285,14 +11398,14 @@ app.post('/api/screenings/:id/document', async (req, res) => {
           sender_id: null,
           recipient_ids: [...new Set([stu?.user_id, ...parents].filter(Boolean))],
           title: `${type} Screening Result`,
-          message: `A ${type} result is not normal. Please follow up with the school clinic.`,
+          message: `${flags ? `${type} result: ${flags}.` : `A ${type} result is not normal.`} Please follow up with the school clinic.`,
           type: 'SCREENING_RESULT',
           payloadData: { screening_schedule_id: id }
         });
       } catch (e) { console.error('Screening result notification failed:', e.message); }
     }
 
-    res.json({ message: 'Screening documentation saved successfully.', is_abnormal: abnormal });
+    res.json({ message: 'Screening documentation saved successfully.', is_abnormal: abnormal, flags });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -11499,7 +11612,7 @@ app.get('/api/screenings/:id/results', async (req, res) => {
     `, [id]);
 
     const ended = !['upcoming', 'ongoing'].includes(screeningPhaseOf(schedule).phase);
-    const summary = { total: rows.length, present: 0, absent: 0, pending: 0, documented: 0, abnormal: 0, distribution: {}, play: { allowed: 0, restricted: 0, not_allowed: 0 } };
+    const summary = { total: rows.length, present: 0, absent: 0, pending: 0, documented: 0, abnormal: 0, distribution: {}, play: { allowed: 0, not_allowed: 0 } };
     const [healthRows] = rows.length > 0 ? await pool.query('SELECT * FROM student_health_information WHERE student_id IN (?)', [rows.map((r) => r.student_id)]) : [[]];
     const healthOf = new Map(healthRows.map((h) => [h.student_id, h]));
     const bump = (label) => { summary.distribution[label] = (summary.distribution[label] || 0) + 1; };
@@ -11516,15 +11629,14 @@ app.get('/api/screenings/:id/results', async (req, res) => {
       if (documented) {
         summary.documented++;
         if (r.is_abnormal) summary.abnormal++;
-        if (r.play_status === 'ALLOWED') summary.play.allowed++;
-        else if (r.play_status === 'RESTRICTED') summary.play.restricted++;
+        if (playStatusOf(r.play_status) === 'ALLOWED') summary.play.allowed++;
         else if (r.play_status === 'NOT_ALLOWED') summary.play.not_allowed++;
         if (formKind === 'HEARING') bump(r.is_abnormal ? 'Refer' : 'Pass');
         else if (formKind === 'CUSTOM') {
-          // the label of the first calculated field with result labels (BMI: Underweight / Normal ...), else normal / not normal
+          // the label of the first calculated field with result labels (BMI: Underweight / Normal ...), else normal / high or low
           const banded = template && template.fields.find((f) => f.type === 'calculated' && f.bands);
           const answers = jsonOf(r.answers) || {};
-          bump(banded && answers[`${banded.key}__label`] ? answers[`${banded.key}__label`] : (r.is_abnormal ? 'Not normal' : 'Normal'));
+          bump(banded && answers[`${banded.key}__label`] ? answers[`${banded.key}__label`] : (r.is_abnormal ? 'High / Low' : 'Normal'));
         }
       }
       return {
@@ -11532,6 +11644,8 @@ app.get('/api/screenings/:id/results', async (req, res) => {
         ...(formKind === 'CUSTOM' ? { answers: jsonOf(r.answers) } : {}),
         attendance_status: attendance,
         documented,
+        play_status: playStatusOf(r.play_status),
+        flags: documented && template ? flaggedText(templateResults(template.fields, r.answers)) : '',
         health_conditions: playHealthOf(healthOf.get(r.student_id)).conditions,
         result_summary: documented ? screeningResultSummary(formKind, r, template && template.fields) : ''
       };
@@ -11566,7 +11680,7 @@ app.get('/api/students/:studentId/screening-history', async (req, res) => {
         is_abnormal: r.is_abnormal ? 1 : 0,
         remarks: r.remarks || null,
         screening_category: r.screening_category || 'GENERAL',
-        play_status: custom ? (r.play_status || null) : null,
+        play_status: custom ? playStatusOf(r.play_status) : null,
         results: custom ? templateResults(r.template_fields, r.answers) : []
       }));
     }
@@ -16977,7 +17091,7 @@ const ensureCheckupVisitColumns = () => {
 };
 ensureCheckupVisitColumns().catch((err) => console.error('Could not prepare the check-up visit columns:', err.message));
 
-const VITAL_NORMAL = { temperature: [36.1, 37.5], pulse_rate: [60, 100], respiratory_rate: [12, 20], systolic: [90, 120], diastolic: [60, 80] };
+const VITAL_NORMAL = { temperature: [36.1, 37.8], pulse_rate: [60, 100], respiratory_rate: [12, 20], systolic: [90, 120], diastolic: [60, 80] };
 const VITAL_VALID = { temperature: [30, 45], pulse_rate: [30, 250], respiratory_rate: [8, 60] };
 const VITAL_NAMES = { blood_pressure: 'Blood pressure', temperature: 'Temperature', pulse_rate: 'Pulse', respiratory_rate: 'Respiratory rate' };
 
@@ -16994,7 +17108,7 @@ const readVitals = (src, required) => {
         const [lo, hi] = VITAL_VALID[k];
         if (!Number.isFinite(n) || n < lo || n > hi) return { error: `${VITAL_NAMES[k]} must be a number from ${lo} to ${hi}.` };
         const [nlo, nhi] = VITAL_NORMAL[k];
-        if (n < nlo || n > nhi) abnormal.push(`${VITAL_NAMES[k]} ${values[k]} (normal ${nlo} to ${nhi})`);
+        if (n < nlo || n > nhi) abnormal.push(`${n < nlo ? 'Low' : 'High'} ${VITAL_NAMES[k]}: ${values[k]} (normal ${nlo} to ${nhi})`);
     }
     if (values.blood_pressure) {
         const m = /^(\d{2,3})\/(\d{2,3})$/.exec(values.blood_pressure);
@@ -21572,7 +21686,7 @@ app.get('/health-screenings/clinicLogs&Records', async (req, res) => {
         row.results = templateResults(c.fields, c.answers);
         row.is_abnormal = c.is_abnormal ? 1 : 0;
         row.remarks = c.remarks || null;
-        row.play_status = c.play_status || null;
+        row.play_status = playStatusOf(c.play_status);
         row.status = 'Completed';
       }
       const m = own ? info.get(row.screening_schedule_id) : null;

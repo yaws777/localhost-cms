@@ -2,6 +2,7 @@
 // The nurse's vital signs of a doctor check-up.
 //   mode "in"  - Time in: all four vital signs are required; not normal values are saved and flagged, the student still goes to the doctor.
 //   mode "out" - Time out after the check-up: the vital signs and the remarks are optional (remarks are written from the vital signs).
+//                The vital signs start from the time-in ones.
 // appt: { appointment_id, student_id, name, label }. onDone() runs after the server saved it.
 import React, { useEffect, useMemo, useState } from 'react';
 import { HeartPulse, Pill } from 'lucide-react';
@@ -45,6 +46,23 @@ const VitalsModal = ({ appt, mode, userId, onClose, onDone }) => {
         ]).then(([c, b]) => { if (live) { setComplaints(Array.isArray(c) ? c : []); setBatches(Array.isArray(b) ? b : []); } });
         return () => { live = false; };
     }, [isIn, appt]);
+
+    // time out starts from the time-in vital signs of this check-up (never over something already typed)
+    const appointmentId = appt?.appointment_id;
+    const studentId = appt?.student_id;
+    useEffect(() => {
+        if (isIn || !appointmentId) return undefined;
+        let live = true;
+        fetch(`${API}/api/students/${encodeURIComponent(studentId)}/health-snapshot?appointment_id=${encodeURIComponent(appointmentId)}`)
+            .then((r) => r.json())
+            .then(({ current }) => {
+                if (!live || !current) return;
+                const timeIn = Object.fromEntries(VITAL_FIELDS.map((f) => [f.key, String(current[f.key] || '')]));
+                setValues((v) => (hasVitals(v) ? v : timeIn));
+            })
+            .catch(() => {});
+        return () => { live = false; };
+    }, [isIn, appointmentId, studentId]);
 
     // remarks follow the vital signs until the nurse writes her own
     useEffect(() => {
@@ -105,7 +123,7 @@ const VitalsModal = ({ appt, mode, userId, onClose, onDone }) => {
             try { data = await res.json(); } catch (err) { /* not json */ }
             if (!data.success) { showAlert(data.message || 'Could not save.', 'warning'); return; }
             showAlert(isIn ? `${appt.name} timed in.` : `${appt.name} timed out.`, 'success');
-            if (data.abnormal?.length > 0) showAlert(`Not normal${isIn ? '' : ' at time out'}: ${data.abnormal.join('; ')}.`, 'warning');
+            if (data.abnormal?.length > 0) showAlert(`${isIn ? '' : 'At time out: '}${data.abnormal.join('; ')}.`, 'warning');
             notifyRecordChanged(['checkup', 'visit', 'incident']);
             onDone?.();
             onClose();

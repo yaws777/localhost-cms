@@ -32,7 +32,7 @@ import FormDocument from '../../components/common/FormDocument';
 import { buildIncidentModel } from '../../utils/formModels';
 import { printFormDocument } from '../../utils/formDocument';
 import { useRecordSync, notifyRecordChanged } from '../../hooks/useRecordSync';
-import { VITAL_FIELDS, EMPTY_VITALS, vitalState, vitalsLine, bpKind } from '../../utils/vitals';
+import { VITAL_FIELDS, EMPTY_VITALS, vitalState, vitalsLine, vitalStatusLabel } from '../../utils/vitals';
 
 // Conditions that need a short description
 const CONDITIONAL_COMPLAINT_NAMES = ['injury', 'others', 'gastrointestinal issues', 'body pain'];
@@ -617,7 +617,7 @@ const IncidentReport = () => {
             const data = await res.json();
             if (data.success) {
                 const flagged = Array.isArray(data.abnormal) ? data.abnormal : [];
-                showAlert(flagged.length ? `Saved. Not normal: ${flagged.join('; ')}` : 'Incident report documented successfully!', flagged.length ? 'warning' : 'success');
+                showAlert(flagged.length ? `Saved. ${flagged.join('; ')}` : 'Incident report documented successfully!', flagged.length ? 'warning' : 'success');
                 setShowAddIncidentModal(false);
                 resetIncidentForm();
                 fetchIncidentReports();
@@ -1014,7 +1014,7 @@ const IncidentReport = () => {
                                                             required
                                                         />
                                                         <div id={`inc-vital-${f.key}-note`} className={state === 'abnormal' || state === 'invalid' ? 'inc-hint inc-vital-flag' : 'inc-hint'} role="status">
-                                                            {state === 'abnormal' && <><AlertTriangle size={14} aria-hidden="true" /> {f.key === 'blood_pressure' ? bpKind(vitals[f.key]) : 'Not normal'} ({f.normal})</>}
+                                                            {state === 'abnormal' && <><AlertTriangle size={14} aria-hidden="true" /> {vitalStatusLabel(f.key, vitals[f.key])} ({f.normal})</>}
                                                             {state === 'invalid' && <><AlertTriangle size={14} aria-hidden="true" /> Invalid value</>}
                                                             {state === 'normal' && <><Check size={14} aria-hidden="true" /> Normal</>}
                                                             {state === 'empty' && <>Normal {f.normal}</>}

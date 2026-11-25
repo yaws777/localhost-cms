@@ -11,7 +11,7 @@ import jsQR from 'jsqr';
 import stiLogo from '../../assets/sti-logof.png';
 import { formatTime, formatDate } from '../../utils/datetime';
 import SearchableSelect from '../../components/common/SearchableSelect';
-import { VITAL_FIELDS, vitalState, bpKind } from '../../utils/vitals';
+import { VITAL_FIELDS, vitalState, vitalStatusLabel } from '../../utils/vitals';
 import VitalHint from '../../components/common/VitalHint';
 import { AssessmentDetails } from '../../components/doctor/AssessmentModals';
 import { FormPdfButton } from '../../components/common/FormDocument';
@@ -98,7 +98,7 @@ const isVisitDocumented = (visit) => (isCheckup(visit)
     : Boolean(visit?.complaint_id || visit?.complaint_name || visit?.nursing_intervention));
 const checkupLabel = (visit) => `Check-up${visit.checkup_purpose ? `: ${visit.checkup_purpose}` : ''}`;
 
-// One set of vital signs (time in or time out) in the results modal. Every value shows the normal range and a Normal / Not normal label (text, not color alone).
+// One set of vital signs (time in or time out) in the results modal. Every value shows the normal range and a Normal / High / Low label (text, not color alone).
 const VitalsBlock = ({ title, time, values, note, emptyText }) => {
     const filledFields = VITAL_FIELDS.filter((f) => String(values[f.key] ?? '').trim() !== '');
     return (
@@ -116,7 +116,7 @@ const VitalsBlock = ({ title, time, values, note, emptyText }) => {
                                 <dt>{f.label} <small>Range {f.normal} {f.unit}</small></dt>
                                 <dd>
                                     {values[f.key]} <small>{f.unit}</small>
-                                    {abnormal && <span className="abnormal-tag-vlc"><AlertTriangle size={12} aria-hidden="true" /> {f.key === 'blood_pressure' ? bpKind(values[f.key]) : 'Not normal'}</span>}
+                                    {abnormal && <span className="abnormal-tag-vlc"><AlertTriangle size={12} aria-hidden="true" /> {vitalStatusLabel(f.key, values[f.key])}</span>}
                                     {st === 'normal' && <span className="normal-tag-vlc"><Check size={12} aria-hidden="true" /> Normal</span>}
                                 </dd>
                             </div>
@@ -595,7 +595,7 @@ const VisitLogConsultation = () => {
         }
     };
 
-    // Time out always asks for the vital signs again: this opens the time-out vitals form
+    // Time out always asks for the vital signs again: this opens the time-out vitals form, prefilled with the time-in ones
     const handleManualTimeout = useCallback((visitId) => {
         const target = [...todayVisits, ...allVisits].find(v => v.visit_id === visitId);
         if (!target) return;
@@ -607,7 +607,13 @@ const VisitLogConsultation = () => {
             showAlertModal(isCheckup(target) ? 'Waiting for the Doctor' : 'Document First', isCheckup(target) ? 'The doctor has not documented the check-up yet.' : 'Fill up the visit documentation before timing the student out.', 'warning');
             return;
         }
-        setOutVitals(EMPTY_OUT_VITALS);
+        setOutVitals({
+            ...EMPTY_OUT_VITALS,
+            blood_pressure: String(target.blood_pressure || ''),
+            temperature: String(target.temperature || ''),
+            pulse_rate: String(target.pulse_rate || ''),
+            respiratory_rate: String(target.respiratory_rate || '')
+        });
         setTimeoutVitalsVisit(target);
     }, [todayVisits, allVisits, showAlertModal]);
 
@@ -779,7 +785,7 @@ const VisitLogConsultation = () => {
             });
             const data = await res.json();
             if (data.success) {
-                showAlertModal('Check-In Granted', `Check-in logged at ${formatTimeDisplay(currentTime)} for ${selectedStudent.first_name} ${selectedStudent.last_name}. Fill up the visit documentation now.`, 'success');
+                showAlertModal('Time-In Granted', `Time-in logged at ${formatTimeDisplay(currentTime)} for ${selectedStudent.first_name} ${selectedStudent.last_name}. Fill up the visit documentation now.`, 'success');
                 const newVisit = {
                     visit_id: data.visit_id,
                     student_id: selectedStudent.student_id,
@@ -799,7 +805,7 @@ const VisitLogConsultation = () => {
                 notifyRecordChanged('visit');
                 handleOpenDocumentModal(newVisit);
             } else {
-                showAlertModal('Check-In Error', data.error || 'Failed to log check-in entry.', 'error');
+                showAlertModal('Time-In Error', data.error || 'Failed to log time-in entry.', 'error');
             }
         } catch (err) {
             console.error(err);
@@ -1369,7 +1375,7 @@ const VisitLogConsultation = () => {
             <div className="top-row-vlc">
                 <section className="search-card-container-vlc" aria-labelledby="checkin-title-vlc">
                     <div className="search-card-header-vlc">
-                        <h3 id="checkin-title-vlc">Check in</h3>
+                        <h3 id="checkin-title-vlc">Time in</h3>
                         <div className="mode-toggle-vlc" role="group" aria-label="Find student by">
                             <button type="button" className="mode-toggle-btn-vlc" aria-pressed={searchMode === 'search'} aria-label="Search" title="Search" onClick={() => handleSelectSearchMode('search')}>
                                 <Search size={18} />
@@ -1433,8 +1439,8 @@ const VisitLogConsultation = () => {
                                     <button
                                         type="button"
                                         className="icon-btn-vlc icon-btn-solid-vlc"
-                                        aria-label={`Check in ${st.first_name} ${st.last_name}`}
-                                        title="Check in"
+                                        aria-label={`Time in ${st.first_name} ${st.last_name}`}
+                                        title="Time in"
                                         onClick={() => handleSelectStudent(st)}
                                     >
                                         <LogIn size={18} />
@@ -1486,7 +1492,7 @@ const VisitLogConsultation = () => {
                 <div className="modal-viewport-backdrop-vlc">
                     <div className="modal-body-container-vlc confirm-modal-small-vlc">
                         <div className="modal-header-accent-vlc">
-                            <h3>{previousVisitsCount > 0 ? 'Multiple Visit Authorization' : 'Confirm Student Check-In'}</h3>
+                            <h3>{previousVisitsCount > 0 ? 'Multiple Visit Authorization' : 'Confirm Student Time-In'}</h3>
                             <button className="modal-dismiss-btn-vlc" aria-label="Close" title="Close" onClick={handleDenyVisitEntry}><XCircle size={22} /></button>
                         </div>
                         <div className="confirm-modal-body-vlc">
@@ -1513,7 +1519,7 @@ const VisitLogConsultation = () => {
                                 </div>
                             ) : (
                                 <p className="confirm-notice-vlc">
-                                    Grant clinic visit check-in for <strong>{selectedStudent.first_name} {selectedStudent.last_name}</strong>?
+                                    Grant clinic visit time-in for <strong>{selectedStudent.first_name} {selectedStudent.last_name}</strong>?
                                 </p>
                             )}
 
@@ -1522,7 +1528,7 @@ const VisitLogConsultation = () => {
                                     Deny
                                 </button>
                                 <button type="button" className="btn-confirm-action-vlc" onClick={handleConfirmVisitEntry}>
-                                    Confirm Check-In
+                                    Confirm Time-In
                                 </button>
                             </div>
                         </div>

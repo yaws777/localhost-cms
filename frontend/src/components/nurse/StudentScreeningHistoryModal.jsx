@@ -176,6 +176,7 @@ export default function StudentScreeningHistoryModal({ student, rows, loading, o
           missed: h.status === 'miss',
           missedLine: MISS_LINE[h.attendance_status] || 'Not documented',
           abnormal: !!h.is_abnormal,
+          results: h.results,
           metrics: h.metrics,
           remarks: h.remarks
         }))

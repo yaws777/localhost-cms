@@ -1,5 +1,6 @@
 // ScreeningParticipantsModal.jsx
 // View and edit the participants of an upcoming health screening. The working list starts as the saved participants and Save sends the whole list.
+// addOnly (on going screening): saved participants cannot be removed, only new students added.
 // Two panes: the current participants (a removed student stays in the list, marked, until Save, and can be undone)
 // and the students to add.
 // - A screening is for one class (same program, year level and section): the picker is locked to the class of the participants,
@@ -23,7 +24,7 @@ const toMember = (st) => ({
 });
 const initialsOf = (st) => `${(st.first_name || '').charAt(0)}${(st.last_name || '').charAt(0)}`.toUpperCase();
 
-export default function ScreeningParticipantsModal({ schedule, programs, apiBase, senderId, onClose, onSaved, showAlert, showConfirm }) {
+export default function ScreeningParticipantsModal({ schedule, programs, apiBase, senderId, onClose, onSaved, showAlert, showConfirm, addOnly = false }) {
   const scheduleId = schedule.screening_schedule_id;
   const isMakeup = !!schedule.makeup_of;
   const isCustom = !!schedule.folder_id; // custom folder: students from any class
@@ -152,7 +153,10 @@ export default function ScreeningParticipantsModal({ schedule, programs, apiBase
 
   const pickerData = useMemo(() => paginate(visiblePool, pickerPage, PER_PAGE), [visiblePool, pickerPage]);
 
+  const keptForGood = (id) => addOnly && savedIds.includes(id);
+
   const toggle = (st, on) => {
+    if (!on && keptForGood(st.student_id)) return;
     setMembers((prev) => (on
       ? (prev.some((m) => m.student_id === st.student_id) ? prev : [...prev, toMember(st)])
       : prev.filter((m) => m.student_id !== st.student_id)));
@@ -269,7 +273,7 @@ export default function ScreeningParticipantsModal({ schedule, programs, apiBase
                       <button type="button" className="btn-hs btn-icon-hs" onClick={() => toggle(m, true)} aria-label={`Undo remove ${fullName(m)}`} title="Undo">
                         <RotateCcw size={18} aria-hidden="true" />
                       </button>
-                    ) : (
+                    ) : keptForGood(m.student_id) ? null : (
                       <button type="button" className="btn-hs btn-icon-hs pk-remove-hs" onClick={() => toggle(m, false)} aria-label={`Remove ${fullName(m)}`} title="Remove">
                         <UserMinus size={18} aria-hidden="true" />
                       </button>
@@ -384,6 +388,7 @@ export default function ScreeningParticipantsModal({ schedule, programs, apiBase
                           type="checkbox"
                           aria-label={`Include ${fullName(st)}`}
                           checked={on}
+                          disabled={keptForGood(st.student_id)}
                           onChange={(e) => toggle(st, e.target.checked)}
                         />
                         <span className="pk-name-hs">

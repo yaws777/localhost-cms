@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useRecordSync } from '../../hooks/useRecordSync';
 import { Activity, AlertTriangle, CheckCircle2, ClipboardList, HeartPulse, Pencil, Scale, Stethoscope } from 'lucide-react';
 import { formatDate } from '../../utils/datetime';
-import { hasVitals, inVitalsOf, VITAL_FIELDS, vitalStatusLabel } from '../../utils/vitals';
+import { hasVitals, inVitalsOf, VITAL_FIELDS, vitalStatusLabel, flaggedText } from '../../utils/vitals';
 import { dispensedLine } from '../../utils/dispensed';
 import HealthProofList from './HealthProofList';
 import '../../styles/common/HealthInfoView.css';
@@ -134,7 +134,7 @@ const remarkPoints = (text) => {
     const sentences = String(text || '').split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
     const merged = [];
     sentences.forEach((s) => {
-        if (merged.length && /^(Not normal|Normal|This is)\b/.test(s)) merged[merged.length - 1] += ` ${s}`;
+        if (merged.length && /^(?:(?:Not normal|Normal|This is)\b|(?:High|Low)(?: Temperature| Blood)?(?:\.| \())/.test(s)) merged[merged.length - 1] += ` ${s}`;
         else merged.push(s);
     });
     let play = null;
@@ -263,7 +263,7 @@ function VitalsCard({ vitals }) {
                         <span className={`hiv-badge ${vitals.source === 'screening' ? 'hiv-badge-brand' : 'hiv-badge-neutral'}`}>
                             {vitals.label}{vitals.date ? `, ${formatDate(vitals.date)}` : ''}
                         </span>
-                        {vitals.is_abnormal !== null && vitals.is_abnormal !== undefined && <ResultBadge abnormal={!!vitals.is_abnormal} />}
+                        {vitals.is_abnormal !== null && vitals.is_abnormal !== undefined && <ResultBadge abnormal={!!vitals.is_abnormal} text={flaggedText(['blood_pressure', 'pulse_rate', 'temperature', 'respiratory_rate'].map((key) => ({ label: VITAL_FIELDS.find((x) => x.key === key).label, status: vitalStatusLabel(key, vitals[key]) }))) || undefined} />}
                     </header>
                     <div className="hiv-meas">
                         {[
@@ -422,7 +422,7 @@ export default function HealthInfoView({ studentId, healthInfo, healthProofs, sh
                             <article key={s.screening_type} className={`hiv-card hiv-card-wide${s.is_bmi ? ' hiv-card-bmi' : ''}`}>
                                 <header className="hiv-card-head">
                                     <strong>{s.screening_type}</strong>
-                                    <ResultBadge abnormal={s.is_abnormal} />
+                                    <ResultBadge abnormal={s.is_abnormal} text={flaggedText(s.items) || undefined} />
                                 </header>
                                 {s.date && <p className="hiv-date">{formatDate(s.date)}</p>}
                                 <div className="hiv-tiles">

@@ -5,12 +5,13 @@ import {
   Calendar, Clock, Users, Eye, Activity, Smile, HeartPulse, Ear, 
   X, CheckCircle, Edit3, Trash2, FileText, ArrowLeft, ArrowRight, Megaphone, Printer,
   Play, UserRoundPlus, Search, ClipboardList, BellRing, History, LogIn, FolderPlus,
-  Plus, RotateCcw, CalendarDays, Folder, AlertTriangle, Lock, Scale, Upload, Layers, Archive, ArchiveRestore, Flag, Dumbbell, ShieldCheck, ShieldAlert, Check, Ban, RefreshCw
+  Plus, RotateCcw, CalendarDays, Folder, AlertTriangle, Lock, Scale, Upload, Layers, Archive, ArchiveRestore, Flag, Dumbbell, ShieldCheck, Check, Ban, RefreshCw
 } from 'lucide-react';
 
-import { openReportWindow, writeReport, writeSectionedReport, escapeHtml } from '../../utils/printReport';
+import { openReportWindow, writeReport, escapeHtml } from '../../utils/printReport';
 import stiLogo from '../../assets/sti-logof.png';
 import { formatDate, formatTime } from '../../utils/datetime';
+import { outWord } from '../../utils/vitals';
 import '../../styles/nurse/HealthScreening.css';
 import { FolderCrumbs, Pager, sectionFolderName, paginate, scopeCounts, groupByDay, dayKey, dayHeading, DaySection } from '../../components/common/RecordFolders';
 import ScreeningCalendar from '../../components/nurse/ScreeningCalendar';
@@ -20,7 +21,7 @@ import AutoTimeFields from '../../components/nurse/AutoTimeFields';
 import SectionStudents from '../../components/nurse/SectionStudents';
 import StudentScreeningHistoryModal from '../../components/nurse/StudentScreeningHistoryModal';
 import { calculate } from '../../utils/formula';
-import { bpFieldsOf, buildAutoRemark, playDecision, playRangeText, bloodPressureLabel, playClearance, PLAY_STATUS_LABELS, PLAY_STATUS_SENTENCES, PLAY_SENTENCE_RE, bpPair, bpText, bpParse, BP_PATTERN } from '../../utils/screeningRemarks';
+import { bpFieldsOf, buildAutoRemark, playDecision, playRangeText, bloodPressureLabel, playClearance, PLAY_STATUS_LABELS, PLAY_SENTENCE_RE, bpPair, bpText, bpParse, BP_PATTERN } from '../../utils/screeningRemarks';
 import { classLabel } from '../../utils/scheduling';
 import { FormPdfButton } from '../../components/common/FormDocument';
 import { buildScreeningModel } from '../../utils/formModels';
@@ -108,14 +109,14 @@ const rangeFlagText = (f) => {
   return `${f.min} to ${f.max}${unit}`;
 };
 // Badge beside a field: color + icon + word, never color alone
-// bp: a blood pressure reading, so a value outside the range reads "Low blood" / "High blood"
-const StateChip = ({ state, id, bp = false }) => {
+// bp: a blood pressure reading, so a value outside the range reads "Low blood" / "High blood"; else "Low" / "High" ("High Temperature")
+const StateChip = ({ state, id, bp = false, label = '' }) => {
   if (!state) return null;
   const normal = state === 'Normal';
-  const text = normal ? 'Normal' : bp ? `${state} blood` : 'Not normal';
+  const text = normal ? 'Normal' : bp ? `${state} blood` : outWord(label, state === 'Low');
   return (
-    <span id={id} className={`chip-hs ${normal ? 'chip-ok-hs' : 'chip-warn-hs'}`} role="status" title={normal ? undefined : state}>
-      {normal ? <Check size={14} aria-hidden="true" /> : <AlertTriangle size={14} aria-hidden="true" />} {text}{normal || bp ? '' : <span className="sr-only-hs"> ({state})</span>}
+    <span id={id} className={`chip-hs ${normal ? 'chip-ok-hs' : 'chip-warn-hs'}`} role="status">
+      {normal ? <Check size={14} aria-hidden="true" /> : <AlertTriangle size={14} aria-hidden="true" />} {text}
     </span>
   );
 };
@@ -143,7 +144,7 @@ const RESULT_COLUMNS = {
 
 const isPhysicalSchedule = (sch) => sch?.screening_category === 'PHYSICAL';
 const CATEGORY_LABELS = { GENERAL: 'General Screening', PHYSICAL: 'Physical Activities' };
-const PLAY_TONES = { ALLOWED: 'chip-ok-hs', RESTRICTED: 'chip-warn-hs', NOT_ALLOWED: 'chip-bad-hs' };
+const PLAY_TONES = { ALLOWED: 'chip-ok-hs', NOT_ALLOWED: 'chip-bad-hs' };
 
 // A form template (CUSTOM) gives one column per field, in the order of the form; systolic + diastolic become one BP column
 const templateColumns = (template) => {
@@ -303,40 +304,32 @@ export default function HealthScreening() {
   const [remarksTouched, setRemarksTouched] = useState(false);
   const docFields = activeSchedule?.form_kind === 'CUSTOM' ? (activeSchedule?.template?.fields || []) : [];
   const docAsthma = selectedStudent ? { has: Number(selectedStudent.has_asthma_history) === 1, triggers: selectedStudent.asthma_triggers || '' } : null;
-  // Physical Activities: the clearance decision (generated from the vitals and the health history, the nurse can change it)
+  // Physical Activities: the clearance decision, always automatic (vital signs; a heart problem or seizure history also blocks)
   const isPhysicalDoc = isPhysicalSchedule(activeSchedule) && docFields.length > 0;
   const docHealth = selectedStudent?.health_play || null;
   const docClearance = isPhysicalDoc ? playClearance(docFields, docData.answers, docHealth) : null;
-  const docPlayStatus = docClearance ? (docData.play_status || docClearance.status) : '';
+  const docPlayStatus = docClearance ? docClearance.status : '';
+  const docPlaySentence = docClearance ? docClearance.sentence : '';
   const bpDocPair = bpPair(docFields);
   const docBp = bpFieldsOf(docFields);
   const [bpDraft, setBpDraft] = useState('');
-  // picking a decision also rewrites the status line of a remark the nurse already has, so the two never disagree
-  const choosePlayStatus = (code) => setDocData((prev) => {
-    const shown = code || docClearance?.status;
-    const next = { ...prev, play_status: code && code === docClearance?.status ? '' : code };
-    if (shown && PLAY_STATUS_SENTENCES[shown] && PLAY_SENTENCE_RE.test(prev.remarks || '')) {
-      next.remarks = prev.remarks.replace(PLAY_SENTENCE_RE, PLAY_STATUS_SENTENCES[shown]);
-    }
-    return next;
-  });
   useEffect(() => {
     if (!showDocModal || remarksTouched || docFields.length === 0) return;
-    const auto = buildAutoRemark(docFields, docData.answers, { category: activeSchedule?.screening_category, health: docHealth, status: docData.play_status });
+    const auto = buildAutoRemark(docFields, docData.answers, { category: activeSchedule?.screening_category, health: docHealth });
     setDocData((prev) => (prev.remarks === auto ? prev : { ...prev, remarks: auto }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showDocModal, remarksTouched, docData.answers, docData.play_status, selectedStudent, activeSchedule]);
+  }, [showDocModal, remarksTouched, docData.answers, selectedStudent, activeSchedule]);
   // a remark the nurse already has keeps her words, but its status line follows the decision shown above
   useEffect(() => {
-    if (!showDocModal || !remarksTouched || !docPlayStatus) return;
-    const line = PLAY_STATUS_SENTENCES[docPlayStatus];
+    if (!showDocModal || !remarksTouched || !docPlaySentence) return;
+    const line = docPlaySentence;
     setDocData((prev) => {
       const text = prev.remarks || '';
       if (!PLAY_SENTENCE_RE.test(text)) return prev;
       const next = text.replace(PLAY_SENTENCE_RE, line);
       return next === text ? prev : { ...prev, remarks: next };
     });
-  }, [showDocModal, remarksTouched, docPlayStatus]);
+  }, [showDocModal, remarksTouched, docPlaySentence]);
 
   // Extra screening transactions: reasons, make-up, doctor referral, history, results report
   const { nurseId, userId } = useOutletContext() || {};
@@ -773,7 +766,7 @@ export default function HealthScreening() {
   const [participantSearch, setParticipantSearch] = useState('');
   const [participantPage, setParticipantPage] = useState(1);
   const [attFilter, setAttFilter] = useState('ALL'); // ALL | PRESENT | ABSENT | PENDING
-  const [playFilter, setPlayFilter] = useState('ALL'); // Physical Activities: ALL | ALLOWED | RESTRICTED | NOT_ALLOWED | NONE
+  const [playFilter, setPlayFilter] = useState('ALL'); // Physical Activities: ALL | ALLOWED | NOT_ALLOWED | NONE
   const activeScheduleId = activeSchedule?.screening_schedule_id;
   useEffect(() => {
     setParticipantSearch('');
@@ -1475,11 +1468,11 @@ export default function HealthScreening() {
     if (!data) return;
     const cols = resultColumnsFor(data.schedule?.form_kind || schedule.form_kind, data.schedule?.template);
     const physical = isPhysicalSchedule(data.schedule || schedule);
-    const header = ['Student ID', 'Last name', 'First name', 'Program', 'Year', 'Section', 'Attendance', ...cols.map(c => c[0]), 'Not normal', ...(physical ? ['Allow-to-Play'] : []), 'Health history', 'Remarks'];
+    const header = ['Student ID', 'Last name', 'First name', 'Program', 'Year', 'Section', 'Attendance', ...cols.map(c => c[0]), 'Result', ...(physical ? ['Allow-to-Play'] : []), 'Health history', 'Remarks'];
     const body = data.rows.map(r => [
       r.student_id, r.last_name, r.first_name, r.program_name, r.year_level, r.section, r.attendance_status,
       ...cols.map(c => (r.documented ? c[1](r) : '')),
-      r.documented ? (r.is_abnormal ? 'Yes' : 'No') : '',
+      r.documented ? (r.is_abnormal ? r.flags || 'Not normal' : 'Normal') : '',
       ...(physical ? [r.documented ? (PLAY_STATUS_LABELS[r.play_status] || '') : ''] : []),
       (r.health_conditions || []).join('; '), r.remarks || r.attendance_note || ''
     ]);
@@ -1487,63 +1480,20 @@ export default function HealthScreening() {
     downloadCsv(`${safeTitle}_results.csv`, [header, ...body]);
   };
 
-  // Physical Activities: who may play and who may not (Allowed, Allowed with Restrictions, Not Allowed), printed or as CSV
+  // Physical Activities: who may play and who may not (Allowed, Not Allowed), for the report and the CSV
   const playGroupsOf = (rows) => {
     const decided = (r) => r.documented && PLAY_STATUS_LABELS[r.play_status];
     return [
       ['ALLOWED', rows.filter(r => decided(r) && r.play_status === 'ALLOWED')],
-      ['RESTRICTED', rows.filter(r => decided(r) && r.play_status === 'RESTRICTED')],
       ['NOT_ALLOWED', rows.filter(r => decided(r) && r.play_status === 'NOT_ALLOWED')],
       ['NONE', rows.filter(r => !decided(r))]
     ];
   };
 
-  // two separate PDFs: kind 'allowed' (Allowed + Allowed with Restrictions) and 'not_allowed' (Not Allowed)
-  // filter.att = attendance tab of the open screening (ALL = no filter)
-  const PLAY_LIST_KINDS = {
-    allowed: { title: 'Allowed to Play List', keys: ['ALLOWED', 'RESTRICTED'] },
-    not_allowed: { title: 'Not Allowed to Play List', keys: ['NOT_ALLOWED'] }
-  };
-  const printPlayList = async (schedule, kind, filter = {}) => {
-    const list = PLAY_LIST_KINDS[kind];
-    if (!list) return;
-    const win = openReportWindow(() => showAlert('Allow popups to print.', 'Popup Blocked', 'warning'));
-    if (!win) return;
-    const data = await fetchResults(schedule);
-    if (!data) { win.close(); return; }
-    const attKey = filter.att && filter.att !== 'ALL' ? filter.att : null;
-    const over = screeningOver(schedule);
-    const rows = attKey
-      ? data.rows.filter(r => {
-        const status = r.attendance_status || 'PENDING';
-        return (status === 'PENDING' && over ? 'ABSENT' : status) === attKey;
-      })
-      : data.rows;
-    const groups = playGroupsOf(rows).filter(([key]) => list.keys.includes(key));
-    const columns = ['Student ID', 'Name', 'Class', 'Restrictions / Reason', 'Health history'];
-    const cells = (r) => [r.student_id, `${r.last_name}, ${r.first_name}`, classLabel(r.program_id, r.year_level, r.section), r.play_notes || '', (r.health_conditions || []).join(', ')];
-    writeSectionedReport(win, {
-      title: list.title,
-      details: [
-        ['Activity', schedule.title || 'N/A'],
-        ['Date', schedule.scheduled_date ? formatDate(String(schedule.scheduled_date).split('T')[0]) : 'N/A'],
-        ['Time', `${formatTime(schedule.start_time)} - ${formatTime(schedule.end_time)}`],
-        ['Participants', String(groups.reduce((n, [, list]) => n + list.length, 0))],
-        ...(attKey ? [['Attendance', attKey.charAt(0) + attKey.slice(1).toLowerCase()]] : [])
-      ],
-      sections: groups.map(([key, list]) => ({
-        heading: `${key === 'NONE' ? 'No decision yet' : PLAY_STATUS_LABELS[key]} (${list.length})`,
-        columns,
-        rows: list.map(cells),
-        emptyText: 'None'
-      }))
-    });
-  };
-
   const exportPlayCsv = async (schedule) => {
     const data = await fetchResults(schedule);
     if (!data) return;
-    const header = ['Student ID', 'Last name', 'First name', 'Program', 'Year', 'Section', 'Allow-to-Play', 'Restrictions / Reason', 'Health history', 'Remarks'];
+    const header = ['Student ID', 'Last name', 'First name', 'Program', 'Year', 'Section', 'Allow-to-Play', 'Precautions / Reason', 'Health history', 'Remarks'];
     const body = playGroupsOf(data.rows).flatMap(([key, list]) => list.map(r => [
       r.student_id, r.last_name, r.first_name, r.program_name, r.year_level, r.section,
       key === 'NONE' ? 'No decision yet' : PLAY_STATUS_LABELS[key], r.play_notes || '', (r.health_conditions || []).join('; '), r.remarks || ''
@@ -1573,10 +1523,16 @@ export default function HealthScreening() {
         <td>${escapeHtml(classLabel(r.program_id, r.year_level, r.section))}</td>
         <td>${escapeHtml(r.attendance_status)}</td>
         ${cols.map(c => `<td>${escapeHtml(r.documented ? c[1](r) : '')}</td>`).join('')}
-        <td>${r.documented ? (r.is_abnormal ? 'Not normal' : 'Normal') : 'Not documented'}</td>
+        <td>${escapeHtml(r.documented ? (r.is_abnormal ? r.flags || 'Not normal' : 'Normal') : 'Not documented')}</td>
         ${physicalReport ? `<td>${escapeHtml(r.documented ? (PLAY_STATUS_LABELS[r.play_status] || '') : '')}</td>` : ''}
         <td>${escapeHtml((r.health_conditions || []).join(', '))}</td>
       </tr>`).join('');
+
+    // Physical Activities: who may play and who may not, with the precautions or the reason
+    const playHtml = !physicalReport ? '' : playGroupsOf(data.rows).filter(([key]) => key !== 'NONE').map(([key, list]) => `
+      <h3>${PLAY_STATUS_LABELS[key]} (${list.length})</h3>
+      <table><thead><tr><th>Student ID</th><th>Name</th><th>Class</th><th>Precautions / Reason</th><th>Health history</th></tr></thead>
+      <tbody>${list.map(r => `<tr>${[r.student_id, `${r.last_name}, ${r.first_name}`, classLabel(r.program_id, r.year_level, r.section), r.play_notes || '', (r.health_conditions || []).join(', ')].map(v => `<td>${escapeHtml(v)}</td>`).join('')}</tr>`).join('') || '<tr><td colspan="5">None</td></tr>'}</tbody></table>`).join('');
 
     printWindow.document.open();
     printWindow.document.write(`<!DOCTYPE html><html><head><title>Screening Results</title><style>
@@ -1594,6 +1550,7 @@ export default function HealthScreening() {
       td { padding: 7px 8px; border: 1px solid #e2e8f0; }
       tr.abn td { background: #fef2f2; }
       .small { width: auto; min-width: 260px; }
+      h3 { margin: 0 0 8px; font-size: 14px; color: #1e3a8a; break-after: avoid; }
       .signature { margin-top: 40px; font-size: 13px; } .signature b { display: block; margin-top: 30px; }
       @media print { body { margin: 0; } }
     </style></head><body>
@@ -1610,12 +1567,13 @@ export default function HealthScreening() {
         <div class="card"><b>${s.present}</b>Present</div>
         <div class="card"><b>${s.absent}</b>Absent</div>
         <div class="card"><b>${s.documented}</b>Documented</div>
-        <div class="card"><b>${s.abnormal}</b>Not normal</div>
-        ${physicalReport ? `<div class="card"><b>${s.play.allowed}</b>Allowed</div><div class="card"><b>${s.play.restricted}</b>Restrictions</div><div class="card"><b>${s.play.not_allowed}</b>Not allowed</div>` : ''}
+        <div class="card"><b>${s.abnormal}</b>${data.schedule?.form_kind === 'HEARING' ? 'Not normal' : 'High / Low'}</div>
+        ${physicalReport ? `<div class="card"><b>${s.play.allowed}</b>Allowed</div><div class="card"><b>${s.play.not_allowed}</b>Not allowed</div>` : ''}
       </div>
       ${dist ? `<table class="small"><thead><tr><th>Result</th><th>Students</th></tr></thead><tbody>${dist}</tbody></table>` : ''}
       <table><thead><tr><th>Student ID</th><th>Name</th><th>Program / Section</th><th>Attendance</th>${cols.map(c => `<th>${escapeHtml(c[0])}</th>`).join('')}<th>Result</th>${physicalReport ? '<th>Allow-to-Play</th>' : ''}<th>Health history</th></tr></thead>
       <tbody>${rowsHtml || '<tr><td colspan="14">No participants.</td></tr>'}</tbody></table>
+      ${playHtml}
       <div class="signature">Prepared by:<b>Marilou H. Balarao</b><i>School Nurse</i></div>
       <script>window.onload = function () { window.print(); };</script>
     </body></html>`);
@@ -1651,16 +1609,17 @@ export default function HealthScreening() {
     setSelectedStudent(student);
     // a result saved before keeps its own remark; a new one gets the automatic remark
     setRemarksTouched(!!student.remarks);
+    // a new result starts from the student's latest BMI and vital signs; a saved one shows only what was saved
+    const startAnswers = (hasResult(student) ? student.answers : student.recent_answers) || {};
     setDocData({
       left_ear_result: student.left_ear_result || '',
       right_ear_result: student.right_ear_result || '',
       remarks: student.remarks || '',
-      play_status: '', // '' = the generated decision
-      answers: Object.fromEntries(Object.entries(student.answers || {}).map(([k, v]) => [k, String(v)]))
+      answers: Object.fromEntries(Object.entries(startAnswers).map(([k, v]) => [k, String(v)]))
     });
     setDocLocked(locked);
     const pair = bpPair(activeSchedule?.template?.fields);
-    setBpDraft(pair ? bpText(student.answers || {}, pair) : '');
+    setBpDraft(pair ? bpText(startAnswers, pair) : '');
     setShowDocModal(true);
   };
 
@@ -1677,7 +1636,7 @@ export default function HealthScreening() {
           if (v === '' || v === undefined) return { status: '', range: '' };
           const st = rangeState(f, v);
           const isBp = (bpf.sys && bpf.sys.key === f.key) || (bpf.dia && bpf.dia.key === f.key);
-          if (hasRange) return { status: st === 'Normal' ? 'Normal' : isBp ? `${st} blood` : 'Not normal', range: `Range ${f.min !== undefined && f.max !== undefined ? `${f.min}-${f.max}` : f.min !== undefined ? `${f.min} or more` : `up to ${f.max}`}${f.unit ? ` ${f.unit}` : ''}` };
+          if (hasRange) return { status: st === 'Normal' ? 'Normal' : isBp ? `${st} blood` : outWord(f.label, st === 'Low'), range: `Range ${f.min !== undefined && f.max !== undefined ? `${f.min}-${f.max}` : f.min !== undefined ? `${f.min} or more` : `up to ${f.max}`}${f.unit ? ` ${f.unit}` : ''}` };
           if ((f.abnormal_options || []).length > 0) return { status: f.abnormal_options.includes(String(v)) ? 'Not normal' : 'Normal', range: '' };
           return { status: '', range: '' };
         };
@@ -1714,7 +1673,7 @@ export default function HealthScreening() {
         body: JSON.stringify({
           student_id: selectedStudent.student_id,
           screening_type: activeSchedule.screening_type,
-          formData: activeSchedule.form_kind === 'CUSTOM' ? { answers: docData.answers, remarks: docData.remarks, play_status: docData.play_status || undefined } : docData
+          formData: activeSchedule.form_kind === 'CUSTOM' ? { answers: docData.answers, remarks: docData.remarks } : docData
         })
       });
       const data = await res.json();
@@ -1724,7 +1683,7 @@ export default function HealthScreening() {
         openViewModal(activeSchedule);
         fetchSchedules();
         notifyScreeningChanged();
-        showAlert(data.is_abnormal ? 'Saved. Result is not normal.' : 'Result saved.', 'Success', 'success');
+        showAlert(data.is_abnormal ? `Saved. ${data.flags || 'Result is not normal'}.` : 'Result saved.', 'Success', 'success');
       } else {
         showAlert(data.error || 'Failed to save document.', 'Error', 'error');
       }
@@ -2353,6 +2312,11 @@ export default function HealthScreening() {
                       <button type="button" className={`btn-hs btn-icon-hs ${ended ? 'btn-secondary-hs' : 'btn-primary-hs'}`} onClick={() => openViewModal(sch)} title="Document" aria-label="Document">
                         <FileText size={16} aria-hidden="true" />
                       </button>
+                      {!cancelled && !isLegacySchedule(sch) && (
+                        <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => setParticipantsSchedule(sch)} title="Add students" aria-label="Add students">
+                          <UserRoundPlus size={16} aria-hidden="true" />
+                        </button>
+                      )}
                       {!cancelled && !isLegacySchedule(sch) && sch.form_kind && (
                         <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => openImport(sch)} title="Import CSV" aria-label="Import CSV">
                           <Upload size={16} aria-hidden="true" />
@@ -2377,14 +2341,9 @@ export default function HealthScreening() {
                       {!cancelled && (
                         <>
                           {isPhysicalSchedule(sch) && (
-                            <>
-                              <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => printPlayList(sch, 'allowed')} title="Allowed to play (PDF)" aria-label="Allowed to play, PDF">
-                                <ShieldCheck size={16} aria-hidden="true" />
-                              </button>
-                              <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => printPlayList(sch, 'not_allowed')} title="Not allowed to play (PDF)" aria-label="Not allowed to play, PDF">
-                                <ShieldAlert size={16} aria-hidden="true" />
-                              </button>
-                            </>
+                            <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => printResultsReport(sch)} title="Results report with play lists (PDF)" aria-label="Results report with play lists, PDF">
+                              <Printer size={16} aria-hidden="true" />
+                            </button>
                           )}
                           {(absentCount + Number(sch.pending_count || 0)) > 0 && sch.form_kind && !isLegacySchedule(sch) && (
                             <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => openMakeup(sch)} title="Make-up" aria-label="Make-up">
@@ -2799,10 +2758,11 @@ export default function HealthScreening() {
         </HsDialog>
       )}
 
-      {/* MODAL 2b: View & edit participants of an upcoming schedule */}
+      {/* MODAL 2b: View & edit participants of an upcoming schedule; an on going one only takes new students */}
       {participantsSchedule && (
         <ScreeningParticipantsModal
           schedule={participantsSchedule}
+          addOnly={activeTab === 'ongoing'}
           programs={programs}
           apiBase={API_BASE}
           senderId={userId}
@@ -2912,16 +2872,6 @@ export default function HealthScreening() {
                 <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => printResultsReport(activeSchedule)} title="Results report with summary" aria-label="Results report with summary">
                   <FileText size={16} aria-hidden="true" />
                 </button>
-                {isPhysicalSchedule(activeSchedule) && (
-                  <>
-                    <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => printPlayList(activeSchedule, 'allowed', { att: attFilter })} title="Allowed to play (PDF)" aria-label="Allowed to play, PDF">
-                      <ShieldCheck size={16} aria-hidden="true" />
-                    </button>
-                    <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => printPlayList(activeSchedule, 'not_allowed', { att: attFilter })} title="Not allowed to play (PDF)" aria-label="Not allowed to play, PDF">
-                      <ShieldAlert size={16} aria-hidden="true" />
-                    </button>
-                  </>
-                )}
                 {activeSchedule.status !== 'Cancelled' && (Number(activeSchedule.absent_count) + Number(activeSchedule.pending_count)) > 0 && screeningOver(activeSchedule) && activeSchedule.form_kind && !isLegacySchedule(activeSchedule) && (
                   <button type="button" className="btn-hs btn-icon-hs btn-secondary-hs" onClick={() => openMakeup(activeSchedule)} title="Schedule a make-up session" aria-label="Schedule a make-up session">
                     <UserRoundPlus size={16} aria-hidden="true" />
@@ -2967,7 +2917,7 @@ export default function HealthScreening() {
                   </div>
                   {isPhysicalSchedule(activeSchedule) && (
                     <div className="chips-hs" role="group" aria-label="Allow to play">
-                      {[['ALL', 'All'], ['ALLOWED', 'Allowed'], ['RESTRICTED', 'Restrictions'], ['NOT_ALLOWED', 'Not allowed'], ['NONE', 'No decision']].map(([key, label]) => (
+                      {[['ALL', 'All'], ['ALLOWED', 'Allowed'], ['NOT_ALLOWED', 'Not allowed'], ['NONE', 'No decision']].map(([key, label]) => (
                         <button key={key} type="button" className="chip-btn-hs" aria-pressed={playFilter === key} onClick={() => { setPlayFilter(key); setParticipantPage(1); }}>
                           {label} <span className="chip-n-hs">{key === 'ALL' ? totalN : scheduleStudents.filter(st => (st.play_status || 'NONE') === key).length}</span>
                         </button>
@@ -3108,6 +3058,9 @@ export default function HealthScreening() {
               <span className="chip-hs chip-info-hs">{typeLabel(activeSchedule.screening_type)}</span>
               {activeSchedule.scheduled_date && <span className="chip-hs">{formatDate(String(activeSchedule.scheduled_date).split('T')[0])}</span>}
               {selectedStudent.attended_at && <span className="chip-hs"><Clock size={14} aria-hidden="true" /> Time in {formatTime(selectedStudent.attended_at)}</span>}
+              {!hasResult(selectedStudent) && selectedStudent.recent_at && (
+                <span className="chip-hs chip-info-hs"><RotateCcw size={14} aria-hidden="true" /> Prefilled from {formatDate(selectedStudent.recent_at)}</span>
+              )}
               <span className="doc-strip-sep-hs" aria-hidden="true" />
               <div className="doc-health-hs" role="group" aria-label="Health history">
                 <strong className="doc-health-title-hs"><HeartPulse size={14} aria-hidden="true" /> Health history</strong>
@@ -3174,7 +3127,7 @@ export default function HealthScreening() {
                       const calcState = calc ? rangeState(f, calc.value) : '';
                       return (
                         <div className="form-group-hs" key={f.key}>
-                          <div className="doc-lblrow-hs">{label}<StateChip state={calcState} id={`${id}-flag`} /></div>
+                          <div className="doc-lblrow-hs">{label}<StateChip state={calcState} id={`${id}-flag`} label={f.label} /></div>
                           <input id={id} type="text" readOnly value={calc ? `${calc.value}${calc.label ? ` (${calc.label})` : ''}` : ''} placeholder="Auto" aria-describedby={calcState ? `${id}-flag` : undefined} />
                           {(f.min !== undefined || f.max !== undefined) && <small className="range-hint-hs">Normal {rangeFlagText(f)}</small>}
                         </div>
@@ -3196,7 +3149,7 @@ export default function HealthScreening() {
                     const hasRange = f.type === 'number' && (f.min !== undefined || f.max !== undefined || (isPhysicalDoc && playRangeText(f)));
                     return (
                       <div className="form-group-hs" key={f.key}>
-                        <div className="doc-lblrow-hs">{label}<StateChip state={numState} id={`${id}-flag`} bp={f.key === docBp.sys?.key || f.key === docBp.dia?.key} /></div>
+                        <div className="doc-lblrow-hs">{label}<StateChip state={numState} id={`${id}-flag`} label={f.label} bp={f.key === docBp.sys?.key || f.key === docBp.dia?.key} /></div>
                         <input
                           id={id}
                           type={f.type === 'number' ? 'number' : 'text'}
@@ -3232,40 +3185,17 @@ export default function HealthScreening() {
                     );
                   })()}
                   {isPhysicalDoc && docClearance && (
-                    <fieldset className={`play-box-hs play-${docPlayStatus.toLowerCase()}-hs`} aria-describedby="cf-play-why-hs">
-                      <legend className="play-legend-hs">
-                        <ShieldCheck size={18} aria-hidden="true" /> Allow-to-Play <Req />
-                      </legend>
-                      <div className="play-sugg-hs">
-                        <span className="chip-hs">Suggested: {PLAY_STATUS_LABELS[docClearance.status]}</span>
-                        {docData.play_status && docData.play_status !== docClearance.status && (
-                          <button type="button" className="btn-hs btn-secondary-hs btn-icon-hs" aria-label="Use the suggested decision" title="Use the suggested decision" onClick={() => choosePlayStatus('')}>
-                            <RotateCcw size={16} aria-hidden="true" />
-                          </button>
-                        )}
+                    <div className={`play-box-hs play-${docPlayStatus.toLowerCase()}-hs`} role="status">
+                      <div className="play-head-hs">
+                        <ShieldCheck size={18} aria-hidden="true" /> Allow-to-Play
+                        <span className={`chip-hs ${PLAY_TONES[docPlayStatus]}`}>
+                          {docPlayStatus === 'ALLOWED' ? <Check size={14} aria-hidden="true" /> : <Ban size={14} aria-hidden="true" />} {docClearance.label}
+                        </span>
                       </div>
-                      <div className="play-opts-hs">
-                        {[
-                          ['ALLOWED', 'Allowed', 'No limits', <Check size={18} aria-hidden="true" />],
-                          ['RESTRICTED', 'Restrictions', 'With conditions', <AlertTriangle size={18} aria-hidden="true" />],
-                          ['NOT_ALLOWED', 'Not allowed', 'Cannot play', <Ban size={18} aria-hidden="true" />]
-                        ].map(([k, title, sub, icon]) => (
-                          <label key={k} className={`play-opt-hs play-opt-${k.toLowerCase()}-hs`}>
-                            <input type="radio" name="cf-play-hs" value={k} required checked={docPlayStatus === k} onChange={() => choosePlayStatus(k)} />
-                            <span className="play-opt-t-hs">{icon} {title}</span>
-                            <span className="play-opt-d-hs">{sub}</span>
-                          </label>
-                        ))}
-                      </div>
-                      <div id="cf-play-why-hs">
-                        {docClearance.blockers.length > 0 && (
-                          <ul className="play-list-hs">{docClearance.blockers.map((t) => <li key={t}>{t}</li>)}</ul>
-                        )}
-                        {docClearance.restrictions.length > 0 && (
-                          <ul className="play-list-hs">{docClearance.restrictions.map((t) => <li key={t}>{t}</li>)}</ul>
-                        )}
-                      </div>
-                    </fieldset>
+                      <ul className="play-list-hs">
+                        {(docPlayStatus === 'ALLOWED' ? docClearance.restrictions : [docClearance.sentence]).map((t) => <li key={t}>{t}</li>)}
+                      </ul>
+                    </div>
                   )}
                   <div className="form-group-hs">
                     <label htmlFor="cf-remarks-hs">Remarks</label>

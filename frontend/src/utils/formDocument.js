@@ -30,7 +30,7 @@ export const FORM_CSS = `
     .af-foot { font-size: 11px; color: #475569; margin: 8px 0 0; }
 `;
 
-// meta (vital signs): { status: 'Normal' | 'Not normal', range: 'Range 36.1-37.5 °C' } drawn under the box
+// meta (vital signs): { status: 'Normal' | 'High' | 'Low', range: 'Range 36.1-37.8 °C' } drawn under the box
 export const metaHtml = (meta) => {
     if (!meta || (!meta.status && !meta.range)) return '';
     const bad = meta.status !== 'Normal';

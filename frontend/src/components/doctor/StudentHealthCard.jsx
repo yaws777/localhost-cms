@@ -8,7 +8,7 @@ import { HeartPulse, AlertTriangle, ShieldAlert, Check } from 'lucide-react';
 import Modal from '../common/Modal';
 import { API } from '../../utils/scheduling';
 import { formatTime } from '../../utils/datetime';
-import { VITAL_FIELDS, vitalState, bpKind } from '../../utils/vitals';
+import { VITAL_FIELDS, vitalState, vitalStatusLabel } from '../../utils/vitals';
 import '../../styles/doctor/DoctorLayout.css';
 import '../../styles/scheduling/Vitals.css';
 
@@ -24,7 +24,7 @@ const VitalTiles = ({ values, prefix }) => (
                 <small>{t.label}</small>
                 <strong>{t.value ? `${t.value} ${t.unit}` : '-'}</strong>
                 <small>Range {t.normal} {t.unit}</small>
-                {t.state === 'abnormal' && <span className="hs-flag"><AlertTriangle size={14} aria-hidden="true" /> {t.key === 'blood_pressure' ? bpKind(t.value) : 'Not normal'}</span>}
+                {t.state === 'abnormal' && <span className="hs-flag"><AlertTriangle size={14} aria-hidden="true" /> {vitalStatusLabel(t.key, t.value)}</span>}
                 {t.state === 'normal' && <span className="hs-flag hs-flag-ok"><Check size={14} aria-hidden="true" /> Normal</span>}
             </div>
         ))}

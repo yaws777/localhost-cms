@@ -3,7 +3,7 @@
 // and, optionally, at time out. Same ranges as the server (readVitals in connection.js).
 export const VITAL_FIELDS = [
     { key: 'blood_pressure', label: 'Blood pressure', unit: 'mmHg', placeholder: '120/80', normal: '90-120 / 60-80' },
-    { key: 'temperature', label: 'Temperature', unit: '°C', placeholder: '36.5', normal: '36.1-37.5', min: 36.1, max: 37.5, limit: [30, 45] },
+    { key: 'temperature', label: 'Temperature', unit: '°C', placeholder: '36.5', normal: '36.1-37.8', min: 36.1, max: 37.8, limit: [30, 45] },
     { key: 'pulse_rate', label: 'Pulse', unit: 'bpm', placeholder: '80', normal: '60-100', min: 60, max: 100, limit: [30, 250] },
     { key: 'respiratory_rate', label: 'Respiratory rate', unit: '/min', placeholder: '16', normal: '12-20', min: 12, max: 20, limit: [8, 60] }
 ];
@@ -43,18 +43,26 @@ export const bpKind = (value) => {
     return high ? 'High blood' : 'Low blood';
 };
 
-// 'Normal' | 'Not normal' | '' (empty or invalid) for one value; a blood pressure that is not normal says 'High blood' or 'Low blood'
+// A reading outside its range is told as High or Low, never "Not normal" (a temperature says High / Low Temperature)
+export const outWord = (label, low) => `${low ? 'Low' : 'High'}${/temp/i.test(label || '') ? ' Temperature' : ''}`;
+
+// 'High Temperature, Low pulse rate' of the results [{ label, status }] that are not normal ('' when none)
+export const flaggedText = (results) => [...new Set((results || []).filter((r) => r.status && r.status !== 'Normal')
+    .map((r) => (r.status === 'High' || r.status === 'Low' ? `${r.status} ${String(r.label).toLowerCase()}` : r.status)))].join(', ');
+
+// 'Normal' | 'High' | 'Low' | '' (empty or invalid) for one value; blood pressure says 'High blood' / 'Low blood', temperature 'High Temperature' / 'Low Temperature'
 export const vitalStatusLabel = (key, value) => {
     const st = vitalState(key, value);
-    if (st === 'abnormal' && key === 'blood_pressure') return bpKind(value);
-    return { normal: 'Normal', abnormal: 'Not normal' }[st] || '';
+    if (st !== 'abnormal') return st === 'normal' ? 'Normal' : '';
+    if (key === 'blood_pressure') return bpKind(value);
+    return outWord(key, Number(value) < VITAL_FIELDS.find((x) => x.key === key).min);
 };
 
-// any status that is not 'Normal' (Not normal, High blood, Low blood)
+// any status that is not 'Normal'
 export const isBadStatus = (status) => !!status && status !== 'Normal';
 
 // { value, status, range } of one reading for read-only forms and PDFs: the value stays alone in its box,
-// the status ('Normal' | 'Not normal') and the range ("Range 36.1-37.5 °C") are drawn under it. Empty value: all empty.
+// the status (see vitalStatusLabel) and the range ("Range 36.1-37.8 °C") are drawn under it. Empty value: all empty.
 export const vitalMeta = (key, value) => {
     const v = String(value ?? '').trim();
     const f = VITAL_FIELDS.find((x) => x.key === key);
@@ -62,7 +70,7 @@ export const vitalMeta = (key, value) => {
     return { value: v, status: vitalStatusLabel(key, v), range: `Range ${f.normal} ${f.unit}` };
 };
 
-// one line: BP 120/80 mmHg (Normal) | 36.5 °C (Normal) | 130 bpm (Not normal) | 16 /min (Normal)
+// one line: BP 120/80 mmHg (Normal) | 36.5 °C (Normal) | 130 bpm (High) | 16 /min (Normal)
 export const vitalsLine = (values) => {
     if (!hasVitals(values)) return '';
     return VITAL_FIELDS.map((f) => {
@@ -76,7 +84,7 @@ export const vitalsLine = (values) => {
 // the normal ranges as one line, for the printed record
 export const vitalsRangeLine = () => VITAL_FIELDS.map((f) => `${f.key === 'blood_pressure' ? 'BP' : f.label} ${f.normal} ${f.unit}`).join(' | ');
 
-// Remarks written from the vital signs (time out): what is not normal, or that everything is normal. Same wording as the screening remarks.
+// Remarks written from the vital signs (time out): what is high or low, or that everything is normal. Same wording as the screening remarks.
 export const vitalsRemarks = (values) => {
     if (!hasVitals(values)) return '';
     const parts = [];
@@ -89,13 +97,13 @@ export const vitalsRemarks = (values) => {
         const low = sys < BP_NORMAL.sys[0] || dia < BP_NORMAL.dia[0];
         parts.push(`${high && low ? 'Out of range' : high ? 'High' : 'Low'} blood pressure (${bp} mmHg)`);
     }
-    const wording = { temperature: ['Low temperature', 'Fever'], pulse_rate: ['Low pulse', 'High pulse'], respiratory_rate: ['Low respiratory rate', 'High respiratory rate'] };
+    const wording = { temperature: ['Low Temperature', 'High Temperature'], pulse_rate: ['Low pulse', 'High pulse'], respiratory_rate: ['Low respiratory rate', 'High respiratory rate'] };
     VITAL_FIELDS.filter((f) => f.key !== 'blood_pressure').forEach((f) => {
         const v = String(values[f.key] ?? '').trim();
         if (!v || vitalState(f.key, v) !== 'abnormal') return;
         parts.push(`${wording[f.key][Number(v) < f.min ? 0 : 1]} (${v} ${f.unit})`);
     });
-    if (parts.length > 0) return `Not normal: ${parts.join('; ')}.`;
+    if (parts.length > 0) return `${parts.join('; ')}.`;
     return VITAL_FIELDS.every((f) => vitalState(f.key, values[f.key]) === 'normal') ? 'All vital signs are normal. In good condition.' : 'Recorded vital signs are normal.';
 };
 

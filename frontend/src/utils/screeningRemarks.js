@@ -1,6 +1,7 @@
 // Automatic remark and play decision of a screening result. Same rules and wording as buildAutoRemarks /
 // evaluateTemplateAnswers on the server (connection.js); the server stores the final text, this one only previews it.
 import { calculate } from './formula';
+import { outWord } from './vitals';
 
 const hasValue = (v) => v !== undefined && v !== null && String(v).trim() !== '';
 
@@ -61,15 +62,11 @@ export const bloodPressureLabel = (fields, answers) => {
   return high ? 'High Blood' : low ? 'Low Blood' : 'Normal';
 };
 
-export const PLAY_STATUS_LABELS = { ALLOWED: 'Allowed to Play', RESTRICTED: 'Allowed with Restrictions', NOT_ALLOWED: 'Not Allowed to Play' };
+export const PLAY_STATUS_LABELS = { ALLOWED: 'Allowed to Play', NOT_ALLOWED: 'Not Allowed to Play' };
 
-// the decision as the first sentence of the remark; PLAY_SENTENCE_RE finds it (or the old "Allow-to-Play Status: ..." line) at the start
-export const PLAY_STATUS_SENTENCES = {
-  ALLOWED: 'The student is allowed to play.',
-  RESTRICTED: 'The student is allowed to play with restrictions.',
-  NOT_ALLOWED: 'The student is not allowed to play.',
-};
-export const PLAY_SENTENCE_RE = /^(?:The student is (?:not )?allowed to play(?: with restrictions)?\.|Allow-to-Play Status: [^.]*\.)/;
+const PLAY_ALLOWED_SENTENCE = 'The student is allowed to play.';
+// finds the decision sentence (also the wordings used before) at the start of a remark
+export const PLAY_SENTENCE_RE = /^(?:The student is (?:not )?allowed to play(?: with restrictions| due to [^.]*)?\.|Allow-to-Play Status: [^.]*\.)/i;
 
 // Vital signs that are not normal, as status words only (never the readings): [{ name: 'blood pressure', state: 'high' }].
 // blocked = outside the play range (or a blocking choice) -> cannot play; otherwise outside the normal range -> monitor.
@@ -100,26 +97,31 @@ const vitalStatesOf = (fields, answers, blocked) => {
 };
 const vitalList = (states) => states.map((o) => `${o.name} ${o.state}`).join(', ');
 
-// Clearance decision of a Physical Activities screening from the vitals (play range, readings outside normal) and the health history
-// (health = { blockers, restrictions, conditions } the server sends for each participant). Same rules as playClearanceOf on the server.
-// Vital signs are told by status only (blood pressure high), never by value.
+// Clearance decision of a Physical Activities screening, always automatic: Not Allowed = vital signs outside the play range, or a heart
+// problem / seizure history (health = { blockers, precautions, conditions } the server sends for each participant). `sentence` starts the remark; `restrictions` are the precautions of an allowed student.
+// Vital signs are told by status only (blood pressure high), never by value. Same rules as playClearanceOf on the server.
 export const playClearance = (fields, answers, health) => {
   const list = fields || [];
-  const blockers = [];
-  const restrictions = [...((health && health.restrictions) || [])];
   const blockedStates = vitalStatesOf(list, answers, true);
-  if (blockedStates.length > 0) blockers.push(`Due to not normal vital signs: ${vitalList(blockedStates)}.`);
-  blockers.push(...((health && health.blockers) || []));
-  const blockedNames = new Set(blockedStates.map((o) => o.name));
-  const monitorStates = vitalStatesOf(list, answers, false).filter((o) => !blockedNames.has(o.name));
-  if (monitorStates.length > 0) restrictions.unshift(`Monitor these vital signs during the activity: ${vitalList(monitorStates)}.`);
-  const status = blockers.length > 0 ? 'NOT_ALLOWED' : restrictions.length > 0 ? 'RESTRICTED' : 'ALLOWED';
-  return { status, label: PLAY_STATUS_LABELS[status], blockers, restrictions };
+  const healthBlocked = ((health && health.blockers) || []).length > 0;
+  const status = blockedStates.length > 0 || healthBlocked ? 'NOT_ALLOWED' : 'ALLOWED';
+  const restrictions = [];
+  let sentence = PLAY_ALLOWED_SENTENCE;
+  if (status === 'NOT_ALLOWED') {
+    const conditions = (health && health.conditions) || [];
+    const history = conditions.length > 0 ? `health history: ${conditions.join(', ')}` : '';
+    sentence = `The student is not allowed to play due to ${[vitalList(blockedStates), history].filter(Boolean).join(', and ').replace(/\./g, '')}.`;
+  } else {
+    const monitorStates = vitalStatesOf(list, answers, false);
+    if (monitorStates.length > 0) restrictions.push(`Monitor these vital signs during the activity: ${vitalList(monitorStates)}.`);
+    restrictions.push(...((health && health.precautions) || []));
+  }
+  return { status, label: PLAY_STATUS_LABELS[status], sentence, restrictions };
 };
 
-// ctx = { category: 'GENERAL' | 'PHYSICAL', health: { blockers, restrictions, conditions }, status: chosen decision code or '' (auto) }
-// Physical Activities: the Allow-to-Play status, then why (Not Allowed: not normal vital signs by status + health history) or what to monitor
-// (Restrictions); readings are never written as values. Other screenings list the readings outside normal and end with the health history.
+// ctx = { category: 'GENERAL' | 'PHYSICAL', health: { blockers, precautions, conditions } }
+// Physical Activities: the decision (Not Allowed: high or low vital signs by status + health history) then the precautions of an allowed
+// student; readings are never written as values. Other screenings list the readings outside normal and end with the health history.
 export const buildAutoRemark = (fields, answers, ctx = {}) => {
   const list = fields || [];
   const { values, labels } = readValues(list, answers);
@@ -129,10 +131,7 @@ export const buildAutoRemark = (fields, answers, ctx = {}) => {
   const play = physical ? playDecision(list, answers) : { keys: [] };
   if (physical) {
     const c = playClearance(list, answers, ctx.health);
-    const status = ctx.status && PLAY_STATUS_LABELS[ctx.status] ? ctx.status : c.status;
-    lines.push(PLAY_STATUS_SENTENCES[status]);
-    if (status === 'NOT_ALLOWED') lines.push(...(c.blockers.length > 0 ? c.blockers : c.restrictions));
-    else if (status === 'RESTRICTED') lines.push(...(c.restrictions.length > 0 ? c.restrictions : c.blockers));
+    lines.push(c.sentence, ...c.restrictions);
   }
   const { sys, dia } = bpFieldsOf(list);
   const sv = sys ? values[sys.key] : undefined;
@@ -152,7 +151,7 @@ export const buildAutoRemark = (fields, answers, ctx = {}) => {
       if (v === undefined) return;
       const unit = f.unit ? ` ${f.unit}` : '';
       const state = f.min !== undefined && v < f.min ? 'low' : f.max !== undefined && v > f.max ? 'high' : '';
-      if (state) lines.push(`${f.label} is ${v}${unit}. Not normal (${state}${labels[f.key] ? `, ${labels[f.key]}` : ''}).`);
+      if (state) lines.push(`${f.label} is ${v}${unit}. ${outWord(f.label, state === 'low')}${labels[f.key] ? ` (${labels[f.key]})` : ''}.`);
     });
   }
   list.forEach((f) => {

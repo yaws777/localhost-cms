@@ -1,5 +1,6 @@
 import React, { useId, useState } from 'react';
 import { Hash, Sigma, Type, List, ToggleLeft, TriangleAlert, CircleCheck } from 'lucide-react';
+import { outWord } from '../../utils/vitals';
 import '../../styles/nurse/ScreeningSetup.css';
 
 export const FIELD_TYPES = [
@@ -73,7 +74,7 @@ export const evalField = (f, fields, answers) => {
     }
     const abnormal = (has(f.min) && value < Number(f.min)) || (has(f.max) && value > Number(f.max));
     const noPlay = (has(f.play_min) && value < Number(f.play_min)) || (has(f.play_max) && value > Number(f.play_max));
-    return { value, band, abnormal: !!abnormal, noPlay: !!noPlay };
+    return { value, band, abnormal: !!abnormal, noPlay: !!noPlay, word: abnormal ? outWord(f.label, has(f.min) && value < Number(f.min)) : '' };
   }
   return { value: raw || null, abnormal: !!(raw && (f.abnormal_options || []).includes(raw)) };
 };
@@ -162,7 +163,7 @@ export function FormPreview({ fields }) {
             {(range || playText(f)) && <span className="sx-hint-line-hs">{[range, playText(f)].filter(Boolean).join(' · ')}</span>}
             <span className="sx-flag-hs" aria-live="polite">
               {r.noPlay && <span className="sx-chip-hs sx-crit-hs"><TriangleAlert size={14} aria-hidden="true" /> Not allowed to play</span>}
-              {r.abnormal && <span className="sx-chip-hs sx-crit-hs"><TriangleAlert size={14} aria-hidden="true" /> Not normal</span>}
+              {r.abnormal && <span className="sx-chip-hs sx-crit-hs"><TriangleAlert size={14} aria-hidden="true" /> {r.word || 'Not normal'}</span>}
               {!r.abnormal && answered && f.type !== 'text' && <span className="sx-chip-hs sx-ok-hs"><CircleCheck size={14} aria-hidden="true" /> Normal</span>}
             </span>
           </div>

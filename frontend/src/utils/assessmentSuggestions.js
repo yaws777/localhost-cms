@@ -89,16 +89,35 @@ const rxLine = (r) => {
     return `${name}${how ? `: ${how}` : ''}${extra ? ` (${extra.charAt(0).toLowerCase()}${extra.slice(1)})` : ''}.`;
 };
 
-// the treatment plan as text, one line each. ctx: { visitType, complaint, diagnosis, prescriptions, vitals, followUp: { needed, date, notes } }
+// oral exam findings (the dental "Findings" checklist) -> care lines of the treatment plan
+const FINDING_CARE = [
+    [/cavit|caries|decay/i, ['Dental filling or restoration is advised for the cavity.', 'Limit sweet food and drinks; brush twice a day with fluoride toothpaste.']],
+    [/plaque|tartar/i, ['Dental cleaning (scaling) is advised.', 'Brush twice a day and floss daily.']],
+    [/bleeding gum|gingiv|swollen gum/i, ['Brush gently with a soft toothbrush and floss daily.', 'Rinse with warm salt water or an antiseptic mouthwash.']],
+    [/sensitiv/i, ['Use toothpaste for sensitive teeth.', 'Avoid very hot, cold and acidic food and drinks.']],
+    [/misalign|malocclusion|crowd/i, ['Orthodontic evaluation is advised.', 'Keep the teeth and braces clean.']]
+];
+
+// the findings picked (list or "a, b" text) -> care lines, no repeats
+const findingLines = (findings) => {
+    const picked = (Array.isArray(findings) ? findings : String(findings || '').split(',')).map((s) => String(s).trim()).filter(Boolean);
+    const out = [];
+    picked.forEach((p) => FINDING_CARE.forEach(([re, ls]) => { if (re.test(p)) ls.forEach((l) => { if (!out.includes(l)) out.push(l); }); }));
+    return out;
+};
+
+// the treatment plan as text, one line each. ctx: { visitType, complaint, diagnosis, findings, prescriptions, vitals, followUp: { needed, date, notes } }
 export const buildTreatmentPlan = (ctx) => {
     const group = DIAGNOSES[visitGroupOf(ctx.visitType)];
     const diagnosis = String(ctx.diagnosis || '').trim();
     const complaint = String(ctx.complaint || '').trim();
-    if (!diagnosis && !complaint) return '';
+    const fromFindings = findingLines(ctx.findings);
+    if (!diagnosis && !complaint && fromFindings.length === 0) return '';
 
     const care = group[diagnosis];
     const lines = [];
-    lines.push(...(care || GENERIC_PLAN));
+    (care || (fromFindings.length > 0 ? [] : GENERIC_PLAN)).forEach((l) => lines.push(l));
+    fromFindings.forEach((l) => { if (!lines.includes(l)) lines.push(l); });
 
     const rx = (ctx.prescriptions || []).map(rxLine).filter(Boolean);
     if (rx.length > 0) lines.push(`Medicine: ${rx.join(' ')}`);

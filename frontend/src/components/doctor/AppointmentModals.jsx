@@ -512,7 +512,7 @@ export const WalkInModal = ({ isOpen, doctors, fixedDoctorId, schedule, creator,
             });
             if (data.success) {
                 showAlert(data.message, 'success');
-                if (data.abnormal && data.abnormal.length > 0) showAlert(`Not normal: ${data.abnormal.join('; ')}.`, 'warning');
+                if (data.abnormal && data.abnormal.length > 0) showAlert(`${data.abnormal.join('; ')}.`, 'warning');
                 onCreated?.({ ...data, student_name: `${student.first_name || ''} ${student.last_name || ''}`.trim() || student.student_id });
                 onClose();
             } else {

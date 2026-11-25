@@ -8,7 +8,7 @@ import AssessmentForm from '../doctor/AssessmentForm';
 import FormDocument from './FormDocument';
 import { buildClinicVisitModel, buildDispensedModel, buildIncidentModel, buildScreeningRecordModel, detailPairs } from '../../utils/formModels';
 import { formatDate as formatDateBase, formatTime, formatDateTime } from '../../utils/datetime';
-import { hasVitals, vitalMeta, VITAL_FIELDS, inVitalsOf, outVitalsOf } from '../../utils/vitals';
+import { hasVitals, vitalMeta, flaggedText, VITAL_FIELDS, inVitalsOf, outVitalsOf } from '../../utils/vitals';
 import VitalMeta from './VitalMeta';
 import { dispensedLine } from '../../utils/dispensed';
 import '../../styles/common/ClinicRecordViews.css';
@@ -52,7 +52,7 @@ export const ScreeningStatus = ({ item }) => {
     return (
         <span className="pills-crv">
             <StatusPill tone={tone}>{item.status}</StatusPill>
-            {flagged && <StatusPill tone="warn">Not normal</StatusPill>}
+            {flagged && <StatusPill tone="warn">{flaggedText(item.results) || 'Not normal'}</StatusPill>}
         </span>
     );
 };
@@ -84,7 +84,7 @@ const FormValues = ({ record, keys, title }) => {
 const DENTAL_KEYS = ['oral_hygiene', 'caries_count', 'missing_count', 'filled_count', 'gum_condition', 'malocclusion', 'tooth_notes', 'treatment_done', 'treatment_needed', 'referral_needed', 'referral_to', 'next_visit_recommendation', 'dental_remarks'];
 const VISION_KEYS = ['visual_acuity_left', 'visual_acuity_right', 'va_left_corrected', 'va_right_corrected', 'wears_eyeglasses', 'wears_contacts', 'color_vision', 'eye_findings', 'recommended_action', 'vision_remarks'];
 
-// one set of vital signs: value, Normal / Not normal and the normal range under each
+// one set of vital signs: value, Normal / High / Low and the normal range under each
 const VitalGroup = ({ title, values }) => (
     <Section icon={Activity} title={title}>
         <dl>

@@ -5,7 +5,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { ClipboardPlus, Plus, Trash2, Sparkles, CalendarDays, Clock, Thermometer, HeartPulse, Activity, Wind } from 'lucide-react';
 import Modal from '../common/Modal';
 import { notifyRecordChanged } from '../../hooks/useRecordSync';
-import { VITAL_FIELDS, vitalState, bpKind } from '../../utils/vitals';
+import { VITAL_FIELDS, vitalState, vitalStatusLabel } from '../../utils/vitals';
 import { useAlert } from '../../context/AlertContext';
 import { formatDate, formatTime } from '../../utils/datetime';
 import { visitLabel, fullName, localDateStr } from '../../utils/visitPurpose';
@@ -170,7 +170,12 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
     const planKeys = useMemo(() => {
         if (!template) return { plan: 'treatment_recommendations', diagnosis: 'diagnosis', complaint: 'chief_complaint' };
         const find = (re, types = ['text', 'textarea', 'select']) => (template.fields.find((f) => types.includes(f.type) && re.test(f.label)) || {}).key;
-        return { plan: find(/treatment|recommendation|plan/i, ['text', 'textarea']), diagnosis: find(/diagnos/i), complaint: find(/complaint|reason/i) };
+        return {
+            plan: find(/advis|recommend/i, ['text', 'textarea']) || find(/^(?!.*\bdone\b).*(treatment|plan)/i, ['text', 'textarea']),
+            diagnosis: find(/diagnos/i),
+            complaint: find(/complaint|reason/i),
+            findings: find(/findings/i, ['checkbox'])
+        };
     }, [template]);
     const planFieldsNow = template ? template.fields : stdFields;
     const planKey = planKeys.plan && planFieldsNow.some((f) => f.key === planKeys.plan) ? planKeys.plan : null;
@@ -180,11 +185,12 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
         visitType,
         complaint: clean(cur[planKeys.complaint]),
         diagnosis: clean(cur[planKeys.diagnosis]),
+        findings: planKeys.findings ? cur[planKeys.findings] : null,
         prescriptions: form ? form.prescriptions : [],
         vitals: inVitalValues(appt),
         followUp: form ? { needed: form.follow_up_needed, date: form.follow_up_date, notes: form.follow_up_notes } : null
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }), [visitType, cur[planKeys.complaint], cur[planKeys.diagnosis], form, appt]);
+    }), [visitType, cur[planKeys.complaint], cur[planKeys.diagnosis], cur[planKeys.findings], form, appt]);
     const lastPlan = useRef('');
     useEffect(() => {
         if (!planKey || !form) return;
@@ -359,7 +365,7 @@ const ConsultationModal = ({ appt, doctorId, nurseId, userId, onClose, onSaved }
                                         <span className="dp-vital-label">{v.label}</span>
                                         <span className="dp-vital-value">{v.value}<small>{v.unit}</small></span>
                                         <small className="dp-vital-range">Range {v.normal} {v.unit}</small>
-                                        <span className={`dp-vital-flag${bad ? '' : ' ok'}`}>{bad ? (v.key === 'blood_pressure' ? bpKind(v.value) : 'Not normal') : 'Normal'}</span>
+                                        <span className={`dp-vital-flag${bad ? '' : ' ok'}`}>{bad ? vitalStatusLabel(v.key, v.value) : 'Normal'}</span>
                                     </li>
                                 );
                             })}

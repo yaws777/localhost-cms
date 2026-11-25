@@ -7,7 +7,7 @@
 import { formatDate, formatDateTime, formatTime } from './datetime';
 import { fullName } from './visitPurpose';
 import { classLabel } from './scheduling';
-import { vitalMeta } from './vitals';
+import { vitalMeta, flaggedText } from './vitals';
 
 const has = (v) => v !== null && v !== undefined && v !== '';
 const dash = (v) => (has(v) ? String(v) : '--');
@@ -37,7 +37,7 @@ const nurseOf = (r, ctx = {}) => ctx.nurse || r.nurse_name
     || r.nurse_id || '';
 
 const field = (label, value, opts = {}) => ({ label, value: dash(value), ...opts });
-// a vital sign: the value alone in the box, status (Normal / Not normal) and normal range under it
+// a vital sign: the value alone in the box, status (Normal / High / Low) and normal range under it
 const vital = (label, key, value) => {
     const { value: v, status, range } = vitalMeta(key, value);
     return field(label, v, { status, range });
@@ -178,7 +178,6 @@ export const detailPairs = (details) => String(details || '').split(' | ').map((
 // Allow-to-Play decision (screening_custom_results.play_status) -> banner text + tone (ok | warn | bad)
 const PLAY_BANNER = {
     ALLOWED: { text: 'Allow to Play', tone: 'ok' },
-    RESTRICTED: { text: 'Allow to Play with Restriction', tone: 'warn' },
     NOT_ALLOWED: { text: 'Not Allow to Play', tone: 'bad' }
 };
 
@@ -201,8 +200,8 @@ export const screeningFromRecord = (s) => ({
 });
 
 // n: { student, studentId, classText, type, title, date, time, status, attendance, results: [{label, value, unit, note}],
-//      (results rows may carry status 'Normal' | 'Not normal' + range 'Range 60-100 bpm', drawn under the box),
-//      remarks, abnormal, playStatus (ALLOWED | RESTRICTED | NOT_ALLOWED, Physical Activities only), notes, cancelledReason, schoolYear, nurse }
+//      (results rows may carry status 'Normal' | 'High' | 'Low' + range 'Range 60-100 bpm', drawn under the box),
+//      remarks, abnormal, playStatus (ALLOWED | NOT_ALLOWED, Physical Activities only), notes, cancelledReason, schoolYear, nurse }
 export const buildScreeningModel = (n) => {
     const completed = n.status === 'Completed' || (!n.status && (n.results || []).length > 0);
     const results = (n.results || []).filter((r) => r && has(r.value));
@@ -250,7 +249,7 @@ export const buildScreeningModel = (n) => {
         // Physical Activities screening: the banner is the Allow-to-Play decision; other screenings keep the not-normal notice
         flag: PLAY_BANNER[n.playStatus]
             ? PLAY_BANNER[n.playStatus].text
-            : (n.abnormal ? 'Some values are not normal. See the clinic.' : ''),
+            : (n.abnormal ? `${flaggedText(n.results) || 'Some values are not normal'}. See the clinic.` : ''),
         flagTone: PLAY_BANNER[n.playStatus] ? PLAY_BANNER[n.playStatus].tone : 'warn',
         sections
     };

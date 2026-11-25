@@ -5,6 +5,7 @@
 import { openReportWindow, writeHtmlReport, escapeHtml } from './printReport';
 import { FORM_CSS, fieldHtml } from './formDocument';
 import { dayText } from './formModels';
+import { flaggedText } from './vitals';
 
 const HISTORY_CSS = `
     .sh-year { font-size: 13px; letter-spacing: 0.8px; text-transform: uppercase; color: #1e3a8a; margin: 18px 0 8px; padding-bottom: 4px; border-bottom: 2px solid #1e3a8a; page-break-after: avoid; }
@@ -21,7 +22,7 @@ const HISTORY_CSS = `
 
 const has = (v) => v !== null && v !== undefined && v !== '';
 
-// n: { student, studentId, classText, filterText, groups: [{ year, items: [{ title, type, date, attendance, missed, abnormal, metrics, remarks }] }] }
+// n: { student, studentId, classText, filterText, groups: [{ year, items: [{ title, type, date, attendance, missed, abnormal, results, metrics, remarks }] }] }
 const bodyHtml = (n) => {
     const total = n.groups.reduce((sum, g) => sum + g.items.length, 0);
     const header = [
@@ -33,7 +34,7 @@ const bodyHtml = (n) => {
     n.groups.forEach((g) => {
         parts.push(`<h3 class="sh-year">${escapeHtml(g.year ? `School Year ${g.year}` : 'No school year')} (${g.items.length})</h3>`);
         g.items.forEach((r) => {
-            const status = r.missed ? r.attendance || 'No result' : (r.abnormal ? 'Not normal' : 'Normal');
+            const status = r.missed ? r.attendance || 'No result' : (r.abnormal ? flaggedText(r.results) || 'Not normal' : 'Normal');
             const readings = r.metrics.map((m) => {
                 const text = `${m.value}${m.unit ? ` ${m.unit}` : ''}${m.tag ? ` (${m.tag})` : ''}`;
                 return `<div class="${m.flagged ? 'sh-bad-val' : ''}">${fieldHtml(m.label || 'Result', text)}</div>`;
