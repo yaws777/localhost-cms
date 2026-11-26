@@ -367,6 +367,25 @@
 .ra-panel-title { font-size: 1rem; font-weight: 700; color: var(--text-primary); margin: 0; }
 .ra-panel-note { font-size: 0.875rem; color: var(--ra-muted); }
 
+/* icon-only action in a panel head (PDF of that panel) */
+.ra-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  margin-left: auto;
+  align-self: center;
+  background: var(--ra-card);
+  border: 0.0625rem solid var(--ra-border);
+  border-radius: 0.5rem;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.ra-icon-btn:hover:not(:disabled) { background: var(--bg-elevated); }
+.ra-icon-btn:focus-visible { outline: 0.1875rem solid var(--sti-blue-primary); outline-offset: 0.125rem; }
+.ra-icon-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
 .ra-panel-foot {
   display: flex;
   flex-wrap: wrap;

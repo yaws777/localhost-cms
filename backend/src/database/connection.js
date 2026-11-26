@@ -3443,7 +3443,7 @@ const healthConditionsOf = (student) => {
 // Allow-to-Play: what a student's health history means for a physical activity. A heart problem or seizure history blocks play
 // (`blockers`); every other item is a precaution when the student may play. The history is told as part of a Not Allowed reason.
 const playHealthOf = (h) => {
-    if (!h) return { blockers: [], precautions: [], conditions: [] };
+    if (!h) return { blockers: [], precautions: [], conditions: [], reasons: [] };
     const on = (v) => (v === null || v === undefined ? false : Buffer.isBuffer(v) ? v[0] === 1 : (v === true || Number(v) === 1 || String(v).toLowerCase() === 'true'));
     const blockers = [];
     const precautions = [];
@@ -3462,7 +3462,16 @@ const playHealthOf = (h) => {
     if (on(h.has_vision_problem)) mon('vision problem', h.vision_specify, 'Wear glasses or lenses and avoid ball sports without them.');
     if (on(h.has_hearing_problem)) mon('hearing problem', h.hearing_specify, 'Use visual signals.');
     if (on(h.has_other_condition)) mon(h.other_condition_specify || 'health condition', '', "Follow the nurse's advice.");
-    return { blockers, precautions, conditions: healthConditionsOf(h) };
+    // short names told in a Not Allowed reason (no details, no advice)
+    const reasons = [
+        ['has_heart_problems', 'heart problem'], ['has_seizure_episode', 'history of seizures'], ['has_asthma', 'asthma'],
+        ['has_other_respiratory', 'breathing problem'], ['has_allergies', 'allergies'], ['has_blood_disorders', 'blood disorder'],
+        ['has_metabolic_diseases', 'metabolic disease'], ['has_muscle_bone_disorder', 'muscle or bone disorder'], ['has_surgery', 'surgery'],
+        ['has_kidney_bladder_problems', 'kidney or bladder problem'], ['has_digestive_disorders', 'digestive disorder'],
+        ['has_vision_problem', 'vision problem'], ['has_hearing_problem', 'hearing problem'],
+    ].filter(([key]) => on(h[key])).map(([, name]) => name);
+    if (on(h.has_other_condition)) reasons.push(h.other_condition_specify || 'health condition');
+    return { blockers, precautions, conditions: healthConditionsOf(h), reasons };
 };
 
 // GET /api/health-records/students
@@ -6611,7 +6620,8 @@ async function getMedicineStockStatuses({ includeSeries = false, trendFactor = 0
            CAST(COALESCE(SUM(CASE WHEN b.expiration_date >= CURDATE() THEN b.current_stock ELSE 0 END), 0) AS SIGNED) AS usable_stock,
            CAST(COALESCE(SUM(CASE WHEN b.expiration_date < CURDATE() THEN b.current_stock ELSE 0 END), 0) AS SIGNED) AS expired_stock,
            CAST(COALESCE(SUM(CASE WHEN b.expiration_date >= CURDATE() AND b.expiration_date <= DATE_ADD(CURDATE(), INTERVAL ${EXPIRING_SOON_DAYS} DAY) THEN b.current_stock ELSE 0 END), 0) AS SIGNED) AS expiring_stock,
-           MIN(CASE WHEN b.expiration_date >= CURDATE() AND b.current_stock > 0 THEN b.expiration_date END) AS nearest_expiry
+           MIN(CASE WHEN b.expiration_date >= CURDATE() AND b.current_stock > 0 THEN b.expiration_date END) AS nearest_expiry,
+           GROUP_CONCAT(DISTINCT CASE WHEN b.current_stock > 0 AND b.expiration_date <= DATE_ADD(CURDATE(), INTERVAL ${EXPIRING_SOON_DAYS} DAY) THEN DATE_FORMAT(b.expiration_date, '%Y-%m-%d') END ORDER BY 1) AS expiry_dates
     FROM medicines m
     LEFT JOIN medicine_inventory_batches b ON b.medicine_id = m.medicine_id
     GROUP BY m.medicine_id
@@ -6673,6 +6683,8 @@ async function getMedicineStockStatuses({ includeSeries = false, trendFactor = 0
       adequate_stock_level: adequate,
       status,
       nearest_expiry: m.nearest_expiry || null,
+      // expiration dates of the batches in stock that are expired or expiring soon, oldest first
+      expiry_dates: m.expiry_dates ? m.expiry_dates.split(',').sort() : [],
       expiring_stock: Number(m.expiring_stock),
       expired_stock: Number(m.expired_stock),
       package_strength: `${m.strength_unit_value || 1} ${m.strength_unit_of_measure || ''}`.trim(),
@@ -7397,6 +7409,7 @@ app.get('/api/reports-analytics', async (req, res) => {
         expiringStock: m.expiring_stock,
         expiredStock: m.expired_stock,
         nearestExpiry: m.nearest_expiry,
+        expiryDates: m.expiry_dates,
         forecast30d: m.forecast_30d,
         // three separate quantities to request: lost to expiry, up to the adequate threshold, and by the 30-day forecast
         expiryRestock: m.expiring_stock + m.expired_stock,
@@ -9155,7 +9168,7 @@ const PLAY_STATUS_LABELS = { ALLOWED: 'Allowed to Play', NOT_ALLOWED: 'Not Allow
 const playStatusOf = (status) => (status === 'RESTRICTED' ? 'ALLOWED' : status || null);
 const PLAY_ALLOWED_SENTENCE = 'The student is allowed to play.';
 // the decision sentence at the start of a remark (also the wordings used before)
-const PLAY_SENTENCE_RE = /^(?:The student is (?:not )?allowed to play(?: with restrictions| due to [^.]*)?\.|Allow-to-Play Status: [^.]*\.)/i;
+const PLAY_SENTENCE_RE = /^(?:The student is (?:not )?allowed to play(?: with restrictions| due to [^.]*)?\.|Allow-to-Play Status: [^.]*\.)(?:\s*Due to (?:not normal )?(?:vital signs|health history): [^.]*\.)*(?:\s*A doctor must clear the student before playing\.)?/i;
 
 // Vital signs that are not normal, as status words only (never the readings): [{ name: 'blood pressure', state: 'high' }].
 // blocked = outside the play range (or a blocking choice) -> the student cannot play; otherwise outside the normal range -> monitor.
@@ -9182,7 +9195,12 @@ const vitalStatesOf = (fields, answers, blocked) => {
   }
   return out;
 };
-const vitalList = (states) => states.map((o) => `${o.name} ${o.state}`).join(', ');
+// a vital sign reads 'high temperature', 'high pulse rate', 'high respiratory rate', 'high blood' (or 'low ...')
+const PLAY_VITAL_NAMES = [[/temp/i, 'temperature'], [/pulse|heart rate/i, 'pulse rate'], [/respir/i, 'respiratory rate'], [/blood pressure/i, 'blood']];
+const vitalWord = (o) => (o.state === 'not safe' ? `${o.name} not safe` : `${o.state} ${(PLAY_VITAL_NAMES.find(([re]) => re.test(o.name)) || [null, o.name])[1]}`);
+const vitalList = (states) => states.map(vitalWord).join(', ');
+// 'a', 'a and b', 'a, b and c'
+const joinReasons = (list) => (list.length > 1 ? `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}` : list.join(''));
 
 // Clearance decision of a Physical Activities screening, always automatic. Not Allowed = a vital sign outside the play range (or a
 // blocking choice), or a heart problem / seizure history. `sentence` starts the remark; `restrictions` are the precautions of an allowed student.
@@ -9194,16 +9212,31 @@ const playClearanceOf = (fields, answers, healthPlay) => {
   const restrictions = [];
   let sentence = PLAY_ALLOWED_SENTENCE;
   if (status === 'NOT_ALLOWED') {
-    const conditions = (healthPlay && healthPlay.conditions) || [];
-    const history = conditions.length > 0 ? `health history: ${conditions.join(', ')}` : '';
+    const reasons = [...blockedStates.map(vitalWord), ...((healthPlay && healthPlay.reasons) || [])];
     // no periods inside, so the sentence can be found again at the start of a remark
-    sentence = `The student is not allowed to play due to ${[vitalList(blockedStates), history].filter(Boolean).join(', and ').replace(/\./g, '')}.`;
+    sentence = `The student is not allowed to play due to ${joinReasons(reasons).replace(/\./g, '')}.`;
   } else {
     const monitorStates = vitalStatesOf(fields, answers, false);
     if (monitorStates.length > 0) restrictions.push(`Monitor these vital signs during the activity: ${vitalList(monitorStates)}.`);
     restrictions.push(...((healthPlay && healthPlay.precautions) || []));
   }
   return { status, label: PLAY_STATUS_LABELS[status], sentence, restrictions };
+};
+
+// takes the reminders of an allowed student out of a remark saved earlier (a Not Allowed student gets none)
+const dropRemindersOf = (text, healthPlay) => healthPlay.precautions.reduce((out, s) => out.split(s).join(''), String(text))
+  .replace(/Monitor these vital signs during the activity: [^.]*\./g, '').replace(/ {2,}/g, ' ').trim();
+
+// The saved remark of a Physical Activities result as the documentation form shows it today (same decision sentence, no reminders
+// when not allowed), so the exported lists say the same. Kept as saved when today's decision differs from the saved one.
+const shownPlayRemark = (fields, record, healthPlay) => {
+  const checked = evaluateTemplateAnswers(fields, jsonOf(record.answers) || {});
+  const clearance = playClearanceOf(fields, checked.error ? jsonOf(record.answers) || {} : checked.answers, healthPlay);
+  if (clearance.status !== playStatusOf(record.play_status)) return record.remarks;
+  if (!record.remarks) return [clearance.sentence, ...clearance.restrictions].join(' ');
+  if (!PLAY_SENTENCE_RE.test(record.remarks)) return record.remarks;
+  const next = record.remarks.replace(PLAY_SENTENCE_RE, () => clearance.sentence);
+  return clearance.status === 'NOT_ALLOWED' ? dropRemindersOf(next, healthPlay) : next;
 };
 
 // ctx = { category: 'GENERAL' | 'PHYSICAL', clearance, conditions }: plain sentences only. Physical Activities: the decision (Not Allowed: high or
@@ -11370,7 +11403,9 @@ app.post('/api/screenings/:id/document', async (req, res) => {
       else {
         if (physical) {
           // the nurse's own words stay; the decision sentence is always the generated one, and the precautions are added once
-          const own = finalRemarks.replace(PLAY_SENTENCE_RE, '').trim();
+          let own = finalRemarks.replace(PLAY_SENTENCE_RE, '').trim();
+          // a Not Allowed student gets no reminders, also none saved earlier
+          if (clearance.status === 'NOT_ALLOWED') own = dropRemindersOf(own, healthPlay);
           const extra = clearance.restrictions.filter((s) => !own.includes(s));
           finalRemarks = [clearance.sentence, own, ...extra].filter(Boolean).join(' ');
         } else if (healthPlay.conditions.length > 0 && !/health history/i.test(finalRemarks)) finalRemarks = `${finalRemarks} Health history: ${healthPlay.conditions.join(', ')}.`;
@@ -11645,6 +11680,8 @@ app.get('/api/screenings/:id/results', async (req, res) => {
         attendance_status: attendance,
         documented,
         play_status: playStatusOf(r.play_status),
+        ...(documented && template && schedule.screening_category === 'PHYSICAL'
+          ? { remarks: shownPlayRemark(template.fields, r, playHealthOf(healthOf.get(r.student_id))) } : {}),
         flags: documented && template ? flaggedText(templateResults(template.fields, r.answers)) : '',
         health_conditions: playHealthOf(healthOf.get(r.student_id)).conditions,
         result_summary: documented ? screeningResultSummary(formKind, r, template && template.fields) : ''

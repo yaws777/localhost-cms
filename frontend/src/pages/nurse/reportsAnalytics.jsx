@@ -143,11 +143,12 @@ const Delta = ({ percent, previous, unit, badWhenUp = false }) => {
   );
 };
 
-const Panel = ({ title, note, children, className = '' }) => (
+const Panel = ({ title, note, action, children, className = '' }) => (
   <section className={`ra-panel ${className}`}>
     <div className="ra-panel-head">
       <h2 className="ra-panel-title">{title}</h2>
       {note && <span className="ra-panel-note">{note}</span>}
+      {action}
     </div>
     {children}
   </section>
@@ -208,8 +209,9 @@ const ChangeBadge = ({ row, badWhenUp = true }) => {
   return <span className={`ra-badge ${up === badWhenUp ? 'bad' : 'good'}`}>{up ? '▲ +' : '▼ '}{row.delta}</span>;
 };
 
-// stock thresholds set per medicine in Medicine Inventory: "5 / 10 / 20"
-const thresholdText = (m) => [m.criticalLevel, m.lowLevel, m.adequateLevel].map((n) => n ?? '—').join(' / ');
+// stock thresholds set per medicine in Medicine Inventory: "≤ 4 Critical, ≤ 8 Low, ≤ 16 Adequate"
+const thresholdText = (m) => [[m.criticalLevel, 'Critical'], [m.lowLevel, 'Low'], [m.adequateLevel, 'Adequate']]
+  .map(([level, label]) => `≤ ${level ?? '—'} ${label}`).join(', ');
 const StatusPill = ({ status }) => <span className={`ra-pill ${status.toLowerCase().replace(/\s+/g, '-')}`}>{status}</span>;
 
 // "Quantity to request" comes in three separate sections; the screen and the PDF share this list
@@ -220,23 +222,23 @@ const REQUEST_SECTIONS = [
     title: 'Expiring soon / expired',
     note: 'Replace stock that expires or already expired',
     empty: 'No stock is expiring soon or expired.',
-    columns: ['Medicine', 'Expiring soon', 'Expired', 'Nearest expiry', 'Quantity to request'],
+    columns: ['Medicine', 'Current stock', 'Expiring soon', 'Expired', 'Expiration date', 'Quantity to request'],
     pick: (m) => m.expiryRestock > 0,
-    cells: (m) => [m.name, m.expiringStock ? qtyText(m.expiringStock, m.unit) : '—', m.expiredStock ? qtyText(m.expiredStock, m.unit) : '—', m.nearestExpiry ? formatDate(m.nearestExpiry) : '—', qtyText(m.expiryRestock, m.unit)]
+    cells: (m) => [m.name, qtyText(m.stock, m.unit), m.expiringStock ? qtyText(m.expiringStock, m.unit) : '—', m.expiredStock ? qtyText(m.expiredStock, m.unit) : '—', m.expiryDates?.length ? m.expiryDates.map((d) => formatDate(d)).join(', ') : '—', qtyText(m.expiryRestock, m.unit)]
   },
   {
     key: 'threshold',
     title: 'Stock threshold',
     note: 'Restock up to the adequate level',
     empty: 'Every medicine is at or above its adequate level.',
-    columns: ['Medicine', 'Status', 'Current stock', 'Threshold (Critical / Low / Adequate)', 'Quantity to request'],
+    columns: ['Medicine', 'Current stock', 'Threshold', 'Status', 'Quantity to request'],
     pick: (m) => m.thresholdRestock > 0,
-    cells: (m) => [m.name, m.status, qtyText(m.stock, m.unit), thresholdText(m), qtyText(m.thresholdRestock, m.unit)]
+    cells: (m) => [m.name, qtyText(m.stock, m.unit), thresholdText(m), m.status, qtyText(m.thresholdRestock, m.unit)]
   },
   {
     key: 'forecast',
     title: '30-day forecast',
-    note: 'Forecast demand minus current stock',
+    note: 'Forecast minus current stock',
     empty: 'Current stock covers the 30-day forecast.',
     columns: ['Medicine', 'Current stock', 'Forecast (30 days)', 'Quantity to request'],
     pick: (m) => m.suggestedRestock > 0,
@@ -318,8 +320,29 @@ const ReportsAnalytics = () => {
   const v = (value) => (loading ? '…' : value);
 
   /* ---------- PDF export: the sections of the tab being viewed, as tables ---------- */
+  const openExportWindow = () => openReportWindow(() => showAlert('Please allow pop-ups to export the PDF report.', 'warning'));
+
+  // one "Quantity to request" section as a table, for the tab report and for its own PDF
+  const requestSection = (s) => ({
+    heading: `Quantity to request: ${s.title}`,
+    columns: s.columns,
+    rows: inventory.attention.filter(s.pick).map(s.cells),
+    emptyText: s.empty
+  });
+
+  const handleExportRequest = (s) => {
+    const win = openExportWindow();
+    if (!win) return;
+    const section = requestSection(s);
+    writeSectionedReport(win, {
+      title: `Quantity to Request: ${s.title} Report`,
+      details: [['Stock as of', formatCurrentDate(new Date())], ['Medicines to request', section.rows.length]],
+      sections: [section]
+    });
+  };
+
   const handleExport = () => {
-    const win = openReportWindow(() => showAlert('Please allow pop-ups to export the PDF report.', 'warning'));
+    const win = openExportWindow();
     if (!win) return;
 
     const tabLabel = TABS.find((t) => t.id === tab).label;
@@ -428,12 +451,7 @@ const ReportsAnalytics = () => {
       },
       inventory: {
         details: [['Stock as of', formatCurrentDate(new Date())], ['Medicines', inventory.summary.total], ['Adequate', inventory.summary.adequate], ['Low', inventory.summary.low], ['Critical', inventory.summary.critical], ['Out of stock', inventory.summary.out], ['Expiring soon', inventory.summary.expiring], ['Expired', inventory.summary.expired]],
-        sections: REQUEST_SECTIONS.map((s) => ({
-          heading: `Quantity to request: ${s.title}`,
-          columns: s.columns,
-          rows: inventory.attention.filter(s.pick).map(s.cells),
-          emptyText: s.empty
-        }))
+        sections: REQUEST_SECTIONS.map(requestSection)
       }
     };
 
@@ -676,7 +694,16 @@ const ReportsAnalytics = () => {
       {REQUEST_SECTIONS.map((s) => {
         const rows = inventory.attention.filter(s.pick);
         return (
-          <Panel key={s.key} title={`Quantity to request: ${s.title}`} note={s.note}>
+          <Panel
+            key={s.key}
+            title={`Quantity to request: ${s.title}`}
+            note={s.note}
+            action={(
+              <button type="button" className="ra-icon-btn" onClick={() => handleExportRequest(s)} disabled={loading} title={`Export ${s.title} as PDF`} aria-label={`Export ${s.title} as PDF`}>
+                <Download size={18} />
+              </button>
+            )}
+          >
             <Table columns={s.columns} isEmpty={rows.length === 0} empty={s.empty}>
               {rows.map((m) => {
                 const cells = s.cells(m);

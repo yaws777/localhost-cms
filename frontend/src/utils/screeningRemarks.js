@@ -66,7 +66,7 @@ export const PLAY_STATUS_LABELS = { ALLOWED: 'Allowed to Play', NOT_ALLOWED: 'No
 
 const PLAY_ALLOWED_SENTENCE = 'The student is allowed to play.';
 // finds the decision sentence (also the wordings used before) at the start of a remark
-export const PLAY_SENTENCE_RE = /^(?:The student is (?:not )?allowed to play(?: with restrictions| due to [^.]*)?\.|Allow-to-Play Status: [^.]*\.)/i;
+export const PLAY_SENTENCE_RE = /^(?:The student is (?:not )?allowed to play(?: with restrictions| due to [^.]*)?\.|Allow-to-Play Status: [^.]*\.)(?:\s*Due to (?:not normal )?(?:vital signs|health history): [^.]*\.)*(?:\s*A doctor must clear the student before playing\.)?/i;
 
 // Vital signs that are not normal, as status words only (never the readings): [{ name: 'blood pressure', state: 'high' }].
 // blocked = outside the play range (or a blocking choice) -> cannot play; otherwise outside the normal range -> monitor.
@@ -95,7 +95,12 @@ const vitalStatesOf = (fields, answers, blocked) => {
   });
   return out;
 };
-const vitalList = (states) => states.map((o) => `${o.name} ${o.state}`).join(', ');
+// a vital sign reads 'high temperature', 'high pulse rate', 'high respiratory rate', 'high blood' (or 'low ...')
+const PLAY_VITAL_NAMES = [[/temp/i, 'temperature'], [/pulse|heart rate/i, 'pulse rate'], [/respir/i, 'respiratory rate'], [/blood pressure/i, 'blood']];
+const vitalWord = (o) => (o.state === 'not safe' ? `${o.name} not safe` : `${o.state} ${(PLAY_VITAL_NAMES.find(([re]) => re.test(o.name)) || [null, o.name])[1]}`);
+const vitalList = (states) => states.map(vitalWord).join(', ');
+// 'a', 'a and b', 'a, b and c'
+const joinReasons = (list) => (list.length > 1 ? `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}` : list.join(''));
 
 // Clearance decision of a Physical Activities screening, always automatic: Not Allowed = vital signs outside the play range, or a heart
 // problem / seizure history (health = { blockers, precautions, conditions } the server sends for each participant). `sentence` starts the remark; `restrictions` are the precautions of an allowed student.
@@ -108,9 +113,8 @@ export const playClearance = (fields, answers, health) => {
   const restrictions = [];
   let sentence = PLAY_ALLOWED_SENTENCE;
   if (status === 'NOT_ALLOWED') {
-    const conditions = (health && health.conditions) || [];
-    const history = conditions.length > 0 ? `health history: ${conditions.join(', ')}` : '';
-    sentence = `The student is not allowed to play due to ${[vitalList(blockedStates), history].filter(Boolean).join(', and ').replace(/\./g, '')}.`;
+    const reasons = [...blockedStates.map(vitalWord), ...((health && health.reasons) || [])];
+    sentence = `The student is not allowed to play due to ${joinReasons(reasons).replace(/\./g, '')}.`;
   } else {
     const monitorStates = vitalStatesOf(list, answers, false);
     if (monitorStates.length > 0) restrictions.push(`Monitor these vital signs during the activity: ${vitalList(monitorStates)}.`);
@@ -118,6 +122,13 @@ export const playClearance = (fields, answers, health) => {
   }
   return { status, label: PLAY_STATUS_LABELS[status], sentence, restrictions };
 };
+
+// takes the reminders of an allowed student out of a remark saved earlier (a Not Allowed student gets none)
+export const dropReminders = (text, health) => ((health && health.precautions) || [])
+  .reduce((out, s) => out.split(s).join(''), String(text))
+  .replace(/Monitor these vital signs during the activity: [^.]*\./g, '')
+  .replace(/ {2,}/g, ' ')
+  .trim();
 
 // ctx = { category: 'GENERAL' | 'PHYSICAL', health: { blockers, precautions, conditions } }
 // Physical Activities: the decision (Not Allowed: high or low vital signs by status + health history) then the precautions of an allowed
