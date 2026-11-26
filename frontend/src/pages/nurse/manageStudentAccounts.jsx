@@ -35,7 +35,7 @@ import { formatDate } from '../../utils/datetime';
 import { notifyScreeningChanged } from '../../hooks/useScreeningSync';
 import '../../styles/nurse/ManageStudentAccounts.css';
 
-const API_BASE = 'http://localhost:3001/api';
+const API_BASE = 'https://localhost-cms.onrender.com/api';
 const DOMAIN_EXTENSION = '@baliuag.sti.edu.ph';
 const SECTIONS = ['A', 'B', 'C'];
 const STATUS_CHIPS = [
@@ -737,7 +737,7 @@ export default function ManageStudentAccounts() {
 
     // Validate Philippine Phone Number if creating a new parent
     if (parentOption === 'new' && newParentForm.primary_phone && !isValidPhPhone(newParentForm.primary_phone)) {
-      showAlert('Validation Error', 'Please enter a valid Philippine phone number format (e.g. 09196398319 or +639196398319).', 'warning');
+      showAlert('Validation Error', 'Please enter a valid Philippine phone number format (e.g. 09171234567 or +639171234567).', 'warning');
       return;
     }
 
@@ -788,7 +788,7 @@ export default function ManageStudentAccounts() {
 
     // Validate Philippine Phone Number if creating/updating a new parent
     if (parentAction === 'new' && editNewParentForm.primary_phone && !isValidPhPhone(editNewParentForm.primary_phone)) {
-      showAlert('Validation Error', 'Please enter a valid Philippine phone number format (e.g. 09196398319 or +639196398319).', 'warning');
+      showAlert('Validation Error', 'Please enter a valid Philippine phone number format (e.g. 09171234567 or +639171234567).', 'warning');
       return;
     }
 
@@ -2031,7 +2031,7 @@ export default function ManageStudentAccounts() {
                       <label>Primary Phone *</label>
                       <input
                         type="text"
-                        placeholder="e.g. 09196398319 or +639196398319"
+                        placeholder="e.g. 09171234567 or +639171234567"
                         className={
                           newParentForm.primary_phone
                             ? isValidPhPhone(newParentForm.primary_phone)
@@ -2388,7 +2388,7 @@ export default function ManageStudentAccounts() {
                       <label>Primary Phone *</label>
                       <input
                         type="text"
-                        placeholder="e.g. 09196398319 or +639196398319"
+                        placeholder="e.g. 09171234567 or +639171234567"
                         className={
                           editNewParentForm.primary_phone
                             ? isValidPhPhone(editNewParentForm.primary_phone)

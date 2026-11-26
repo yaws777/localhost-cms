@@ -9,7 +9,7 @@ import { useAlert } from '../../context/AlertContext';
 import { localDateStr } from '../../utils/visitPurpose';
 import '../../styles/doctor/DoctorLayout.css';
 
-const API = 'http://localhost:3001';
+const API = 'https://localhost-cms.onrender.com';
 
 const EMPTY = { doctor_id: '', start_date: '', end_date: '', whole_day: true, start_time: '13:00', end_time: '17:00', reason: '' };
 

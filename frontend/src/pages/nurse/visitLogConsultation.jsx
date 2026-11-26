@@ -304,7 +304,7 @@ const VisitLogConsultation = () => {
 
     const fetchComplaints = useCallback(async () => {
         try {
-            const res = await fetch('http://localhost:3001/api/chief-complaints');
+            const res = await fetch('https://localhost-cms.onrender.com/api/chief-complaints');
             const data = await res.json();
             setComplaints(Array.isArray(data) ? data : []);
         } catch (err) {
@@ -315,7 +315,7 @@ const VisitLogConsultation = () => {
 
     const fetchBatches = useCallback(async () => {
         try {
-            const res = await fetch('http://localhost:3001/api/medicines/batches');
+            const res = await fetch('https://localhost-cms.onrender.com/api/medicines/batches');
             const data = await res.json();
             setBatches(Array.isArray(data) ? data : []);
         } catch (err) {
@@ -326,7 +326,7 @@ const VisitLogConsultation = () => {
 
     const fetchTodayVisits = useCallback(async () => {
         try {
-            const res = await fetch('http://localhost:3001/api/clinic-visits');
+            const res = await fetch('https://localhost-cms.onrender.com/api/clinic-visits');
             const data = await res.json();
             if (Array.isArray(data)) {
                 const currentToday = getLocalDateString();
@@ -360,7 +360,7 @@ const VisitLogConsultation = () => {
 
     const fetchAllVisits = useCallback(async () => {
         try {
-            const res = await fetch('http://localhost:3001/api/clinic-visits');
+            const res = await fetch('https://localhost-cms.onrender.com/api/clinic-visits');
             const data = await res.json();
             setAllVisits(Array.isArray(data) ? data : []);
         } catch (err) {
@@ -422,7 +422,7 @@ const VisitLogConsultation = () => {
         setResultAssessment(null);
         setResultLoading(true);
         try {
-            const res = await fetch(`http://localhost:3001/api/clinic-visits/${encodeURIComponent(visit.visit_id)}/result`);
+            const res = await fetch(`https://localhost-cms.onrender.com/api/clinic-visits/${encodeURIComponent(visit.visit_id)}/result`);
             const data = await res.json();
             setResultAssessment(data.success ? data.assessment : null);
         } catch (err) {
@@ -441,7 +441,7 @@ const VisitLogConsultation = () => {
         fetchBatches();
         if (showAllLogsModal) fetchAllVisits();
         if (resultVisit) {
-            fetch(`http://localhost:3001/api/clinic-visits/${encodeURIComponent(resultVisit.visit_id)}/result`)
+            fetch(`https://localhost-cms.onrender.com/api/clinic-visits/${encodeURIComponent(resultVisit.visit_id)}/result`)
                 .then((r) => r.json())
                 .then((d) => { if (d.success) setResultAssessment(d.assessment); })
                 .catch(() => {});
@@ -522,7 +522,7 @@ const VisitLogConsultation = () => {
         isProcessingScan.current = true;
 
         try {
-            const res = await fetch(`http://localhost:3001/api/students/search-visit?query=${encodeURIComponent(studentId.trim())}`);
+            const res = await fetch(`https://localhost-cms.onrender.com/api/students/search-visit?query=${encodeURIComponent(studentId.trim())}`);
             const data = await res.json();
 
             if (Array.isArray(data) && data.length > 0) {
@@ -556,7 +556,7 @@ const VisitLogConsultation = () => {
             return;
         }
         try {
-            const res = await fetch(`http://localhost:3001/api/students/search-visit?query=${val}`);
+            const res = await fetch(`https://localhost-cms.onrender.com/api/students/search-visit?query=${val}`);
             const data = await res.json();
             
             if (Array.isArray(data)) {
@@ -660,7 +660,7 @@ const VisitLogConsultation = () => {
 
         isSubmittingTimeout.current = true;
         try {
-            const res = await fetch(`http://localhost:3001/api/clinic-visits/${visit.visit_id}/timeout`, {
+            const res = await fetch(`https://localhost-cms.onrender.com/api/clinic-visits/${visit.visit_id}/timeout`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
@@ -778,7 +778,7 @@ const VisitLogConsultation = () => {
         };
 
         try {
-            const res = await fetch('http://localhost:3001/api/clinic-visits', {
+            const res = await fetch('https://localhost-cms.onrender.com/api/clinic-visits', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(checkInPayload)
@@ -994,7 +994,7 @@ const VisitLogConsultation = () => {
                 };
 
                 try {
-                    const res = await fetch(`http://localhost:3001/api/clinic-visits/${documentingVisit.visit_id}`, {
+                    const res = await fetch(`https://localhost-cms.onrender.com/api/clinic-visits/${documentingVisit.visit_id}`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(submissionPayload)

@@ -1001,7 +1001,7 @@ const NurseDashboard = () => {
   const fetchNurseDashboard = useCallback(async (silent = false) => {
     if (silent !== true) setIsNurseDashboardLoading(true);
     try {
-      const studentsResponse = await fetch('http://localhost:3001/api/students');
+      const studentsResponse = await fetch('https://localhost-cms.onrender.com/api/students');
       const studentsData = await studentsResponse.json();
 
       let waitingForApprovalCount = 0;
@@ -1020,7 +1020,7 @@ const NurseDashboard = () => {
 
       const totalAttentionCount = waitingForApprovalCount + incompleteCount;
 
-      const response = await fetch('http://localhost:3001/api/nurse/dashboard');
+      const response = await fetch('https://localhost-cms.onrender.com/api/nurse/dashboard');
       if (!response.ok) throw new Error("Failed to fetch nurse dashboard data");
       const result = await response.json();
       const dashData = result.success && result.data ? result.data : {};
@@ -1028,7 +1028,7 @@ const NurseDashboard = () => {
       // Per-medicine stock (all batches added together, expired stock left out): the same numbers as the Restock Report
       let medicineStockAlerts = [];
       try {
-        const stockResponse = await fetch('http://localhost:3001/api/medicine-stock-status?alerts=1');
+        const stockResponse = await fetch('https://localhost-cms.onrender.com/api/medicine-stock-status?alerts=1');
         if (stockResponse.ok) {
           const stock = await stockResponse.json();
           medicineStockAlerts = (stock.medicines || []).map(m => ({
@@ -1089,7 +1089,7 @@ const NurseDashboard = () => {
         params.set('from', trendFromDate);
         params.set('to', trendToDate);
       }
-      const response = await fetch(`http://localhost:3001/api/health-trends?${params.toString()}`);
+      const response = await fetch(`https://localhost-cms.onrender.com/api/health-trends?${params.toString()}`);
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Failed to load health trends');
 
@@ -1124,7 +1124,7 @@ const NurseDashboard = () => {
         params.set('from', dispensedFromDate);
         params.set('to', dispensedToDate);
       }
-      const response = await fetch(`http://localhost:3001/api/medicine-dispensed-overview?${params.toString()}`);
+      const response = await fetch(`https://localhost-cms.onrender.com/api/medicine-dispensed-overview?${params.toString()}`);
       const result = await response.json();
 
       setDispensedData(result.data || []);
@@ -1145,7 +1145,7 @@ const NurseDashboard = () => {
     setIsPredictiveLoading(true);
     try {
       const query = forecastAsOf ? `?asOf=${encodeURIComponent(forecastAsOf)}` : '';
-      const response = await fetch(`http://localhost:3001/api/predictive-medicine${query}`);
+      const response = await fetch(`https://localhost-cms.onrender.com/api/predictive-medicine${query}`);
       if (!response.ok) throw new Error("Network issue fetching predictive calculation");
       const result = await response.json();
       setPredictiveData(result.data || []);
@@ -1163,7 +1163,7 @@ const NurseDashboard = () => {
   const fetchFrequentAlerts = useCallback(async () => {
     setIsAlertsLoading(true);
     try {
-      const response = await fetch('http://localhost:3001/api/frequent-complaints');
+      const response = await fetch('https://localhost-cms.onrender.com/api/frequent-complaints');
       if (!response.ok) throw new Error("Network issue fetching alerts");
       const result = await response.json();
       setAlerts(result.data || []); 
@@ -1178,7 +1178,7 @@ const NurseDashboard = () => {
   const fetchAnnouncements = useCallback(async () => {
     setIsAnnouncementLoading(true);
     try {
-      const res = await fetch('http://localhost:3001/api/announcements');
+      const res = await fetch('https://localhost-cms.onrender.com/api/announcements');
       if (res.ok) {
         const data = await res.json();
         setAnnouncementsList(data.data || (Array.isArray(data) ? data : []));
@@ -1196,7 +1196,7 @@ const NurseDashboard = () => {
   // Fetch Programs for Announcement Form
   const fetchPrograms = async () => {
     try {
-      const res = await fetch('http://localhost:3001/api/programs');
+      const res = await fetch('https://localhost-cms.onrender.com/api/programs');
       if (res.ok) {
         const data = await res.json();
         setProgramsList(Array.isArray(data) ? data : data.data || []);
@@ -1271,8 +1271,8 @@ const NurseDashboard = () => {
     try {
       const isEditing = Boolean(editingAnnouncementId);
       const url = isEditing
-        ? `http://localhost:3001/api/announcements/${editingAnnouncementId}`
-        : 'http://localhost:3001/api/announcements';
+        ? `https://localhost-cms.onrender.com/api/announcements/${editingAnnouncementId}`
+        : 'https://localhost-cms.onrender.com/api/announcements';
       const method = isEditing ? 'PUT' : 'POST';
 
       const formattedPayload = {
@@ -1325,7 +1325,7 @@ const NurseDashboard = () => {
       checkboxLabel: 'Send push notification to affected students and parents alerting them that this announcement was cancelled.',
       onConfirm: async (notifyCancellation) => {
         try {
-          const response = await fetch(`http://localhost:3001/api/announcements/${announcementId}`, {
+          const response = await fetch(`https://localhost-cms.onrender.com/api/announcements/${announcementId}`, {
             method: 'DELETE',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1398,7 +1398,7 @@ const NurseDashboard = () => {
     try {
       const targetMonth = alertData.date ? alertData.date.slice(0, 7) : new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Manila' }).slice(0, 7);
       const response = await fetch(
-        `http://localhost:3001/api/frequent-complaints/details?studentId=${alertData.studentId}&complaint=${encodeURIComponent(alertData.complaint)}&month=${targetMonth}`
+        `https://localhost-cms.onrender.com/api/frequent-complaints/details?studentId=${alertData.studentId}&complaint=${encodeURIComponent(alertData.complaint)}&month=${targetMonth}`
       );
       const result = await response.json();
       if (result.success) {

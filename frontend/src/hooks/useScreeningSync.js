@@ -5,7 +5,7 @@
 import { useEffect, useRef } from 'react';
 import { notifyRecordChanged } from './useRecordSync';
 
-const API = 'http://localhost:3001';
+const API = 'https://localhost-cms.onrender.com';
 const EVENT = 'screening-records-changed';
 const CHANNEL = 'screening-records';
 

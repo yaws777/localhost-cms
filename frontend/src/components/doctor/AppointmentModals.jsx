@@ -16,7 +16,7 @@ import { VITAL_FIELDS, EMPTY_VITALS, vitalState } from '../../utils/vitals';
 import '../../styles/doctor/DoctorLayout.css';
 import '../../styles/scheduling/Vitals.css';
 
-const API = 'http://localhost:3001';
+const API = 'https://localhost-cms.onrender.com';
 
 const postJson = async (path, method, body) => {
     const res = await fetch(`${API}${path}`, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });

@@ -8,7 +8,7 @@
     "start": "node src/database/connection.js",
     "dev": "nodemon src/database/connection.js"
   },
-  "proxy": "http://localhost:3001",
+  "proxy": "https://localhost-cms.onrender.com",
   "keywords": [],
   "author": "",
   "license": "ISC",

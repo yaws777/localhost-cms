@@ -20,7 +20,7 @@ import { nurseRouteOf, MESSAGE_ROUTE } from '../utils/notificationRoutes';
 import { CLAIMED_BY_ROUTE } from '../utils/tabNotificationTypes';
 import { formatCurrentDate, formatDateTime } from '../utils/datetime';
 
-const API_BASE_URL = 'http://localhost:3001';
+const API_BASE_URL = 'https://localhost-cms.onrender.com';
 
 export const NurseLayout = () => {
     const navigate = useNavigate();

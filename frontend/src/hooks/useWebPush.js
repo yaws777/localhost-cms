@@ -35,7 +35,7 @@ export function useWebPush(userId) {
                     
                     // Re-assign existing browser push endpoint to the newly logged-in user[cite: 1]
                     if (sub && userId) {
-                        await fetch('http://localhost:3001/api/push/subscribe', {
+                        await fetch('https://localhost-cms.onrender.com/api/push/subscribe', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ user_id: userId, subscription: sub })
@@ -69,7 +69,7 @@ export function useWebPush(userId) {
             const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
             await navigator.serviceWorker.ready;
 
-            const keyRes = await fetch('http://localhost:3001/api/push/public-key');
+            const keyRes = await fetch('https://localhost-cms.onrender.com/api/push/public-key');
             const { publicKey } = await keyRes.json();
 
             const subscription = await reg.pushManager.subscribe({
@@ -77,7 +77,7 @@ export function useWebPush(userId) {
                 applicationServerKey: urlBase64ToUint8Array(publicKey)
             });
 
-            await fetch('http://localhost:3001/api/push/subscribe', {
+            await fetch('https://localhost-cms.onrender.com/api/push/subscribe', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ user_id: userId, subscription })
@@ -107,7 +107,7 @@ export function useWebPush(userId) {
             if (subscription) {
                 await subscription.unsubscribe();
 
-                await fetch('http://localhost:3001/api/push/unsubscribe', {
+                await fetch('https://localhost-cms.onrender.com/api/push/unsubscribe', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ user_id: userId, endpoint: subscription.endpoint })

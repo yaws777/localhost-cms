@@ -22,7 +22,7 @@ import { ClinicVisitForm, DispensedForm, IncidentForm, DoctorVisitDetail, Screen
 import { formatTime, formatDate as formatDateBase, formatDateTime } from '../../utils/datetime';
 import '../../styles/student/ClinicLogs&Records.css';
 
-const API_BASE = 'http://localhost:3001';
+const API_BASE = 'https://localhost-cms.onrender.com';
 // small pages keep the list on one screen
 const PER_PAGE = 6;
 

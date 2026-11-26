@@ -4,7 +4,7 @@
 // so its dot goes away the moment the user is on it. Other tabs keep their dot until they are opened.
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 
-const API = 'http://localhost:3001';
+const API = 'https://localhost-cms.onrender.com';
 
 export const useTabNotifications = ({ userId, typeMap, activeTab, pollMs = 10000 }) => {
     const [unread, setUnread] = useState([]); // [{ id, type, tab }]

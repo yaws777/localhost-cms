@@ -14,7 +14,7 @@ import { visitLabel, initials, fullName, statusClass, statusLabel } from '../../
 import AssessmentForm from '../../components/doctor/AssessmentForm';
 import '../../styles/doctor/DoctorLayout.css';
 
-const API = 'http://localhost:3001';
+const API = 'https://localhost-cms.onrender.com';
 
 const SCOPES = [
     { key: 'mine', label: 'My patients' },

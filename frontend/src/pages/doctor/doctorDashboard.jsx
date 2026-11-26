@@ -11,7 +11,7 @@ import { visitLabel, localDateStr, time12, initials, fullName } from '../../util
 import '../../styles/doctor/DoctorLayout.css';
 import '../../styles/doctor/DoctorDashboard.css';
 
-const API = 'http://localhost:3001';
+const API = 'https://localhost-cms.onrender.com';
 
 const PURPOSE_COLORS = {
     'General Check Up': '#004b87',

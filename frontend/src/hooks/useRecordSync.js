@@ -6,7 +6,7 @@
 // Other devices: the server revisions (GET /api/records/revision) are polled and checked again when the tab shows.
 import { useEffect, useRef } from 'react';
 
-const API = 'http://localhost:3001';
+const API = 'https://localhost-cms.onrender.com';
 const EVENT = 'clinic-records-changed';
 const CHANNEL = 'clinic-records';
 

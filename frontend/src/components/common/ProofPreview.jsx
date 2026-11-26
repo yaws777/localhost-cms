@@ -4,7 +4,7 @@ import { ExternalLink } from 'lucide-react';
 const fileUrl = (url) => {
     if (!url) return '';
     if (url.startsWith('http://') || url.startsWith('https://')) return url;
-    return `http://localhost:3001${url.startsWith('/') ? '' : '/'}${url}`;
+    return `https://localhost-cms.onrender.com${url.startsWith('/') ? '' : '/'}${url}`;
 };
 
 // Preview of a proof: a File the student just picked, or one already saved on the server ({ file_url, original_name }).

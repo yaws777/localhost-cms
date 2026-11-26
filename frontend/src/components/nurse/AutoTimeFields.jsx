@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshCw, AlertTriangle } from 'lucide-react';
 import TimeRangeFields from '../common/TimeRangeFields';
 
-const API = 'http://localhost:3001/api';
+const API = 'https://localhost-cms.onrender.com/api';
 const DURATIONS = [15, 30, 45, 60, 90, 120];
 
 const minutesOf = (t) => {

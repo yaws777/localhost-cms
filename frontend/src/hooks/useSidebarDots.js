@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, useCallback } from 'react';
 import { usePageDotCounts } from '../utils/pageDots';
 import { TAB_MAPS_BY_ROUTE } from '../utils/tabNotificationTypes';
 
-const API = 'http://localhost:3001';
+const API = 'https://localhost-cms.onrender.com';
 const NO_CLAIMS = {};
 
 const isUnread = (n) => !(n.is_read === 1 || n.is_read === '1' || n.is_read === true || n.read === true);

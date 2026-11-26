@@ -5,7 +5,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { localDateStr } from '../utils/visitPurpose';
 
-const API = 'http://localhost:3001';
+const API = 'https://localhost-cms.onrender.com';
 
 export const TODAY_LABELS = {
     upcoming: 'A check-up is still to come today',

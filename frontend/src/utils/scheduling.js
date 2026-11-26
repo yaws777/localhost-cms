@@ -1,7 +1,7 @@
 // scheduling.js
 // Shared by the nurse and the doctor scheduling screens (one interface, one set of rules) and the student booking page.
 
-export const API = 'http://localhost:3001';
+export const API = 'https://localhost-cms.onrender.com';
 
 // where a session is held: the nurse types it in the schedule request (the doctor cannot change it); the two STI College Baliuag buildings are the placeholder
 export const SCHEDULE_LOCATION_HINT = 'Main Campus (A&C Building) or SHS Annex Building (CJ Building)';

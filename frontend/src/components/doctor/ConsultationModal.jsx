@@ -14,7 +14,7 @@ import { STANDARD_FORM_DEFAULT, isCoreKey, asText } from '../../utils/standardFo
 import { OTHER, RX_OPTIONS, PLACEHOLDERS, complaintOptions, diagnosisOptions, buildTreatmentPlan, inVitalValues } from '../../utils/assessmentSuggestions';
 import '../../styles/doctor/DoctorLayout.css';
 
-const API = 'http://localhost:3001';
+const API = 'https://localhost-cms.onrender.com';
 
 const VITAL_ICONS = { blood_pressure: HeartPulse, temperature: Thermometer, pulse_rate: Activity, respiratory_rate: Wind };
 const initialsOf = (first, last) => `${(first || '').trim().charAt(0)}${(last || '').trim().charAt(0)}`.toUpperCase() || '?';

@@ -18,7 +18,7 @@ import { useTodayCheckupStatus } from '../../hooks/useTodayCheckupStatus';
 import { DOCTOR_VISIT_SECTION_TYPES } from '../../utils/tabNotificationTypes';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 
-const API = 'http://localhost:3001';
+const API = 'https://localhost-cms.onrender.com';
 
 // notification types behind the red dot of each section
 const SECTION_NOTIFICATION_TYPES = DOCTOR_VISIT_SECTION_TYPES;

@@ -20,7 +20,7 @@ import { useSidebarDots } from '../hooks/useSidebarDots';
 import { doctorRouteOf } from '../utils/notificationRoutes';
 import { CLAIMED_BY_ROUTE } from '../utils/tabNotificationTypes';
 
-const API = 'http://localhost:3001';
+const API = 'https://localhost-cms.onrender.com';
 
 const PAGE_TITLES = {
     '/DoctorDashboard': 'Dashboard',

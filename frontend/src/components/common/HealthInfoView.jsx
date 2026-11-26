@@ -121,7 +121,7 @@ function ResultBadge({ abnormal, text = 'Not normal' }) {
     );
 }
 
-const API = 'http://localhost:3001';
+const API = 'https://localhost-cms.onrender.com';
 
 // "1. Brush. 2. Rinse." -> ['Brush.', 'Rinse.']; null when the text is not a numbered list
 const numberedSteps = (text) => {
